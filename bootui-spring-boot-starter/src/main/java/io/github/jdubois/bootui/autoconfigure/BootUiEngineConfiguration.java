@@ -24,10 +24,12 @@ import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateStatisticsProvider;
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.javaagent.AgentClaimOwner;
+import io.github.jdubois.bootui.autoconfigure.javaagent.AgentProfileGuard;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.journal.ControlMarkerPublisher;
 import io.github.jdubois.bootui.autoconfigure.journal.LogbackLogCoverage;
+import io.github.jdubois.bootui.autoconfigure.journal.RunApplicationKey;
 import io.github.jdubois.bootui.autoconfigure.journal.RunStartPublisher;
 import io.github.jdubois.bootui.autoconfigure.journal.RuntimeEventPublisherInstaller;
 import io.github.jdubois.bootui.autoconfigure.journal.RuntimeJournalLogAppender;
@@ -261,7 +263,8 @@ public class BootUiEngineConfiguration {
             RunIdentity run,
             ObjectProvider<MappingProvider> mappingProvider,
             BootUiProperties properties,
-            Environment environment) {
+            Environment environment,
+            ApplicationContext context) {
         JournalAggregates aggregates = new JournalAggregates();
         aggregates.setDeclaredRoutes(DeclaredRouteTemplates.caching(mappingProvider));
         aggregates.recordRunIn(
@@ -269,7 +272,8 @@ public class BootUiEngineConfiguration {
                 run,
                 RunBaselineFile.of(
                         properties.getRuntimeJournal().getBaselineFile(),
-                        environment.getProperty("spring.application.name", "application")));
+                        environment.getProperty("spring.application.name", "application")),
+                RunApplicationKey.of(environment, context));
         journal.addListener(aggregates);
         journal.startResourceSampler(properties.getResources().toSettings(), aggregates.resourceTrack());
         return aggregates;
@@ -687,7 +691,11 @@ public class BootUiEngineConfiguration {
     @Bean
     @Lazy
     @ConditionalOnMissingBean
-    JavaAgentService bootUiJavaAgentService(BootUiProperties properties, ObjectProvider<AgentClaimOwner> owner) {
+    JavaAgentService bootUiJavaAgentService(
+            BootUiProperties properties,
+            ObjectProvider<AgentClaimOwner> owner,
+            ObjectProvider<BootUiActivation> activation,
+            Environment environment) {
         return new JavaAgentService(
                 AgentBridgeAccess.locate(),
                 () -> {
@@ -695,7 +703,10 @@ public class BootUiEngineConfiguration {
                     return current == null ? null : current.claim();
                 },
                 JavaAgentSettings.of(
-                        AgentSetupSnippets.SPRING, properties.getAgent().isEnabled(), null));
+                        AgentSetupSnippets.SPRING,
+                        properties.getAgent().isEnabled(),
+                        // Why the agent was not claimed although BootUI is on, as Quarkus says in production mode.
+                        AgentProfileGuard.refusal(activation.getIfAvailable(), environment)));
     }
 
     @Bean

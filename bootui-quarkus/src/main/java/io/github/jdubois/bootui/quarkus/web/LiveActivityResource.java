@@ -255,10 +255,7 @@ public class LiveActivityResource {
      */
     @Inject
     void setFeedSource(Config config) {
-        this.feedSource = ActivityFeedSource.parse(
-                config.getOptionalValue("bootui.activity.feed-source", String.class)
-                        .orElse(null),
-                ActivityFeedSource.DEFAULT);
+        this.feedSource = BootUiEngineProducer.activityFeedSource(config);
         this.maxHandoff = config.getOptionalValue("bootui.agent.executors.max-handoff", java.time.Duration.class)
                 .orElse(null);
         this.profileAssembler = new ExecutionProfileAssembler(

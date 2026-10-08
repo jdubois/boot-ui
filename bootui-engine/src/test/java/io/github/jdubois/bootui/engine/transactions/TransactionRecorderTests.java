@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.TransactionEntryDto;
 import io.github.jdubois.bootui.core.dto.TransactionReport;
+import io.github.jdubois.bootui.engine.mcp.McpControlAcks;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
@@ -130,6 +131,16 @@ class TransactionRecorderTests {
         recorder.clear();
         assertThat(recorder.recent()).isEmpty();
         assertThat(recorder.totalCaptured()).isEqualTo(1);
+
+        // totalCaptured is the lifetime count; the stats and entries cover the retained window, which clear empties.
+        TransactionReport report = recorder.report();
+        assertThat(report.totalCaptured()).isEqualTo(1);
+        assertThat(report.entries()).isEmpty();
+        assertThat(report.stats().totalTransactions()).isZero();
+        assertThat(McpControlAcks.transactions(McpControlAcks.CLEARED, report))
+                .containsEntry("action", "cleared")
+                .containsEntry("retained", 0)
+                .containsEntry("totalCaptured", 1L);
     }
 
     @Test

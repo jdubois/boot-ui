@@ -47,7 +47,7 @@ describe('AgentSensorToggle', () => {
     document.body.innerHTML = ''
   })
 
-  it('shows the switch, the configured default, and why the sensor is opt-in, without any request', () => {
+  it('shows the switch, the configured default, and why the sensor is on or off by default, without any request', () => {
     const wrapper = mountToggle()
 
     const input = wrapper.get('input[role="switch"]')

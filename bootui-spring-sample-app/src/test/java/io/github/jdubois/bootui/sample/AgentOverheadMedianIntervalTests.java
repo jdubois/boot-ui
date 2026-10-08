@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.sample;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
 import org.junit.jupiter.api.Test;
@@ -35,5 +36,17 @@ class AgentOverheadMedianIntervalTests {
         assertThat(interval[0]).isEqualTo(1);
         assertThat(interval[1]).isEqualTo(5);
         assertThat(interval[2]).isCloseTo(0.9375, within(0.0001));
+    }
+
+    @Test
+    void theIntervalGateReadsTheLowerBoundAndTheMedianGateTheMedian() {
+        assertThat(AgentOverheadBenchmarkIT.Gate.of("")).isEqualTo(AgentOverheadBenchmarkIT.Gate.MEDIAN);
+        assertThat(AgentOverheadBenchmarkIT.Gate.of("median").enforced(11.2, 7.4))
+                .isEqualTo(11.2);
+        assertThat(AgentOverheadBenchmarkIT.Gate.of(" Interval ").enforced(11.2, 7.4))
+                .isEqualTo(7.4);
+        assertThatThrownBy(() -> AgentOverheadBenchmarkIT.Gate.of("mean"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("median or interval");
     }
 }

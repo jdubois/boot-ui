@@ -46,6 +46,14 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
  * {@code PASS} or {@code FAIL} against it. {@code bootui.benchmark.agent.enforce-when-default} names a sensor: while
  * it is one of {@link AgentSensorSettings#DEFAULT_SENSORS}, a {@code FAIL} fails the run, so a sensor that ships on by
  * default can never exceed its budget unnoticed; while it is opt-in, only {@code fail-above-percent} fails it.
+ * {@code bootui.benchmark.agent.gate} decides what that enforcement reads ({@code docs/PLAN-v2.md} D48): {@code median},
+ * the default, fails when the median is above the budget; {@code interval} fails only when the lower bound of the
+ * median's 95 % interval is above it, since one run's median moves by about 2 points on unchanged sensors. CI enforces a
+ * cumulative run against no agent, and the {@code files} sensor's own increment (D49), with {@code interval}, and would
+ * enforce the opt-in {@code environment} sensor's the same way were it on by default. The report says PASS or FAIL for the median either way.
+ *
+ * <p>{@code bootui.benchmark.route=environment} drives {@value #ENVIRONMENT_ROUTE}: the search plus fifty
+ * {@code System.getProperty} reads from application code, for the environment sensor's A/B (D49).
  *
  * <p>{@code bootui.benchmark.route=sinks} drives {@value #SINKS_ROUTE}: two query parameters, the search's SQL
  * statement, and one file read, for the security-sinks sensor's request-value matching (M5-6b). {@code
@@ -77,6 +85,9 @@ class AgentOverheadBenchmarkIT {
 
     /** The caught-exceptions variant's route: the search and one caught exception. */
     static final String CAUGHT_ROUTE = "/api/caught/benchmark?term=console";
+
+    /** The environment variant's route (D49): the search and fifty {@code System.getProperty} reads. */
+    static final String ENVIRONMENT_ROUTE = "/api/side-effects/benchmark-environment?term=console";
 
     /** The security-sinks variant's route (M5-6b): two query parameters, one SQL statement, and one file read. */
     static final String SINKS_ROUTE = "/api/side-effects/benchmark-sinks?term=console&tag=sample-tag";
@@ -110,12 +121,17 @@ class AgentOverheadBenchmarkIT {
                         ? CAUGHT_ROUTE
                         : "threads".equals(routeName)
                                 ? THREADS_ROUTE
-                                : "sinks".equals(routeName) ? SINKS_ROUTE : CaptureOverheadBenchmarkTest.ROUTE;
+                                : "sinks".equals(routeName)
+                                        ? SINKS_ROUTE
+                                        : "environment".equals(routeName)
+                                                ? ENVIRONMENT_ROUTE
+                                                : CaptureOverheadBenchmarkTest.ROUTE;
         List<String> agentExtra = arguments(System.getProperty("bootui.benchmark.agent.extra", ""));
         List<String> baselineExtra = arguments(System.getProperty("bootui.benchmark.agent.baseline-extra", ""));
         double budget = Double.parseDouble(
                 System.getProperty("bootui.benchmark.agent.budget-percent", String.valueOf(BUDGET_PERCENT)));
         String enforced = System.getProperty("bootui.benchmark.agent.enforce-when-default", "");
+        Gate gate = Gate.of(System.getProperty("bootui.benchmark.agent.gate", ""));
         String baseline = System.getProperty("bootui.benchmark.agent.baseline-sensors", "");
         String reportName = System.getProperty("bootui.benchmark.report", "spring-mvc-agent");
         String baselineLabel = baseline.isBlank() ? "No agent" : "Agent, sensors " + baseline;
@@ -134,7 +150,8 @@ class AgentOverheadBenchmarkIT {
                     agentExtra,
                     baselineExtra,
                     budget,
-                    enforced);
+                    enforced,
+                    gate);
         }
     }
 
@@ -151,7 +168,8 @@ class AgentOverheadBenchmarkIT {
             List<String> agentExtra,
             List<String> baselineExtra,
             double budget,
-            String enforced)
+            String enforced,
+            Gate gate)
             throws Exception {
         List<String> agentArguments = new ArrayList<>(extra);
         agentArguments.addAll(agentExtra);
@@ -280,7 +298,8 @@ class AgentOverheadBenchmarkIT {
                         Locale.ROOT,
                         "overheadPercent=%.1f%nbudgetPercent=%.0f%nmedianRatio=%.4f%npasses=%d%n"
                                 + "minOverheadPercent=%.1f%nmaxOverheadPercent=%.1f%nverdict=%s%nenforced=%s%n"
-                                + "lowOverheadPercent=%.1f%nhighOverheadPercent=%.1f%nintervalConfidence=%.3f%n",
+                                + "lowOverheadPercent=%.1f%nhighOverheadPercent=%.1f%nintervalConfidence=%.3f%n"
+                                + "gate=%s%n",
                         overheadPercent,
                         budget,
                         medianRatio,
@@ -291,7 +310,8 @@ class AgentOverheadBenchmarkIT {
                         enforcing,
                         lowOverheadPercent,
                         highOverheadPercent,
-                        interval[2]),
+                        interval[2],
+                        gate.id()),
                 StandardCharsets.UTF_8);
         System.out.println(report);
         System.out.printf(
@@ -301,14 +321,14 @@ class AgentOverheadBenchmarkIT {
                 reportName,
                 overheadPercent,
                 budget,
-                enforcing ? ", enforced: " + enforced + " is on by default" : "");
+                enforcing ? ", enforced on its " + gate.describe() + ": " + enforced + " is on by default" : "");
 
         assertThat(results).allSatisfy(result -> assertThat(result.requests()).isPositive());
         if (enforcing) {
-            assertThat(overheadPercent)
+            assertThat(gate.enforced(overheadPercent, lowOverheadPercent))
                     .as(
-                            "%s is on by default, so its median paired overhead must stay within its %.0f %% budget:%n%s",
-                            enforced, budget, report)
+                            "%s is on by default, so the %s of its paired overhead must stay within its %.0f %% budget:%n%s",
+                            enforced, gate.describe(), budget, report)
                     .isLessThanOrEqualTo(budget);
         }
         if (!failAbove.isBlank()) {
@@ -403,6 +423,34 @@ class AgentOverheadBenchmarkIT {
         assertThat(matcher.find()).as(counters).isTrue();
         assertThat(Long.parseLong(matcher.group(1))).as(counters).isPositive();
         assertThat(Long.parseLong(matcher.group(2))).as(counters).isPositive();
+    }
+
+    /** What an enforced budget reads (D48): the median, or the lower bound of its 95 % interval. */
+    enum Gate {
+        MEDIAN,
+        INTERVAL;
+
+        static Gate of(String property) {
+            return switch (property.trim().toLowerCase(Locale.ROOT)) {
+                case "", "median" -> MEDIAN;
+                case "interval" -> INTERVAL;
+                default ->
+                    throw new IllegalArgumentException(
+                            "bootui.benchmark.agent.gate must be median or interval, not " + property);
+            };
+        }
+
+        String id() {
+            return name().toLowerCase(Locale.ROOT);
+        }
+
+        String describe() {
+            return this == MEDIAN ? "median" : "median interval's lower bound";
+        }
+
+        double enforced(double medianPercent, double lowPercent) {
+            return this == MEDIAN ? medianPercent : lowPercent;
+        }
     }
 
     /** Application arguments from a comma-separated property, such as {@code --a=b,--c=d}. */

@@ -2,8 +2,10 @@ package io.github.jdubois.bootui.engine.journal;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -57,8 +59,10 @@ public final class RunHistory {
     }
 
     /**
-     * Keeps the summary of a run that ended, evicting the oldest kept run beyond {@value #MAX_RUNS}. Recording the same
-     * run again replaces it. Never throws: a summary that cannot be encoded is logged and skipped.
+     * Keeps the summary of a run that ended, evicting a kept run beyond {@value #MAX_RUNS}: the oldest one whose
+     * application keeps a newer run, so each application sharing the JVM keeps its last run as long as there are no
+     * more applications than kept runs, else the oldest. Recording the same run again replaces it. Never throws: a
+     * summary that cannot be encoded is logged and skipped.
      */
     public void record(RunSummary summary) {
         byte[] encoded;
@@ -83,8 +87,26 @@ public final class RunHistory {
             }
             runs.addFirst(encoded);
             while (runs.size() > maxRuns) {
-                runs.removeLast();
+                evictOne();
             }
+        }
+    }
+
+    /** Evicts the oldest run whose application keeps a newer one, else the oldest run. Holds the lock. */
+    private void evictOne() {
+        List<byte[]> newestFirst = new ArrayList<>(runs);
+        Set<String> newer = new HashSet<>();
+        byte[] victim = null;
+        for (byte[] run : newestFirst) {
+            String application = RunSummaryCodec.header(run).application();
+            if (!newer.add(String.valueOf(application))) {
+                victim = run;
+            }
+        }
+        if (victim == null) {
+            runs.removeLast();
+        } else {
+            runs.removeLastOccurrence(victim);
         }
     }
 
@@ -94,12 +116,22 @@ public final class RunHistory {
      * is ignored, and {@link #baselineNote()} says why.
      */
     public void loadBaseline(RunBaselineFile baseline) {
+        loadBaseline(baseline, null);
+    }
+
+    /**
+     * Reads {@code baseline} as the previous run of {@code application} when this history keeps none of its runs, as
+     * {@link #loadBaseline(RunBaselineFile)} does for any application.
+     */
+    public void loadBaseline(RunBaselineFile baseline, String application) {
         if (baseline == null) {
             return;
         }
         synchronized (runs) {
-            if (!runs.isEmpty()) {
-                return;
+            for (byte[] run : runs) {
+                if (RunSummaryCodec.header(run).comparableWith(application)) {
+                    return;
+                }
             }
             RunBaselineFile.Read read = baseline.read();
             if (read.summary() != null) {
@@ -139,9 +171,35 @@ public final class RunHistory {
 
     /** The kept runs' summaries, newest first. */
     public List<RunSummary> summaries() {
+        return summaries(null);
+    }
+
+    /**
+     * The kept runs' headers that may be compared with a run of {@code application}, as
+     * {@link RunSummary.Header#comparableWith} decides, newest first; every kept run's when it is {@code null}.
+     */
+    public List<RunSummary.Header> headers(String application) {
+        List<RunSummary.Header> headers = new ArrayList<>();
+        for (byte[] run : snapshot()) {
+            RunSummary.Header header = RunSummaryCodec.header(run);
+            if (header.comparableWith(application)) {
+                headers.add(header);
+            }
+        }
+        return headers;
+    }
+
+    /**
+     * The kept runs' summaries that may be compared with a run of {@code application}, as
+     * {@link RunSummary.Header#comparableWith} decides, newest first; every kept run's when it is {@code null}. Only
+     * those are decoded.
+     */
+    public List<RunSummary> summaries(String application) {
         List<RunSummary> summaries = new ArrayList<>();
         for (byte[] run : snapshot()) {
-            summaries.add(RunSummaryCodec.decode(run));
+            if (RunSummaryCodec.header(run).comparableWith(application)) {
+                summaries.add(RunSummaryCodec.decode(run));
+            }
         }
         return summaries;
     }

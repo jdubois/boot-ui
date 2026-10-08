@@ -11,7 +11,8 @@ import java.util.Map;
  * Runtime sensor switches in a forked JVM beside the agent (PLAN-v2 M5-14): a claim with the {@code processes} sensor
  * only switches {@code environment} and {@code threads} on, which the agent installs and self-tests without a new claim,
  * then off, which removes their hooks; a switch survives the same application's next claim, and a stale token switches
- * nothing. Prints one PASS or FAIL line per behavior, then the bridge's status.
+ * nothing; a sensor the application's configuration asks for is switched off and back on as well. Prints one PASS or FAIL
+ * line per behavior, then the bridge's status.
  */
 public final class SensorSwitchBehaviors {
 
@@ -107,6 +108,35 @@ public final class SensorSwitchBehaviors {
                         && !Boolean.TRUE.equals(
                                 SideEffectsBehaviors.sensor(SideEffects.FILES).get("active"))
                         && again != null);
+
+        // A sensor on in the application's own configuration, as environment is by default (D49): switched off and back
+        // on at run time, the claim returning to its configuration.
+        AgentBridge.disarm(restarted);
+        long configured = FilesEnvironmentBehaviors.claim(List.of(SideEffects.PROCESSES, SideEffects.ENVIRONMENT));
+        FilesEnvironmentBehaviors.token = configured;
+        SideEffectsBehaviors.awaitState(SideEffects.ENVIRONMENT, "installed");
+        Map<String, Object> configuredOff = AgentBridge.switchSensor(configured, SideEffects.ENVIRONMENT, false);
+        Object released = SideEffectsBehaviors.awaitState(SideEffects.ENVIRONMENT, "released");
+        readProperty("configured-off");
+        FilesEnvironmentBehaviors.drain();
+        boolean silent =
+                FilesEnvironmentBehaviors.find(SideEffects.KIND_SYSTEM_PROPERTY, PROPERTY + ".configured-off") == null;
+        Map<String, Object> configuredOn = AgentBridge.switchSensor(configured, SideEffects.ENVIRONMENT, true);
+        Object reinstalled = SideEffectsBehaviors.awaitState(SideEffects.ENVIRONMENT, "installed");
+        readProperty("configured-on");
+        long[] recordedAgain = FilesEnvironmentBehaviors.await(
+                FilesEnvironmentBehaviors.target(SideEffects.KIND_SYSTEM_PROPERTY, PROPERTY + ".configured-on"));
+        check(
+                "a configured sensor switched off records nothing and releases its hooks, and switched back on records"
+                        + " again (" + configuredOff + ", " + released + ", " + configuredOn + ", " + reinstalled + ")",
+                AgentBridge.ARMED.equals(configuredOff.get("status"))
+                        && "released".equals(released)
+                        && silent
+                        && AgentBridge.ARMED.equals(configuredOn.get("status"))
+                        && "installed".equals(reinstalled)
+                        && recordedAgain != null
+                        && Boolean.TRUE.equals(SideEffectsBehaviors.sensor(SideEffects.PROCESSES)
+                                .get("active")));
 
         FilesEnvironmentBehaviors.RESULTS.forEach(System.out::println);
         System.out.println("STATUS=" + AgentBridge.status());

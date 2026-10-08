@@ -37,14 +37,16 @@ or for Quarkus dev mode:
 ```
 
 Scope `JAVA_TOOL_OPTIONS` to one command; never export it in a shell. Never add the agent to a production,
-native-image, or AOT-cached JVM: Quarkus production mode reports it `DISABLED` and never claims it.
+native-image, or AOT-cached JVM: Quarkus production mode reports it `DISABLED` and never claims it, and neither does
+Spring when `bootui.enabled=ON` forces BootUI on in a disabled profile such as `prod`, unless
+`bootui.agent.allow-in-disabled-profiles=true`.
 
 ## 3. Check that it is armed
 
 Restart the application, then run `bootui agent status` or reopen the panel. `ARMED` means this application claimed the
 agent and its sensors record; the report lists each sensor. Any other state comes with its reason; see
 [Status states](../features/java-agent.md#status-states). The default sensors are `executors`, `inventory`,
-`code-paths`, `processes`, `network`, and `blocking`; `bootui.agent.sensors` adds the opt-in ones.
+`code-paths`, `processes`, `network`, `files`, `blocking`, and `resources`; `bootui.agent.sensors` adds the opt-in ones.
 
 ## 4. Answer "did my change run?"
 

@@ -19,7 +19,7 @@ lists the steps (download the jar when it is missing, add `-javaagent` where the
 the [snippet tabs](#attaching-the-agent). **What the Java agent adds** follows: what a Java agent is, how BootUI's stays
 idle until the application claims it and records metadata rather than data, which features need it, what works
 without it, and what it costs. The sections that describe an attached agent (versions and runtime facts, the claim,
-opt-in sensors, sensors, class transformation, and counters) are left out until it is attached. In every other state,
+runtime switches, sensors, class transformation, and counters) are left out until it is attached. In every other state,
 `DORMANT`, `UNAVAILABLE`, and `DISABLED` included, the agent's own diagnosis comes first and the setup snippets close
 the panel: the agent is already on the JVM or cannot be used, and the status reason names the fix.
 
@@ -74,26 +74,28 @@ the panel. The report includes `state`, `reason`, `agentVersion`, `bootUiVersion
 | `DISARMED` | This run ended its claim. |
 | `UNAVAILABLE` | The bridge is present but the agent did not start, the protocol differs, or the runtime cannot use it. |
 | `FAILED` | The agent rejected or failed this application's claim. |
-| `DISABLED` | Agent support is disabled, including Quarkus production mode. |
+| `DISABLED` | Agent support is disabled, including Quarkus production mode and a Spring application forced on in a disabled profile such as `prod`. |
 
 A different agent version on the same protocol is shown as a warning. Protocol mismatches are unavailable rather than
 best-effort.
 
-## Switching opt-in sensors at run time
+## Switching sensors at run time
 
-The opt-in sensors, `threads`, `files`, `environment`, `thread-activity`, and `thread-locals`, can be switched on and off for the running application
-without a restart, from the panel's **Opt-in sensors** card or from each opt-in sensor's section in
+The sensors the agent installs and removes without a new claim, the opt-in `threads`, `environment`, `thread-activity`,
+and `thread-locals`, and `files`, on by default, can be switched on and off for the running application
+without a restart, from the panel's **Runtime switches** card or from each sensor's section in
 [Side Effects](#side-effects), the way the MCP Server panel switches MCP. Each switch shows the configured value from
 `bootui.agent.sensors`, an **Overridden** badge when the switch differs from it, the sensor's state (installing,
-self-testing, recording, or failed), and why the sensor is off by default. The opt-in `caught-exceptions` sensor is not
-switched at run time: its visit of the application's classes is installed with the claim only.
+self-testing, recording, or failed), and why the sensor is off, or on, by default. The other default sensors are
+installed with the claim only, and so is the opt-in `caught-exceptions` sensor, whose visit of the application's classes
+is: none of them is switched at run time.
 
-| Sensor | Why it is opt-in |
+| Sensor | By default |
 | --- | --- |
-| `threads` | It retransforms `java.lang.Thread`, the riskiest JDK class to instrument; a failed self-test leaves it off until the application restarts. |
-| `files` | With the default sensors, the agent's overhead on the benchmark's I/O route measured about 10.6 %, over the 10 % budget. |
-| `environment` | It advises `System.getProperty`, which frameworks call often: about 23–28 ns per read instead of 5–6 ns. |
-| `thread-locals` | It scans the thread-local maps of every pooled request thread; it stays opt-in until its overhead is measured on more routes (about 0.5 % over the default sensors on the benchmark's route). |
+| `files` | On: it records the files the application opens, deletes, moves, and copies, as path patterns, never their contents. |
+| `environment` | Off: it records the names of the environment variables and system properties the application reads, never their values, but each `System.getProperty` call from application code takes about 20 ns more with it; on a route reading fifty properties per request, that cost 6.8 % of throughput, over its 3 % budget. |
+| `threads` | Off: it retransforms `java.lang.Thread`, the riskiest JDK class to instrument; a failed self-test leaves it off until the application restarts. |
+| `thread-locals` | Off: It scans the thread-local maps of every pooled request thread; it stays opt-in until its overhead is measured on more routes (about 0.5 % over the default sensors on the benchmark's route). |
 
 `POST /bootui/api/java-agent/sensors/{id}` with `{"enabled": true}` or `{"enabled": false}` switches one and returns
 the updated report. It is the panel's only action, so `bootui.panels.java-agent.read-only` and `bootui.read-only`
@@ -102,7 +104,8 @@ BootUI action. Another sensor id, or a body without `enabled`, answers 400; a sw
 with the reason: the agent is not attached or not armed for this application, an older agent predates switches, the
 claim changed meanwhile, `threads` already failed in this run, or `files` or `environment` already failed its
 self-test in this JVM. There is no MCP tool or CLI command for it, and only these sensors are ever switched: the
-bridge refuses any other, the default sensors, `blocking`, and `caught-exceptions` included. The report lists `toggles`
+bridge refuses any other, the other default sensors (`executors`, `inventory`, `code-paths`, `processes`, `network`,
+and `blocking`) and `caught-exceptions` included. The report lists `toggles`
 only while this application's claim is armed.
 
 The agent applies a switch to the running claim, keeping its generation: switching `threads` on installs and self-tests
@@ -130,6 +133,11 @@ A `SpringApplication` run inside another one's, as Spring Cloud's bootstrap cont
 `bootstrap` property source), neither claims nor releases: it would otherwise claim with its own sources' packages, or,
 resolving BootUI to disabled without the application's configuration, release the claim the application makes or keeps
 armed across DevTools restarts.
+
+When `bootui.enabled=ON` forces BootUI on despite an active `bootui.disabled-profiles` entry, such as `prod`, Spring
+releases the agent instead of claiming it, logs why at `INFO`, and the panel reports `DISABLED` with that reason, as
+Quarkus production mode does: the agent must never be attached to a production JVM. Only
+`bootui.agent.allow-in-disabled-profiles=true` claims it there anyway.
 
 Quarkus claims from a `STATIC_INIT` recorder in dev and test launch modes, refines on startup, and disarms on shutdown.
 Production launch mode never claims the agent and reports `DISABLED` with reason `Quarkus production mode`. The
@@ -184,8 +192,8 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 
 A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory`](#the-inventory-sensor),
 [`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), [`network`](#the-network-sensor),
-[`blocking`](#the-blocking-sensor), and [`resources`](#the-resources-sensor), the defaults, and the opt-in
-[`threads`](#the-threads-sensor), [`files`](#the-files-sensor), [`environment`](#the-environment-sensor),
+[`files`](#the-files-sensor), [`blocking`](#the-blocking-sensor), and [`resources`](#the-resources-sensor), the
+defaults, and the opt-in [`threads`](#the-threads-sensor), [`environment`](#the-environment-sensor),
 [`thread-activity`](#the-thread-activity-sensor), [`thread-locals`](#the-thread-locals-sensor), and
 [`caught-exceptions`](#the-caught-exceptions-sensor). The agent
 installs each one once, on its own thread, then
@@ -259,11 +267,18 @@ report warns that the self-test decides.
 | Ambiguous | Tasks submitted more than once by different owners, left unowned. |
 | Stale | Tasks received under an earlier claim, never reopened after a restart. |
 | Refused | Snapshots the bridge refused because they held more than strings and numbers. |
+| Over the limit | Tasks received from owned work while 32,768 were already pending, left unowned. |
 | Virtual threads skipped | Virtual-thread continuations, which keep their own context. |
 | Periodic tasks skipped | Repeating scheduled tasks, which are never propagated. |
 | Wrappers skipped | Tasks already carrying their context (`bootui.agent.executors.skip-tasks`). |
 | Threads skipped | Workers whose executor propagates the context itself (`bootui.agent.executors.skip-threads`). |
 | Failed tasks | Propagated tasks that ended with an exception. |
+
+The bridge holds at most 32,768 pending tasks, and, apart, at most 32,768 pending threads for the threads sensor. Past
+that, a task from owned work is not recorded and runs unowned, counted as over the limit, until queued tasks run or are
+reclaimed. A task already pending is still recorded, so the ambiguity rules below are unchanged. Snapshots of reclaimed
+tasks are removed at most 64 at a time by a submission, so the application's threads never do unbounded clean-up; a
+status read removes all of them.
 
 New submissions and skip counters are recorded only while the current armed claim asks for `executors` and that
 sensor has not been disabled by its self-test. Pending entries are still drained while recording is off, without
@@ -281,6 +296,9 @@ reopening their snapshots. A handoff already opened before recording stopped is 
   with neither late I/O nor a failure, is badged only from 50 ms past the response.
 - A task handed over by a draining or serializing executor carries the context of the thread that handed it over.
 - Pools whose workers started before the first claim never apply their tasks; they are counted as never applied.
+- A task submitted while the bridge already held 32,768 pending tasks runs unowned. If the same task object is
+  submitted again once there is room, by another request, the first run takes that request's snapshot, as it does
+  after an unowned first submission.
 - A task submitted before a DevTools restart or a Quarkus live reload that ends after it is never reopened, and a task
   from the previous run that is still running when it ends is lost.
 - If the same task object has pending submissions across claim generations, all overlapping submissions stay
@@ -325,6 +343,13 @@ waiting handler before the task's run returns, so its handoff can close just aft
 that ended before the response, the badge and the profile still mark the task when its tail ran SQL, a REST call, or a
 message at least 2 ms past the response, failed after it, or ran at least 50 ms past it (computation, logging, file
 writes, sleeps, or mail in a `done()` callback or a dependent stage).
+Runtime Insights' `work-after-response` reads the same rule, from the same evidence while Live Activity still holds it;
+when the agent did not know the response's start, it compares the task's end with the request's end, as the request
+profile does. It then reports only the tasks that ran SQL, called a REST service, or sent or received a message after the response, or
+failed after it, so a task the badge marks for its computation alone is not an insight. Live Activity carries, from one
+batch of the journal to the next, when the last I/O of each handoff not yet closed ended, for at most 1,024 handoffs:
+past that the oldest is forgotten first, and a task whose late I/O it forgot is badged by its body and its run's end
+alone.
 The full handoff lifetime remains visible: `FutureTask.done()` and synchronous dependent stages can still do real
 work after result publication. A failure observed escaping the task's result-publication tail is timed separately
 from a body failure stored in its future, using the same 2 ms clock slack as unconfirmed late I/O; the escaping
@@ -759,7 +784,7 @@ before the agent is recorded as connected.
 
 ## The files sensor
 
-The `files` sensor, opt-in, records the files application code opens, deletes, moves, and copies, as path
+The `files` sensor, on by default, records the files application code opens, deletes, moves, and copies, as path
 patterns, never their contents, for the [Side Effects](#side-effects) panel, `get_side_effects`, and
 `bootui side-effects`.
 
@@ -818,11 +843,11 @@ The operation's own time (opening, deleting, moving, or copying) is recorded, no
 `File.delete`, `File.renameTo`, `File.createNewFile`, `AsynchronousFileChannel`, memory-mapped access, and native code
 are not seen.
 
-`files` is opt-in because the agent's cumulative overhead with it is over the 10 % budget. On the agent overhead
-benchmark's I/O route (one outbound connect and one file read per request), the CI job measured `files`' own share
-against the default sensors at a median of 2.3 % over 15 pairs (pairs from −6.6 to 13.7 %). The default sensors plus
-`files` measured 10.6 % against no agent over 9 pairs (pairs from 6.7 to 23.7 %). Add `files` to
-`bootui.agent.sensors` to record it, or [switch it on at run time](#switching-opt-in-sensors-at-run-time).
+`files` is on by default (a maintainer decision for 2.0, D49). On the agent overhead benchmark's I/O route (one
+outbound connect and one file read per request), its own share against the other default sensors measured 15-pair
+medians from −0.3 to 3.9 % over five CI runs while it was opt-in, around its 3 % budget, and the agent overhead job now
+enforces that budget on every agent run ([Overhead](#overhead)). Leave it out of `bootui.agent.sensors`, or
+[switch it off at run time](#switching-sensors-at-run-time), to stop recording.
 
 ## The environment sensor
 
@@ -846,9 +871,12 @@ property it resolves from them is not seen, and `System.getProperties()` is not 
 1,000 distinct names; a name the secret detector recognizes (a JWT, a PEM key, an AWS key, a credential URL) is
 masked.
 
-`environment` is opt-in until its overhead is measured: with it recording, `System.getProperty` takes about 23 to
-28 ns per call instead of 5 to 6 ns on JDK 17, 21, and 26 (`FilesEnvironmentBehaviorsIT`). Add `environment` to
-`bootui.agent.sensors` to record it, or [switch it on at run time](#switching-opt-in-sensors-at-run-time). Its three hooks are core: one that fails its self-test disables the sensor alone.
+`environment` is opt-in (a maintainer decision for 2.0, D49): with it recording, `System.getProperty` takes about 23 to
+28 ns per call instead of 5 to 6 ns on JDK 17, 21, and 26 (`FilesEnvironmentBehaviorsIT`). The agent overhead job
+measures its own increment over the default sensors on a route that reads fifty properties per request: 4.2 % [1.0, 5.9]
+and 6.8 % [4.1, 8.4] in its first two runs, the second over the 3 % budget, so it stays off by default
+([Overhead](#overhead)). On the default route, which reads none directly, it costs about nothing. Add `environment` to
+`bootui.agent.sensors`, or [switch it on at run time](#switching-sensors-at-run-time), to record it. Its three hooks are core: one that fails its self-test disables the sensor alone.
 
 ## The security-sinks sensor
 
@@ -1128,7 +1156,7 @@ costs one volatile read; on Spring WebFlux, while the agent is attached, each Re
 wrapper. The sensor is opt-in whatever its overhead: the `agent-overhead-thread-locals` job of
 `build.yml` measures its own increment and the cumulative overhead on the default route: about 0.5 % over the default
 sensors, and 7.0 % cumulative against the 10 % budget, in its first run. Add `thread-locals` to `bootui.agent.sensors` to
-record it, or [switch it on at run time](#switching-opt-in-sensors-at-run-time).
+record it, or [switch it on at run time](#switching-sensors-at-run-time).
 
 Its self-test, on the sensor's own thread, opens a scope, leaves a plain, an inheritable, and a read `withInitial`
 thread local set, removes one, sets one to `null`, and expects exactly the three left set, never one set before the
@@ -1144,7 +1172,7 @@ records a byte read or written: a row's target is the path pattern or the host a
 and [`network`](#the-network-sensor) rows show.
 
 **Opens.** It has no open hook of its own: the `files` and `network` sensors' hooks hand it the object they opened once
-they recorded it, so it sees files only while `files` is on, and sockets while `network` is on (by default). It tracks a
+they recorded it, so it sees files while `files` is on and sockets while `network` is on, both by default. It tracks a
 `FileInputStream`, `FileOutputStream`, or `RandomAccessFile`, a `FileChannel` (`FileChannel.open`,
 `Files.newByteChannel`, and the channel under `Files.newInputStream`, `newOutputStream`, and `lines`), a `Socket`
 (plain or TLS), and a `SocketChannel`, of the JDK's exact channel and socket classes only, so a custom file system
@@ -1206,13 +1234,13 @@ median at 6.9 % (pairs 2.0 to 18.2 %), within the 3 % and 10 % budgets, so it is
 D37's opt-in rule). That job now fails CI when its own increment exceeds 3 %. It still prints the cumulative median,
 for the record only, with its 95 % interval and what D48's rule would say: that figure is mostly the other default
 sensors' overhead (10.7 % and 11.7 % on noisy runners later), which the `agent-overhead` job gates under D48. It tracks
-sockets by default,
-through `network`; file streams and channels need the opt-in `files` sensor, and the panel says so while `files` is off.
+sockets through `network` and file streams and channels through `files`, both on by default; the panel says when
+`files` is off, as when it is switched off at run time.
 Like the other default sensors, it is not switched at run time: leave it out of `bootui.agent.sensors` to turn it off.
 
 ## The caught-exceptions sensor
 
-`bootui.agent.sensors=executors,inventory,code-paths,processes,network,blocking,resources,caught-exceptions` adds the opt-in `caught-exceptions`
+`bootui.agent.sensors=executors,inventory,code-paths,processes,network,files,blocking,resources,caught-exceptions` adds the opt-in `caught-exceptions`
 sensor, which reports the exceptions application code catches and which of them are thrown again. It records the
 events in the runtime journal's `agent.caught-exceptions` source, owned by the Exceptions panel, whose
 [**Caught in application code**](diagnostics.md#caught-in-application-code) section reads what became of each one.
@@ -1267,6 +1295,10 @@ subset of those jars; `-Dbootui.agent.verifier-stress=full` runs every one. Shou
 fail to load with a `VerifyError` naming `CaughtExceptions`, remove `caught-exceptions` from `bootui.agent.sensors`
 and report the class.
 
+**Bounds.** The sensor registers at most 16,384 handlers for the JVM's life, since their ids are constants in the
+transformed classes: a handler past that is left uninstrumented, so what it catches is not seen, and the Exceptions
+panel's **Caught in application code** section then says, among its limitations, that some handlers were left out.
+
 **Cost.** None on the normal path: the inserted code runs only when an exception is caught, or leaves a method that
 catches some, where a bridge call is added to the exception's own cost, allocating nothing. A logged or reported
 throwable's identity marks are taken only while the sensor records.
@@ -1295,11 +1327,30 @@ The `agent-overhead` jobs of `build.yml` measure the agent with the sample's exe
 alternates. Each report gives each pair's throughput ratio, their median, and, since the median of 9 or 15 pairs moves
 by several points from run to run on a shared runner, a distribution-free 95 % confidence interval of that median (the
 4th lowest and highest of 15 pairs, the 2nd of 9). The default sensors' cumulative median on the I/O route only warns
-above 10 %. Three checks fail a build: the blocking sensor's default, when its own increment's median is above 3 % or the
-lower bound of the default route's cumulative median interval (9 pairs) is above 10 % (M5-5c, D48); request-value
-matching's own increment on the sinks route, when the lower bound of its median's interval (15 pairs) is above 3 %
-(M5-6b1, D48); and a sensor whose A/B is enforced while it is on by default, as `caught-exceptions` and
-`thread-activity` would be. Every other A/B prints PASS or FAIL against its budget and fails only above 30 %.
+above 10 %. These checks fail a build:
+
+- the blocking sensor's default, when its own increment's median is above 3 % or the lower bound of the default
+  route's cumulative median interval (15 pairs) is above 10 % (M5-5c, D48);
+- the `files` sensor's own increment over the other default sensors on the I/O route, 15 pairs, when the lower bound of
+  its median interval is above 3 % (D49);
+- request-value matching's own increment on the sinks route, when the lower bound of its median's interval (15 pairs)
+  is above 3 % (M5-6b1, D48);
+- a sensor whose A/B is enforced while it is on by default, as `environment` (on a route that adds fifty
+  `System.getProperty` reads per request, with the interval rule), `caught-exceptions`, `thread-activity`, and
+  `thread-locals` would be: its own increment's median above 3 %, or its cumulative median interval's lower bound
+  above 10 %.
+
+Every other A/B prints PASS or FAIL against its budget and fails only above 30 %. These checks run on pushes to `main`
+and `v2`, manual runs, and pull requests labelled `agent`; a pull request that only changes an agent path runs the two
+cumulative measurements, which warn, and not the checks.
+
+The cumulative check is an alarm on a clearly over-budget default set, not a guarantee that one run stays within 10 %.
+It fails when at least 12 of the 15 pairs measure more than 10 %. Taking the pairs as independent and spread by about 4
+points around their median, as on the hosted runners, a true cumulative overhead of 12 % fails about one run in four,
+14 % about four in five, and 16 % almost always, while a true 10 % fails about one run in fifty. A run's pairs also
+share some drift (the median moves by about 2 points from run to run), which raises a true 10 %'s failure rate to about
+one run in fifteen and lowers a true 14 %'s to about seven in ten. With the 9 pairs it used before, a true 12 % passed
+about four runs in five.
 
 The cumulative median varies by itself: across 33 CI runs between 2026-10-05 and 2026-10-07 it ranged from 3.6 % to
 11.4 % on unchanged sensors, with a standard deviation of about 2 points, and its 95 % interval in a single run is about
@@ -1310,11 +1361,18 @@ thread-activity follow-ups (#1299, #1323) averaged 7.6 % (14 runs) and 8.5 % (19
 whose own increment's interval lies above zero: executors −4.2 %, inventory 1.3 %, code-paths 1.1 %, processes −4.3 %,
 network −1.0 %, blocking −3.3 %, with the cumulative median at 2.2 % [−4.2, 7.9].
 
+The maintainer asked for `files` and `environment` on by default for 2.0 (D49). Two runs measured both among the
+defaults (#1367). `files`' own increment on the I/O route measured 4.2 % [−1.1, 8.9] and 3.0 % [0.9, 5.1]: intervals
+that reach below the 3 % budget, so `files` ships on by default. `environment`'s, on its route of fifty property reads
+per request, measured 4.2 % [1.0, 5.9] and then 6.8 % [4.1, 8.4], over the budget, so it stays opt-in. With both on,
+the default set's cumulative median measured 9.9 % [4.0, 17.5] and 8.3 % [4.0, 9.8] on the default route (15 pairs),
+and 11.5 % [2.6, 17.7] and 10.8 % [8.4, 13.5] on the I/O route (9 pairs, which only warns).
+
 So a cumulative median just over 10 % in one run is not, alone, evidence that the default set grew. The rule (PLAN-v2
 D48): a sensor's default follows its own increment's A/B, at most 3 %, and a cumulative check fails only when its
-median interval's lower bound is above the 10 % budget. The blocking check applies it today; the opt-in sensors'
-cumulative checks below still read the plain median until one of them is proposed for the defaults. A median that stays above 10 % across runs, with intervals
-that still reach below it, is a reason to measure more pairs.
+median interval's lower bound is above the 10 % budget. Every enforced cumulative check applies it, and so do the
+`files` and `environment` own-increment checks (the latter once `environment` is on by default). A median that stays above 10 % across runs, with intervals that still
+reach below it, is a reason to measure more pairs.
 
 ## Coexistence and class data sharing
 
@@ -1374,9 +1432,10 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | Property | Default | Purpose |
 | --- | --- | --- |
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
+| `bootui.agent.allow-in-disabled-profiles` | `false` | Spring only: claim the agent even when `bootui.enabled=ON` forces BootUI on in a disabled profile such as `prod`. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, `resources` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, and `resources`, and the opt-in `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks`. Any other id fails the start while the agent is attached. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `blocking`, `resources` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `blocking`, and `resources`, and the opt-in `threads`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks`. Any other id fails the start while the agent is attached. |
 | `bootui.agent.security-sinks.request-values` | `false` | With the `security-sinks` sensor, holds the current request's query and path parameter values while it runs, so a sink it reaches can be checked for one appearing verbatim ([the security-sinks sensor](#the-security-sinks-sensor)). Never stored, logged, or displayed. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
@@ -1690,9 +1749,9 @@ The Side Effects panel shows what application code starts outside the JVM or tou
 route, background work, startup, or thread family. It needs the [BootUI agent](#attaching-the-agent) attached and armed for the
 application with a bridge that supports Side Effects. Without that, the panel is unavailable with the Java Agent panel's
 reason, starting with "Requires the BootUI agent". It is view-only on Spring MVC, Spring WebFlux, and Quarkus, except
-that an opt-in sensor's section (`files`, `environment`, `thread-activity`, `thread-locals`) carries its [runtime
-switch](#switching-opt-in-sensors-at-run-time), an action of the Java Agent panel shown while that panel is enabled,
-with `bootui.agent.sensors` as the other way to turn it on.
+that a switchable sensor's section (`files`, `environment`, `thread-activity`, `thread-locals`) carries its [runtime
+switch](#switching-sensors-at-run-time), an action of the Java Agent panel shown while that panel is enabled,
+with `bootui.agent.sensors` as the other way to turn it on or off.
 
 Runtime Insights' [run comparison](overview.md#runtime-insights) reads these rows too: under **Outside the JVM**, it
 lists the hosts, file patterns, processes, and variable names a route, a job, or startup uses now and did not in the
@@ -1703,9 +1762,9 @@ The panel has one tab per sensor group:
 | Tab | Sensors | State in this version |
 | --- | --- | --- |
 | Network | `network` | records connects, datagram sends, and name lookups (see [the network sensor](#the-network-sensor)) |
-| Files and processes | `files`, `processes` | Both record; `processes` is on by default and `files` records when `bootui.agent.sensors` opts in or it is switched on. |
+| Files and processes | `files`, `processes` | Both record and are on by default; `files` can be switched off and on at run time. |
 | Environment | `environment` | Records when `bootui.agent.sensors` opts in or it is switched on; otherwise `not-claimed`. |
-| Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `resources` records by default, sockets through `network` and file streams once `files` is on (see [the resources sensor](#the-resources-sensor)); `thread-activity` and `thread-locals` record when `bootui.agent.sensors` opts in or they are switched on (see [the thread-activity sensor](#the-thread-activity-sensor) and [the thread-locals sensor](#the-thread-locals-sensor)). |
+| Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `resources` records by default, sockets through `network` and file streams through `files` (see [the resources sensor](#the-resources-sensor)); `thread-activity` and `thread-locals` record when `bootui.agent.sensors` opts in or they are switched on (see [the thread-activity sensor](#the-thread-activity-sensor) and [the thread-locals sensor](#the-thread-locals-sensor)). |
 | Blocking | `blocking` | records on Spring WebFlux and Quarkus; `not-applicable` on Spring MVC until a WebClient's event loop is registered. |
 | Security sinks | `security-sinks` | Records request input reaching SQL text, a command, a file path, or an outbound URL when `bootui.agent.sensors` opts in and `bootui.agent.security-sinks.request-values=true` (see [the security-sinks sensor](#the-security-sinks-sensor)). |
 

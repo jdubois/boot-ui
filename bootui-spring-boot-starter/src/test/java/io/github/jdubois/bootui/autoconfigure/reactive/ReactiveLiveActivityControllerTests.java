@@ -1330,10 +1330,11 @@ class ReactiveLiveActivityControllerTests {
         return recorder.recent().get(0).key();
     }
 
-    /** Properties whose Live Activity feed and persistence come from the panel buffers, which these tests drive. */
+    /**
+     * Properties whose Live Activity feed comes from the panel buffers, which these tests drive: the default journal
+     * source, whose journal does not record here, so the buffers serve the feed.
+     */
     private static BootUiProperties buffersFeed() {
-        BootUiProperties properties = new BootUiProperties();
-        properties.getActivity().setFeedSource("buffers");
-        return properties;
+        return new BootUiProperties();
     }
 }

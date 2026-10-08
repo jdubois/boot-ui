@@ -98,9 +98,10 @@ application's own code did. See [Java Agent](features/java-agent.md).
   with optional argument and return shapes, shown in the panel only: types and sizes, plus an enum constant's name and
   a string's length under `FULL`;
 - runtime reach in the Vulnerabilities panel;
-- the **Side Effects** panel with the default `network` (outbound hosts), `processes`, and `blocking` sensors, and the
-  opt-in `files`, `environment`, `thread-activity` (threads per request), and `thread-locals` (`thread-local-left-set`)
-  sensors, which the Java Agent and Side Effects panels switch on and off at run time;
+- the **Side Effects** panel with the default `network` (outbound hosts), `processes`, `files`, `blocking`, and
+  `resources` (streams and sockets a request left open, `resource-not-closed`) sensors, and the opt-in `environment`, `thread-activity` (threads per request), and `thread-locals` (`thread-local-left-set`)
+  sensors; `files`, `environment`, `thread-activity`, and `thread-locals` are switched on and off at run time from the
+  Java Agent and Side Effects panels;
 - side effects in the run comparison: hosts, file patterns, processes, and variable names new or gone since the
   previous run;
 - the Exceptions panel's **Caught in application code** section, with the agent's opt-in `caught-exceptions` sensor;
@@ -110,7 +111,6 @@ application's own code did. See [Java Agent](features/java-agent.md).
 
 **Planned, may not be in 2.0:**
 
-- the `resources` sensor: resources a request opened and left open, such as leaked streams (`resource-not-closed`);
 - caught exceptions as evidence of `errors-behind-2xx`;
 - the rest of security sinks: form values in `request-input-in-sink`, outbound URLs opened through `HttpClient` or
   `URL.openConnection`, deserialization without a filter, weak algorithms, and trust managers;

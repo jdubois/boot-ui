@@ -2829,6 +2829,13 @@ public class BootUiProperties {
         private boolean enabled = true;
 
         /**
+         * Whether this application claims the BootUI agent when {@code bootui.enabled=ON} forces BootUI on despite an
+         * active {@code bootui.disabled-profiles} entry, such as {@code prod}. Off by default: the agent must never be
+         * attached to a production JVM.
+         */
+        private boolean allowInDisabledProfiles;
+
+        /**
          * Application package prefixes the agent may instrument, in addition to the main application class's package
          * and the auto-configuration packages.
          */
@@ -2849,13 +2856,13 @@ public class BootUiProperties {
          * {@code processes} records the processes the application starts, for Side Effects: the command's file name,
          * never its arguments or environment. {@code network} records the hosts the application connects to, the
          * datagrams it sends, and the names the JVM resolves, for Side Effects: a host and port, never a byte sent or
-         * received. {@code blocking} records {@code Thread.sleep}, {@code Object.wait}, {@code LockSupport.park}, and
-         * the network and files sensors' blocking operations started on an event loop, for Side Effects. {@code
-         * resources} reports the sockets, and with {@code files} the file streams and channels, a request or a job left
-         * open past the request or never closed before the collector reclaimed them, never contents. An unknown sensor
-         * id fails the application's start.
-         * {@code files}, opt-in, records the files the application opens, deletes, moves, and copies, as path
-         * patterns, never contents. {@code threads}, opt-in, also propagates a request's context into threads started from application code and
+         * received. {@code files} records the files the application opens, deletes, moves, and copies, as path
+         * patterns, never contents. {@code blocking} records {@code Thread.sleep}, {@code Object.wait},
+         * {@code LockSupport.park}, and the network and files sensors' blocking operations started on an event loop, for
+         * Side Effects. {@code resources} reports the sockets, file streams, and channels a request or a job left open
+         * past the request or never closed before the collector reclaimed them, never contents. An unknown sensor id
+         * fails the application's start.
+         * {@code threads}, opt-in, also propagates a request's context into threads started from application code and
          * into virtual threads. {@code environment}, opt-in, records the names of the environment variables and system
          * properties the application reads, never their values. {@code caught-exceptions}, opt-in, reports the exceptions
          * application code catches and which of them are thrown again, never their message, to the runtime journal.
@@ -2874,6 +2881,14 @@ public class BootUiProperties {
 
         public boolean isEnabled() {
             return enabled;
+        }
+
+        public boolean isAllowInDisabledProfiles() {
+            return allowInDisabledProfiles;
+        }
+
+        public void setAllowInDisabledProfiles(boolean allowInDisabledProfiles) {
+            this.allowInDisabledProfiles = allowInDisabledProfiles;
         }
 
         public SecuritySinks getSecuritySinks() {
@@ -3091,9 +3106,10 @@ public class BootUiProperties {
         private int maxScheduledTaskRuns = 200;
 
         /**
-         * Where the activity stream comes from: {@code buffers}, merging each panel's own buffer as in 1.x, or
-         * {@code journal}, rendering the runtime journal's retained events with every child nested by request or
-         * execution id. A request may override it with {@code ?source=}.
+         * Where the activity stream comes from: {@code journal}, rendering the runtime journal's retained events with
+         * every child nested by request or execution id. {@code buffers}, 1.x's feed, was removed in 2.0.0 and fails
+         * the start; with the journal disabled, the panel buffers serve the feed on their own. A request may override it
+         * with {@code ?source=}.
          */
         private String feedSource = "journal";
 
@@ -3101,13 +3117,15 @@ public class BootUiProperties {
             return feedSource;
         }
 
+        /** Rejects a removed or unknown source while binding, so it fails the start rather than a later request. */
         public void setFeedSource(String feedSource) {
+            ActivityFeedSource.parseConfigured(feedSource);
             this.feedSource = feedSource;
         }
 
         /** The feed source these properties name. */
         public ActivityFeedSource feedSource() {
-            return ActivityFeedSource.parse(feedSource, ActivityFeedSource.DEFAULT);
+            return ActivityFeedSource.parseConfigured(feedSource);
         }
 
         public int getMaxEntries() {

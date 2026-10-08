@@ -5,11 +5,12 @@ import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.HttpExchangeTrace;
 import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.IntConsumer;
 import org.springframework.core.Ordered;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.server.reactive.ServerHttpRequest;
-import org.springframework.web.ErrorResponse;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.web.reactive.HandlerMapping;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilterChain;
@@ -88,9 +89,7 @@ public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootU
         long start = System.currentTimeMillis();
         String method = request.getMethod() == null ? null : request.getMethod().name();
         String path = request.getURI() == null ? null : request.getURI().getPath();
-        AtomicReference<Throwable> failure = new AtomicReference<>();
         return chain.filter(exchange)
-                .doOnError(failure::set)
                 .doOnTerminate(() -> {
                     // Before the completion signal travels outward: the outermost correlation filter publishes the
                     // request's journal event once the span has closed, so it reads the trace id from here.
@@ -100,43 +99,87 @@ public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootU
                     }
                 })
                 .doFinally(signal -> {
-                    long end = System.currentTimeMillis();
                     String traceId = safeCurrentTraceId();
                     if (traceId == null && exchange.getAttribute(TRACE_ID_ATTRIBUTE) instanceof String captured) {
                         traceId = captured;
                     }
-                    registry.record(
-                            new HttpExchangeTrace(
-                                    start,
-                                    end,
-                                    method,
-                                    path,
-                                    traceId,
-                                    routeTemplate(exchange),
-                                    ReactiveRequestCorrelationFilter.correlation(exchange)
-                                            .requestId()),
-                            RequestSlowThreshold.isFailedOrSlow(
-                                    status(exchange, signal, failure.get()), end - start, requestSlowThresholdMs));
+                    String finalTraceId = traceId;
+                    whenRendered(exchange, signal, status -> {
+                        long end = System.currentTimeMillis();
+                        registry.record(
+                                new HttpExchangeTrace(
+                                        start,
+                                        end,
+                                        method,
+                                        path,
+                                        finalTraceId,
+                                        routeTemplate(exchange),
+                                        ReactiveRequestCorrelationFilter.correlation(exchange)
+                                                .requestId()),
+                                RequestSlowThreshold.isFailedOrSlow(status, end - start, requestSlowThresholdMs));
+                    });
                 });
     }
 
     /**
-     * The response status known when the chain completes. WebFlux's exception handlers render an error still
-     * propagating after the filters unwind, and Actuator's {@code HttpExchangesWebFilter} records the exchange when
-     * that rendered response commits, so the status comes from the error itself: the status an {@link ErrorResponse}
-     * such as {@code ResponseStatusException} declares, otherwise {@code 500}. Fully guarded.
+     * Hands {@code outcome} the request's final status exactly once. When the chain completed or was cancelled, that is
+     * the response's status now. When it failed, the failure is still propagating: WebFlux's exception handlers, the
+     * application's own included, render it after the filters unwind, possibly as a {@code 4xx} or a successful
+     * fallback, and Actuator's {@code HttpExchangesWebFilter} records the exchange when that rendered response commits.
+     * So the status is read then, in {@code beforeCommit}, or now when the response was already committed; a failed
+     * response that never commits, as one whose connection closed first, has no outcome. Should the response refuse
+     * the commit action, the status is {@code 500}. Fully guarded: {@code outcome}'s own failure never reaches the
+     * response.
      */
-    static int status(ServerWebExchange exchange, SignalType signal, Throwable failure) {
-        if (signal == SignalType.ON_ERROR) {
-            return failure instanceof ErrorResponse errorResponse
-                    ? errorResponse.getStatusCode().value()
-                    : 500;
+    static void whenRendered(ServerWebExchange exchange, SignalType signal, IntConsumer outcome) {
+        AtomicBoolean done = new AtomicBoolean();
+        IntConsumer once = status -> {
+            if (done.compareAndSet(false, true)) {
+                try {
+                    outcome.accept(status);
+                } catch (RuntimeException ex) {
+                    // Observing the outcome never disturbs the response.
+                }
+            }
+        };
+        if (signal != SignalType.ON_ERROR) {
+            once.accept(status(exchange));
+            return;
         }
+        ServerHttpResponse response = exchange.getResponse();
+        try {
+            if (!response.isCommitted()) {
+                response.beforeCommit(() -> {
+                    once.accept(renderedStatus(response));
+                    return Mono.empty();
+                });
+                if (!response.isCommitted()) {
+                    return;
+                }
+            }
+            once.accept(renderedStatus(response));
+        } catch (RuntimeException ex) {
+            once.accept(500);
+        }
+    }
+
+    /** The status the response carries, or {@code 0} when it has none, as a cancelled request. Fully guarded. */
+    private static int status(ServerWebExchange exchange) {
         try {
             HttpStatusCode status = exchange.getResponse().getStatusCode();
             return status == null ? 0 : status.value();
         } catch (RuntimeException ex) {
             return 0;
+        }
+    }
+
+    /** The status a rendered response commits with: {@code 200} when its renderer set none. Fully guarded. */
+    private static int renderedStatus(ServerHttpResponse response) {
+        try {
+            HttpStatusCode status = response.getStatusCode();
+            return status == null ? 200 : status.value();
+        } catch (RuntimeException ex) {
+            return 500;
         }
     }
 
