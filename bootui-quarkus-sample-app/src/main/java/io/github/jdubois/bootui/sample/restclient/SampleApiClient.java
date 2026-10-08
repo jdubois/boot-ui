@@ -25,4 +25,10 @@ public interface SampleApiClient {
     @Path("/api/sample/products")
     @Produces(MediaType.APPLICATION_JSON)
     String listProducts(@QueryParam("size") int size);
+
+    /** The same call naming a user, for the security-sinks seed (M5-6b): request input in an outbound URL. */
+    @GET
+    @Path("/api/sample/products")
+    @Produces(MediaType.APPLICATION_JSON)
+    String listProductsFor(@QueryParam("size") int size, @QueryParam("user") String user);
 }

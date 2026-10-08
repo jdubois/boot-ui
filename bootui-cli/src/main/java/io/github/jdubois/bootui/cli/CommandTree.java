@@ -128,7 +128,7 @@ final class CommandTree {
         CommandSpec spec = CommandSpec.wrapWithoutInspection(command)
                 .name(tool.path().get(tool.path().size() - 1));
         spec.usageMessage()
-                .description(HelpListing.literal(tool.summary()))
+                .description(HelpListing.literal(tool.helpDescription()))
                 .footer(
                         "",
                         HelpListing.literal("Example: " + tool.example()),

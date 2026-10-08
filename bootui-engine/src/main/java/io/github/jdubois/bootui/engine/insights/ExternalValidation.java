@@ -9,10 +9,11 @@ import java.util.Map;
  * the outcome of the per-kind gate applied to the M4-20 rerun, as recorded in {@code docs/V2-VALIDATION-REPORT.md}
  * ("Per-kind gates"). A kind passes with at least 3 default-visible facts on at least 2 applications, at least half of
  * them useful to both reviewers, and nothing misleading; below that it is folded into its panel or hidden; a kind that
- * stayed silent is listed, marked as not externally validated.
+ * stayed silent is listed.
  *
- * <p>The outcome decides whether a kind's rows are listed by default, and its reason is shown with the kind on every
- * stack, in the panel and to agents. A kind this registry does not name, such as one of M5's observations, is a kind
+ * <p>The outcome decides whether a kind's rows are listed by default, on every stack, in the panel and to agents. It
+ * is never shown to users: the validation lives in the plan and the validation report, and a row the default list leaves
+ * out says only where its evidence is, when another panel shows it. A kind this registry does not name, such as one of M5's observations, is a kind
  * added after M4-20: it ships as rows of its own panel and is not listed until it passes the gate (D36).</p>
  */
 public final class ExternalValidation {
@@ -21,11 +22,11 @@ public final class ExternalValidation {
     public enum Outcome {
         /** Passed its per-kind gate: listed by default. */
         PASSED(true),
-        /** Silent, or never exercised, on every validation application: listed, marked as not externally validated. */
+        /** Silent, or never exercised, on every validation application: listed. */
         NOT_VALIDATED(true),
         /** Missed its per-kind gate: folded into the panel that shows the same evidence, and not listed by default. */
         FAILED(false),
-        /** Too few facts to judge: not listed by default, and not externally validated. */
+        /** Too few facts to judge: not listed by default. */
         UNDER_SAMPLED(false),
         /** Not listed by default by design, whatever its validation (D18 revisited by M4-19). */
         NOT_LISTED(false),
@@ -45,32 +46,22 @@ public final class ExternalValidation {
     }
 
     /**
-     * One kind's outcome and why, a sentence shown with the kind.
+     * One kind's outcome, and where its rows are when the default list leaves them out. The outcome stays internal: the
+     * panel, the API, and agents never show it, only whether a row is listed by default and {@code unlistedReason}.
      *
      * @param kind the observation kind
      * @param outcome its per-kind gate's outcome
-     * @param reason why it is listed, marked, folded, or hidden, naming where its evidence is when it is folded
+     * @param unlistedReason for a kind not listed by default, a sentence in user terms saying where its rows are, or
+     *     {@code null} when it is listed
      */
-    public record Entry(String kind, Outcome outcome, String reason) {}
+    public record Entry(String kind, Outcome outcome, String unlistedReason) {}
 
-    static final String PASSED = "It passed its external validation (M4-20): on the validation applications, at least"
-            + " half its facts were useful to both reviewers, and none was misleading.";
+    /** Where the rows of an under-sampled kind are: wherever every row, a search, or a query naming it asks for them. */
+    static final String ON_REQUEST =
+            "Its rows appear when all rows are shown, or when a search or a query names this check or its route.";
 
-    static final String SILENT = "It found nothing on the seven validation applications (M4-20), so it is not"
-            + " externally validated: no row of it has been judged by reviewers.";
-
-    static final String NOT_EXERCISED = "Its check never ran on the seven validation applications (M4-20), so it is not"
-            + " externally validated: no row of it has been judged by reviewers.";
-
-    static final String TOO_FEW_FACTS = "The validation run (M4-20) produced too few facts of this kind to judge it, so"
-            + " it is not externally validated and not listed by default.";
-
-    static final String FAILED = "It did not pass its external validation (M4-20): fewer than half its facts on the"
-            + " validation applications were useful to both reviewers";
-
-    static final String AFTER_M4_20 = "Added after the validation run (D36): it is shown as rows of its own panel, and"
-            + " is listed here only once its seeded case and counterexample pass and an external run passes the per-kind"
-            + " gate.";
+    /** Where the rows of a kind added after M4-20 are (D36): its own panel, until it passes the per-kind gate. */
+    static final String OWN_PANEL = "Its rows are shown in their own panel rather than listed by default.";
 
     private static final Map<String, Entry> KINDS = build();
 
@@ -87,45 +78,41 @@ public final class ExternalValidation {
                 kinds,
                 RouteTimeBreakdown.KIND,
                 Outcome.FAILED,
-                FAILED + ", so it is not listed by default. A request's Why this route is slow, in Live Activity,"
-                        + " shows its route's breakdown.");
-        put(kinds, RepeatedSelects.KIND, Outcome.UNDER_SAMPLED, TOO_FEW_FACTS);
-        put(kinds, LazySqlAfterHandler.KIND, Outcome.UNDER_SAMPLED, TOO_FEW_FACTS);
+                "A request's Why this route is slow, in Live Activity, shows its route's breakdown.");
+        put(kinds, RepeatedSelects.KIND, Outcome.UNDER_SAMPLED, ON_REQUEST);
+        put(kinds, LazySqlAfterHandler.KIND, Outcome.UNDER_SAMPLED, ON_REQUEST);
         put(
                 kinds,
                 ExceptionHotspots.KIND,
                 Outcome.FAILED,
-                FAILED + ", so it is not listed by default. The Exceptions panel lists the same exceptions and"
-                        + " links here.");
-        put(kinds, ErrorsBehind2xx.KIND, Outcome.PASSED, PASSED);
+                "The Exceptions panel lists the same exceptions and links here.");
+        put(kinds, ErrorsBehind2xx.KIND, Outcome.PASSED, null);
         put(
                 kinds,
                 ConnectionsPerRequest.KIND,
                 Outcome.FAILED,
-                FAILED + ", and one was misleading, so it is not listed by default. The Database connection pools"
-                        + " panel shows the pools and links here.");
-        put(kinds, SafeMethodDml.KIND, Outcome.NOT_VALIDATED, SILENT);
-        put(kinds, TransactionAcrossRemoteCall.KIND, Outcome.NOT_VALIDATED, NOT_EXERCISED);
-        put(kinds, SplitTransactionWrites.KIND, Outcome.UNDER_SAMPLED, TOO_FEW_FACTS);
-        put(kinds, AfterCommitWrites.KIND, Outcome.NOT_VALIDATED, SILENT);
-        put(kinds, TransactionalListenerSkipped.KIND, Outcome.NOT_VALIDATED, SILENT);
-        put(kinds, ProxyBypass.KIND, Outcome.NOT_VALIDATED, SILENT);
-        put(kinds, FrameworkWarningsByRoute.KIND, Outcome.UNDER_SAMPLED, TOO_FEW_FACTS);
-        put(kinds, EventLoopBlocking.KIND, Outcome.NOT_VALIDATED, SILENT);
+                "The Database connection pools panel shows the pools and links here.");
+        put(kinds, SafeMethodDml.KIND, Outcome.NOT_VALIDATED, null);
+        put(kinds, TransactionAcrossRemoteCall.KIND, Outcome.NOT_VALIDATED, null);
+        put(kinds, SplitTransactionWrites.KIND, Outcome.UNDER_SAMPLED, ON_REQUEST);
+        put(kinds, AfterCommitWrites.KIND, Outcome.NOT_VALIDATED, null);
+        put(kinds, TransactionalListenerSkipped.KIND, Outcome.NOT_VALIDATED, null);
+        put(kinds, ProxyBypass.KIND, Outcome.NOT_VALIDATED, null);
+        put(kinds, FrameworkWarningsByRoute.KIND, Outcome.UNDER_SAMPLED, ON_REQUEST);
+        put(kinds, EventLoopBlocking.KIND, Outcome.NOT_VALIDATED, null);
         put(
                 kinds,
                 AiUsageByRoute.KIND,
                 Outcome.FAILED,
-                FAILED + ", and one was misleading, so it is not listed by default. The AI panel lists the same calls"
-                        + " with their tokens and links here.");
-        put(kinds, AnonymousDataReach.KIND, Outcome.UNDER_SAMPLED, TOO_FEW_FACTS);
-        put(kinds, AnonymousSuccessOnRestrictedRoute.KIND, Outcome.NOT_VALIDATED, SILENT);
-        put(kinds, OrmAutoFlush.KIND, Outcome.NOT_VALIDATED, SILENT);
-        put(kinds, LargePersistenceContext.KIND, Outcome.NOT_VALIDATED, SILENT);
+                "The AI panel lists the same calls with their tokens and links here.");
+        put(kinds, AnonymousDataReach.KIND, Outcome.UNDER_SAMPLED, ON_REQUEST);
+        put(kinds, AnonymousSuccessOnRestrictedRoute.KIND, Outcome.NOT_VALIDATED, null);
+        put(kinds, OrmAutoFlush.KIND, Outcome.NOT_VALIDATED, null);
+        put(kinds, LargePersistenceContext.KIND, Outcome.NOT_VALIDATED, null);
         put(kinds, GcInflatedLatency.KIND, Outcome.NOT_LISTED, DefaultListing.MEMORY);
         put(kinds, HeapGrowthAfterGc.KIND, Outcome.NOT_LISTED, DefaultListing.MEMORY);
-        put(kinds, WorkAfterResponse.KIND, Outcome.NOT_VALIDATED, SILENT);
-        put(kinds, ChangedCodeNotExecuted.KIND, Outcome.PASSED, PASSED);
+        put(kinds, WorkAfterResponse.KIND, Outcome.NOT_VALIDATED, null);
+        put(kinds, ChangedCodeNotExecuted.KIND, Outcome.PASSED, null);
         // M5's observations (§5.17), Side Effects, Code Paths, and Code Inventory rows until they pass the gate (D36).
         for (String kind : new String[] {
             "exceptions-caught-in-code",
@@ -135,18 +122,18 @@ public final class ExternalValidation {
             "threads-per-request",
             "request-input-in-sink"
         }) {
-            put(kinds, kind, Outcome.NOT_JUDGED, AFTER_M4_20);
+            put(kinds, kind, Outcome.NOT_JUDGED, OWN_PANEL);
         }
         return Collections.unmodifiableMap(kinds);
     }
 
-    private static void put(Map<String, Entry> kinds, String kind, Outcome outcome, String reason) {
-        kinds.put(kind, new Entry(kind, outcome, reason));
+    private static void put(Map<String, Entry> kinds, String kind, Outcome outcome, String unlistedReason) {
+        kinds.put(kind, new Entry(kind, outcome, unlistedReason));
     }
 
     /** {@code kind}'s outcome; a kind this registry does not name was added after M4-20 and is not judged (D36). */
     public static Entry of(String kind) {
         Entry entry = KINDS.get(kind);
-        return entry != null ? entry : new Entry(kind, Outcome.NOT_JUDGED, AFTER_M4_20);
+        return entry != null ? entry : new Entry(kind, Outcome.NOT_JUDGED, OWN_PANEL);
     }
 }

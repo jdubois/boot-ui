@@ -47,46 +47,101 @@ public final class SqlStatementNormalizer {
             return new Result("", "", 0, 0);
         }
         String source = sql.length() > MAX_SCAN_LENGTH ? sql.substring(0, MAX_SCAN_LENGTH) : sql;
-        StringBuilder out = new StringBuilder(source.length());
-        int literals = 0;
-        int predicateLiterals = 0;
+        Scan scan = scan(source, null);
+        String collapsed = collapsePlaceholderLists(scan.out.toString().trim());
+        return new Result(collapsed, fingerprint(collapsed), scan.literals, scan.predicateLiterals);
+    }
+
+    /** A {@link #ranges} entry's kind: a literal {@link #normalize} replaces by {@code ?}. */
+    public static final int RANGE_LITERAL = 1;
+
+    /** A {@link #ranges} entry's kind: a comment {@link #normalize} drops. */
+    public static final int RANGE_COMMENT = 2;
+
+    /**
+     * The literals and comments of {@code sql}'s first {@value #MAX_SCAN_LENGTH} characters, exactly as {@link
+     * #normalize} lexes them, as {@code {start, end, kind}} triples in order ({@link #RANGE_LITERAL}, {@link
+     * #RANGE_COMMENT}): so a caller can mask the same text SQL Trace masks while it marks other spans. Empty for
+     * {@code null}.
+     */
+    public static int[] ranges(String sql) {
+        if (sql == null || sql.isEmpty()) {
+            return new int[0];
+        }
+        String source = sql.length() > MAX_SCAN_LENGTH ? sql.substring(0, MAX_SCAN_LENGTH) : sql;
+        Ranges ranges = new Ranges();
+        scan(source, ranges);
+        return java.util.Arrays.copyOf(ranges.values, ranges.size);
+    }
+
+    /** The normalized text and literal counts of one scan. */
+    private static final class Scan {
+        final StringBuilder out;
+        int literals;
+        int predicateLiterals;
+
+        Scan(int capacity) {
+            out = new StringBuilder(capacity);
+        }
+
+        void literal() {
+            literals++;
+            if (isPredicatePosition(out)) {
+                predicateLiterals++;
+            }
+            out.append('?');
+        }
+    }
+
+    /** A growable list of {@code {start, end, kind}} triples. */
+    private static final class Ranges {
+        int[] values = new int[48];
+        int size;
+
+        void add(int start, int end, int kind) {
+            if (size + 3 > values.length) {
+                values = java.util.Arrays.copyOf(values, values.length * 2);
+            }
+            values[size++] = start;
+            values[size++] = end;
+            values[size++] = kind;
+        }
+    }
+
+    private static Scan scan(String source, Ranges ranges) {
+        Scan scan = new Scan(source.length());
+        StringBuilder out = scan.out;
         int index = 0;
         int length = source.length();
         while (index < length) {
             char c = source.charAt(index);
+            int start = index;
             int dollarEnd = c == '$' ? dollarQuoteEnd(source, index) : -1;
             if (isLineCommentStart(source, index)) {
                 index = skipLineComment(source, index);
                 appendSpace(out);
+                record(ranges, start, index, RANGE_COMMENT);
             } else if (isBlockCommentStart(source, index)) {
                 index = skipBlockComment(source, index);
                 appendSpace(out);
+                record(ranges, start, index, RANGE_COMMENT);
             } else if (c == '\'') {
                 index = skipQuoted(source, index, '\'');
-                literals++;
-                if (isPredicatePosition(out)) {
-                    predicateLiterals++;
-                }
-                out.append('?');
+                scan.literal();
+                record(ranges, start, index, RANGE_LITERAL);
             } else if (dollarEnd > 0) {
                 // PostgreSQL dollar quoting ($$value$$, $tag$value$tag$) is a string literal that ignores
                 // the usual escaping rules, so it must be replaced rather than emitted verbatim.
                 index = dollarEnd;
-                literals++;
-                if (isPredicatePosition(out)) {
-                    predicateLiterals++;
-                }
-                out.append('?');
+                scan.literal();
+                record(ranges, start, index, RANGE_LITERAL);
             } else if (c == '"' || c == '`' || c == '[') {
                 int end = skipQuoted(source, index, c == '[' ? ']' : c);
                 if (c == '"' && !isIdentifierLike(source, index, end)) {
                     // MySQL and MariaDB treat "..." as a string literal unless ANSI_QUOTES is set, so a
                     // run that does not read like a column name is masked rather than shown.
-                    literals++;
-                    if (isPredicatePosition(out)) {
-                        predicateLiterals++;
-                    }
-                    out.append('?');
+                    scan.literal();
+                    record(ranges, start, end, RANGE_LITERAL);
                 } else {
                     // A quoted identifier is a name, not a value: keep it verbatim so two different columns
                     // never collapse into the same normalized statement.
@@ -95,29 +150,28 @@ public final class SqlStatementNormalizer {
                 index = end;
             } else if (isKeywordLiteralStart(source, index, out)) {
                 int end = skipKeywordLiteral(source, index);
-                literals++;
-                if (isPredicatePosition(out)) {
-                    predicateLiterals++;
-                }
-                out.append('?');
+                scan.literal();
+                record(ranges, start, end, RANGE_LITERAL);
                 index = end;
             } else if (Character.isWhitespace(c)) {
                 appendSpace(out);
                 index++;
             } else if (isNumberStart(source, index, out)) {
                 index = skipNumber(source, index);
-                literals++;
-                if (isPredicatePosition(out)) {
-                    predicateLiterals++;
-                }
-                out.append('?');
+                scan.literal();
+                record(ranges, start, index, RANGE_LITERAL);
             } else {
                 out.append(c);
                 index++;
             }
         }
-        String collapsed = collapsePlaceholderLists(out.toString().trim());
-        return new Result(collapsed, fingerprint(collapsed), literals, predicateLiterals);
+        return scan;
+    }
+
+    private static void record(Ranges ranges, int start, int end, int kind) {
+        if (ranges != null) {
+            ranges.add(start, end, kind);
+        }
     }
 
     /** Convenience for callers that only need the grouping key. */

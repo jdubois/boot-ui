@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus.javaagent;
 
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
+import io.github.jdubois.bootui.engine.javaagent.AgentRequestValues;
 import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.annotations.Recorder;
@@ -95,6 +96,14 @@ public class BootUiAgentRecorder {
         }
         return new RuntimeValue<>(new QuarkusAgentClaim(
                 AgentClaim.claim(access, application, owner, mode, packages, settings, beanClasses)));
+    }
+
+    /**
+     * Sets {@code bootui.agent.security-sinks.request-values}, read at build time: the adapters push no request value
+     * unless it is on ({@code docs/PLAN-v2.md} M5-6b, D37).
+     */
+    public void requestValues(boolean on) {
+        AgentRequestValues.configure(on);
     }
 
     /**

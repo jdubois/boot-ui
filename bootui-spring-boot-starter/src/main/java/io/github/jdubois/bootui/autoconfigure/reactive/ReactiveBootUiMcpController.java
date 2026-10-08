@@ -3,12 +3,23 @@ package io.github.jdubois.bootui.autoconfigure.reactive;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpService;
 import io.github.jdubois.bootui.autoconfigure.mcp.McpServerState;
+import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome;
+import io.github.jdubois.bootui.engine.mcp.McpProgressToken;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
+import io.github.jdubois.bootui.engine.mcp.McpRequestHeaders;
+import io.github.jdubois.bootui.engine.mcp.McpStreamSink;
+import io.github.jdubois.bootui.engine.mcp.McpStreamingCall;
+import io.github.jdubois.bootui.engine.progress.ProgressEvent;
+import java.io.IOException;
+import java.io.InterruptedIOException;
+import java.util.concurrent.TimeUnit;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,35 +33,41 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
-/** Reactive WebFlux transport for the BootUI MCP server. */
+/**
+ * Reactive WebFlux transport for the BootUI MCP server: the same dual-era {@link BootUiMcpService#exchange} as the
+ * servlet {@code BootUiMcpController}, over a bounded {@code DataBuffer} body.
+ */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/mcp")
 public class ReactiveBootUiMcpController {
 
     private static final String PAYLOAD_LIMIT_MESSAGE = "Request payload exceeds limit";
+    /** Added to the execution timeout before a writer waiting for demand gives up, as on the blocking stacks. */
+    private static final long BACKSTOP_GRACE_MILLIS = 10_000;
+    /** How often a writer waiting for demand rechecks whether the client went away. */
+    private static final long DEMAND_POLL_MILLIS = 100;
 
     private final BootUiMcpService service;
     private final McpServerState state;
     private final int maxPayloadBytes;
+    private final long backstopMillis;
 
     public ReactiveBootUiMcpController(BootUiMcpService service, McpServerState state, BootUiProperties properties) {
         this.service = service;
         this.state = state;
         this.maxPayloadBytes = Math.max(1, properties.getMcp().getMaxPayloadBytes());
+        this.backstopMillis =
+                Math.max(1, properties.getMcp().getExecutionTimeout().toMillis()) + BACKSTOP_GRACE_MILLIS;
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-    public Mono<ResponseEntity<String>> rpc(
-            @RequestBody Flux<DataBuffer> requestBody,
-            @RequestHeader(value = McpProtocol.PROTOCOL_VERSION_HEADER, required = false) String protocolVersion) {
-        if (protocolVersion != null && !McpProtocol.KNOWN_VERSIONS.contains(protocolVersion)) {
-            return Mono.just(json(
-                    400, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.UNSUPPORTED_PROTOCOL_VERSION_MESSAGE)));
-        }
+    public Mono<ResponseEntity<?>> rpc(@RequestBody Flux<DataBuffer> requestBody, @RequestHeader HttpHeaders headers) {
+        McpRequestHeaders mcpHeaders = BootUiMcpService.headers(headers);
+        boolean acceptsEventStream = McpProtocol.acceptsEventStream(headers.get(HttpHeaders.ACCEPT));
         return DataBufferUtils.join(requestBody, maxPayloadBytes)
                 .publishOn(Schedulers.boundedElastic())
-                .map(buffer -> handle(readAndRelease(buffer)))
-                .switchIfEmpty(Mono.fromSupplier(() -> handle(new byte[0])))
+                .<ResponseEntity<?>>map(buffer -> handle(readAndRelease(buffer), mcpHeaders, acceptsEventStream))
+                .switchIfEmpty(Mono.fromSupplier(() -> handle(new byte[0], mcpHeaders, acceptsEventStream)))
                 .onErrorResume(
                         DataBufferLimitException.class,
                         ex -> Mono.just(json(413, error(null, McpProtocol.PARSE_ERROR, PAYLOAD_LIMIT_MESSAGE))));
@@ -61,7 +78,7 @@ public class ReactiveBootUiMcpController {
         return Mono.just(ResponseEntity.status(405).build());
     }
 
-    private ResponseEntity<String> handle(byte[] requestBody) {
+    private ResponseEntity<?> handle(byte[] requestBody, McpRequestHeaders headers, boolean acceptsEventStream) {
         if (requestBody != null && requestBody.length > maxPayloadBytes) {
             return json(413, error(null, McpProtocol.PARSE_ERROR, PAYLOAD_LIMIT_MESSAGE));
         }
@@ -71,25 +88,88 @@ public class ReactiveBootUiMcpController {
         } catch (IllegalArgumentException ex) {
             return json(400, error(null, McpProtocol.PARSE_ERROR, ex.getMessage()));
         }
-        if (request != null && request.isArray()) {
-            return json(400, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.BATCH_NOT_SUPPORTED_MESSAGE));
+        BootUiMcpService.Reply reply = service.exchange(request, headers, state.isEnabled(), acceptsEventStream);
+        if (reply.stream() != null) {
+            return ResponseEntity.ok()
+                    .contentType(MediaType.TEXT_EVENT_STREAM)
+                    .header(McpProtocol.ACCEL_BUFFERING_HEADER, "no")
+                    .body(events(reply.stream()));
         }
-        if (!state.isEnabled()) {
-            if (isNotification(request)) {
-                return ResponseEntity.accepted().build();
-            }
-            return json(200, disabledError(request));
-        }
-        JsonNode response = service.handle(request);
-        if (response == null) {
+        if (reply.body() == null) {
             return ResponseEntity.accepted().build();
         }
-        return json(200, response);
+        return json(reply.status(), reply.body());
     }
 
-    private static JsonNode disabledError(JsonNode request) {
-        JsonNode id = request != null && request.isObject() ? request.get("id") : null;
-        return error(id, McpProtocol.SERVER_DISABLED, McpProtocol.SERVER_DISABLED_MESSAGE);
+    /**
+     * The request-scoped event stream. The call starts when the response subscribes, so headers are committed first;
+     * a cancelled subscription (the client went away) cancels the call, which MCP 2026-07-28 requires. Each JSON-RPC
+     * message is an SSE {@code data:} line and a keep-alive is an empty comment, the same bytes the servlet and Quarkus
+     * transports write.
+     *
+     * <p>The writer emits only against downstream demand, so a client that stops reading blocks the writer, which keeps
+     * the call's concurrency permit as on the blocking stacks instead of buffering without bound. That wait has the
+     * same backstop as theirs: past the execution timeout plus a grace period, the writer gives up as if the write had
+     * failed.
+     */
+    private Flux<ServerSentEvent<String>> events(BootUiMcpService.Stream stream) {
+        McpStreamingCall call = stream.call();
+        // A stream that is never subscribed is still released by the call's own execution timeout.
+        return Flux.create(sink -> {
+            Object demand = new Object();
+            long giveUpAt = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(backstopMillis);
+            sink.onRequest(requested -> {
+                synchronized (demand) {
+                    demand.notifyAll();
+                }
+            });
+            sink.onCancel(call::cancel);
+            sink.onDispose(call::cancel);
+            call.start(new McpStreamSink() {
+                @Override
+                public void progress(McpProgressToken token, ProgressEvent event) throws IOException {
+                    emit(ServerSentEvent.builder(McpProtocol.sseData(service.renderProgress(token, event)))
+                            .build());
+                }
+
+                @Override
+                public void heartbeat() throws IOException {
+                    emit(ServerSentEvent.<String>builder().comment("").build());
+                }
+
+                @Override
+                public void complete(McpDispatchOutcome outcome) throws IOException {
+                    emit(ServerSentEvent.builder(McpProtocol.sseData(service.renderFinal(stream.id(), outcome)))
+                            .build());
+                }
+
+                private void emit(ServerSentEvent<String> event) throws IOException {
+                    synchronized (demand) {
+                        while (sink.requestedFromDownstream() <= 0) {
+                            if (sink.isCancelled()) {
+                                throw new IOException("The client closed the MCP event stream");
+                            }
+                            long remaining = giveUpAt - System.nanoTime();
+                            if (remaining <= 0) {
+                                throw new IOException("The client stopped reading the MCP event stream");
+                            }
+                            try {
+                                demand.wait(Math.min(DEMAND_POLL_MILLIS, Math.max(1, remaining / 1_000_000)));
+                            } catch (InterruptedException interrupted) {
+                                Thread.currentThread().interrupt();
+                                throw new InterruptedIOException("Interrupted while waiting for demand");
+                            }
+                        }
+                    }
+                    sink.next(event);
+                }
+
+                @Override
+                public void close() {
+                    sink.complete();
+                }
+            });
+        });
     }
 
     private static byte[] readAndRelease(DataBuffer buffer) {
@@ -100,14 +180,6 @@ public class ReactiveBootUiMcpController {
         } finally {
             DataBufferUtils.release(buffer);
         }
-    }
-
-    private static boolean isNotification(JsonNode request) {
-        return request != null
-                && request.isObject()
-                && !request.hasNonNull("id")
-                && McpProtocol.JSONRPC_VERSION.equals(request.path("jsonrpc").asString())
-                && !request.path("method").asString().isBlank();
     }
 
     private static ObjectNode error(JsonNode id, int code, String message) {

@@ -36,7 +36,14 @@ public final class McpToolGuide {
     }
 
     private static final Map<String, Map<String, Object>> EXAMPLES = Map.ofEntries(
-            Map.entry("get_live_activity", args("limit", 20)),
+            Map.entry("get_live_activity", args("query", "SQL", "limit", 20)),
+            Map.entry("get_sql_traces", args("query", "orders")),
+            Map.entry("get_startup_timeline", args("limit", 10)),
+            Map.entry("get_log_tail", args("query", "WARN")),
+            Map.entry("get_copilot_sessions", args("limit", 5)),
+            Map.entry("get_claude_code_sessions", args("limit", 5)),
+            Map.entry("get_vulnerabilities_report", args("query", "CRITICAL")),
+            Map.entry("get_agent_status", args("query", "executors")),
             Map.entry("get_security_logs", args("limit", 20)),
             Map.entry("get_traces", args("limit", 20)),
             Map.entry("get_http_exchanges", args("limit", 20)),
@@ -77,7 +84,8 @@ public final class McpToolGuide {
             Map.entry(
                     "get_runtime_impact",
                     new IdSource(
-                            "a route, bean, class, Class#method, repository, table, cache, host, or event type",
+                            "a route, bean, class, Class#method or a bare method name, repository, table, cache, host, or"
+                                    + " event type",
                             List.of())),
             Map.entry(
                     "get_runtime_run_comparison",
@@ -97,14 +105,36 @@ public final class McpToolGuide {
             Map.entry("get_security_rule_violations", ruleSource("get_security_report")),
             Map.entry("get_database_advisor_rule_violations", ruleSource("get_database_advisor_report")));
 
-    private static final Map<String, String> QUERY_WORDS = Map.of(
-            "get_runtime_insights",
-            "empty (the default list), all (every observation), new, security, diff, latency, an observation kind"
-                    + " such as repeated-selects, or a route, table, bean, or class",
-            "get_code_inventory",
-            "changed (the default), never-executed, not-tracked, executed, dependencies, or a package or class",
-            "get_code_paths",
-            "empty (the slowest routes), or a route or method name");
+    private static final Map<String, String> QUERY_WORDS = Map.ofEntries(
+            Map.entry(
+                    "get_live_activity",
+                    "an entry type (SQL, EXCEPTION, REST_CLIENT, ...), a severity (SLOW, WARN, ERROR), or text in the"
+                            + " summary, detail, path, or method"),
+            Map.entry("get_agent_status", "a sensor id, such as executors, for its hooks and self-test steps"),
+            Map.entry(
+                    "get_sql_traces",
+                    "text in the SQL, category, call site, or error, or a request, trace, or execution id"),
+            Map.entry("get_startup_timeline", "a step name or tag value, such as a bean name"),
+            Map.entry("get_log_tail", "a level, logger, thread, or text in the message"),
+            Map.entry("get_copilot_sessions", "a session id, model, working directory, status, or last activity"),
+            Map.entry("get_claude_code_sessions", "a session id, model, working directory, status, or last activity"),
+            Map.entry(
+                    "get_vulnerabilities_report",
+                    "group:artifact coordinates, a severity, or an advisory id or alias such as a CVE"),
+            Map.entry(
+                    "get_runtime_insights",
+                    "empty (the default list), all (every observation), new, security, diff, latency, an observation"
+                            + " kind such as repeated-selects, or a route, table, bean, or class"),
+            Map.entry(
+                    "get_code_inventory",
+                    "changed (the default), never-executed, not-tracked, executed, dependencies, or a package,"
+                            + " class, or method name"),
+            Map.entry("get_code_paths", "empty (the slowest routes), or a route or method name"),
+            Map.entry(
+                    "get_side_effects",
+                    "a sensor id such as processes, network, files, environment, blocking, thread-activity, or"
+                            + " thread-locals, which also lists its hooks, not captured (outbound calls no panel"
+                            + " captured), or part of a route, target, client, or call site"));
 
     private McpToolGuide() {}
 

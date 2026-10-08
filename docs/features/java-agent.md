@@ -264,6 +264,12 @@ reopening their snapshots. A handoff already opened before recording stopped is 
 
 - Parallel-stream subtasks run by other workers stay unowned: only root submissions and a `fork()` from outside the pool
   are propagated.
+- The **after response** badge orders a body's completion with the response only when the JDK's own result
+  publication releases the handler. A handler released from inside the body, as by `DeferredResult.setResult` or a
+  latch it waits on, can still answer before the body returns, so a body that ends within a few milliseconds of that
+  release may be badged. So may a task whose own dependent stage writes the response, as Spring WebFlux's
+  `Mono.fromFuture` does on the pool thread, when that write lasts 50 ms or more. A tail after a body that ended first,
+  with neither late I/O nor a failure, is badged only from 50 ms past the response.
 - A task handed over by a draining or serializing executor carries the context of the thread that handed it over.
 - Pools whose workers started before the first claim never apply their tasks; they are counted as never applied.
 - A task submitted before a DevTools restart or a Quarkus live reload that ends after it is never reopened, and a task
@@ -304,7 +310,12 @@ later return remains the body boundary, including a `CountedCompleter` whose `ex
 completed or cancelled task whose computation is skipped does not acquire a body-return marker.
 A body that ends after the response counts all of its
 attributed SQL, REST, and message evidence, including an earlier write followed by computation and a fast task that
-started after the response. A waited-for body is not reported merely because its handoff closes late.
+started after the response. A waited-for body is not reported merely because its handoff closes late, and neither
+Live Activity's **after response** badge nor the request profile's **Handoffs** marks it so: the JDK releases the
+waiting handler before the task's run returns, so its handoff can close just after the response started. After a body
+that ended before the response, the badge and the profile still mark the task when its tail ran SQL, a REST call, or a
+message at least 2 ms past the response, failed after it, or ran at least 50 ms past it (computation, logging, file
+writes, sleeps, or mail in a `done()` callback or a dependent stage).
 The full handoff lifetime remains visible: `FutureTask.done()` and synchronous dependent stages can still do real
 work after result publication. A failure observed escaping the task's result-publication tail is timed separately
 from a body failure stored in its future, using the same 2 ms clock slack as unconfirmed late I/O; the escaping
@@ -722,7 +733,7 @@ A connection or a datagram is **not captured by any panel** when no visible pane
 - Infrastructure clients are `infrastructure`: no panel is meant to show them.
 - A name lookup is not a connection and has no capture.
 
-These rows are the `hidden-outbound-calls` evidence of PLAN-v2 D36: Side Effects rows, not a Runtime Insights kind.
+These rows are Side Effects rows, not a Runtime Insights kind.
 `get_side_effects` with `query` `not captured` lists them.
 
 The runtime model gains observed `OPENS` edges from routes, scheduled jobs, and the one bean of an application call
@@ -798,7 +809,7 @@ The operation's own time (opening, deleting, moving, or copying) is recorded, no
 `File.delete`, `File.renameTo`, `File.createNewFile`, `AsynchronousFileChannel`, memory-mapped access, and native code
 are not seen.
 
-`files` is opt-in because the agent's cumulative overhead with it is over the 10 % budget (D37). On the agent overhead
+`files` is opt-in because the agent's cumulative overhead with it is over the 10 % budget. On the agent overhead
 benchmark's I/O route (one outbound connect and one file read per request), the CI job measured `files`' own share
 against the default sensors at a median of 2.3 % over 15 pairs (pairs from −6.6 to 13.7 %). The default sensors plus
 `files` measured 10.6 % against no agent over 9 pairs (pairs from 6.7 to 23.7 %). Add `files` to
@@ -826,9 +837,71 @@ property it resolves from them is not seen, and `System.getProperties()` is not 
 1,000 distinct names; a name the secret detector recognizes (a JWT, a PEM key, an AWS key, a credential URL) is
 masked.
 
-`environment` is opt-in until its overhead is reviewed (D37): with it recording, `System.getProperty` takes about 23 to
+`environment` is opt-in until its overhead is measured: with it recording, `System.getProperty` takes about 23 to
 28 ns per call instead of 5 to 6 ns on JDK 17, 21, and 26 (`FilesEnvironmentBehaviorsIT`). Add `environment` to
 `bootui.agent.sensors` to record it, or [switch it on at run time](#switching-opt-in-sensors-at-run-time). Its three hooks are core: one that fails its self-test disables the sensor alone.
+
+## The security-sinks sensor
+
+`bootui.agent.sensors=...,security-sinks` with `bootui.agent.security-sinks.request-values=true` checks whether
+request input reaches a sink **unchanged**: whether the value of one of the current request's query or path parameters
+appears verbatim in SQL text, a command, a file path, or an outbound URL. Both are opt-in (D37): the sensor does nothing
+without the property, and the property does nothing without the sensor. Each match is a row of the Side Effects
+**Security sinks** tab and of `get_side_effects`' `security-sinks` query (`request-input-in-sink`), worded as a fact,
+never as a vulnerability:
+
+> Request input reached this SQL text unchanged: the value of `name` appeared inside a literal. Check that it is bound
+> as a parameter or escaped.
+
+A row names the sink, the parameter's name, the call site, and the sink's text with the value **redacted** to
+`{name}`. It never holds the value:
+
+| Sink | Where it is checked | The row's target |
+| --- | --- | --- |
+| SQL text | Where SQL Trace's JDBC capture records the statement, on the thread that ran it. R2DBC is not captured | The statement with every literal masked, as SQL Trace's fingerprint masks it whatever the exposure, and `{name}` in the value's place; the row says whether it sat **inside** or **outside a literal** |
+| Command | The `processes` sensor's `ProcessBuilder.start` hook, in each of the command's first 32 elements | The command's file name and the argument's index, `convert, argument 2`, never an argument |
+| File path | The `files` sensor's hooks, so only with `files` claimed | The path pattern of the redacted path, `./reports/{name}.csv`; the `files` row names that pattern too |
+| Outbound URL | Where the REST client panel records the call: `RestTemplate`, `RestClient`, `WebClient`, and the Quarkus REST client, on the thread that issues it, its host, decoded path, and decoded query parameters checked apart | The scheme, host, and port, the redacted path with numeric and UUID segments as `{id}`, and the query's keys only; never user information or the fragment, and no text when the value is in the host |
+
+**How values are held.** The adapters hand the values to the agent's request value holder at the handler phase, only
+while matching is on: Spring MVC parses the query string itself and reads the handler mapping's path variables, never
+calling `getParameter*`, so a body is never read; Spring WebFlux takes the query parameters it already parsed and reads
+the path variables once its handler mapping set them, never the form data; Quarkus takes the decoded query and the
+matched path parameters. Form values, headers, and bodies are never held. The holder keeps at most 128 requests and 32
+values of 4 to 256 characters each (on Spring MVC, BootUI's own decoding of the query string), and removes a request's values where its response
+really completes: the filter's end, the async cycle's end, the WebFlux chain's end, or Quarkus' response end handler.
+A missed end is swept after 60 seconds, and a new claim, a DevTools restart, a live reload, or a release wipes the
+holder. The values are not part of BootUI's correlation context, so no executor snapshot copies them, and a task the
+agent propagated, or any other request's work, is never matched; a task the request hands to a managed executor still
+matches, until the response completes. Matching is bounded per request: at most 256 checks, 16 KB of text per check,
+and 4 Mi character comparisons in all, each check costing its text's length times the held values' total length. An
+identical text scanned whole that matched nothing, while the request's values are unchanged, is not checked again; one that
+already matched is compared and redacted again, not reported twice, and not counted as a check, though its comparisons
+count, so a statement repeated in a long loop can still reach the comparison budget. When a text was scanned only
+in part, or held more matches than could be redacted, the row keeps no text. Once a request reached its budget, its
+later sinks are not checked: a `files` or `processes` row then names its path or executable `(not kept: not checked for
+request input)`, never the text, as it does for a path or executable longer than a check scans; the tab's limitations say when that happened. **Clear recording** clears the rows; the holder,
+empty between requests, is not evidence.
+
+**Overhead.** On the agent overhead job's sinks route (two query parameters, one SQL statement, and one file read per
+request), matching added 2.6 %, −0.2 %, 2.9 %, and 1.1 % to the same sensors without it over four runs (median of 15
+pairs each), and the run with every sensor, `files` included, measured 10.9 %, 8.4 %, 10.8 %, and 9.7 % against no
+agent, at the edge of the 10 % budget; matching stays opt-in.
+
+**False positives.** A value that sits outside an SQL literal, inside a number or `true`/`false`, or that is itself a
+number (digits, with an optional sign and decimal point, as `-33.8688`), may be a word the text always holds, as a
+value equal to a column name. Such a match is shown only once a second request produced a different raw text with the
+same redacted text, which shows the text varies with the value; until then the panel counts it as not
+shown yet; a value repeated in requests with the same text confirms nothing. Any other match is shown from one
+request, marked as seen in one request so far, including a value that crosses a literal's bounds, as one closing a
+quote: the row then shows it outside any literal, every literal around it still masked. Only per-process keyed hashes of the raw and redacted texts are compared,
+never the texts. Past the tab's row cap, a match not confirmed yet is counted, never shown in its Other row.
+
+The sensor adds no hook of its own in this version: its deserialization, weak algorithm, and trust manager checks
+follow (M5-6b2), and the `HttpClient` and `URL.openConnection` hooks are deferred, so a JDK `HttpClient` call is checked
+only when it goes through a REST client BootUI records. With matching on, the tab's limitations show the holder's
+counters: requests held, checks run, and what it skipped or could not keep; the sensor's reason names the sinks it
+cannot check because their sensor is not claimed.
 
 ## The blocking sensor
 
@@ -914,7 +987,7 @@ two can run together.
 | `ForkJoinPool.shutdown`, `ThreadPerTaskExecutor.shutdown` | records shutdowns | `shutdown`, `shutdownNow`, and `close` |
 
 The advice runs at the entry and exit of `start`, at the exit of the constructors, and at the entry of the shutdowns:
-never on a thread's run path or its scoped values. M5-2's `executors` and `threads` sensors transform `Thread`,
+never on a thread's run path or its scoped values. The `executors` and `threads` sensors transform `Thread`,
 `ThreadPoolExecutor`, and `ForkJoinPool` too, with their own transformers: the JVM applies both, and forked-JVM tests
 claim the three sensors together, and `thread-activity` beside the OpenTelemetry agent in both orders, on JDK 17, 21,
 and the newest verified JDK. A fork-join worker, the JDK's `DelayScheduler`, and a thread
@@ -1019,10 +1092,11 @@ only when its holder is in the application's packages. An inheritable one is `le
 
 **Exclusions.** BootUI's own thread locals, all `BootUiThreadLocal`s (an architecture test keeps them so), the agent's,
 and those whose class the JDK defines (a read lock's hold counter, NIO's buffers) are skipped by class on the request's
-thread. Frameworks that set and clear their thread locals themselves are dropped once their holder is resolved, and
-counted per holder in the sensor's limitations: Spring's `RequestContextHolder`, `LocaleContextHolder`,
-`TransactionSynchronizationManager`, and `AopContext`, the SLF4J, Logback, Log4j 2, and JBoss Log Manager MDCs,
-Micrometer's context, observation, and tracing, OpenTelemetry's context, Jackson's buffer recyclers, and Netty's
+thread. Frameworks that set and clear their thread locals themselves are dropped once their holder is resolved, or by
+their own thread-local class when it is not (as Quarkus' anonymous `VertxMDC$1`), and counted per holder in the
+sensor's limitations: Spring's `RequestContextHolder`, `LocaleContextHolder`, `TransactionSynchronizationManager`, and
+`AopContext`, the SLF4J, Logback, Log4j 2, JBoss Log Manager, and Quarkus Vert.x MDCs, Micrometer's context,
+observation, and tracing, OpenTelemetry's context and temporary buffers, Jackson's buffer recyclers, and Netty's
 `InternalThreadLocalMap`. A dropped thread local is skipped by the bridge from then on. Spring Security's context is
 never dropped: a security context leaking between requests is what this sensor is for (a row may be an empty context,
 since `SecurityContextHolder.getContext()` sets one when it reads none).
@@ -1038,7 +1112,7 @@ the opening, the sensor reports itself unavailable; a claim never fails.
 table larger than 16,384 slots or with more than 4,096 thread locals set is skipped, counted, at most 16 leftovers a
 scope are reported, and the bridge remembers at most 1,024 thread locals per run, weakly. With the sensor off, a scope
 costs one volatile read; on Spring WebFlux, while the agent is attached, each Reactor task also runs through a small
-wrapper. The sensor is opt-in (D37) whatever its overhead: the `agent-overhead-thread-locals` job of
+wrapper. The sensor is opt-in whatever its overhead: the `agent-overhead-thread-locals` job of
 `build.yml` measures its own increment and the cumulative overhead on the default route: about 0.5 % over the default
 sensors, and 7.0 % cumulative against the 10 % budget, in its first run. Add `thread-locals` to `bootui.agent.sensors` to
 record it, or [switch it on at run time](#switching-opt-in-sensors-at-run-time).
@@ -1127,6 +1201,31 @@ it again, or restart. Code Inventory hashes the application's class files when a
 is compared with the previous run only after the next DevTools restart or Quarkus live reload, never on the HotSwap
 itself. Forked-JVM tests redefine an instrumented bean class both ways, through JDI and through `Instrumentation`.
 
+## Overhead
+
+The `agent-overhead` jobs of `build.yml` measure the agent with the sample's executable jar, in pairs whose order
+alternates. Each report gives each pair's throughput ratio, their median, and, since the median of 9 or 15 pairs moves
+by several points from run to run on a shared runner, a distribution-free 95 % confidence interval of that median (the
+4th lowest and highest of 15 pairs, the 2nd of 9). The default sensors' cumulative median on the I/O route only warns
+above 10 %. Two checks fail a build: the blocking sensor's default, when its own increment's median is above 3 % or the
+lower bound of the default route's cumulative median interval (9 pairs) is above 10 % (M5-5c, D48), and a sensor whose
+A/B is enforced while it is on by default, as `caught-exceptions` and `thread-activity` would be.
+
+The cumulative median varies by itself: across 33 CI runs between 2026-10-05 and 2026-10-07 it ranged from 3.6 % to
+11.4 % on unchanged sensors, with a standard deviation of about 2 points, and its 95 % interval in a single run is about
+6 points wide. In #1326's resources A/B, the cumulative medians of 10.7 % and 11.7 % had intervals of [7.2, 12.7] and
+[4.2, 12.9] %, while `resources`' own increment was 1.4 % and −0.2 %. The runs before and after the thread-locals and
+thread-activity follow-ups (#1299, #1323) averaged 7.6 % (14 runs) and 8.5 % (19 runs), a difference within noise
+(t = 1.3). A same-machine leave-one-out A/B of each default sensor on the I/O route (15 pairs each) found no sensor
+whose own increment's interval lies above zero: executors −4.2 %, inventory 1.3 %, code-paths 1.1 %, processes −4.3 %,
+network −1.0 %, blocking −3.3 %, with the cumulative median at 2.2 % [−4.2, 7.9].
+
+So a cumulative median just over 10 % in one run is not, alone, evidence that the default set grew. The rule (PLAN-v2
+D48): a sensor's default follows its own increment's A/B, at most 3 %, and a cumulative check fails only when its
+median interval's lower bound is above the 10 % budget. The blocking check applies it today; the opt-in sensors'
+cumulative checks below still read the plain median until one of them is proposed for the defaults. A median that stays above 10 % across runs, with intervals
+that still reach below it, is a reason to measure more pairs.
+
 ## Coexistence and class data sharing
 
 The BootUI agent coexists with the OpenTelemetry Java agent and with JaCoCo. Put JaCoCo's Surefire/Failsafe placeholder
@@ -1187,7 +1286,8 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`, and the opt-in `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, and `caught-exceptions`. The Side Effects sensors this version does not ship (`resources`, `security-sinks`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`, and the opt-in `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks`. The Side Effects sensors this version does not ship (`resources`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
+| `bootui.agent.security-sinks.request-values` | `false` | With the `security-sinks` sensor, holds the current request's query and path parameter values while it runs, so a sink it reaches can be checked for one appearing verbatim ([the security-sinks sensor](#the-security-sinks-sensor)). Never stored, logged, or displayed. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window: a task belongs to its request when it starts no later than this after the request ended, its work is attributed until this long after it started, and it is published `capped` when it runs longer. |
@@ -1478,9 +1578,9 @@ API, all `GET`, paged with `offset` and `limit` where they list:
 | `/bootui/api/code-inventory/dependencies` | The dependency use, declared jars not loaded first, filtered by `status` |
 
 `get_code_inventory` and `bootui code inventory` return the counts first, then at most `limit` (25) rows of `query`:
-`changed` (the default), `never-executed`, `not-tracked`, `executed`, `dependencies`, or a package or class. The
-`verify_after_change` MCP prompt starts from it, and Runtime Insights reports a changed method no request executed as
-`changed-code-not-executed`.
+`changed` (the default), `never-executed`, `not-tracked`, `executed`, `dependencies`, or a package, class, or method
+name. The `verify_after_change` MCP prompt starts from it, and Runtime Insights reports a changed method no request
+executed as `changed-code-not-executed`.
 
 ## Side Effects
 
@@ -1505,7 +1605,7 @@ The panel has one tab per sensor group:
 | Environment | `environment` | Records when `bootui.agent.sensors` opts in or it is switched on; otherwise `not-claimed`. |
 | Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `thread-activity` and `thread-locals` record when `bootui.agent.sensors` opts in or they are switched on (see [the thread-activity sensor](#the-thread-activity-sensor) and [the thread-locals sensor](#the-thread-locals-sensor)); `resources` is `not-available`: Not available in this version. |
 | Blocking | `blocking` | records on Spring WebFlux and Quarkus; `not-applicable` on Spring MVC until a WebClient's event loop is registered. |
-| Security sinks | `security-sinks` | `not-available`: Not available in this version. |
+| Security sinks | `security-sinks` | Records request input reaching SQL text, a command, a file path, or an outbound URL when `bootui.agent.sensors` opts in and `bootui.agent.security-sinks.request-values=true` (see [the security-sinks sensor](#the-security-sinks-sensor)). |
 
 The `processes` sensor is on by default through `bootui.agent.sensors`. It hooks the JDK process start path used by
 `ProcessBuilder.start()`, `ProcessBuilder.startPipeline(...)`, and `Runtime.exec(...)`. A row records the command name

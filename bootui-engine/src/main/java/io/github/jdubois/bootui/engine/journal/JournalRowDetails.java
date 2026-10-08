@@ -153,7 +153,8 @@ public final class JournalRowDetails {
                 row.parentId(),
                 securedPrincipal == null ? row.securedPrincipal() : securedPrincipal,
                 row.sqlNPlusOneSuspected(),
-                row.badges());
+                row.badges(),
+                row.exceptionGroupId());
     }
 
     private static String securityKey(String requestId, String type) {

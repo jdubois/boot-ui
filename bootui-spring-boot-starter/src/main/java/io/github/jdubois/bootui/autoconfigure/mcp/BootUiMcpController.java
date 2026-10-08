@@ -1,10 +1,25 @@
 package io.github.jdubois.bootui.autoconfigure.mcp;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome;
 import io.github.jdubois.bootui.engine.mcp.McpPayloadReader;
 import io.github.jdubois.bootui.engine.mcp.McpPayloadReader.PayloadTooLargeException;
+import io.github.jdubois.bootui.engine.mcp.McpProgressToken;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
+import io.github.jdubois.bootui.engine.mcp.McpStreamSink;
+import io.github.jdubois.bootui.engine.mcp.McpStreamingCall;
+import io.github.jdubois.bootui.engine.progress.ProgressEvent;
+import jakarta.servlet.AsyncContext;
+import jakarta.servlet.AsyncEvent;
+import jakarta.servlet.AsyncListener;
+import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,33 +40,38 @@ import tools.jackson.databind.node.JsonNodeFactory;
  * is initialized from {@code bootui.mcp.enabled} and can be toggled at runtime from the MCP Server
  * panel via {@link McpServerState}.
  *
- * <p>The {@code GET} variant returns 405 because BootUI does not offer a server-to-client SSE stream
- * at this endpoint. Human-readable status is available from {@code /bootui/api/mcp-server}.
+ * <p>The endpoint is dual-era: {@link BootUiMcpService#exchange} selects MCP 2025-06-18 or MCP 2026-07-28 from the
+ * request body and its {@code MCP-Protocol-Version}, {@code Mcp-Method}, and {@code Mcp-Name} headers, so the body is
+ * read before any header is judged. The {@code GET} variant returns 405 because BootUI offers no server-to-client
+ * stream at this endpoint, which MCP 2026-07-28 removed altogether. Human-readable status is available from
+ * {@code /bootui/api/mcp-server}.
  */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/mcp")
 public class BootUiMcpController {
 
     private static final String PAYLOAD_LIMIT_MESSAGE = "Request payload exceeds limit";
+    private static final long ASYNC_TIMEOUT_GRACE_MILLIS = 10_000;
 
     private final BootUiMcpService service;
     private final McpServerState state;
     private final int maxPayloadBytes;
+    private final long asyncTimeoutMillis;
 
     public BootUiMcpController(BootUiMcpService service, McpServerState state, BootUiProperties properties) {
         this.service = service;
         this.state = state;
         this.maxPayloadBytes = Math.max(1, properties.getMcp().getMaxPayloadBytes());
+        // The call's own timeout ends a stream; the container's is only a backstop against a lost writer.
+        this.asyncTimeoutMillis =
+                Math.max(1, properties.getMcp().getExecutionTimeout().toMillis()) + ASYNC_TIMEOUT_GRACE_MILLIS;
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> rpc(
             HttpServletRequest servletRequest,
-            @RequestHeader(value = McpProtocol.PROTOCOL_VERSION_HEADER, required = false) String protocolVersion) {
-        if (protocolVersion != null && !McpProtocol.KNOWN_VERSIONS.contains(protocolVersion)) {
-            return json(
-                    400, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.UNSUPPORTED_PROTOCOL_VERSION_MESSAGE));
-        }
+            HttpServletResponse servletResponse,
+            @RequestHeader HttpHeaders headers) {
         byte[] requestBody;
         try {
             requestBody = McpPayloadReader.read(servletRequest.getInputStream(), maxPayloadBytes);
@@ -66,43 +86,110 @@ public class BootUiMcpController {
         } catch (IllegalArgumentException ex) {
             return json(400, error(null, McpProtocol.PARSE_ERROR, ex.getMessage()));
         }
-        if (request != null && request.isArray()) {
-            return json(400, error(null, McpProtocol.INVALID_REQUEST, McpProtocol.BATCH_NOT_SUPPORTED_MESSAGE));
+        BootUiMcpService.Reply reply = service.exchange(
+                request,
+                BootUiMcpService.headers(headers),
+                state.isEnabled(),
+                // A request that cannot go async (a host filter without async support) falls back to JSON.
+                servletRequest.isAsyncSupported() && McpProtocol.acceptsEventStream(headers.get(HttpHeaders.ACCEPT)));
+        if (reply.stream() != null) {
+            stream(servletRequest, servletResponse, reply.stream());
+            // The response is written asynchronously; a null entity tells Spring MVC it is already handled.
+            return null;
         }
-        if (!state.isEnabled()) {
-            if (isNotification(request)) {
-                return ResponseEntity.accepted().build();
-            }
-            return json(200, disabledError(request));
-        }
-        JsonNode response = service.handle(request);
-        if (response == null) {
+        if (reply.body() == null) {
             // Notification (no id) — acknowledge with 202 and no body.
             return ResponseEntity.accepted().build();
         }
-        return json(200, response);
+        return json(reply.status(), reply.body());
+    }
+
+    /**
+     * Answers on a request-scoped {@code text/event-stream}. The servlet response is put in async mode so the
+     * container thread returns at once, and only the call's writer thread writes to it; a container-reported error,
+     * timeout, or completion (the client went away) cancels the call, which MCP 2026-07-28 requires.
+     */
+    private void stream(
+            HttpServletRequest servletRequest, HttpServletResponse servletResponse, BootUiMcpService.Stream stream) {
+        McpStreamingCall call = stream.call();
+        try {
+            AsyncContext async = servletRequest.startAsync(servletRequest, servletResponse);
+            async.setTimeout(asyncTimeoutMillis);
+            servletResponse.setStatus(200);
+            servletResponse.setContentType(McpProtocol.EVENT_STREAM_MEDIA_TYPE);
+            servletResponse.setHeader(McpProtocol.ACCEL_BUFFERING_HEADER, "no");
+            ServletOutputStream output = servletResponse.getOutputStream();
+            output.flush();
+            AtomicBoolean closed = new AtomicBoolean();
+            async.addListener(new AsyncListener() {
+                @Override
+                public void onComplete(AsyncEvent event) {
+                    call.cancel();
+                }
+
+                @Override
+                public void onTimeout(AsyncEvent event) {
+                    call.cancel();
+                    complete(async, closed);
+                }
+
+                @Override
+                public void onError(AsyncEvent event) {
+                    call.cancel();
+                    complete(async, closed);
+                }
+
+                @Override
+                public void onStartAsync(AsyncEvent event) {}
+            });
+            call.start(new McpStreamSink() {
+                @Override
+                public void progress(McpProgressToken token, ProgressEvent event) throws IOException {
+                    write(output, McpProtocol.sseDataFrame(service.renderProgress(token, event)));
+                }
+
+                @Override
+                public void heartbeat() throws IOException {
+                    write(output, McpProtocol.SSE_HEARTBEAT);
+                }
+
+                @Override
+                public void complete(McpDispatchOutcome outcome) throws IOException {
+                    write(output, McpProtocol.sseDataFrame(service.renderFinal(stream.id(), outcome)));
+                }
+
+                @Override
+                public void close() {
+                    BootUiMcpController.complete(async, closed);
+                }
+            });
+        } catch (IOException ex) {
+            call.cancel();
+            throw new UncheckedIOException(ex);
+        } catch (RuntimeException | Error failure) {
+            call.cancel();
+            throw failure;
+        }
+    }
+
+    private static void write(ServletOutputStream output, String frame) throws IOException {
+        output.write(frame.getBytes(StandardCharsets.UTF_8));
+        output.flush();
+    }
+
+    private static void complete(AsyncContext async, AtomicBoolean closed) {
+        if (closed.compareAndSet(false, true)) {
+            try {
+                async.complete();
+            } catch (IllegalStateException alreadyCompleted) {
+                // The container already ended the request (client gone or timed out).
+            }
+        }
     }
 
     @GetMapping
     public ResponseEntity<Void> getStream() {
         return ResponseEntity.status(405).build();
-    }
-
-    /**
-     * Builds a JSON-RPC error response indicating the server is disabled, preserving the request id
-     * when present so a compliant client can correlate it.
-     */
-    private static JsonNode disabledError(JsonNode request) {
-        JsonNode id = request != null && request.isObject() ? request.get("id") : null;
-        return error(id, McpProtocol.SERVER_DISABLED, McpProtocol.SERVER_DISABLED_MESSAGE);
-    }
-
-    private static boolean isNotification(JsonNode request) {
-        return request != null
-                && request.isObject()
-                && !request.hasNonNull("id")
-                && McpProtocol.JSONRPC_VERSION.equals(request.path("jsonrpc").asString())
-                && !request.path("method").asString().isBlank();
     }
 
     private static tools.jackson.databind.node.ObjectNode error(JsonNode id, int code, String message) {

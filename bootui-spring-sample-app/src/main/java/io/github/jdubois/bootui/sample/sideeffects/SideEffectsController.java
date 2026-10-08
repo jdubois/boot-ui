@@ -80,6 +80,18 @@ public class SideEffectsController {
         return catalog.searchProducts(term);
     }
 
+    /**
+     * The agent overhead benchmark's security-sinks route (M5-6b): two query parameters, the product search's one SQL
+     * statement, and one file read, so request-value matching is measured where it pushes values and checks sinks.
+     */
+    @GetMapping("/benchmark-sinks")
+    public List<ProductSummary> benchmarkSinks(
+            @RequestParam(name = "term", defaultValue = "console") String term,
+            @RequestParam(name = "tag", defaultValue = "sample") String tag) {
+        benchmarkIo.read();
+        return catalog.searchProducts(term);
+    }
+
     @GetMapping("/java-version")
     public Map<String, String> javaVersion() {
         return Map.of("version", reporter.version());

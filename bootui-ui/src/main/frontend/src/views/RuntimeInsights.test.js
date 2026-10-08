@@ -138,43 +138,17 @@ describe('Runtime Insights panel', () => {
     )
   })
 
-  it('marks a kind not externally validated beside its title, and says why on its selected row (M4-20)', async () => {
-    const reason = 'It found nothing on the seven validation applications (M4-20), so it is not externally validated.'
-    const marked = {
-      ...report,
-      checks: [{...report.checks[0], validation: 'NOT_VALIDATED', validationReason: reason}, report.checks[1]]
-    }
+  it('never shows the external validation of a kind, which stays in the plan (M4-20)', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn((url) => Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : marked)))
+      vi.fn((url) => Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : report)))
     )
     wrapper = mountPanel()
     await flushPromises()
+    await openRow(wrapper)
 
     expect(wrapper.find('.insight-row-kind').text()).toBe('Repeated SELECTs')
-    expect(wrapper.find('.insight-validation').text()).toBe('Not externally validated')
-    expect(wrapper.find('.insight-verdict-facts').text()).toContain('1 from a check not externally validated')
-    await openRow(wrapper)
-    expect(wrapper.find('.insight-validation').attributes('title')).toBe(reason)
-    expect(wrapper.find('.insight-validation-reason').text()).toBe(`Not externally validated: ${reason}`)
-  })
-
-  it('shows no validation marker for a kind that passed', async () => {
-    const passed = {
-      ...report,
-      checks: [{...report.checks[0], validation: 'PASSED', validationReason: 'It passed.'}, report.checks[1]]
-    }
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url) => Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : passed)))
-    )
-    wrapper = mountPanel()
-    await flushPromises()
-    await openRow(wrapper)
-
-    expect(wrapper.find('.insight-verdict-facts').text()).toContain('1 from a check that passed external validation')
-    expect(wrapper.find('.insight-validation').exists()).toBe(false)
-    expect(wrapper.find('.insight-validation-reason').exists()).toBe(false)
+    expect(wrapper.text()).not.toMatch(/validat/i)
   })
 
   it('names the comparison in the verdict and opens it in the Changes tab', async () => {
@@ -683,18 +657,156 @@ describe('Runtime Insights panel', () => {
     click.mockRestore()
   })
 
-  it('opens the Changes tab when a deep link names a symbol to check', async () => {
+  it('opens the Change impact tab, checked, when a deep link names a symbol', async () => {
     routeState.query = {impact: 'OrderService#total'}
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : report))
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('#insights-tab-impact').attributes('aria-selected')).toBe('true')
+    expect(shown(wrapper.get('#insights-panel-impact'))).toBe(true)
+    expect(shown(wrapper.get('#insights-panel-changes'))).toBe(false)
+    expect(shown(wrapper.get('#insights-panel-findings'))).toBe(false)
+    expect(wrapper.get('#insights-panel-impact').find('.insight-impact').exists()).toBe(true)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('impact?symbol=OrderService%23total'))).toBe(true)
+  })
+
+  it("opens Coverage & limits on the app-wide list from Change impact's scoped list", async () => {
+    const resolvedImpact = {
+      status: 'RESOLVED',
+      reason: null,
+      symbol: 'ProductRepository',
+      node: 'REPOSITORY productRepository',
+      candidates: [],
+      structuralReach: 2,
+      observed: [],
+      observedTotal: 0,
+      notExercised: [],
+      notExercisedTotal: 0,
+      notExercisedUndetermined: false,
+      sharedResources: [],
+      sharedResourcesTotal: 0,
+      limitations: []
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        const target = String(url)
+        if (target.includes('/impact')) return Promise.resolve(jsonResponse(resolvedImpact))
+        return Promise.resolve(jsonResponse(target.includes('/insights/') ? detail : report))
+      })
+    )
+    routeState.query = {impact: 'ProductRepository'}
+    wrapper = mount(RuntimeInsights, {
+      attachTo: document.body,
+      global: {stubs: {'router-link': {template: '<a><slot /></a>'}}}
+    })
+    await flushPromises()
+
+    await wrapper.get('#insights-panel-impact .insight-impact-coverage-link').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('#insights-tab-coverage').attributes('aria-selected')).toBe('true')
+    expect(shown(wrapper.get('#insights-panel-coverage'))).toBe(true)
+    expect(shown(wrapper.get('#insights-panel-impact'))).toBe(false)
+    expect(document.activeElement?.id).toBe('insight-not-exercised')
+  })
+
+  it('opens the tab a deep link names, and ignores one it does not know', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((url) => Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : report)))
     )
+    routeState.query = {tab: 'impact'}
     wrapper = mountPanel()
     await flushPromises()
+    expect(wrapper.get('#insights-tab-impact').attributes('aria-selected')).toBe('true')
 
-    expect(wrapper.get('#insights-tab-changes').attributes('aria-selected')).toBe('true')
-    expect(shown(wrapper.get('#insights-panel-changes'))).toBe(true)
-    expect(shown(wrapper.get('#insights-panel-findings'))).toBe(false)
+    wrapper.unmount()
+    routeState.query = {tab: 'nope'}
+    wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.get('#insights-tab-findings').attributes('aria-selected')).toBe('true')
+  })
+
+  it("opens Change impact on a changed method from the comparison's See its impact", async () => {
+    const comparison = {
+      status: 'COMPARED',
+      reason: null,
+      notComparableReasons: [],
+      previous: {runId: 'run-0', ordinal: 4, startedAt: 1, endedAt: 2, closedBy: 'SHUTDOWN'},
+      runs: [],
+      behavior: [],
+      edges: [],
+      restartCost: {status: 'UNAVAILABLE', reason: 'Quarkus', beans: []},
+      latency: [],
+      limitations: [],
+      codeChanges: {
+        available: true,
+        unavailableReason: null,
+        counts: {changed: 4, added: 0, removed: 0, executed: 4, notExecuted: 0},
+        methods: [
+          {
+            key: 'com.example.OrderService#total(J)J',
+            className: 'com.example.OrderService',
+            name: 'total',
+            descriptor: '(J)J',
+            change: 'CHANGED',
+            status: 'EXECUTED',
+            notTrackedReason: null,
+            routes: ['GET /api/orders'],
+            routesTotal: 1,
+            routesNote: null
+          },
+          {
+            key: 'com.example.OrderService#<init>()V',
+            className: 'com.example.OrderService',
+            name: '<init>',
+            descriptor: '()V',
+            change: 'CHANGED',
+            status: 'EXECUTED',
+            notTrackedReason: null,
+            routes: [],
+            routesTotal: 0,
+            routesNote: null
+          }
+        ],
+        methodsTotal: 4,
+        limitations: []
+      }
+    }
+    const fetchMock = vi.fn((url) => {
+      const target = String(url)
+      if (target.includes('/comparison')) return Promise.resolve(jsonResponse(comparison))
+      if (target.includes('/impact')) return Promise.resolve(jsonResponse({status: 'NOT_FOUND', reason: 'Nothing.'}))
+      return Promise.resolve(jsonResponse(target.includes('/insights/') ? detail : report))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(RuntimeInsights, {
+      attachTo: document.body,
+      global: {stubs: {'router-link': {template: '<a><slot /></a>'}}}
+    })
+    await flushPromises()
+
+    // Before any check, Change impact offers the changed method too, counting the methods the comparison did not list.
+    const picks = wrapper.get('#insights-panel-impact').get('[data-testid="impact-changed"]')
+    expect(picks.findAll('button').map((button) => button.text())).toEqual(['OrderService#total'])
+    expect(picks.text()).toContain('and 3 more in Changes')
+
+    await wrapper.get('#insights-tab-changes').trigger('click')
+    await wrapper.get('.insight-comparison-impact').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('#insights-tab-impact').attributes('aria-selected')).toBe('true')
+    expect(shown(wrapper.get('#insights-panel-impact'))).toBe(true)
+    expect(document.activeElement?.id).toBe('insights-panel-impact')
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes(encodeURIComponent('OrderService#total(J)J')))
+    ).toBe(true)
+    expect(wrapper.get('#insights-panel-impact input').element.value).toBe('OrderService#total')
   })
 
   it('counts each theme filter and closes an open row the filter leaves out', async () => {

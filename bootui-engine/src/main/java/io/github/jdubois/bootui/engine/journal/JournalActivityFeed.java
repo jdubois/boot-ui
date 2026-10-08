@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.journal;
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.ActivityKpiDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
+import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
@@ -203,6 +204,7 @@ public final class JournalActivityFeed {
         Map<String, JournalEntry> requests = new HashMap<>();
         Map<String, String> executions = new HashMap<>();
         Map<String, Map<String, Integer>> selectsByRequest = new HashMap<>();
+        Map<String, Long> lastWorkEnds = new HashMap<>();
         AiCallOwners aiCallOwners = new AiCallOwners(evictedRequestTraces);
         for (JournalEntry entry : entries) {
             RuntimeEvent event = entry.event();
@@ -212,6 +214,7 @@ public final class JournalActivityFeed {
             } else if (opensExecution(event)) {
                 executions.putIfAbsent(event.executionId(), event.executionId());
             }
+            recordWorkEnd(lastWorkEnds, event);
             if (event.payload() instanceof SqlPayload sql && event.requestId() != null && isSelect(sql.sql())) {
                 countSelect(selectsByRequest.computeIfAbsent(event.requestId(), id -> new HashMap<>()), sql.sql());
             }
@@ -219,8 +222,17 @@ public final class JournalActivityFeed {
 
         List<Row> rows = new ArrayList<>(entries.size());
         for (JournalEntry entry : entries) {
-            ActivityEntryDto rendered =
-                    render(entry, eventId, requests, executions, aiCallOwners, selectsByRequest, routes, false, rule);
+            ActivityEntryDto rendered = render(
+                    entry,
+                    eventId,
+                    requests,
+                    executions,
+                    aiCallOwners,
+                    selectsByRequest,
+                    lastWorkEnds,
+                    routes,
+                    false,
+                    rule);
             if (rendered != null) {
                 rows.add(
                         new Row(entry, rowDetails.apply(rendered, entry.event()), aiCallOwners.ownerOf(entry.event())));
@@ -417,6 +429,7 @@ public final class JournalActivityFeed {
             Map<String, String> executions,
             AiCallOwners aiCallOwners,
             Map<String, Map<String, Integer>> selectsByRequest,
+            Map<String, Long> lastWorkEnds,
             RouteTemplateResolver routes,
             boolean byIdentity,
             JournalTextExposure text) {
@@ -504,19 +517,20 @@ public final class JournalActivityFeed {
             HttpPayload ownerHttp =
                     owner == null ? null : (HttpPayload) owner.event().payload();
             return entry(
-                    id,
-                    TYPE_EXCEPTION,
-                    event,
-                    SEVERITY_ERROR,
-                    exception.exceptionClass() == null ? "Exception" : exception.exceptionClass(),
-                    null,
-                    null,
-                    ownerHttp == null ? null : ownerHttp.method(),
-                    ownerHttp == null ? null : text.path(ownerHttp.path()),
-                    null,
-                    false,
-                    parentId,
-                    false);
+                            id,
+                            TYPE_EXCEPTION,
+                            event,
+                            SEVERITY_ERROR,
+                            exception.exceptionClass() == null ? "Exception" : exception.exceptionClass(),
+                            null,
+                            null,
+                            ownerHttp == null ? null : ownerHttp.method(),
+                            ownerHttp == null ? null : text.path(ownerHttp.path()),
+                            null,
+                            false,
+                            parentId,
+                            false)
+                    .withExceptionGroupId(exception.groupId());
         }
         if (payload instanceof SecurityPayload security) {
             String type = security.type() == null ? "" : security.type();
@@ -574,8 +588,9 @@ public final class JournalActivityFeed {
         if (payload instanceof AsyncHandoffPayload handoff) {
             List<String> badges = new ArrayList<>(2);
             JournalEntry request = event.requestId() == null ? null : requests.get(event.requestId());
-            boolean afterResponse = handoff.afterResponse() != null
-                    ? handoff.afterResponse()
+            Boolean worked = handoff.workedAfterResponse(lastWorkEnd(lastWorkEnds, handoff));
+            boolean afterResponse = worked != null
+                    ? worked
                     : request != null
                             && event.epochMillis() + Math.max(0, event.durationNanos()) / 1_000_000L
                                     > request.event().epochMillis()
@@ -858,6 +873,24 @@ public final class JournalActivityFeed {
     }
 
     /** An AI call's summary: its operation, model, and provider, such as {@code chat gpt-4o (openai)}. */
+    /** Keeps, per handoff execution, when the last SQL statement, REST call, or message recorded under it ended. */
+    static void recordWorkEnd(Map<String, Long> lastWorkEnds, RuntimeEvent event) {
+        if (!ExecutionIds.isAsync(event.executionId())
+                || !(event.payload() instanceof SqlPayload
+                        || event.payload() instanceof RestClientPayload
+                        || event.payload() instanceof MessagingPayload)) {
+            return;
+        }
+        long end = event.epochMillis() * 1_000L + Math.max(0, event.durationNanos()) / 1_000L;
+        lastWorkEnds.merge(event.executionId(), end, Math::max);
+    }
+
+    /** When the last work {@link #recordWorkEnd} kept for {@code handoff}'s execution ended, else Long.MIN_VALUE. */
+    static long lastWorkEnd(Map<String, Long> lastWorkEnds, AsyncHandoffPayload handoff) {
+        Long end = handoff.executionId() == null ? null : lastWorkEnds.get(handoff.executionId());
+        return end == null ? Long.MIN_VALUE : end;
+    }
+
     /**
      * A transaction's outcome and declared attributes, such as {@code rolled back (rollback-only) · read-only ·
      * REQUIRES_NEW · REPEATABLE_READ · UnexpectedRollbackException}.
@@ -1008,11 +1041,28 @@ public final class JournalActivityFeed {
             Function<JournalEntry, String> eventId,
             Map<String, Map<String, Integer>> pendingSelects,
             LongConsumer overflow) {
+        return renderForCapture(batch, eventId, pendingSelects, new HashMap<>(), overflow);
+    }
+
+    /**
+     * Renders as {@link #renderForCapture(List, Function, Map, LongConsumer)} does, with {@code pendingWorkEnds}
+     * carrying from batch to batch when the last I/O of each handoff not yet closed ended, since a handoff is recorded
+     * once it closes, after its work: its after-response badge then sees I/O an earlier batch held. Each entry is
+     * forgotten once its handoff renders; the caller bounds it.
+     */
+    public List<ActivityEntryDto> renderForCapture(
+            List<JournalEntry> batch,
+            Function<JournalEntry, String> eventId,
+            Map<String, Map<String, Integer>> pendingSelects,
+            Map<String, Long> pendingWorkEnds,
+            LongConsumer overflow) {
         // Learns no request, so it infers no parent from a trace.
         AiCallOwners aiCallOwners = new AiCallOwners();
         RouteTemplateResolver routes = resolver();
+        Map<String, Long> lastWorkEnds = pendingWorkEnds;
         for (JournalEntry entry : batch) {
             RuntimeEvent event = entry.event();
+            recordWorkEnd(lastWorkEnds, event);
             if (event.payload() instanceof SqlPayload sql && event.requestId() != null && isSelect(sql.sql())) {
                 if (!countSelect(pendingSelects.computeIfAbsent(event.requestId(), id -> new HashMap<>()), sql.sql())) {
                     overflow.accept(1);
@@ -1028,6 +1078,7 @@ public final class JournalActivityFeed {
                     Map.of(),
                     aiCallOwners,
                     pendingSelects,
+                    lastWorkEnds,
                     routes,
                     true,
                     JournalTextExposure.masked());
@@ -1036,6 +1087,9 @@ public final class JournalActivityFeed {
             }
             if (entry.event().source() == JournalSource.HTTP && entry.event().requestId() != null) {
                 pendingSelects.remove(entry.event().requestId());
+            }
+            if (entry.event().payload() instanceof AsyncHandoffPayload handoff && handoff.executionId() != null) {
+                lastWorkEnds.remove(handoff.executionId());
             }
         }
         rows.sort(Comparator.comparingLong((Row row) -> row.entry().timestamp())

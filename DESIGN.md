@@ -303,9 +303,12 @@ BootUI is a **layered** system, not a flat one — but the elevation is calm. Fr
   deep link opens the row it names. Filters with counts sit above the list as `aria-pressed` buttons, not a second tab
   strip.
 - **Everything else in tabs:** tools and caveats about the run (comparison, change impact, profiling, coverage, check
-  limits) move to `PanelTabs` beside the findings rather than stacking under them.
-- **Calm caveats:** a qualifier such as "Not externally validated" is a muted inline mark (glyph plus text, reason on
-  hover and in the open row), never a filled badge competing with the finding's own title.
+  limits) move to `PanelTabs` beside the findings rather than stacking under them. A tool that answers its own question,
+  such as change impact's search, gets its own tab with its field first, never a card below a long report; the report
+  links into it (a changed method's "See its impact").
+- **Calm caveats:** a qualifier such as "Not listed by default" is a muted inline mark, with its reason in the open
+  row, never a filled badge competing with the finding's own title. Internal process, such as how a check was
+  validated or plan identifiers, never reaches the screen.
 
 ### Signature: Brand Mark & Ambient Orbs
 - **Brand mark:** a solid Spring-green rounded square (1rem radius, 2.75rem) holding a white coffee-cup glyph (`bi-cup-hot-fill`), with a green glow (`0 0.6rem 1.2rem rgba(25,135,84,0.28)`). The "BootUI" wordmark sits beside it.

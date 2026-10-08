@@ -89,4 +89,9 @@ class WebFluxApiConformanceTest extends AbstractBootUiApiConformanceTest {
     protected Runtime runtime() {
         return Runtime.SPRING_WEBFLUX;
     }
+
+    @Override
+    protected String exceptionProbePath() {
+        return applicationPath() + "/api/sample/boom";
+    }
 }

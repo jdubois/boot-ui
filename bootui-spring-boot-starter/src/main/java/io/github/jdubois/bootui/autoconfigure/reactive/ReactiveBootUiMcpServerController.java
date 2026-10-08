@@ -66,12 +66,14 @@ public class ReactiveBootUiMcpServerController {
                 "http",
                 properties.getApiPath() + "/mcp",
                 McpProtocol.DEFAULT_PROTOCOL_VERSION,
+                McpProtocol.SUPPORTED_VERSIONS,
                 Math.max(1, properties.getMcp().getMaxResults()),
                 stats.callCount(),
                 stats.totalLatencyMillis(),
                 stats.capacityRefusals(),
                 stats.timeouts(),
                 stats.responseLimitRefusals(),
+                stats.cancellations(),
                 toolInfos.size(),
                 toolInfos);
     }

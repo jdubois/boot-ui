@@ -685,7 +685,7 @@ Features:
   later, and the first route; a declared jar with no class loaded is **not loaded in this run**, never unused.
 - `GET /bootui/api/code-inventory`, `/changes`, `/methods`, and `/dependencies`; `get_code_inventory` and
   `bootui code inventory` take `query` (`changed` by default, `never-executed`, `not-tracked`, `executed`,
-  `dependencies`, or a package or class) and `limit`.
+  `dependencies`, or a package, class, or method name) and `limit`.
 
 Acceptance criteria:
 
@@ -794,8 +794,10 @@ Data sources:
 
 - The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a), `network` (M5-5b), and
   `blocking` (M5-5c) sensors record by default, and `files` and `environment` (M5-5d), `thread-activity` (M5-5e), and
-  `thread-locals` (M5-5f) when opted in. The `resources` and `security-sinks` sensors are still listed but report
-  `not-available` with reason `Not available in this version.`
+  `thread-locals` (M5-5f) when opted in. `security-sinks` (M5-6b) records, when opted in with
+  `bootui.agent.security-sinks.request-values=true`, request input reaching SQL text, a command, a file path, or an
+  outbound URL unchanged: the redacted sink, the parameter's name, and a sentence stating the fact. The `resources`
+  sensor is still listed but reports `not-available` with reason `Not available in this version.`
 - Each request's end, which the adapters mark once its response is complete (Spring MVC once an async request's
   context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended), for the
   `thread-activity` sensor to check what the request left running.
@@ -942,7 +944,9 @@ Acceptance criteria:
   three samples' `GET /api/thread-locals/leak` shows `TenantContext.CURRENT` left set; the counterexamples
   `GET /api/thread-locals/cleared` (removed in `finally`), `GET /api/thread-locals/nulled` (set to `null`), and, on
   Spring MVC and Quarkus, `GET /api/thread-locals/before` (set by a filter before BootUI's scope) never appear, and
-  `GET /api/thread-locals/cache`'s `withInitial` date format is `left set (with initial value)`.
+  `GET /api/thread-locals/cache`'s `withInitial` date format is `left set (with initial value)`. The Quarkus sample's
+  `ScheduledTenant`, on when `side-effects-seed.scheduled-every` sets its period, leaves `TenantContext.JOB` set from a
+  scheduled run: a row of scope `execution` with no request.
 - `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`;
   `threads`, `files`, `environment`, `thread-activity`, and `thread-locals` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
@@ -1907,17 +1911,18 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   cached until the journal records more or a panel's enablement changes. Eligibility follows the observation's unit,
   not just its request count: a heap-growth check that examined collections is evaluated even with zero requests,
   whether it observed growth or a stable heap.
-  Every check carries `validation` and `validationReason`, its kind's external validation ([PLAN-v2.md](PLAN-v2.md)
-  M4-20, recorded once in the engine's `ExternalValidation`): `PASSED` (`errors-behind-2xx`,
-  `changed-code-not-executed`) and `NOT_VALIDATED` (kinds silent or never exercised on the validation applications)
-  are listed by default, the latter marked in the panel; `FAILED` (`route-time-breakdown`, `exception-hotspots`,
+  Each kind's external validation ([PLAN-v2.md](PLAN-v2.md) M4-20, recorded once in the engine's `ExternalValidation`)
+  decides whether its rows are listed by default, and is never exposed: no check, row, limitation, MCP or CLI text
+  names it or a plan identifier, which `UserFacingPlanJargonTests` and the UI's `userFacingText.test.js` enforce.
+  `PASSED` (`errors-behind-2xx`, `changed-code-not-executed`) and `NOT_VALIDATED` (kinds silent or never exercised on
+  the validation applications) are listed by default; `FAILED` (`route-time-breakdown`, `exception-hotspots`,
   `connections-per-request`, `ai-usage-by-route`, each folded into the panel showing the same evidence, which links to
   its rows), `UNDER_SAMPLED` (`repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`,
   `framework-warnings-by-route`, `anonymous-data-reach`), `NOT_LISTED` (`gc-inflated-latency`, `heap-growth-after-gc`,
   reached from the Memory panel), and `NOT_JUDGED` (any kind added after M4-20, D36) are not.
   Every observation carries `listed`, whether the panel's and the agents' default list shows it, and, when it does
-  not, `unlistedReason` (M4-19, M4-20): the kind's validation reason for a kind that is not listed, or else the kind's
-  own rule. Within the kinds, a `route-time-breakdown` is prominent with a warm median of 20 ms or more, authorization
+  not, `unlistedReason` (M4-19, M4-20): for a kind that is not listed, where its evidence is shown (the panel it is
+  folded into, the Memory panel, its own panel, or the full list, a search, or a query naming it), or else the kind's own rule. Within the kinds, a `route-time-breakdown` is prominent with a warm median of 20 ms or more, authorization
   taking 20 % of the warm time, or a median of 50 authorization decisions a request; `exception-hotspots` collapses the
   groups seen only behind 4xx responses into one counted row, unless (nearly) every request to their route, at least
   three, recorded them, and those caught in completed scheduled runs or messages into another; `repeated-selects` leaves
@@ -3398,10 +3403,10 @@ Design rules:
   overriding the configured property for the lifetime of the running application. While disabled, JSON-RPC requests are
   refused in-band with a `server disabled` error.
 - **In-process and dependency-light.** Implemented as a hand-rolled JSON-RPC 2.0 server (`initialize`, `ping`,
-  `tools/list`, `tools/call`, `prompts/list`, `prompts/get`) served over the existing HTTP stack at
+  `server/discover`, `tools/list`, `tools/call`, `prompts/list`, `prompts/get`) served over the existing HTTP stack at
   `POST /bootui/api/mcp`, with a
   `GET /bootui/api/mcp-server` status response for human inspection. The transport endpoint itself returns 405 to `GET`
-  because BootUI does not offer a server-to-client SSE stream. No new runtime dependencies beyond what BootUI already ships.
+  because BootUI offers no server-to-client stream, which MCP 2026-07-28 removed. No new runtime dependencies beyond what BootUI already ships.
   The Spring AI MCP server starter is intentionally not used because it targets Spring Boot 3.x.
 - **Deliberately scoped method surface.** The server advertises only the `tools` and `prompts` capabilities. `resources/*`
   and `completion/complete` are intentionally not implemented: every piece of runtime data BootUI exposes is already
@@ -3447,7 +3452,8 @@ Design rules:
     `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_agent_status`, `get_code_inventory`,
     `get_code_paths`, `get_method_probe`, `get_devtools_status`,
     `get_code_paths`, `get_side_effects`, `get_devtools_status`,
-    `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`.
+    `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, `get_claude_code_sessions`,
+    `get_hibernate_statistics`, and `get_websockets`.
   - Bounded actions: `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
     `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
     `resume_transaction_recording`, `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`,
@@ -3461,13 +3467,50 @@ Design rules:
   interpret partial evidence and server scope rather than applying advisor-score semantics.
 
   Heap capture/download, HTTP probes, database/cache mutations, GitHub writes, dev-service restarts, and arbitrary agent
-  commands are deliberately excluded. Tools whose backing controller is absent or not applicable to the running stack
-  are not advertised.
+  commands are deliberately excluded, as are Profile resources (JFR), enabling Hibernate statistics, the WebSockets
+  capture switch, the Java agent's sensor switches, and logger-level changes, which stay browser-only. Tools whose
+  backing controller is absent or not applicable to the running stack are not advertised; a `tools/call` naming one of
+  them answers `-32602` with `Tool not available in this application: <name>.` and the panel's unavailable reason, also
+  in `error.data` (`tool`, `panel`, `reason`), while a name outside the catalog keeps `Unknown tool: <name>`. The CLI
+  facade answers both with `404`. A catalog tool whose panel is disabled gets the in-band disabled refusal instead.
+- **Tool hints and argument schemas.** Each `tools/list` entry carries MCP `annotations` derived from the catalog's
+  action flag: reads are `readOnlyHint`/`idempotentHint`; `clear_*` actions are `destructiveHint`; clear, pause, and
+  resume are `idempotentHint`; `vulnerabilities_scan` is `openWorldHint`. `inputSchema` describes each argument per tool
+  from the shared tool guide (id source, query words, an example) with its effective `default` page size.
 - **Strict inputs.** The transport rejects invalid JSON-RPC id/params types, non-object tool arguments, unknown
   arguments, and values whose type does not match the advertised schema with `-32600`/`-32602`; malformed values are
   never silently coerced or replaced with broad defaults.
-- **Protocol version.** An absent `MCP-Protocol-Version` header uses the server's advertised current revision
-  (`2025-06-18`). A present unsupported revision is rejected; BootUI does not emulate older session semantics.
+- **Dual-era protocol.** The endpoint serves MCP 2025-06-18 and MCP 2026-07-28 at once and chooses per request, as MCP
+  2026-07-28's backward compatibility rules describe ([AI agents](AI-AGENTS.md#protocol-eras)). A request without
+  `_meta["io.modelcontextprotocol/protocolVersion"]`, and every `initialize`, is legacy and answers byte for byte as
+  before: an absent `MCP-Protocol-Version` header means `2025-06-18`, and any value other than `2025-06-18` or
+  `2026-07-28`, or a repeated header, is `400`/`-32600`; `2026-07-28` without the modern `_meta` is a malformed modern
+  request, `400`/`-32602` echoing the request id. The header is judged after the body is read, and the envelope fields
+  `jsonrpc`, `method`, and `params.name` count only when they are strings, so both stacks answer a `null` or numeric
+  field with the same client error. A modern request is validated (version type, header agreement, supported version,
+  client capabilities, `Mcp-Method`, `Mcp-Name` with Base64 decoding, progress token type) with `400` and `-32602`,
+  `-32020`, or `-32022` carrying `data.supported`. The modern era has `server/discover` but no `initialize` or `ping`,
+  answers an unknown method with `404`, adds `resultType`, `_meta` server identity, and cache hints (`ttlMs: 60000`,
+  `cacheScope: "private"`) on discovery and list results, and moves BootUI's server errors to `-31000`..`-31003` because
+  MCP 2026-07-28 reserves `-32000`..`-32099`. Era selection precedes the disabled short-circuit, so a malformed modern
+  request is a `400` even while the server is off. The CLI facade and the engine keep the legacy codes.
+- **Request-scoped progress (modern only).** A modern `tools/call` with a string or integer `_meta.progressToken`, to a
+  tool whose operation reports measured phases through the engine's `OperationProgress` (today `architecture_scan`),
+  from a client whose `Accept` explicitly lists `text/event-stream`, answers on a `text/event-stream` POST response with
+  `X-Accel-Buffering: no`: rate-limited `notifications/progress` (burst 8, then one per 250 ms, coalescing to the
+  newest, flushed before the end) and exactly one final response, after which the stream closes. Events are `data:`
+  lines with no ids; keep-alive comments every 2 seconds, so Spring MVC, which only notices a closed stream when a write
+  fails, does so within about 4 seconds; WebFlux and Quarkus notice it at once. Closing the stream cancels the call:
+  nothing more is written, the tool is interrupted and stops at its next step, and its concurrency permit is released
+  exactly once, when the tool has returned and the stream is written. A cancelled call is counted in the `/mcp-server`
+  status's `cancellations`, apart from `timeouts`, and a cancelled blocking call answers `-32800` ("MCP request
+  cancelled"); the status also lists `supportedProtocolVersions`. The execution timeout stays absolute, and a call
+  that timed out before its stream opened still ends with the timeout response. Each event is one line of compact JSON
+  regardless of the application's mapper configuration, built through one engine helper that refuses a line break. A
+  writer blocked on a client that stops reading keeps the permit (WebFlux emits only on subscriber demand) and gives up
+  10 seconds after the execution timeout on every stack; Quarkus then resets the response. Spring MVC falls back to
+  one JSON response when the request cannot go async. Everything else, every refusal, and every legacy request is one
+  JSON response; there is still no `GET` stream, live push, resource, or `subscriptions/listen`.
 - **Agent guidance.** Initialization instructions direct agents to establish overview/health context, prefer the smallest
   relevant read, correlate exception and trace identifiers, verify advisor findings before changing code, and account for
   active scan costs (`memory_scan` may trigger a full GC; `pentest_scan` sends bounded loopback probes). Tool descriptions

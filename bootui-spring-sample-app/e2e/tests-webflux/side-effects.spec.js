@@ -170,6 +170,56 @@ test.describe('Side Effects view on Spring WebFlux', () => {
     await expect(page.locator('main')).toContainText('Processes the application starts')
   })
 
+  test('shows request input reaching a sink as a fact, with the value redacted (M5-6b)', async ({
+    page,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, 'Security sinks need the BootUI agent and request-value matching')
+    // Letters only, so a files pattern, which folds digits, could not hide a value that leaked.
+    const letters = () =>
+      Date.now()
+        .toString(36)
+        .replace(/[0-9]/g, (digit) => 'abcdefghij'[Number(digit)])
+    const value = `seed${letters()}`
+    const bound = `bound${letters()}`
+    const sinkRows = async () =>
+      (await (await page.request.get('/bootui/api/side-effects/sensor?sensor=security-sinks&limit=500')).json()).rows ??
+      []
+
+    // This sample uses R2DBC, which SQL Trace does not capture: no SQL text row.
+
+    // A file path and an outbound URL holding the value.
+    expect((await page.request.get(`/api/sinks/reports/${value}`)).ok()).toBeTruthy()
+    expect((await page.request.get(`/api/sinks/lookup?name=${value}`)).ok()).toBeTruthy()
+    await expect
+      .poll(async () => (await sinkRows()).filter((row) => ['file path', 'outbound URL'].includes(row.kind)).length, {
+        timeout: 30_000
+      })
+      .toBeGreaterThanOrEqual(2)
+    const rows = await sinkRows()
+    expect(rows.find((row) => row.kind === 'file path').target).toContain('{name}')
+    expect(rows.find((row) => row.kind === 'outbound URL').target).toMatch(/\?(.*&)?user/)
+    for (const row of rows) {
+      expect(row.detail).not.toMatch(/vulnerab|injection/i)
+    }
+
+    // No value reaches any Side Effects read, nor the bound query's statement.
+    const everything = JSON.stringify([
+      await (await page.request.get('/bootui/api/side-effects')).json(),
+      ...(await Promise.all(
+        ['processes', 'network', 'files', 'environment', 'security-sinks'].map(async (sensor) =>
+          (await page.request.get(`/bootui/api/side-effects/sensor?sensor=${sensor}&limit=500`)).json()
+        )
+      ))
+    ])
+    expect(everything).not.toContain(value)
+    expect(everything).not.toContain(bound)
+
+    await page.goto('/bootui/#/side-effects')
+    await page.getByRole('tab', {name: /Security sinks/}).click()
+    await expect(page.locator('main')).toContainText('Request input reached this')
+  })
+
   test('reports a sleep on the event loop and never the same sleep on boundedElastic', async ({
     page,
     request,
@@ -311,6 +361,16 @@ test.describe('Side Effects view on Spring WebFlux', () => {
         {timeout: 30_000}
       )
       .toBeGreaterThan(0)
+    // A pooled worker fills the date format at its first cache request: reported once per worker, flagged.
+    const format = 'io.github.jdubois.bootui.webfluxsample.sideeffects.TenantContext.FORMAT'
+    await expect
+      .poll(
+        async () =>
+          (await read()).find((row) => row.attribution === 'GET /api/thread-locals/cache' && row.target === format)
+            ?.kind,
+        {timeout: 30_000}
+      )
+      .toBe('left set (with initial value)')
     const rows = await read()
     const leak = rows.find((row) => row.attribution === 'GET /api/thread-locals/leak' && row.target === holder)
     expect(leak.kind).toBe('left set')
@@ -320,10 +380,6 @@ test.describe('Side Effects view on Spring WebFlux', () => {
     for (const path of ['cleared', 'nulled']) {
       expect(rows.filter((row) => row.attribution === `GET /api/thread-locals/${path}`)).toEqual([])
     }
-    const cache = rows.find(
-      (row) => row.target === 'io.github.jdubois.bootui.webfluxsample.sideeffects.TenantContext.FORMAT'
-    )
-    if (cache) expect(cache.kind).toBe('left set (with initial value)')
     expect(rows.filter((row) => /RequestContextHolder|LocaleContextHolder|MDC/.test(row.target))).toEqual([])
     expect(JSON.stringify(rows)).not.toContain('tenant-secret')
 

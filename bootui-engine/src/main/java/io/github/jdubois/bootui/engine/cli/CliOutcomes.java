@@ -59,15 +59,20 @@ public final class CliOutcomes {
         };
     }
 
+    private static boolean isUnknownOrUnavailableTool(String message) {
+        return message != null
+                && (message.startsWith(McpProtocol.UNKNOWN_TOOL_PREFIX)
+                        || message.startsWith(McpProtocol.UNAVAILABLE_TOOL_PREFIX));
+    }
+
     private static CliStatus statusOf(McpDispatchOutcome.ProtocolError error) {
         return switch (error.code()) {
             case McpProtocol.INVALID_PARAMS ->
-                // The dispatcher reports an unknown tool with the same code as a malformed argument. For a
-                // CLI they are different failures: one is "no such command here", the other "you called it
-                // wrong", so the shared message constant separates them.
-                error.message() != null && error.message().startsWith(McpProtocol.UNKNOWN_TOOL_PREFIX)
-                        ? CliStatus.NOT_FOUND
-                        : CliStatus.BAD_REQUEST;
+                // The dispatcher reports an unknown or unavailable tool with the same code as a malformed
+                // argument. For a CLI they are different failures: one is "no such command here", the other "you
+                // called it wrong", so the shared message constants separate them. An unavailable tool stays a 404,
+                // which is what every published CLI reads as "this application does not expose it".
+                isUnknownOrUnavailableTool(error.message()) ? CliStatus.NOT_FOUND : CliStatus.BAD_REQUEST;
             case McpProtocol.SERVER_AT_CAPACITY -> CliStatus.TOO_MANY_REQUESTS;
             case McpProtocol.TOOL_TIMEOUT -> CliStatus.GATEWAY_TIMEOUT;
             case McpProtocol.SERVER_DISABLED -> CliStatus.SERVICE_UNAVAILABLE;

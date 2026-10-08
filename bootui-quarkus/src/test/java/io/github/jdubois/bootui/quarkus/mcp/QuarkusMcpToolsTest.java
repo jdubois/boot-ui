@@ -16,7 +16,9 @@ import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.web.*;
+import io.github.jdubois.bootui.quarkus.web.HibernateStatisticsResource;
 import io.github.jdubois.bootui.quarkus.web.RuntimeInsightsResource;
+import io.github.jdubois.bootui.quarkus.web.WebSocketsResource;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -235,7 +237,9 @@ class QuarkusMcpToolsTest {
                         mock(JavaAgentResource.class),
                         mock(CodeInventoryResource.class),
                         mock(CodePathsResource.class),
-                        mock(SideEffectsResource.class))
+                        mock(SideEffectsResource.class),
+                        mock(HibernateStatisticsResource.class),
+                        mock(WebSocketsResource.class))
                 .tools();
     }
 

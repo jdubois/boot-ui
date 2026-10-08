@@ -78,7 +78,11 @@ describe('ChangeImpact', () => {
     const observed = wrapper.find('[data-list="observed"]')
     expect(observed.text()).toContain('12 requests · 2 anonymous · 1 error')
     expect(observed.text()).toContain('Reads TABLE sample_products')
-    expect(wrapper.find('[data-list="not-exercised"] code').text()).toBe('GET /api/products/{id}')
+    const notExercised = wrapper.find('[data-list="not-exercised"]')
+    expect(notExercised.find('h3').text()).toContain("Reaches it, but didn't run")
+    expect(notExercised.find('h3').text()).not.toContain('Not exercised')
+    expect(notExercised.find('.insight-impact-scope').text()).toContain('Only routes that reach what you checked')
+    expect(notExercised.find('code').text()).toBe('GET /api/products/{id}')
     expect(wrapper.find('[data-list="shared"]').text()).toContain(
       'No other route uses what the routes through it touched.'
     )
@@ -97,7 +101,7 @@ describe('ChangeImpact', () => {
     await flushPromises()
 
     const list = wrapper.find('[data-list="not-exercised"]')
-    expect(list.text()).toContain('Not exercised (incomplete)')
+    expect(list.find('h3').text()).toContain("Reaches it, but didn't run (incomplete)")
     expect(list.text()).toContain('Cannot determine whether every mapped route ran')
     expect(list.text()).not.toContain('Every mapped route that reaches it ran.')
   })
@@ -150,7 +154,26 @@ describe('ChangeImpact', () => {
     expect(observed.text()).toContain('3 ran it of 12 requests · 2 anonymous · 1 error · partial')
     expect(wrapper.find('[data-list="not-observed"]').text()).toContain('Ran without showing it')
     expect(wrapper.find('[data-list="not-observed"]').text()).toContain('without its call trees showing the method')
+    expect(wrapper.find('[data-list="not-exercised"] h3').text()).toContain(
+      "Reaches it, but didn't run it (incomplete)"
+    )
     expect(wrapper.find('[data-list="not-exercised"]').text()).toContain('No route is proven not to have run it')
+  })
+
+  it('points from its scoped list to the app-wide list in Coverage & limits', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(resolved)))
+    wrapper = mountImpact({initialSymbol: 'ProductRepository'})
+    await flushPromises()
+
+    expect(wrapper.findAll('.insight-impact-scope')).toHaveLength(1)
+    const link = wrapper.get('[data-list="not-exercised"] .insight-impact-coverage-link')
+    expect(link.element.tagName).toBe('BUTTON')
+    expect(link.attributes('type')).toBe('button')
+    expect(link.text()).toBe('see Coverage & limits')
+    expect(link.attributes('href')).toBeUndefined()
+
+    await link.trigger('click')
+    expect(wrapper.emitted('show-coverage')).toHaveLength(1)
   })
 
   it('shows a failed read as its message, never as an object', async () => {
@@ -184,6 +207,66 @@ describe('ChangeImpact', () => {
 
     expect(target.scrollIntoView).toHaveBeenCalledWith({block: 'start', behavior: 'smooth'})
     expect(document.activeElement).toBe(target)
+  })
+
+  it('offers the methods changed since the previous run until something is checked', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(resolved))
+    vi.stubGlobal('fetch', fetchMock)
+    const changed = Array.from({length: 8}, (_, index) => ({
+      symbol: `com.example.OrderService#m${index}()V`,
+      name: `OrderService#m${index}`
+    }))
+    wrapper = mountImpact({changed})
+    await flushPromises()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    const picks = wrapper.find('[data-testid="impact-changed"]')
+    expect(picks.find('h3').text()).toBe('Changed since the previous run')
+    expect(picks.findAll('button').map((button) => button.text())).toHaveLength(6)
+    expect(picks.text()).toContain('and 2 more in Changes')
+    expect(wrapper.find('input').attributes('aria-describedby')).toBe('insight-impact-hint')
+
+    await picks.findAll('button')[1].trigger('click')
+    await flushPromises()
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      `symbol=${encodeURIComponent('com.example.OrderService#m1()V')}`
+    )
+    expect(wrapper.find('input').element.value).toBe('OrderService#m1')
+    expect(wrapper.find('[data-testid="impact-changed"]').exists()).toBe(false)
+  })
+
+  it('checks a symbol the panel asks for, as "See its impact" does', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(resolved))
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountImpact()
+    await flushPromises()
+
+    wrapper.vm.check('com.example.OrderService#total(J)J', 'OrderService#total')
+    await flushPromises()
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      `symbol=${encodeURIComponent('com.example.OrderService#total(J)J')}`
+    )
+    expect(wrapper.find('input').element.value).toBe('OrderService#total')
+    expect(wrapper.find('.insight-impact-node').exists()).toBe(true)
+  })
+
+  it('keeps the latest check when an earlier one answers after it', async () => {
+    let answerFirst
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise((resolve) => (answerFirst = resolve)))
+      .mockResolvedValueOnce(jsonResponse(resolved))
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountImpact({initialSymbol: 'Slow'})
+    wrapper.vm.check('ProductRepository')
+    await flushPromises()
+    expect(wrapper.find('.insight-impact-node').text()).toContain('productRepository')
+
+    answerFirst(jsonResponse({...resolved, node: 'BEAN slowBean'}))
+    await flushPromises()
+    expect(wrapper.find('.insight-impact-node').text()).toContain('productRepository')
+    expect(wrapper.find('input').element.value).toBe('ProductRepository')
+    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeUndefined()
   })
 
   it('offers the candidates of an ambiguous symbol and checks the one chosen', async () => {

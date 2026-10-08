@@ -74,7 +74,7 @@ test.describe('Side Effects view (Quarkus)', () => {
           const rows = (await (await page.request.get(`/bootui/api/side-effects/sensor?sensor=processes`)).json()).rows
           return rows?.find((candidate) => scheduled.test(candidate.attribution))?.scope ?? null
         },
-        {timeout: 60_000}
+        {timeout: 45_000}
       )
       .toBe('execution')
     const scheduledRows = await (await page.request.get(`/bootui/api/side-effects/sensor?sensor=processes`)).json()
@@ -170,6 +170,68 @@ test.describe('Side Effects view (Quarkus)', () => {
     ).toContainText('Not captured by any panel')
     await page.getByRole('tab', {name: /Files and processes/}).click()
     await expect(page.locator('main')).toContainText('Processes the application starts')
+  })
+
+  test('shows request input reaching a sink as a fact, with the value redacted (M5-6b)', async ({
+    page,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, 'Security sinks need the BootUI agent and request-value matching')
+    // Letters only, so a files pattern, which folds digits, could not hide a value that leaked.
+    const letters = () =>
+      Date.now()
+        .toString(36)
+        .replace(/[0-9]/g, (digit) => 'abcdefghij'[Number(digit)])
+    const value = `seed${letters()}`
+    const bound = `bound${letters()}`
+    const sinkRows = async () =>
+      (await (await page.request.get('/bootui/api/side-effects/sensor?sensor=security-sinks&limit=500')).json()).rows ??
+      []
+
+    // The concatenated statement is a row with the value redacted; the bound one is none.
+    for (const path of [`/api/sinks/search?name=${value}`, `/api/sinks/search-bound?name=${bound}`]) {
+      expect((await page.request.get(path)).ok()).toBeTruthy()
+    }
+    await expect
+      .poll(async () => (await sinkRows()).some((row) => row.kind === 'SQL text'), {timeout: 30_000})
+      .toBe(true)
+    const sql = (await sinkRows()).find((row) => row.kind === 'SQL text')
+    expect(sql.target).toContain("'{name}'")
+    expect(sql.parameter).toBe('name')
+    expect(sql.location).toBe('inside a literal')
+    expect(sql.detail).toContain('Check that it is bound as a parameter or escaped.')
+    expect((await sinkRows()).some((row) => row.attribution?.includes('search-bound'))).toBe(false)
+
+    // A file path and an outbound URL holding the value.
+    expect((await page.request.get(`/api/sinks/reports/${value}`)).ok()).toBeTruthy()
+    expect((await page.request.get(`/api/sinks/lookup?name=${value}`)).ok()).toBeTruthy()
+    await expect
+      .poll(async () => (await sinkRows()).filter((row) => ['file path', 'outbound URL'].includes(row.kind)).length, {
+        timeout: 30_000
+      })
+      .toBeGreaterThanOrEqual(2)
+    const rows = await sinkRows()
+    expect(rows.find((row) => row.kind === 'file path').target).toContain('{name}')
+    expect(rows.find((row) => row.kind === 'outbound URL').target).toMatch(/\?(.*&)?user/)
+    for (const row of rows) {
+      expect(row.detail).not.toMatch(/vulnerab|injection/i)
+    }
+
+    // No value reaches any Side Effects read, nor the bound query's statement.
+    const everything = JSON.stringify([
+      await (await page.request.get('/bootui/api/side-effects')).json(),
+      ...(await Promise.all(
+        ['processes', 'network', 'files', 'environment', 'security-sinks'].map(async (sensor) =>
+          (await page.request.get(`/bootui/api/side-effects/sensor?sensor=${sensor}&limit=500`)).json()
+        )
+      ))
+    ])
+    expect(everything).not.toContain(value)
+    expect(everything).not.toContain(bound)
+
+    await page.goto('/bootui/#/side-effects')
+    await page.getByRole('tab', {name: /Security sinks/}).click()
+    await expect(page.locator('main')).toContainText('Request input reached this')
   })
 
   test('reports a sleep on the Vert.x event loop and never the same sleep on a worker', async ({
@@ -312,6 +374,16 @@ test.describe('Side Effects view (Quarkus)', () => {
         {timeout: 30_000}
       )
       .toBeGreaterThan(0)
+    // A pooled worker fills the date format at its first cache request: reported once per worker, flagged.
+    const format = 'io.github.jdubois.bootui.sample.sideeffects.TenantContext.FORMAT'
+    await expect
+      .poll(
+        async () =>
+          (await read()).find((row) => row.attribution === 'GET /api/thread-locals/cache' && row.target === format)
+            ?.kind,
+        {timeout: 30_000}
+      )
+      .toBe('left set (with initial value)')
     const rows = await read()
     const leak = rows.find((row) => row.attribution === 'GET /api/thread-locals/leak' && row.target === holder)
     expect(leak.kind).toBe('left set')
@@ -321,10 +393,25 @@ test.describe('Side Effects view (Quarkus)', () => {
     for (const path of ['cleared', 'nulled', 'before']) {
       expect(rows.filter((row) => row.attribution === `GET /api/thread-locals/${path}`)).toEqual([])
     }
-    const cache = rows.find((row) => row.target === 'io.github.jdubois.bootui.sample.sideeffects.TenantContext.FORMAT')
-    if (cache) expect(cache.kind).toBe('left set (with initial value)')
     expect(rows.filter((row) => /RequestContextHolder|LocaleContextHolder|MDC/.test(row.target))).toEqual([])
     expect(JSON.stringify(rows)).not.toContain('tenant-secret')
+    // The sample's ScheduledTenant, which this leg turns on, leaves its tenant set on the scheduler's worker every 20 s,
+    // even after an earlier spec's Clear recording: a row of that run, named as the runtime journal names it, with no
+    // request.
+    const job = 'io.github.jdubois.bootui.sample.sideeffects.TenantContext.JOB'
+    await expect
+      .poll(
+        async () =>
+          (await read()).find(
+            (row) => row.target === job && /^scheduled .*ScheduledTenant[#.]remember$/.test(row.attribution)
+          )?.scope ?? null,
+        {timeout: 45_000}
+      )
+      .toBe('execution')
+    const scheduledLeak = (await read()).find((row) => row.target === job)
+    expect(scheduledLeak.kind).toBe('left set')
+    expect(scheduledLeak.exemplarRequestIds).toEqual([])
+    expect(JSON.stringify(await read())).not.toContain('tenant-secret')
 
     await openView('side-effects', 'Side Effects')
     await page.getByRole('tab', {name: /Threads and leaks/}).click()

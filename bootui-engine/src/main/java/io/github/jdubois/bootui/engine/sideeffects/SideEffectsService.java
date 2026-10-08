@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
+import io.github.jdubois.bootui.engine.javaagent.AgentRequestValues;
 import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.javaagent.SideEffectsSample;
@@ -26,6 +27,7 @@ import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -79,8 +81,9 @@ public final class SideEffectsService implements AutoCloseable {
             + " opens, deletes, moves, and copies, through FileInputStream, FileOutputStream, RandomAccessFile, the Files"
             + " methods, and FileChannel.open, and the environment variables and system properties it reads by name"
             + " through System.getenv and System.getProperty; and, opt-in, the threads it starts and the executors it"
-            + " creates; and, opt-in, the thread locals a request or a job left set on its pooled thread. Resources left"
-            + " open and security sinks are not available in this version.";
+            + " creates; and, opt-in, the thread locals a request or a job left set on its pooled thread, and request"
+            + " input reaching SQL text, a command, a file path, or an outbound URL unchanged (security sinks)."
+            + " Resources left open are not available in this version.";
 
     static final String LIMITATION_THREADS =
             "Thread activity: Thread.start, VirtualThread.start, the ThreadPoolExecutor,"
@@ -119,10 +122,19 @@ public final class SideEffectsService implements AutoCloseable {
 
     static final long HOLDER_WINDOW_MILLIS = 1_000L;
 
-    /** How long a thread local waits for its holder, at most, and how many wait. */
-    static final long HOLDER_WAIT_MILLIS = 10_000L;
+    /**
+     * How long a thread local waits for its holder, at most, and how many wait: longer than the agent's periodic index
+     * rebuild (10 s), which answers a miss its throttled forced rebuild left for later.
+     */
+    static final long HOLDER_WAIT_MILLIS = 15_000L;
 
     static final int MAX_HOLDER_WAITING = 1_024;
+
+    /** The answer of a thread local whose holder the agent had no time to name: "not resolved", never remembered. */
+    private static final String[] GAVE_UP = {null, "false", "false", null};
+
+    /** The holders and answers a run remembers, one per slot of the bridge's thread-local registry. */
+    static final int MAX_HOLDERS = 1_024;
 
     static final String LIMITATION_NETWORK = "A network row shows a host and port, never a byte sent or received, nor a"
             + " URL's path or query. A non-blocking connect's time is known once it finishes. A name lookup is"
@@ -211,6 +223,22 @@ public final class SideEffectsService implements AutoCloseable {
     static final String LIMITATION_ROUTES_HIDDEN =
             "The HTTP Exchanges panel is disabled: Side Effects attributes rows to"
                     + " request routes through it, so route rows are merged under one hidden route, without request ids.";
+
+    static final String LIMITATION_SECURITY_SINKS = "Security sinks: request input is matched only while"
+            + " bootui.agent.security-sinks.request-values is on, against the current request's query and path parameter"
+            + " values of 4 to 256 characters, at most 32 of them, never form values, headers, or bodies, and only"
+            + " verbatim: a value encoded, trimmed, or changed in case is not seen. The values are compared, never stored,"
+            + " and forgotten when the response completes. SQL text is checked where SQL Trace captures a statement,"
+            + " never with R2DBC; a command where the processes sensor sees it start; a file path only with the files"
+            + " sensor; an outbound URL where the REST client panel records the call. A task the request hands to a"
+            + " managed executor still matches, until the response completes; a task the agent propagates never does. A"
+            + " row's target is the redacted text, the value replaced by the parameter's name, and SQL literals masked;"
+            + " when a text was scanned only in part or held more matches than could be redacted, no text is kept. A"
+            + " value outside an SQL literal, or made of digits only, is shown once a second request confirms the text"
+            + " varies with it.";
+
+    /** A security-sinks row whose redacted text the holder could not keep. */
+    static final String TEXT_NOT_KEPT = "(text not kept)";
 
     /** A target the agent's table could not keep. */
     static final String UNKNOWN_TARGET = "(unknown)";
@@ -862,19 +890,21 @@ public final class SideEffectsService implements AutoCloseable {
 
     /**
      * Side Effects for agents: every sensor's coverage, then the rows of the shipped sensors matching {@code query}, a
-     * sensor id or part of a row's attribution, target, or call site, most frequent first, at most {@code limit}.
+     * sensor id, part of a row's attribution, target, or call site, or a request id among its exemplars, most frequent
+     * first, at most {@code limit}.
      */
     public SideEffectsAgentReport agentReport(String query, Integer limit) {
         String asked = query == null ? "" : query.trim();
         int max = limit == null || limit <= 0 ? SideEffectsAgentReport.DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
         AgentEvidence.Read read = read();
         SideEffectsReport report = report(read);
+        boolean bySensor = SideEffectsCatalog.sensor(asked) != null;
+        List<SideEffectsSensorDto> sensors = agentSensors(report.sensors(), bySensor ? asked : null);
         if (!report.available()) {
             return new SideEffectsAgentReport(
-                    false, report.unavailableReason(), asked, report.sensors(), 0, List.of(), 0, List.of());
+                    false, report.unavailableReason(), asked, sensors, 0, List.of(), 0, List.of());
         }
         String needle = asked.toLowerCase(Locale.ROOT);
-        boolean bySensor = SideEffectsCatalog.sensor(asked) != null;
         List<SideEffectsRowDto> matching = new ArrayList<>();
         Run current = settledRun();
         if (current != null) {
@@ -896,19 +926,96 @@ public final class SideEffectsService implements AutoCloseable {
         matching.sort(Comparator.comparingLong((SideEffectsRowDto row) -> row.count() + row.completed())
                 .reversed());
         List<SideEffectsRowDto> listed = matching.subList(0, Math.min(max, matching.size()));
-        List<String> limitations = new ArrayList<>(report.limitations());
+        Set<String> shown = new HashSet<>();
+        listed.forEach(row -> shown.add(row.sensor()));
+        if (bySensor) {
+            shown.add(asked);
+        }
+        List<String> limitations = agentLimitations(report.limitations(), shown);
         if (matching.isEmpty() && !needle.isEmpty()) {
-            limitations.add("No row matched \"" + asked + "\": call get_side_effects without a query to list them.");
+            limitations.add("No row matched \"" + asked + "\": call get_side_effects without a query to list them."
+                    + (needle.matches("[0-9a-f]{16}")
+                            ? " A request id matches only the rows naming it among their exemplar requests, at most"
+                                    + " three each."
+                            : ""));
         }
         return new SideEffectsAgentReport(
                 true,
                 null,
                 asked,
-                report.sensors(),
+                sensors,
                 matching.size(),
                 List.copyOf(listed),
                 matching.size() - listed.size(),
                 limitations);
+    }
+
+    /** The sensors whose rows each fixed limitation describes; the others apply to every row. */
+    private static final Map<String, Set<String>> LIMITATION_SENSORS = Map.of(
+            LIMITATION_VALUES,
+            Set.of(SideEffectsCatalog.PROCESSES_ID, SideEffectsCatalog.FILES_ID, SideEffectsCatalog.ENVIRONMENT_ID),
+            LIMITATION_NETWORK,
+            Set.of(SideEffectsCatalog.NETWORK_ID),
+            LIMITATION_CAPTURE,
+            Set.of(SideEffectsCatalog.NETWORK_ID),
+            LIMITATION_FILES,
+            Set.of(SideEffectsCatalog.FILES_ID),
+            LIMITATION_ENVIRONMENT,
+            Set.of(SideEffectsCatalog.ENVIRONMENT_ID),
+            LIMITATION_BLOCKING,
+            Set.of(AgentSensorSettings.BLOCKING),
+            LIMITATION_THREADS,
+            Set.of(SideEffectsCatalog.THREAD_ACTIVITY_ID),
+            LIMITATION_THREAD_LOCALS,
+            Set.of(SideEffectsCatalog.THREAD_LOCALS_ID));
+
+    static final String LIMITATION_AGENT_OMITTED =
+            "What the rows of a sensor without listed rows cannot see is left" + " out: query its id for it.";
+
+    /**
+     * The limitations for an agent: those of this run and those every row shares, and the fixed description of what a
+     * sensor's rows cannot see only for the sensors in {@code shown}, whose rows are listed or which the query named.
+     */
+    static List<String> agentLimitations(List<String> limitations, Set<String> shown) {
+        List<String> kept = new ArrayList<>(limitations.size());
+        boolean omitted = false;
+        for (String limitation : limitations) {
+            Set<String> sensors = LIMITATION_SENSORS.get(limitation);
+            if (sensors == null || sensors.stream().anyMatch(shown::contains)) {
+                kept.add(limitation);
+            } else {
+                omitted = true;
+            }
+        }
+        if (omitted) {
+            kept.add(LIMITATION_AGENT_OMITTED);
+        }
+        return kept;
+    }
+
+    /**
+     * The sensors for an agent, summary first: each one's state, reason, counters, and runtime switch, and its hooks
+     * only for {@code detailed}, the sensor a query named, or for none.
+     */
+    static List<SideEffectsSensorDto> agentSensors(List<SideEffectsSensorDto> sensors, String detailed) {
+        List<SideEffectsSensorDto> summarized = new ArrayList<>(sensors.size());
+        for (SideEffectsSensorDto sensor : sensors) {
+            summarized.add(
+                    sensor.id().equals(detailed)
+                            ? sensor
+                            : new SideEffectsSensorDto(
+                                    sensor.id(),
+                                    sensor.group(),
+                                    sensor.label(),
+                                    sensor.state(),
+                                    sensor.reason(),
+                                    sensor.rows(),
+                                    sensor.occurrences(),
+                                    sensor.dropped(),
+                                    List.of(),
+                                    sensor.toggle()));
+        }
+        return List.copyOf(summarized);
     }
 
     /** {@code sensor}'s rows of {@code current}, under the lock: the store's, then, for files, its bucket rows. */
@@ -1090,10 +1197,13 @@ public final class SideEffectsService implements AutoCloseable {
     private static boolean matches(SideEffectsRowDto row, String needle) {
         return contains(row.attribution(), needle)
                 || contains(row.target(), needle)
+                || contains(row.parameter(), needle)
+                || contains(row.kind(), needle)
                 || contains(row.callSite(), needle)
                 || contains(row.insideMethod(), needle)
                 || contains(row.sensor(), needle)
                 || contains(row.client(), needle)
+                || row.exemplarRequestIds().stream().anyMatch(id -> id.equalsIgnoreCase(needle))
                 || (SideEffectsRowDto.NOT_CAPTURED.equals(row.capture())
                         && ("not captured by any panel".contains(needle)
                                 || "not-captured".contains(needle)
@@ -1132,6 +1242,25 @@ public final class SideEffectsService implements AutoCloseable {
             }
             return new String[] {SideEffectsRowDto.NOT_CAPTURED, null};
         };
+    }
+
+    /** What a registry slot named, for the thread local whose hash code it was asked with. */
+    record Named<T>(int hash, T value) {
+
+        /** {@code named}'s value when it names the thread local with {@code hash}; {@code null} for another one. */
+        static <T> T of(Named<T> named, int hash) {
+            return named != null && named.hash() == hash ? named.value() : null;
+        }
+    }
+
+    /**
+     * Remembers {@code value} for registry slot {@code id}, replacing what a slot the bridge reused named before;
+     * nothing more once {@value #MAX_HOLDERS} slots are known, which the bridge's registry never exceeds.
+     */
+    static <T> void remember(Map<Integer, Named<T>> cache, int id, int hash, T value) {
+        if (cache.size() < MAX_HOLDERS || cache.containsKey(id)) {
+            cache.put(id, new Named<>(hash, value));
+        }
     }
 
     /** One panel, for its visibility only. */
@@ -1309,6 +1438,7 @@ public final class SideEffectsService implements AutoCloseable {
                 LIMITATION_BLOCKING,
                 LIMITATION_THREADS,
                 LIMITATION_THREAD_LOCALS,
+                LIMITATION_SECURITY_SINKS,
                 LIMITATION_ATTRIBUTION));
         if (current != null && current.claim.sensors().threadLocals()) {
             if ("inventory".equals(threadLocalsStatus("initializationCheck"))) {
@@ -1382,6 +1512,19 @@ public final class SideEffectsService implements AutoCloseable {
                 if (current.clears > 0) {
                     limitations.add(RECORDING_CLEARED);
                 }
+                String requestValues =
+                        holderLine(AgentRequestValues.enabled() ? AgentRequestValues.status() : Map.of());
+                if (requestValues != null) {
+                    limitations.add(requestValues);
+                }
+                long unconfirmed = current.store.unconfirmed();
+                if (unconfirmed > 0) {
+                    limitations.add(unconfirmed
+                            + (unconfirmed == 1 ? " security-sinks match is" : " security-sinks" + " matches are")
+                            + " not shown yet: a value outside an SQL literal, a number, or one whose place in the text"
+                            + " is not known may be a word the text always holds, until a second request confirms the"
+                            + " text varies with it.");
+                }
                 if (current.stale > 0) {
                     limitations.add(current.stale + " records of an earlier run were dropped.");
                 }
@@ -1394,6 +1537,41 @@ public final class SideEffectsService implements AutoCloseable {
             }
         }
         return limitations;
+    }
+
+    /**
+     * The request value holder's counters as one limitation (M5-6b): how many requests held values and how many sink
+     * checks ran, then what it skipped or could not keep, each only when it happened; {@code null} without the holder.
+     */
+    static String holderLine(Map<String, Object> holder) {
+        if (holder == null || holder.isEmpty()) {
+            return null;
+        }
+        StringBuilder line = new StringBuilder("Request-value matching: ")
+                .append(count(holder, "requests"))
+                .append(" requests held values, ")
+                .append(count(holder, "checks"))
+                .append(" sink checks ran.");
+        append(line, holder, "valuesTooLong", " values longer than 256 characters were not held.");
+        append(line, holder, "valuesOverCount", " values past 32 in a request were not held.");
+        append(line, holder, "tableFull", " requests held nothing: 128 requests held values already.");
+        append(line, holder, "stopped", " requests reached their matching budget: later sinks were not checked.");
+        append(line, holder, "partial", " texts were checked in their first 16 KB only.");
+        append(line, holder, "busy", " checks were skipped while another check of the same request ran.");
+        append(line, holder, "notKept", " targets or names were not kept: too many distinct ones in this run.");
+        append(line, holder, "dropped", " matches were dropped: the agent's ring was full.");
+        return line.toString();
+    }
+
+    private static long count(Map<String, Object> holder, String key) {
+        return holder.get(key) instanceof Number number ? number.longValue() : 0L;
+    }
+
+    private static void append(StringBuilder line, Map<String, Object> holder, String key, String text) {
+        long value = count(holder, key);
+        if (value > 0) {
+            line.append(' ').append(value).append(text);
+        }
     }
 
     /** Whether this application's server handles requests on event loops, as its adapter says. */
@@ -1626,6 +1804,7 @@ public final class SideEffectsService implements AutoCloseable {
                 int rows = current.store.rowCount();
                 current.store.clear();
                 current.excludedHolders.clear();
+                current.givenUp.clear();
                 current.claim.sideEffectsRecordingCleared();
                 // Buckets are the bridge's counters since the claim: counted from now on.
                 current.bucketBaseline = new HashMap<>(
@@ -1655,12 +1834,16 @@ public final class SideEffectsService implements AutoCloseable {
          */
         long indexBytes() {
             return strings.size() * STRING_BYTES
-                    + (methods.size() + holders.size()) * METHOD_BYTES
+                    + (methods.size() + holders.size() + givenUp.size()) * METHOD_BYTES
                     + holderWaiting.size() * SideEffectsStore.PENDING_BYTES;
         }
 
-        /** The thread locals' holders this run named, by registry id and hash code: at most the bridge's registry. */
-        final Map<Long, ThreadLocalHolders.Holder> holders = new HashMap<>();
+        /**
+         * The thread locals' holders this run named, by registry id, each with the hash code of the thread local it
+         * named: a slot the bridge reuses for another thread local replaces its entry, so there are at most
+         * {@value #MAX_HOLDERS}.
+         */
+        final Map<Integer, Named<ThreadLocalHolders.Holder>> holders = new HashMap<>();
 
         /** Thread-locals records waiting for the agent's time to name their holder. */
         final java.util.ArrayDeque<WaitingHolder> holderWaiting = new java.util.ArrayDeque<>();
@@ -1668,8 +1851,14 @@ public final class SideEffectsService implements AutoCloseable {
         /** Thread locals dropped, by framework holder or reason, with how often they were left set. */
         final Map<String, Long> excludedHolders = new java.util.TreeMap<>();
 
-        /** The agent's answers, by registry id and hash code, asked for outside the lock. */
-        final Map<Long, String[]> answers = new java.util.concurrent.ConcurrentHashMap<>();
+        /**
+         * The thread locals whose holder the engine gave up on, by registry id with their hash code: their rows are
+         * marked, and move to their holder, or go when it is a framework's, once a later record resolves it.
+         */
+        final Map<Integer, Integer> givenUp = new HashMap<>();
+
+        /** The agent's answers, by registry id with their thread local's hash code, asked for outside the lock. */
+        final Map<Integer, Named<String[]>> answers = new java.util.concurrent.ConcurrentHashMap<>();
 
         /** Guards the holders' time budget, never held while the agent resolves. */
         final Object holderBudget = new Object();
@@ -1806,7 +1995,9 @@ public final class SideEffectsService implements AutoCloseable {
                     (record.firstMillis() < store.readyAt() ? unknownStartupTargets : unknownTargets)
                             .merge(sensor.id(), 1L, Long::sum);
                 }
-                if (record.sensor() == SideEffectsCatalog.RECORD_NETWORK) {
+                if (record.sensor() == SideEffectsCatalog.RECORD_SECURITY_SINKS) {
+                    store.add(sink(record, sensor, target, outside, application));
+                } else if (record.sensor() == SideEffectsCatalog.RECORD_NETWORK) {
                     // Ahead of the context below: a network record's bits 32-63 are its client frame, not a context.
                     store.add(network(record, sensor, target, outside, application));
                 } else if (record.sensor() == SideEffectsCatalog.RECORD_PROCESSES) {
@@ -1878,7 +2069,7 @@ public final class SideEffectsService implements AutoCloseable {
                 }
                 answer = answer(record, true);
             }
-            observeThreadLocal(record, sensor, holder(record, target, answer));
+            observeThreadLocal(record, sensor, target, answer);
         }
 
         /**
@@ -1896,7 +2087,11 @@ public final class SideEffectsService implements AutoCloseable {
                 if (waiting == null) {
                     return;
                 }
-                String[] answer = answer(waiting.record(), now - waiting.since() > HOLDER_WAIT_MILLIS);
+                // Asked again first: retries are as sparse as the records, so one past the wait may be its first.
+                String[] answer = answer(waiting.record(), false);
+                if (answer == null && now - waiting.since() > HOLDER_WAIT_MILLIS) {
+                    answer = answer(waiting.record(), true);
+                }
                 if (answer == null) {
                     return;
                 }
@@ -1907,8 +2102,7 @@ public final class SideEffectsService implements AutoCloseable {
                     }
                     holderWaiting.poll();
                     if (waiting.record().firstMillis() > clearedAt) {
-                        observeThreadLocal(
-                                waiting.record(), waiting.sensor(), holder(waiting.record(), waiting.target(), answer));
+                        observeThreadLocal(waiting.record(), waiting.sensor(), waiting.target(), answer);
                     }
                     publish(this);
                 }
@@ -1917,22 +2111,18 @@ public final class SideEffectsService implements AutoCloseable {
 
         /**
          * The agent's answer naming a record's holder, within the time budget, never under the lock: {@code null} when
-         * out of time, unless {@code giveUp}, which answers "not resolved".
+         * out of time, unless {@code giveUp}, which answers "not resolved" without asking, and is never remembered.
          */
         String[] answer(SideEffectRecord record, boolean giveUp) {
             int id = (record.exitStatus() >>> 8) & 0xFFFF;
             int hash = (int) record.nanos();
-            long key = ((long) id << 32) | (hash & 0xFFFFFFFFL);
-            String[] known = answers.get(key);
+            String[] known = Named.of(answers.get(id), hash);
             if (known != null) {
                 return known;
             }
             if (id == 0 || giveUp) {
-                String[] none = {null, "false", "false", null};
-                if (id != 0) {
-                    answers.putIfAbsent(key, none);
-                }
-                return none;
+                // Never remembered: a later record of the same thread local asks the agent again.
+                return GAVE_UP;
             }
             long left;
             synchronized (holderBudget) {
@@ -1958,7 +2148,7 @@ public final class SideEffectsService implements AutoCloseable {
                 holderSpentNanos += System.nanoTime() - started;
             }
             if (answer != null) {
-                answers.putIfAbsent(key, answer);
+                remember(answers, id, hash, answer);
             }
             return answer;
         }
@@ -1968,14 +2158,27 @@ public final class SideEffectsService implements AutoCloseable {
             int detail = record.exitStatus() & 0xFF;
             int id = (record.exitStatus() >>> 8) & 0xFFFF;
             int hash = (int) record.nanos();
-            long key = ((long) id << 32) | (hash & 0xFFFFFFFFL);
-            ThreadLocalHolders.Holder known = holders.get(key);
+            ThreadLocalHolders.Holder known = Named.of(holders.get(id), hash);
             if (known != null) {
                 return known;
             }
             ThreadLocalHolders.Holder holder = ThreadLocalHolders.decide(answer, target, detail);
-            if (id != 0) {
-                holders.put(key, holder);
+            if (id != 0 && answer != GAVE_UP) {
+                remember(holders, id, hash, holder);
+                Integer gaveUpOn = givenUp.get(id);
+                if (gaveUpOn != null && gaveUpOn == hash) {
+                    // Resolved after a give-up: its "not resolved" rows move to the holder, or go with it.
+                    givenUp.remove(id);
+                    long removed = store.resolveThreadLocal(
+                            SideEffectsStore.unresolvedThreadLocal(id, hash),
+                            holder.kind(),
+                            holder.target(),
+                            holder.origin(),
+                            holder.excludedBy() != null);
+                    if (removed > 0) {
+                        excludedHolders.merge(holder.excludedBy(), removed, Long::sum);
+                    }
+                }
                 if (holder.excludedBy() != null) {
                     // Skipped by the bridge from now on, so it never takes an application's thread local's place.
                     threadLocalHolders.exclude(generation, id, hash);
@@ -1985,10 +2188,21 @@ public final class SideEffectsService implements AutoCloseable {
         }
 
         private void observeThreadLocal(
-                SideEffectRecord record, SideEffectsCatalog.Sensor sensor, ThreadLocalHolders.Holder holder) {
+                SideEffectRecord record, SideEffectsCatalog.Sensor sensor, String target, String[] answer) {
+            ThreadLocalHolders.Holder holder = holder(record, target, answer);
             if (holder.excludedBy() != null) {
                 excludedHolders.merge(holder.excludedBy(), record.count(), Long::sum);
                 return;
+            }
+            int id = (record.exitStatus() >>> 8) & 0xFFFF;
+            int hash = (int) record.nanos();
+            String marker = null;
+            if (answer == GAVE_UP && id != 0) {
+                // Marked, so a later record resolving the same thread local can move or drop these rows.
+                marker = SideEffectsStore.unresolvedThreadLocal(id, hash);
+                if (givenUp.size() < MAX_HOLDERS || givenUp.containsKey(id)) {
+                    givenUp.put(id, hash);
+                }
             }
             store.add(new SideEffectsStore.Observation(
                     record,
@@ -1998,6 +2212,10 @@ public final class SideEffectsService implements AutoCloseable {
                     null,
                     null,
                     normalizer.threadFamily(string(record.threadName())),
+                    null,
+                    marker,
+                    null,
+                    -1,
                     holder.origin(),
                     null));
         }
@@ -2085,6 +2303,49 @@ public final class SideEffectsService implements AutoCloseable {
                     captureKey,
                     host,
                     port);
+        }
+
+        /**
+         * A security-sinks record's observation (M5-6b): the sink, its redacted target (a file's pattern masked per
+         * segment as the files sensor's), where in an SQL text the value sat, and the parameter's name; never a value.
+         */
+        private SideEffectsStore.Observation sink(
+                SideEffectRecord record,
+                SideEffectsCatalog.Sensor sensor,
+                String target,
+                String outside,
+                String application) {
+            String kind = SideEffectsCatalog.kind(record.sensor(), record.kind());
+            String shown;
+            if (target == null) {
+                shown = TEXT_NOT_KEPT;
+            } else if (record.kind() == SideEffectsCatalog.KIND_SINK_FILE) {
+                shown = SideEffectOrigins.maskPath(normalizer.target(target));
+            } else if (record.kind() == SideEffectsCatalog.KIND_SINK_URL) {
+                // A path segment the secret detector recognizes is masked, as a file path's is.
+                shown = SideEffectOrigins.maskPath(target);
+            } else {
+                shown = target;
+            }
+            String location = null;
+            int position = record.outcome() & 0x3;
+            if (record.kind() == SideEffectsCatalog.KIND_SINK_SQL
+                    && position != SideEffectsCatalog.SINK_POSITION_UNKNOWN) {
+                location = position == SideEffectsCatalog.SINK_OUTSIDE_LITERAL
+                        ? SideEffectsCatalog.OUTSIDE_LITERAL
+                        : SideEffectsCatalog.INSIDE_LITERAL;
+            }
+            String parameter = string(record.exitStatus());
+            return SideEffectsStore.Observation.sink(
+                    record,
+                    sensor.id(),
+                    kind,
+                    shown,
+                    application != null ? application : outside,
+                    insideMethod(record.stamp()),
+                    normalizer.threadFamily(string(record.threadName())),
+                    location,
+                    parameter == null ? "(name not kept)" : parameter);
         }
 
         /** A frame of BootUI's own modules, never an application's, as the sample apps' are. */

@@ -1,0 +1,26 @@
+{
+  "name": "bootui",
+  "owner": {
+    "name": "Julien Dubois",
+    "url": "https://github.com/jdubois"
+  },
+  "metadata": {
+    "description": "BootUI plugins for AI coding agents"
+  },
+  "plugins": [
+    {
+      "name": "bootui",
+      "source": "./plugins/bootui",
+      "description": "Inspect and diagnose a running Spring Boot or Quarkus application through BootUI.",
+      "category": "Developer Tools",
+      "keywords": [
+        "spring-boot",
+        "quarkus",
+        "java",
+        "mcp",
+        "observability",
+        "diagnostics"
+      ]
+    }
+  ]
+}

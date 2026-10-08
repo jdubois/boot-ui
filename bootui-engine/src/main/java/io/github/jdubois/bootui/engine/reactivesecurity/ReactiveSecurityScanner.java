@@ -72,7 +72,8 @@ public final class ReactiveSecurityScanner {
     public SecurityReport initialReport() {
         return report(
                 "NOT_SCANNED",
-                "Security Advisor has not run yet. Click Run security checks to inspect the filter chains.",
+                "Security Advisor has not run yet. Run security checks in the panel, or call security_scan"
+                        + " (bootui security scan), to inspect the filter chains.",
                 null,
                 0,
                 0,

@@ -31,12 +31,6 @@ const ctx = inject('runtimeInsights')
       <i class="bi bi-robot me-1" aria-hidden="true"></i>Copy for AI
     </button>
   </div>
-  <p
-    v-if="ctx.selectedValidation?.reason && ctx.selectedValidation.reason !== ctx.selected.unlistedReason"
-    class="small mb-2 insight-validation-reason"
-  >
-    {{ ctx.selectedValidation.marker }}: {{ ctx.selectedValidation.reason }}
-  </p>
   <p v-if="!isListed(ctx.selected)" class="small mb-2 insight-unlisted-reason">
     {{
       ctx.selected.unlistedReason ? `Not listed by default: ${ctx.selected.unlistedReason}` : 'Not listed by default'
@@ -218,8 +212,7 @@ const ctx = inject('runtimeInsights')
   padding-left: 1.25rem;
 }
 
-.insight-unlisted-reason,
-.insight-validation-reason {
+.insight-unlisted-reason {
   color: var(--bs-secondary-color);
   font-style: italic;
 }

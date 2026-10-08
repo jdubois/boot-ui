@@ -106,7 +106,12 @@ public final class RuntimeInsightsAgentView {
                 matching.add(observation);
             }
         }
-        List<RuntimeObservationDto> listed = breadthFirst(matching, max);
+        // A query naming a subject exactly, such as a route, lists that subject's rows first, and its lead row is the
+        // one followed up, before the rows that only contain the query, such as a longer route.
+        Predicate<RuntimeObservationDto> exact = observation -> !asked.isEmpty()
+                && observation.subject() != null
+                && observation.subject().equalsIgnoreCase(asked);
+        List<RuntimeObservationDto> listed = breadthFirst(matching, max, exact);
         long requests = report.window() == null ? 0 : report.window().requests();
         List<String> limitations = new ArrayList<>();
         if (requests == 0) {
@@ -136,10 +141,6 @@ public final class RuntimeInsightsAgentView {
                 limitations.add(unlisted);
             }
         }
-        String validation = validation(listed);
-        if (validation != null) {
-            limitations.add(validation);
-        }
         String leftOut = leftOut(matching, listed);
         if (leftOut != null) {
             limitations.add(leftOut);
@@ -167,10 +168,14 @@ public final class RuntimeInsightsAgentView {
             asks.add("get_runtime_insights", "again after running the application's tests or sending it traffic");
         }
         NextSteps next = new NextSteps(callable, Math.max(1, NextSteps.MAX - asks.size()));
-        RuntimeObservationDto lead = listed.stream()
+        // The subject asked for exactly is followed up, even through a row with too little evidence, rather than
+        // another subject's row.
+        List<RuntimeObservationDto> leads =
+                listed.stream().anyMatch(exact) ? listed.stream().filter(exact).toList() : listed;
+        RuntimeObservationDto lead = leads.stream()
                 .filter(observation -> !"INSUFFICIENT".equals(observation.status()))
                 .findFirst()
-                .orElse(listed.isEmpty() ? null : listed.get(0));
+                .orElse(leads.isEmpty() ? null : leads.get(0));
         if (lead != null) {
             follow(next, lead, true);
         }
@@ -221,11 +226,6 @@ public final class RuntimeInsightsAgentView {
         List<String> limitations = new ArrayList<>();
         if (!observation.listed() && observation.unlistedReason() != null) {
             limitations.add("Not listed by default: " + observation.unlistedReason());
-        }
-        ExternalValidation.Entry validation = ExternalValidation.of(observation.kind());
-        if (validation.outcome() != ExternalValidation.Outcome.PASSED
-                && !validation.reason().equals(observation.unlistedReason())) {
-            limitations.add(validation.reason());
         }
         limitations.addAll(observation.limitations());
         return new RuntimeInsightAgentDetailDto(
@@ -289,7 +289,12 @@ public final class RuntimeInsightsAgentView {
                         .limit(2)
                         .forEach(candidate -> next.add("get_runtime_impact", "id", candidate, "only " + candidate));
             case ChangeImpactService.NOT_FOUND -> {
-                if (symbol.isEmpty()) {
+                if (!impact.candidates().isEmpty()) {
+                    // A method's real overloads, when the asked parameters matched none: nothing else to look up.
+                    impact.candidates().stream()
+                            .limit(2)
+                            .forEach(candidate -> next.add("get_runtime_impact", "id", candidate, "only " + candidate));
+                } else if (symbol.isEmpty()) {
                     next.add("get_mappings", "the routes, by the path a route symbol names");
                     next.add("get_beans", "the beans and classes, by the name a bean symbol uses");
                 } else {
@@ -304,6 +309,12 @@ public final class RuntimeInsightsAgentView {
                                 "query",
                                 name,
                                 "the methods of " + name + " the BootUI agent tracks");
+                    } else if (MethodSymbol.anyClass(symbol) != null) {
+                        next.add(
+                                "get_code_inventory",
+                                "query",
+                                symbol,
+                                "the methods named " + symbol + " the BootUI agent tracks");
                     }
                 }
             }
@@ -533,44 +544,6 @@ public final class RuntimeInsightsAgentView {
     }
 
     /**
-     * The external validation of the kinds {@code rows} come from, other than those that passed it ({@code
-     * docs/PLAN-v2.md} M4-20), or {@code null} when every one passed: an agent weighs a row of a kind no reviewer judged
-     * differently from one of a kind that passed.
-     */
-    static String validation(List<RuntimeObservationDto> rows) {
-        Map<ExternalValidation.Outcome, List<String>> kinds = new java.util.EnumMap<>(ExternalValidation.Outcome.class);
-        for (RuntimeObservationDto row : rows) {
-            ExternalValidation.Outcome outcome =
-                    ExternalValidation.of(row.kind()).outcome();
-            List<String> named = kinds.computeIfAbsent(outcome, ignored -> new ArrayList<>());
-            if (outcome != ExternalValidation.Outcome.PASSED && !named.contains(row.kind())) {
-                named.add(row.kind());
-            }
-        }
-        List<String> parts = new ArrayList<>();
-        kinds.forEach((outcome, named) -> {
-            if (named.isEmpty()) {
-                return;
-            }
-            String which = String.join(", ", named);
-            switch (outcome) {
-                case NOT_VALIDATED ->
-                    parts.add("not externally validated, since they found nothing or never ran on the validation"
-                            + " applications: " + which);
-                case FAILED -> parts.add("did not pass their external validation: " + which);
-                case UNDER_SAMPLED -> parts.add("too few facts to validate: " + which);
-                case NOT_LISTED -> parts.add("not listed by design: " + which);
-                case NOT_JUDGED -> parts.add("added after the validation run, not judged yet (D36): " + which);
-                default -> {}
-            }
-        });
-        return parts.isEmpty()
-                ? null
-                : "External validation (M4-20) of these rows' kinds: " + String.join("; ", parts)
-                        + ". Verify such a row against the code before acting on it.";
-    }
-
-    /**
      * How many rows of each kind the default list leaves out, in report order, and how to list them, or {@code null}
      * when it leaves none out.
      */
@@ -672,13 +645,16 @@ public final class RuntimeInsightsAgentView {
     }
 
     /**
-     * At most {@code max} of {@code rows}, the listed ones first and each part in report order: every kind's first row
-     * before any kind's second, and so on, so the answer stays as broad as the limit allows.
+     * At most {@code max} of {@code rows}, those whose subject the query names exactly first, then the listed ones, each
+     * part in report order: every kind's first row before any kind's second, and so on, so the answer stays as broad as
+     * the limit allows.
      */
-    private static List<RuntimeObservationDto> breadthFirst(List<RuntimeObservationDto> rows, int max) {
+    private static List<RuntimeObservationDto> breadthFirst(
+            List<RuntimeObservationDto> rows, int max, Predicate<RuntimeObservationDto> exact) {
         // A query reaching rows the default list leaves out keeps the listed ones first, so a prolific kind's short
-        // routes never crowd out its prominent ones.
-        Comparator<Integer> listedFirst = Comparator.comparing(i -> !rows.get(i).listed());
+        // routes never crowd out its prominent ones; rows whose subject the query names exactly come before both.
+        Comparator<Integer> listedFirst = Comparator.<Integer, Boolean>comparing(i -> !exact.test(rows.get(i)))
+                .thenComparing(i -> !rows.get(i).listed());
         List<Integer> order = new ArrayList<>();
         for (int i = 0; i < rows.size(); i++) {
             order.add(i);
@@ -687,7 +663,10 @@ public final class RuntimeInsightsAgentView {
             Map<String, Integer> seen = new HashMap<>();
             int[] rank = new int[rows.size()];
             for (int i = 0; i < rows.size(); i++) {
-                rank[i] = seen.merge(rows.get(i).kind() + ":" + rows.get(i).listed(), 1, Integer::sum);
+                rank[i] = seen.merge(
+                        rows.get(i).kind() + ":" + rows.get(i).listed() + ":" + exact.test(rows.get(i)),
+                        1,
+                        Integer::sum);
             }
             order.sort(listedFirst
                     .thenComparing(i -> "INSUFFICIENT".equals(rows.get(i).status()))

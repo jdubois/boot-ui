@@ -78,6 +78,393 @@ public abstract class AbstractMcpConformanceTest {
         }
     }
 
+    private static final String MODERN = "2026-07-28";
+
+    private Response modernRequest(String method, String id, String name, String params) {
+        Map<String, String> headers = new java.util.LinkedHashMap<>();
+        headers.put("Content-Type", "application/json");
+        headers.put("Accept", "application/json, text/event-stream");
+        headers.put("MCP-Protocol-Version", MODERN);
+        headers.put("Mcp-Method", method);
+        if (name != null) {
+            headers.put("Mcp-Name", name);
+        }
+        return probe().request("POST", "/bootui/api/mcp", headers, modernBody(method, id, name, params, MODERN));
+    }
+
+    private static String modernBody(String method, String id, String name, String params, String version) {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"method\":\"" + method + "\",\"params\":{"
+                + (name == null ? "" : "\"name\":\"" + name + "\",")
+                + (params == null ? "" : params + ",")
+                + "\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"" + version + "\","
+                + "\"io.modelcontextprotocol/clientCapabilities\":{}}}}";
+    }
+
+    private static List<String> fieldNames(JsonNode node) {
+        List<String> names = new java.util.ArrayList<>();
+        node.fieldNames().forEachRemaining(names::add);
+        return names;
+    }
+
+    @Test
+    void testModernClientDiscoversTheServerWithCacheHints() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            Response response = modernRequest("server/discover", "\"d-1\"", null, null);
+            assertThat(response.status()).isEqualTo(200);
+            assertThat(response.isJson()).isTrue();
+            JsonNode envelope = response.json();
+            assertThat(envelope.path("id").asText()).isEqualTo("d-1");
+            JsonNode result = envelope.path("result");
+            assertThat(fieldNames(result))
+                    .containsExactly(
+                            "resultType",
+                            "supportedVersions",
+                            "capabilities",
+                            "instructions",
+                            "_meta",
+                            "ttlMs",
+                            "cacheScope");
+            assertThat(result.path("resultType").asText()).isEqualTo("complete");
+            assertThat(result.path("supportedVersions").toString()).isEqualTo("[\"2026-07-28\",\"2025-06-18\"]");
+            assertThat(result.path("capabilities").toString())
+                    .isEqualTo("{\"tools\":{\"listChanged\":false},\"prompts\":{\"listChanged\":false}}");
+            assertThat(result.path("instructions").asText()).contains("get_overview");
+            assertThat(result.path("_meta")
+                            .path("io.modelcontextprotocol/serverInfo")
+                            .path("name")
+                            .asText())
+                    .isEqualTo("bootui");
+            assertThat(result.path("ttlMs").asLong()).isEqualTo(60_000);
+            assertThat(result.path("cacheScope").asText()).isEqualTo("private");
+        }
+    }
+
+    @Test
+    void testModernClientListsAndCallsToolsWithJsonResponses() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            JsonNode legacyTools = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}")
+                    .json()
+                    .path("result");
+            Response list = modernRequest("tools/list", "2", null, null);
+            assertThat(list.status()).isEqualTo(200);
+            JsonNode modernTools = list.json().path("result");
+            assertThat(fieldNames(modernTools)).containsExactly("resultType", "tools", "_meta", "ttlMs", "cacheScope");
+            assertThat(modernTools.path("tools"))
+                    .as("both eras advertise the same tools in the same deterministic order")
+                    .isEqualTo(legacyTools.path("tools"));
+
+            Response call = modernRequest("tools/call", "3", "get_overview", "\"arguments\":{}");
+            assertThat(call.status()).isEqualTo(200);
+            assertThat(call.contentType()).startsWith("application/json");
+            JsonNode result = call.json().path("result");
+            assertThat(result.path("resultType").asText()).isEqualTo("complete");
+            assertThat(result.path("isError").asBoolean()).isFalse();
+            assertThat(result.has("ttlMs")).as("tool results are not cacheable").isFalse();
+            assertThat(result.path("_meta").has("io.modelcontextprotocol/serverInfo"))
+                    .isTrue();
+
+            Map<String, String> encodedHeaders = new java.util.LinkedHashMap<>();
+            encodedHeaders.put("Content-Type", "application/json");
+            encodedHeaders.put("mcp-protocol-version", MODERN);
+            encodedHeaders.put("mcp-method", "tools/call");
+            encodedHeaders.put("mcp-name", "=?base64?Z2V0X292ZXJ2aWV3?=");
+            Response encoded = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            encodedHeaders,
+                            modernBody("tools/call", "5", "get_overview", "\"arguments\":{}", MODERN));
+            assertThat(encoded.status())
+                    .as("header names are case-insensitive and Mcp-Name may be Base64-encoded")
+                    .isEqualTo(200);
+            assertThat(encoded.json().path("result").path("isError").asBoolean())
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void testModernProtocolErrorsAreExplicitAndByteIdentical() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            Map<String, String> unsupportedHeaders = Map.of(
+                    "Content-Type",
+                    "application/json",
+                    "MCP-Protocol-Version",
+                    "2099-01-01",
+                    "Mcp-Method",
+                    "tools/list");
+            Response unsupported = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            unsupportedHeaders,
+                            modernBody("tools/list", "7", null, null, "2099-01-01"));
+            assertThat(unsupported.status()).isEqualTo(400);
+            assertThat(unsupported.body())
+                    .isEqualTo(
+                            "{\"jsonrpc\":\"2.0\",\"id\":7,\"error\":{\"code\":-32022,"
+                                    + "\"message\":\"Unsupported protocol version\","
+                                    + "\"data\":{\"supported\":[\"2026-07-28\",\"2025-06-18\"],\"requested\":\"2099-01-01\"}}}");
+
+            Response ping = modernRequest("ping", "8", null, null);
+            assertThat(ping.status()).as("modern clients have no ping").isEqualTo(404);
+            assertThat(ping.body())
+                    .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":8,\"error\":{\"code\":-32601,"
+                            + "\"message\":\"Unknown method: ping\"}}");
+
+            Map<String, String> wrongName = Map.of(
+                    "Content-Type",
+                    "application/json",
+                    "MCP-Protocol-Version",
+                    MODERN,
+                    "Mcp-Method",
+                    "tools/call",
+                    "Mcp-Name",
+                    "get_health");
+            Response mismatch = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            wrongName,
+                            modernBody("tools/call", "9", "get_overview", "\"arguments\":{}", MODERN));
+            assertThat(mismatch.status()).isEqualTo(400);
+            assertThat(mismatch.body())
+                    .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":9,\"error\":{\"code\":-32020,"
+                            + "\"message\":\"Header mismatch: Mcp-Name must be sent once and match params.name\"}}");
+
+            Response repeated = probe().requestWithHeaderLines(
+                            "POST",
+                            "/bootui/api/mcp",
+                            List.of(
+                                    Map.entry("Content-Type", "application/json"),
+                                    Map.entry("MCP-Protocol-Version", MODERN),
+                                    Map.entry("Mcp-Method", "tools/list"),
+                                    Map.entry("Mcp-Method", "tools/list")),
+                            modernBody("tools/list", "10", null, null, MODERN));
+            assertThat(repeated.status())
+                    .as("a repeated header is never resolved differently per stack")
+                    .isEqualTo(400);
+            assertThat(repeated.json().path("error").path("code").asInt()).isEqualTo(-32020);
+
+            Response noCapabilities = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of(
+                                    "Content-Type",
+                                    "application/json",
+                                    "MCP-Protocol-Version",
+                                    MODERN,
+                                    "Mcp-Method",
+                                    "tools/list"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/list\",\"params\":{\"_meta\":"
+                                    + "{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}");
+            assertThat(noCapabilities.status()).isEqualTo(400);
+            assertThat(noCapabilities.json().path("error").path("code").asInt()).isEqualTo(-32602);
+
+            Response invalidToken = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of(
+                                    "Content-Type",
+                                    "application/json",
+                                    "MCP-Protocol-Version",
+                                    MODERN,
+                                    "Mcp-Method",
+                                    "tools/list"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/list\",\"params\":{\"_meta\":"
+                                    + "{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
+                                    + "\"io.modelcontextprotocol/clientCapabilities\":{},\"progressToken\":1.5}}}");
+            assertThat(invalidToken.status()).isEqualTo(400);
+            assertThat(invalidToken.json().path("error").path("code").asInt()).isEqualTo(-32602);
+        }
+    }
+
+    @Test
+    void testModernDisabledServerAndCrossSiteWritesStayRefused() {
+        Response disabled = modernRequest("tools/list", "14", null, null);
+        assertThat(disabled.status()).isEqualTo(200);
+        assertThat(disabled.json().path("error").path("code").asInt())
+                .as("BootUI's server codes move out of the reserved range for modern clients")
+                .isEqualTo(-31000);
+
+        Map<String, String> crossSite = new java.util.LinkedHashMap<>();
+        crossSite.put("Content-Type", "application/json");
+        crossSite.put("Origin", "http://evil.example.com");
+        crossSite.put("Sec-Fetch-Site", "cross-site");
+        crossSite.put("MCP-Protocol-Version", MODERN);
+        crossSite.put("Mcp-Method", "server/discover");
+        Response refused = probe().request(
+                        "POST", "/bootui/api/mcp", crossSite, modernBody("server/discover", "15", null, null, MODERN));
+        assertThat(refused.status()).isEqualTo(403);
+    }
+
+    private Response progressCall(String id, String accept, boolean withToken) {
+        Map<String, String> headers = new java.util.LinkedHashMap<>();
+        headers.put("Content-Type", "application/json");
+        headers.put("Accept", accept);
+        headers.put("MCP-Protocol-Version", MODERN);
+        headers.put("Mcp-Method", "tools/call");
+        headers.put("Mcp-Name", "architecture_scan");
+        String body = "{\"jsonrpc\":\"2.0\",\"id\":" + id
+                + ",\"method\":\"tools/call\",\"params\":{\"name\":\"architecture_scan\",\"arguments\":{},"
+                + "\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
+                + "\"io.modelcontextprotocol/clientCapabilities\":{}"
+                + (withToken ? ",\"progressToken\":\"p-1\"" : "") + "}}}";
+        return probe().request("POST", "/bootui/api/mcp", headers, body, java.time.Duration.ofSeconds(60));
+    }
+
+    @Test
+    void testModernProgressCallAnswersOnARequestScopedEventStream() throws Exception {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            Response response = progressCall("21", "application/json, text/event-stream", true);
+
+            assertThat(response.status()).isEqualTo(200);
+            assertThat(response.contentType()).startsWith("text/event-stream");
+            assertThat(response.header("X-Accel-Buffering")).isEqualTo("no");
+            String body = response.body();
+            assertThat(body).endsWith("\n\n");
+            List<JsonNode> messages = new java.util.ArrayList<>();
+            ObjectMapper mapper = new ObjectMapper();
+            for (String event : body.split("\n\n")) {
+                if (event.startsWith(":")) {
+                    continue;
+                }
+                assertThat(event)
+                        .as("one JSON-RPC message per event, no event ids")
+                        .startsWith("data:");
+                assertThat(event).doesNotContain("\n");
+                messages.add(mapper.readTree(event.substring("data:".length())));
+            }
+            assertThat(messages.size()).as(body).isGreaterThanOrEqualTo(5);
+            List<JsonNode> progress = messages.subList(0, messages.size() - 1);
+            JsonNode last = messages.get(messages.size() - 1);
+
+            double total = progress.get(0).path("params").path("total").asDouble();
+            assertThat(total).as("rules evaluated plus three phases").isGreaterThan(3);
+            assertThat(progress.get(0).toString())
+                    .isEqualTo("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":"
+                            + "{\"progressToken\":\"p-1\",\"progress\":0,\"total\":" + (long) total
+                            + ",\"message\":\"Importing application classes\"}}");
+            assertThat(progress.get(1).path("params").path("message").asText()).isEqualTo("Checking generated code");
+            assertThat(progress.get(2).path("params").path("message").asText())
+                    .isEqualTo("Evaluating architecture rules");
+            JsonNode final_ = progress.get(progress.size() - 1).path("params");
+            assertThat(final_.path("message").asText()).isEqualTo("Locating violations");
+            assertThat(final_.path("progress").asDouble())
+                    .as("the final response, not a notification, marks completion")
+                    .isEqualTo(total - 1);
+            double previous = -1;
+            for (JsonNode notification : progress) {
+                assertThat(notification.has("id"))
+                        .as("notifications carry no id")
+                        .isFalse();
+                assertThat(notification.path("method").asText()).isEqualTo("notifications/progress");
+                assertThat(notification.path("params").path("progressToken").asText())
+                        .isEqualTo("p-1");
+                assertThat(notification.path("params").path("progress").asDouble())
+                        .isGreaterThan(previous);
+                previous = notification.path("params").path("progress").asDouble();
+            }
+
+            assertThat(last.path("id").asInt()).isEqualTo(21);
+            assertThat(last.has("method")).isFalse();
+            JsonNode result = last.path("result");
+            assertThat(result.path("resultType").asText()).isEqualTo("complete");
+            assertThat(result.path("isError").asBoolean()).as(last.toString()).isFalse();
+            assertThat(result.path("structuredContent")
+                            .path("scan")
+                            .path("status")
+                            .asText())
+                    .isIn("SCANNED", "PARTIAL");
+            assertThat(result.path("_meta")
+                            .path("io.modelcontextprotocol/serverInfo")
+                            .path("name")
+                            .asText())
+                    .isEqualTo("bootui");
+        }
+    }
+
+    @Test
+    void testModernCallsWithoutATokenOrStreamSupportStayJson() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            for (Response response : List.of(
+                    progressCall("22", "application/json, text/event-stream", false),
+                    progressCall("23", "application/json", true),
+                    progressCall("24", "*/*", true))) {
+                assertThat(response.status()).isEqualTo(200);
+                assertThat(response.contentType()).startsWith("application/json");
+                JsonNode result = response.json().path("result");
+                assertThat(result.path("resultType").asText()).isEqualTo("complete");
+                assertThat(result.path("isError").asBoolean()).isFalse();
+            }
+        }
+    }
+
+    @Test
+    void testNullAndNonStringEnvelopeFieldsAreTheSameClientErrorOnEveryStack() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            Map<String, String> json = Map.of("Content-Type", "application/json");
+            for (String method : List.of("null", "5", "{}")) {
+                Response response = probe().request(
+                                "POST",
+                                "/bootui/api/mcp",
+                                json,
+                                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":" + method + "}");
+                assertThat(response.status()).isEqualTo(200);
+                assertThat(response.body())
+                        .as(method)
+                        .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,"
+                                + "\"message\":\"Missing 'method'\"}}");
+            }
+            Response nullName = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            json,
+                            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":null}}");
+            assertThat(nullName.body())
+                    .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32602,"
+                            + "\"message\":\"Missing tool name\"}}");
+            Response nullNotification =
+                    probe().request("POST", "/bootui/api/mcp", json, "{\"jsonrpc\":\"2.0\",\"method\":null}");
+            assertThat(nullNotification.status()).isEqualTo(202);
+            Map<String, String> modern = Map.of(
+                    "Content-Type", "application/json", "MCP-Protocol-Version", MODERN, "Mcp-Method", "tools/call");
+            Response modernNullName = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            modern,
+                            "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":null,"
+                                    + "\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
+                                    + "\"io.modelcontextprotocol/clientCapabilities\":{}}}}");
+            assertThat(modernNullName.status()).isEqualTo(200);
+            assertThat(modernNullName.body())
+                    .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-32602,"
+                            + "\"message\":\"Missing tool name\"}}");
+        }
+    }
+
+    @Test
+    void testInitializeStaysLegacyWhenItCarriesModernMeta() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            Response response = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            modernBody("initialize", "16", null, "\"protocolVersion\":\"2025-06-18\"", MODERN));
+            assertThat(response.status()).isEqualTo(200);
+            JsonNode result = response.json().path("result");
+            assertThat(result.path("protocolVersion").asText()).isEqualTo("2025-06-18");
+            assertThat(result.has("resultType")).isFalse();
+        }
+    }
+
     @Test
     void testMcpGetRejectsUnsupportedSseStream() {
         Response response = probe().get("/bootui/api/mcp");
@@ -218,6 +605,21 @@ public abstract class AbstractMcpConformanceTest {
             assertThat(first.path("description").isTextual()).isTrue();
             assertThat(first.path("inputSchema").isObject()).isTrue();
             assertThat(first.path("outputSchema").path("type").asText()).isEqualTo("object");
+            tools.forEach(tool -> {
+                JsonNode hints = tool.path("annotations");
+                assertThat(hints.path("readOnlyHint").isBoolean())
+                        .as("%s readOnlyHint", tool.path("name").asText())
+                        .isTrue();
+                assertThat(hints.path("destructiveHint").isBoolean()).isTrue();
+                assertThat(hints.path("idempotentHint").isBoolean()).isTrue();
+                assertThat(hints.path("openWorldHint").isBoolean()).isTrue();
+                tool.path("inputSchema")
+                        .path("properties")
+                        .forEach(property -> assertThat(
+                                        property.path("description").asText())
+                                .as("%s argument description", tool.path("name").asText())
+                                .isNotBlank());
+            });
         } finally {
             disableMcp();
         }
@@ -430,6 +832,59 @@ public abstract class AbstractMcpConformanceTest {
     }
 
     @Test
+    void testMcpUnadvertisedCatalogToolSaysWhyItsPanelIsUnavailable() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try {
+            BootUiHttpProbe probe = probe();
+            java.util.Set<String> advertised = new java.util.HashSet<>();
+            probe.request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}")
+                    .json()
+                    .path("result")
+                    .path("tools")
+                    .forEach(tool -> advertised.add(tool.path("name").asText()));
+            Map<String, String> unavailable = new java.util.LinkedHashMap<>();
+            probe.get("/bootui/api/panels").json().path("panels").forEach(panel -> {
+                if (!panel.path("available").asBoolean(true)
+                        && !panel.path("unavailableReason").asText("").isBlank()) {
+                    unavailable.put(
+                            panel.path("id").asText(),
+                            panel.path("unavailableReason").asText().trim());
+                }
+            });
+            io.github.jdubois.bootui.engine.mcp.McpToolCatalog.Entry entry =
+                    io.github.jdubois.bootui.engine.mcp.McpToolCatalog.entries().stream()
+                            .filter(candidate -> !advertised.contains(candidate.name()))
+                            .filter(candidate -> unavailable.containsKey(candidate.panelId()))
+                            .findFirst()
+                            .orElse(null);
+            org.junit.jupiter.api.Assumptions.assumeTrue(
+                    entry != null, "every panel backing a catalog tool is available in this application");
+
+            JsonNode error = probe.request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\"name\":\""
+                                    + entry.name() + "\"}}")
+                    .json()
+                    .path("error");
+            assertThat(error.path("code").asInt()).isEqualTo(-32602);
+            assertThat(error.path("message").asText())
+                    .startsWith("Tool not available in this application: " + entry.name() + ".")
+                    .contains(unavailable.get(entry.panelId()));
+            assertThat(error.path("data").path("tool").asText()).isEqualTo(entry.name());
+            assertThat(error.path("data").path("panel").asText()).isEqualTo(entry.panelId());
+            assertThat(error.path("data").path("reason").asText()).isEqualTo(unavailable.get(entry.panelId()));
+        } finally {
+            disableMcp();
+        }
+    }
+
+    @Test
     void testMcpRequestProfileNamesBothMissingRetentionWindows() throws Exception {
         assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
         try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
@@ -518,6 +973,11 @@ public abstract class AbstractMcpConformanceTest {
                                 "split-transaction-writes",
                                 "framework-warnings-by-route",
                                 "anonymous-data-reach");
+            }
+            for (JsonNode limitation : byDefault.path("limitations")) {
+                assertThat(limitation.asText().toLowerCase(java.util.Locale.ROOT))
+                        .as("a limitation never tells agents about the external validation (M4-20)")
+                        .doesNotContain("validat");
             }
             JsonNode everything = callTool("get_runtime_insights", "{\"query\":\"all\",\"limit\":50}");
             assertThat(everything.path("observations").size()
