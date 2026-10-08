@@ -269,7 +269,11 @@ class McpStreamingCallTests {
                 .isZero();
         assertThat(stats.timeouts()).isZero();
         assertThat(reported).as("the fault is reported").hasValue(1);
-        assertThat(sink.messages).containsExactly("close");
+        assertThat(sink.messages)
+                .as("the stream still ends with the fault's -32603")
+                .containsExactly(
+                        "complete " + new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE),
+                        "close");
     }
 
     @Test

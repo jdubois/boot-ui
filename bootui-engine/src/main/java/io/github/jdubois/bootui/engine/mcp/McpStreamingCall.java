@@ -326,6 +326,7 @@ public final class McpStreamingCall {
 
     private void write(McpStreamSink sink) {
         long nextHeartbeat = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(HEARTBEAT_MILLIS);
+        boolean completing = false;
         try {
             while (true) {
                 if (clientGone) {
@@ -337,6 +338,7 @@ public final class McpStreamingCall {
                         for (ProgressEvent event : outbox.drainAll()) {
                             sink.progress(progressToken, event);
                         }
+                        completing = true;
                         sink.complete(current.outcome());
                     }
                     return;
@@ -361,6 +363,15 @@ public final class McpStreamingCall {
         } catch (RuntimeException | Error fault) {
             // A server fault (a rendering bug, a refused frame) is not the client going away.
             failWriting(fault);
+            End ended = end.get();
+            if (!completing && ended != null && ended.kind() != EndKind.CANCELLED) {
+                // The stream still answers once, with the -32603 the fault ended the call with.
+                try {
+                    sink.complete(ended.outcome());
+                } catch (Exception | Error unwritable) {
+                    // Nothing more can be written.
+                }
+            }
         } finally {
             sink.close();
             releasePart();

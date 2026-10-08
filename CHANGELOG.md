@@ -392,7 +392,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `notExercised` field is unchanged.
 - **Timed-out scans stop.** An MCP or CLI `architecture_scan` or `vulnerabilities_scan` past its execution timeout now
   stops at its next step and keeps the previous report, instead of running on or publishing an "interrupted" error
-  ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+  ([#1340](https://github.com/jdubois/boot-ui/issues/1340)). A panel vulnerabilities scan interrupted at shutdown now
+  answers `500` and keeps the previous report, instead of publishing an `ERROR` report.
 - **Agent-sized MCP and CLI answers.** Large reads return a short first page without `limit`, take a `query`, and say
   when rows were left out (`page.hasMore`): SQL traces, startup, log tail, coding-agent sessions, the vulnerabilities
   report, Live Activity (by type, severity, or route), HTTP exchanges, configuration, beans, metrics, threads, and
