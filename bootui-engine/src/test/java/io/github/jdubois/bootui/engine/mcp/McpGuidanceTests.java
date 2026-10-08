@@ -53,7 +53,12 @@ class McpGuidanceTests {
                                     "the next step is a method probe",
                                     "separate approval",
                                     "get_method_probe",
-                                    "no invocations is evidence that path never reaches the method");
+                                    "no invocations is evidence that path never reaches the method",
+                                    "until its state is active",
+                                    "is inconclusive, not evidence");
+                    assertThat(text.indexOf("until its state is active"))
+                            .as("the probe is active before the candidate is rerun")
+                            .isLessThan(text.indexOf("rerun the candidate test or request"));
                     assertThat(text.indexOf("if it still did not run"))
                             .isGreaterThanOrEqualTo(0)
                             .isLessThan(text.indexOf("start_method_probe"));

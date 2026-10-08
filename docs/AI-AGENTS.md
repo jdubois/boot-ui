@@ -459,8 +459,10 @@ same gap as `changed-code-not-executed`.
 
 **Verify, then probe.** When a changed method is still `NEVER_EXECUTED` after the test or request that should reach
 it, the next step is a [method probe](#did-this-method-run-and-how): with the user's separate approval, start one on the
-method as Code Inventory names it, rerun the same test or request, then read `get_method_probe`. No invocation is
-evidence that path never reaches the method: the wrong route, the wrong bean, or never wired; `get_code_paths` on the
+method as Code Inventory names it, poll `get_method_probe` until the probe is `active` (it starts `starting`, and the
+method is retransformed afterwards), rerun the same test or request, then read `get_method_probe` again. Once the probe
+was active before the rerun, no invocation is evidence that path never reaches the method: the wrong route, the wrong
+bean, or never wired; a probe that never became active, failed, or ended before the rerun is inconclusive; `get_code_paths` on the
 route shows what it did run. The `verify_after_change` prompt and the [agent skill](#install-the-bootui-agent-skill)
 follow this workflow. [Set up the Java agent](setup/java-agent.md) walks through it from a fresh application.
 
@@ -510,8 +512,11 @@ A probe records at most 20 invocations, for at most 60 seconds, five at once, an
 those bounds where the method runs and then removes its instrumentation. It never records an argument or a return value.
 **Ask the user before starting one**, as for `memory_scan` or `pentest_scan`: it changes the running application's code
 for its window, even though read-only policy refuses it. The loop it serves: start a probe on the method an edit
-changed, run the test or send the request that should reach it, then read `get_method_probe`. No invocation after the
-code ran is evidence the path never reaches the method (the wrong route, the wrong bean, never wired). A probe
+changed, poll `get_method_probe` until it is `active`, run the test or send the request that should reach it, then read
+`get_method_probe` again. No invocation is evidence the path never reaches the method (the wrong route, the wrong bean,
+never wired) only when the probe was active before the code ran: `start_method_probe` returns `starting` and the agent
+retransforms the method afterwards, so a fast rerun can finish before the probe records anything. A probe that never
+became active, failed, or ended before the rerun is inconclusive. A probe
 `waitingForClass` has not seen this run load its class yet; an `async` method's durations time the assembly of its
 reactive or asynchronous result, not the work that runs later.
 
