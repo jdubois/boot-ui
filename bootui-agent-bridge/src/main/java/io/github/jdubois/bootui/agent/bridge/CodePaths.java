@@ -1243,6 +1243,13 @@ public final class CodePaths {
         SideEffects.Owner threadOwner;
 
         ThreadActivity.Key threadProbe;
+
+        /**
+         * The channel under a stream a file system provider's {@code newInputStream} or {@code newOutputStream} is
+         * opening, handed by its {@code setUninterruptible} hook to the files hook open on the thread, which clears it
+         * at its exit ({@code Resources#uninterruptible}).
+         */
+        Object resourcePending;
     }
 
     /**

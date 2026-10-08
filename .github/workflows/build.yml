@@ -890,6 +890,41 @@ jobs:
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.report=spring-mvc-agent-thread-locals
               -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,thread-locals
+          # The resources sensor's budget (M5-5g, D47): on the I/O route, which connects and closes one socket and reads one
+          # file per request, the default sensors against the default sensors without resources (its own increment on
+          # sockets, fifteen pairs) and against no agent (the cumulative overhead, fifteen pairs), then, for the record,
+          # with files on both sides (its own increment on files too, which files alone keeps near the 10 % budget).
+          # resources is a default sensor, so its own median must stay at most 3 %: the "Check the resources sensor's
+          # default" step of `agent-overhead` prints PASS or FAIL and fails the job on a FAIL. The cumulative median and its
+          # 95 % interval are printed for the record only, with what D48's rule would say: it is mostly the other default
+          # sensors' overhead, which the blocking check gates under D48 (D47). The first run measured -0.5 % own, 0.3 %
+          # beside files, and 6.9 % cumulative.
+          - id: spring-mvc-resources-ab
+            name: resources A/B
+            step: Measure the resources sensor's share on the I/O route
+            extras: true
+            args: >-
+              -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+              -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-resources-ab
+              -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,resources
+              -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network,blocking
+          - id: spring-mvc-agent-io-resources
+            name: resources cumulative
+            step: Measure the agent's overhead with resources on the I/O route
+            extras: true
+            args: >-
+              -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+              -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-agent-io-resources
+              -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,resources
+          - id: spring-mvc-resources-files-ab
+            name: resources beside files A/B
+            step: Measure the resources sensor's share beside files on the I/O route
+            extras: true
+            args: >-
+              -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+              -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-resources-files-ab
+              -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,files,resources
+              -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network,blocking,files
     steps:
       - name: Skip the leg when this run has no extra measurements
         if: env.SKIP_LEG == 'true'
@@ -1159,6 +1194,67 @@ jobs:
           if [ "$verdict" = FAIL ] && [ "$default" = yes ]; then
             echo "::error::$line It must stay opt-in."
             exit 1
+          fi
+
+      - name: Check the resources sensor's default
+        if: ${{ !cancelled() && needs.changes.outputs.extras == 'true' }}
+        run: |
+          directory=bootui-spring-sample-app/target/agent-overhead
+          for file in spring-mvc-resources-ab.properties spring-mvc-agent-io-resources.properties; do
+            if [ ! -f "$directory/$file" ]; then
+              echo "::error::The resources sensor's default cannot be checked: $file is missing."
+              exit 1
+            fi
+          done
+          for report in spring-mvc-resources-ab spring-mvc-agent-io-resources spring-mvc-resources-files-ab; do
+            if [ -f "$directory/$report.md" ]; then
+              cat "$directory/$report.md" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          read_value() { sed -n "s/^$2=//p" "$directory/$1"; }
+          increment=$(read_value spring-mvc-resources-ab.properties overheadPercent)
+          increment_range="$(read_value spring-mvc-resources-ab.properties minOverheadPercent) to $(read_value spring-mvc-resources-ab.properties maxOverheadPercent)"
+          cumulative=$(read_value spring-mvc-agent-io-resources.properties overheadPercent)
+          cumulative_range="$(read_value spring-mvc-agent-io-resources.properties minOverheadPercent) to $(read_value spring-mvc-agent-io-resources.properties maxOverheadPercent)"
+          with_files="n/a"
+          if [ -f "$directory/spring-mvc-resources-files-ab.properties" ]; then
+            with_files="$(read_value spring-mvc-resources-files-ab.properties overheadPercent) %"
+          fi
+          for value in "$increment" "$cumulative"; do
+            if ! [[ "$value" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+              echo "::error::The resources sensor's default cannot be checked: '$value' is not a percentage."
+              exit 1
+            fi
+          done
+          verdict=PASS
+          if awk -v increment="$increment" 'BEGIN { exit !(increment > 3) }'; then
+            verdict=FAIL
+          fi
+          cumulative_low=$(read_value spring-mvc-agent-io-resources.properties lowOverheadPercent)
+          cumulative_interval="n/a"
+          cumulative_note="D48's rule cannot be read: the report has no median interval"
+          if [ -n "$cumulative_low" ]; then
+            cumulative_interval="${cumulative_low} to $(read_value spring-mvc-agent-io-resources.properties highOverheadPercent) %"
+            cumulative_note="D48's rule would pass: the interval's lower bound is at most 10 %"
+            if awk -v low="$cumulative_low" 'BEGIN { exit !(low > 10) }'; then
+              cumulative_note="D48's rule would fail: the interval's lower bound is above 10 %"
+            fi
+          fi
+          default=no
+          if sed -n '/DEFAULT_SENSORS =/,/;/p' bootui-engine/src/main/java/io/github/jdubois/bootui/engine/javaagent/AgentSensorSettings.java | grep -Eq 'RESOURCES|"resources"'; then
+            default=yes
+          fi
+          line="Resources sensor overhead: ${verdict}. Increment median ${increment} % (pairs ${increment_range} %, limit 3 %), on the I/O route; increment beside files ${with_files}. On by default: ${default}."
+          report="Report only, not enforced (D47): the default set's cumulative median with resources is ${cumulative} % (95 % interval ${cumulative_interval}, pairs ${cumulative_range} %); ${cumulative_note}. It is mostly the other default sensors' overhead, which the agent-overhead job gates under D48."
+          echo "$line"
+          echo "$report"
+          printf '\n**%s**\n\n%s\n' "$line" "$report" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$verdict" = FAIL ] && [ "$default" = yes ]; then
+            echo "::error::$line resources is a default sensor (D47), so its own increment must stay within 3 %."
+            exit 1
+          fi
+          if [ "$verdict" = FAIL ]; then
+            echo "::notice::$line It stays opt-in."
           fi
 
       # A leg fails above its 30 % alarm, on a FAIL its enforce-when-default asks for, or when it cannot measure; the
