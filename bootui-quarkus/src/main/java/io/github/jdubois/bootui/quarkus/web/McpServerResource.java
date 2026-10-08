@@ -85,12 +85,14 @@ public class McpServerResource {
                 "http",
                 mcpEndpoint,
                 McpProtocol.DEFAULT_PROTOCOL_VERSION,
+                McpProtocol.SUPPORTED_VERSIONS,
                 maxResults,
                 stats.callCount(),
                 stats.totalLatencyMillis(),
                 stats.capacityRefusals(),
                 stats.timeouts(),
                 stats.responseLimitRefusals(),
+                stats.cancellations(),
                 toolInfos.size(),
                 toolInfos);
     }

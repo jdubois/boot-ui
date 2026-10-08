@@ -3499,16 +3499,18 @@ Design rules:
   from a client whose `Accept` explicitly lists `text/event-stream`, answers on a `text/event-stream` POST response with
   `X-Accel-Buffering: no`: rate-limited `notifications/progress` (burst 8, then one per 250 ms, coalescing to the
   newest, flushed before the end) and exactly one final response, after which the stream closes. Events are `data:`
-  lines with no ids; keep-alive comments every 2 seconds, so a blocking stack notices a closed stream within about 4
-  seconds. Closing the stream cancels the call: nothing more is written, the tool is interrupted and stops at its next
-  step, and its concurrency permit is released exactly once, when the tool has returned and the stream is written. The
-  execution timeout stays absolute, and a call that timed out before its stream opened still ends with the timeout
-  response. Each event is one line of compact JSON regardless of the application's mapper configuration, built through
-  one engine helper that refuses a line break. A writer blocked on a client that stops reading keeps the permit (WebFlux
-  emits only on subscriber demand) and gives up 10 seconds after the execution timeout on every stack; Quarkus then
-  resets the response. Spring MVC falls back to one JSON response when the request cannot go async. Everything else,
-  every refusal, and every legacy request is one JSON response; there is still no `GET` stream, live push, resource, or
-  `subscriptions/listen`.
+  lines with no ids; keep-alive comments every 2 seconds, so Spring MVC, which only notices a closed stream when a write
+  fails, does so within about 4 seconds; WebFlux and Quarkus notice it at once. Closing the stream cancels the call:
+  nothing more is written, the tool is interrupted and stops at its next step, and its concurrency permit is released
+  exactly once, when the tool has returned and the stream is written. A cancelled call is counted in the `/mcp-server`
+  status's `cancellations`, apart from `timeouts`, and a cancelled blocking call answers `-32800` ("MCP request
+  cancelled"); the status also lists `supportedProtocolVersions`. The execution timeout stays absolute, and a call
+  that timed out before its stream opened still ends with the timeout response. Each event is one line of compact JSON
+  regardless of the application's mapper configuration, built through one engine helper that refuses a line break. A
+  writer blocked on a client that stops reading keeps the permit (WebFlux emits only on subscriber demand) and gives up
+  10 seconds after the execution timeout on every stack; Quarkus then resets the response. Spring MVC falls back to
+  one JSON response when the request cannot go async. Everything else, every refusal, and every legacy request is one
+  JSON response; there is still no `GET` stream, live push, resource, or `subscriptions/listen`.
 - **Agent guidance.** Initialization instructions direct agents to establish overview/health context, prefer the smallest
   relevant read, correlate exception and trace identifiers, verify advisor findings before changing code, and account for
   active scan costs (`memory_scan` may trigger a full GC; `pentest_scan` sends bounded loopback probes). Tool descriptions
