@@ -47,4 +47,5 @@ jobs:
           path: |
             /tmp/lab-out/**/results.tsv
             /tmp/lab-out/**/summary.txt
+            /tmp/lab-out/**/*.collapsed
           retention-days: 7
