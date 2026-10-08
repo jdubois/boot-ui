@@ -432,8 +432,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     which is what `spring-boot-starter-webflux` alone gives them.
   - **A direct `bootui-spring-autoconfigure` dependency:** depend on `bootui-spring-boot-starter`. The auto-configuration
     moved into it, keeping its `io.github.jdubois.bootui.autoconfigure` packages.
-  - **A direct `bootui-core` dependency:** depend on `bootui-engine`. The DTOs, secret masking, and version helpers
-    moved into it, keeping their `io.github.jdubois.bootui.core` packages.
+  - **A direct `bootui-core` dependency:** `bootui-core` is now part of `bootui-engine`: depend on `bootui-engine`
+    instead. Its `io.github.jdubois.bootui.core` packages are unchanged.
   - **A direct `bootui-client` dependency:** depend on `bootui-cli`. The client keeps its
     `io.github.jdubois.bootui.client` package and stays dependency-free: picocli is an optional dependency of
     `bootui-cli`. The runnable CLI is still the shaded `bootui-cli-<version>-all.jar`, which is what JBang and the
