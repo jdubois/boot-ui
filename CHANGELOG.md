@@ -7,8 +7,32 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-- **Quarkus 3.40.1 LTS.** Updated the Quarkus compatibility platform to the latest LTS micro release and kept the
-  RabbitMQ metadata test fixture compatible with the managed SmallRye API.
+## [1.21.0] - 2026-10-08
+
+BootUI 1.21.0 makes agent setup easier with a portable plugin for Cursor and other compatible clients, a canonical
+cross-agent skill installer, and refreshed Quarkus LTS support.
+
+### Added
+
+- **Portable agent plugin and Copilot cloud setup.** Cursor and other Agent Plugins clients can install the BootUI skill
+  and local MCP connection together, while repository sessions gain ready-to-use Copilot cloud setup
+  ([#1341](https://github.com/jdubois/boot-ui/pull/1341),
+  [#1293](https://github.com/jdubois/boot-ui/pull/1293)).
+
+### Changed
+
+- **Simpler skill installation and discovery.** The cross-agent installer is now the primary path, GitHub Copilot uses
+  the canonical skill directory, and Agent Finder is documented as the main discovery channel
+  ([#1348](https://github.com/jdubois/boot-ui/pull/1348),
+  [#1338](https://github.com/jdubois/boot-ui/pull/1338),
+  [#1333](https://github.com/jdubois/boot-ui/pull/1333)).
+- **Quarkus 3.40.1 LTS.** The compatibility platform moves to the latest LTS micro release
+  ([#1324](https://github.com/jdubois/boot-ui/pull/1324)).
+
+### Fixed
+
+- **Quarkus LTS compatibility.** REST client registration remains compatible with Quarkus 3.33 while supporting the
+  newer 3.40 service-provider path ([#1335](https://github.com/jdubois/boot-ui/pull/1335)).
 
 ## [1.20.0] - 2026-10-05
 
