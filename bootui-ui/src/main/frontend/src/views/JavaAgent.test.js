@@ -124,6 +124,10 @@ describe('Java Agent panel', () => {
     expect(about.text()).toContain('The other panels work without it')
     expect(about.text()).not.toContain('Every other panel')
     expect(about.text()).toContain('overhead budget of 10%')
+    expect(about.text().replace(/\s+/g, ' ')).toContain(
+      'has its own memory ceiling, apart from the runtime journal and the agent’s ring: about 68 MB by default, set ' +
+        'with bootui.runtime-journal.agent-evidence-max-bytes. It is a ceiling, not memory taken up front.'
+    )
 
     const text = wrapper.text()
     for (const absent of ['Versions & runtime facts', 'No active claim', 'Opt-in sensors', 'No sensor installed']) {

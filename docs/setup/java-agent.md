@@ -37,7 +37,9 @@ or for Quarkus dev mode:
 ```
 
 Scope `JAVA_TOOL_OPTIONS` to one command; never export it in a shell. Never add the agent to a production,
-native-image, or AOT-cached JVM: Quarkus production mode reports it `DISABLED` and never claims it.
+native-image, or AOT-cached JVM: Quarkus production mode reports it `DISABLED` and never claims it, and neither does
+Spring when `bootui.enabled=ON` forces BootUI on in a disabled profile such as `prod`, unless
+`bootui.agent.allow-in-disabled-profiles=true`.
 
 ## 3. Check that it is armed
 

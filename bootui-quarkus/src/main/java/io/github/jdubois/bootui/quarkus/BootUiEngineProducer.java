@@ -51,10 +51,12 @@ import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.AgentSetupSnippets;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentSettings;
+import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
 import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RunBaselineFile;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
+import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RunningHandoffs;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -197,6 +199,21 @@ public class BootUiEngineProducer {
     void validateRuntimeInsightsThreshold(
             @jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
         runtimeInsightsTokenThreshold(config);
+    }
+
+    /**
+     * Rejects {@code bootui.activity.feed-source=buffers}, which 2.0.0 removed, and any unknown value at startup, as
+     * Spring's property binder does: {@code LiveActivityResource} is a REST resource that Quarkus constructs lazily.
+     */
+    void validateActivityFeedSource(
+            @jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
+        activityFeedSource(config);
+    }
+
+    /** The validated {@code bootui.activity.feed-source}. */
+    public static ActivityFeedSource activityFeedSource(Config config) {
+        return ActivityFeedSource.parseConfigured(config.getOptionalValue(ActivityFeedSource.PROPERTY, String.class)
+                .orElse(null));
     }
 
     /** The validated {@code bootui.runtime-insights.ai-token-threshold}. */
@@ -563,8 +580,29 @@ public class BootUiEngineProducer {
                         config.getOptionalValue("bootui.runtime-journal.baseline-file", String.class)
                                 .orElse(null),
                         config.getOptionalValue("quarkus.application.name", String.class)
-                                .orElse("application")));
+                                .orElse("application")),
+                runApplicationKey(config, LaunchMode.current()));
         return aggregates;
+    }
+
+    /**
+     * The key of this application's runs ({@code RunSummary.applicationKey}), so run comparison never compares a run
+     * with one of another application sharing the JVM: its mode, as the BootUI agent's claim slot names it
+     * ({@code bootui.agent.mode}, else {@code test} in test launch mode and {@code dev} otherwise), then
+     * {@code quarkus.application.name}.
+     */
+    static String runApplicationKey(Config config, LaunchMode launchMode) {
+        String configured = config.getOptionalValue("bootui.agent.mode", String.class)
+                .orElse("auto")
+                .strip()
+                .toLowerCase(java.util.Locale.ROOT);
+        String mode = AgentClaim.DEV.equals(configured) || AgentClaim.TEST.equals(configured)
+                ? configured
+                : launchMode == LaunchMode.TEST ? AgentClaim.TEST : AgentClaim.DEV;
+        return RunSummary.applicationKey(
+                mode,
+                config.getOptionalValue("quarkus.application.name", String.class)
+                        .orElse("application"));
     }
 
     /**

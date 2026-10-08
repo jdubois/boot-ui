@@ -303,12 +303,29 @@ because that scope would leak into whichever test the thread runs next. Close ev
 with try-with-resources.
 
 The capture overhead benchmark (`CaptureOverheadBenchmarkTest`) compares the Spring MVC sample app's throughput and
-latency with BootUI on and off. Timings depend on the machine, so it is opt-in and never a CI gate. It takes about
-three minutes and writes its report to `target/capture-overhead/`:
+latency with BootUI on and off; the runtime journal is on whenever BootUI is, so it does not isolate the journal's cost.
+Timings depend on the machine, so it is opt-in and never a CI gate. It takes about three minutes and writes its report
+to `target/capture-overhead/`:
 
 ```bash
 ./mvnw -B -ntp -pl bootui-spring-sample-app test -Dtest=CaptureOverheadBenchmarkTest -Dbootui.benchmark=true
 ```
+
+The runtime journal overhead benchmark (`JournalOverheadBenchmarkIT`) measures the journal's own cost against
+[PLAN-v2.md](docs/PLAN-v2.md) §2.2's 5 % target: the Spring sample's executable jar, BootUI on and no agent in both
+configurations, with the journal on and with `bootui.runtime-journal.enabled=false`, on the same route and load as the
+capture overhead benchmark. Like the agent overhead benchmark below, it runs the configurations in pairs whose order
+alternates and reports each pair's throughput ratio, their median, and the median's 95 % interval, with p99 latency, to
+`target/journal-overhead/spring-mvc-journal.md` and `.properties`. It only reports; `bootui.benchmark.passes` sets the
+number of pairs (3 by default):
+
+```bash
+./mvnw -B -ntp -pl bootui-spring-sample-app verify -Dbootui.benchmark=true -Dit.test=JournalOverheadBenchmarkIT \
+  -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+CI runs it with fifteen pairs in `build.yml`'s `journal-overhead` job, on pushes, manual runs, and pull requests
+labelled `agent`, and publishes the report to the job summary without ever failing the build.
 
 The agent overhead benchmark (`AgentOverheadBenchmarkIT`) measures the BootUI agent's cumulative cost against
 [PLAN-v2.md](docs/PLAN-v2.md) §8's budget: the Spring sample's executable jar, BootUI on in both configurations, without
@@ -581,6 +598,12 @@ run its sample without `-am`:
 
 The Quarkus sample requires JDK 17 to 27 for augmentation and uses Dev
 Services, so Docker or Podman must be available.
+
+Each sample also has launchers that build it with the isolated `.m2`
+repository, then run it: `run-local.sh`, `run-local-agent.sh` (with the BootUI
+Java agent and its default sensors) and `run-local-all.sh` (with every sensor),
+for example `./bootui-spring-webflux-sample-app/run-local-agent.sh`. The Spring
+MVC sample has more; see its README.
 
 ## Front-end development
 

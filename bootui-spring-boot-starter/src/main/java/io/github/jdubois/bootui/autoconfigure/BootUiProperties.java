@@ -2829,6 +2829,13 @@ public class BootUiProperties {
         private boolean enabled = true;
 
         /**
+         * Whether this application claims the BootUI agent when {@code bootui.enabled=ON} forces BootUI on despite an
+         * active {@code bootui.disabled-profiles} entry, such as {@code prod}. Off by default: the agent must never be
+         * attached to a production JVM.
+         */
+        private boolean allowInDisabledProfiles;
+
+        /**
          * Application package prefixes the agent may instrument, in addition to the main application class's package
          * and the auto-configuration packages.
          */
@@ -2874,6 +2881,14 @@ public class BootUiProperties {
 
         public boolean isEnabled() {
             return enabled;
+        }
+
+        public boolean isAllowInDisabledProfiles() {
+            return allowInDisabledProfiles;
+        }
+
+        public void setAllowInDisabledProfiles(boolean allowInDisabledProfiles) {
+            this.allowInDisabledProfiles = allowInDisabledProfiles;
         }
 
         public SecuritySinks getSecuritySinks() {
@@ -3091,9 +3106,10 @@ public class BootUiProperties {
         private int maxScheduledTaskRuns = 200;
 
         /**
-         * Where the activity stream comes from: {@code buffers}, merging each panel's own buffer as in 1.x, or
-         * {@code journal}, rendering the runtime journal's retained events with every child nested by request or
-         * execution id. A request may override it with {@code ?source=}.
+         * Where the activity stream comes from: {@code journal}, rendering the runtime journal's retained events with
+         * every child nested by request or execution id. {@code buffers}, 1.x's feed, was removed in 2.0.0 and fails
+         * the start; with the journal disabled, the panel buffers serve the feed on their own. A request may override it
+         * with {@code ?source=}.
          */
         private String feedSource = "journal";
 
@@ -3101,13 +3117,15 @@ public class BootUiProperties {
             return feedSource;
         }
 
+        /** Rejects a removed or unknown source while binding, so it fails the start rather than a later request. */
         public void setFeedSource(String feedSource) {
+            ActivityFeedSource.parseConfigured(feedSource);
             this.feedSource = feedSource;
         }
 
         /** The feed source these properties name. */
         public ActivityFeedSource feedSource() {
-            return ActivityFeedSource.parse(feedSource, ActivityFeedSource.DEFAULT);
+            return ActivityFeedSource.parseConfigured(feedSource);
         }
 
         public int getMaxEntries() {
