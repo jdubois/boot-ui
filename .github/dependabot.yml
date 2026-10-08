@@ -7,13 +7,6 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 10
-    ignore:
-      # Maven 3.10.0 writes _remote.repositories and maven-metadata-local.xml into the
-      # central-publishing-maven-plugin 0.11.0 staging bundle, and Maven Central rejects it
-      # ("Bundle has content that does NOT have a .pom file"). Regular CI never exercises the
-      # release deploy, so keep the wrapper on 3.9.x until a fixed plugin release is verified.
-      - dependency-name: 'org.apache.maven:apache-maven'
-        versions: ['>= 3.10.0']
     groups:
       spring-boot:
         patterns:

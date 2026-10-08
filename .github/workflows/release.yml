@@ -421,16 +421,28 @@ jobs:
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
         run: |
+          set -euo pipefail
+
+          VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"
+          LOCAL_REPO="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=settings.localRepository | tail -n 1)"
+          # The Maven cache may hold an earlier attempt's install of this version; bundle only this build.
+          rm -rf "$LOCAL_REPO"/com/julien-dubois/bootui/*/"$VERSION"
+
           # No -Dgpg.passphrase here: that user property is deprecated by maven-gpg-plugin
           # ("may leak sensitive information"). The plugin already reads the passphrase from
           # the MAVEN_GPG_PASSPHRASE env var above (its passphraseEnvName default) instead.
           # Build only Central distribution modules and their required reactor dependencies during
           # publication. The complete reactor was already verified before the immutable release
           # commit and tag were created.
-          ./mvnw -B -ntp -Prelease clean deploy \
+          ./mvnw -B -ntp -Prelease clean install \
             -pl .,bootui-core,bootui-engine,bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-boot-starter-reactive,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-client,bootui-cli \
-            -am \
-            -Dcentral.autoPublish="${CENTRAL_AUTO_PUBLISH}"
+            -am
+
+          # The bundle is assembled from the installed, signed files rather than by
+          # central-publishing-maven-plugin: under Maven 3.10 the plugin stages resolver bookkeeping
+          # (maven-metadata-local.xml) into POM-less directories, and Central rejects that bundle.
+          python3 .github/scripts/assemble_central_bundle.py "$LOCAL_REPO" "$VERSION" target/central-bundle.zip
+          python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip "bootui-$VERSION" "$CENTRAL_AUTO_PUBLISH"
 
       - name: Wait for Maven Central availability
         if: env.CENTRAL_AUTO_PUBLISH == 'true'

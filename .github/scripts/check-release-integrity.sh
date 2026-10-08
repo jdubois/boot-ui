@@ -100,6 +100,10 @@ require_literal '-pl .,bootui-core,bootui-engine,bootui-spring-autoconfigure,boo
   'publication-only Maven reactor'
 require_literal 'bootui-cli/${VERSION}/bootui-cli-${VERSION}-all.jar' \
   'runnable CLI uber-jar availability check'
+require_literal 'python3 .github/scripts/assemble_central_bundle.py "$LOCAL_REPO" "$VERSION" target/central-bundle.zip' \
+  'Central bundle assembled from the installed release'
+require_literal 'python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip' \
+  'Central Portal bundle upload'
 require_literal 'create_spring_smoke_project "$MVC_SMOKE_DIR" "bootui-spring-boot-starter" "8080"' \
   'standalone Spring MVC consumer smoke project'
 require_literal 'create_spring_smoke_project "$WEBFLUX_SMOKE_DIR" "bootui-spring-boot-starter-reactive" "8081"' \
@@ -125,6 +129,17 @@ availability_step="$(
 readonly availability_step
 if grep -Fq 'bootui-agent-bridge/' <<<"$availability_step"; then
   report_error 'bootui-agent-bridge is never published and must not be polled on Maven Central'
+fi
+
+# Under Maven 3.10, central-publishing-maven-plugin stages POM-less resolver bookkeeping that Central
+# rejects, so publication installs the release and uploads a bundle assembled from it instead.
+publish_step="$(
+  sed -n '/- name: Publish to Maven Central/,/- name: Wait for Maven Central availability/p' "$WORKFLOW" |
+    sed -e ':join' -e '/\\$/N' -e 's/\\\n[[:space:]]*/ /' -e 't join'
+)"
+readonly publish_step
+if grep -Eq 'mvnw[^#]* deploy( |$)' <<<"$publish_step"; then
+  report_error 'Maven Central publication must upload the assembled bundle, not run the Maven deploy phase'
 fi
 
 excluded_artifacts="$(
@@ -188,6 +203,8 @@ require_order '- name: Resolve immutable release' '- name: Checkout immutable re
   'the signed tag must be resolved before checking out the publication SHA'
 require_order '- name: Checkout immutable release' '- name: Publish to Maven Central' \
   'the immutable release SHA must be checked out before Maven Central publication'
+require_order 'python3 .github/scripts/assemble_central_bundle.py' 'python3 .github/scripts/publish_central_bundle.py' \
+  'the Central bundle must be assembled before it is uploaded'
 require_order '- name: Publish to Maven Central' '- name: Wait for Maven Central availability' \
   'Maven Central availability polling must follow publication'
 require_order '- name: Wait for Maven Central availability' '- name: Smoke test published distributions' \
