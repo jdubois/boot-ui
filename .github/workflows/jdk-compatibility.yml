@@ -100,6 +100,16 @@ jobs:
         # Java 17 runs them in build.yml's full reactor.
         run: ./mvnw -B -ntp -pl bootui-agent-bridge,bootui-agent -am verify
 
+      # The park hook's measured cost (BlockingBehaviorsIT): Failsafe keeps the test's output in a file, so show it here.
+      - name: Publish the park-hook benchmark
+        if: ${{ !cancelled() }}
+        run: |
+          line=$(grep -h "BENCH park off event loops" bootui-agent/target/failsafe-reports/*BlockingBehaviorsIT-output.txt 2>/dev/null | head -1 || true)
+          if [ -n "$line" ]; then
+            echo "::notice::${line%% (median of pairs*}"
+            printf '\n**%s**\n' "$line" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Spring sample with the agent attached
         # The sample in a JVM of its own with -javaagent (PLAN-v2 M5-12): the correlation scenario's
         # propagated executor work, work after the response, Code Inventory, and Code Paths
@@ -158,6 +168,9 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Install Playwright browsers
+        # Usually 1 to 8 minutes; apt-get can stall for hours on a runner's package mirror: fail fast, so a rerun gets
+        # another runner.
+        timeout-minutes: 20
         working-directory: bootui-spring-sample-app/e2e
         run: ./node_modules/.bin/playwright install --with-deps chromium
 

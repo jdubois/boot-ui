@@ -19,7 +19,75 @@ final class SensorWait {
 
     static final long DEADLINE_SECONDS = 30;
 
+    /**
+     * How long past its deadline a wait may stay blocked, inside a single status read or a class load, before the
+     * watchdog dumps every thread and halts the child, well before the parent's own timeout kills it unexplained.
+     */
+    static final long WATCHDOG_GRACE_SECONDS = 15;
+
+    /** The nanoTime at which the wait in progress is stuck, or 0 when none is. */
+    private static volatile long stuckAt;
+
     private SensorWait() {}
+
+    /**
+     * Starts the watchdog, before any claim: its thread and every class its dump uses are loaded now, so a hang in
+     * class loading or retransformation cannot block the dump too.
+     */
+    static void prepare() {
+        dump(new StringBuilder());
+        Thread watchdog = new Thread(SensorWait::watch, "it-sensor-wait-watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
+    }
+
+    private static void watch() {
+        while (true) {
+            try {
+                Thread.sleep(1_000);
+            } catch (InterruptedException ex) {
+                return;
+            }
+            long at = stuckAt;
+            if (at != 0 && System.nanoTime() - at >= 0) {
+                StringBuilder out = new StringBuilder("SENSOR_WAIT_STUCK: a sensor wait passed its ")
+                        .append(DEADLINE_SECONDS + WATCHDOG_GRACE_SECONDS)
+                        .append(" s without returning; every thread:\n");
+                dump(out);
+                System.out.println(out);
+                System.out.flush();
+                Runtime.getRuntime().halt(3);
+            }
+        }
+    }
+
+    /** Every thread's full stack, then the lock owners and any monitor deadlock the JVM reports. */
+    private static void dump(StringBuilder out) {
+        for (Map.Entry<Thread, StackTraceElement[]> thread :
+                Thread.getAllStackTraces().entrySet()) {
+            out.append('"')
+                    .append(thread.getKey().getName())
+                    .append("\" ")
+                    .append(thread.getKey().getState())
+                    .append('\n');
+            for (StackTraceElement frame : thread.getValue()) {
+                out.append("    at ").append(frame).append('\n');
+            }
+        }
+        java.lang.management.ThreadMXBean threads = java.lang.management.ManagementFactory.getThreadMXBean();
+        for (java.lang.management.ThreadInfo info : threads.dumpAllThreads(true, true)) {
+            if (info.getLockName() != null) {
+                out.append(info.getThreadName())
+                        .append(" waits on ")
+                        .append(info.getLockName())
+                        .append(" held by ")
+                        .append(info.getLockOwnerName())
+                        .append('\n');
+            }
+        }
+        long[] deadlocked = threads.findDeadlockedThreads();
+        out.append("deadlocked=").append(java.util.Arrays.toString(deadlocked)).append('\n');
+    }
 
     /**
      * The status rows of the sensors {@code ids}, in that order, once each is settled; throws when one is not within
@@ -27,17 +95,23 @@ final class SensorWait {
      */
     static List<Map<String, Object>> awaitSettled(Collection<String> ids) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(DEADLINE_SECONDS);
-        while (true) {
-            Map<String, Object> status = status();
-            List<Map<String, Object>> rows = rows(status, ids);
-            if (rows != null) {
-                return rows;
+        // Checked only between status reads: one that never returns is the watchdog's.
+        stuckAt = deadline + TimeUnit.SECONDS.toNanos(WATCHDOG_GRACE_SECONDS);
+        try {
+            while (true) {
+                Map<String, Object> status = status();
+                List<Map<String, Object>> rows = rows(status, ids);
+                if (rows != null) {
+                    return rows;
+                }
+                if (System.nanoTime() - deadline >= 0) {
+                    throw new IllegalStateException(
+                            "sensors " + ids + " never settled within " + DEADLINE_SECONDS + " s: " + status);
+                }
+                Thread.sleep(25);
             }
-            if (System.nanoTime() - deadline >= 0) {
-                throw new IllegalStateException(
-                        "sensors " + ids + " never settled within " + DEADLINE_SECONDS + " s: " + status);
-            }
-            Thread.sleep(25);
+        } finally {
+            stuckAt = 0;
         }
     }
 

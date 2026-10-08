@@ -331,7 +331,7 @@ and `bootui.benchmark.report` names the report (`spring-mvc-agent` by default):
   -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-CI runs it in `build.yml`'s `agent-overhead` job with five pairs on a four-processor runner, then on the I/O route with
+CI runs it in `build.yml`'s `agent-overhead` job with nine pairs on a four-processor runner, then on the I/O route with
 nine pairs: every default sensor against no agent (`spring-mvc-agent-io`) on every agent run, and, on pushes, manual
 runs, and pull requests labelled `agent` only, every default sensor against the same agent without `network`
 (`spring-mvc-network-ab`), the default sensors plus the opt-in `files` against the default sensors, fifteen pairs
