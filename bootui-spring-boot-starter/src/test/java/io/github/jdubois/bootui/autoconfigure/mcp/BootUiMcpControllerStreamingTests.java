@@ -12,6 +12,8 @@ import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -27,15 +29,23 @@ class BootUiMcpControllerStreamingTests {
             + "{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
             + "\"io.modelcontextprotocol/clientCapabilities\":{},\"progressToken\":\"p\"}}}";
 
-    private final MockMvc mvc = mvc();
+    /** Holds the tool, so the stream is still open when the request is checked. */
+    private final CountDownLatch release = new CountDownLatch(1);
+
+    private final MockMvc mvc = mvc(release);
 
     @Test
     void aProgressCallStreamsWhenTheRequestCanGoAsync() throws Exception {
-        mvc.perform(progressCall()).andExpect(request().asyncStarted());
+        try {
+            mvc.perform(progressCall()).andExpect(request().asyncStarted());
+        } finally {
+            release.countDown();
+        }
     }
 
     @Test
     void aProgressCallThatCannotGoAsyncFallsBackToOneJsonResponse() throws Exception {
+        release.countDown();
         mvc.perform(progressCall().with(servletRequest -> {
                     // As behind a host filter that is not async-supported: startAsync would throw.
                     servletRequest.setAsyncSupported(false);
@@ -59,7 +69,7 @@ class BootUiMcpControllerStreamingTests {
                 .content(PROGRESS_CALL);
     }
 
-    private static MockMvc mvc() {
+    private static MockMvc mvc(CountDownLatch release) {
         BootUiProperties properties = new BootUiProperties();
         McpTool scan = new McpTool(
                 "architecture_scan",
@@ -67,7 +77,14 @@ class BootUiMcpControllerStreamingTests {
                 McpToolSchema.NONE,
                 BootUiPanels.ARCHITECTURE,
                 true,
-                arguments -> Map.of("findings", List.of()));
+                arguments -> {
+                    try {
+                        release.await(10, TimeUnit.SECONDS);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return Map.of("findings", List.of());
+                });
         BootUiMcpService service =
                 new BootUiMcpService(new BootUiMcpTools(List.of(scan)), properties, new ObjectMapper(), "1.2.3");
         BootUiMcpController controller =
