@@ -40,7 +40,13 @@ import time
 from pathlib import Path
 
 GROUP = "com/julien-dubois/bootui"
-PUBLISHING_MARKERS = ("actions/deploy-pages", "docker/login-action", "clean deploy", "gh release create")
+PUBLISHING_MARKERS = (
+    "actions/deploy-pages",
+    "docker/login-action",
+    "clean deploy",
+    "publish_central_bundle.py",
+    "gh release create",
+)
 GATE = ".github/scripts/release-line-gate.sh"
 POLICY = ".github/scripts/release-version-policy.sh"
 SHARED_FILES = (
