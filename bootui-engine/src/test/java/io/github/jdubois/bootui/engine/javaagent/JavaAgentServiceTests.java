@@ -291,12 +291,17 @@ class JavaAgentServiceTests {
         claim.set(AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example")));
         AgentHandoffs handoffs = new AgentHandoffs(null, null, null);
         claim.get().attach(handoffs);
+        // Long-delayed queued tasks: the bridge holds 32,768 pending, and refuses two more.
+        List<Object> queued = new java.util.ArrayList<>();
         try (io.github.jdubois.bootui.engine.correlation.BootUiCorrelation.Scope ignored =
                 io.github.jdubois.bootui.engine.correlation.BootUiCorrelation.open(
                         io.github.jdubois.bootui.spi.CorrelationContext.forRequest("r1"))) {
-            io.github.jdubois.bootui.agent.bridge.TaskPropagation.submitted(
-                    new java.util.concurrent.FutureTask<>(() -> null),
-                    io.github.jdubois.bootui.agent.bridge.TaskPropagation.KEY_THREAD_POOL);
+            for (int i = 0; i < 32_770; i++) {
+                java.util.concurrent.FutureTask<Object> task = new java.util.concurrent.FutureTask<>(() -> null);
+                queued.add(task);
+                io.github.jdubois.bootui.agent.bridge.TaskPropagation.submitted(
+                        task, io.github.jdubois.bootui.agent.bridge.TaskPropagation.KEY_THREAD_POOL);
+            }
         }
         JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
 
@@ -314,12 +319,14 @@ class JavaAgentServiceTests {
             assertThat(row.hooks())
                     .extracting(JavaAgentHookDto::id, JavaAgentHookDto::kind, JavaAgentHookDto::fired)
                     .containsExactly(
-                            org.assertj.core.api.Assertions.tuple("ThreadPoolExecutor.addWorker", "key", 1L),
+                            org.assertj.core.api.Assertions.tuple("ThreadPoolExecutor.addWorker", "key", 32_768L),
                             org.assertj.core.api.Assertions.tuple("ThreadPoolExecutor.runWorker", "apply", 0L));
             assertThat(row.executors()).isNotNull();
-            assertThat(row.executors().pending()).isEqualTo(1L);
+            assertThat(row.executors().pending()).isEqualTo(32_768L);
+            assertThat(row.executors().overflow()).isEqualTo(2L);
             assertThat(row.executors().refused()).isZero();
         });
+        assertThat(queued).hasSize(32_770);
 
         claim.get().disarm();
         assertThat(service.recording()).isFalse();

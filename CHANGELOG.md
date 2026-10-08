@@ -720,6 +720,13 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **MCP calls no longer keep a restarted application in memory.** BootUI's shared MCP, HTTP-client, and profiler
+  threads used to keep the application that first used them reachable across DevTools restarts and Quarkus live
+  reloads. They no longer inherit its class loader or thread-locals, and an MCP tool runs with its own application's
+  class loader.
+- **The Java agent bounds the tasks it remembers.** It holds at most 32,768 pending executor tasks and 32,768 pending
+  threads; past that, a task runs without its request, counted as **Over the limit** in the Java Agent panel and
+  `get_agent_status` ([Java Agent](docs/features/java-agent.md#counters)).
 - **Method probe guidance avoids false "never reached" answers.** Agents and the BootUI skill now wait until a probe
   is `active`, rerun within its window, and treat an empty result from a probe that was not active throughout as
   inconclusive ([AI agents](docs/AI-AGENTS.md#did-this-method-run-and-how)).

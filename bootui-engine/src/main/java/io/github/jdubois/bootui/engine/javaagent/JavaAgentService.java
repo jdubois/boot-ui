@@ -845,6 +845,7 @@ public final class JavaAgentService {
                 longValue(executors, "ambiguous"),
                 longValue(executors, "stale"),
                 longValue(executors, "refused"),
+                longValue(executors, "overflow"),
                 longValue(executors, "virtualSkipped"),
                 longValue(executors, "periodicSkipped"),
                 longValue(executors, "skippedTasks"),

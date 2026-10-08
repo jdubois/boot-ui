@@ -81,6 +81,7 @@ const EXECUTOR_COUNTERS = [
   ['ambiguous', 'Ambiguous', 'tasks submitted more than once by different owners, left unowned'],
   ['stale', 'Stale', 'tasks received under an earlier claim, never reopened after a restart'],
   ['refused', 'Refused', 'snapshots the bridge refused because they held more than strings and numbers'],
+  ['overflow', 'Over the limit', 'tasks received from owned work while 32,768 were already pending, left unowned'],
   ['virtualSkipped', 'Virtual threads skipped', 'virtual-thread continuations, which keep their own context'],
   ['periodicSkipped', 'Periodic tasks skipped', 'repeating scheduled tasks, which are never propagated'],
   ['skippedTasks', 'Wrappers skipped', 'tasks already carrying their context (bootui.agent.executors.skip-tasks)'],
@@ -99,6 +100,7 @@ const THREAD_COUNTERS = [
   ['ambiguous', 'Ambiguous', 'threads started more than once by different owners, left unowned'],
   ['stale', 'Stale', 'threads started under an earlier claim, never reopened after a restart'],
   ['refused', 'Refused', 'snapshots the bridge refused because they held more than strings and numbers'],
+  ['overflow', 'Over the limit', 'threads started from owned work while 32,768 were already pending, left unowned'],
   [
     'libraryThreadsSkipped',
     'Library threads skipped',
