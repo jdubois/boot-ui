@@ -830,7 +830,8 @@ jobs:
           fi
 
       # The security-sinks JDK checks stay opt-in whatever they measure (D37): this prints whether they would meet the
-      # default rule (own increment at most 3 %, cumulative at most 10 %) and never fails while they are opt-in.
+      # default rule, judged as D48 judges a gate, by the lower bound of each median's 95 % interval (own increment at
+      # most 3 %, cumulative at most 10 %), and never fails while they are opt-in.
       - name: Check the security-sinks JDK checks against the default rule
         if: ${{ !cancelled() && needs.changes.outputs.extras == 'true' }}
         run: |
@@ -842,18 +843,21 @@ jobs:
             fi
           done
           read_value() { sed -n "s/^$2=//p" "$directory/$1"; }
-          increment=$(read_value spring-mvc-checks-ab.properties overheadPercent)
-          increment_range="$(read_value spring-mvc-checks-ab.properties minOverheadPercent) to $(read_value spring-mvc-checks-ab.properties maxOverheadPercent)"
-          cumulative=$(read_value spring-mvc-agent-checks.properties overheadPercent)
-          cumulative_range="$(read_value spring-mvc-agent-checks.properties minOverheadPercent) to $(read_value spring-mvc-agent-checks.properties maxOverheadPercent)"
+          describe() {
+            echo "median $(read_value "$1" overheadPercent) % (95 % interval $(read_value "$1" lowOverheadPercent) to $(read_value "$1" highOverheadPercent) %, pairs $(read_value "$1" minOverheadPercent) to $(read_value "$1" maxOverheadPercent) %)"
+          }
+          increment_low=$(read_value spring-mvc-checks-ab.properties lowOverheadPercent)
+          cumulative_low=$(read_value spring-mvc-agent-checks.properties lowOverheadPercent)
           verdict=PASS
-          if awk -v increment="$increment" -v cumulative="$cumulative" 'BEGIN { exit !(increment > 3 || cumulative > 10) }'; then
+          if [ -z "$increment_low" ] || [ -z "$cumulative_low" ]; then
+            verdict=UNKNOWN
+          elif awk -v increment="$increment_low" -v cumulative="$cumulative_low" 'BEGIN { exit !(increment > 3 || cumulative > 10) }'; then
             verdict=FAIL
           fi
-          line="Security-sinks JDK checks (opt-in) against the default rule: ${verdict}. Increment median ${increment} % (pairs ${increment_range} %, limit 3 %); cumulative median ${cumulative} % (pairs ${cumulative_range} %, limit 10 %)."
+          line="Security-sinks JDK checks (opt-in) against the default rule: ${verdict}. Increment $(describe spring-mvc-checks-ab.properties), limit 3 % on the lower bound; cumulative $(describe spring-mvc-agent-checks.properties), limit 10 % on the lower bound."
           echo "$line"
           printf '\n**%s**\n' "$line" >> "$GITHUB_STEP_SUMMARY"
-          if [ "$verdict" = FAIL ]; then
+          if [ "$verdict" != PASS ]; then
             echo "::warning::$line"
           fi
 
