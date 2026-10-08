@@ -132,13 +132,12 @@ Retired IDs are listed in [Retired rules](#retired-rules) and are never reused.
 | MEM-HEAP-002 | Update | **MEDIUM** at 85% of a known old-pool maximum. Skip absent pools/unknown maxima; never divide by committed instead. Investigate collector-specific occupancy, not an asserted fully collected live set. |
 | MEM-HEAP-003 | Update | **LOW** when max heap is below 15% of a container limit of at least 1 GiB and occupancy is at least 80%. A large limit is not free memory: confirm total native/container headroom before raising heap. |
 | MEM-HEAP-004 | Update | **INFO** when the max heap is at or just above (up to 125% of) the compressed-oops encoding range, which is 4 GiB times `ObjectAlignmentInBytes` (32 GiB at 8 bytes). HotSpot keeps compressed oops only below that range minus alignment padding, so the common `-Xmx32g` already disables them; the earlier rule required more than 32 GiB and never reported it. It now prefers the live `MaxHeapSize` (the Serial/Parallel MXBean maximum excludes a survivor space), live `ObjectAlignmentInBytes`, and live `UseCompressedOops`: live true passes, live false within 15/16 to 125% of the range reports, live false well below it is not a cliff. Skips ZGC and an effective (last) `-XX:-UseCompressedOops`. |
-| MEM-HEAP-005 | Retain | **INFO** for smaller initial than maximum heap with ZGC/Shenandoah. The collector uses the JVM's reported initial capacity rather than assuming an earlier argument is effective. Equal initial/max may suit latency-sensitive workloads but trades away footprint/uncommit flexibility. |
 | MEM-HEAP-006 | Retain | **LOW** for at least 1,000 objects pending finalization. Review persistent backlog and resource lifecycle; prefer explicit close/try-with-resources over finalization, deprecated for removal by JEP 421. |
 | MEM-HEAP-008 | Update | **LOW** after three valid increases in old-generation occupancy. Missing observations break the streak. Normal warmup/load changes can explain it; confirm stable load and collector-appropriate reclamation before investigating retention. |
 
 Evidence: [snapshot contracts][memory-usage], [pool semantics][memory-pool], [leak investigation][leaks],
-[heap-sizing tradeoffs][gc-tuning], [compressed oops][oops], [HotSpot compressed-oops limit][oops-limit],
-[ZGC tuning][zgc-tuning], and [JEP 421][jep421].
+[heap-sizing tradeoffs][gc-tuning], [compressed oops][oops], [HotSpot compressed-oops limit][oops-limit], and
+[JEP 421][jep421].
 
 ### Native memory
 
@@ -177,10 +176,11 @@ Evidence: [pool contracts][memory-pool], [buffer estimates][buffers], [OpenJDK c
 | MEM-GC-006 | Update | **MEDIUM** when the most recently completed event lasted at least 1,000 ms. Select by completion time, not historical maximum duration; suppress an unchanged event from the prior histogram. Concurrent-cycle beans (ZGC/Shenandoah `Cycles`, legacy ConcurrentMarkSweep) are now excluded **before** selecting the latest event: their duration spans a whole concurrent cycle and routinely exceeded 1 s, a structural false positive. `G1 Concurrent GC` stays because it times remark/cleanup pauses. |
 | MEM-GC-007 | Update | **HIGH** when container awareness remains explicitly disabled despite a visible cgroup limit. Respect a later re-enable option. Keep supported-HotSpot and deliberate-override caveats; no automatic sizing changes. |
 | MEM-GC-008 | New | **INFO** when ZGC runs in non-generational mode (`ZGC Cycles`/`ZGC Pauses` beans) and the live `ZGenerational` option is readable and false. That combination exists only on JDK 21-22 (default) or JDK 23 with the deprecated `-XX:-ZGenerational`; the option is absent on 17-20 and obsolete from 24, so the rule cannot fire there. Generational ZGC (JEP 439) usually needs less heap headroom, became the default in JDK 23 (JEP 474), and replaced non-generational ZGC in JDK 24 (JEP 490). Some workloads deliberately prefer the old mode, hence INFO. The JVM Tuning calculator does not emit `ZGenerational` because it is not portable; this is a runtime observation. |
+| MEM-HEAP-005 | Retain | **INFO** for smaller initial than maximum heap with ZGC/Shenandoah. The collector uses the JVM's reported initial capacity rather than assuming an earlier argument is effective. Equal initial/max may suit latency-sensitive workloads but trades away footprint/uncommit flexibility. |
 
 Evidence: [GC counters][gc-bean], [event timing][gc-info], [G1 full-GC manager][g1-manager],
-[diagnostic full-GC causes][gc-causes], [collector tradeoffs][collectors], [VM options][java-options], and
-[JEP 439][jep439]/[JEP 474][jep474]/[JEP 490][jep490].
+[diagnostic full-GC causes][gc-causes], [collector tradeoffs][collectors], [ZGC tuning][zgc-tuning],
+[VM options][java-options], and [JEP 439][jep439]/[JEP 474][jep474]/[JEP 490][jep490].
 
 ### Threads
 
