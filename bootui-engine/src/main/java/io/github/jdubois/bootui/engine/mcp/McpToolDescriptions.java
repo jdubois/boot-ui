@@ -283,9 +283,11 @@ public final class McpToolDescriptions {
                             + "names, loaded in this JVM: a prioritization hint that never changes severity, and "
                             + "NOT_LOADED means not loaded yet, not unreachable. At most limit (10) dependencies, vulnerable "
                             + "first, matching query (coordinates, severity, or an advisory id or alias); totals stay "
-                            + "whole-report counts and page.matched counts the query hits. Advisories carry their full "
-                            + "text, so on an MCP -32003 byte-budget refusal retry with a smaller limit or a narrower "
-                            + "query; a refusal is not an empty report."),
+                            + "whole-report counts and page.matched counts the query hits. Each dependency lists at most 5 "
+                            + "advisories, active and most severe first, without details and with at most 3 references "
+                            + "and symbols; advisories.omitted and advisories.detailsOmitted count what was left out. "
+                            + "Query an exact group:artifact to list all its advisories, or an exact advisory id or "
+                            + "alias to read it whole."),
             Map.entry(
                     "get_metrics",
                     "Search the current application metrics inventory and return a bounded page of local meter values. "

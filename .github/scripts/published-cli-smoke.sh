@@ -153,6 +153,14 @@ check_json overview "doc.get('serverPort') == ${PORT} and doc.get('applicationNa
 run_cli 0 beans beans --query bootUi --limit 5 --json
 check_json beans "isinstance(doc, dict) and len(doc.get('beans', [])) > 0"
 
+# A scan and a capture control answer compactly; the published CLI must still parse and print both.
+run_cli 0 architecture-scan architecture scan --json
+check_json architecture-scan "doc['reportTool'] == 'get_architecture_report' and isinstance(doc['topFindings'], list)"
+check_json architecture-scan "isinstance(doc['severityCounts'], list) and doc['violationDetails']['scanId']"
+
+run_cli 0 sql-clear sql clear --json
+check_json sql-clear "doc['action'] == 'cleared' and doc['retained'] == 0 and isinstance(doc['totalCaptured'], int)"
+
 run_cli 1 unavailable "${UNAVAILABLE_COMMAND[@]}" --json
 [[ ! -s "$WORK_DIR/unavailable.out" ]] || fail "bootui ${UNAVAILABLE_COMMAND[*]} printed to stdout."
 grep -q "does not expose '${UNAVAILABLE_TOOL}'" "$WORK_DIR/unavailable.err" \

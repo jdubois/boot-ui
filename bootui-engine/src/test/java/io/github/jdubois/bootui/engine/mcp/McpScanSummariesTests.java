@@ -98,6 +98,37 @@ class McpScanSummariesTests {
     }
 
     @Test
+    void aPentestScanListsEachCheckOnceCountingItsActiveFindings() {
+        List<PentestingFindingDto> findings = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            findings.add(finding("PT-COOKIE", "LOW", false));
+        }
+        findings.add(finding("PT-COOKIE", "MEDIUM", false));
+        findings.add(finding("PT-COOKIE", "CRITICAL", true));
+        findings.add(finding("PT-HEADER", "HIGH", false));
+        PentestingReport report = new PentestingReport(
+                true,
+                "Local only.",
+                5,
+                14,
+                List.of(),
+                new PentestingScanStatusDto("probe", "COMPLETE", null, 1L, 5, 14),
+                List.of(),
+                findings,
+                AdvisorEvidenceDto.unknown());
+
+        Map<String, Object> summary = McpScanSummaries.pentest(report);
+
+        assertThat(summary)
+                .containsEntry("moreFindings", 0)
+                .containsEntry(
+                        "topFindings",
+                        List.of(
+                                new Finding("PT-HEADER", "Finding PT-HEADER", "HIGH", 1),
+                                new Finding("PT-COOKIE", "Finding PT-COOKIE", "MEDIUM", 13)));
+    }
+
+    @Test
     void aVulnerabilityScanListsVulnerableDependenciesByTheirMostSevereActiveAdvisory() {
         DependencyDto risky = new DependencyDto(
                 "org.example",

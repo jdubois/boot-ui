@@ -36,8 +36,9 @@ import java.util.List;
  *   <li>{@code vulnerabilities_scan}, {@code hibernate_scan} and {@code pause_sql_trace_recording} render below
  *       {@link #COMPACT_BYTES};
  *   <li>{@code get_hibernate_report} renders whole, above {@link #COMPACT_BYTES} and below the budget;
- *   <li>{@code get_vulnerabilities_report} at its default page is refused with {@code -32003}, and the same call with
- *       {@code limit} 1 fits.
+ *   <li>{@code get_vulnerabilities_report} at its default page renders below {@link #VULNERABILITY_PAGE_BYTES}, though
+ *       every dependency carries eight advisories with long OSV text, and an exact advisory id returns that advisory
+ *       whole.
  * </ul>
  */
 public final class McpCompactAnswerContract {
@@ -47,6 +48,12 @@ public final class McpCompactAnswerContract {
 
     /** The most a rendered compact answer may take, JSON-RPC envelope and text mirror included. */
     public static final int COMPACT_BYTES = 16 * 1024;
+
+    /**
+     * The most the default {@code get_vulnerabilities_report} page may take: its {@code limit} bounds the advisories
+     * and their text too, not only the dependency count. Unbounded, the fixture's default page renders about 700 KB.
+     */
+    public static final int VULNERABILITY_PAGE_BYTES = 96 * 1024;
 
     /** Vulnerable dependencies in the fixture, more than a scan summary lists. */
     public static final int VULNERABLE_DEPENDENCIES = 30;
