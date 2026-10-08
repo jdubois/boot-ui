@@ -4,6 +4,7 @@ set -euo pipefail
 
 # Usage: check-release-integrity.sh [release.yml] [pages.yml] [docker-publish.yml] [consumer-smoke-tests.sh]
 #                                   [stage-release-candidate.sh] [check-central-bundle.py]
+#                                   [assemble_central_bundle.py]
 # RELEASE_INTEGRITY_ROOT is a test seam for the repository checked by the release-line and POM rules;
 # no workflow may set it.
 readonly REPOSITORY_ROOT="${RELEASE_INTEGRITY_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
@@ -15,6 +16,7 @@ readonly DOCKER_WORKFLOW="${3:-$REPOSITORY_ROOT/.github/workflows/docker-publish
 readonly SMOKE_SCRIPT="${4:-$SCRIPTS_DIR/consumer-smoke-tests.sh}"
 readonly STAGE_SCRIPT="${5:-$SCRIPTS_DIR/stage-release-candidate.sh}"
 readonly BUNDLE_CHECK="${6:-$SCRIPTS_DIR/check-central-bundle.py}"
+readonly BUNDLE_ASSEMBLER="${7:-$SCRIPTS_DIR/assemble_central_bundle.py}"
 readonly ROOT_POM="$REPOSITORY_ROOT/pom.xml"
 readonly STARTER_POM="$REPOSITORY_ROOT/bootui-spring-boot-starter/pom.xml"
 readonly RELEASE_LINE_FILE="$REPOSITORY_ROOT/.github/release-line"
@@ -30,7 +32,7 @@ if [[ ! -r "$ROOT_POM" ]]; then
   exit 2
 fi
 for required in "$VERSION_POLICY" "$LINE_GATE" "$PAGES_WORKFLOW" "$DOCKER_WORKFLOW" "$SMOKE_SCRIPT" "$STAGE_SCRIPT" \
-  "$BUNDLE_CHECK" "$STARTER_POM"; do
+  "$BUNDLE_CHECK" "$BUNDLE_ASSEMBLER" "$STARTER_POM"; do
   if [[ ! -r "$required" ]]; then
     printf 'Cannot read %s\n' "$required" >&2
     exit 2
@@ -142,6 +144,12 @@ fi
 if ! grep -Fxq -- "$CENTRAL_SMOKE" "$WORKFLOW"; then
   report_error "missing Maven Central consumer smoke tests ('${CENTRAL_SMOKE#"${CENTRAL_SMOKE%%[![:space:]]*}"}' on a line of its own)"
 fi
+require_literal 'python3 .github/scripts/assemble_central_bundle.py "$LOCAL_REPO" "$VERSION" target/central-bundle.zip' \
+  'Central bundle assembled from the installed release'
+require_literal 'python3 .github/scripts/check-central-bundle.py "$BUNDLE_DIR" "$VERSION"' \
+  'check of the assembled Central bundle before its upload'
+require_literal 'python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip' \
+  'Central Portal bundle upload'
 
 smoke_test_step="$(
   sed -n '/- name: Smoke test published distributions/,/- name: Decide documentation redeploy/p' "$WORKFLOW"
@@ -188,16 +196,21 @@ if grep -Eq '"bootui-(quarkus-)?parent/' <<<"$availability_step"; then
   report_error 'neither parent POM is published, so neither may be polled on Maven Central'
 fi
 
-# The staging script builds the same reactor as the publication step.
+# The staging script builds the same reactor as the publication step, and the same bundle from it.
 if ! grep -Fq -- "$PUBLICATION_REACTOR" "$STAGE_SCRIPT"; then
   report_error "$STAGE_SCRIPT must stage the publication-only Maven reactor ('$PUBLICATION_REACTOR')"
 fi
-for literal in '-DcentralBaseUrl="$STUB_URL"' '-DwaitUntil=uploaded' '-Dcentral.autoPublish=false' \
-  'server = http.server.HTTPServer(("127.0.0.1", 0), Upload)' 'check-central-bundle.py'; do
+for literal in './mvnw -B -ntp -Prelease clean install \' \
+  'assemble_central_bundle.py" --unsigned "$LOCAL_REPO" "$VERSION" "$BUNDLE"' \
+  'check-central-bundle.py" "$OUTPUT" "$VERSION"'; do
   if ! grep -Fq -- "$literal" "$STAGE_SCRIPT"; then
     report_error "$STAGE_SCRIPT must use '$literal'"
   fi
 done
+if sed -e ':join' -e '/\\$/N' -e 's/\\\n[[:space:]]*/ /' -e 't join' "$STAGE_SCRIPT" |
+  grep -Eq 'mvnw[^#]* deploy( |$)'; then
+  report_error "$STAGE_SCRIPT must stage the assembled bundle, not run the Maven deploy phase"
+fi
 
 # The consumer smoke tests and the bundle check name the same coordinates.
 smoke_published="$(sed -n '/^readonly PUBLISHED_ARTIFACTS=(/,/^)/p' "$SMOKE_SCRIPT" | grep -E '^[[:space:]]+bootui-' | tr -d ' ' | sort)"
@@ -207,6 +220,10 @@ fi
 bundle_published="$(sed -n '/^PUBLISHED = (/,/^)/p' "$BUNDLE_CHECK" | grep -oE '"bootui-[a-z-]+"' | tr -d '"' | sort)"
 if [[ "$bundle_published" != "$EXPECTED_PUBLISHED" ]]; then
   report_error "$BUNDLE_CHECK must expect exactly the published coordinates"
+fi
+assembled_published="$(sed -n '/^ARTIFACT_IDS = (/,/^)/p' "$BUNDLE_ASSEMBLER" | grep -oE '"bootui-[a-z-]+"' | tr -d '"' | sort)"
+if [[ "$assembled_published" != "$EXPECTED_PUBLISHED" ]]; then
+  report_error "$BUNDLE_ASSEMBLER must bundle exactly the published coordinates"
 fi
 
 report_smoke_error() {
@@ -270,6 +287,20 @@ for consumer in 'create_spring_smoke_project "$MVC_SMOKE_DIR"' '-f "$CLI_SMOKE_D
 done
 if [[ "$(grep -Fc -- "$SMOKE_PURGE" "$SMOKE_SCRIPT" || true)" -ne 1 ]]; then
   report_smoke_error 'the local BootUI artifacts must be dropped exactly once, before every consumer'
+fi
+
+# Under Maven 3.10, central-publishing-maven-plugin stages POM-less resolver bookkeeping that Central
+# rejects, so publication installs the release and uploads a bundle assembled from it instead.
+publish_step="$(
+  sed -n '/- name: Publish to Maven Central/,/- name: Wait for Maven Central availability/p' "$WORKFLOW" |
+    sed -e ':join' -e '/\\$/N' -e 's/\\\n[[:space:]]*/ /' -e 't join'
+)"
+readonly publish_step
+if grep -Eq 'mvnw[^#]* deploy( |$)' <<<"$publish_step"; then
+  report_error 'Maven Central publication must upload the assembled bundle, not run the Maven deploy phase'
+fi
+if grep -Fq -- '--unsigned' <<<"$publish_step"; then
+  report_error 'Maven Central publication must bundle the signed release, never with --unsigned'
 fi
 
 excluded_artifacts="$(
@@ -390,6 +421,10 @@ require_order '- name: Resolve immutable release' '- name: Checkout immutable re
   'the signed tag must be resolved before checking out the publication SHA'
 require_order '- name: Checkout immutable release' '- name: Publish to Maven Central' \
   'the immutable release SHA must be checked out before Maven Central publication'
+require_order 'python3 .github/scripts/assemble_central_bundle.py' 'python3 .github/scripts/check-central-bundle.py "$BUNDLE_DIR"' \
+  'the Central bundle must be assembled before it is checked'
+require_order 'python3 .github/scripts/check-central-bundle.py "$BUNDLE_DIR"' 'python3 .github/scripts/publish_central_bundle.py' \
+  'the Central bundle must be checked before it is uploaded'
 require_order '- name: Publish to Maven Central' '- name: Wait for Maven Central availability' \
   'Maven Central availability polling must follow publication'
 require_order '- name: Wait for Maven Central availability' '- name: Smoke test published distributions' \
