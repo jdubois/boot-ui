@@ -7,6 +7,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Quarkus extension accepts Quarkus 3.33 LTS again.** Built on the Quarkus 3.40 platform, the extension declared
+  that it requires Quarkus 3.40 or later, so Quarkus refused it on the supported 3.33 LTS line; it now declares 3.33 or
+  later.
+
 ## [1.21.0] - 2026-10-08
 
 BootUI 1.21.0 makes agent setup easier with a portable plugin for Cursor and other compatible clients, a canonical

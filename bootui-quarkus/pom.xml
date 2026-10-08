@@ -359,6 +359,9 @@
                         </goals>
                         <configuration>
                             <deployment>${project.groupId}:bootui-quarkus-deployment:${project.version}</deployment>
+                            <!-- The plugin's default is the build platform's own minor, which would make Quarkus refuse the
+                                 extension on the older LTS line it supports (docs/setup/quarkus.md). -->
+                            <requiresQuarkusCore>[3.33,)</requiresQuarkusCore>
                         </configuration>
                     </execution>
                 </executions>
