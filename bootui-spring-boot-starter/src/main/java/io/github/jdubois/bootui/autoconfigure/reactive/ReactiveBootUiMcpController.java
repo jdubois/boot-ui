@@ -85,6 +85,14 @@ public class ReactiveBootUiMcpController {
      * The exchange was cancelled before its body was subscribed: cancels a call already registered, and leaves the
      * {@link #CANCELLED} mark so a call {@code handle} registers afterwards is cancelled at once.
      */
+    /** Registers a stream call until its body is subscribed; cancels it at once if the exchange already was. */
+    static void registerUnstarted(AtomicReference<Object> unstarted, McpStreamingCall call) {
+        if (!unstarted.compareAndSet(null, call)) {
+            // The exchange was already cancelled: nobody will subscribe to this stream.
+            call.cancel();
+        }
+    }
+
     static void cancelUnstarted(AtomicReference<Object> unstarted) {
         if (unstarted.getAndSet(CANCELLED) instanceof McpStreamingCall call) {
             call.cancel();
@@ -112,10 +120,7 @@ public class ReactiveBootUiMcpController {
         }
         BootUiMcpService.Reply reply = service.exchange(request, headers, state.isEnabled(), acceptsEventStream);
         if (reply.stream() != null) {
-            if (!unstarted.compareAndSet(null, reply.stream().call())) {
-                // The exchange was already cancelled: nobody will subscribe to this stream.
-                reply.stream().call().cancel();
-            }
+            registerUnstarted(unstarted, reply.stream().call());
             return ResponseEntity.ok()
                     .contentType(MediaType.TEXT_EVENT_STREAM)
                     .header(McpProtocol.ACCEL_BUFFERING_HEADER, "no")
