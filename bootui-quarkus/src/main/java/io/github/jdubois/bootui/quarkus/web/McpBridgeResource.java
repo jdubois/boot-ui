@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.quarkus.mcp.BootUiMcpProducer;
 import io.github.jdubois.bootui.quarkus.mcp.McpServerState;
 import io.github.jdubois.bootui.quarkus.mcp.QuarkusMcpEnvelope;
 import io.smallrye.common.annotation.Blocking;
+import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -66,7 +67,7 @@ public class McpBridgeResource {
     @Blocking
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public Response rpc(InputStream requestBody, @Context HttpHeaders headers) {
+    public Response rpc(InputStream requestBody, @Context HttpHeaders headers, @Context RoutingContext routing) {
         byte[] payload;
         try {
             payload = McpPayloadReader.read(requestBody, maxPayloadBytes);
@@ -87,7 +88,7 @@ public class McpBridgeResource {
                 state.isEnabled(),
                 McpProtocol.acceptsEventStream(headers.getRequestHeader(McpProtocol.ACCEPT_HEADER)));
         if (reply.stream() != null) {
-            return Response.ok(events(reply.stream()))
+            return Response.ok(events(reply.stream(), routing))
                     .type(McpProtocol.EVENT_STREAM_MEDIA_TYPE)
                     .header(McpProtocol.ACCEL_BUFFERING_HEADER, "no")
                     .build();
@@ -101,9 +102,12 @@ public class McpBridgeResource {
     /**
      * The request-scoped event stream, written while this worker thread waits: the call's writer thread is the only
      * one that writes, and a failed write (the client went away) cancels the call, which MCP 2026-07-28 requires. The
-     * frames are the same bytes the Spring transports write.
+     * frames are the same bytes the Spring transports write. If the writer is still not done when the backstop wait
+     * expires (the execution timeout plus a grace period), it is stuck on a client that stopped reading: the connection
+     * is closed, which fails the pending write and frees the call's concurrency permit, rather than waiting for the
+     * HTTP idle timeout.
      */
-    private StreamingOutput events(QuarkusMcpEnvelope.Stream stream) {
+    private StreamingOutput events(QuarkusMcpEnvelope.Stream stream, RoutingContext routing) {
         McpStreamingCall call = stream.call();
         return output -> {
             CountDownLatch closed = new CountDownLatch(1);
@@ -111,11 +115,7 @@ public class McpBridgeResource {
                 call.start(new McpStreamSink() {
                     @Override
                     public void progress(McpProgressToken token, ProgressEvent event) throws IOException {
-                        write(
-                                output,
-                                McpProtocol.SSE_DATA_PREFIX
-                                        + envelope.renderProgress(token, event)
-                                        + McpProtocol.SSE_EVENT_END);
+                        write(output, McpProtocol.sseDataFrame(envelope.renderProgress(token, event)));
                     }
 
                     @Override
@@ -125,11 +125,7 @@ public class McpBridgeResource {
 
                     @Override
                     public void complete(McpDispatchOutcome outcome) throws IOException {
-                        write(
-                                output,
-                                McpProtocol.SSE_DATA_PREFIX
-                                        + envelope.renderFinal(stream.id(), outcome)
-                                        + McpProtocol.SSE_EVENT_END);
+                        write(output, McpProtocol.sseDataFrame(envelope.renderFinal(stream.id(), outcome)));
                     }
 
                     @Override
@@ -139,6 +135,7 @@ public class McpBridgeResource {
                 });
                 if (!closed.await(streamWaitMillis, TimeUnit.MILLISECONDS)) {
                     call.cancel();
+                    routing.request().connection().close();
                 }
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();

@@ -10,6 +10,9 @@ import io.github.jdubois.bootui.engine.mcp.McpRequestHeaders;
 import io.github.jdubois.bootui.engine.mcp.McpStreamSink;
 import io.github.jdubois.bootui.engine.mcp.McpStreamingCall;
 import io.github.jdubois.bootui.engine.progress.ProgressEvent;
+import java.io.IOException;
+import java.io.InterruptedIOException;
+import java.util.concurrent.TimeUnit;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -39,15 +42,22 @@ import tools.jackson.databind.node.ObjectNode;
 public class ReactiveBootUiMcpController {
 
     private static final String PAYLOAD_LIMIT_MESSAGE = "Request payload exceeds limit";
+    /** Added to the execution timeout before a writer waiting for demand gives up, as on the blocking stacks. */
+    private static final long BACKSTOP_GRACE_MILLIS = 10_000;
+    /** How often a writer waiting for demand rechecks whether the client went away. */
+    private static final long DEMAND_POLL_MILLIS = 100;
 
     private final BootUiMcpService service;
     private final McpServerState state;
     private final int maxPayloadBytes;
+    private final long backstopMillis;
 
     public ReactiveBootUiMcpController(BootUiMcpService service, McpServerState state, BootUiProperties properties) {
         this.service = service;
         this.state = state;
         this.maxPayloadBytes = Math.max(1, properties.getMcp().getMaxPayloadBytes());
+        this.backstopMillis =
+                Math.max(1, properties.getMcp().getExecutionTimeout().toMillis()) + BACKSTOP_GRACE_MILLIS;
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -96,29 +106,62 @@ public class ReactiveBootUiMcpController {
      * a cancelled subscription (the client went away) cancels the call, which MCP 2026-07-28 requires. Each JSON-RPC
      * message is an SSE {@code data:} line and a keep-alive is an empty comment, the same bytes the servlet and Quarkus
      * transports write.
+     *
+     * <p>The writer emits only against downstream demand, so a client that stops reading blocks the writer, which keeps
+     * the call's concurrency permit as on the blocking stacks instead of buffering without bound. That wait has the
+     * same backstop as theirs: past the execution timeout plus a grace period, the writer gives up as if the write had
+     * failed.
      */
     private Flux<ServerSentEvent<String>> events(BootUiMcpService.Stream stream) {
         McpStreamingCall call = stream.call();
         // A stream that is never subscribed is still released by the call's own execution timeout.
         return Flux.create(sink -> {
+            Object demand = new Object();
+            long giveUpAt = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(backstopMillis);
+            sink.onRequest(requested -> {
+                synchronized (demand) {
+                    demand.notifyAll();
+                }
+            });
             sink.onCancel(call::cancel);
             sink.onDispose(call::cancel);
             call.start(new McpStreamSink() {
                 @Override
-                public void progress(McpProgressToken token, ProgressEvent event) {
-                    sink.next(ServerSentEvent.builder(service.renderProgress(token, event))
+                public void progress(McpProgressToken token, ProgressEvent event) throws IOException {
+                    emit(ServerSentEvent.builder(McpProtocol.sseData(service.renderProgress(token, event)))
                             .build());
                 }
 
                 @Override
-                public void heartbeat() {
-                    sink.next(ServerSentEvent.<String>builder().comment("").build());
+                public void heartbeat() throws IOException {
+                    emit(ServerSentEvent.<String>builder().comment("").build());
                 }
 
                 @Override
-                public void complete(McpDispatchOutcome outcome) {
-                    sink.next(ServerSentEvent.builder(service.renderFinal(stream.id(), outcome))
+                public void complete(McpDispatchOutcome outcome) throws IOException {
+                    emit(ServerSentEvent.builder(McpProtocol.sseData(service.renderFinal(stream.id(), outcome)))
                             .build());
+                }
+
+                private void emit(ServerSentEvent<String> event) throws IOException {
+                    synchronized (demand) {
+                        while (sink.requestedFromDownstream() <= 0) {
+                            if (sink.isCancelled()) {
+                                throw new IOException("The client closed the MCP event stream");
+                            }
+                            long remaining = giveUpAt - System.nanoTime();
+                            if (remaining <= 0) {
+                                throw new IOException("The client stopped reading the MCP event stream");
+                            }
+                            try {
+                                demand.wait(Math.min(DEMAND_POLL_MILLIS, Math.max(1, remaining / 1_000_000)));
+                            } catch (InterruptedException interrupted) {
+                                Thread.currentThread().interrupt();
+                                throw new InterruptedIOException("Interrupted while waiting for demand");
+                            }
+                        }
+                    }
+                    sink.next(event);
                 }
 
                 @Override

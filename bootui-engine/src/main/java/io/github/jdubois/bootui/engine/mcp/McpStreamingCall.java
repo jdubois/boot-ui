@@ -74,6 +74,7 @@ public final class McpStreamingCall {
     private final AtomicInteger permitHolders = new AtomicInteger(2);
 
     private final AtomicBoolean writerClaimed = new AtomicBoolean();
+    private final AtomicBoolean started = new AtomicBoolean();
     private final McpProgressOutbox outbox = new McpProgressOutbox(new McpProgressThrottle());
     private final OperationProgress progress;
     private final ScheduledFuture<?> timeoutTask;
@@ -107,12 +108,27 @@ public final class McpStreamingCall {
 
     /**
      * Starts the tool and the writer. Call it once, after the response headers are committed. A call that already
-     * ended (it timed out or was cancelled before it started), or a second start, only closes {@code sink}.
+     * ended before it started still answers: a timeout or a failure is written as the stream's final response, and only
+     * a cancelled call closes {@code sink} without one. A second start only closes {@code sink}.
      */
     public void start(McpStreamSink sink) {
         Objects.requireNonNull(sink, "sink");
-        if (!writerClaimed.compareAndSet(false, true)) {
+        if (!started.compareAndSet(false, true)) {
             sink.close();
+            return;
+        }
+        if (!writerClaimed.compareAndSet(false, true)) {
+            // The call ended before it started, and its permit is already released.
+            End ended = end.get();
+            if (ended == null || ended.kind() == EndKind.CANCELLED) {
+                sink.close();
+                return;
+            }
+            try {
+                WRITERS.execute(() -> writeFinalOnly(sink, ended.outcome()));
+            } catch (RuntimeException | Error rejected) {
+                sink.close();
+            }
             return;
         }
         try {
@@ -139,15 +155,11 @@ public final class McpStreamingCall {
      * writing at once, interrupts the tool, and is a no-op once the call has ended. Never blocks.
      */
     public void cancel() {
-        if (end(EndKind.CANCELLED, null)) {
-            stats.recordCancellation();
-        }
+        end(EndKind.CANCELLED, null);
     }
 
     private void timeOut() {
-        if (end(EndKind.TIMED_OUT, new ProtocolError(McpProtocol.TOOL_TIMEOUT, McpProtocol.TOOL_TIMEOUT_MESSAGE))) {
-            stats.recordTimeout();
-        }
+        end(EndKind.TIMED_OUT, new ProtocolError(McpProtocol.TOOL_TIMEOUT, McpProtocol.TOOL_TIMEOUT_MESSAGE));
     }
 
     private void fail(Throwable failure) {
@@ -188,6 +200,12 @@ public final class McpStreamingCall {
         }
         if (!end.compareAndSet(null, new End(kind, outcome))) {
             return false;
+        }
+        // Counted before anything is released or signalled, so whoever observes the end also sees its statistic.
+        if (kind == EndKind.TIMED_OUT) {
+            stats.recordTimeout();
+        } else if (kind == EndKind.CANCELLED) {
+            stats.recordCancellation();
         }
         if (kind != EndKind.TIMED_OUT) {
             timeoutTask.cancel(false);
@@ -255,6 +273,17 @@ public final class McpStreamingCall {
         } finally {
             sink.close();
             releasePart();
+        }
+    }
+
+    /** The final response of a call that ended before its stream started; it holds no permit any more. */
+    private static void writeFinalOnly(McpStreamSink sink, McpDispatchOutcome outcome) {
+        try {
+            sink.complete(outcome);
+        } catch (Exception | Error writeFailure) {
+            // The client is gone; the call has already ended.
+        } finally {
+            sink.close();
         }
     }
 

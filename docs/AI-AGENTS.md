@@ -786,7 +786,12 @@ compatibility rules describe:
   the concurrency slot once the tool has returned and the stream is written. WebFlux notices the disconnect at once;
   Spring MVC and Quarkus notice it when a write fails, within two keep-alive intervals (about 4 seconds).
   `bootui.mcp.execution-timeout` stays the absolute bound, whatever progress flows: a timed-out stream ends with the
-  timeout error as its final response.
+  timeout error as its final response, even when the call timed out before its stream opened. Events are always one
+  line of compact JSON, whatever the application's Jackson configuration (an indenting mapper included).
+- **A client that stops reading.** The writer then blocks and keeps the call's concurrency slot, so
+  `bootui.mcp.max-concurrent-calls` also bounds stalled streams; on WebFlux it waits for the subscriber's demand
+  instead of buffering. On every stack it gives up 10 seconds after the execution timeout: Spring MVC's async request
+  times out, WebFlux stops waiting for demand, and Quarkus closes the connection, which frees the slot.
 
 ## Assess an application and approve an action plan
 
