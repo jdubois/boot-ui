@@ -10,7 +10,7 @@ running console is always the authoritative answer for your own application.
 
 Spring WebFlux (reactive, Netty / `DispatcherHandler`) Spring Boot 4 applications are a first-class BootUI target,
 alongside the Spring MVC (servlet) and Quarkus adapters. WebFlux reuses the same shared engine
-(`bootui-engine` / `bootui-core`), the same Vue UI, and the same JSON contract (`/bootui/api/**` by default). Panels
+(`bootui-engine`), the same Vue UI, and the same JSON contract (`/bootui/api/**` by default). Panels
 reach parity wherever a reactive analog genuinely exists, and report an honest *not yet ported* or *not applicable*
 status where they don't.
 
@@ -68,10 +68,10 @@ turn, the sidebar tooltip and the panel's own alert banner (§6.7). `docs/featur
 
 ## 3. Why this is feasible — evidence from the current codebase
 
-- `bootui-core` / `bootui-engine` / `bootui-ui` were already 100% framework-neutral before this work started. They
-  needed **zero changes** beyond adding one new platform constant (`PanelsReport.PLATFORM_SPRING_BOOT_REACTIVE`). Every
-  advisor engine, DTO, and Vue view is reused byte-for-byte from the servlet adapter — the same reuse story the Quarkus
-  adapter proved out.
+- The DTOs (then `bootui-core`, now the engine's core package), `bootui-engine`, and `bootui-ui` were already 100%
+  framework-neutral before this work started. They needed **zero changes** beyond adding one new platform constant
+  (`PanelsReport.PLATFORM_SPRING_BOOT_REACTIVE`). Every advisor engine, DTO, and Vue view is reused byte-for-byte from
+  the servlet adapter — the same reuse story the Quarkus adapter proved out.
 - Most of the servlet adapter's `@RestController`s use the shared `org.springframework.web.bind.annotation` model,
   return plain DTO records, and never reference `HttpServletRequest`/`HttpServletResponse` directly. `DispatcherHandler`
   (WebFlux's dispatcher) invokes them exactly as `DispatcherServlet` does, unmodified.
@@ -83,7 +83,7 @@ turn, the sidebar tooltip and the panel's own alert banner (§6.7). `docs/featur
 ## 4. Module topology
 
 ```text
-bootui-core / bootui-engine / bootui-ui        Unchanged — reused by all three adapters
+bootui-engine / bootui-ui                      Unchanged — reused by all three adapters
 bootui-spring-boot-starter                     The one Spring module and starter: servlet AND reactive bindings both live here
   ...autoconfigure.web                         Servlet @RestControllers (framework-neutral; reused unmodified by both)
   ...autoconfigure.reactive                    Reactive-only bindings: WebFilters, the two new @Configuration classes,

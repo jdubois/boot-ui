@@ -24,8 +24,8 @@ participating you are expected to uphold this code.
 ## Project layout
 
 ```
-bootui-core/                         Shared DTOs, secret masking, and core helpers
-bootui-engine/                       Framework-neutral services/advisors and SPI ports
+bootui-engine/                       Shared DTOs, secret masking, and core helpers (JDK-only core package),
+                                     and the framework-neutral services/advisors and SPI ports
 bootui-spring-boot-starter/          Spring MVC + WebFlux adapter and starter (auto-config, endpoints, safety)
 bootui-ui/                           Vue 3 SPA bundled into META-INF/resources/bootui
 bootui-conformance/                  Shared HTTP contract suite + golden manifests for all adapters

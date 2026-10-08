@@ -7,7 +7,10 @@ applyTo: "**/*.java,pom.xml,**/pom.xml"
 - Compile for Java 17 with `-parameters`. Use the Maven Wrapper; do not require a system Maven.
 - Published Maven coordinates use `com.julien-dubois.bootui:*`; Java packages remain
   `io.github.jdubois.bootui.*`.
-- Preserve the dependency direction `bootui-core <- bootui-engine <- adapters`. Core, engine, conformance, and UI must not depend on Spring, Quarkus, servlet/JAX-RS APIs, or either Jackson generation.
+- Preserve the package direction `io.github.jdubois.bootui.core..` <- `io.github.jdubois.bootui.engine..` and
+  `io.github.jdubois.bootui.spi..` <- adapters. The core package lives in `bootui-engine` and depends only on the JDK and
+  itself; `CoreBoundaryArchitectureTests` enforces this. Core, engine, conformance, and UI must not depend on Spring,
+  Quarkus, servlet/JAX-RS APIs, or either Jackson generation.
 - DTOs are annotation-free immutable records in `io.github.jdubois.bootui.core.dto`, one record per file. They must serialize identically with Spring Boot's Jackson 3 and Quarkus' Jackson 2.
 - Keep the engine framework-, DI-, and JSON-free. Parse external JSON in an adapter and pass neutral records to the engine.
 - Put reusable behavior in an engine feature package and expose framework integration through neutral SPI ports in `io.github.jdubois.bootui.spi`.

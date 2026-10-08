@@ -12,14 +12,9 @@
 
     <artifactId>bootui-engine</artifactId>
     <name>BootUI :: Engine</name>
-    <description>Framework-neutral services and advisor engines that implement BootUI behavior for every adapter.</description>
+    <description>Framework-neutral DTOs, services, and advisor engines that implement BootUI behavior for every adapter.</description>
 
     <dependencies>
-        <dependency>
-            <groupId>com.julien-dubois.bootui</groupId>
-            <artifactId>bootui-core</artifactId>
-        </dependency>
-
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-core</artifactId>
@@ -282,6 +277,26 @@
     </dependencies>
 
     <build>
+        <!--
+          Only bootui-version.properties is filtered (BootUiInfo reads the project version from it); every other
+          resource, such as the bundled ASM licence, is copied untouched.
+        -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>bootui-version.properties</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>bootui-version.properties</exclude>
+                </excludes>
+            </resource>
+        </resources>
         <plugins>
             <!-- Published: Maven Central receives a flattened, parentless POM (configured in the root POM). -->
             <plugin>

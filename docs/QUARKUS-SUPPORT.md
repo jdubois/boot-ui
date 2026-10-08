@@ -22,7 +22,7 @@ layer; the bulk of BootUI's logic lives in framework-neutral shared modules.
 Concretely:
 
 1. **One UI artifact.** `bootui-ui` (the Vue 3 SPA) is built once and served unchanged by both backends.
-2. **One data contract.** The immutable `record` DTOs in `bootui-core` are the contract; both backends emit identical
+2. **One data contract.** The immutable `record` DTOs in `bootui-engine`'s core package are the contract; both backends emit identical
    JSON at the configured API path (`/bootui/api/**` by default).
 3. **One engine.** Advisor rule engines, scanners, the OSV scanner, the OTLP/telemetry store, JVM/MXBean readers, the
    dependency catalog, secret masking, scoring, and the MCP server move into a shared, Spring-free engine module.
@@ -44,7 +44,7 @@ The repository already separates "what the data means" (framework-neutral) from 
 
 | Observation                                       | Evidence                                                                                                                                                                                                |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The DTO layer has **zero** Spring coupling        | `bootui-core`: 320 Java files, 311 DTOs, `0` files import `org.springframework`                                                                                                                         |
+| The DTO layer has **zero** Spring coupling        | The core DTO package (`io.github.jdubois.bootui.core`): 320 Java files, 311 DTOs, `0` files import `org.springframework`                                                                                |
 | The UI is already framework-agnostic              | `bootui-ui` uses only relative `fetch('api/…')` calls; no framework knowledge                                                                                                                           |
 | The UI already gates panels on backend capability | `App.vue` fetches `/bootui/api/panels`, builds a `panelLookup`, and renders unavailable panels into a separate group                                                                                    |
 | The advisor **engines** are framework-neutral    | `bootui-engine` advisor packages contain no Spring imports; framework collection and base-package discovery live in the adapters                                                                        |
@@ -62,8 +62,8 @@ Current modules and their roles:
 
 ```
 SHARED (framework-neutral, built once, reused by both backends)
-  bootui-core                    DTO records, SecretMasker, BootUiInfo
-  bootui-engine                  Framework-neutral services, advisors, and io.github.jdubois.bootui.spi ports
+  bootui-engine                  DTO records, SecretMasker, BootUiInfo (the JDK-only core package), and the
+                                 framework-neutral services, advisors, and io.github.jdubois.bootui.spi ports
   bootui-conformance             Shared HTTP contract suite and golden panel manifests
   bootui-ui                      Vue 3 SPA, built once
 
@@ -81,14 +81,15 @@ QUARKUS ADAPTER
   bootui-quarkus-sample-app          Demo/integration app
 ```
 
-Dependency direction is one-way: `bootui-engine` depends on `bootui-core`; both adapters depend on the shared modules;
+Dependency direction is one-way: inside `bootui-engine`, the engine and SPI packages depend on the JDK-only
+`io.github.jdubois.bootui.core` package, never the reverse; both adapters depend on the shared modules;
 the shared modules never depend on Spring, Quarkus, servlet, JAX-RS, Vert.x, or either framework's JSON library. The
 neutral SPI remains the `io.github.jdubois.bootui.spi` package inside `bootui-engine`.
 
 ```
-bootui-core ◄── bootui-engine ◄── Spring and Quarkus adapters
-      ▲                ▲
-      └────────────────┘
+bootui-engine: core package ◄── engine and SPI packages ◄── Spring and Quarkus adapters
+                    ▲                                              │
+                    └──────────────────────────────────────────────┘
 
 bootui-ui           built once and packaged for each adapter
 bootui-conformance  exercises the same HTTP contract against each adapter
@@ -101,7 +102,7 @@ fix is to keep bindings **thin** and push all logic into shared `bootui-engine` 
 
 ```
 Spring:   @RestController BeansController ─┐
-                                           ├─► (shared) service in bootui-engine ─► DTO from bootui-core
+                                           ├─► (shared) service in bootui-engine ─► DTO from its core package
 Quarkus:  @Path JAX-RS resource ───────────┘         (calls an SPI provider for raw data)
 ```
 
@@ -198,7 +199,7 @@ See [MySQL](features/database.md#mysql) for partial evidence, permissions, and e
 
 ### 5.1 Ported as-is — framework-agnostic or same library (26)
 
-Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter adds at most a trivial supplier.
+Logic lives entirely in `bootui-engine`; the Quarkus adapter adds at most a trivial supplier.
 
 | Panel                                                 | Notes                                                                             |
 | ----------------------------------------------------- | --------------------------------------------------------------------------------- |
@@ -662,7 +663,7 @@ instance — remain captured.
 
 | Layer                                                                                                                 | Shared?          | Notes                                                                            |
 | --------------------------------------------------------------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------- |
-| DTOs (`bootui-core`)                                                                                                  | ✅ 100%          | Already Spring-free                                                              |
+| DTOs (`bootui-engine` core package)                                                                                   | ✅ 100%          | Already Spring-free                                                              |
 | Vue UI (`bootui-ui`)                                                                                                  | ✅ 100%          | Built once; panel set driven by `/api/panels` manifest                           |
 | Advisor engines, OSV, OTLP/telemetry, dependency catalog, JVM readers, scoring, MCP, secret masking (`bootui-engine`) | ✅ majority      | Today 80–90% Spring-free; refactor extracts the few coupled files behind the SPI |
 | Web binding                                                                                                           | ❌ per-framework | Thin controllers/resources (~10 lines each) delegating to shared services        |

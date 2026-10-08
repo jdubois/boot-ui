@@ -17,7 +17,8 @@ framework-neutral engine. The same diagnostics are reachable without a browser t
 
 ## Architecture invariants
 
-- Preserve `bootui-core <- bootui-engine <- adapters`. Shared modules never depend on Spring, Quarkus, or a JSON library.
+- Preserve the package direction `io.github.jdubois.bootui.core` <- engine and SPI <- adapters. The core package,
+  inside `bootui-engine`, reaches only the JDK; shared modules never depend on Spring, Quarkus, or a JSON library.
 - Put reusable behavior and policy in the engine. Keep Spring and Quarkus adapters thin and native to their frameworks.
 - Keep core DTO records immutable, annotation-free, and byte-compatible across Jackson 3 and Jackson 2 serialization.
 - Treat Spring MVC, Spring WebFlux, and Quarkus as the default scope for shared behavior. When a capability is

@@ -40,7 +40,6 @@
     </scm>
 
     <modules>
-        <module>bootui-core</module>
         <module>bootui-engine</module>
         <module>bootui-spring-boot-starter</module>
         <module>bootui-ui</module>
@@ -146,11 +145,6 @@
                 <groupId>com.tngtech.archunit</groupId>
                 <artifactId>archunit-junit5</artifactId>
                 <version>${archunit.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.julien-dubois.bootui</groupId>
-                <artifactId>bootui-core</artifactId>
-                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.julien-dubois.bootui</groupId>

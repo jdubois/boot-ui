@@ -217,7 +217,7 @@ of the lists below, so a missed step fails the build rather than drifting silent
 
 - Put policy, bounds, ordering, and assembly in the framework-neutral engine. Keep the Spring MVC, Spring WebFlux, and
   Quarkus adapters thin, and keep optional framework or driver types in gated adapter classes.
-- Keep `bootui-core` DTO changes additive and nullable, so older browsers, MCP clients, and published `bootui` binaries
+- Keep core DTO changes additive and nullable, so older browsers, MCP clients, and published `bootui` binaries
   keep working. Update the panel's `BootUiApiContractCatalog` entry to its real DTO fields;
   `availablePanelsMatchTheirDtoFamilyContracts` fails when the declared shape drifts.
 - Route every displayed value through the live `ExposurePolicy` and `SecretMasker`, and bound every list with a visible

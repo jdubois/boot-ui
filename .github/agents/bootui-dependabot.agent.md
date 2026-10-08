@@ -166,7 +166,7 @@ assess the pull request again.
 - Grouped npm dependencies stay aligned and install cleanly with both `npm ci` and `npm install`.
 - Workflow actions stay SHA-pinned or on trusted major tags, and generated `*.lock.yml` files change only through
   `gh aw compile`.
-- No dependency change leaks Spring, Quarkus, or a JSON library into `bootui-core` or `bootui-engine`, and
+- No dependency change leaks Spring, Quarkus, or a JSON library into `bootui-engine`, and
   the client package of `bootui-cli` stays dependency-free (picocli stays optional).
 - Nothing is published and no project version changes. Releases go through `bootui-release`.
 

@@ -12,7 +12,7 @@ applyTo: "bootui-cli/**,bootui-engine/**/mcp/**,bootui-engine/**/cli/**,docs/AI-
 - Command paths must be unique, and no path may be a prefix of another. `bootui traces` cannot be both a command and the
   parent of `bootui traces clear`, because picocli would make one of the two tools uninvokable.
 - The client, the `io.github.jdubois.bootui.client` package of `bootui-cli`, stays dependency-free. It reaches nothing
-  outside the JDK, not even `bootui-core` or the CLI's own picocli code, so tooling can depend on `bootui-cli` for it;
+  outside the JDK, not even the `io.github.jdubois.bootui.core` DTOs or the CLI's own picocli code, so tooling can depend on `bootui-cli` for it;
   keep its JSON handling self-contained rather than reaching for a JSON library or a shared DTO. `ClientDependencyTests`
   enforces this. picocli stays `<optional>` in `bootui-cli`'s POM; the runnable CLI is the shaded `all` classifier,
   never the thin jar.
