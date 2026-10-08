@@ -1541,8 +1541,8 @@ Data sources:
 
 - By default (`bootui.activity.feed-source=journal`) the feed renders the runtime journal's retained events, nesting
   every child under its request or execution by id; when the journal is disabled or not recording, the panel buffers
-  serve the feed instead. `bootui.activity.feed-source=buffers`, or `?source=buffers` on one request, selects the
-  merge of the panels' own buffers described below.
+  serve the feed instead. `?source=buffers` on one request selects the merge of the panels' own buffers described
+  below; the property's `buffers` value was removed in 2.0.0 and fails startup with a message naming `journal`.
 - Reuses the existing HTTP Exchanges, SQL Trace, REST Client, Exceptions, Security Logs, Email, and Health controllers/DTOs. The panel adds
   no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
   bounds are inherited unchanged from each source panel.
