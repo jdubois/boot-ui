@@ -345,7 +345,7 @@ depended on `SseEmitter` (SQL Trace, Log Tail, Security Logs, Exceptions, REST C
 | Transactions  | `ReactiveTransactionsController` over `ReactiveBootUiChangeStream`, feeding the same `TransactionRecorder`. See the fidelity note below. |
 | Log Tail      | `ReactiveLogTailController` — same `LogTailBuffer`/Logback appender, SSE via `ReactiveBootUiChangeStream`.                |
 | Security Logs | `ReactiveSecurityLogsController` over a fallback `InMemoryAuditEventRepository` (Spring's audit-event bus is framework-neutral, so no reactive-specific capture code was needed). |
-| Exceptions    | `ReactiveExceptionsController` + new `ReactiveBootUiExceptionHandler` (a `WebExceptionHandler` at `HIGHEST_PRECEDENCE`, replacing the servlet `HandlerExceptionResolver`); see the fidelity note below. The **Caught in application code** section (`GET /exceptions/caught`, PLAN-v2 M5-6) is shared; a cancelled request, published with status 0 before the error handlers run, keeps its caught exceptions unknown, and a log written on a Reactor thread without a request id counts only on the catching thread. |
+| Exceptions    | `ReactiveExceptionsController` + new `ReactiveBootUiExceptionHandler` (a `WebExceptionHandler` at `HIGHEST_PRECEDENCE`, replacing the servlet `HandlerExceptionResolver`); see the fidelity note below. The **Caught in application code** section (`GET /exceptions/caught`) is shared; a cancelled request, published with status 0 before the error handlers run, keeps its caught exceptions unknown, and a log written on a Reactor thread without a request id counts only on the catching thread. |
 | Copilot       | `ReactiveCopilotController` over the same `AgentSessionStore`, SSE via `ReactiveBootUiChangeStream`.                      |
 | Claude Code   | `ReactiveClaudeCodeController` over the same `AgentSessionStore`, SSE via `ReactiveBootUiChangeStream`.                   |
 | REST Client   | `ReactiveRestClientTraceController` — same `RestClientTraceRecorder`, SSE via `ReactiveBootUiChangeStream`. See the fidelity note below. |
@@ -397,14 +397,16 @@ fabricates a frame log or an empty capture buffer. There is likewise no reactive
 client is connected. Each message a `WebSocketHandler` receives is still an execution in the runtime journal: BootUI
 takes the place of WebFlux's own `WebSocketHandlerAdapter` (an application subclass is left alone) and opens a context
 around the synchronous delivery of each data message, so a blocking query in a `map` nests under it, while work moved to
-another scheduler joins the context Reactor restores there ([PLAN-v2.md](PLAN-v2.md) §5.18, M4-10).
+another scheduler joins the context Reactor restores there.
 
 :::
 
 ### 6.4 Rebuilt as a merge over already-reactive signals (1 panel)
 
 Live Activity needed no new *capture* pipeline for any of its **nine** merged signal types — they were all already
-captured reactively or by framework-neutral engine buffers.
+captured reactively or by framework-neutral engine buffers. By default (`bootui.activity.feed-source=journal`) the feed
+renders the runtime journal's retained events, as on every stack; the merge below serves the `buffers` source, and the
+feed when the journal is disabled.
 
 | Panel         | Reactive source                                                                                                          |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -486,7 +488,7 @@ overridable default (the same "library default, host always wins" pattern used f
 (`io.micrometer.context.ContextRegistry`, which Micrometer Tracing brings) is present — see §7 for how this was found.
 
 **BootUI's own request id.** `ReactiveRequestCorrelationFilter` gives every application request BootUI's request id
-(`docs/PLAN-v2.md` §5.1) with or without OpenTelemetry. It is an `HttpHandlerDecoratorFactory`, so it wraps WebFlux's
+with or without OpenTelemetry. It is an `HttpHandlerDecoratorFactory`, so it wraps WebFlux's
 exception handlers and the response commit as well as the filter chain. It writes the id into the Reactor context, and
 `BootUiCorrelationThreadLocalAccessor` exposes it to Micrometer context propagation, so the same `auto` mode restores it
 on every scheduler hop. As a WebFilter it also keeps it on the `ServerWebExchange`. BootUI's exchange repository stamps
@@ -653,8 +655,8 @@ scheduler hops a WebFlux request constantly makes (Netty event loop → `bounded
 JDBC → `parallel`), so `Span.current()` returned a valid span only by coincidence, on whichever thread a request
 happened to still be on. Every new trace-stamping capture point read `null`/an invalid span in practice despite being
 wired correctly. Fixed by having `BootUiActuatorDefaultsEnvironmentPostProcessor` contribute
-`spring.reactor.context-propagation=auto` as an overridable default whenever the application is reactive and the
-OpenTelemetry SDK is present. Confirmed by hitting the running sample app directly (`/api/notes`, `/api/sample/boom`)
+`spring.reactor.context-propagation=auto` as an overridable default whenever the application is reactive and
+Micrometer context propagation (`io.micrometer.context.ContextRegistry`) is present. Confirmed by hitting the running sample app directly (`/api/notes`, `/api/sample/boom`)
 and checking `/bootui/api/http-exchanges`, `/bootui/api/sql-trace`, `/bootui/api/exceptions`, and `/bootui/api/activity`
 for populated, correctly-nested (`parentId`) trace ids — none of which a unit test asserts.
 
@@ -671,9 +673,10 @@ for populated, correctly-nested (`parentId`) trace ids — none of which a unit 
   `platform: "spring-boot-reactive"`, itself evidence the shared-contract thesis holds even in the golden fixture — and
   the sample app's `WebFluxApiConformanceTest extends AbstractBootUiApiConformanceTest` reuses the entire shared HTTP
   contract suite for free, exactly as the Quarkus adapter does.
-- **`bootui-spring-sample-app/e2e/playwright.webflux.config.js`** and `tests-webflux/webflux-smoke.spec.js` are a second,
-  separate Playwright config and test directory (not a new npm project), so the default `npm test` run against the
-  servlet sample app is untouched. The WebFlux suite checks the platform manifest, navbar branding, a representative
+- **`bootui-spring-sample-app/e2e/playwright.webflux.config.js`** and `tests-webflux/` are a second, separate Playwright
+  config and test directory (not a new npm project), so the default `npm test` run against the servlet sample app is
+  untouched. Besides per-panel specs for the advisors, PostgreSQL, MySQL, Runtime Insights, and the Java agent panels,
+  `webflux-smoke.spec.js` checks the platform manifest, navbar branding, a representative
   sample of ported panels rendering cleanly (now including Live Activity and the MCP Server panel), that `http-sessions`
   shows its WebFlux-specific reason in both the sidebar and the panel alert, and that the Security advisor (`security`)
   is available and can be scanned.
@@ -702,6 +705,5 @@ sample app — but is easy to trip over when smoke-testing a freshly built react
 
 ## 10. Future work
 
-- Deeper Live Activity correlation for requests with no active tracing span at all (today: trace-id-primary only, now
-  matching the Quarkus adapter exactly since `Span.current()` is stamped unconditionally at every capture point — see
-  §6.4).
+- R2DBC statement capture (§2): BootUI records SQL through a traced JDBC `DataSource` only, so R2DBC statements are not
+  yet recorded.

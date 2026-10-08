@@ -636,8 +636,9 @@ Dismissing a rule removes all of its instances from the score.
   function you can actually change, instead of disappearing the moment a proxied function gains a default parameter
   value. A self-invocation written inside a lambda is still reported: the compiler puts the body in a synthetic
   method, but the code is yours and the behaviour really is lost.
-- **Quarkus/CDI note**: this rule is skipped on Quarkus. Arc deliberately supports intercepted self-invocation, unlike
-  standard proxy-based Spring AOP, so reporting the Spring limitation there would be a false positive. See the
+- **Quarkus/CDI note**: this rule never reports a self-invocation on Quarkus. Arc deliberately supports intercepted
+  self-invocation, unlike standard proxy-based Spring AOP, so reporting the Spring limitation there would be a false
+  positive. See the
   [Quarkus CDI reference](https://quarkus.io/version/3.33/guides/cdi-reference#intercepted-self-invocation).
 
 ### ARCH-SPRING-008 - Services and repositories should not depend on web request types
