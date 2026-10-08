@@ -3,11 +3,12 @@
 
 Usage: check-central-bundle.py <bundle-repository-directory> <version>
 
-The directory is the unzipped bundle central-publishing-maven-plugin uploads (a Maven repository layout), as
-stage-release-candidate.sh writes it. The check fails unless:
+The directory is the unzipped bundle assemble_central_bundle.py writes (a Maven repository layout): signed by
+release.yml before it uploads it, unsigned by stage-release-candidate.sh. The check fails unless:
 
 - the bundle holds exactly the published coordinates, each with its POM, jar, sources and javadoc jars and their
-  md5 and sha1 checksums, plus the runnable bootui-cli "all" jar;
+  md5 and sha1 checksums, plus the runnable bootui-cli "all" jar, and no other file but their .asc signatures:
+  no resolver bookkeeping such as _remote.repositories or maven-metadata-local.xml, which Central rejects;
 - every POM is flattened: no <parent>, explicit coordinates, no unresolved property, no dependency management,
   repositories, profiles or build, and the metadata Maven Central requires, identical to the root POM's;
 - every dependency has a literal version, and no compile or runtime dependency points at an unpublished BootUI
@@ -146,6 +147,7 @@ def check_bundle(directory, version):
     staged = sorted(path.name for path in base.iterdir() if path.is_dir())
     if staged != sorted(PUBLISHED):
         errors.append(f"the bundle must hold exactly {sorted(PUBLISHED)}, found {staged}")
+    allowed = set()
     for artifact in PUBLISHED:
         artifact_dir = base / artifact / version
         if not artifact_dir.is_dir():
@@ -157,9 +159,13 @@ def check_bundle(directory, version):
             for suffix in ("", ".md5", ".sha1"):
                 if not (artifact_dir / (name + suffix)).is_file():
                     errors.append(f"{artifact}: missing {name + suffix}")
+            allowed.update(artifact_dir / (name + suffix) for suffix in ("", ".md5", ".sha1", ".asc"))
         pom = artifact_dir / f"{prefix}.pom"
         if pom.is_file():
             check_pom(artifact, version, pom, errors)
+    for path in sorted(Path(directory).rglob("*")):
+        if path.is_file() and path not in allowed:
+            errors.append(f"unexpected file in the bundle: {path.relative_to(directory).as_posix()}")
     return errors
 
 
