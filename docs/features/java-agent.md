@@ -951,7 +951,8 @@ Not checked: `readUnshared`, classes a subclass resolves itself (the row then sa
 `Signature`, `Mac`, `SecureRandom`, and PBE algorithms, and a library's own default verifier or factory, which is only
 counted. The checks stay opt-in (D37) with the sensor: the `agent-overhead` job measures them on a route with a SHA-256
 digest, an AES/GCM cipher, a filtered read, and one application MD5 per request, and prints whether they would meet
-the default rule (own increment at most 3 %, cumulative at most 10 %).
+the default rule, judged by the lower bound of each median's interval as D48 does (own increment at most 3 %, cumulative
+at most 10 %), without failing the build; see [Overhead](#overhead) for the measured numbers.
 
 ## The blocking sensor
 
@@ -1277,6 +1278,12 @@ D48): a sensor's default follows its own increment's A/B, at most 3 %, and a cum
 median interval's lower bound is above the 10 % budget. The blocking check applies it today; the opt-in sensors'
 cumulative checks below still read the plain median until one of them is proposed for the defaults. A median that stays above 10 % across runs, with intervals
 that still reach below it, is a reason to measure more pairs.
+
+The `security-sinks` sensor's JDK checks are opt-in. On the checks route, in one CI run (#1302, 15 pairs each), their own
+increment over the default sensors, request-value matching off, had a median of 3.9 % with a 95 % interval of
+[0.4, 6.8] % (pairs −3.1 to 11.7 %). That median is above the 3 % default rule; the interval's lower bound is not. The
+cumulative overhead with them had a median of 8.8 % [3.4, 11.7] %. These numbers are not enough to make the checks a
+default: their step reports them on every run and never fails the build while they are opt-in.
 
 ## Coexistence and class data sharing
 
