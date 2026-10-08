@@ -32,6 +32,7 @@ public final class ChildMain {
     private ChildMain() {}
 
     public static void main(String[] args) throws Exception {
+        SensorWait.prepare();
         switch (args[0]) {
             case "status" -> status();
             case "probe" -> probe();

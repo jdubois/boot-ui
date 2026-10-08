@@ -33,6 +33,24 @@ test.describe('Work after the response', () => {
       // Polled to its full shape: the handoff and the statement it ran reach the journal separately.
       .toMatchObject([{afterResponse: true, sqlCount: 1, failed: false}])
     const seed = {id: journal.requestId}
+    // The counterexample's handler waited for its task, whose handoff can still close after the response started:
+    // its profile must not call it after the response either.
+    let waits = null
+    await expect
+      .poll(
+        async () => {
+          const requests = await (
+            await page.request.get('/bootui/api/activity?source=journal&type=REQUEST&limit=200')
+          ).json()
+          const request = requests.entries.find((entry) => entry.path === `${SEED}/waits`)
+          if (!request) return 0
+          waits = await (await page.request.get(`/bootui/api/activity/request/${request.id}/journal`)).json()
+          return waits.handoffs ?? []
+        },
+        {timeout: 15_000}
+      )
+      .toMatchObject([{sqlCount: 1, failed: false}])
+    expect(waits.handoffs[0], JSON.stringify(waits.handoffs[0])).toMatchObject({afterResponse: false})
     const profile = await (await page.request.get(`/bootui/api/activity/request/${seed.id}`)).json()
     expect(profile.correlationTiers.find((tier) => tier.tier === 'PROPAGATED')).toMatchObject({available: true})
     // The report is read once it observes the seed, so it already holds the handoff's statement: that statement ran

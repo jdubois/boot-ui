@@ -264,6 +264,12 @@ reopening their snapshots. A handoff already opened before recording stopped is 
 
 - Parallel-stream subtasks run by other workers stay unowned: only root submissions and a `fork()` from outside the pool
   are propagated.
+- The **after response** badge orders a body's completion with the response only when the JDK's own result
+  publication releases the handler. A handler released from inside the body, as by `DeferredResult.setResult` or a
+  latch it waits on, can still answer before the body returns, so a body that ends within a few milliseconds of that
+  release may be badged. So may a task whose own dependent stage writes the response, as Spring WebFlux's
+  `Mono.fromFuture` does on the pool thread, when that write lasts 50 ms or more. A tail after a body that ended first,
+  with neither late I/O nor a failure, is badged only from 50 ms past the response.
 - A task handed over by a draining or serializing executor carries the context of the thread that handed it over.
 - Pools whose workers started before the first claim never apply their tasks; they are counted as never applied.
 - A task submitted before a DevTools restart or a Quarkus live reload that ends after it is never reopened, and a task
@@ -304,7 +310,12 @@ later return remains the body boundary, including a `CountedCompleter` whose `ex
 completed or cancelled task whose computation is skipped does not acquire a body-return marker.
 A body that ends after the response counts all of its
 attributed SQL, REST, and message evidence, including an earlier write followed by computation and a fast task that
-started after the response. A waited-for body is not reported merely because its handoff closes late.
+started after the response. A waited-for body is not reported merely because its handoff closes late, and neither
+Live Activity's **after response** badge nor the request profile's **Handoffs** marks it so: the JDK releases the
+waiting handler before the task's run returns, so its handoff can close just after the response started. After a body
+that ended before the response, the badge and the profile still mark the task when its tail ran SQL, a REST call, or a
+message at least 2 ms past the response, failed after it, or ran at least 50 ms past it (computation, logging, file
+writes, sleeps, or mail in a `done()` callback or a dependent stage).
 The full handoff lifetime remains visible: `FutureTask.done()` and synchronous dependent stages can still do real
 work after result publication. A failure observed escaping the task's result-publication tail is timed separately
 from a body failure stored in its future, using the same 2 ms clock slack as unconfirmed late I/O; the escaping
@@ -1189,6 +1200,31 @@ claimed classes and so reverts a HotSwap made since the class loaded, as any oth
 it again, or restart. Code Inventory hashes the application's class files when a run starts, so a HotSwapped method
 is compared with the previous run only after the next DevTools restart or Quarkus live reload, never on the HotSwap
 itself. Forked-JVM tests redefine an instrumented bean class both ways, through JDI and through `Instrumentation`.
+
+## Overhead
+
+The `agent-overhead` jobs of `build.yml` measure the agent with the sample's executable jar, in pairs whose order
+alternates. Each report gives each pair's throughput ratio, their median, and, since the median of 9 or 15 pairs moves
+by several points from run to run on a shared runner, a distribution-free 95 % confidence interval of that median (the
+4th lowest and highest of 15 pairs, the 2nd of 9). The default sensors' cumulative median on the I/O route only warns
+above 10 %. Two checks fail a build: the blocking sensor's default, when its own increment's median is above 3 % or the
+lower bound of the default route's cumulative median interval (9 pairs) is above 10 % (M5-5c, D48), and a sensor whose
+A/B is enforced while it is on by default, as `caught-exceptions` and `thread-activity` would be.
+
+The cumulative median varies by itself: across 33 CI runs between 2026-10-05 and 2026-10-07 it ranged from 3.6 % to
+11.4 % on unchanged sensors, with a standard deviation of about 2 points, and its 95 % interval in a single run is about
+6 points wide. In #1326's resources A/B, the cumulative medians of 10.7 % and 11.7 % had intervals of [7.2, 12.7] and
+[4.2, 12.9] %, while `resources`' own increment was 1.4 % and −0.2 %. The runs before and after the thread-locals and
+thread-activity follow-ups (#1299, #1323) averaged 7.6 % (14 runs) and 8.5 % (19 runs), a difference within noise
+(t = 1.3). A same-machine leave-one-out A/B of each default sensor on the I/O route (15 pairs each) found no sensor
+whose own increment's interval lies above zero: executors −4.2 %, inventory 1.3 %, code-paths 1.1 %, processes −4.3 %,
+network −1.0 %, blocking −3.3 %, with the cumulative median at 2.2 % [−4.2, 7.9].
+
+So a cumulative median just over 10 % in one run is not, alone, evidence that the default set grew. The rule (PLAN-v2
+D48): a sensor's default follows its own increment's A/B, at most 3 %, and a cumulative check fails only when its
+median interval's lower bound is above the 10 % budget. The blocking check applies it today; the opt-in sensors'
+cumulative checks below still read the plain median until one of them is proposed for the defaults. A median that stays above 10 % across runs, with intervals
+that still reach below it, is a reason to measure more pairs.
 
 ## Coexistence and class data sharing
 

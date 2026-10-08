@@ -302,6 +302,7 @@ public final class RequestJournalProfiles {
     private static List<RequestHandoffDto> handoffs(
             List<JournalEntry> children, long requestStart, long requestDurationNanos, boolean httpRequest) {
         Map<String, int[]> work = new HashMap<>();
+        Map<String, Long> lastWorkEnds = new HashMap<>();
         List<RuntimeEvent> handoffEvents = new ArrayList<>();
         for (JournalEntry child : children) {
             RuntimeEvent event = child.event();
@@ -316,6 +317,7 @@ public final class RequestJournalProfiles {
                 } else if (event.payload() instanceof MessagingPayload) {
                     counts[2]++;
                 }
+                JournalActivityFeed.recordWorkEnd(lastWorkEnds, event);
             }
         }
         handoffEvents.sort(Comparator.comparingLong(RuntimeEvent::epochMillis));
@@ -323,14 +325,16 @@ public final class RequestJournalProfiles {
         for (RuntimeEvent event : handoffEvents) {
             AsyncHandoffPayload handoff = (AsyncHandoffPayload) event.payload();
             long durationNanos = Math.max(0, event.durationNanos());
+            long lastWorkEnd = JournalActivityFeed.lastWorkEnd(lastWorkEnds, handoff);
+            Boolean worked = handoff.workedAfterResponse(lastWorkEnd);
             boolean afterResponse;
             Long afterResponseMicros;
             if (!httpRequest) {
                 afterResponse = false;
                 afterResponseMicros = null;
-            } else if (handoff.afterResponse() != null) {
-                afterResponse = handoff.afterResponse();
-                afterResponseMicros = handoff.afterResponseMicros();
+            } else if (worked != null) {
+                afterResponse = worked;
+                afterResponseMicros = handoff.workedAfterResponseMicros(lastWorkEnd);
             } else {
                 long endMicros = event.epochMillis() * 1_000L + durationNanos / 1_000L;
                 long requestEndMicros = requestStart * 1_000L + requestDurationNanos / 1_000L;
