@@ -30,7 +30,9 @@ Point your client at the loopback HTTP endpoint of the running application:
 }
 ```
 
-The panel shows the transport, the protocol revision, and the `bootui.mcp.max-results` cap, alongside a ready-to-use
+The panel shows the transport, the protocol revisions the endpoint serves (MCP 2026-07-28 and 2025-06-18), the
+`bootui.mcp.max-results` cap, and how many tool calls ran, timed out, or were cancelled (any call a cancellation
+reached while it ran, such as a client closing its progress stream), alongside a ready-to-use
 configuration for this running application. There is one tab per client, because clients do not agree on a shape:
 **VS Code** uses a `servers` block in `.vscode/mcp.json`, **Claude Code** uses a
 `claude mcp add --transport http` command, **Cursor** uses an `mcpServers` entry keyed on `url` with no `type` in

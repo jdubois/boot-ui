@@ -634,6 +634,9 @@ Features:
 - Show each installed `executors` or opt-in `threads` sensor's state, hooks, self-test, transformed types, and
   counters. When none is installed, say: "No sensor installed: the agent installs the sensors this application asks for
   when it claims the agent (bootui.agent.sensors)."
+- While the state is `NOT_ATTACHED`, open on the setup snippets with the steps to attach the agent, followed by what a
+  Java agent is, which features need it, what works without it, and its cost; leave out the sections that describe an
+  attached agent. Every other state shows the agent's diagnosis first and the setup snippets last.
 - Offer copyable setup snippets for Maven download (`maven-download`, **Download the agent**), Spring Boot Maven plugin
   `agents` (`maven-plugin`), Gradle Kotlin/Groovy `bootRun` (`gradle-kotlin`, `gradle-groovy`), Quarkus dev mode
   `-Djvm.args` (`quarkus-dev`), Surefire/Failsafe `@{argLine}` (`surefire`) for JaCoCo coexistence, IntelliJ VM options
@@ -3497,23 +3500,37 @@ Design rules:
   `cacheScope: "private"`) on discovery and list results, and moves BootUI's server errors to `-31000`..`-31003` because
   MCP 2026-07-28 reserves `-32000`..`-32099`. Era selection precedes the disabled short-circuit, so a malformed modern
   request is a `400` even while the server is off. The CLI facade and the engine keep the legacy codes.
-- **Request-scoped progress (modern only).** A modern `tools/call` with a string or integer `_meta.progressToken`, to a
-  tool whose operation reports measured phases through the engine's `OperationProgress` (today `architecture_scan`),
+- **Request-scoped progress (both eras).** A `tools/call` with a string or integer `_meta.progressToken`, to a
+  tool whose operation reports measured phases through the engine's `OperationProgress` (`architecture_scan` and `vulnerabilities_scan`),
   from a client whose `Accept` explicitly lists `text/event-stream`, answers on a `text/event-stream` POST response with
   `X-Accel-Buffering: no`: rate-limited `notifications/progress` (burst 8, then one per 250 ms, coalescing to the
   newest, flushed before the end) and exactly one final response, after which the stream closes. Events are `data:`
   lines with no ids; keep-alive comments every 2 seconds, so Spring MVC, which only notices a closed stream when a write
-  fails, does so within about 4 seconds; WebFlux and Quarkus notice it at once. Closing the stream cancels the call:
+  fails, does so within about 4 seconds; WebFlux and Quarkus notice it at once. Closing a modern stream cancels the call:
   nothing more is written, the tool is interrupted and stops at its next step, and its concurrency permit is released
-  exactly once, when the tool has returned and the stream is written. A cancelled call is counted in the `/mcp-server`
-  status's `cancellations`, apart from `timeouts`, and a cancelled blocking call answers `-32800` ("MCP request
-  cancelled"); the status also lists `supportedProtocolVersions`. The execution timeout stays absolute, and a call
+  exactly once, when the tool has returned and the stream is written. Only a streamed call is cancelled by a
+  disconnect, including one whose client left before the stream started; a blocking JSON call runs to its end, its
+  timeout, or a legacy `notifications/cancelled`. A cancelled call is counted in the `/mcp-server` status's `cancellations`, apart from `timeouts` (and in
+  `callCount`), while a server fault during writing is reported as a fault; the status also lists
+  `supportedProtocolVersions`. The execution timeout stays absolute, and a call
   that timed out before its stream opened still ends with the timeout response. Each event is one line of compact JSON
   regardless of the application's mapper configuration, built through one engine helper that refuses a line break. A
   writer blocked on a client that stops reading keeps the permit (WebFlux emits only on subscriber demand) and gives up
   10 seconds after the execution timeout on every stack; Quarkus then resets the response. Spring MVC falls back to
-  one JSON response when the request cannot go async. Everything else, every refusal, and every legacy request is one
-  JSON response; there is still no `GET` stream, live push, resource, or `subscriptions/listen`.
+  one JSON response when the request cannot go async. A legacy stream ends with a legacy final response, and closing it
+  does not cancel the call, because MCP 2025-06-18 says "Disconnection SHOULD NOT be interpreted as the client
+  cancelling its request": the tool runs on within the timeout (a client gone before the stream starts releases the
+  call, since nothing began). A legacy `notifications/cancelled` naming an in-flight
+  `tools/call` id (matched by value) is answered `202` and cancels it; a cancelled stream closes without a final
+  response and a cancelled blocking call answers `-32800`. Unknown, finished, or malformed cancellations are ignored.
+  With no sessions in MCP 2025-06-18, any local caller that passes the transport checks can cancel a request whose id
+  it knows, including by accident: a late cancellation from one client can cancel another client's in-flight call with
+  the same id, whose stream then ends with no response (an accepted limitation; an `Mcp-Session-Id` would change the
+  legacy bytes). Ids two in-flight calls share are never cancelled, fractional ids are matched by
+  their double value only when it is whole, non-zero, and below 2^53, the `reason` is only logged at debug level, and the in-flight registry holds at
+  most one entry per permit in use, removed before that permit is released. A legacy request is never rejected
+  because of its token, and one without a usable token answers byte for byte as before. Everything else and every
+  refusal is one JSON response; there is still no `GET` stream, live push, resource, or `subscriptions/listen`.
 - **Agent guidance.** Initialization instructions direct agents to establish overview/health context, prefer the smallest
   relevant read, correlate exception and trace identifiers, verify advisor findings before changing code, and account for
   active scan costs (`memory_scan` may trigger a full GC; `pentest_scan` sends bounded loopback probes). Tool descriptions

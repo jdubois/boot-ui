@@ -62,10 +62,41 @@ final class ChildJvm {
         builder.redirectOutput(log.toFile());
         Process process = builder.start();
         if (!process.waitFor(180, TimeUnit.SECONDS)) {
+            String threads = threadDump(process);
             process.destroyForcibly();
-            throw new IllegalStateException("child JVM timed out: " + Files.readString(log));
+            throw new IllegalStateException(
+                    "child JVM timed out: " + Files.readString(log) + "\n---- its threads ----\n" + threads);
         }
         return new Output(process.exitValue(), Files.readString(log), command);
+    }
+
+    /**
+     * The threads of a child JVM that hung, from {@code jcmd Thread.print}, so its timeout says where it waited; bounded,
+     * since a JVM that cannot reach a safepoint never answers.
+     */
+    private static String threadDump(Process process) {
+        try {
+            Path dump = Files.createTempFile(WORK, "child-threads-", ".txt");
+            Process jcmd = new ProcessBuilder(
+                            Path.of(System.getProperty("java.home"), "bin", "jcmd")
+                                    .toString(),
+                            Long.toString(process.pid()),
+                            "Thread.print",
+                            "-l")
+                    .redirectErrorStream(true)
+                    .redirectOutput(dump.toFile())
+                    .start();
+            if (!jcmd.waitFor(30, TimeUnit.SECONDS)) {
+                jcmd.destroyForcibly();
+                return "jcmd did not answer within 30 s: " + Files.readString(dump);
+            }
+            return Files.readString(dump);
+        } catch (IOException | RuntimeException ex) {
+            return "no thread dump: " + ex;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return "no thread dump: interrupted";
+        }
     }
 
     static String javaAgent(Path jar) {

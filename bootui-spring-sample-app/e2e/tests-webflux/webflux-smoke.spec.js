@@ -111,6 +111,10 @@ test.describe('BootUI on Spring WebFlux', () => {
         .filter({hasText: /^MCP Server/})
         .first()
     ).toBeVisible({timeout: 15_000})
+    const protocols = page.locator('[data-testid="mcp-protocols"]')
+    await expect(protocols).toContainText('2026-07-28')
+    await expect(protocols).toContainText('2025-06-18')
+    await expect(page.locator('[data-testid="mcp-call-stats"]')).toHaveText(/^\d+ · \d+ timed out · \d+ cancelled$/)
 
     await expect(page.getByRole('tablist', {name: 'MCP client'})).toHaveCount(1)
     await expect(page.locator('#mcp-client-vscode-panel .config-block')).toContainText('"servers"')

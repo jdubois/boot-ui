@@ -211,6 +211,10 @@ class AgentOverheadBenchmarkIT {
         }
         double medianRatio = median(ratios);
         double overheadPercent = (1 - medianRatio) * 100;
+        double[] interval = medianInterval(ratios);
+        // Ratios run opposite to overhead: the interval's high ratio is its low overhead.
+        double lowOverheadPercent = (1 - interval[1]) * 100;
+        double highOverheadPercent = (1 - interval[0]) * 100;
         String verdict = overheadPercent <= budget ? "PASS" : "FAIL";
         boolean enforcing = !enforced.isBlank() && AgentSensorSettings.DEFAULT_SENSORS.contains(enforced);
 
@@ -258,12 +262,16 @@ class AgentOverheadBenchmarkIT {
                 .append(String.format(
                         Locale.ROOT,
                         "%n**Median paired throughput with the agent is %.1f %% of the other run's: %.1f %%"
-                                + " overhead, against a %.0f %% budget: %s.** Median p99 latency: %.2f ms with the"
-                                + " agent, %.2f ms in the other run.%n",
+                                + " overhead, against a %.0f %% budget: %s.** The median overhead is between %.1f %% and"
+                                + " %.1f %% with %.0f %% confidence (distribution-free, from the pairs' order statistics)."
+                                + " Median p99 latency: %.2f ms with the agent, %.2f ms in the other run.%n",
                         medianRatio * 100,
                         overheadPercent,
                         budget,
                         verdict,
+                        lowOverheadPercent,
+                        highOverheadPercent,
+                        interval[2] * 100,
                         CaptureOverheadBenchmarkTest.median(with, result -> result.percentileMillis(99)),
                         CaptureOverheadBenchmarkTest.median(without, result -> result.percentileMillis(99))));
 
@@ -284,7 +292,8 @@ class AgentOverheadBenchmarkIT {
                 String.format(
                         Locale.ROOT,
                         "overheadPercent=%.1f%nbudgetPercent=%.0f%nmedianRatio=%.4f%npasses=%d%n"
-                                + "minOverheadPercent=%.1f%nmaxOverheadPercent=%.1f%nverdict=%s%nenforced=%s%n",
+                                + "minOverheadPercent=%.1f%nmaxOverheadPercent=%.1f%nverdict=%s%nenforced=%s%n"
+                                + "lowOverheadPercent=%.1f%nhighOverheadPercent=%.1f%nintervalConfidence=%.3f%n",
                         overheadPercent,
                         budget,
                         medianRatio,
@@ -292,7 +301,10 @@ class AgentOverheadBenchmarkIT {
                         (1 - Arrays.stream(ratios).max().orElse(1)) * 100,
                         (1 - Arrays.stream(ratios).min().orElse(1)) * 100,
                         verdict,
-                        enforcing),
+                        enforcing,
+                        lowOverheadPercent,
+                        highOverheadPercent,
+                        interval[2]),
                 StandardCharsets.UTF_8);
         System.out.println(report);
         System.out.printf(
@@ -477,6 +489,34 @@ class AgentOverheadBenchmarkIT {
         public void close() throws java.io.IOException {
             server.close();
         }
+    }
+
+    /**
+     * A distribution-free confidence interval of the median of {@code values}: the {@code k}-th lowest and {@code k}-th
+     * highest values, with the largest {@code k} whose coverage, {@code 1 - 2 P(X < k)} for {@code X ~ Binomial(n, 1/2)},
+     * is still at least 95 %. Returns {@code {low, high, coverage}}; with fewer than six values, the range and its
+     * coverage. It assumes only that the pairs are independent, not that they are normal.
+     */
+    static double[] medianInterval(double[] values) {
+        double[] sorted = values.clone();
+        Arrays.sort(sorted);
+        int n = sorted.length;
+        if (n == 0) {
+            return new double[] {Double.NaN, Double.NaN, 0};
+        }
+        // below[i] = P(X < i): the interval between the k-th lowest and k-th highest values covers the median with
+        // probability 1 - 2 below[k].
+        double[] below = new double[n + 1];
+        double probability = Math.pow(0.5, n);
+        for (int i = 1; i <= n; i++) {
+            below[i] = below[i - 1] + probability;
+            probability = probability * (n - i + 1) / i;
+        }
+        int k = 1;
+        while (k + 1 <= (n + 1) / 2 && 1 - 2 * below[k + 1] >= 0.95) {
+            k++;
+        }
+        return new double[] {sorted[k - 1], sorted[n - k], 1 - 2 * below[k]};
     }
 
     private static double median(double[] values) {
