@@ -188,15 +188,19 @@ class McpStreamingCallTests {
                 2,
                 300);
         RecordingSink sink = new RecordingSink();
+        long startedAt = System.nanoTime();
         stream(dispatcher.start(request(TOKEN), true)).start(sink);
 
         assertThat(sink.closed.await(5, TimeUnit.SECONDS)).isTrue();
+        long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
         assertThat(exited.await(5, TimeUnit.SECONDS)).isTrue();
         assertThat(sink.messages.get(sink.messages.size() - 2))
                 .isEqualTo("complete " + new ProtocolError(McpProtocol.TOOL_TIMEOUT, McpProtocol.TOOL_TIMEOUT_MESSAGE));
+        // The burst, one event per interval of the measured run, and the newest one flushed before the final response.
         assertThat(sink.messages.stream().filter(message -> message.startsWith("progress")))
                 .as("progress is rate-limited: a burst of 8, then one every 250 ms")
-                .hasSizeBetween(2, McpProgressThrottle.BURST + 3);
+                .hasSizeBetween(
+                        2, McpProgressThrottle.BURST + 2 + (int) (elapsedMillis / McpProgressThrottle.INTERVAL_MILLIS));
         assertAllPermitsFree(dispatcher, 2);
         assertThat(dispatcher.runtimeStats().snapshot().timeouts()).isEqualTo(1);
         assertThat(dispatcher.runtimeStats().snapshot().cancellations()).isZero();
@@ -229,6 +233,61 @@ class McpStreamingCallTests {
         assertThat(stats.cancellations()).isEqualTo(1);
         assertThat(stats.timeouts()).isEqualTo(1);
         assertThat(stats.callCount()).isEqualTo(2);
+    }
+
+    @Test
+    void aCallThatTimedOutBeforeItsStreamStartedStillAnswersWithItsFinalResponse() throws Exception {
+        AtomicInteger invocations = new AtomicInteger();
+        McpDispatcher dispatcher = dispatcher(
+                args -> {
+                    invocations.incrementAndGet();
+                    return "done";
+                },
+                1,
+                50);
+        McpStreamingCall call = stream(dispatcher.start(request(TOKEN), true));
+        assertAllPermitsFree(dispatcher, 1);
+
+        RecordingSink sink = new RecordingSink();
+        call.start(sink);
+
+        assertThat(sink.closed.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(sink.messages)
+                .as("a 200 stream is never left without its final response")
+                .containsExactly(
+                        "complete " + new ProtocolError(McpProtocol.TOOL_TIMEOUT, McpProtocol.TOOL_TIMEOUT_MESSAGE),
+                        "close");
+        assertThat(invocations).hasValue(0);
+        assertThat(dispatcher.runtimeStats().snapshot().timeouts()).isEqualTo(1);
+
+        RecordingSink second = new RecordingSink();
+        call.start(second);
+        assertThat(second.messages).as("a second start only closes its sink").containsExactly("close");
+    }
+
+    @Test
+    void aCallCancelledBeforeItsStreamStartedClosesWithoutAResponse() throws Exception {
+        McpDispatcher dispatcher = dispatcher(args -> "done", 1, 30_000);
+        McpStreamingCall call = stream(dispatcher.start(request(TOKEN), true));
+        call.cancel();
+
+        RecordingSink sink = new RecordingSink();
+        call.start(sink);
+
+        assertThat(sink.closed.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(sink.messages).containsExactly("close");
+    }
+
+    @Test
+    void streamFramesAreOneLineOfJson() {
+        assertThat(McpProtocol.sseDataFrame("{\"a\":1}")).isEqualTo("data:{\"a\":1}\n\n");
+        assertThat(McpProtocol.sseData("{\"a\":1}")).isEqualTo("{\"a\":1}");
+        for (String broken : List.of("{\n\"a\":1}", "{\"a\":1}\r", "{\r\n}")) {
+            org.assertj.core.api.Assertions.assertThatIllegalArgumentException()
+                    .isThrownBy(() -> McpProtocol.sseDataFrame(broken));
+            org.assertj.core.api.Assertions.assertThatIllegalArgumentException()
+                    .isThrownBy(() -> McpProtocol.sseData(broken));
+        }
     }
 
     @Test

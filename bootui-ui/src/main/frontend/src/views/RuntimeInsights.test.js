@@ -674,6 +674,47 @@ describe('Runtime Insights panel', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('impact?symbol=OrderService%23total'))).toBe(true)
   })
 
+  it("opens Coverage & limits on the app-wide list from Change impact's scoped list", async () => {
+    const resolvedImpact = {
+      status: 'RESOLVED',
+      reason: null,
+      symbol: 'ProductRepository',
+      node: 'REPOSITORY productRepository',
+      candidates: [],
+      structuralReach: 2,
+      observed: [],
+      observedTotal: 0,
+      notExercised: [],
+      notExercisedTotal: 0,
+      notExercisedUndetermined: false,
+      sharedResources: [],
+      sharedResourcesTotal: 0,
+      limitations: []
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        const target = String(url)
+        if (target.includes('/impact')) return Promise.resolve(jsonResponse(resolvedImpact))
+        return Promise.resolve(jsonResponse(target.includes('/insights/') ? detail : report))
+      })
+    )
+    routeState.query = {impact: 'ProductRepository'}
+    wrapper = mount(RuntimeInsights, {
+      attachTo: document.body,
+      global: {stubs: {'router-link': {template: '<a><slot /></a>'}}}
+    })
+    await flushPromises()
+
+    await wrapper.get('#insights-panel-impact .insight-impact-coverage-link').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('#insights-tab-coverage').attributes('aria-selected')).toBe('true')
+    expect(shown(wrapper.get('#insights-panel-coverage'))).toBe(true)
+    expect(shown(wrapper.get('#insights-panel-impact'))).toBe(false)
+    expect(document.activeElement?.id).toBe('insight-not-exercised')
+  })
+
   it('opens the tab a deep link names, and ignores one it does not know', async () => {
     vi.stubGlobal(
       'fetch',

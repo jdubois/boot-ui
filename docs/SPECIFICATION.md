@@ -3502,9 +3502,13 @@ Design rules:
   nothing more is written, the tool is interrupted and stops at its next step, and its concurrency permit is released
   exactly once, when the tool has returned and the stream is written. A cancelled call is counted in the `/mcp-server`
   status's `cancellations`, apart from `timeouts`, and a cancelled blocking call answers `-32800` ("MCP request
-  cancelled"); the status also lists `supportedProtocolVersions`. The execution timeout stays absolute. Everything else,
-  every refusal, and every legacy request is one JSON response; there is still no `GET` stream, live push, resource, or
-  `subscriptions/listen`.
+  cancelled"); the status also lists `supportedProtocolVersions`. The execution timeout stays absolute, and a call
+  that timed out before its stream opened still ends with the timeout response. Each event is one line of compact JSON
+  regardless of the application's mapper configuration, built through one engine helper that refuses a line break. A
+  writer blocked on a client that stops reading keeps the permit (WebFlux emits only on subscriber demand) and gives up
+  10 seconds after the execution timeout on every stack; Quarkus then closes the connection. Spring MVC falls back to
+  one JSON response when the request cannot go async. Everything else, every refusal, and every legacy request is one
+  JSON response; there is still no `GET` stream, live push, resource, or `subscriptions/listen`.
 - **Agent guidance.** Initialization instructions direct agents to establish overview/health context, prefer the smallest
   relevant read, correlate exception and trace identifiers, verify advisor findings before changing code, and account for
   active scan costs (`memory_scan` may trigger a full GC; `pentest_scan` sends bounded loopback probes). Tool descriptions
