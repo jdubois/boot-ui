@@ -171,19 +171,69 @@ class McpLegacyProgressTests {
                 .isEqualTo(new McpDispatchOutcome.NoResponse());
         assertThat(dispatcher.dispatch(cancelled(null))).isEqualTo(new McpDispatchOutcome.NoResponse());
 
-        List<Sink> sinks = new ArrayList<>();
+        List<McpStreamingCall> calls = new ArrayList<>();
         for (int i = 0; i < 2; i++) {
-            Sink sink = new Sink();
-            sinks.add(sink);
-            stream(dispatcher.start(call(McpProgressToken.of(i), "same"), true)).start(sink);
+            McpStreamingCall call = stream(dispatcher.start(call(McpProgressToken.of(i), "same"), true));
+            call.start(new Sink());
+            calls.add(call);
         }
         assertThat(running.await(5, TimeUnit.SECONDS)).isTrue();
+        // A cancellation acts synchronously, so nothing left to wait for once it returns.
         dispatcher.dispatch(cancelled(McpRequestKey.text("same")));
-        Thread.sleep(100);
         assertThat(dispatcher.runtimeStats().snapshot().cancellations())
                 .as("two local callers used the same id: never guess which one to cancel")
                 .isZero();
         assertThat(dispatcher.inFlightCalls()).isEqualTo(2);
+
+        calls.forEach(McpStreamingCall::cancel);
+        awaitPermits(dispatcher, 2);
+        assertThat(dispatcher.inFlightCalls()).isZero();
+    }
+
+    @Test
+    void aCancellationReasonIsLoggedOnOneShortLine() {
+        assertThat(McpDispatcher.loggable(null)).isEqualTo("(none)");
+        assertThat(McpDispatcher.loggable("user\r\nforged line\u202e")).isEqualTo("user??forged line?");
+        assertThat(McpDispatcher.loggable("x".repeat(500))).hasSize(201).endsWith("…");
+    }
+
+    @Test
+    void aFinishedIdIsIgnoredSilently() throws Exception {
+        McpDispatcher dispatcher = dispatcher(args -> "done");
+        Sink sink = new Sink();
+        stream(dispatcher.start(call(TOKEN, "finished"), true)).start(sink);
+        assertThat(sink.closed.await(5, TimeUnit.SECONDS)).isTrue();
+        awaitPermits(dispatcher, 2);
+
+        assertThat(dispatcher.dispatch(cancelled(McpRequestKey.text("finished"))))
+                .isEqualTo(new McpDispatchOutcome.NoResponse());
+
+        assertThat(sink.messages).containsExactly("complete " + new ToolCallResult("done"), "close");
+        assertThat(dispatcher.runtimeStats().snapshot().cancellations()).isZero();
+        assertThat(dispatcher.inFlightCalls()).isZero();
+        assertThat(reported).hasValue(0);
+    }
+
+    @Test
+    void aCancellationBeforeTheStreamStartsReleasesTheCallAndTheToolNeverRuns() throws Exception {
+        AtomicReference<String> ran = new AtomicReference<>();
+        McpDispatcher dispatcher = dispatcher(args -> {
+            ran.set("ran");
+            return "done";
+        });
+        McpStreamingCall call = stream(dispatcher.start(call(TOKEN, "early"), true));
+        assertThat(dispatcher.inFlightCalls()).isEqualTo(1);
+
+        dispatcher.dispatch(cancelled(McpRequestKey.text("early")));
+
+        assertThat(dispatcher.availableCallPermits()).isEqualTo(2);
+        assertThat(dispatcher.inFlightCalls()).isZero();
+        assertThat(dispatcher.runtimeStats().snapshot().cancellations()).isEqualTo(1);
+        Sink sink = new Sink();
+        call.start(sink);
+        assertThat(sink.closed.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(sink.messages).as("a cancelled stream answers nothing").containsExactly("close");
+        assertThat(ran.get()).isNull();
     }
 
     @Test
