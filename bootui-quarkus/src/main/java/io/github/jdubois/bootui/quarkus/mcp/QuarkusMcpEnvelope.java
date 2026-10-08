@@ -27,6 +27,7 @@ import io.github.jdubois.bootui.engine.mcp.McpPrompt;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpRequest;
 import io.github.jdubois.bootui.engine.mcp.McpRequestHeaders;
+import io.github.jdubois.bootui.engine.mcp.McpRequestKey;
 import io.github.jdubois.bootui.engine.mcp.McpRequestMeta;
 import io.github.jdubois.bootui.engine.mcp.McpRequestMeta.Field;
 import io.github.jdubois.bootui.engine.mcp.McpStreamingCall;
@@ -111,7 +112,7 @@ public class QuarkusMcpEnvelope {
     }
 
     /**
-     * Like {@link #exchange(JsonNode, McpRequestHeaders, boolean)}, but a modern progress call from a client whose
+     * Like {@link #exchange(JsonNode, McpRequestHeaders, boolean)}, but a progress call, in either era, from a client whose
      * {@code Accept} lists {@code text/event-stream} may answer with a {@link Stream}.
      */
     public Reply exchange(JsonNode request, McpRequestHeaders headers, boolean enabled, boolean acceptsEventStream) {
@@ -263,11 +264,6 @@ public class QuarkusMcpEnvelope {
         }
     }
 
-    /** {@link #renderFinal(JsonNode, McpEra, McpDispatchOutcome)} for a modern stream. */
-    public String renderFinal(JsonNode id, McpDispatchOutcome outcome) {
-        return renderFinal(id, McpEra.MODERN, outcome);
-    }
-
     /** Parse raw request bytes into a Jackson node. */
     public JsonNode readTree(byte[] body) {
         try {
@@ -337,7 +333,27 @@ public class QuarkusMcpEnvelope {
                 parsedArguments.scanId(),
                 parsedArguments.offset(),
                 serve.era(),
-                serve.progressToken());
+                serve.progressToken(),
+                // Only a call that can be cancelled, or a cancellation, needs the key.
+                "tools/call".equals(method) ? requestKey(id) : null,
+                "notifications/cancelled".equals(method) ? requestKey(params.get("requestId")) : null);
+    }
+
+    /**
+     * The canonical key of a JSON-RPC id, so a cancellation finds its request by value; {@code null} for an id that has
+     * none, such as a non-finite number ({@code 1e400} reads as infinity), which then simply cannot be cancelled.
+     */
+    private static String requestKey(JsonNode id) {
+        if (id == null) {
+            return null;
+        }
+        if (id.isTextual()) {
+            return McpRequestKey.text(id.asText());
+        }
+        if (!id.isNumber() || (id.isFloatingPointNumber() && !Double.isFinite(id.doubleValue()))) {
+            return null;
+        }
+        return McpRequestKey.number(id.decimalValue());
     }
 
     private static ParsedArguments parseArguments(JsonNode arguments) {

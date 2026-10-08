@@ -78,6 +78,22 @@ class BootUiQuarkusMcpStreamDisconnectTest {
                         io.github.jdubois.bootui.engine.mcp.McpStreamingCall.HEARTBEAT_MILLIS * 3 / 4));
     }
 
+    @Test
+    void closingALegacyStreamDoesNotCancelButNotificationsCancelledDoes() throws Exception {
+        CONTRACT.legacyCloseRunsOnUntilNotificationsCancelled(
+                baseUrl.getPort(),
+                "/bootui/api/mcp",
+                () -> dispatcher.runtimeStats().snapshot());
+    }
+
+    @Test
+    void notificationsCancelledStopsALegacyBlockingCall() throws Exception {
+        CONTRACT.legacyBlockingCallIsCancelledByNotification(
+                baseUrl.getPort(),
+                "/bootui/api/mcp",
+                () -> dispatcher.runtimeStats().snapshot());
+    }
+
     private static final class AllowAll implements McpPanelPolicy {
 
         @Override

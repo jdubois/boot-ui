@@ -307,6 +307,21 @@ class QuarkusMcpEnvelopeTest {
     }
 
     @Test
+    void aNonFiniteNumericIdIsServedLikeAnyOtherId() throws Exception {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        QuarkusMcpEnvelope envelope = envelope(tool(args -> java.util.Map.of("name", "demo")), diagnostics);
+        for (String method : List.of("tools/call", "tools/list", "ping")) {
+            JsonNode response = envelope.handle(objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1e400,\"method\":\""
+                    + method + "\",\"params\":{\"name\":\"get_overview\",\"arguments\":{}}}"));
+
+            assertThat(response.path("error").path("code").asInt())
+                    .as(method + " " + response)
+                    .isNotEqualTo(McpProtocol.INTERNAL_ERROR);
+        }
+        assertThat(diagnostics.count).hasValue(0);
+    }
+
+    @Test
     void toolClientErrorIsRenderedInBandInsteadOfAnInternalError() {
         RecordingFailureReporter diagnostics = new RecordingFailureReporter();
         McpTool tool = tool(QuarkusMcpToolFailures.translating(args -> {
@@ -536,12 +551,14 @@ class QuarkusMcpEnvelopeTest {
                         + "{\"progressToken\":9,\"progress\":1.5,\"message\":\"Working\"}}");
         assertThat(envelope.renderFinal(
                         objectMapper.readTree("7"),
+                        io.github.jdubois.bootui.engine.mcp.McpEra.MODERN,
                         new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError(
                                 McpProtocol.TOOL_TIMEOUT, McpProtocol.TOOL_TIMEOUT_MESSAGE)))
                 .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":7,\"error\":{\"code\":-31002,"
                         + "\"message\":\"MCP tool execution timed out\"}}");
         assertThat(envelope.renderFinal(
                         objectMapper.readTree("7"),
+                        io.github.jdubois.bootui.engine.mcp.McpEra.MODERN,
                         new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult(
                                 java.util.Map.of("name", "demo"))))
                 .isEqualTo(
@@ -549,6 +566,23 @@ class QuarkusMcpEnvelopeTest {
                                 + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
                                 + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
                                 + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}");
+
+        // A legacy (MCP 2025-06-18) stream ends with a legacy response: legacy codes, no resultType, no _meta.
+        assertThat(envelope.renderFinal(
+                        objectMapper.readTree("\"r\""),
+                        io.github.jdubois.bootui.engine.mcp.McpEra.LEGACY,
+                        new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError(
+                                McpProtocol.TOOL_TIMEOUT, McpProtocol.TOOL_TIMEOUT_MESSAGE)))
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":\"r\",\"error\":{\"code\":-32002,"
+                        + "\"message\":\"MCP tool execution timed out\"}}");
+        assertThat(envelope.renderFinal(
+                        objectMapper.readTree("7"),
+                        io.github.jdubois.bootui.engine.mcp.McpEra.LEGACY,
+                        new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult(
+                                java.util.Map.of("name", "demo"))))
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{"
+                        + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
+                        + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false}}");
     }
 
     private QuarkusMcpEnvelope.Reply modern(

@@ -134,7 +134,8 @@ public class ReactiveBootUiMcpController {
 
     /**
      * The request-scoped event stream. The call starts when the response subscribes, so headers are committed first;
-     * a cancelled subscription (the client went away) cancels the call, which MCP 2026-07-28 requires. Each JSON-RPC
+     * a cancelled subscription (the client went away) is reported to {@link McpStreamingCall#clientClosed()}, which cancels
+     * a modern call and only stops writing a legacy one. Each JSON-RPC
      * message is an SSE {@code data:} line and a keep-alive is an empty comment, the same bytes the servlet and Quarkus
      * transports write.
      *
@@ -156,8 +157,8 @@ public class ReactiveBootUiMcpController {
                     demand.notifyAll();
                 }
             });
-            sink.onCancel(call::cancel);
-            sink.onDispose(call::cancel);
+            sink.onCancel(call::clientClosed);
+            sink.onDispose(call::clientClosed);
             call.start(new McpStreamSink() {
                 @Override
                 public void progress(McpProgressToken token, ProgressEvent event) throws IOException {
@@ -172,7 +173,8 @@ public class ReactiveBootUiMcpController {
 
                 @Override
                 public void complete(McpDispatchOutcome outcome) throws IOException {
-                    emit(ServerSentEvent.builder(McpProtocol.sseData(service.renderFinal(stream.id(), outcome)))
+                    emit(ServerSentEvent.builder(
+                                    McpProtocol.sseData(service.renderFinal(stream.id(), call.era(), outcome)))
                             .build());
                 }
 

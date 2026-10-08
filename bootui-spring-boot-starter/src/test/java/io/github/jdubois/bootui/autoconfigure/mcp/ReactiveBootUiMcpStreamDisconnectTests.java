@@ -52,6 +52,16 @@ class ReactiveBootUiMcpStreamDisconnectTests {
                 port, service, Duration.ofMillis(McpStreamingCall.HEARTBEAT_MILLIS * 3 / 4));
     }
 
+    @Test
+    void closingALegacyStreamDoesNotCancelButNotificationsCancelledDoes() throws Exception {
+        SUPPORT.legacyCloseRunsOnUntilNotificationsCancelled(port, service);
+    }
+
+    @Test
+    void notificationsCancelledStopsALegacyBlockingCall() throws Exception {
+        SUPPORT.legacyBlockingCallIsCancelledByNotification(port, service);
+    }
+
     @SpringBootConfiguration
     @EnableAutoConfiguration
     static class TestApplication {

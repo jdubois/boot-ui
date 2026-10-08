@@ -34,4 +34,18 @@ final class McpStreamDisconnectSupport {
     void closeAfterFirstEventCancels(int port, BootUiMcpService service, Duration noticedWithin) throws Exception {
         contract.closeAfterFirstEventCancels(port, "/bootui/api/mcp", service.dispatcher(), noticedWithin);
     }
+
+    void legacyCloseRunsOnUntilNotificationsCancelled(int port, BootUiMcpService service) throws Exception {
+        contract.legacyCloseRunsOnUntilNotificationsCancelled(
+                port,
+                "/bootui/api/mcp",
+                () -> service.dispatcher().runtimeStats().snapshot());
+    }
+
+    void legacyBlockingCallIsCancelledByNotification(int port, BootUiMcpService service) throws Exception {
+        contract.legacyBlockingCallIsCancelledByNotification(
+                port,
+                "/bootui/api/mcp",
+                () -> service.dispatcher().runtimeStats().snapshot());
+    }
 }

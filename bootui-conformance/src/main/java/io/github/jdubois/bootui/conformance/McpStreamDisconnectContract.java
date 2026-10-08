@@ -32,8 +32,8 @@ public final class McpStreamDisconnectContract {
 
     private static final ProgressPhase WAITING = ProgressPhase.of("Waiting for cancellation");
 
-    private final CountDownLatch running = new CountDownLatch(1);
-    private final CountDownLatch stopped = new CountDownLatch(1);
+    private volatile CountDownLatch running = new CountDownLatch(1);
+    private volatile CountDownLatch stopped = new CountDownLatch(1);
 
     /** The cancellable scan, under the catalog name of the one tool that streams progress. */
     public McpTool tool() {
@@ -48,6 +48,8 @@ public final class McpStreamDisconnectContract {
 
     private Object runUntilCancelled() {
         OperationProgress progress = OperationProgress.current();
+        CountDownLatch running = this.running;
+        CountDownLatch stopped = this.stopped;
         try {
             progress.report(WAITING, 1, 0);
             running.countDown();
@@ -74,28 +76,19 @@ public final class McpStreamDisconnectContract {
             throws Exception {
         Supplier<McpRuntimeStats.Snapshot> stats =
                 () -> dispatcher.runtimeStats().snapshot();
+        reset();
+        McpRuntimeStats.Snapshot before = stats.get();
+        long statusBefore = statusCancellations(port);
         String body =
                 "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"architecture_scan\","
                         + "\"arguments\":{},\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
                         + "\"io.modelcontextprotocol/clientCapabilities\":{},\"progressToken\":\"p\"}}}";
         byte[] payload = body.getBytes(StandardCharsets.UTF_8);
-        String head;
-        try (Socket socket = new Socket("localhost", port)) {
-            socket.setSoTimeout(15_000);
-            OutputStream output = socket.getOutputStream();
-            output.write(("POST " + path + " HTTP/1.1\r\n"
-                            + "Host: localhost:" + port + "\r\n"
-                            + "Content-Type: application/json\r\n"
-                            + "Accept: application/json, text/event-stream\r\n"
-                            + "MCP-Protocol-Version: 2026-07-28\r\n"
-                            + "Mcp-Method: tools/call\r\n"
-                            + "Mcp-Name: architecture_scan\r\n"
-                            + "Content-Length: " + payload.length + "\r\n\r\n")
-                    .getBytes(StandardCharsets.US_ASCII));
-            output.write(payload);
-            output.flush();
-            head = readThroughFirstEvent(socket.getInputStream());
-        }
+        String head = streamThenClose(
+                port,
+                path,
+                "MCP-Protocol-Version: 2026-07-28\r\nMcp-Method: tools/call\r\nMcp-Name: architecture_scan\r\n",
+                payload);
         long closedAt = System.nanoTime();
 
         assertThat(head).startsWith("HTTP/1.1 200");
@@ -106,14 +99,10 @@ public final class McpStreamDisconnectContract {
         assertThat(stopped.await(Math.max(0, remaining), TimeUnit.NANOSECONDS))
                 .as("closing the stream stops the tool within " + noticedWithin)
                 .isTrue();
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
-        while ((stats.get().callCount() == 0 || stats.get().cancellations() == 0) && System.nanoTime() < deadline) {
-            Thread.sleep(20);
-        }
-        McpRuntimeStats.Snapshot snapshot = stats.get();
-        assertThat(snapshot.cancellations()).isEqualTo(1);
-        assertThat(snapshot.timeouts()).isZero();
-        assertThat(snapshot.callCount())
+        McpRuntimeStats.Snapshot snapshot = awaitCall(stats, before);
+        assertThat(snapshot.cancellations() - before.cancellations()).isEqualTo(1);
+        assertThat(snapshot.timeouts() - before.timeouts()).isZero();
+        assertThat(snapshot.callCount() - before.callCount())
                 .as("the concurrency permit is released once")
                 .isEqualTo(1);
         long permitDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
@@ -126,12 +115,122 @@ public final class McpStreamDisconnectContract {
                 .isEqualTo(dispatcher.maxConcurrentCalls());
         BootUiHttpProbe.Response status = new BootUiHttpProbe("http://localhost:" + port).get("/bootui/api/mcp-server");
         assertThat(status.status()).isEqualTo(200);
-        assertThat(status.json().path("cancellations").asLong())
+        assertThat(status.json().path("cancellations").asLong() - statusBefore)
                 .as("the MCP Server status reports the cancellation")
                 .isEqualTo(1);
-        assertThat(status.json().path("timeouts").asLong()).isZero();
         assertThat(status.json().path("supportedProtocolVersions").toString())
                 .isEqualTo("[\"2026-07-28\",\"2025-06-18\"]");
+    }
+
+    /**
+     * MCP 2025-06-18: a legacy progress call streams too, but closing its stream is not a cancellation ("Disconnection
+     * SHOULD NOT be interpreted as the client cancelling its request"); a {@code notifications/cancelled} naming its id
+     * is, answered {@code 202}.
+     */
+    public void legacyCloseRunsOnUntilNotificationsCancelled(
+            int port, String path, Supplier<McpRuntimeStats.Snapshot> stats) throws Exception {
+        reset();
+        McpRuntimeStats.Snapshot before = stats.get();
+        String body = "{\"jsonrpc\":\"2.0\",\"id\":\"legacy-1\",\"method\":\"tools/call\",\"params\":"
+                + "{\"name\":\"architecture_scan\",\"arguments\":{},\"_meta\":{\"progressToken\":7}}}";
+        String head = streamThenClose(
+                port, path, "MCP-Protocol-Version: 2025-06-18\r\n", body.getBytes(StandardCharsets.UTF_8));
+
+        assertThat(head).startsWith("HTTP/1.1 200");
+        assertThat(head.toLowerCase(Locale.ROOT)).contains("content-type: text/event-stream", "x-accel-buffering: no");
+        assertThat(head).contains("\"progressToken\":7", "\"message\":\"Waiting for cancellation\"");
+        assertThat(running.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(stopped.await(6, TimeUnit.SECONDS))
+                .as("a closed legacy stream is not a cancellation, even after a blocking stack notices it")
+                .isFalse();
+        assertThat(stats.get().cancellations() - before.cancellations()).isZero();
+
+        BootUiHttpProbe.Response accepted = new BootUiHttpProbe("http://localhost:" + port)
+                .request(
+                        "POST",
+                        path,
+                        java.util.Map.of("Content-Type", "application/json"),
+                        "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/cancelled\","
+                                + "\"params\":{\"requestId\":\"legacy-1\",\"reason\":\"conformance\"}}");
+        assertThat(accepted.status()).isEqualTo(202);
+        assertThat(stopped.await(10, TimeUnit.SECONDS))
+                .as("notifications/cancelled stops the tool")
+                .isTrue();
+        McpRuntimeStats.Snapshot snapshot = awaitCall(stats, before);
+        assertThat(snapshot.cancellations() - before.cancellations()).isEqualTo(1);
+        assertThat(snapshot.callCount() - before.callCount()).isEqualTo(1);
+    }
+
+    /** A legacy blocking call that {@code notifications/cancelled} stops answers {@code -32800} with its id. */
+    public void legacyBlockingCallIsCancelledByNotification(
+            int port, String path, Supplier<McpRuntimeStats.Snapshot> stats) throws Exception {
+        reset();
+        McpRuntimeStats.Snapshot before = stats.get();
+        BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
+        java.util.concurrent.CompletableFuture<BootUiHttpProbe.Response> call =
+                java.util.concurrent.CompletableFuture.supplyAsync(() -> probe.request(
+                        "POST",
+                        path,
+                        java.util.Map.of("Content-Type", "application/json"),
+                        "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"tools/call\","
+                                + "\"params\":{\"name\":\"architecture_scan\",\"arguments\":{}}}"));
+        assertThat(running.await(10, TimeUnit.SECONDS)).isTrue();
+
+        BootUiHttpProbe.Response accepted = probe.request(
+                "POST",
+                path,
+                java.util.Map.of("Content-Type", "application/json"),
+                "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/cancelled\",\"params\":{\"requestId\":42.0}}");
+        assertThat(accepted.status()).isEqualTo(202);
+        BootUiHttpProbe.Response response = call.get(15, TimeUnit.SECONDS);
+
+        assertThat(response.status()).isEqualTo(200);
+        assertThat(response.body())
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":42,\"error\":{\"code\":-32800,"
+                        + "\"message\":\"MCP request cancelled\"}}");
+        McpRuntimeStats.Snapshot snapshot = awaitCall(stats, before);
+        assertThat(snapshot.cancellations() - before.cancellations()).isEqualTo(1);
+    }
+
+    private void reset() {
+        running = new CountDownLatch(1);
+        stopped = new CountDownLatch(1);
+    }
+
+    private static McpRuntimeStats.Snapshot awaitCall(
+            Supplier<McpRuntimeStats.Snapshot> stats, McpRuntimeStats.Snapshot before) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        while ((stats.get().callCount() == before.callCount() || stats.get().cancellations() == before.cancellations())
+                && System.nanoTime() < deadline) {
+            Thread.sleep(20);
+        }
+        return stats.get();
+    }
+
+    private static long statusCancellations(int port) {
+        return new BootUiHttpProbe("http://localhost:" + port)
+                .get("/bootui/api/mcp-server")
+                .json()
+                .path("cancellations")
+                .asLong();
+    }
+
+    /** Opens a stream over a raw socket, reads through its first event, and closes the connection. */
+    private static String streamThenClose(int port, String path, String extraHeaders, byte[] payload) throws Exception {
+        try (Socket socket = new Socket("localhost", port)) {
+            socket.setSoTimeout(15_000);
+            OutputStream output = socket.getOutputStream();
+            output.write(("POST " + path + " HTTP/1.1\r\n"
+                            + "Host: localhost:" + port + "\r\n"
+                            + "Content-Type: application/json\r\n"
+                            + "Accept: application/json, text/event-stream\r\n"
+                            + extraHeaders
+                            + "Content-Length: " + payload.length + "\r\n\r\n")
+                    .getBytes(StandardCharsets.US_ASCII));
+            output.write(payload);
+            output.flush();
+            return readThroughFirstEvent(socket.getInputStream());
+        }
     }
 
     private static String readThroughFirstEvent(InputStream input) throws Exception {

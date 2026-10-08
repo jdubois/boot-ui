@@ -18,6 +18,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `vulnerabilities_scan` phases as they happen, and closing the call stops the scan ([AI agents](docs/AI-AGENTS.md#protocol-eras)).
 - **MCP cancellations counted.** The MCP Server panel shows the protocol versions served and counts calls a client
   cancelled by closing their stream apart from timeouts ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+- **MCP progress and cancellation for 2025-06-18 clients.** A legacy client that sends a progress token, such as GitHub
+  Copilot CLI, sees the same scan progress, and `notifications/cancelled` stops the call ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 
 - **Hibernate Statistics and WebSockets for agents.** `get_hibernate_statistics` (`bootui hibernate statistics`) and
   `get_websockets` (`bootui websockets`) are passive reads on Spring MVC, Spring WebFlux, and Quarkus; enabling

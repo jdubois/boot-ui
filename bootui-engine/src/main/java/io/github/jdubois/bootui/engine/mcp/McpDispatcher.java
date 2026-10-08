@@ -31,6 +31,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
@@ -70,6 +71,7 @@ public final class McpDispatcher {
     private final McpFailureReporter failureReporter;
     private final long executionTimeoutMillis;
     private final McpRuntimeStats runtimeStats;
+    private final McpInFlightCalls inFlight = new McpInFlightCalls();
     private final Function<String, String> panelUnavailableReason;
 
     /**
@@ -300,6 +302,7 @@ public final class McpDispatcher {
         return switch (method) {
             case "initialize" -> initialize(request);
             case "ping" -> new PingResult();
+            case "notifications/cancelled" -> cancelInFlight(request);
             default -> dispatchShared(request, method, cancellation);
         };
     }
@@ -334,7 +337,7 @@ public final class McpDispatcher {
     }
 
     /**
-     * Starts a {@code tools/call} that may answer on a request-scoped event stream. Only a modern call with a progress
+     * Starts a {@code tools/call} that may answer on a request-scoped event stream. Only a call, in either era, with a progress
      * token, to a tool that {@linkplain McpTool#reportsProgress() reports progress}, from a client that accepts
      * {@code text/event-stream}, and that passes every validation and policy gate and gets a concurrency permit, is
      * {@link McpCallStart.Stream streamed}. Everything else, including every refusal, is the same {@link
@@ -354,7 +357,6 @@ public final class McpDispatcher {
      */
     public McpCallStart start(McpRequest request, boolean acceptsEventStream, McpCancellation cancellation) {
         if (request == null
-                || request.era() != McpEra.MODERN
                 || request.progressToken() == null
                 || request.notification()
                 || !acceptsEventStream
@@ -376,15 +378,31 @@ public final class McpDispatcher {
                 return new McpCallStart.Immediate(
                         new ProtocolError(McpProtocol.SERVER_AT_CAPACITY, McpProtocol.RATE_LIMITED_MESSAGE));
             }
-            return new McpCallStart.Stream(new McpStreamingCall(
+            AtomicReference<McpInFlightCalls.Registration> registration = new AtomicReference<>();
+            Runnable unregister = () -> {
+                McpInFlightCalls.Registration registered = registration.getAndSet(null);
+                if (registered != null) {
+                    registered.close();
+                }
+            };
+            McpStreamingCall streaming = new McpStreamingCall(
                     call.tool(),
                     call.arguments(),
                     request.progressToken(),
+                    request.era(),
+                    unregister,
                     executionTimeoutMillis,
                     toolCallSemaphore,
                     runtimeStats,
                     failureReporter,
-                    TOOL_EXECUTOR));
+                    TOOL_EXECUTOR);
+            if (tracked(request)) {
+                registration.set(inFlight.register(request.requestKey(), streaming::cancel));
+                if (streaming.finished()) {
+                    unregister.run();
+                }
+            }
+            return new McpCallStart.Stream(streaming);
         } catch (RuntimeException | Error failure) {
             failureReporter.report("dispatching a request", failure);
             return new McpCallStart.Immediate(
@@ -404,7 +422,42 @@ public final class McpDispatcher {
             runtimeStats.recordCapacityRefusal();
             return new ProtocolError(McpProtocol.SERVER_AT_CAPACITY, McpProtocol.RATE_LIMITED_MESSAGE);
         }
-        return invokeBlocking(((PreparedCall) prepared).tool(), ((PreparedCall) prepared).arguments(), cancellation);
+        McpTool tool = ((PreparedCall) prepared).tool();
+        McpArguments arguments = ((PreparedCall) prepared).arguments();
+        if (tracked(request)) {
+            try (McpInFlightCalls.Registration registered =
+                    inFlight.register(request.requestKey(), cancellation::cancel)) {
+                return invokeBlocking(tool, arguments, cancellation);
+            }
+        }
+        return invokeBlocking(tool, arguments, cancellation);
+    }
+
+    /**
+     * {@code true} for a legacy {@code tools/call} with an id: MCP 2025-06-18 cancels one with {@code
+     * notifications/cancelled}, so it is registered by id while it holds a permit.
+     */
+    private static boolean tracked(McpRequest request) {
+        return request.era() == McpEra.LEGACY && request.requestKey() != null && "tools/call".equals(request.method());
+    }
+
+    /**
+     * A legacy {@code notifications/cancelled}: cancels the one in-flight {@code tools/call} with that id. MCP 2025-06-18
+     * lets a receiver ignore an unknown or finished id, and so does an id two callers share. BootUI has no sessions,
+     * so any local caller that passes the endpoint's checks can cancel a call by its id. Sent with an id, it is not a
+     * notification and is answered as an unknown method.
+     */
+    private McpDispatchOutcome cancelInFlight(McpRequest request) {
+        if (!request.notification()) {
+            return new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: " + request.method());
+        }
+        inFlight.cancel(request.cancelledRequestKey());
+        return new NoResponse();
+    }
+
+    /** The legacy calls registered for cancellation right now. */
+    int inFlightCalls() {
+        return inFlight.size();
     }
 
     /**
