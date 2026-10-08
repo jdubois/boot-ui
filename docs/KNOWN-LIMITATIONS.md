@@ -42,7 +42,7 @@ See [WebFlux design notes](WEBFLUX-SUPPORT.md) for the panel-by-panel detail.
 
 See [Quarkus design notes](QUARKUS-SUPPORT.md) for the panel-by-panel detail.
 
-- **54 of the 64 panels ship.** GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring Security,
+- **55 of the 65 panels ship.** GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring Security,
   Spring DevTools, and Transactions do not apply to Quarkus; JMS is not available yet.
 - **No transaction capture.** SQL statements carry no transaction id, and `transaction-across-remote-call` and
   `split-transaction-writes` are unavailable.
@@ -85,7 +85,8 @@ application's own code did. See [Java Agent](features/java-agent.md).
 - **Code Paths**: route trees, component-boundary timing, and the handler split of `route-time-breakdown`;
 - change impact by method, and a run comparison led by code changes;
 - metadata-only method probes: invocations, durations, outcomes, and request ids, never arguments or return values,
-  with optional argument and return shapes (types and sizes, never values, in the panel only);
+  with optional argument and return shapes, shown in the panel only: types and sizes, plus an enum constant's name and
+  a string's length under `FULL`;
 - runtime reach in the Vulnerabilities panel;
 - the **Side Effects** panel with the default `network` (outbound hosts), `processes`, and `blocking` sensors, and the
   opt-in `files`, `environment`, `thread-activity` (threads per request), and `thread-locals` (`thread-local-left-set`)
