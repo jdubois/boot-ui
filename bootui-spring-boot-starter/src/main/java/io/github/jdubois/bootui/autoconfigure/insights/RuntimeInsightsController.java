@@ -93,7 +93,7 @@ public class RuntimeInsightsController {
                 context instanceof ReactiveWebApplicationContext
                         ? InsightsStack.SPRING_WEBFLUX
                         : InsightsStack.SPRING_MVC,
-                RunHistory.shared()::summaries,
+                () -> RunHistory.shared().summaries(journalAggregates == null ? null : journalAggregates.application()),
                 properties.getRuntimeInsights().getAiTokenThreshold());
         this.insights.setPoolSizes(new DataSourcePoolSizes(context));
         this.insights.setSqlCapture(new SpringSqlCapture(context));

@@ -37,8 +37,8 @@ const SENSOR_ORDER = [
   'security-sinks'
 ]
 
-/** The opt-in sensors, with what each records once added to bootui.agent.sensors or switched on (M5-14). */
-const OPT_IN = {
+/** The sensors a configuration can leave out, with what each records once in bootui.agent.sensors or switched on. */
+const RECORDS = {
   files: 'the path patterns of the files the application opens, deletes, moves, and copies',
   environment: 'the names read',
   'thread-activity':
@@ -47,6 +47,9 @@ const OPT_IN = {
   'security-sinks':
     'deserialization without a filter, weak algorithms, and trust managers, and, with bootui.agent.security-sinks.request-values=true, where request input reaches SQL text, a command, a file path, or an outbound URL unchanged'
 }
+
+/** The sensors above that BootUI records with by default. */
+const ON_BY_DEFAULT = new Set(['files'])
 
 const STATE = {
   recording: {label: 'Recording', badge: 'text-bg-success'},
@@ -162,7 +165,7 @@ const sensorLoading = ref({})
 const now = ref(Date.now())
 
 const available = computed(() => summary.value?.available === true)
-// The opt-in sensors' switches belong to the Java Agent panel, shown only while it is enabled and available (M5-14).
+// The sensors' runtime switches belong to the Java Agent panel, shown only while it is enabled and available (M5-14).
 const panels = inject('panels', ref(null))
 const canSwitch = computed(() => {
   const owner = (panels.value?.panels ?? []).find((panel) => panel.id === 'java-agent')
@@ -577,10 +580,20 @@ function hookStatus(value, label) {
             <div v-if="sensor.state !== 'recording'" class="alert alert-secondary small py-2 side-effects-state-note">
               <strong>{{ stateOf(sensor).label }}.</strong>
               {{ sensor.reason || 'This sensor is not recording rows right now.' }}
-              <template v-if="OPT_IN[sensor.id] && sensor.state === 'not-claimed'">
-                It is opt-in: add <code>{{ sensor.id }}</code> to <code>bootui.agent.sensors</code> to record
-                {{ OPT_IN[sensor.id]
-                }}<template v-if="sensor.toggle && canSwitch">, or switch it on above for this JVM</template>.
+              <template v-if="RECORDS[sensor.id] && sensor.state === 'not-claimed'">
+                <template v-if="sensor.toggle?.overridden">
+                  It records {{ RECORDS[sensor.id]
+                  }}<template v-if="canSwitch">: switch it on above to record again for this JVM</template>.
+                </template>
+                <template v-else>
+                  {{
+                    ON_BY_DEFAULT.has(sensor.id)
+                      ? 'It is on by default, but not in this configuration'
+                      : 'It is opt-in'
+                  }}: add <code>{{ sensor.id }}</code> to <code>bootui.agent.sensors</code> to record
+                  {{ RECORDS[sensor.id]
+                  }}<template v-if="sensor.toggle && canSwitch">, or switch it on above for this JVM</template>.
+                </template>
               </template>
             </div>
 

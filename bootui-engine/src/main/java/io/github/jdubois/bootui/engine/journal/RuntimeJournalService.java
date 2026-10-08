@@ -177,7 +177,7 @@ public final class RuntimeJournalService {
 
     /** The kept summaries of the runs before this one, newest first. */
     private List<RuntimeRunSummaryDto> previousRuns(String currentRunId) {
-        return history.headers().stream()
+        return history.headers(aggregates == null ? null : aggregates.application()).stream()
                 .filter(header -> !header.runId().equals(currentRunId))
                 .map(header -> new RuntimeRunSummaryDto(
                         header.runId(),

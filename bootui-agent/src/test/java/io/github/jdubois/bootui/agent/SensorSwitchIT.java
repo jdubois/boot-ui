@@ -18,7 +18,9 @@ class SensorSwitchIT {
             "switching threads on installs and self-tests it in this run",
             "switching environment off stops its recording at once and removes its hooks, processes recording on",
             "switching threads off restores java.lang.Thread",
-            "the same application's next claim keeps the switch, and the previous run's token switches nothing");
+            "the same application's next claim keeps the switch, and the previous run's token switches nothing",
+            "a configured sensor switched off records nothing and releases its hooks, and switched back on records"
+                    + " again");
 
     @Test
     void sensorsSwitchOnAndOffInTheRunningJvm() throws Exception {

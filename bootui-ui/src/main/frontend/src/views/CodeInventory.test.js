@@ -242,6 +242,86 @@ describe('Code Inventory panel', () => {
     )
   })
 
+  /** Answers every read at once except a package's methods, which wait until the test settles them, in any order. */
+  function mountWithHeldPackages(code) {
+    const held = []
+    const withoutPrevious = {...summary, changes: {...summary.changes, previousRun: false, note: 'No previous run.'}}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        const path = String(url)
+        if (path.includes('package=')) {
+          return new Promise((resolve) => {
+            held.push({
+              path,
+              answer: (body) => resolve(jsonResponse(body)),
+              fail: () => resolve({ok: false, status: 500, json: () => Promise.resolve({message: 'boom'})})
+            })
+          })
+        }
+        return Promise.resolve(jsonResponse(path.includes('api/code-inventory/methods') ? code : withoutPrevious))
+      })
+    )
+    wrapper = mount(CodeInventory, {global: {stubs: {RouterLink: RouterLinkStub}}})
+    return held
+  }
+
+  function packageOf(name, methods) {
+    return {
+      ...packageMethods,
+      classes: [{...packageMethods.classes[0], packageName: name, className: `${name}.Service`}],
+      methods: methods.map((row) => ({...row, packageName: name, className: `${name}.Service`}))
+    }
+  }
+
+  it('keeps the newest package’s methods when an older package answers last', async () => {
+    const twoPackages = {
+      ...packagesReport,
+      packages: [...packagesReport.packages, {...packagesReport.packages[0], name: 'billing'}]
+    }
+    const held = mountWithHeldPackages(twoPackages)
+    await flushPromises()
+
+    const [shop, billing] = wrapper.findAll('.code-inventory-package')
+    await shop.trigger('click')
+    await billing.trigger('click')
+    expect(held.map((call) => call.path)).toEqual([
+      expect.stringContaining('package=shop'),
+      expect.stringContaining('package=billing')
+    ])
+
+    held[1].answer(packageOf('billing', [method('charge', 'EXECUTED', null)]))
+    await flushPromises()
+    held[0].fail()
+    await flushPromises()
+
+    expect(wrapper.get('.code-inventory-classes').text()).toContain('charge()V')
+    expect(wrapper.find('.code-inventory-classes .alert-danger').exists()).toBe(false)
+  })
+
+  it('keeps the package’s never-executed methods when the unfiltered read answers last', async () => {
+    const held = mountWithHeldPackages(packagesReport)
+    await flushPromises()
+
+    await wrapper.get('.code-inventory-package').trigger('click')
+    await wrapper.get('#code-inventory-never-executed').setValue(true)
+    await flushPromises()
+    expect(held.map((call) => call.path)).toEqual([
+      expect.not.stringContaining('status='),
+      expect.stringContaining('status=never-executed')
+    ])
+
+    held[1].answer(packageOf('shop', [method('neverCalled', 'NEVER_EXECUTED', null)]))
+    await flushPromises()
+    held[0].answer(
+      packageOf('shop', [method('neverCalled', 'NEVER_EXECUTED', null), method('total', 'EXECUTED', null)])
+    )
+    await flushPromises()
+
+    expect(wrapper.get('.code-inventory-classes').text()).toContain('neverCalled()V')
+    expect(wrapper.get('.code-inventory-classes').text()).not.toContain('total()V')
+  })
+
   it('says the scan is still running rather than that there is no previous run, and reads again', async () => {
     vi.useFakeTimers()
     try {

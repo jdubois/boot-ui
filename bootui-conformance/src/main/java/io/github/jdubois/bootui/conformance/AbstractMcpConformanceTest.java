@@ -826,8 +826,10 @@ public abstract class AbstractMcpConformanceTest {
             assertThat(scanId).isNotBlank();
             assertThat(probe().get("/bootui/api/architecture").json().path("violationDetails"))
                     .isEqualTo(report.path("violationDetails"));
-            if (!report.path("results").isEmpty()) {
-                JsonNode rule = report.path("results").get(0);
+            // The scan answers with a summary: its top findings name the rules to page, with their counts.
+            assertThat(report.has("results")).isFalse();
+            if (!report.path("topFindings").isEmpty()) {
+                JsonNode rule = report.path("topFindings").get(0);
                 JsonNode detailEnvelope = callAdvisorTool(
                         "get_architecture_rule_violations",
                         Map.of("id", rule.path("id").asText(), "scanId", scanId, "offset", 0, "limit", 1));
@@ -836,7 +838,7 @@ public abstract class AbstractMcpConformanceTest {
                         detailEnvelope.path("content").get(0).path("text").asText());
                 assertThat(detail.path("scanId").asText()).isEqualTo(scanId);
                 assertThat(detail.path("violationCount").asInt())
-                        .isEqualTo(rule.path("violationCount").asInt());
+                        .isEqualTo(rule.path("count").asInt());
                 assertThat(detail.path("page").path("limit").asInt()).isEqualTo(1);
             }
             JsonNode stale = callAdvisorTool(

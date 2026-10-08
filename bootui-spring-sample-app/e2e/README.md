@@ -114,8 +114,8 @@ npm run test:agent:opentelemetry-last
 npm run test:agent:jacoco
 ```
 
-To explore the sample with the agent attached by hand, against PostgreSQL, run
-`./bootui-spring-sample-app/run-local-agent.sh` from the repository root (see the sample's README).
+To explore the sample with the agent attached by hand, run `./bootui-spring-sample-app/run-local-agent.sh` from the
+repository root: the Docker-free `dev` profile with the agent's default sensors (see the sample's README).
 
 Set `SERVER_PORT` with `BOOTUI_AGENT_SAMPLE_PORT` to run it beside another sample.
 

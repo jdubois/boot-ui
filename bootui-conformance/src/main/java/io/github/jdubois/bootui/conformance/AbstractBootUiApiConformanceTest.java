@@ -1958,12 +1958,13 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     /**
-     * The runtime switch of an opt-in agent sensor ({@code docs/PLAN-v2.md} M5-14) without the BootUI agent: the report
-     * offers no switch, an opt-in sensor answers 409 with the reason, and any other sensor or a body without
+     * The runtime switch of an agent sensor ({@code docs/PLAN-v2.md} M5-14) without the BootUI agent: the report offers
+     * no switch, a switchable sensor such as {@code environment} answers 409 with the reason, and a sensor installed with
+     * the claim only, such as {@code executors}, or a body without
      * {@code enabled} answers 400, each with the canonical {@code error} body; a read-only panel refuses it first with 403.
      */
     @Test
-    void anOptInSensorCannotBeSwitchedWithoutTheAgentAndOtherSensorsNever() {
+    void aSwitchableSensorCannotBeSwitchedWithoutTheAgentAndOtherSensorsNever() {
         assumeTrue(isPanelUsableInLiveManifest("java-agent"), "java-agent panel is not available in this environment");
         assumeTrue(bootstrapAgentBridgeAbsent(), "this JVM runs with the BootUI agent attached");
         assertThat(probe().get(api("/java-agent")).json().path("toggles").size())

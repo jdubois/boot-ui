@@ -442,7 +442,7 @@ public final class JavaAgentService {
      * @param buckets for the files sensor, the operations the bridge counted in buckets rather than recorded, by bucket
      *     ({@code classFiles}, {@code archives}, {@code archiveFileSystems}, {@code javaHome},
      *     {@code classPathDirectories}), since the claim; empty otherwise
-     * @param toggle the sensor's runtime switch, for an opt-in sensor while the agent is armed for this application;
+     * @param toggle the sensor's runtime switch, for a switchable sensor while the agent is armed for this application;
      *     otherwise {@code null}
      */
     public record SideEffectsCoverage(
@@ -643,21 +643,21 @@ public final class JavaAgentService {
     }
 
     /**
-     * Switches the opt-in sensor {@code id} on or off at run time for this application ({@code docs/PLAN-v2.md} M5-14),
+     * Switches the sensor {@code id}, one of {@link AgentSensorSettings#SWITCHABLE_SENSORS}, on or off at run time for this application ({@code docs/PLAN-v2.md} M5-14),
      * through its armed claim: the agent installs or removes it now, and the switch holds for this application's later
      * claims in this JVM, across DevTools restarts and Quarkus live reloads, never written anywhere. Returns the report
      * after the switch.
      *
-     * @throws IllegalArgumentException when {@code id} is not one of {@link AgentSensorSettings#OPT_IN_SENSORS}
+     * @throws IllegalArgumentException when {@code id} is not one of {@link AgentSensorSettings#SWITCHABLE_SENSORS}
      * @throws IllegalStateException when the agent is not armed for this application, predates runtime switches, or
      *     refused or failed the switch
      */
     public JavaAgentReport switchSensor(String id, boolean enabled) {
         String sensor = id == null ? "" : id.trim();
-        if (!AgentSensorSettings.OPT_IN_SENSORS.contains(sensor)) {
+        if (!AgentSensorSettings.SWITCHABLE_SENSORS.contains(sensor)) {
             throw new IllegalArgumentException(
-                    "'" + id + "' is not an opt-in sensor: the sensors switched at run time are "
-                            + String.join(", ", AgentSensorSettings.OPT_IN_SENSORS) + ".");
+                    "'" + id + "' cannot be switched at run time: the sensors switched at run time are "
+                            + String.join(", ", AgentSensorSettings.SWITCHABLE_SENSORS) + ".");
         }
         Map<String, Object> status = access.status();
         Resolution resolution = resolve(status, AgentBridgeAccess.map(status, "claim"));
@@ -723,25 +723,25 @@ public final class JavaAgentService {
                 + settings.bootUiVersion() + ".";
     }
 
-    /** The opt-in sensors' runtime switches while this application's claim is armed, or none. */
+    /** The switchable sensors' runtime switches while this application's claim is armed, or none. */
     private List<JavaAgentSensorToggleDto> toggles(Resolution resolution, Map<String, Object> agent) {
         AgentClaim ours = claim.get();
         if (ours == null || !JavaAgentReport.ARMED.equals(resolution.state())) {
             return List.of();
         }
         List<JavaAgentSensorToggleDto> toggles = new ArrayList<>();
-        for (String id : AgentSensorSettings.OPT_IN_SENSORS) {
+        for (String id : AgentSensorSettings.SWITCHABLE_SENSORS) {
             toggles.add(toggle(ours, sensor(agent, id), id));
         }
         return toggles;
     }
 
     /**
-     * The runtime switch of {@code id} for this application's claim, or {@code null} when {@code id} is not an opt-in
-     * sensor; {@code sensor} is the agent's status row for it, or {@code null}.
+     * The runtime switch of {@code id} for this application's claim, or {@code null} when {@code id} cannot be switched
+     * at run time; {@code sensor} is the agent's status row for it, or {@code null}.
      */
     private JavaAgentSensorToggleDto toggle(AgentClaim ours, Map<String, Object> sensor, String id) {
-        if (!AgentSensorSettings.OPT_IN_SENSORS.contains(id)) {
+        if (!AgentSensorSettings.SWITCHABLE_SENSORS.contains(id)) {
             return null;
         }
         boolean configured = ours.sensors().sensors().contains(id);
@@ -790,7 +790,7 @@ public final class JavaAgentService {
                 enabled,
                 ours.sensorOverrides().containsKey(id),
                 state,
-                AgentSensorSettings.optInReason(id),
+                AgentSensorSettings.defaultReason(id),
                 unavailable == null,
                 unavailable,
                 failure == null ? null : "The agent failed this switch: " + failure);
@@ -893,6 +893,7 @@ public final class JavaAgentService {
                 longValue(executors, "ambiguous"),
                 longValue(executors, "stale"),
                 longValue(executors, "refused"),
+                longValue(executors, "overflow"),
                 longValue(executors, "virtualSkipped"),
                 longValue(executors, "periodicSkipped"),
                 longValue(executors, "skippedTasks"),

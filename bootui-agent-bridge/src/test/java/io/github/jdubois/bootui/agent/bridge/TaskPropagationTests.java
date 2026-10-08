@@ -62,6 +62,73 @@ class TaskPropagationTests {
     }
 
     @Test
+    void anOwnedTaskPastTheCapIsCountedAsOverflowAndRunsUnowned() {
+        long generation = AgentBridge.current().generation;
+        List<Object> queued = new ArrayList<>();
+        for (int i = 0; i < TaskSnapshots.MAX_PENDING; i++) {
+            Object delayed = new Object();
+            queued.add(delayed);
+            TaskSnapshots.TASKS.put(delayed, generation, snapshot("delayed"), 0L);
+        }
+        Object keyedBefore = TaskPropagation.status().get("keyed");
+        Runnable task = () -> {};
+        owner.set(snapshot("r1"));
+
+        assertThat(TaskPropagation.submitted(task, TaskPropagation.KEY_THREAD_POOL))
+                .isFalse();
+        owner.remove();
+
+        assertThat(counter("overflow")).isEqualTo(1L);
+        assertThat(counter("ambiguous")).isZero();
+        assertThat(counter("pending")).isEqualTo(TaskSnapshots.MAX_PENDING);
+        assertThat(TaskPropagation.status().get("keyed")).isEqualTo(keyedBefore);
+        assertThat(TaskPropagation.enter(task, TaskPropagation.APPLY_RUN_WORKER))
+                .isNull();
+        assertThat(reopened).isEmpty();
+        // A queued task that runs frees its slot for the next submission.
+        TaskPropagation.exit(TaskPropagation.enter(queued.get(0), TaskPropagation.APPLY_RUN_WORKER), null);
+        owner.set(snapshot("r2"));
+        assertThat(TaskPropagation.submitted(task, TaskPropagation.KEY_THREAD_POOL))
+                .isTrue();
+        owner.remove();
+        TaskPropagation.exit(TaskPropagation.enter(task, TaskPropagation.APPLY_RUN_WORKER), null);
+        assertThat(reopened)
+                .containsExactly(
+                        "delayed java.lang.Object ThreadPoolExecutor.runWorker",
+                        "r2 " + task.getClass().getName() + " ThreadPoolExecutor.runWorker");
+        assertThat(counter("overflow")).isEqualTo(1L);
+    }
+
+    @Test
+    void aTaskPastTheCapIsCountedOnceAndOnlyWhenTheExecutorAcceptedIt() {
+        long generation = AgentBridge.current().generation;
+        List<Object> queued = new ArrayList<>();
+        for (int i = 0; i < TaskSnapshots.MAX_PENDING; i++) {
+            Object delayed = new Object();
+            queued.add(delayed);
+            TaskSnapshots.TASKS.put(delayed, generation, snapshot("delayed"), 0L);
+        }
+        Runnable task = () -> {};
+        owner.set(snapshot("r1"));
+
+        // ThreadPoolExecutor.execute with a full queue: the queue refuses it, then a new worker takes it.
+        assertThat(TaskPropagation.offer(new java.util.concurrent.SynchronousQueue<>(), task))
+                .isFalse();
+        int outcome = TaskPropagation.workerOffered(task);
+        TaskPropagation.workerAdded(outcome, task, true);
+        // A task the executor rejects never runs, and is not counted.
+        Runnable rejected = () -> {};
+        TaskPropagation.workerAdded(TaskPropagation.workerOffered(rejected), rejected, false);
+        owner.remove();
+
+        assertThat(outcome).isEqualTo(TaskPropagation.OVERFLOWED);
+        assertThat(counter("overflow")).isEqualTo(1L);
+        assertThat(TaskPropagation.enter(task, TaskPropagation.APPLY_RUN_WORKER))
+                .isNull();
+        assertThat(queued).hasSize(TaskSnapshots.MAX_PENDING);
+    }
+
+    @Test
     void anOwnedTaskCarriesTheSubmittingNodesStampToItsFragment() {
         AgentBridge.reset();
         AgentBridge.install(request -> Map.of("status", "ok"));

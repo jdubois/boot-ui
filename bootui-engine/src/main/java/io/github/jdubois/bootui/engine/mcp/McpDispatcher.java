@@ -15,6 +15,7 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolsListResult;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.progress.OperationCancelledException;
 import io.github.jdubois.bootui.engine.progress.OperationProgress;
+import io.github.jdubois.bootui.engine.support.BootUiThreads;
 import io.github.jdubois.bootui.spi.McpPanelPolicy;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,7 +28,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -58,7 +58,12 @@ import org.slf4j.LoggerFactory;
 public final class McpDispatcher {
 
     private static final Logger log = LoggerFactory.getLogger(McpDispatcher.class);
-    private static final ExecutorService TOOL_EXECUTOR = Executors.newCachedThreadPool(new McpToolThreadFactory());
+    /**
+     * JVM-wide, so its workers keep nothing of the application that first used them; each call runs with its
+     * dispatcher's {@link #applicationLoader} instead.
+     */
+    private static final ExecutorService TOOL_EXECUTOR =
+            Executors.newCachedThreadPool(BootUiThreads.daemonFactory("bootui-mcp-tool-", BootUiThreads.ENGINE_LOADER));
 
     private final Supplier<List<McpTool>> toolSupplier;
     private final List<McpPrompt> prompts;
@@ -72,6 +77,12 @@ public final class McpDispatcher {
     private final long executionTimeoutMillis;
     private final McpRuntimeStats runtimeStats;
     private final McpInFlightCalls inFlight = new McpInFlightCalls();
+    /**
+     * The application's context class loader when the dispatcher was created, at its startup: tools and stream writers
+     * run with it, never with the loader of a pooled worker's first caller, which a restart may have discarded.
+     */
+    private final ClassLoader applicationLoader = Thread.currentThread().getContextClassLoader();
+
     private static final System.Logger CANCELLATION_LOG = System.getLogger(McpDispatcher.class.getName());
     private static final int MAX_LOGGED_LENGTH = 200;
     private final Function<String, String> panelUnavailableReason;
@@ -397,7 +408,8 @@ public final class McpDispatcher {
                     toolCallSemaphore,
                     runtimeStats,
                     failureReporter,
-                    TOOL_EXECUTOR);
+                    TOOL_EXECUTOR,
+                    applicationLoader);
             if (tracked(request)) {
                 registration.set(inFlight.register(request.requestKey(), streaming::cancel));
                 if (streaming.finished()) {
@@ -573,9 +585,15 @@ public final class McpDispatcher {
                 if (!invocationState.compareAndSet(0, 1)) {
                     return null;
                 }
+                Thread worker = Thread.currentThread();
+                ClassLoader idleLoader = worker.getContextClassLoader();
+                if (applicationLoader != null) {
+                    worker.setContextClassLoader(applicationLoader);
+                }
                 try {
                     return OperationProgress.runWith(progress, () -> tool.invoke(arguments));
                 } finally {
+                    worker.setContextClassLoader(idleLoader);
                     int previous = invocationState.getAndSet(3);
                     unregister.run();
                     toolCallSemaphore.release();
@@ -724,17 +742,5 @@ public final class McpDispatcher {
                 .filter(tool -> tool.name().equals(name))
                 .findFirst()
                 .orElse(null);
-    }
-
-    private static final class McpToolThreadFactory implements ThreadFactory {
-
-        private int sequence;
-
-        @Override
-        public synchronized Thread newThread(Runnable task) {
-            Thread thread = new Thread(task, "bootui-mcp-tool-" + ++sequence);
-            thread.setDaemon(true);
-            return thread;
-        }
     }
 }

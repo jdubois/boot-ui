@@ -79,7 +79,7 @@ public final class SideEffects {
     /** The files sensor's id (M5-5d). */
     public static final String FILES = "files";
 
-    /** The environment sensor's id (M5-5d), opt-in. */
+    /** The environment sensor's id (M5-5d), opt-in (D49). */
     public static final String ENVIRONMENT = "environment";
 
     /** The blocking sensor's id ({@link Blocking}, M5-5c). */
