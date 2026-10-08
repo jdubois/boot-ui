@@ -32,6 +32,9 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
     /** The most open requests whose {@code SELECT} counts are kept until they complete. */
     static final int MAX_PENDING_REQUESTS = 1_024;
 
+    /** The most open handoffs whose last I/O end is kept until they close. */
+    static final int MAX_PENDING_HANDOFFS = 1_024;
+
     private final RuntimeJournal journal;
     private final JournalActivityFeed feed;
     private final ActivityCaptureCoordinator coordinator;
@@ -40,6 +43,13 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, Map<String, Integer>> eldest) {
             return size() > MAX_PENDING_REQUESTS;
+        }
+    };
+
+    private final Map<String, Long> pendingWorkEnds = new LinkedHashMap<>() {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
+            return size() > MAX_PENDING_HANDOFFS;
         }
     };
 
@@ -102,14 +112,15 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
         if (visible.isEmpty()) {
             return;
         }
-        coordinator.ingest(
-                feed.renderForCapture(visible, journal::eventId, pendingSelects, count -> overflowedSelects += count));
+        coordinator.ingest(feed.renderForCapture(
+                visible, journal::eventId, pendingSelects, pendingWorkEnds, count -> overflowedSelects += count));
     }
 
     /** Forgets the open {@code SELECT} counts of the cleared recording's requests. */
     @Override
     public synchronized void onClear() {
         pendingSelects.clear();
+        pendingWorkEnds.clear();
         overflowedSelects = 0;
     }
 
