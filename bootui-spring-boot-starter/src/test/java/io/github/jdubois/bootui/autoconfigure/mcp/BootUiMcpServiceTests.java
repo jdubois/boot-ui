@@ -201,12 +201,31 @@ class BootUiMcpServiceTests {
         assertThat(objectMapper.writeValueAsString(report).length())
                 .isGreaterThan(McpCompactAnswerContract.COMPACT_BYTES);
 
-        assertThat(compact.handle(objectMapper.readTree(
-                                McpCompactAnswerContract.call("get_vulnerabilities_report", "{}")))
-                        .path("error")
-                        .path("code")
+        JsonNode defaultPage = compact.handle(
+                objectMapper.readTree(McpCompactAnswerContract.call("get_vulnerabilities_report", "{}")));
+        assertThat(defaultPage.has("error")).isFalse();
+        assertThat(objectMapper.writeValueAsString(defaultPage).length())
+                .isLessThan(McpCompactAnswerContract.VULNERABILITY_PAGE_BYTES);
+        assertThat(defaultPage
+                        .path("result")
+                        .path("structuredContent")
+                        .path("advisories")
+                        .path("omitted")
                         .asInt())
-                .isEqualTo(McpProtocol.RESPONSE_TOO_LARGE);
+                .isPositive();
+        JsonNode advisory = compact.handle(objectMapper.readTree(
+                        McpCompactAnswerContract.call("get_vulnerabilities_report", "{\"query\":\"GHSA-3-7\"}")))
+                .path("result")
+                .path("structuredContent")
+                .path("dependencies")
+                .get(0)
+                .path("vulnerabilities");
+        boolean whole = false;
+        for (JsonNode each : advisory) {
+            whole |= each.path("id").asString().equals("GHSA-3-7")
+                    && each.path("details").asString().length() > 1000;
+        }
+        assertThat(whole).as("an exact advisory id returns that advisory whole").isTrue();
         JsonNode page = compact.handle(
                 objectMapper.readTree(McpCompactAnswerContract.call("get_vulnerabilities_report", "{\"limit\":1}")));
         assertThat(page.has("error")).isFalse();

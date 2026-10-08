@@ -151,7 +151,8 @@ class McpToolDescriptionsTests {
             assertThat(McpToolDescriptions.quarkus(tool)).as(tool).contains("summary, not the");
         }
         assertThat(McpToolDescriptions.spring("graalvm_scan")).contains("get_graalvm_report");
-        assertThat(McpToolDescriptions.spring("get_vulnerabilities_report")).contains("-32003", "smaller limit");
+        assertThat(McpToolDescriptions.spring("get_vulnerabilities_report"))
+                .contains("at most 5 advisories", "advisories.omitted", "exact advisory id or alias");
     }
 
     private static void assertDescriptions(Set<String> names, Function<String, String> descriptionProvider) {

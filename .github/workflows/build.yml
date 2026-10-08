@@ -624,8 +624,8 @@ jobs:
             bash .github/scripts/consumer-smoke-tests.sh "$VERSION" "$RUNNER_TEMP/bootui-candidate"
 
   # Runs the newest published bootui-cli, downloaded from Maven Central and pinned by SHA-256, against the Spring MVC
-  # sample built from this change (.github/scripts/published-cli-smoke.sh): its tool listing, two reads, JSON output,
-  # and exit codes 1 (a tool the application does not advertise) and 2 (a disabled panel). The CLI binds its options
+  # sample built from this change (.github/scripts/published-cli-smoke.sh): its tool listing, two reads, a scan and a
+  # capture control's compact JSON answers, and exit codes 1 (a tool the application does not advertise) and 2 (a disabled panel). The CLI binds its options
   # to the tool catalog it shipped with, so this catches a server change that breaks the CLI users already have.
   published-cli:
     name: Published CLI against this build (Java 17)

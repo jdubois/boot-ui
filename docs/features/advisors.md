@@ -822,8 +822,8 @@ of application safety or complete runtime discovery. Panel and Scorecard use the
 An agent's `vulnerabilities_scan` answers with a
 [summary](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls): at most ten vulnerable dependencies, each
 with its most severe advisory, rather than every advisory's full OSV text. `get_vulnerabilities_report` then lists
-`limit` dependencies (10 by default) with their advisories; narrow it with `query` or lower `limit` when a page is
-refused for exceeding `bootui.mcp.max-response-bytes`.
+`limit` dependencies (10 by default), each with at most 5 advisories without their details; an exact `group:artifact`
+query lists all of one dependency's advisories, and an exact advisory id or alias returns that advisory whole.
 
 ### Severity scoring
 
