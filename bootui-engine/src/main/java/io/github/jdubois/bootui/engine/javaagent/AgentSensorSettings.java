@@ -13,7 +13,7 @@ import java.util.List;
  * ({@code bootui.agent.ring-capacity}).
  *
  * @param sensors the sensors to install: {@code executors}, {@code inventory}, {@code code-paths}, {@code processes},
- *     {@code network}, {@code files}, {@code environment}, and {@code blocking}, and the opt-in {@code threads},
+ *     {@code network}, {@code files}, and {@code blocking}, and the opt-in {@code threads}, {@code environment},
  *     {@code thread-activity}, {@code thread-locals}, {@code caught-exceptions}, and {@code security-sinks}; the Side
  *     Effects sensors this
  *     version does not ship are accepted ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
@@ -69,8 +69,9 @@ public record AgentSensorSettings(
 
     /**
      * The Side Effects sensor recording the environment variables and system properties the application reads by name
-     * (M5-5d, §5.16), never their values; on by default (D49), and switched off and on at run time (M5-14). It advises
-     * {@code System.getProperty}, which frameworks call often: about 23–28 ns per read instead of 5–6 ns.
+     * (M5-5d, §5.16), never their values; opt-in (D49), and switched on and off at run time (M5-14). It advises
+     * {@code System.getProperty}: about 23–28 ns per read instead of 5–6 ns, which the overhead job measured at several
+     * percent on a route reading fifty properties per request.
      */
     public static final String ENVIRONMENT = "environment";
 
@@ -138,19 +139,19 @@ public record AgentSensorSettings(
 
     /** The default {@code bootui.agent.sensors}. */
     public static final List<String> DEFAULT_SENSORS =
-            List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING);
+            List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, FILES, BLOCKING);
 
     /**
      * The sensors the Java Agent and Side Effects panels switch off and on at run time ({@code docs/PLAN-v2.md} M5-14),
-     * those the agent installs and removes without a new claim: the opt-in {@link #OPT_IN_SENSORS}, and {@code files}
-     * and {@code environment}, on by default (D49). The other default sensors are installed with the claim only, as is
+     * those the agent installs and removes without a new claim: the opt-in {@link #OPT_IN_SENSORS}, and {@code files},
+     * on by default (D49). The other default sensors are installed with the claim only, as is
      * {@code caught-exceptions} (M5-6a), off by default, whose visit of every application class is.
      */
     public static final List<String> SWITCHABLE_SENSORS =
             List.of(THREADS, FILES, ENVIRONMENT, THREAD_ACTIVITY, THREAD_LOCALS);
 
     /** The switchable sensors this version ships off by default. */
-    public static final List<String> OPT_IN_SENSORS = List.of(THREADS, THREAD_ACTIVITY, THREAD_LOCALS);
+    public static final List<String> OPT_IN_SENSORS = List.of(THREADS, ENVIRONMENT, THREAD_ACTIVITY, THREAD_LOCALS);
 
     /**
      * Why {@code id}, one of {@link #SWITCHABLE_SENSORS}, is off, or on, by default, as the panels show it beside its
@@ -168,10 +169,10 @@ public record AgentSensorSettings(
                 "On by default: it records the files the application opens, deletes, moves, and copies, as path"
                         + " patterns, never their contents. Switch it off to stop recording them.";
             case ENVIRONMENT ->
-                "On by default: it records the names of the environment variables and system properties the"
-                        + " application reads, never their values. It advises System.getProperty, which frameworks call"
-                        + " often: a read takes about 23–28 ns with it instead of 5–6 ns. Switch it off to stop recording"
-                        + " them.";
+                "Off by default: it records the names of the environment variables and system properties the"
+                        + " application reads, never their values, but each System.getProperty call from application code"
+                        + " takes about 20 ns more with it. On a route reading fifty properties per request, that cost"
+                        + " 6.8 % of throughput, over its 3 % budget. Switch it on to see what the application reads.";
             case THREAD_ACTIVITY ->
                 "Off by default: on a route that starts a thread per request, it added about 11.5 % to the agent's"
                         + " overhead, 16.6 % with the default sensors, over the 3 % and 10 % budgets.";

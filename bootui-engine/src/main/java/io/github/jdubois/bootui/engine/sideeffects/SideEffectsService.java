@@ -79,8 +79,8 @@ public final class SideEffectsService implements AutoCloseable {
             + " Runtime.exec and ProcessBuilder.startPipeline also reach; its network: connects, datagram sends, and"
             + " the host names the JVM resolves; the blocking calls started on an event loop; the files it"
             + " opens, deletes, moves, and copies, through FileInputStream, FileOutputStream, RandomAccessFile, the Files"
-            + " methods, and FileChannel.open, and the environment variables and system properties it reads by name"
-            + " through System.getenv and System.getProperty; and, opt-in, the threads it starts and the executors it"
+            + " methods, and FileChannel.open; and, opt-in, the environment variables and system properties it reads"
+            + " by name through System.getenv and System.getProperty; and, opt-in, the threads it starts and the executors it"
             + " creates; and, opt-in, the thread locals a request or a job left set on its pooled thread, and request"
             + " input reaching SQL text, a command, a file path, or an outbound URL unchanged (security sinks)."
             + " Resources left open are not available in this version.";

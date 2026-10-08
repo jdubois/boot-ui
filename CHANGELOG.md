@@ -207,7 +207,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([Java Agent](docs/features/java-agent.md#the-processes-sensor)). The executors sensor's default
   `bootui.agent.executors.skip-tasks` now includes `java.lang.ProcessHandleImpl`, the JDK's process reaper, so a request
   that starts a process is no longer reported as doing work after its response.
-- **Files and environment sensors in the BootUI agent.** The `files` and `environment` agent sensors, on by default, record
+- **Files and environment sensors in the BootUI agent.** The `files` agent sensor, on by default, and the opt-in
+  `environment` sensor record
   the files application code opens, deletes, moves, and copies, as path patterns (`./`, `$TMPDIR`, `~`, ids as `{n}`),
   and the environment variables and system properties it reads, by name; never contents or values, with class loading,
   the JDK, and logging appenders grouped apart ([Java Agent](docs/features/java-agent.md#the-files-sensor)).
@@ -373,12 +374,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **The `files` and `environment` sensors are on by default, and still switched at run time.** `bootui.agent.sensors`
-  now defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `environment`, and
-  `blocking`. The Java Agent panel's **Runtime switches** card, renamed from **Opt-in sensors**, and the Side Effects
-  sections switch either off, and back on, without a restart, and say why each is on by default. `environment` makes a
-  `System.getProperty` read about 23–28 ns instead of 5–6 ns; the agent overhead job now fails the build when either
-  sensor's own increment over the other default sensors is above 3 % (the lower bound of its 15-pair median interval)
+- **The `files` sensor is on by default, and still switched at run time.** `bootui.agent.sensors` now defaults to
+  `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, and `blocking`. The Java Agent panel's
+  **Runtime switches** card, renamed from **Opt-in sensors**, and the Side Effects sections switch it off, and back on,
+  without a restart, and say why each sensor is on or off by default. The agent overhead job now fails the build when
+  `files`' own increment over the other default sensors is above 3 % (the lower bound of its 15-pair median interval);
+  it measured 4.2 % and 3.0 %, with intervals reaching below 3 %. The `environment` sensor stays off by default: each
+  `System.getProperty` call from application code takes about 20 ns more with it, which cost 6.8 % of throughput on a
+  route reading fifty properties per request. Switch it on from either panel to see what the application reads
   ([Java Agent](docs/features/java-agent.md#switching-sensors-at-run-time)).
 - **The agent overhead job's cumulative check measures 15 pairs and is documented as an alarm.** It fails when the lower
   bound of the default sensors' cumulative median interval is above 10 %, which a true 14 % trips about four runs in
@@ -512,9 +515,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   merged into its route, and no longer kept, now amends that route's executed methods instead of opening a second,
   partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too.
 - **`bootui.agent.sensors` rejects unknown sensor ids.** The default sensor set is now `executors`, `inventory`,
-  `code-paths`, `processes`, `network`, and `blocking`. `threads`, `files`, `environment`, `thread-activity`,
-  `thread-locals`, `caught-exceptions`, and `security-sinks` are opt-in; the first five can also be switched at run
-  time, while `caught-exceptions` and `security-sinks` are installed only when the application starts.
+  `code-paths`, `processes`, `network`, `files`, and `blocking`. `threads`, `environment`, `thread-activity`,
+  `thread-locals`, `caught-exceptions`, and `security-sinks` are opt-in; the first four, and `files`, can also be
+  switched at run time, while `caught-exceptions` and `security-sinks` are installed only when the application starts.
   The `resources` sensor, which this version does not ship, is accepted with a warning and reported not available.
   Any other id now fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with
   an error naming the accepted ids.

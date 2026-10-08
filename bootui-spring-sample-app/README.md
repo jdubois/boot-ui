@@ -134,7 +134,7 @@ own `-Dspring-boot.run.jvmArguments=...` adds JVM options without detaching it.
 
 Open <http://localhost:8080/bootui/#/java-agent>: the panel reports `ARMED` for the `io.github.jdubois.bootui.sample`
 package with the default sensors installed: `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`,
-`environment`, and `blocking` (the others are opt-in; see the agent's [overhead note](../docs/features/java-agent.md#overhead)). Exercise
+and `blocking` (the others are opt-in; see the agent's [overhead note](../docs/features/java-agent.md#overhead)). Exercise
 <http://localhost:8080/api/sample/products>, then open **Code Paths** for the route's bean-method tree and **Code
 Inventory** for the executed methods. The PostgreSQL panel works as in the previous section.
 

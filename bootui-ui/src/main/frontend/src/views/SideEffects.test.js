@@ -752,7 +752,7 @@ describe('Side Effects panel', () => {
     expect(tables[1].text()).toContain('Temporary directory')
   })
 
-  it('shows environment rows by name and explains that the sensor is on by default when left out', async () => {
+  it('shows environment rows by name and explains that the sensor is opt-in', async () => {
     const read = row({
       sensor: 'environment',
       kind: 'system property',
@@ -801,9 +801,7 @@ describe('Side Effects panel', () => {
       .find((tab) => tab.text() === 'Environment')
       .trigger('click')
     await flushPromises()
-    expect(wrapper.get('.side-effects-state-note').text()).toContain(
-      'It is on by default, but not in this configuration'
-    )
+    expect(wrapper.get('.side-effects-state-note').text()).toContain('It is opt-in')
   })
 
   it('shows security-sinks rows with the parameter name and the fact, never as a vulnerability', async () => {
@@ -880,7 +878,7 @@ describe('Side Effects panel', () => {
       enabled: false,
       overridden: false,
       state: 'off',
-      optInReason: 'On by default: it advises System.getProperty.',
+      optInReason: 'Off by default: it advises System.getProperty.',
       available: true,
       unavailableReason: null
     }
@@ -987,7 +985,7 @@ describe('Side Effects panel', () => {
       enabled: false,
       overridden: false,
       state: 'off',
-      optInReason: 'On by default.',
+      optInReason: 'Off by default.',
       available: true,
       unavailableReason: null
     }
@@ -1036,7 +1034,7 @@ describe('Side Effects panel', () => {
       enabled: false,
       overridden: false,
       state: 'off',
-      optInReason: 'On by default.',
+      optInReason: 'Off by default.',
       available: true,
       unavailableReason: null
     }

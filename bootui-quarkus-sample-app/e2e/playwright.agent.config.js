@@ -37,7 +37,7 @@ function agentJar() {
 
 // The sample's ScheduledJavaVersion and ScheduledTenant seeds are off unless their period is set: only this leg asserts
 // their Side Effects rows.
-// The default sensors, files and environment among them, the opt-in thread-activity, thread-locals, and security-sinks
+// The default sensors, files among them, the opt-in environment, thread-activity, thread-locals, and security-sinks
 // sensors (with request-value matching), and blocking, named whatever its default, whose Side Effects seeds the
 // side-effects spec asserts (M5-5c, M5-5d, M5-5e, M5-5f, M5-6b), and the opt-in caught-exceptions sensor, whose Exceptions panel seeds the
 // caught-exceptions spec asserts (M5-6a2).

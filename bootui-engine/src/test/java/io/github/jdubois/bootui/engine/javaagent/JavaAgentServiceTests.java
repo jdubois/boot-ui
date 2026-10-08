@@ -403,15 +403,7 @@ class JavaAgentServiceTests {
                 .as("the default claim asks for the inventory sensor and the ring's capacity")
                 .containsEntry(
                         "sensors",
-                        List.of(
-                                "executors",
-                                "inventory",
-                                "code-paths",
-                                "processes",
-                                "network",
-                                "files",
-                                "environment",
-                                "blocking"))
+                        List.of("executors", "inventory", "code-paths", "processes", "network", "files", "blocking"))
                 .containsEntry("ringCapacity", AgentSensorSettings.DEFAULT_RING_CAPACITY);
         assertThat(report.sensors()).singleElement().satisfies(row -> {
             assertThat(row.id()).isEqualTo("inventory");
@@ -754,7 +746,7 @@ class JavaAgentServiceTests {
     }
 
     @Test
-    void theDefaultFilesAndEnvironmentSensorsShowOnAndAreSwitchedOffAndBackOnAtRunTime() {
+    void theDefaultFilesSensorIsSwitchedOffAndBackOnAndTheOptInEnvironmentSensorOnAndBackOffAtRunTime() {
         Bridges.StubAgent stub = Bridges.StubAgent.install();
         claim.set(AgentClaim.claim(
                 Bridges.access(),
@@ -765,38 +757,47 @@ class JavaAgentServiceTests {
                 AgentSensorSettings.defaults()));
         JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
 
-        assertThat(service.report().toggles())
-                .filteredOn(toggle -> List.of("files", "environment").contains(toggle.id()))
-                .hasSize(2)
-                .allSatisfy(toggle -> {
-                    assertThat(toggle.configured()).isTrue();
-                    assertThat(toggle.enabled()).isTrue();
-                    assertThat(toggle.overridden()).isFalse();
-                    assertThat(toggle.optInReason()).startsWith("On by default");
-                });
+        assertThat(AgentSensorSettings.DEFAULT_SENSORS).contains("files").doesNotContain("environment");
+        assertThat(AgentSensorSettings.SWITCHABLE_SENSORS).contains("files", "environment");
+        assertThat(toggle(service.report(), "files")).satisfies(files -> {
+            assertThat(files.configured()).isTrue();
+            assertThat(files.enabled()).isTrue();
+            assertThat(files.optInReason()).startsWith("On by default");
+        });
+        assertThat(toggle(service.report(), "environment")).satisfies(environment -> {
+            assertThat(environment.configured()).isFalse();
+            assertThat(environment.enabled()).isFalse();
+            assertThat(environment.available()).isTrue();
+            assertThat(environment.optInReason()).startsWith("Off by default").contains("System.getProperty");
+        });
 
-        for (String sensor : List.of("files", "environment")) {
-            JavaAgentSensorToggleDto off = service.switchSensor(sensor, false).toggles().stream()
-                    .filter(toggle -> toggle.id().equals(sensor))
-                    .findFirst()
-                    .orElseThrow();
-            assertThat(off.enabled()).isFalse();
-            assertThat(off.overridden()).isTrue();
-            assertThat(off.state()).isEqualTo("off");
-            assertThat(claim.get().activeSensors()).doesNotContain(sensor);
-            assertThat(service.sideEffectsCoverage(sensor).reason()).startsWith("Switched off at run time");
+        JavaAgentSensorToggleDto filesOff = toggle(service.switchSensor("files", false), "files");
+        assertThat(filesOff.enabled()).isFalse();
+        assertThat(filesOff.overridden()).isTrue();
+        assertThat(filesOff.state()).isEqualTo("off");
+        assertThat(claim.get().activeSensors()).doesNotContain("files");
+        assertThat(service.sideEffectsCoverage("files").reason()).startsWith("Switched off at run time");
+        JavaAgentSensorToggleDto filesOn = toggle(service.switchSensor("files", true), "files");
+        assertThat(filesOn.enabled()).isTrue();
+        assertThat(filesOn.overridden())
+                .as("switched back to its configured default, the override is dropped")
+                .isFalse();
 
-            JavaAgentSensorToggleDto on = service.switchSensor(sensor, true).toggles().stream()
-                    .filter(toggle -> toggle.id().equals(sensor))
-                    .findFirst()
-                    .orElseThrow();
-            assertThat(on.enabled()).isTrue();
-            assertThat(on.overridden())
-                    .as("switched back to its configured default, the override is dropped")
-                    .isFalse();
-            assertThat(claim.get().activeSensors()).contains(sensor);
-        }
+        JavaAgentSensorToggleDto environmentOn = toggle(service.switchSensor("environment", true), "environment");
+        assertThat(environmentOn.enabled()).isTrue();
+        assertThat(environmentOn.overridden()).isTrue();
+        assertThat(claim.get().activeSensors()).contains("environment");
+        JavaAgentSensorToggleDto environmentOff = toggle(service.switchSensor("environment", false), "environment");
+        assertThat(environmentOff.enabled()).isFalse();
+        assertThat(environmentOff.overridden()).isFalse();
         assertThat(stub.ops()).contains("sensors");
+    }
+
+    private static JavaAgentSensorToggleDto toggle(JavaAgentReport report, String id) {
+        return report.toggles().stream()
+                .filter(toggle -> toggle.id().equals(id))
+                .findFirst()
+                .orElseThrow();
     }
 
     @Test

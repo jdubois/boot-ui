@@ -81,8 +81,8 @@ best-effort.
 
 ## Switching sensors at run time
 
-The sensors the agent installs and removes without a new claim, the opt-in `threads`, `thread-activity`, and
-`thread-locals`, and `files` and `environment`, on by default, can be switched on and off for the running application
+The sensors the agent installs and removes without a new claim, the opt-in `threads`, `environment`, `thread-activity`,
+and `thread-locals`, and `files`, on by default, can be switched on and off for the running application
 without a restart, from the panel's **Runtime switches** card or from each sensor's section in
 [Side Effects](#side-effects), the way the MCP Server panel switches MCP. Each switch shows the configured value from
 `bootui.agent.sensors`, an **Overridden** badge when the switch differs from it, the sensor's state (installing,
@@ -93,7 +93,7 @@ is: none of them is switched at run time.
 | Sensor | By default |
 | --- | --- |
 | `files` | On: it records the files the application opens, deletes, moves, and copies, as path patterns, never their contents. |
-| `environment` | On: it records the names of the environment variables and system properties the application reads, never their values. It advises `System.getProperty`, which frameworks call often: about 23–28 ns per read instead of 5–6 ns. |
+| `environment` | Off: it records the names of the environment variables and system properties the application reads, never their values, but each `System.getProperty` call from application code takes about 20 ns more with it; on a route reading fifty properties per request, that cost 6.8 % of throughput, over its 3 % budget. |
 | `threads` | Off: it retransforms `java.lang.Thread`, the riskiest JDK class to instrument; a failed self-test leaves it off until the application restarts. |
 | `thread-locals` | Off: It scans the thread-local maps of every pooled request thread; it stays opt-in until its overhead is measured on more routes (about 0.5 % over the default sensors on the benchmark's route). |
 
@@ -187,8 +187,8 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 
 A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory`](#the-inventory-sensor),
 [`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), [`network`](#the-network-sensor),
-[`files`](#the-files-sensor), [`environment`](#the-environment-sensor), and [`blocking`](#the-blocking-sensor), the
-defaults, and the opt-in [`threads`](#the-threads-sensor), [`thread-activity`](#the-thread-activity-sensor), [`thread-locals`](#the-thread-locals-sensor), and
+[`files`](#the-files-sensor), and [`blocking`](#the-blocking-sensor), the defaults, and the opt-in
+[`threads`](#the-threads-sensor), [`environment`](#the-environment-sensor), [`thread-activity`](#the-thread-activity-sensor), [`thread-locals`](#the-thread-locals-sensor), and
 [`caught-exceptions`](#the-caught-exceptions-sensor). The agent
 installs each one once, on its own thread, then
 self-tests its hooks with private pools. BootUI offers the `PROPAGATED` tier only after every core executor hook passes;
@@ -835,7 +835,7 @@ enforces that budget on every agent run ([Overhead](#overhead)). Leave it out of
 
 ## The environment sensor
 
-The `environment` sensor, on by default, records the names of the environment variables and system properties application
+The `environment` sensor, opt-in, records the names of the environment variables and system properties application
 code reads directly, never their values:
 
 | Hook | Records |
@@ -855,10 +855,12 @@ property it resolves from them is not seen, and `System.getProperties()` is not 
 1,000 distinct names; a name the secret detector recognizes (a JWT, a PEM key, an AWS key, a credential URL) is
 masked.
 
-`environment` is on by default (a maintainer decision for 2.0, D49): with it recording, `System.getProperty` takes about
-23 to 28 ns per call instead of 5 to 6 ns on JDK 17, 21, and 26 (`FilesEnvironmentBehaviorsIT`), and the agent overhead
-job measures its own increment over the other default sensors ([Overhead](#overhead)). Leave it out of
-`bootui.agent.sensors`, or [switch it off at run time](#switching-sensors-at-run-time), to stop recording. Its three hooks are core: one that fails its self-test disables the sensor alone.
+`environment` is opt-in (a maintainer decision for 2.0, D49): with it recording, `System.getProperty` takes about 23 to
+28 ns per call instead of 5 to 6 ns on JDK 17, 21, and 26 (`FilesEnvironmentBehaviorsIT`). The agent overhead job
+measures its own increment over the default sensors on a route that reads fifty properties per request: 4.2 % [1.0, 5.9]
+and 6.8 % [4.1, 8.4] in its first two runs, the second over the 3 % budget, so it stays off by default
+([Overhead](#overhead)). On the default route, which reads none directly, it costs about nothing. Add `environment` to
+`bootui.agent.sensors`, or [switch it on at run time](#switching-sensors-at-run-time), to record it. Its three hooks are core: one that fails its self-test disables the sensor alone.
 
 ## The security-sinks sensor
 
@@ -1147,7 +1149,7 @@ scope; then resolves the plain one to its static field. Its two pseudo-hooks, `T
 
 ## The caught-exceptions sensor
 
-`bootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment,blocking,caught-exceptions` adds the opt-in `caught-exceptions`
+`bootui.agent.sensors=executors,inventory,code-paths,processes,network,files,blocking,caught-exceptions` adds the opt-in `caught-exceptions`
 sensor, which reports the exceptions application code catches and which of them are thrown again. It records the
 events in the runtime journal's `agent.caught-exceptions` source, owned by the Exceptions panel, whose
 [**Caught in application code**](diagnostics.md#caught-in-application-code) section reads what became of each one.
@@ -1238,12 +1240,12 @@ above 10 %. These checks fail a build:
 
 - the blocking sensor's default, when its own increment's median is above 3 % or the lower bound of the default
   route's cumulative median interval (15 pairs) is above 10 % (M5-5c, D48);
-- the `files` and `environment` sensors' own increments over the other default sensors, `files` on the I/O route and
-  `environment` on a route that adds fifty `System.getProperty` reads per request, 15 pairs each, when the lower bound
-  of their median interval is above 3 % (D49);
+- the `files` sensor's own increment over the other default sensors on the I/O route, 15 pairs, when the lower bound of
+  its median interval is above 3 % (D49);
 - request-value matching's own increment on the sinks route, when the lower bound of its median's interval (15 pairs)
   is above 3 % (M5-6b1, D48);
-- a sensor whose A/B is enforced while it is on by default, as `caught-exceptions`, `thread-activity`, and
+- a sensor whose A/B is enforced while it is on by default, as `environment` (on a route that adds fifty
+  `System.getProperty` reads per request, with the interval rule), `caught-exceptions`, `thread-activity`, and
   `thread-locals` would be: its own increment's median above 3 %, or its cumulative median interval's lower bound
   above 10 %.
 
@@ -1268,16 +1270,17 @@ thread-activity follow-ups (#1299, #1323) averaged 7.6 % (14 runs) and 8.5 % (19
 whose own increment's interval lies above zero: executors −4.2 %, inventory 1.3 %, code-paths 1.1 %, processes −4.3 %,
 network −1.0 %, blocking −3.3 %, with the cumulative median at 2.2 % [−4.2, 7.9].
 
-With `files` and `environment` among the defaults, the first run (#1367) measured the default set's cumulative median
-at 9.9 % [4.0, 17.5] on the default route (15 pairs) and 11.5 % [2.6, 17.7] on the I/O route (9 pairs). `files`' own
-increment measured 4.2 % [−1.1, 8.9] on the I/O route and `environment`'s 4.2 % [1.0, 5.9] on its route of fifty
-property reads per request: both medians are over the 3 % budget, and both intervals reach below it, so neither fails
-the build. More runs will tell whether either sits above 3 %.
+The maintainer asked for `files` and `environment` on by default for 2.0 (D49). Two runs measured both among the
+defaults (#1367). `files`' own increment on the I/O route measured 4.2 % [−1.1, 8.9] and 3.0 % [0.9, 5.1]: intervals
+that reach below the 3 % budget, so `files` ships on by default. `environment`'s, on its route of fifty property reads
+per request, measured 4.2 % [1.0, 5.9] and then 6.8 % [4.1, 8.4], over the budget, so it stays opt-in. With both on,
+the default set's cumulative median measured 9.9 % [4.0, 17.5] and 8.3 % [4.0, 9.8] on the default route (15 pairs),
+and 11.5 % [2.6, 17.7] and 10.8 % [8.4, 13.5] on the I/O route (9 pairs, which only warns).
 
 So a cumulative median just over 10 % in one run is not, alone, evidence that the default set grew. The rule (PLAN-v2
 D48): a sensor's default follows its own increment's A/B, at most 3 %, and a cumulative check fails only when its
 median interval's lower bound is above the 10 % budget. Every enforced cumulative check applies it, and so do the
-`files` and `environment` own-increment checks. A median that stays above 10 % across runs, with intervals that still
+`files` and `environment` own-increment checks (the latter once `environment` is on by default). A median that stays above 10 % across runs, with intervals that still
 reach below it, is a reason to measure more pairs.
 
 ## Coexistence and class data sharing
@@ -1340,7 +1343,7 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `environment`, `blocking` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `environment`, and `blocking`, and the opt-in `threads`, `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks`. The Side Effects sensors this version does not ship (`resources`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `blocking` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, and `blocking`, and the opt-in `threads`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks`. The Side Effects sensors this version does not ship (`resources`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
 | `bootui.agent.security-sinks.request-values` | `false` | With the `security-sinks` sensor, holds the current request's query and path parameter values while it runs, so a sink it reaches can be checked for one appearing verbatim ([the security-sinks sensor](#the-security-sinks-sensor)). Never stored, logged, or displayed. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
@@ -1656,7 +1659,7 @@ The panel has one tab per sensor group:
 | --- | --- | --- |
 | Network | `network` | records connects, datagram sends, and name lookups (see [the network sensor](#the-network-sensor)) |
 | Files and processes | `files`, `processes` | Both record and are on by default; `files` can be switched off and on at run time. |
-| Environment | `environment` | Records by default; `not-claimed` when `bootui.agent.sensors` leaves it out or it is switched off. |
+| Environment | `environment` | Records when `bootui.agent.sensors` opts in or it is switched on; otherwise `not-claimed`. |
 | Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `thread-activity` and `thread-locals` record when `bootui.agent.sensors` opts in or they are switched on (see [the thread-activity sensor](#the-thread-activity-sensor) and [the thread-locals sensor](#the-thread-locals-sensor)); `resources` is `not-available`: Not available in this version. |
 | Blocking | `blocking` | records on Spring WebFlux and Quarkus; `not-applicable` on Spring MVC until a WebClient's event loop is registered. |
 | Security sinks | `security-sinks` | Records request input reaching SQL text, a command, a file path, or an outbound URL when `bootui.agent.sensors` opts in and `bootui.agent.security-sinks.request-values=true` (see [the security-sinks sensor](#the-security-sinks-sensor)). |

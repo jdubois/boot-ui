@@ -335,8 +335,8 @@ CI runs it in `build.yml`'s `agent-overhead` job with fifteen pairs on a four-pr
 with nine pairs: every default sensor against no agent (`spring-mvc-agent-io`) on every agent run, and, on pushes,
 manual runs, and pull requests labelled `agent` only, each default side-effect sensor's own share against the same
 agent without it: `network` (`spring-mvc-network-ab`), `blocking` (`spring-mvc-blocking-ab`), `files` on the I/O route
-(`spring-mvc-files-ab`), and `environment` on a route adding fifty `System.getProperty` reads per request
-(`spring-mvc-environment-ab`), fifteen pairs each but `network`'s nine. The load generator
+(`spring-mvc-files-ab`), fifteen pairs each but `network`'s nine, and the opt-in `environment`'s against the default
+sensors, on a route adding fifty `System.getProperty` reads per request (`spring-mvc-environment-ab`), fifteen pairs. The load generator
 shares the processors with the sample and single pairs vary by more than ten points. That job records the report in its
 summary, warns above the 10 % budget, and fails only above 30 %: a clear regression, not noise. The first CI runs measured
 a median of about 17 % (pairs from 9 to 22 %), above the budget, so a gate at the budget, or at twice it, would fail

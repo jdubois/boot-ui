@@ -49,8 +49,8 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
  * {@code bootui.benchmark.agent.gate} decides what that enforcement reads ({@code docs/PLAN-v2.md} D48): {@code median},
  * the default, fails when the median is above the budget; {@code interval} fails only when the lower bound of the
  * median's 95 % interval is above it, since one run's median moves by about 2 points on unchanged sensors. CI enforces a
- * cumulative run against no agent, and the {@code files} and {@code environment} sensors' own increments (D49), with
- * {@code interval}. The report says PASS or FAIL for the median either way.
+ * cumulative run against no agent, and the {@code files} sensor's own increment (D49), with {@code interval}, and would
+ * enforce the opt-in {@code environment} sensor's the same way were it on by default. The report says PASS or FAIL for the median either way.
  *
  * <p>{@code bootui.benchmark.route=environment} drives {@value #ENVIRONMENT_ROUTE}: the search plus fifty
  * {@code System.getProperty} reads from application code, for the environment sensor's A/B (D49).

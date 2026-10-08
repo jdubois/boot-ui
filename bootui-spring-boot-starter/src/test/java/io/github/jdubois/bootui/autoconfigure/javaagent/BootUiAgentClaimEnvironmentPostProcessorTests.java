@@ -117,15 +117,7 @@ class BootUiAgentClaimEnvironmentPostProcessorTests {
         assertThat(request)
                 .containsEntry(
                         "sensors",
-                        List.of(
-                                "executors",
-                                "inventory",
-                                "code-paths",
-                                "processes",
-                                "network",
-                                "files",
-                                "environment",
-                                "blocking"));
+                        List.of("executors", "inventory", "code-paths", "processes", "network", "files", "blocking"));
         assertThat(request).as("rounded up to a power of two").containsEntry("ringCapacity", 8192);
         assertThat((Map<String, Object>) request.get("executors"))
                 .containsEntry("skipTasks", List.of("com.acme.Wrapper"))

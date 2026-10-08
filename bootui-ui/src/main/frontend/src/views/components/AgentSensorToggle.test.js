@@ -11,7 +11,7 @@ function toggle(overrides = {}) {
     enabled: false,
     overridden: false,
     state: 'off',
-    optInReason: 'On by default: it advises System.getProperty.',
+    optInReason: 'Off by default: it advises System.getProperty.',
     available: true,
     unavailableReason: null,
     ...overrides
@@ -55,7 +55,7 @@ describe('AgentSensorToggle', () => {
     expect(input.element.disabled).toBe(false)
     expect(wrapper.get('label').text()).toContain('environment')
     const details = wrapper.get(`#${input.attributes('aria-describedby')}`)
-    expect(details.text()).toContain('On by default: it advises System.getProperty.')
+    expect(details.text()).toContain('Off by default: it advises System.getProperty.')
     expect(details.text()).toContain('Configured: off in bootui.agent.sensors')
     expect(wrapper.text()).toContain('Off')
     expect(wrapper.find('[data-testid="agent-sensor-overridden"]').exists()).toBe(false)

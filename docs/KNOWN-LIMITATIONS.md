@@ -98,8 +98,8 @@ application's own code did. See [Java Agent](features/java-agent.md).
   with optional argument and return shapes, shown in the panel only: types and sizes, plus an enum constant's name and
   a string's length under `FULL`;
 - runtime reach in the Vulnerabilities panel;
-- the **Side Effects** panel with the default `network` (outbound hosts), `processes`, `files`, `environment`, and
-  `blocking` sensors, and the opt-in `thread-activity` (threads per request) and `thread-locals` (`thread-local-left-set`)
+- the **Side Effects** panel with the default `network` (outbound hosts), `processes`, `files`, and `blocking` sensors,
+  and the opt-in `environment`, `thread-activity` (threads per request), and `thread-locals` (`thread-local-left-set`)
   sensors; `files`, `environment`, `thread-activity`, and `thread-locals` are switched on and off at run time from the
   Java Agent and Side Effects panels;
 - side effects in the run comparison: hosts, file patterns, processes, and variable names new or gone since the

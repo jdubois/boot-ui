@@ -533,8 +533,8 @@ With the [BootUI agent](features/java-agent.md) attached, [Side Effects](feature
 side-effect sensors and, in this version, the processes application code starts from the agent's `processes` sensor,
 its network from the `network` sensor: hosts and ports it connects to, datagrams it sends, and names the JVM resolves,
 each with the recognized client and whether any panel captured the work, the files it opens, deletes, moves,
-and copies from the `files` sensor and the environment variables and system properties it reads from the `environment`
-sensor, the blocking calls started on an event loop from the `blocking` sensor, and, opt-in, the threads it starts and
+and copies from the `files` sensor, and, opt-in, the environment variables and system properties it reads from the
+`environment` sensor, the blocking calls started on an event loop from the `blocking` sensor, and, opt-in, the threads it starts and
 the executors it creates from the `thread-activity` sensor, with those a request left running when it ended
 (`leftRunning`) and how many a request starts (`count` / `requests`), and, opt-in, the thread locals a request or a job
 left set on its pooled thread from the `thread-locals` sensor, named by the static field holding them, never their

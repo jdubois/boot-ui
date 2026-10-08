@@ -49,7 +49,7 @@ const RECORDS = {
 }
 
 /** The sensors above that BootUI records with by default. */
-const ON_BY_DEFAULT = new Set(['files', 'environment'])
+const ON_BY_DEFAULT = new Set(['files'])
 
 const STATE = {
   recording: {label: 'Recording', badge: 'text-bg-success'},

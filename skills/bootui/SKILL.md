@@ -258,7 +258,7 @@ environment: it is cut at whitespace or `=`, reduced to the basename, and unsafe
 records the hosts and ports the application connects to, datagrams, and names the JVM resolved, with the client
 recognized from the calling frames, never a byte sent or received; `files` records path patterns (`./` working
 directory, `$TMPDIR`, `~`, ids as `{n}`), never contents, with class loading, the JDK, and logging grouped apart; the
-`environment` records variable and property names, never values; `blocking` records `Thread.sleep`,
+the opt-in `environment` records variable and property names, never values; `blocking` records `Thread.sleep`,
 `Object.wait`, `LockSupport.park`, and blocking network or file operations started on an event loop (Spring WebFlux,
 Quarkus), by operation, loop family, and call site, with how long it blocked, not applicable on Spring MVC; the opt-in
 `thread-activity` records the threads the application starts and the executors it creates per route, how many a request

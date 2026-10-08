@@ -602,7 +602,7 @@ describe('Java Agent panel', () => {
         enabled: true,
         overridden: true,
         state: 'installed',
-        optInReason: 'On by default: it advises System.getProperty.',
+        optInReason: 'Off by default: it advises System.getProperty.',
         available: true,
         unavailableReason: null
       }
