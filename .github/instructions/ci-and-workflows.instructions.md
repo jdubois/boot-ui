@@ -31,7 +31,8 @@ applyTo: ".github/workflows/**,.github/scripts/**,.github/dependabot.yml,Dockerf
   and the JDK lanes run on every push to `main` and `v2`, every pull request into `main`, and the nightly schedule; a
   pull request into `v2` runs them only when it changes a path listed in `.github/scripts/agent-changes.sh` or carries
   the `agent` label (otherwise the agent legs pass without starting anything). Keep that path list in step with new
-  agent-backed code. `jdk-compatibility.yml` covers
+  agent-backed code, and list the files the agent legs depend on in `.github/scripts/test_agent_changes.py`, which
+  `build.yml` runs. `jdk-compatibility.yml` covers
   Java 21 and 25 with a focused build, the BootUI agent's forked-JVM tests, the Spring sample's agent integration
   tests, and the whole Spring MVC browser suite with the agent attached (`agent-e2e`), plus a non-blocking Java 27 early-warning lane that stays `continue-on-error` until Spring Boot and Quarkus
   document support for it. Keep new checks on the baseline workflow unless they are genuinely JDK-specific.

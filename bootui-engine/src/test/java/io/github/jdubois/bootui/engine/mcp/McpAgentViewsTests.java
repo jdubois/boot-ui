@@ -287,8 +287,11 @@ class McpAgentViewsTests {
 
         DependenciesReport dependencies =
                 new DependenciesReport(true, 0, 0, List.of(), null, null, List.of(), null, null);
+        // The vulnerabilities view adds the advisories it left out, before the page.
+        List<String> vulnerabilityFields = withPage(DependenciesReport.class);
+        vulnerabilityFields.add(vulnerabilityFields.size() - 1, "advisories");
         assertThat(McpAgentViews.vulnerabilities(dependencies, null, 1).keySet())
-                .containsExactlyElementsOf(withPage(DependenciesReport.class));
+                .containsExactlyElementsOf(vulnerabilityFields);
 
         CopilotSessionListDto sessions = new CopilotSessionListDto(true, null, null, 0, 0, 0, List.of(), List.of());
         assertThat(McpAgentViews.sessions(sessions, null, 1).keySet())
@@ -375,6 +378,60 @@ class McpAgentViewsTests {
                 id, id + ".jsonl", 1L, 2L, "model", workingDirectory, "completed", 3, 1, null, null, 0, "done", false);
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void vulnerabilitiesBoundEachDependencysAdvisoriesAndNameTheWayToTheRest() {
+        List<DependencyVulnerabilityDto> advisories = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            advisories.add(advisory("GHSA-" + i, i == 9 ? "CRITICAL" : "MEDIUM", "D".repeat(5000), 8));
+        }
+        DependenciesReport report = new DependenciesReport(
+                true,
+                1,
+                1,
+                List.of(),
+                null,
+                null,
+                List.of(dependency("io.netty", "netty-codec", advisories)),
+                null,
+                null);
+
+        Map<String, Object> page = McpAgentViews.vulnerabilities(report, null, 10);
+        DependencyDto listed = ((List<DependencyDto>) page.get("dependencies")).get(0);
+        assertThat(listed.vulnerabilityCount()).isEqualTo(12);
+        assertThat(listed.vulnerabilities()).hasSize(McpAgentViews.ADVISORIES_PER_DEPENDENCY);
+        assertThat(listed.vulnerabilities().get(0).id()).isEqualTo("GHSA-9");
+        assertThat(listed.vulnerabilities()).allSatisfy(advisory -> {
+            assertThat(advisory.details()).isNull();
+            assertThat(advisory.references()).hasSize(McpAgentViews.ADVISORY_LIST_ITEMS);
+            assertThat(advisory.advisorySymbols()).hasSize(McpAgentViews.ADVISORY_LIST_ITEMS);
+        });
+        Map<String, Object> counts = (Map<String, Object>) page.get("advisories");
+        assertThat(counts)
+                .containsEntry("listed", 5)
+                .containsEntry("omitted", 7)
+                .containsEntry("detailsOmitted", 5);
+        assertThat((String) counts.get("hint")).contains("exact group:artifact", "exact advisory id or alias");
+
+        DependencyDto named = ((List<DependencyDto>) McpAgentViews.vulnerabilities(report, "IO.NETTY:netty-codec", 10)
+                        .get("dependencies"))
+                .get(0);
+        assertThat(named.vulnerabilities())
+                .hasSize(12)
+                .allSatisfy(advisory -> assertThat(advisory.details()).isNull());
+
+        Map<String, Object> focused = McpAgentViews.vulnerabilities(report, "cve-GHSA-11", 10);
+        DependencyDto withOne = ((List<DependencyDto>) focused.get("dependencies")).get(0);
+        assertThat(withOne.vulnerabilities()).hasSize(6);
+        assertThat(withOne.vulnerabilities())
+                .filteredOn(advisory -> advisory.id().equals("GHSA-11"))
+                .singleElement()
+                .satisfies(advisory -> {
+                    assertThat(advisory.details()).hasSize(5000);
+                    assertThat(advisory.references()).hasSize(8);
+                });
+    }
+
     private static DependencyDto dependency(
             String groupId, String artifactId, List<DependencyVulnerabilityDto> vulnerabilities) {
         return new DependencyDto(
@@ -386,6 +443,29 @@ class McpAgentViewsTests {
                 vulnerabilities.size(),
                 vulnerabilities.isEmpty() ? null : "HIGH",
                 vulnerabilities,
+                null,
+                null);
+    }
+
+    private static DependencyVulnerabilityDto advisory(String id, String severity, String details, int items) {
+        List<String> many = new ArrayList<>();
+        for (int i = 0; i < items; i++) {
+            many.add("https://osv.dev/" + id + "/" + i);
+        }
+        return new DependencyVulnerabilityDto(
+                id,
+                "summary",
+                details,
+                severity,
+                null,
+                List.of("cve-" + id),
+                many,
+                List.of(),
+                false,
+                null,
+                null,
+                false,
+                many,
                 null,
                 null);
     }

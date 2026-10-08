@@ -273,7 +273,8 @@ user; BootUI's own panel and read-only gates still apply.
 
 - **Advisor scans (actions):** `architecture_scan`, `spring_scan`, `hibernate_scan`, `database_advisor_scan`,
   `memory_scan`, `security_scan`, `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`, and
-  `vulnerabilities_scan`. Each runs the same scan as the panel's action button and returns the report DTO;
+  `vulnerabilities_scan`. Each runs the same scan as the panel's action button and answers with a
+  [compact summary](#compact-answers-from-scans-and-capture-controls) pointing at its cached report tool;
   `vulnerabilities_scan` additionally sends package names/versions to OSV.dev and, when EPSS is enabled, CVE ids to FIRST.
   Run it only with approval. Inspect `scan.status`, `scan.message`, `coverage`, and `scan.packagesSkipped`; partial or
   unknown evidence is not a clean result. `coverage.archivesFirstParty`/`firstPartyArchives` name the application's own
@@ -345,7 +346,8 @@ user; BootUI's own panel and read-only gates still apply.
   `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`,
   `postgresql_read`, `mysql_read`, `analyze_heap_dump`, `trigger_devtools_livereload`, and `start_method_probe`. They never capture or download a heap dump,
   execute an HTTP probe, mutate a database, clear a cache, write GitHub state, restart a dev service, or run an agent
-  command.
+  command. The capture controls and the database reads answer
+  [compactly](#compact-answers-from-scans-and-capture-controls); the matching read tool returns the rows.
 - **Browser only, by design:** HTTP Probe (it sends requests the user composes), Profile resources and its JDK Flight
   Recorder results in Runtime Insights, enabling Hibernate statistics, the WebSockets capture switch, the Java agent's
   sensor switches, changing a logger level, and the other panel controls not listed above have no MCP tool or CLI
@@ -404,7 +406,9 @@ required argument: id (an observation id from get_runtime_insights)`. In the pan
 always empty.
 
 `INSUFFICIENT`, `PARTIAL`, `NOT_APPLICABLE`, `UNAVAILABLE`, and `NOT_COMPARABLE` are not successes, and an empty list
-never means healthy: read `requests`, `checksNotRun`, and `limitations` first. `requests` counts completed HTTP
+never means healthy: read `requests`, `checksNotRun`, and `limitations` first. `checksNotRun` also lists a check that
+ran but left evidence out, as `<kind>: EVALUATED, partly: <what it could not see>`, such as changed methods the agent
+could not track; what a check judged and does not report, such as fast calls, is not listed. `requests` counts completed HTTP
 exchanges only. `requests: 0` means not exercised only when the limitations say so: an observation that names a
 request or execution, a limitation naming retained scheduled runs or consumed messages, or evicted events mean work
 ran that `requests` does not count. A run-level observation with no exemplar does not. If comparison's limitations
@@ -534,9 +538,9 @@ reactive or asynchronous result, not the work that runs later.
 With the [BootUI agent](features/java-agent.md) attached, [Side Effects](features/java-agent.md#side-effects) lists the
 side-effect sensors and, in this version, the processes application code starts from the agent's `processes` sensor,
 its network from the `network` sensor: hosts and ports it connects to, datagrams it sends, and names the JVM resolves,
-each with the recognized client and whether any panel captured the work, and, opt-in, the files it opens, deletes, moves,
-and copies from the `files` sensor and the environment variables and system properties it reads from the `environment`
-sensor, the blocking calls started on an event loop from the `blocking` sensor, and, opt-in, the threads it starts and
+each with the recognized client and whether any panel captured the work, the files it opens, deletes, moves,
+and copies from the `files` sensor, and, opt-in, the environment variables and system properties it reads from the
+`environment` sensor, the blocking calls started on an event loop from the `blocking` sensor, and, opt-in, the threads it starts and
 the executors it creates from the `thread-activity` sensor, with those a request left running when it ended
 (`leftRunning`) and how many a request starts (`count` / `requests`), and, opt-in, the thread locals a request or a job
 left set on its pooled thread from the `thread-locals` sensor, named by the static field holding them, never their
@@ -721,7 +725,7 @@ An agent pays for every byte it reads, so the reads below answer with a short fi
 | `get_startup_timeline` (`bootui startup`) | 25 slowest steps; a parent includes its children | Step name or tag value, such as a bean name |
 | `get_log_tail` (`bootui logs tail`) | 50 newest lines | Level, logger, thread, or message |
 | `get_copilot_sessions`, `get_claude_code_sessions` | 10 sessions | Id, model, working directory, status, or last activity |
-| `get_vulnerabilities_report` (`bootui vulnerabilities report`) | 10 dependencies, vulnerable first | Coordinates, severity, or an advisory id or alias |
+| `get_vulnerabilities_report` (`bootui vulnerabilities report`) | 10 dependencies, vulnerable first, each with at most 5 advisories without details | Coordinates, severity, or an advisory id or alias; an exact `group:artifact` lists all its advisories, an exact advisory id or alias returns it whole |
 | `get_live_activity` (`bootui activity`) | 25 newest entries | An entry type (`SQL`, `EXCEPTION`, ...), a severity (`SLOW`, `WARN`, `ERROR`), or text such as a route |
 | `get_config`, `get_beans`, `get_metrics`, `get_conditions`, `get_threads`, `get_http_exchanges` | 25 rows | As before; `get_conditions` pages positive then negative matches and also narrows `unconditionalClasses` and `exclusions` |
 
@@ -736,6 +740,65 @@ lists every matching sensor and takes no `limit`, ignoring one sent by an older 
 lists the fixed limitations of a sensor's rows only for sensors with listed rows; query a sensor id, such as
 `executors`, for its hooks (and, from agent status, its self-test steps). A 1.x CLI, which knows these commands without the newer
 options, keeps working and gets the same first page.
+
+### Compact answers from scans and capture controls
+
+An active scan and a capture control change state; the agent then reads what it needs. So they answer with a compact
+summary or acknowledgement, and the browser's endpoints keep returning the full panel report.
+
+Every active scan (`architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`, `security_scan`,
+`rest_api_scan`, `database_advisor_scan`, `pentest_scan`, `graalvm_scan`, `crac_scan`, `vulnerabilities_scan`)
+answers with the same summary:
+
+| Field | Meaning |
+| --- | --- |
+| `reportTool` | The tool that reads the cached report this scan produced, without scanning again |
+| `detailsTool` | The tool that pages a rule's retained violations; `null` for an advisor without one |
+| `scan`, `evidence` | The scan status and the advisor's coverage, as the report carries them |
+| `findingsFound`, `severityCounts` | The report's whole counts; dismissed findings are excluded |
+| `topFindings` | At most 10 rows, most severe first, then most frequent: `id`, `title`, `severity`, `count`. A row is a rule or a check, and `count` its violations or findings |
+| `moreFindings` | The rows left out of `topFindings`; `0` means every rule or check with a finding is listed |
+| `violationDetails` | The rule advisors' `scanId` and retention, for [paging violations](#reading-retained-advisor-violations) |
+
+A vulnerability row is a vulnerable dependency: `id` is its coordinates, `title` its most severe advisory, and `count`
+its advisory count. So for `vulnerabilities_scan`, `findingsFound` counts vulnerable dependencies while
+`severityCounts` counts advisories, as the Vulnerabilities report does. The summary adds the inventory's
+`dependencies`, `scanningEnabled`, and `coverage`.
+`postgresql_read` and `mysql_read` grade nothing, so they answer with the read's `status`, `message`, `readAt`,
+`truncated`, and each database's status and sections (`id`, `status`, `reason`, `rowCount`, `truncated`); read the
+rows with `get_postgresql_report` or `get_mysql_report`.
+
+The capture controls — `pause_*`, `resume_*` and `clear_*` for SQL Trace, Transactions, and REST Client Trace, plus
+`clear_exceptions` and `clear_traces` — all answer with one acknowledgement:
+
+```json
+{"action":"paused","available":true,"unavailableReason":null,"capturing":false,"retained":200,"capacity":200,"totalCaptured":872}
+```
+
+`action` is `paused`, `resumed`, or `cleared`; `capturing` is the recording state after it; `retained` counts the
+entries still held (exception groups for Exceptions), `0` after a clear; `capacity` is the panel's retention limit.
+
+A clear empties the retained window and nothing else. These counters keep their meaning across a clear, in the
+browser, the MCP tools, and the CLI alike:
+
+| Counter | Panels | Counts | After a clear |
+| --- | --- | --- | --- |
+| `totalCaptured` | SQL Trace, Transactions, REST Client Trace | Entries recorded since startup, shown as "captured since startup" | Kept: it is a lifetime count |
+| `stats.evicted`, and `retention.evicted` on SQL Trace and REST Client Trace | SQL Trace, Transactions, REST Client Trace | Entries dropped since startup because the buffer was full | Kept |
+| `stats`, `entries`, `topStatements`, `topCalls` | SQL Trace, Transactions, REST Client Trace | The retained window | Reset |
+| `totalExceptions`, `groups` | Exceptions | Occurrences in the retained groups | Reset |
+| `retained`, `traces` | Traces | The retained traces | Reset |
+
+Exceptions and Traces keep no lifetime count, so their acknowledgement's `totalCaptured` is `null`.
+
+Every tool response, report tools included, obeys `bootui.mcp.max-response-bytes` (4 MiB by default). A response that
+does not fit is refused with JSON-RPC `-32003` rather than truncated, so the agent never mistakes a cut report for a
+complete one. Report tools stay well below it: a rule advisor's report keeps at most 10 (or 20) sample violations per
+rule and pages the rest with its `get_*_rule_violations` tool; `get_vulnerabilities_report` lists `limit` dependencies,
+each with at most 5 advisories (active and most severe first) without their OSV `details` and with at most 3
+references and symbols, so `limit` bounds the whole answer; its `advisories` object counts what was left out, an exact
+`group:artifact` query lists all of one dependency's advisories, and an exact advisory id or alias returns that
+advisory whole. The PostgreSQL and MySQL reports cap each section's rows and flag the cut with `truncated`.
 
 ### Safety model
 
@@ -976,8 +1039,9 @@ With the agent connected and the repository open in your editor, ask it:
 
 ### 4. What the agent sees
 
-The agent calls `hibernate_scan` over MCP and gets back the same report the
-[Hibernate panel](features/advisors.md#hibernate) shows. Among the findings is a real
+The agent calls `hibernate_scan` over MCP and gets back a summary of the scan, whose `topFindings` rank the violated
+rules, then reads the same report the [Hibernate panel](features/advisors.md#hibernate) shows with
+`get_hibernate_report`. Among the findings is a real
 [`HIB-FETCH-001`](HIBERNATE-CHECKS.md#hib-fetch-001-eager-fetching-should-stay-explicit-and-bounded) (severity
 `HIGH`, 3 violations), one of whose `sampleViolations` names
 [`SampleOrder.customer`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/src/main/java/io/github/jdubois/bootui/sample/advisor/hibernate/SampleOrder.java):
@@ -993,14 +1057,15 @@ join or entity graph where a use case needs it up front.
 
 ### 6. Verify
 
-The agent re-runs `hibernate_scan`. `HIB-FETCH-001`'s `violationCount` drops from 3 to 2, and its `sampleViolations`
+The agent re-runs `hibernate_scan`, whose summary counts `HIB-FETCH-001` at 2 instead of 3, then reads
+`get_hibernate_report`: the rule's `violationCount` is 2, and its `sampleViolations`
 no longer mention `SampleOrder#customer` — confirmed against the actually running app, not by re-reading the source.
 `HIB-FETCH-001` itself does **not** disappear from the report: `SampleAppPreferences#enabledFeatures` and
 `SampleOrder#details` are separate, intentional eager-fetch fixtures the same rule also catches, so the rule keeps
 firing until those are fixed too. Confirm just the one violation is gone from a terminal with:
 
 ```bash
-bootui hibernate scan --json \
+bootui hibernate scan > /dev/null && bootui hibernate report --json \
   | jq '.results[] | select(.id == "HIB-FETCH-001") | .sampleViolations[] | select(contains("SampleOrder#customer"))'
 ```
 

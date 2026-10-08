@@ -60,9 +60,14 @@ class McpToolDescriptionsTests {
                                 "Verify each finding");
                 assertThat(provider.apply("get_" + advisor + "_report"))
                         .contains("bounded previews", "page cached retained", "retention overflow");
-                // A scan answers with the same report, so it points at that guidance instead of repeating it.
+                // A scan answers with a summary, so it names the tools that hold the rest instead of their guidance.
                 assertThat(provider.apply(advisor + "_scan"))
-                        .contains("get_" + advisor + "_report", "get_" + advisor + "_rule_violations")
+                        .contains(
+                                "compact summary, not the report",
+                                "topFindings",
+                                "violationDetails.scanId",
+                                "get_" + advisor + "_report",
+                                "get_" + advisor + "_rule_violations")
                         .doesNotContain("bounded previews");
                 assertThat(provider.apply("get_" + advisor + "_rule_violations"))
                         .contains(
@@ -130,6 +135,39 @@ class McpToolDescriptionsTests {
                         McpToolDescriptions.quarkus("get_vulnerabilities_report")))
                 .allSatisfy(description ->
                         assertThat(description).contains("without contacting", "UNKNOWN severity is not zero risk"));
+    }
+
+    @Test
+    void controlToolsDescribeTheirCompactAcknowledgementAndTheLifetimeCount() {
+        for (String tool : List.of(
+                "clear_sql_traces",
+                "pause_sql_trace_recording",
+                "resume_sql_trace_recording",
+                "clear_rest_client_traces",
+                "pause_rest_client_recording",
+                "resume_rest_client_recording",
+                "clear_exceptions",
+                "clear_traces")) {
+            for (Function<String, String> provider :
+                    List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+                assertThat(provider.apply(tool))
+                        .as(tool)
+                        .contains("compact acknowledgement", "since startup, which a clear does not reset")
+                        .doesNotContain("resulting report");
+            }
+        }
+        for (String tool :
+                List.of("clear_transactions", "pause_transaction_recording", "resume_transaction_recording")) {
+            assertThat(McpToolDescriptions.spring(tool)).contains("compact acknowledgement", "get_transactions");
+        }
+        assertThat(McpToolDescriptions.spring("get_sql_traces")).contains("since startup", "clear_sql_traces");
+        assertThat(McpToolDescriptions.spring("get_exceptions")).contains("clear_exceptions resets it");
+        for (String tool : List.of("pentest_scan", "vulnerabilities_scan", "postgresql_read", "mysql_read")) {
+            assertThat(McpToolDescriptions.quarkus(tool)).as(tool).contains("summary, not the");
+        }
+        assertThat(McpToolDescriptions.spring("graalvm_scan")).contains("get_graalvm_report");
+        assertThat(McpToolDescriptions.spring("get_vulnerabilities_report"))
+                .contains("at most 5 advisories", "advisories.omitted", "exact advisory id or alias");
     }
 
     private static void assertDescriptions(Set<String> names, Function<String, String> descriptionProvider) {

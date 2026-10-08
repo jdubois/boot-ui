@@ -292,6 +292,11 @@ These paths use the default API mount; custom `bootui.api-path` and application 
 | MCP | `get_mysql_report` | `mysql_read` |
 | CLI | `bootui db mysql report` | `bootui db mysql read` |
 
+Over MCP and the CLI, the explicit read answers with a
+[summary](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls) — the read's status and each datasource's
+section coverage, without rows — and the cached report returns the rows. `postgresql_read` answers the same way for
+the PostgreSQL panel.
+
 Neither operation accepts SQL, a schema selector, or a server address. Collection uses the application's existing
 datasources and credentials. Global `bootui.read-only` or `bootui.panels.mysql.read-only` blocks the action even though
 it does not modify application data: it initiates external work. Cached reads remain allowed. Disabling
@@ -492,6 +497,10 @@ maximum time, slow-query and failure counts, per-category counters, and eviction
 highlights expensive statements, and local-only **Pause**, **Resume**, and **Clear** actions stop recording or empty
 the buffer without unwrapping the data source. Pausing stops only this panel's buffer: the
 [runtime journal](overview.md#runtime-journal) keeps recording statements and connections.
+**Clear** empties the retained window — the entries, the aggregate stats, and the top statements — and resets nothing
+else: the header's "captured since startup" count and the evictions are lifetime counts. Over MCP and the CLI, the
+controls answer with a [compact acknowledgement](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls)
+instead of the panel.
 
 The buffer keeps failure evidence longer than routine traffic: a share of it, 25% by default
 (`bootui.sql-trace.reserved-share-percent`), is reserved for the most recent failed and slow executions, so a burst of
@@ -671,6 +680,9 @@ row expands to its thread, trace id, read-only flag, and any error. Configurable
 connection-hold-time thresholds flag transactions worth a closer look, and local-only **Pause**, **Resume**, and
 **Clear** actions stop recording or empty the buffer without deregistering the listener. Pausing stops only this
 panel's buffer: the [runtime journal](overview.md#runtime-journal) keeps recording transactions.
+**Clear** empties the retained window — the entries and the aggregate stats — and resets nothing else: the header's
+"captured since startup" count and the evictions are lifetime counts. Over MCP and the CLI, the controls answer with a
+[compact acknowledgement](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls) instead of the panel.
 
 ::: details What each captured transaction records
 

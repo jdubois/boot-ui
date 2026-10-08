@@ -199,6 +199,37 @@ class ChangedCodeNotExecutedTests {
         assertThat(check(report).reason()).contains("could not track");
     }
 
+    /**
+     * An executed changed method makes the check evaluated, and the untracked one beside it leaves no observation: the
+     * agent's answer must still say a changed method was not measured, whatever its query.
+     */
+    @Test
+    void theAgentsAnswerSaysAnUntrackedChangedMethodWasNotMeasuredBesideAnExecutedOne() {
+        code.set(changes(
+                method("list", CodeChanges.CHANGED, CodeInventoryService.EXECUTED),
+                method("pay", CodeChanges.CHANGED, CodeInventoryService.NOT_TRACKED)));
+
+        RuntimeInsightsReportDto report = service().report();
+
+        assertThat(check(report).status()).isEqualTo("EVALUATED");
+        assertThat(observations(report)).isEmpty();
+        for (String query : new String[] {null, "all", ChangedCodeNotExecuted.KIND}) {
+            assertThat(RuntimeInsightsAgentView.list(report, query, null).checksNotRun())
+                    .as("query %s", query)
+                    .contains(ChangedCodeNotExecuted.KIND + ": EVALUATED, partly: 1 changed method the agent could not"
+                            + " track are left out (see Code Inventory for why).");
+        }
+    }
+
+    @Test
+    void theAgentsAnswerLeavesOutAnEvaluatedCheckThatSawEveryChangedMethod() {
+        code.set(changes(method("list", CodeChanges.CHANGED, CodeInventoryService.EXECUTED)));
+
+        assertThat(RuntimeInsightsAgentView.list(service().report(), "all", null)
+                        .checksNotRun())
+                .noneMatch(reason -> reason.startsWith(ChangedCodeNotExecuted.KIND + ":"));
+    }
+
     @Test
     void isNotApplicableWithoutTheAgentOrAPreviousRunOrItsPanel() {
         RuntimeInsightsService service = service();

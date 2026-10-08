@@ -130,7 +130,9 @@ public record AsyncHandoffPayload(
      * response. After a body that ended before the response, only I/O of its result-publication tail, such as a
      * synchronous dependent stage, ending at least {@link HandoffWindow#RESPONSE_TIMESTAMP_SLACK_MICROS} past the
      * response counts, a failure the agent timed after it, or a run lasting at least
-     * {@link #LONG_TAIL_AFTER_RESPONSE_MICROS} past it. Without a confirmed body, the run's end decides.
+     * {@link #LONG_TAIL_AFTER_RESPONSE_MICROS} past it. Without a confirmed body, a failure the agent timed after the
+     * response, else the run's end, decides. Runtime Insights' {@code work-after-response} check reads the same rule,
+     * then reports only work that ran SQL, called a REST service, sent or received a message, or failed.
      *
      * @param lastWorkEndMicros when the last SQL statement, REST call, or message recorded under the task's execution
      *     ended, or {@link Long#MIN_VALUE} when none was
@@ -138,7 +140,7 @@ public record AsyncHandoffPayload(
      */
     public Boolean workedAfterResponse(long lastWorkEndMicros) {
         if (bodyAfterResponse == null) {
-            return afterResponse;
+            return Boolean.TRUE.equals(failureAfterResponse) ? Boolean.TRUE : afterResponse;
         }
         return bodyAfterResponse || tailWorkedAfterResponse(lastWorkEndMicros);
     }

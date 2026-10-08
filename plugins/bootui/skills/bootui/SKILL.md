@@ -167,8 +167,13 @@ bootui request-profile <id> --json # retained journal profile, or HTTP-exchange 
   application's state, so name it to the user and wait for approval before running it.
 - Prefer the `BOOTUI_TOKEN` environment variable over `--token`, which exposes the token to shell history and process
   listings. Never echo a token or copy it into a report.
-- Scan payloads differ: `pentest scan` names its array `findings`, the rule-based advisors name it `results`. Every scan
-  shares `severityCounts`, so prefer that for thresholds, and check the shape with `--json | jq keys` first.
+- Every scan answers with a compact summary, not its report: `findingsFound`, `severityCounts`, at most ten
+  `topFindings` (`id`, `title`, `severity`, `count`), `moreFindings`, and `reportTool`; read the full cached report
+  (`… report`) for details. Reports differ: `pentest report` names its array `findings`, the rule-based advisors name
+  it `results`. Prefer `severityCounts` for thresholds, and check the shape with `--json | jq keys` first.
+- `clear`, `pause`, and `resume` answer with an acknowledgement: `action`, `capturing`, `retained`, `capacity`, and
+  `totalCaptured`, a since-startup count that a clear does not reset (`null` for exceptions and traces). Read the rows
+  with the panel's read command.
 
 In CI, capture the exit code (`bootui … --json > report.json || status=$?`) so a non-zero exit does not abort the step
 before the application is stopped.
@@ -256,16 +261,16 @@ With the agent attached, run `bootui side-effects --json` (`get_side_effects`): 
 most frequent rows. In this version, `processes` records the sanitized command name only, never its arguments or
 environment: it is cut at whitespace or `=`, reduced to the basename, and unsafe characters become `?`; `network`
 records the hosts and ports the application connects to, datagrams, and names the JVM resolved, with the client
-recognized from the calling frames, never a byte sent or received; the opt-in `files` records path patterns (`./` working
+recognized from the calling frames, never a byte sent or received; `files` records path patterns (`./` working
 directory, `$TMPDIR`, `~`, ids as `{n}`), never contents, with class loading, the JDK, and logging grouped apart; the
-opt-in `environment` records variable and property names, never values; `blocking` records `Thread.sleep`,
+the opt-in `environment` records variable and property names, never values; `blocking` records `Thread.sleep`,
 `Object.wait`, `LockSupport.park`, and blocking network or file operations started on an event loop (Spring WebFlux,
 Quarkus), by operation, loop family, and call site, with how long it blocked, not applicable on Spring MVC; the opt-in
 `thread-activity` records the threads the application starts and the executors it creates per route, how many a request
 starts (`count` / `requests`), and those its code left running when the request ended (`leftRunning`), library and JDK
 pools apart, never what a thread holds; the opt-in `thread-locals` names the static field of each thread local a
 request or a job left set on its pooled thread, never its value; `resources`, on by default, records the streams, channels,
-and sockets a request or a job opened (files only while `files` is on), by resource kind, target, and origin: `failed`
+and sockets a request or a job opened (files through `files`, on by default), by resource kind, target, and origin: `failed`
 counts those the garbage collector reclaimed never closed, the leak, while `leftRunning` (still open after the
 request) and `completed` (closed after it) are a pool's or a cache's hand-off, never contents. Pass `--query
 not-captured` to list the outbound calls no panel shows (`capture: not-captured`), or `--query processes`, `network`,
@@ -617,7 +622,9 @@ When BootUI MCP tools are available:
 Read tools honor panel enablement. Scan tools also honor panel and global read-only settings. Results are masked and
 paginated reads are capped by `bootui.mcp.max-results`. Large reads (SQL traces, startup, log tail, sessions, the
 vulnerabilities report, activity, exchanges, configuration, beans, metrics, conditions, threads) return a short first page without `limit`;
-when `page.hasMore` is true, narrow `--query` or raise `--limit` instead of assuming you saw everything. Agent status
+when `page.hasMore` is true, narrow `--query` or raise `--limit` instead of assuming you saw everything. The
+vulnerabilities report lists at most 5 advisories per dependency, without details: query an exact `group:artifact` for
+all of one dependency's advisories, or an exact advisory id or alias to read it whole. Agent status
 and Side Effects summarize each sensor; pass `--query <sensor id>` for its hooks. Log and exception messages have secret-like assignments and
 authorization credentials masked, and are omitted under `bootui.expose-values=METADATA_ONLY`; a `get_log_tail` line
 with `messageOmitted: true` had its message withheld, not an empty one.

@@ -119,36 +119,45 @@ To stop this variant explicitly, from the repository root:
 docker compose -f bootui-spring-sample-app/compose-postgresql.yaml down
 ```
 
-## Run it with the BootUI Java agent and PostgreSQL
+## Run it with the BootUI Java agent
 
-Run the same lightweight PostgreSQL and Redis stack with the optional BootUI Java agent attached:
+Run the same Docker-free `dev` profile as `run-local.sh`, with the optional BootUI Java agent attached in its default
+configuration:
 
 ```bash
 ./bootui-spring-sample-app/run-local-agent.sh
 ```
 
-The launcher builds the sample with `-am`, which also builds `bootui-agent`, then starts the `docker-postgresql`
-profile with `bootui-agent/target/bootui-agent-<version>.jar` as a `-javaagent`. Set `BOOTUI_AGENT_JAR` to attach
-another jar, such as one downloaded from Maven Central. The agent is passed through `spring-boot.run.agents`, so your
+The launcher builds the sample with `-am`, which also builds `bootui-agent`, then starts the `dev` profile with
+`bootui-agent/target/bootui-agent-<version>.jar` as a `-javaagent`. Set `BOOTUI_AGENT_JAR` to attach another jar, such
+as one downloaded from Maven Central, `BOOTUI_SAMPLE_PROFILES` to run other profiles, and `BOOTUI_AGENT_SENSORS` to
+choose other sensors. The agent is passed through `spring-boot.run.agents`, so your
 own `-Dspring-boot.run.jvmArguments=...` adds JVM options without detaching it.
 
 Open <http://localhost:8080/bootui/#/java-agent>: the panel reports `ARMED` for the `io.github.jdubois.bootui.sample`
-package with the default sensors installed: `executors`, `inventory`, `code-paths`, `processes`, `network`, and
-`blocking` (the others are opt-in; see the agent's [overhead note](../docs/features/java-agent.md#overhead)). Exercise
+package with the default sensors installed: `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`,
+`blocking`, and `resources` (the others are opt-in; see the agent's [overhead note](../docs/features/java-agent.md#overhead)). Exercise
 <http://localhost:8080/api/sample/products>, then open **Code Paths** for the route's bean-method tree and **Code
-Inventory** for the executed methods. The PostgreSQL panel works as in the previous section.
+Inventory** for the executed methods.
 
 DevTools restarts stay enabled: each restart claims the agent again in the same slot, so recompiling a class shows
-the edited methods as changed in **Code Inventory**. For parallel worktrees, use a unique Compose project and port as
-above:
+the edited methods as changed in **Code Inventory**. For parallel worktrees, pick another port:
 
 ```bash
-COMPOSE_PROJECT_NAME=my-agent-sample ./bootui-spring-sample-app/run-local-agent.sh \
-  -Dspring-boot.run.arguments=--server.port=8085
+./bootui-spring-sample-app/run-local-agent.sh -Dspring-boot.run.arguments=--server.port=8085
 ```
 
-Stop it with `Ctrl-C`, then `docker compose -f bootui-spring-sample-app/compose-postgresql.yaml down` (with the same
-`COMPOSE_PROJECT_NAME` if you set one).
+To run the agent against the lightweight PostgreSQL and Redis stack of the previous section instead, select its
+profile, with a unique Compose project for parallel worktrees:
+
+```bash
+BOOTUI_SAMPLE_PROFILES=docker-postgresql COMPOSE_PROJECT_NAME=my-agent-sample \
+  ./bootui-spring-sample-app/run-local-agent.sh -Dspring-boot.run.arguments=--server.port=8085
+```
+
+Stop it with `Ctrl-C`; with the PostgreSQL profile, then run
+`docker compose -f bootui-spring-sample-app/compose-postgresql.yaml down` (with the same `COMPOSE_PROJECT_NAME` if you
+set one).
 
 ## Run it with everything: the Java agent, PostgreSQL, Spring AI, and run history
 
@@ -188,8 +197,9 @@ The dedicated launcher builds the sample and runs the lightweight stack:
 ./bootui-spring-sample-app/run-local-mysql.sh
 ```
 
-The original `run-local.sh` continues to run the Docker-free `dev` profile, `run-local-ai.sh` runs the full
-`docker` profile, and `run-local-all.sh` adds the Java agent and run history to it. Every `run-local*.sh` script uses
+The original `run-local.sh` continues to run the Docker-free `dev` profile, `run-local-agent.sh` runs it with the Java
+agent, `run-local-ai.sh` runs the full `docker` profile, and `run-local-all.sh` adds the Java agent and run history to
+it. Every `run-local*.sh` script uses
 the isolated `.m2` repository and forwards additional Maven arguments to the application launch.
 
 No Maven profile or externally configured database is needed. Spring Boot starts

@@ -18,7 +18,7 @@ import java.util.List;
  * @param dropped operations it saw that no row counts: the agent's transport was full, or this run's store was at its
  *     cap even for the Other row
  * @param hooks its hooks, empty for a sensor not in this version
- * @param toggle its runtime switch, for an opt-in sensor while the agent is armed for this application; otherwise
+ * @param toggle its runtime switch, for a switchable sensor while the agent is armed for this application; otherwise
  *     {@code null}
  */
 public record SideEffectsSensorDto(

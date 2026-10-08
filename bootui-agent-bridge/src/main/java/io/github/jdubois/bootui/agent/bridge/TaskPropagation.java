@@ -135,17 +135,20 @@ public final class TaskPropagation {
      * ambiguous.
      */
     public static boolean submitted(Object task, int hook) {
-        return submit(task, hook, true) != NONE;
+        int outcome = submit(task, hook, true);
+        return outcome != NONE && outcome != OVERFLOWED;
     }
 
     static final int NONE = 0;
     static final int TOUCHED = 1;
     static final int KEYED_OWNED = 2;
+    /** The registry was full: nothing is keyed; counted as overflow once the executor accepted the task. */
+    static final int OVERFLOWED = 3;
 
     /**
      * Keys {@code task}; {@code count} says whether a keyed submission counts now, or only once the executor accepted it
-     * ({@link #confirm}). Returns {@link #NONE}, {@link #TOUCHED} (an existing entry made ambiguous), or
-     * {@link #KEYED_OWNED}.
+     * ({@link #confirm}). Returns {@link #NONE}, {@link #TOUCHED} (an existing entry made ambiguous),
+     * {@link #KEYED_OWNED}, or {@link #OVERFLOWED}.
      */
     static int submit(Object task, int hook, boolean count) {
         try {
@@ -159,7 +162,7 @@ public final class TaskPropagation {
             long generation = claim.generation;
             if (Thread.currentThread() == selfTestThread) {
                 SELF_TEST_KEYED[hook].increment();
-                TaskSnapshots.TASKS.put(task, generation, SELF_TEST);
+                TaskSnapshots.TASKS.putSelfTest(task, generation, SELF_TEST);
                 return TOUCHED;
             }
             if (!claim.hasSensor(SENSOR) || generation == disabledGeneration) {
@@ -178,10 +181,18 @@ public final class TaskPropagation {
                 REFUSED.increment();
                 return TaskSnapshots.TASKS.putUnowned(task) ? TOUCHED : NONE;
             }
+            int put = TaskSnapshots.TASKS.put(task, generation, (Object[]) payload, Math.max(0L, CodePaths.stamp()));
+            if (put == TaskSnapshots.REFUSED) {
+                // The registry is full: nothing is keyed, nothing needs a release, and the task runs unowned.
+                if (count) {
+                    TaskSnapshots.TASKS.overflowed();
+                }
+                return OVERFLOWED;
+            }
             if (count) {
                 KEYED[hook].increment();
             }
-            if (!TaskSnapshots.TASKS.put(task, generation, (Object[]) payload, Math.max(0L, CodePaths.stamp()))) {
+            if (put == TaskSnapshots.AMBIGUOUS_PUT) {
                 AMBIGUOUS.increment();
             }
             return KEYED_OWNED;
@@ -211,6 +222,8 @@ public final class TaskPropagation {
     static void confirm(int outcome, int hook) {
         if (outcome == KEYED_OWNED && sensorOn(AgentBridge.current())) {
             KEYED[hook].increment();
+        } else if (outcome == OVERFLOWED && sensorOn(AgentBridge.current())) {
+            TaskSnapshots.TASKS.overflowed();
         }
     }
 
@@ -741,6 +754,7 @@ public final class TaskPropagation {
         map.put("ambiguous", Long.valueOf(AMBIGUOUS.sum()));
         map.put("stale", Long.valueOf(STALE.sum()));
         map.put("refused", Long.valueOf(REFUSED.sum()));
+        map.put("overflow", Long.valueOf(TaskSnapshots.TASKS.overflow()));
         map.put("virtualSkipped", Long.valueOf(VIRTUAL_SKIPPED.sum()));
         map.put("periodicSkipped", Long.valueOf(PERIODIC_SKIPPED.sum()));
         map.put("skippedTasks", Long.valueOf(SKIPPED_TASKS.sum()));
