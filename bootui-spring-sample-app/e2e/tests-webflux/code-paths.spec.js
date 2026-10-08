@@ -63,7 +63,11 @@ test.describe('Code Paths view on Spring WebFlux', () => {
 
     // M5-8: a probe on the handler records its next calls, and says it times the Mono's assembly only; asked for
     // shapes (D44), it names the argument's and the returned Mono's types, and MCP never sees them.
-    await page.locator('.code-paths-tree').getByRole('button', {name: 'GreetingController.greet'}).click()
+    await page
+      .locator('.code-paths-tree')
+      .locator('.code-paths-node')
+      .filter({hasText: 'GreetingController.greet'})
+      .click()
     await page.getByLabel('Record argument and return shapes').check()
     await page.getByRole('button', {name: 'Probe this method'}).click()
     await page.getByRole('dialog', {name: 'Probe this method?'}).getByRole('button', {name: 'Start probe'}).click()
