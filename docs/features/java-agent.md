@@ -1268,6 +1268,12 @@ thread-activity follow-ups (#1299, #1323) averaged 7.6 % (14 runs) and 8.5 % (19
 whose own increment's interval lies above zero: executors −4.2 %, inventory 1.3 %, code-paths 1.1 %, processes −4.3 %,
 network −1.0 %, blocking −3.3 %, with the cumulative median at 2.2 % [−4.2, 7.9].
 
+With `files` and `environment` among the defaults, the first run (#1367) measured the default set's cumulative median
+at 9.9 % [4.0, 17.5] on the default route (15 pairs) and 11.5 % [2.6, 17.7] on the I/O route (9 pairs). `files`' own
+increment measured 4.2 % [−1.1, 8.9] on the I/O route and `environment`'s 4.2 % [1.0, 5.9] on its route of fifty
+property reads per request: both medians are over the 3 % budget, and both intervals reach below it, so neither fails
+the build. More runs will tell whether either sits above 3 %.
+
 So a cumulative median just over 10 % in one run is not, alone, evidence that the default set grew. The rule (PLAN-v2
 D48): a sensor's default follows its own increment's A/B, at most 3 %, and a cumulative check fails only when its
 median interval's lower bound is above the 10 % budget. Every enforced cumulative check applies it, and so do the
