@@ -617,6 +617,63 @@ class QuarkusMcpEnvelopeTest {
     }
 
     @Test
+    void progressTokensAndProgressEventsStayWithinTheResponseBound() throws Exception {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        McpDispatcher dispatcher = new McpDispatcher(
+                List.of(new McpTool(
+                        "architecture_scan",
+                        "Run the architecture advisor.",
+                        McpToolSchema.NONE,
+                        BootUiPanels.ARCHITECTURE,
+                        true,
+                        args -> java.util.Map.of("findings", List.of()))),
+                List.of(),
+                new AllowAllPolicy(),
+                "1.2.3",
+                "instructions",
+                50,
+                20,
+                diagnostics);
+        QuarkusMcpEnvelope small = new QuarkusMcpEnvelope(dispatcher, objectMapper, diagnostics, 512);
+        String token = "t".repeat(2_048);
+
+        QuarkusMcpEnvelope.Reply legacy = small.exchange(
+                objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":"
+                        + "{\"name\":\"architecture_scan\",\"arguments\":{},\"_meta\":{\"progressToken\":\"" + token
+                        + "\"}}}"),
+                McpRequestHeaders.NONE,
+                true,
+                true);
+        assertThat(legacy.stream()).isNull();
+        assertThat(legacy.body().path("result").path("isError").asBoolean()).isFalse();
+
+        QuarkusMcpEnvelope.Reply modern = small.exchange(
+                objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":"
+                        + "{\"name\":\"architecture_scan\",\"arguments\":{},\"_meta\":{"
+                        + "\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
+                        + "\"io.modelcontextprotocol/clientCapabilities\":{},\"progressToken\":\"" + token + "\"}}}"),
+                new McpRequestHeaders(List.of("2026-07-28"), List.of("tools/call"), List.of("architecture_scan")),
+                true,
+                true);
+        assertThat(modern.stream()).isNull();
+        assertThat(modern.status()).isEqualTo(400);
+        assertThat(modern.body().path("error").path("message").asText())
+                .isEqualTo(McpProtocol.PROGRESS_TOKEN_TYPE_MESSAGE);
+
+        String longest = "t".repeat(io.github.jdubois.bootui.engine.mcp.McpProgressToken.MAX_TEXT_LENGTH);
+        io.github.jdubois.bootui.engine.progress.ProgressEvent event =
+                new io.github.jdubois.bootui.engine.progress.ProgressEvent(1, 2.0, "Evaluating architecture rules");
+        assertThat(small.renderProgress(io.github.jdubois.bootui.engine.mcp.McpProgressToken.of(longest), event))
+                .hasSizeLessThanOrEqualTo(512);
+        QuarkusMcpEnvelope tiny = new QuarkusMcpEnvelope(dispatcher, objectMapper, diagnostics, 100);
+        assertThat(tiny.renderProgress(io.github.jdubois.bootui.engine.mcp.McpProgressToken.of(longest), event))
+                .isNull();
+        assertThat(dispatcher.runtimeStats().snapshot().progressDropped())
+                .as("a dropped progress event is counted")
+                .isEqualTo(1);
+    }
+
+    @Test
     void streamFramesAreTheSameBytesOnEveryStack() throws Exception {
         QuarkusMcpEnvelope envelope =
                 envelope(tool(args -> java.util.Map.of("name", "demo")), new RecordingFailureReporter());

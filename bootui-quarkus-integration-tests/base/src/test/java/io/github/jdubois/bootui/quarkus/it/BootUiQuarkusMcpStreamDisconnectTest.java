@@ -24,6 +24,8 @@ import org.junit.jupiter.api.Test;
 class BootUiQuarkusMcpStreamDisconnectTest {
 
     static final McpStreamDisconnectContract CONTRACT = new McpStreamDisconnectContract();
+    static final io.github.jdubois.bootui.conformance.McpStreamFrameContract FRAMES =
+            new io.github.jdubois.bootui.conformance.McpStreamFrameContract();
 
     public static class DisconnectProfile implements QuarkusTestProfile {
 
@@ -47,7 +49,7 @@ class BootUiQuarkusMcpStreamDisconnectTest {
         @Singleton
         McpDispatcher dispatcher() {
             return new McpDispatcher(
-                    List.of(CONTRACT.tool()),
+                    List.of(CONTRACT.tool(), FRAMES.tool()),
                     List.of(),
                     new AllowAll(),
                     "test",
@@ -59,6 +61,11 @@ class BootUiQuarkusMcpStreamDisconnectTest {
                         throw new AssertionError("A cancelled call is not a server fault: " + operation, failure);
                     });
         }
+    }
+
+    @Test
+    void theStreamWritesTheSameRawBytesAsEveryStack() throws Exception {
+        FRAMES.assertFrames(baseUrl.getPort(), "/bootui/api/mcp", "test");
     }
 
     @TestHTTPResource

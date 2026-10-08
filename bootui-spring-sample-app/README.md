@@ -133,7 +133,8 @@ another jar, such as one downloaded from Maven Central. The agent is passed thro
 own `-Dspring-boot.run.jvmArguments=...` adds JVM options without detaching it.
 
 Open <http://localhost:8080/bootui/#/java-agent>: the panel reports `ARMED` for the `io.github.jdubois.bootui.sample`
-package with the `executors`, `inventory`, and `code-paths` sensors installed. Exercise
+package with the default sensors installed: `executors`, `inventory`, `code-paths`, `processes`, `network`, and
+`blocking` (the others are opt-in; see the agent's [overhead note](../docs/features/java-agent.md#overhead)). Exercise
 <http://localhost:8080/api/sample/products>, then open **Code Paths** for the route's bean-method tree and **Code
 Inventory** for the executed methods. The PostgreSQL panel works as in the previous section.
 
@@ -158,8 +159,10 @@ To try every feature at once, use the all-in-one launcher:
 ```
 
 It attaches the BootUI Java agent as [above](#run-it-with-the-bootui-java-agent-and-postgresql) (including
-`BOOTUI_AGENT_JAR`) with every sensor it ships, the opt-in `threads`, `files`, and `environment` included, through
-`BOOTUI_AGENT_SENSORS`, the environment variable Spring binds to `bootui.agent.sensors` (set it to choose others), and runs the full `docker` profile, so PostgreSQL with `pg_stat_statements`, Redis, Kafka, and
+`BOOTUI_AGENT_JAR`) with every sensor it ships, every opt-in sensor included, through `BOOTUI_AGENT_SENSORS`, the
+environment variable Spring binds to `bootui.agent.sensors` (set it to choose others). The `security-sinks` sensor
+still matches no request input unless you also set `bootui.agent.security-sinks.request-values=true`. It runs the full
+`docker` profile, so PostgreSQL with `pg_stat_statements`, Redis, Kafka, and
 Ollama for Spring AI all start, as in [Run it with Docker](#run-it-with-docker). It also activates the `run-history`
 profile ([`application-run-history.properties`](src/main/resources/application-run-history.properties)), which keeps
 BootUI's history across full restarts:

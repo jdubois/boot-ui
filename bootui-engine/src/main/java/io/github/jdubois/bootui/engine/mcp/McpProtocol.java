@@ -183,7 +183,8 @@ public final class McpProtocol {
     public static final String META_CLIENT_CAPABILITIES_TYPE_MESSAGE =
             "_meta " + META_CLIENT_CAPABILITIES + " must be an object";
     /** Returned when a progress token is neither a string nor an integer. */
-    public static final String PROGRESS_TOKEN_TYPE_MESSAGE = "_meta progressToken must be a string or an integer";
+    public static final String PROGRESS_TOKEN_TYPE_MESSAGE =
+            "_meta progressToken must be an integer or a string of at most 128 characters";
 
     /**
      * The JSON-RPC error code to put on the wire for {@code era}: modern clients receive BootUI's server-defined codes
@@ -233,6 +234,13 @@ public final class McpProtocol {
     public static final String ARGUMENTS_OBJECT_MESSAGE = "Tool arguments must be an object";
     /** Returned when a JSON-RPC id is not a string, number, or null. */
     public static final String INVALID_ID_MESSAGE = "Request id must be a string, number, or null";
+    /** MCP 2026-07-28: a request id is a string or an integer, never {@code null} or a fraction. */
+    public static final String MODERN_ID_TYPE_MESSAGE = "Request id must be a string or an integer";
+    /** MCP 2026-07-28: only a notification may omit its id. */
+    public static final String MODERN_ID_REQUIRED_MESSAGE =
+            "A request needs an id; only notifications/ methods omit it";
+    /** The method prefix of a JSON-RPC notification in MCP. */
+    public static final String NOTIFICATION_METHOD_PREFIX = "notifications/";
     /** Returned when JSON-RPC params is present but is not an object. */
     public static final String PARAMS_OBJECT_MESSAGE = "Request params must be an object";
     /** Fallback in-band tool-error text when a tool fails without a message. */

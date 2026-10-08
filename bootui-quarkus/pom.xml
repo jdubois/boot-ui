@@ -375,6 +375,11 @@
                         </goals>
                         <configuration>
                             <deployment>${project.groupId}:bootui-quarkus-deployment:${project.version}</deployment>
+                            <!-- The plugin's default is the build platform's own minor, which would make Quarkus
+                                 refuse the extension on the older LTS line it supports. The quarkus-lts job in
+                                 build.yml tests that line; keep this range, that job, and docs/setup/quarkus.md
+                                 in step. -->
+                            <requiresQuarkusCore>[3.33,)</requiresQuarkusCore>
                         </configuration>
                     </execution>
                 </executions>

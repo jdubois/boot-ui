@@ -122,7 +122,10 @@ public class McpBridgeResource {
                 call.start(new McpStreamSink() {
                     @Override
                     public void progress(McpProgressToken token, ProgressEvent event) throws IOException {
-                        write(routing, output, McpProtocol.sseDataFrame(envelope.renderProgress(token, event)));
+                        String json = envelope.renderProgress(token, event);
+                        if (json != null) {
+                            write(routing, output, McpProtocol.sseDataFrame(json));
+                        }
                     }
 
                     @Override

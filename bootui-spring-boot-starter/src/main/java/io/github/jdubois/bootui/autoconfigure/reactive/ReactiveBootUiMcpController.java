@@ -162,8 +162,10 @@ public class ReactiveBootUiMcpController {
             call.start(new McpStreamSink() {
                 @Override
                 public void progress(McpProgressToken token, ProgressEvent event) throws IOException {
-                    emit(ServerSentEvent.builder(McpProtocol.sseData(service.renderProgress(token, event)))
-                            .build());
+                    String json = service.renderProgress(token, event);
+                    if (json != null) {
+                        emit(ServerSentEvent.builder(McpProtocol.sseData(json)).build());
+                    }
                 }
 
                 @Override

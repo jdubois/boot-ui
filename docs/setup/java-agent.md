@@ -56,8 +56,12 @@ the edit:
    request and route that ran it.
 3. Run the test or send the request that should reach a `NEVER_EXECUTED` method, then read the inventory again.
 4. Still `NEVER_EXECUTED`? Start a method probe on it (`bootui probe start <method>`, or **Probe in Code Paths** on the
-   method in the Code Inventory panel), rerun the same test or request, and read `bootui probe show <id>`. No
-   invocation means that path never reaches the method: the wrong route, the wrong bean, or never wired. A probe is an
+   method in the Code Inventory panel), wait until `bootui probe show <id>` says `active`, rerun the same test or
+   request within its 60-second window, and read it again. With the probe active before the rerun and still active
+   after it, or ended only after the rerun finished, `invocations` at 0 means that path never reaches the method: the
+   wrong route, the wrong bean, or never wired; a probe that never became active, failed, or ended before the rerun
+   finished is inconclusive. A
+   probe is an
    action: read-only policy refuses it, and it records metadata only, never argument or return values; argument and
    return shapes are opt-in, in the panel only.
 

@@ -27,6 +27,11 @@ class BootUiMcpStreamDisconnectTests {
     private BootUiMcpService service;
 
     @Test
+    void theStreamWritesTheSameRawBytesAsEveryStack() throws Exception {
+        SUPPORT.assertFrames(port);
+    }
+
+    @Test
     void closingTheStreamCancelsTheCall() throws Exception {
         // Spring MVC only notices a failed write: within two keep-alives.
         SUPPORT.closeAfterFirstEventCancels(

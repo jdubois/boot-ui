@@ -31,23 +31,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Runtime Insights buttons in the Spring sample.** The welcome page generates each main finding with one click, or all
   at once, and links to it in the panel ([sample README](bootui-spring-sample-app/README.md#runtime-insights-demo)).
-- **Caught in application code (M5-6a2).** With the agent's `caught-exceptions` sensor, the Exceptions panel shows what
+- **Caught in application code.** With the agent's `caught-exceptions` sensor, the Exceptions panel shows what
   became of each exception application code caught; a finding states it was not seen rethrown or logged at `WARN` or
   above, and incomplete evidence is shown as unknown with its reason, never as swallowed
-  (`GET /exceptions/caught`, `caughtInCode` in `get_exceptions`). ([PLAN-v2 M5-6](docs/PLAN-v2.md))
+  (`GET /exceptions/caught`, `caughtInCode` in `get_exceptions`).
 
-- **Opt-in agent sensors switched at run time.** The Java Agent and Side Effects panels switch `threads`, `files`, and
-  `environment` on or off without a restart, until the JVM ends ([Java Agent](docs/features/java-agent.md#switching-opt-in-sensors-at-run-time), [#1290](https://github.com/jdubois/boot-ui/pull/1290)).
-- **Side effects in the run comparison (M5-7b).** With the BootUI agent, Runtime Insights' comparison lists the hosts,
+- **Opt-in agent sensors switched at run time.** The Java Agent and Side Effects panels switch `threads`, `files`,
+  `environment`, `thread-activity`, and `thread-locals` on or off without a restart, until the JVM ends ([Java Agent](docs/features/java-agent.md#switching-opt-in-sensors-at-run-time), [#1290](https://github.com/jdubois/boot-ui/pull/1290)).
+- **Side effects in the run comparison.** With the BootUI agent, Runtime Insights' comparison lists the hosts,
   files, processes, and variable names a route, job, or startup newly uses or no longer uses, for sensors that recorded
   both runs whole ([Runtime Insights](docs/features/overview.md#runtime-insights)).
-- **Agent guidance for the BootUI agent (M5-10a).** MCP instructions check `get_agent_status` first and read an
+- **Agent guidance for the BootUI agent.** MCP instructions check `get_agent_status` first and read an
   agent-gated `NOT_APPLICABLE` as not measured; `verify_after_change` and the skill add verify-then-probe.
-- **Request input reaching a sink (M5-6b1).** Opt-in Security sinks rows show a request parameter reaching SQL, a
+- **Request input reaching a sink.** Opt-in Security sinks rows show a request parameter reaching SQL, a
   command, a file path, or a URL unchanged, its value redacted. ([#1296](https://github.com/jdubois/boot-ui/pull/1296))
 - **Security sinks: JDK checks.** The opt-in `security-sinks` sensor also shows deserialization without a
   filter, weak digests and ciphers, and application trust managers, as facts.
-- **Caught exceptions, recorded by the BootUI agent (M5-6a, first part).** The agent's new opt-in `caught-exceptions`
+- **Caught exceptions, recorded by the BootUI agent.** The agent's new opt-in `caught-exceptions`
   sensor (`bootui.agent.sensors=...,caught-exceptions`) reports each exception application code catches, at a handler
   that names a type, and which of them are thrown again: by the method itself, by a library helper it calls, or wrapped
   in another exception. Each becomes an event of the runtime journal's new `agent.caught-exceptions` source, owned by
@@ -58,9 +58,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Jackson, Netty, Vert.x, Quarkus, and Kotlin's standard library and coroutines with and without the visit on JDK 17,
   21, and 26. The Exceptions panel's
   **Caught in application code** section, `exceptions-caught-in-code` rows, and the decision on its default follow.
-  ([PLAN-v2 M5-6](docs/PLAN-v2.md))
 
-- **Blind spots from the first validation run (M4-22).** On Spring MVC and Spring WebFlux, the application's own
+- **Blind spots found on real applications.** On Spring MVC and Spring WebFlux, the application's own
   `ThreadPoolTaskExecutor`, `ThreadPoolTaskScheduler`, and `SimpleAsyncTaskExecutor` beans, including a pool another
   executor bean wraps, like JHipster's `AsyncConfigurer` executor, now run a request's `@Async` tasks as executions of
   that request: BootUI's task decorator is set where there is none and composed inside the application's where there is
@@ -71,12 +70,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   decorators. Runtime Insights names first among its limitations what the journal cannot record: R2DBC statements on
   Spring (also stated up front in the WebFlux documentation), and Kafka Streams processing when Kafka Streams is on the
   classpath, on Spring MVC, Spring WebFlux, and Quarkus. No new observation kind ([Runtime
-  Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-22).
+  Insights](docs/features/overview.md#runtime-insights)).
 - **Known limitations of 2.0.** A [Known limitations](docs/KNOWN-LIMITATIONS.md) page lists what 2.0 does not do, per
   stack (R2DBC statements not recorded on WebFlux, no transaction capture on Quarkus, and the panels each stack lacks),
   the BootUI Java agent's shipped and still-planned scope, and the overhead budget. The validation report gains a
   [release sign-off](docs/V2-VALIDATION-REPORT.md#release-sign-off) template recording each success measure against
-  its target, the per-kind gates, and every exception (PLAN-v2 M4-23).
+  its target, the per-kind gates, and every exception.
 - **One help call instead of many, and answers that name the next call.** `bootui --help` lists every command with
   its arguments, what it returns, where its `<id>` comes from, the words its `--query` understands, and one example,
   and `bootui <group> --help` lists a group the same way; every example is generated from the MCP tool registry and run
@@ -88,7 +87,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   required `id` now says where the id comes from, such as `Missing required argument: id (an observation id from
   get_runtime_insights)`; the error code is unchanged. The how-to-ask hints in `get_runtime_insights` limitations
   moved to `next` ([Command line](docs/CLI.md#discovering-what-an-application-exposes),
-  [AI agents](docs/AI-AGENTS.md#runtime-insights-for-agents), PLAN-v2 M4-21).
+  [AI agents](docs/AI-AGENTS.md#runtime-insights-for-agents)).
 - **Change impact by method and a run comparison led by code changes.** With the BootUI agent, change impact accepts
   any application method, as `OrderService#total`, `OrderService.total(long)`, or a JVM descriptor for one overload,
   and its observed routes are those whose requests' own call trees ran it, read from each route's tree at any depth
@@ -102,7 +101,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in the comparison, on Spring MVC, Spring WebFlux, and Quarkus; `get_runtime_impact` takes the method form,
   `get_runtime_run_comparison` leads with `codeChanges`, and the `verify_after_change` prompt checks each changed
   method's impact. Without the agent, only handler methods are checked and the comparison is unchanged
-  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.7, §5.8, §5.17, M5-7a).
+  ([Runtime Insights](docs/features/overview.md#runtime-insights)).
 - **Runtime reach in the Vulnerabilities panel.** With the BootUI agent's `inventory` sensor, the Vulnerabilities panel
   gains a **Runtime reach** column and filter: per dependency, whether its jar's classes loaded in this JVM (with how
   many in this run and the first route), whether a class its advisory names loaded (**Named class loaded**), **Not
@@ -111,7 +110,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   additive `runtimeReach` field of `GET {api}/vulnerabilities`, the scan, `get_vulnerabilities_report`, and
   `vulnerabilities_scan` on Spring MVC, Spring WebFlux, and Quarkus, read when answered and only while Code Inventory
   is enabled; it never changes a severity, score, count, or Scorecard penalty. The agent keeps bounded class-name
-  evidence per jar for it ([Runtime reach](docs/features/advisors.md#runtime-reach), PLAN-v2 §5.15, M5-9a).
+  evidence per jar for it ([Runtime reach](docs/features/advisors.md#runtime-reach)).
 - **Method probes.** With the BootUI agent attached, **Probe this method** on a method selected in a Code Paths tree,
   or **Probe in Code Paths** on a changed method in Code Inventory, records that one method's next 20 invocations, for
   at most 60 seconds, five probes at once: each invocation's duration, thread kind, request id, outcome or exception
@@ -123,10 +122,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Spring MVC, WebFlux, and Quarkus, and the `start_method_probe` (`bootui probe start`, an action needing the user's
   separate approval, named in `assess_application`) and `get_method_probe` (`bootui probe show`) agent tools.
   Probes and their invocations are a store of the agent evidence contract, cleared by **Clear recording**
-  ([Method probes](docs/features/java-agent.md#method-probes), PLAN-v2 §5.14, M5-8, D24, D37).
+  ([Method probes](docs/features/java-agent.md#method-probes)).
 - **Argument and return shapes for method probes.** A probe can also record argument and return types, nullness, and
-  sizes, never values, shown in the panel only ([shapes](docs/features/java-agent.md#argument-and-return-shapes), D44).
-- **The agent evidence contract (M5-11).** Code Paths' request and route trees, Code Inventory's first calls, and Side
+  sizes, never values, shown in the panel only ([shapes](docs/features/java-agent.md#argument-and-return-shapes)).
+- **The agent evidence contract.** Code Paths' request and route trees, Code Inventory's first calls, and Side
   Effects rows, which the BootUI agent's evidence keeps outside the runtime journal, now follow one engine projection on
   Spring MVC, Spring WebFlux, and Quarkus: every read resolves once whether its own panel and HTTP Exchanges are visible,
   so a disabled Code Paths, Code Inventory, or Side Effects panel hides its evidence from its reads, MCP tool, CLI
@@ -158,8 +157,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   method entered in another request phase under the same caller is now another node, so response-write time is never
   split as handler time; overloads and same-named classes keep their own rows in the handler split, and no part of the
   handler is lost between them; and a slow reactive response's tree, settled before its response completed, now joins
-  its route once the response is recorded ([Code Paths](docs/features/java-agent.md#code-paths), PLAN-v2 §5.14,
-  M5-4c).
+  its route once the response is recorded ([Code Paths](docs/features/java-agent.md#code-paths)).
 - **Code Paths panel, API, and tools.** With the BootUI agent's `code-paths` sensor, the new view-only Code Paths panel
   (Diagnostics) ranks routes by their warm median and shows each route's call tree of application bean methods, merged
   across its warm requests with the first recorded request kept apart: calls per request, total and self time, share of
@@ -171,7 +169,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   route's handler work into its top five methods, with the rest as other handler time. `GET {api}/code-paths`,
   `/code-paths/route`, `/code-paths/requests/{id}`, `get_code_paths`, and `bootui code paths` on Spring MVC, Spring
   WebFlux, and Quarkus; the samples gain a seeded slow route, `GET /api/quotes/{sku}`
-  ([Code Paths](docs/features/java-agent.md#code-paths), PLAN-v2 §5.14, M5-4b).
+  ([Code Paths](docs/features/java-agent.md#code-paths)).
 - **Code Paths sensor in the BootUI agent.** A new `code-paths` agent sensor, on by default, times the public and
   protected methods of the application's beans per request, as call trees built on the request's own threads, with
   executor handoffs kept apart as asynchronous children, adaptive exclusion of very frequent, very fast methods, and
@@ -179,18 +177,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Java Agent panel shows its row and counters on Spring MVC, Spring WebFlux, and Quarkus. Spring sends its bean classes
   when the context refreshes and Quarkus at build time. A debugger stepping into a timed method steps over the agent's
   calls, whose bridge carries no line numbers. The Code Paths panel and tools that read the trees follow
-  ([Java Agent](docs/features/java-agent.md#the-code-paths-sensor), PLAN-v2 M5-4a).
+  ([Java Agent](docs/features/java-agent.md#the-code-paths-sensor)).
 
 - **Side Effects panel, API, and tools.** With the BootUI agent armed for the run, the new view-only Side Effects panel
-  (Java agent group) lists side-effect sensor coverage and, in M5-5a, the processes application code starts. Rows are
+  (Java agent group) lists side-effect sensor coverage and the processes application code starts. Rows are
   attributed to a request route, an execution no request owns (a scheduled run, a consumed message), startup, or a
   thread family, with normalized targets, call site, optional Code Paths bean-method stamp, counts, failed starts,
   exits, durations, and exemplar request ids; arguments and environment never appear. The Side Effects panel is an
   AgentEvidence store: panel visibility gates every read, HTTP Exchanges gates route attribution, Code Paths visibility
   gates the inside bean method, and Clear recording and Free BootUI memory clear rows. `GET {api}/side-effects`,
   `/side-effects/sensor`, `get_side_effects`, and `bootui side-effects` are available on Spring MVC, Spring WebFlux, and
-  Quarkus while the bridge supports Side Effects ([Side Effects](docs/features/java-agent.md#side-effects), PLAN-v2
-  §5.16, M5-5a).
+  Quarkus while the bridge supports Side Effects ([Side Effects](docs/features/java-agent.md#side-effects)).
 - **Network sensor in the BootUI agent.** A new `network` agent sensor, on by default, records the hosts and ports the
   application connects to (`Socket.connect`, `SocketChannel` connects, a non-blocking connect's finish with its time),
   the datagrams it sends, and the host names the JVM resolves on an address-cache miss, with the client recognized from
@@ -201,7 +198,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `OPENS` edges from routes, jobs, and beans to hosts. Each hook passes a JDK 17, 21, and 26 retransformation check
   and an I/O-free self-test; a failing optional hook is left out and a failing sensor no longer takes the other
   side-effect sensors down. BootUI's own JDK `HttpClient`s run on a `bootui-http-N` executor so they are never recorded
-  ([The network sensor](docs/features/java-agent.md#the-network-sensor), PLAN-v2 §5.16, M5-5b).
+  ([The network sensor](docs/features/java-agent.md#the-network-sensor)).
 - **Processes sensor in the BootUI agent.** A new `processes` agent sensor, on by default, hooks the JDK
   `ProcessBuilder.start` path reached by `ProcessBuilder.start()`, `ProcessBuilder.startPipeline(...)`, and
   `Runtime.exec(...)`. It records only the sanitized command name (a started process's executable file name; for a
@@ -209,24 +206,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `.`, `_`, `+`, and `-`, plus start failure, exit status, and lifetime; publishes starts at once, attributes exits as
   their starts were, watches exits on the agent-owned `bootui-agent-process-exits` executor; ignores BootUI and agent
   work; disables itself on a failed self-test; and drops/counts bounded records instead of blocking application code
-  ([Java Agent](docs/features/java-agent.md#the-processes-sensor), PLAN-v2 M5-5a). The executors sensor's default
+  ([Java Agent](docs/features/java-agent.md#the-processes-sensor)). The executors sensor's default
   `bootui.agent.executors.skip-tasks` now includes `java.lang.ProcessHandleImpl`, the JDK's process reaper, so a request
   that starts a process is no longer reported as doing work after its response.
 - **Files and environment sensors in the BootUI agent.** The opt-in `files` and `environment` agent sensors record
   the files application code opens, deletes, moves, and copies, as path patterns (`./`, `$TMPDIR`, `~`, ids as `{n}`),
   and the environment variables and system properties it reads, by name; never contents or values, with class loading,
-  the JDK, and logging appenders grouped apart ([Java Agent](docs/features/java-agent.md#the-files-sensor), M5-5d).
+  the JDK, and logging appenders grouped apart ([Java Agent](docs/features/java-agent.md#the-files-sensor)).
 - **Blocking sensor in the BootUI agent.** A new `blocking` sensor reports `Thread.sleep`, `Object.wait`,
   `LockSupport.park`, and the network and files sensors' blocking operations started on an event loop, reported, never
   thrown, in Side Effects' **Blocking** tab; Spring MVC shows it `not-applicable`
-  ([Java Agent](docs/features/java-agent.md#the-blocking-sensor), M5-5c).
+  ([Java Agent](docs/features/java-agent.md#the-blocking-sensor)).
 - **Thread activity sensor in the BootUI agent.** The opt-in `thread-activity` sensor shows, per route, the threads
   application code starts and the executors it creates, and those still running when the request ended, in Side Effects'
-  **Threads and leaks** tab, and can be switched at run time ([Java Agent](docs/features/java-agent.md#the-thread-activity-sensor), M5-5e). An async
+  **Threads and leaks** tab, and can be switched at run time ([Java Agent](docs/features/java-agent.md#the-thread-activity-sensor)). An async
   Spring MVC request now ends when its async context completes, so work it handed over can be marked after response.
 - **Thread locals sensor in the BootUI agent.** The opt-in `thread-locals` sensor shows the thread locals a request or a
   job left set on its pooled thread, by the static field that holds them, never their values, in Side Effects'
-  **Threads and leaks** tab, and can be switched at run time ([Java Agent](docs/features/java-agent.md#the-thread-locals-sensor), M5-5f).
+  **Threads and leaks** tab, and can be switched at run time ([Java Agent](docs/features/java-agent.md#the-thread-locals-sensor)).
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
   correlation into the tasks it hands to a raw `ExecutorService`, a `ForkJoinPool`, or `CompletableFuture`, so their
@@ -242,14 +239,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   properties: `bootui.agent.sensors`, `bootui.agent.executors.skip-tasks`, `bootui.agent.executors.skip-threads`, and
   `bootui.agent.executors.max-handoff`. A managed task that runs where its request is already current reuses it instead
   of opening an empty nested execution, and exception groups ignore the agent bridge's frames
-  ([Java Agent](docs/features/java-agent.md#the-executors-sensor), PLAN-v2 M5-2).
+  ([Java Agent](docs/features/java-agent.md#the-executors-sensor)).
 
 - **Thread propagation with the BootUI agent (opt-in).** `bootui.agent.sensors=executors,threads` adds the agent's
   `threads` sensor, which carries a request into the platform and virtual threads application code starts, including
   those of a virtual-thread-per-task executor and structured subtasks, keeping inherited scoped values visible. Threads a
   library or framework starts inside a request and pool workers are never propagated, and the Java Agent panel counts
   both
-  ([Java Agent](docs/features/java-agent.md#the-threads-sensor), PLAN-v2 M5-2c).
+  ([Java Agent](docs/features/java-agent.md#the-threads-sensor)).
 
 - **Code inventory recording with the BootUI agent.** The agent's new `inventory` sensor, on by default with
   `executors`, records which application methods run in each run, with the first call's request, route, and time, and
@@ -257,7 +254,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   counts rather than blocks (`bootui.agent.ring-capacity`, default 65,536 records). It skips static initializers,
   `$`-prefixed methods, proxies, synthetic classes, test roots, and BootUI's own work, and self-tests before it records.
   The Java Agent panel shows its row, hooks, and counters
-  ([Java Agent](docs/features/java-agent.md#the-inventory-sensor), PLAN-v2 M5-3).
+  ([Java Agent](docs/features/java-agent.md#the-inventory-sensor)).
 
 - **Code Inventory: did my change run?** A view-only Code Inventory panel in Diagnostics, on Spring MVC, Spring WebFlux,
   and Quarkus, reads the agent's `inventory` sensor: "N of M application methods executed" for this run, then
@@ -275,7 +272,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `changed-code-not-executed` reports "your change has not run yet" (23 checks). Without the agent it is unavailable with
   the Java Agent panel's reason. New properties: `bootui.code-inventory.max-classes` and
   `bootui.code-inventory.scan-timeout`. The samples seed a never-called method and a declared jar they never load
-  ([Code Inventory](docs/features/java-agent.md#code-inventory), PLAN-v2 M5-3).
+  ([Code Inventory](docs/features/java-agent.md#code-inventory)).
 
 - **Free BootUI memory.** Live Memory, JVM Tuning, Heap Dump, and the Memory advisor share a header action, with an
   expandable explanation, that empties BootUI's in-memory capture buffers (runtime journal, Live Activity, HTTP
@@ -292,23 +289,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Gradle `bootRun`, Quarkus dev mode, Surefire and Failsafe, IntelliJ IDEA, and `JAVA_TOOL_OPTIONS`, on Spring MVC,
   Spring WebFlux, and Quarkus. Spring claims an attached agent from an `EnvironmentPostProcessor` and Quarkus from a
   static-init recorder in dev and test modes, configured by `bootui.agent.enabled`, `bootui.agent.packages`, and
-  `bootui.agent.mode`; the dependency inventory no longer counts the agent jar as an application library (PLAN-v2
-  M5-1).
+  `bootui.agent.mode`; the dependency inventory no longer counts the agent jar as an application library.
 
 - **`bootui-agent` is published to Maven Central.** The release workflow now builds and publishes the `bootui-agent`
   `-javaagent` jar (`com.julien-dubois.bootui:bootui-agent`), polls for it on Maven Central, and smoke-tests the
   published jar: a consumer resolves it with no dependency, and a JVM started with it as its `-javaagent` reports it
-  dormant. `bootui-agent-bridge` is built and shaded into the agent but never published (PLAN-v2 M5-1d).
+  dormant. `bootui-agent-bridge` is built and shaded into the agent but never published.
 
-- **Agent-ready request profiles and Copy for AI.** The new read-only `get_request_profile` MCP tool, also the
-  `bootui request-profile <id>` command, returns a selection with `available`, `unavailableReason`, `source`,
-  `journal`, and `buffers` on Spring MVC, Spring WebFlux, and Quarkus. It consults journal evidence first and, for a
-  retained HTTP request, includes the richer HTTP-exchange profile in `buffers`; `source` is `none` when neither
-  retention window holds the id. Each buffer-profile exception carries an additive `exceptionGroupId` for
-  `get_exception_detail`. The Live Activity profile drawer and the Exceptions detail gain **Copy for AI**, which
-  previews one Markdown document, listing what it omits, before anything is copied; **Copy profile** now copies
-  Markdown from the same helper. Exports contain only what the panels show, honor `METADATA_ONLY`, and send nothing
-  ([Investigate one request](docs/AI-AGENTS.md#investigate-one-request), PLAN §3.25).
 
 - **The MySQL panel reads MariaDB reached through MySQL Connector/J, labelled unsupported.** A MariaDB server behind a
   `jdbc:mysql:` datasource is now read on a best-effort basis on Spring MVC, WebFlux, and Quarkus instead of being
@@ -360,15 +347,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exhausted budgets keep no path and say why in `violationDetails.locationNotes`. Kotlin lines inlined from another
   file are dropped rather than shown wrong. The panels show each location with a **Copy location** action and an
   opt-in, per-browser **Open in** preference for VS Code or IntelliJ IDEA. Violation text, counts, severities,
-  dismissals, evidence, and scores are unchanged, and findings that span several elements carry no location
-  (docs/PLAN.md §3.19).
+  dismissals, evidence, and scores are unchanged, and findings that span several elements carry no location.
 - **Request profiles show the REST client calls and cache accesses a request made.** The Live Activity profile drawer
   and **Copy profile** gain REST client calls, masked exactly as the REST Client panel shows them, and cache accesses,
   which carry only the hashed key, on Spring MVC, Spring WebFlux, and Quarkus (cache on Spring only, since Quarkus has no
   cache-access capture seam). Every section is labelled with the tier that correlated it — trace id, serving thread, or
   time window — the profile is flagged approximate whenever a time window was used, a tier an adapter cannot provide is
   listed as unavailable, and each section shows at most 200 entries with a count of the rest. The
-  `GET /bootui/api/activity/request/{id}` response only gains fields (docs/PLAN.md §3.20a).
+  `GET /bootui/api/activity/request/{id}` response only gains fields.
 - **Route performance rankings in HTTP Exchanges.** A route table above the exchange list summarizes the retained
   window per method and route: request count, 2xx/3xx/4xx/5xx counts, average, p50, p95, p99, and maximum duration, and
   share of retained request time, ranked by requests, total time, p95, slowest request, or errors. Routes resolve from
@@ -428,8 +414,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   whose rows open in place; the comparison and change impact, the resource profiler, and the run's coverage and check
   limits move to tabs of their own ([Runtime Insights](docs/features/overview.md#runtime-insights),
   [#1328](https://github.com/jdubois/boot-ui/pull/1328)).
-- **Quarkus 3.40.1 LTS.** Updated the Quarkus compatibility platform to the latest LTS micro release and kept the
-  RabbitMQ metadata test fixture compatible with the managed SmallRye API.
 
 - **Tabs that look like tabs, in every theme.** Every panel tab strip now shares one component, with muted labels
   instead of link-blue text, arrow-key navigation, and a selected tab drawn in each theme's own idiom.
@@ -474,7 +458,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   collection and heap rows are reached from the Memory panel, which counts them and opens the **Memory** theme with
   every row. **Show all routes**, a search, a deep link, and the agent query `all` (formerly a plain text search), a
   kind, or a route still reach every row, which says why it was left out ([Runtime
-  Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-19).
+  Insights](docs/features/overview.md#runtime-insights)).
 - **The documentation site and the Docker Hub sample images follow the released major.** Every branch declares its
   release line in `.github/release-line`, and `pages.yml` and `docker-publish.yml` publish a branch only when its line
   has a release on Maven Central and no newer major does, so merging `v2` into `main` publishes no 2.0 site or image
@@ -483,7 +467,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   must declare at least line 2); it releases only from `main` or an `N.x`
   maintenance branch, and fails when its documentation run skipped the deploy. `rehearse_v2_merge.py` rehearses the merge
   on a candidate that is never published, and [Releasing 2.0](docs/V2-RELEASE.md) is the runbook for the merge and the
-  `1.x` branch (PLAN-v2 M4-23, D40).
+  `1.x` branch.
 - **Less runtime-journal work on request threads.** A recorded statement, REST client call, or cache access now only
   selects its application frames on the application thread; the journal's dispatcher formats them, with the same
   `Class.method(File.java:42)` text and masking as before. An offer to the journal takes one lock instead of three,
@@ -494,7 +478,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   sample under load, the offer path falls from about 1.3 % to 0.2 % of CPU samples and the dispatcher from about
   8.4 % to 3.5 %. An event offered after the run ended is now counted as dropped rather than accepted, even when a
   listener keeps the dispatcher from stopping. A frame whose class is redefined, by the BootUI agent or a hot swap,
-  while its event waits for the dispatcher reads `(Unknown Source)` (PLAN-v2 M4-18d).
+  while its event waits for the dispatcher reads `(Unknown Source)`.
 - **A Java agent sidebar group.** Java Agent, Code Paths, and Code Inventory now share a **Java agent** group between
   Diagnostics and Developer tools, with Java Agent first as the setup and status entry point. Without the agent
   attached, Code Paths and Code Inventory stay in that group, dimmed, with their unavailable reason as the tooltip,
@@ -503,25 +487,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [Java Agent](docs/features/java-agent.md) page.
 - **Code Paths counts a late fragment's request once.** A code-paths fragment arriving after its request's tree was
   merged into its route, and no longer kept, now amends that route's executed methods instead of opening a second,
-  partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too
-  (PLAN-v2 M5-7a).
+  partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too.
 - **`bootui.agent.sensors` rejects unknown sensor ids.** The default sensor set is now `executors`, `inventory`,
-  `code-paths`, `processes`, `network`, and `blocking`, while `threads`, `files`, and `environment` are opt-in. The Side
-  Effects sensors this version does not ship (`thread-activity`, `thread-locals`, `resources`, `security-sinks`)
-  are accepted with a warning and reported not available. Any other id now fails the application's start, on Spring and
-  Quarkus alike, while the BootUI agent is attached, with an error naming the accepted ids.
+  `code-paths`, `processes`, `network`, and `blocking`. `threads`, `files`, `environment`, `thread-activity`,
+  `thread-locals`, `caught-exceptions`, and `security-sinks` are opt-in; the first five can also be switched at run
+  time, while `caught-exceptions` and `security-sinks` are installed only when the application starts.
+  The `resources` sensor, which this version does not ship, is accepted with a warning and reported not available.
+  Any other id now fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with
+  an error naming the accepted ids.
+
 
 - **Durable Live Activity history is journal-rendered.** With
   `bootui.activity.persistence.enabled=true`, persisted rows now contain the journal's `MASKED` view rather than
   polling panel buffers. They no longer retain principals, exception or log messages, or email subjects. **Migration:**
   use the bounded live panels when those details are needed; durable history retains safe summaries and metadata
-  ([Live Activity](docs/features/overview.md#durable-history), PLAN-v2 §8).
-
-- **Durable Live Activity history is journal-rendered.** With
-  `bootui.activity.persistence.enabled=true`, persisted rows now contain the journal's `MASKED` view rather than
-  polling panel buffers. They no longer retain principals, exception or log messages, or email subjects. **Migration:**
-  use the bounded live panels when those details are needed; durable history retains safe summaries and metadata
-  ([Live Activity](docs/features/overview.md#durable-history), PLAN-v2 §8).
+  ([Live Activity](docs/features/overview.md#durable-history)).
 
 - **Faster, quieter CI builds.** The per-extension Quarkus integration-test modules and the three Spring Playwright
   suites now run on parallel runners instead of competing with the coverage build or running back to back. Surefire
@@ -722,7 +702,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
-These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/PLAN-v2.md) §4.3, M4-16).
+These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 - **`io.github.jdubois.bootui.spi.TraceIdProvider` is removed; use `CorrelationContextProvider`.** Every recorder and
   capture point now reads the trace id of the work it records from the adapter's `CorrelationContextProvider`, which
@@ -742,6 +722,13 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Method probe guidance avoids false "never reached" answers.** Agents and the BootUI skill now wait until a probe
+  is `active`, rerun within its window, and treat an empty result from a probe that was not active throughout as
+  inconclusive ([AI agents](docs/AI-AGENTS.md#did-this-method-run-and-how)).
+- **MCP progress streams stay within `bootui.mcp.max-response-bytes`.** A string progress token is at most 128
+  characters, and a progress event that would not fit is dropped ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+- **Modern MCP requests need a string or integer id.** A `null`, fractional, or missing id on an MCP 2026-07-28
+  request is refused with `400` instead of running the call unanswered ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 - **A task its handler waited for is no longer badged "after response".** With the BootUI agent, Live Activity's
   **after response** badge and the request profile's **Handoffs** compared the task's run end with the response, and
   the JDK releases a waiting handler before that run returns, so on virtual threads about one waited-for `FutureTask`
@@ -764,7 +751,7 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   `io.github.jdubois.bootui`, the samples' included; it now skips only BootUI's own packages, as on Quarkus.
 - **Side Effects sensors no longer hide each other's records.** A connect a file system provider makes inside a file
   operation now records, and one sensor's many distinct paths or frames no longer leave another's targets unknown
-  ([Java Agent](docs/features/java-agent.md#side-effects), M5-5d).
+  ([Java Agent](docs/features/java-agent.md#side-effects)).
 - **The `caught-exceptions` sensor stays opt-in.** On the caught benchmark route its own share measured 2.9 % then
   5.0 % (15 pairs each), over its 3 % budget once; the cumulative overhead with it was 5.9 %
   ([Java Agent](docs/features/java-agent.md#the-caught-exceptions-sensor)).
@@ -775,13 +762,13 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   overflow. The thread then stayed counted inside a call that had already returned. On a pooled thread that could stop
   every later request on it from recording, or leave an abandoned fragment collecting its calls. The next timed method
   to return on the thread now resets it again, and the dropped fragment is counted under `abandonedFragments`
-  ([Java Agent](docs/features/java-agent.md#the-code-paths-sensor), PLAN-v2 M5-4a).
+  ([Java Agent](docs/features/java-agent.md#the-code-paths-sensor)).
 - **One framework warning per message, not per failed request.** Runtime Insights' `framework-warnings-by-route`
   grouped events by their exact message, so a framework that writes the request path and a per-request id into the
   message, as Quarkus's error handler does (`HTTP Request to /api/records failed, error id: …`), listed each failed
   request as a row of its own. Messages that differ only by a UUID, a long hexadecimal id, or a numeric path segment are
   now one group, quoted with `<id>` and `<n>` in place of those parts, on every stack; the row's id no longer changes
-  with each run. ([PLAN-v2.md](docs/PLAN-v2.md) M4-20)
+  with each run.
 
 - **A Spring Modulith application starts with BootUI.** BootUI's application event multicaster, which records
   application events in the runtime journal, claimed the context's `applicationEventMulticaster` bean name before
@@ -791,7 +778,7 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   defines. Then it records no application event, and says so: `transactional-listener-skipped` and
   `after-commit-writes` report `UNAVAILABLE` with the reason, Runtime Insights, change impact, and the run comparison
   name it among their limitations, and the run's comparability facts leave the `app-event` source out, on Spring MVC
-  and Spring WebFlux ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.18, M4-8).
+  and Spring WebFlux ([Runtime Insights](docs/features/overview.md#runtime-insights)).
 - **Runtime Insights no longer judges a request that lost events to eviction or a clear.** A request or execution that
   started before an event the runtime journal evicted, could not fit, or cleared (**Clear recording** while it ran) was
   projected with only the events it kept, so `proxy-bypass` reported a `@Cacheable` method as bypassed when the
@@ -801,194 +788,56 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   floor, since a dropped transaction or cache access can make a finding appear. A cross-observation counterexample harness now replays every
   observation kind's seeded case and counterexamples against every kind, with each event dropped in turn, the
   recording cleared and the ring overflowing at every point, and each stack, SQL capture, source, and panel missing;
-  every kind passes it, including D29's four, which the default list therefore shows, and a container's `ERROR`
+  every kind passes it, including the four kinds held out of the default list until it did, which the list therefore now shows, and a container's `ERROR`
   written after a request left out this way is not counted in Framework warnings' **No request** row
-  ([Runtime Insights](docs/features/overview.md#runtime-insights),
-  PLAN-v2 §2.2, M4-18e).
+  ([Runtime Insights](docs/features/overview.md#runtime-insights)).
 - **A method probe reported active catches a class loaded right after.** A probe was marked active just before its
   transformer was registered, so a class its run loaded in that gap ran unprobed, and the probe waited for an
   invocation that had already happened. The transformer is now registered first, and its advice records nothing until
-  the probe is active (PLAN-v2 §5.14, M5-8).
+  the probe is active.
 - **The BootUI agent skips the application's own Byte Buddy.** Packaging the agent relocated the `net.bytebuddy.`
   prefix in its exclusion list to the agent's shaded package, so the published jar excluded only its own copy of Byte
   Buddy and could instrument the one an application ships with Mockito or Hibernate. The prefix is now built at run time,
-  and a test checks it in the packaged jar (PLAN-v2 §5.13).
+  and a test checks it in the packaged jar.
 - **Code Paths overhead under load.** With more than 512 request trees open, as under sustained load, the engine settled
   the eldest one tree at a time, reading the whole runtime journal once per request on BootUI's drain thread: 15 % of
   the process's CPU in a profile of the sample under the agent overhead benchmark's load. The eldest quarter now settle
   together, in one journal read: the agent overhead benchmark's median went from 16.0 % to 4.1 % with the default
   sensors on a four-processor CI runner, and the `code-paths` sensor stays on by default
-  ([Java agent](docs/features/java-agent.md#the-code-paths-sensor), PLAN-v2 §5.13, M5-13).
+  ([Java agent](docs/features/java-agent.md#the-code-paths-sensor)).
 - **Runtime Insights write evidence and plan accuracy.** On Quarkus, `safe-method-dml` labels Hibernate statements as
   preparations, separate from timed JDBC executions of the same SQL shape; the evidence and limitations no longer claim
   a prepared write ran. The v2 plan now describes persisted `METADATA_ONLY` reads and the in-progress Code Paths, Code
-  Inventory, and agent evidence work accurately ([#1240](https://github.com/jdubois/boot-ui/pull/1240);
-  PLAN-v2 §§5.5, 5.14, 5.15, 5.17, 8; FIN2-01–03).
+  Inventory, and agent evidence work accurately ([#1240](https://github.com/jdubois/boot-ui/pull/1240)).
 - **Code Inventory after reload.** Work retaining an old application object across a DevTools restart or Quarkus
   live reload no longer marks the changed method in the new run executed, or attributes its first hit to the new
   run. Defining-loader tokens stay stable across retransformation, and hit flags belong to one run, so old advice
   cannot satisfy `changed-code-not-executed` or `verify_after_change`. Ignored reflection and serialization loaders no
   longer consume the bounded token pool, and dead loaders' slots are safely recycled. Capacity failures stay
-  **not tracked**, rather than falsely **never executed** ([#1247](https://github.com/jdubois/boot-ui/pull/1247);
-  M52-01; PLAN-v2 §5.15, §5.17).
-- **Code Inventory and Code Paths honor a disabled HTTP Exchanges panel.** Code Inventory, its API, and
-  `get_code_inventory` no longer show the first request and route that ran a method, and `changed-code-not-executed`
-  names no route, while HTTP Exchanges is disabled; Code Paths, its API, `get_code_paths`, and the handler split of
-  `route-time-breakdown` are unavailable with that reason, on Spring MVC, Spring WebFlux, and Quarkus.
-- **Code Inventory no longer reports methods as removed when a class root could not be read.** A class directory or
-  jar the scan cannot open or walk now counts as skipped, as a class file it cannot parse already did, and makes the
-  scan partial (failed when nothing could be read) instead of complete.
-- **Runtime Insights write attribution and remote calls.** Anonymous access reports Quarkus Hibernate SQL as an
-  unverified preparation instead of a proven table write; hidden Hibernate evidence cannot promote it. Runtime model,
-  change impact, and run comparison attribute DML writes only to exact lexical targets rather than read-side tables;
-  older run summaries do not compare incompatible table edges. Transactions held across captured AI calls are detected
-  alongside REST calls without double-counting a nested transport call
-  ([Runtime Insights](docs/features/overview.md#runtime-insights); PLAN-v2 §§5.4, 5.5, 5.9; follow-up to #1230).
-- **Clear recording and trace-only AI route attribution.** Runtime-journal offers now stamp and enqueue atomically
-  against **Clear recording**, so an application event cannot be offered after a clear returns with the previous
-  recording's generation and then disappear. AI calls imported with only a trace id now use the same bounded,
-  ambiguity-aware request attribution for route child counts, time, and tokens as for runtime-model edges, including
-  late-request reclaim without double counting (PLAN-v2 §5.2, M3-3c, M4-11).
+  **not tracked**, rather than falsely **never executed** ([#1247](https://github.com/jdubois/boot-ui/pull/1247)).
 
-- **Quarkus worker resource attribution.** A Quarkus REST worker or virtual thread whose response body outlives its
-  chain — a `File` or `Path` response, which Quarkus streams after the chain is done — now stops being metered for
-  the request as soon as Quarkus completes that request on it, instead of staying charged to it for the whole
-  transfer. Whatever the thread did back in its pool in between — unrelated work, or a task an agent propagated for
-  another request — is no longer added to the finished request's CPU time and allocation, and its
-  `bootui.ExecutionSegment` interval no longer covers that window, so **Profile resources** stops joining those JFR
-  samples and hot frames to the wrong route. An ordinary response was already attributed correctly, because the
-  worker writes it itself and the request is taken inline on that thread. A suspended chain — a blocking method
-  returning a `Uni` or a `CompletionStage`, a `Multi`, SSE — releases its worker at a point Quarkus 3.33 exposes no
-  hook for, and stays attributed to that worker until the request is taken (PLAN-v2 §5.11, D17;
-  [Runtime Insights](docs/features/overview.md#runtime-insights)).
 
-- **Runtime Insights completeness and zero-ORM comparisons.** Drops of scheduled, messaging, and WebSocket
-  completion events now mark observations that examine those executions partial, while disabled optional evidence
-  does not. Collection and Code Inventory checks do not count unrelated execution drops.
-  A drop refreshes cached coverage and findings even before another event is dispatched. Run comparison
-  includes Hibernate flush counts changing to or from zero when both runs recorded the ORM source,
-  with an explicit capture-listener caveat when a run recorded no sessions; legacy summaries keep the conservative
-  event-presence fallback (follow-up to [#1222](https://github.com/jdubois/boot-ui/pull/1222),
-  [#1225](https://github.com/jdubois/boot-ui/pull/1225), and
-  [#1228](https://github.com/jdubois/boot-ui/pull/1228); PLAN-v2 §5.5, §5.8).
 
-- **Java agent verification and early task publication.** Core executor and supported thread hooks must positively
-  pass their self-tests: a timeout, interruption, or probe error without hook hits disables the sensor for that claim.
-  `PROPAGATED` is unavailable while the executor self-test is pending or unverified. A task that publishes its own
-  result just before its body returns now uses the same 2 ms response-clock slack as a nested promise, avoiding
-  false `work-after-response` evidence ([#1233](https://github.com/jdubois/boot-ui/pull/1233),
-  [#1223](https://github.com/jdubois/boot-ui/pull/1223); PLAN-v2 M5-2, D32).
 
-- **Source-panel policy gaps.** While HTTP Exchanges is disabled, a request's journal profile (panel and
-  `get_request_profile`) is unavailable, Runtime Insights lists no route as **Not exercised in this run**, and
-  **Profile resources** lists no per-route row; each says why. On Quarkus, Live Activity no longer adds Security Logs
-  principals, exception messages, email details, or buffered requests and SQL while their panel is disabled. Durable
-  history no longer shows a stored principal under `METADATA_ONLY`, and its search no longer matches text masked or
-  withheld on read, on Spring MVC, Spring WebFlux, and Quarkus ([Live Activity](docs/features/overview.md#durable-history), PLAN-v2 §8).
 
-- **Work after the response.** Follow-up to [#1218](https://github.com/jdubois/boot-ui/pull/1218):
-  task-body completion restores fast late-starting tasks and earlier SQL followed by long-running
-  computation, without counting a waited-for task's delayed handoff close. Result-publication tails remain visible
-  and I/O uses the actual response boundary. Promise-signalling runnables and explicitly early-completed fork/join
-  tasks keep their own body-return markers (PLAN-v2 M5-2b, D32).
 
-- **Runtime Insights error and connection evidence.** A recovered retry or fallback no longer hides unrelated errors
-  in a successful request. Connections held together now use the known pool maximum and the corrected first possible
-  hold-and-wait concurrency estimate. Exception checks follow captured subclasses and causes rather than only the
-  top-level wrapper ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.5).
-- **Runtime Insights agent list.** `requests` counts completed HTTP exchanges only: zero is not proof the run was idle
-  when an observation names a request or execution, retained scheduled runs or consumed messages, or evicted events
-  say otherwise. A run-level observation with no exemplar, such as heap growth after one collection, does not. The
-  default agent list includes latency rows and omits only an insufficient repeated SELECT under 50 ms of summed
-  measured time that ran fewer than 10 times in any one request; a limitation names how many were left out, and
-  `query=repeated-selects` returns them. A sufficient finding, including a local-database N+1, stays. Repeated-selects
-  evidence names the phase and whether the repeats ran in a transaction, and says when the total is unmeasured or a
-  parent result size was not recorded.
 
-- **Runtime journal and persisted Live Activity bounds.** Oversized evidence no longer exceeds the configured
-  byte budget; SQL events identify their named data source even with connection recording
-  off; per-request SELECT tracking is capped and uses the same literal-free fingerprints for live and persisted N+1
-  badges, replacing the least frequent shape when full so a later repeated SELECT remains detectable; and persisted
-  activity pages scan past rows hidden by a disabled panel
-  while keeping a continuation cursor (PLAN-v2 §5.2, §8; [Live Activity](docs/features/overview.md#durable-history);
-  follow-up to #1216).
 
-- **The Java agent's self-test checks every hook on its own, and its report matches what runs.** A thread pool's
-  `addWorker` and work-queue keys, `CompletableFuture`'s supply and run stages, and platform and virtual thread runs
-  are self-tested separately, so a missing hook no longer passes on a sibling's count. The panel says whether each
-  sensor is active for this application's claim, and the `PROPAGATED` tier is withheld when the claim does not use
-  `executors`. Sensors report their install, self-test, and cumulative install-and-release times; the **Class transformation** card
-  sums them across every sensor. A request profile never attributes work at a tier it reports unavailable, and the
-  `JAVA_TOOL_OPTIONS` snippet quotes a jar path that contains spaces
-  ([Java Agent](docs/features/java-agent.md), PLAN-v2 §5.13).
 
-- **Duplicate `X-Content-Type-Options` on streamed BootUI responses.** On Spring MVC with Spring Security, a host
-  header writer racing the response commit (for example the log-tail SSE stream) could add `nosniff` twice. The
-  security-headers response wrapper is now synchronized and drops identical repeated baseline values.
-- **Runtime Insights and change impact stay truthful with sparse or restricted evidence.** Scheduled jobs and consumed
-  messages can show observations without an HTTP request. Change impact counts route traffic across the whole run
-  after journal eviction, narrows an explicitly named handler method to its own mappings, and excludes disabled
-  source panels' evidence from its model and suggestions. Route-count overflow marks unclassified routes as
-  undetermined, and disabled-source limitations appear only when relevant evidence was recorded
-  ([#1217](https://github.com/jdubois/boot-ui/pull/1217); PLAN-v2 M4-18b).
-- **Runtime Insights source-panel follow-ups.** Checks no longer report an empty evaluation after a unit they
-  examine is hidden; only its disabled opening panel is named, and HTTP-only checks do not blame hidden jobs.
-  Dropped HTTP events count once even when HTTP is a required source. Quarkus does not claim that an
-  unverified prepared write executed when Hibernate evidence is hidden, and trace-only AI calls owned by hidden
-  requests no longer survive as uncorrelated coverage ([#1217](https://github.com/jdubois/boot-ui/pull/1217)).
-- **Runtime Insights after Clear recording.** Clearing the journal or freeing BootUI memory now refreshes the
-  report and its evidence at once instead of serving the cleared events until a new one arrives, and no route's first
-  post-clear request is labeled cold. The evidence table follows each auto-refresh of the open observation, and
-  `gc-inflated-latency` leaves each route's cold first request out of its slowest tenth (PLAN-v2 §5.5, M3-3a, M4-3).
 
-- **Runtime Insights and Live Activity UI.** Load failures in Change impact, Run comparison, Profile resources,
-  Why-slow, and observation evidence show their message instead of a JSON object (including in the screen-reader
-  status region). `work-after-response` observations appear under the Time chip, the command palette finds Runtime
-  Insights by "what changed", "impact", and "compare", Live Activity's runtime-journal feed gains a **Run id** filter,
-  and the request drawer no longer shows or copies the previous row's profile when a second row is opened while the
-  first is still loading.
 
-- **Runtime Insights tells an unavailable panel from a disabled one.** An observation whose evidence belongs to a panel
-  this application cannot serve, such as Security Logs on a Quarkus application without
-  `quarkus.security.events.enabled`, now names what would make it available instead of reporting the panel as disabled
-  or the evidence as insufficient. The panel's evidence stays out of the projection either way
-  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.5).
 
-- **Quarkus reports application-event publications as unrecorded.** Quarkus records which observers ran but not who
-  fired the event, so a change impact that reaches code only through an event now says so in its limitations, rather
-  than implying the Spring adapters' `PUBLISHES` edge exists there ([Quarkus support](docs/QUARKUS-SUPPORT.md),
-  PLAN-v2 §5.18).
 
-- **A cleared correlation scope holds on Quarkus.** Work run deliberately outside a request, such as a managed task
-  taken from a snapshot with no request, is no longer re-correlated by the Vert.x duplicated context it happens to run
-  on, and closing any correlation scope restores the request the thread was being metered for instead of stopping its
-  measurement (PLAN-v2 §5.1).
 
-- **`bootui.runtime-insights.ai-token-threshold` is validated on Quarkus.** A zero, negative, or unreadable value now
-  fails at startup with the same message as on Spring, instead of being silently replaced by the default
-  ([Properties](docs/PROPERTIES.md), PLAN-v2 §5.5).
 
-- **Retained request and execution profiles.** Live Activity displays the runtime-journal timeline even after an
-  HTTP exchange leaves the shorter buffer. `get_request_profile` and `bootui request-profile` open journal requests,
-  scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the
-  HTTP-exchange profile when necessary. Missing ids identify both retention windows (PLAN-v2 M2-9b, M3-7).
 
-- **Runtime observation accuracy (OBS-01, OBS-02, OBS-08).** Proxy bypass no longer judges `@Cacheable(sync = true)`
-  or condition-dependent cache methods as bypasses when Spring legitimately records no preceding cache access.
-  Anonymous writes identify each captured DML target, including JDBC batch previews, not tables read by INSERT … SELECT,
-  subqueries, or UPDATE … FROM; ambiguous multi-table forms stay visible as labelled lexical candidates, not proven
-  writes. Truncated batch literals no longer hide later previews; truncation, uncertain comments, and DELETE … USING
-  never produce exact write claims. Possible batch truncation is explicit. The anonymous-access documentation now describes intended public
-  writes and unproven anonymity honestly
-  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-12, M4-13).
 
 - **Live Activity under durable storage no longer offers a source it ignores or an empty-state it contradicts.** The
   **Recorded by** selector is withheld, with the same note as the journal-only filters, while persisted history serves
   the feed, and no `source` is sent, because stored rows are always journal-rendered. A persisted page whose rows are all
   hidden now reads "No visible rows on this page" beside **Load older activity** instead of "No activity recorded yet".
-  The prompt inventory now names all four MCP prompts including `verify_after_change`, the runtime journal page says the
-  BootUI agent propagates raw executors and `CompletableFuture`, and PLAN-v2 §8 and M4-18 match the shipped panel gating
-  and review fixes ([Live Activity](docs/features/overview.md#durable-history), PLAN-v2 §8, M4-18).
+  The prompt inventory now names all four MCP prompts including `verify_after_change`, and the runtime journal page says
+  the BootUI agent propagates raw executors and `CompletableFuture` ([Live Activity](docs/features/overview.md#durable-history)).
 - **Code Inventory and Code Paths honor a disabled HTTP Exchanges panel.** Code Inventory, its API, and
   `get_code_inventory` no longer show the first request and route that ran a method, and `changed-code-not-executed`
   names no route, while HTTP Exchanges is disabled; Code Paths, its API, `get_code_paths`, and the handler split of
@@ -1001,12 +850,12 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   change impact, and run comparison attribute DML writes only to exact lexical targets rather than read-side tables;
   older run summaries do not compare incompatible table edges. Transactions held across captured AI calls are detected
   alongside REST calls without double-counting a nested transport call
-  ([Runtime Insights](docs/features/overview.md#runtime-insights); PLAN-v2 §§5.4, 5.5, 5.9; follow-up to #1230).
+  ([Runtime Insights](docs/features/overview.md#runtime-insights); follow-up to #1230).
 - **Clear recording and trace-only AI route attribution.** Runtime-journal offers now stamp and enqueue atomically
   against **Clear recording**, so an application event cannot be offered after a clear returns with the previous
   recording's generation and then disappear. AI calls imported with only a trace id now use the same bounded,
   ambiguity-aware request attribution for route child counts, time, and tokens as for runtime-model edges, including
-  late-request reclaim without double counting (PLAN-v2 §5.2, M3-3c, M4-11). ([#1244](https://github.com/jdubois/boot-ui/pull/1244))
+  late-request reclaim without double counting. ([#1244](https://github.com/jdubois/boot-ui/pull/1244))
 
 - **Quarkus worker resource attribution.** A Quarkus REST worker or virtual thread whose response body outlives its
   chain — a `File` or `Path` response, which Quarkus streams after the chain is done — now stops being metered for
@@ -1017,8 +866,7 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   samples and hot frames to the wrong route. An ordinary response was already attributed correctly, because the
   worker writes it itself and the request is taken inline on that thread. A suspended chain — a blocking method
   returning a `Uni` or a `CompletionStage`, a `Multi`, SSE — releases its worker at a point Quarkus 3.33 exposes no
-  hook for, and stays attributed to that worker until the request is taken (PLAN-v2 §5.11, D17;
-  [Runtime Insights](docs/features/overview.md#runtime-insights)). ([#1239](https://github.com/jdubois/boot-ui/pull/1239))
+  hook for, and stays attributed to that worker until the request is taken ([Runtime Insights](docs/features/overview.md#runtime-insights)). ([#1239](https://github.com/jdubois/boot-ui/pull/1239))
 
 - **Runtime Insights completeness and zero-ORM comparisons.** Drops of scheduled, messaging, and WebSocket
   completion events now mark observations that examine those executions partial, while disabled optional evidence
@@ -1028,32 +876,32 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   with an explicit capture-listener caveat when a run recorded no sessions; legacy summaries keep the conservative
   event-presence fallback (follow-up to [#1222](https://github.com/jdubois/boot-ui/pull/1222),
   [#1225](https://github.com/jdubois/boot-ui/pull/1225), and
-  [#1228](https://github.com/jdubois/boot-ui/pull/1228); PLAN-v2 §5.5, §5.8).
+  [#1228](https://github.com/jdubois/boot-ui/pull/1228)).
 
 - **Java agent verification and early task publication.** Core executor and supported thread hooks must positively
   pass their self-tests: a timeout, interruption, or probe error without hook hits disables the sensor for that claim.
   `PROPAGATED` is unavailable while the executor self-test is pending or unverified. A task that publishes its own
   result just before its body returns now uses the same 2 ms response-clock slack as a nested promise, avoiding
   false `work-after-response` evidence ([#1233](https://github.com/jdubois/boot-ui/pull/1233),
-  [#1223](https://github.com/jdubois/boot-ui/pull/1223); PLAN-v2 M5-2, D32).
+  [#1223](https://github.com/jdubois/boot-ui/pull/1223)).
 
 - **Source-panel policy gaps.** While HTTP Exchanges is disabled, a request's journal profile (panel and
   `get_request_profile`) is unavailable, Runtime Insights lists no route as **Not exercised in this run**, and
   **Profile resources** lists no per-route row; each says why. On Quarkus, Live Activity no longer adds Security Logs
   principals, exception messages, email details, or buffered requests and SQL while their panel is disabled. Durable
   history no longer shows a stored principal under `METADATA_ONLY`, and its search no longer matches text masked or
-  withheld on read, on Spring MVC, Spring WebFlux, and Quarkus ([Live Activity](docs/features/overview.md#durable-history), PLAN-v2 §8). ([#1237](https://github.com/jdubois/boot-ui/pull/1237))
+  withheld on read, on Spring MVC, Spring WebFlux, and Quarkus ([Live Activity](docs/features/overview.md#durable-history)). ([#1237](https://github.com/jdubois/boot-ui/pull/1237))
 
 - **Work after the response.** Follow-up to [#1218](https://github.com/jdubois/boot-ui/pull/1218):
   task-body completion restores fast late-starting tasks and earlier SQL followed by long-running
   computation, without counting a waited-for task's delayed handoff close. Result-publication tails remain visible
   and I/O uses the actual response boundary. Promise-signalling runnables and explicitly early-completed fork/join
-  tasks keep their own body-return markers (PLAN-v2 M5-2b, D32).
+  tasks keep their own body-return markers.
 
 - **Runtime Insights error and connection evidence.** A recovered retry or fallback no longer hides unrelated errors
   in a successful request. Connections held together now use the known pool maximum and the corrected first possible
   hold-and-wait concurrency estimate. Exception checks follow captured subclasses and causes rather than only the
-  top-level wrapper ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.5). ([#1234](https://github.com/jdubois/boot-ui/pull/1234))
+  top-level wrapper ([Runtime Insights](docs/features/overview.md#runtime-insights)). ([#1234](https://github.com/jdubois/boot-ui/pull/1234))
 - **Runtime Insights agent list.** `requests` counts completed HTTP exchanges only: zero is not proof the run was idle
   when an observation names a request or execution, retained scheduled runs or consumed messages, or evicted events
   say otherwise. A run-level observation with no exemplar, such as heap growth after one collection, does not. The
@@ -1068,7 +916,7 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   off; per-request SELECT tracking is capped and uses the same literal-free fingerprints for live and persisted N+1
   badges, replacing the least frequent shape when full so a later repeated SELECT remains detectable; and persisted
   activity pages scan past rows hidden by a disabled panel
-  while keeping a continuation cursor (PLAN-v2 §5.2, §8; [Live Activity](docs/features/overview.md#durable-history);
+  while keeping a continuation cursor ([Live Activity](docs/features/overview.md#durable-history);
   follow-up to #1216).
 
 - **The Java agent's self-test checks every hook on its own, and its report matches what runs.** A thread pool's
@@ -1078,7 +926,7 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   `executors`. Sensors report their install, self-test, and cumulative install-and-release times; the **Class transformation** card
   sums them across every sensor. A request profile never attributes work at a tier it reports unavailable, and the
   `JAVA_TOOL_OPTIONS` snippet quotes a jar path that contains spaces
-  ([Java Agent](docs/features/java-agent.md), PLAN-v2 §5.13). ([#1233](https://github.com/jdubois/boot-ui/pull/1233), [#1243](https://github.com/jdubois/boot-ui/pull/1243))
+  ([Java Agent](docs/features/java-agent.md)). ([#1233](https://github.com/jdubois/boot-ui/pull/1233), [#1243](https://github.com/jdubois/boot-ui/pull/1243))
 
 - **Duplicate `X-Content-Type-Options` on streamed BootUI responses.** On Spring MVC with Spring Security, a host
   header writer racing the response commit (for example the log-tail SSE stream) could add `nosniff` twice. The
@@ -1088,7 +936,7 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   after journal eviction, narrows an explicitly named handler method to its own mappings, and excludes disabled
   source panels' evidence from its model and suggestions. Route-count overflow marks unclassified routes as
   undetermined, and disabled-source limitations appear only when relevant evidence was recorded
-  ([#1217](https://github.com/jdubois/boot-ui/pull/1217); PLAN-v2 M4-18b).
+  ([#1217](https://github.com/jdubois/boot-ui/pull/1217)).
 - **Runtime Insights source-panel follow-ups.** Checks no longer report an empty evaluation after a unit they
   examine is hidden; only its disabled opening panel is named, and HTTP-only checks do not blame hidden jobs.
   Dropped HTTP events count once even when HTTP is a required source. Quarkus does not claim that an
@@ -1097,7 +945,7 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 - **Runtime Insights after Clear recording.** Clearing the journal or freeing BootUI memory now refreshes the
   report and its evidence at once instead of serving the cleared events until a new one arrives, and no route's first
   post-clear request is labeled cold. The evidence table follows each auto-refresh of the open observation, and
-  `gc-inflated-latency` leaves each route's cold first request out of its slowest tenth (PLAN-v2 §5.5, M3-3a, M4-3). ([#1228](https://github.com/jdubois/boot-ui/pull/1228))
+  `gc-inflated-latency` leaves each route's cold first request out of its slowest tenth. ([#1228](https://github.com/jdubois/boot-ui/pull/1228))
 
 - **Runtime Insights and Live Activity UI.** Load failures in Change impact, Run comparison, Profile resources,
   Why-slow, and observation evidence show their message instead of a JSON object (including in the screen-reader
@@ -1110,35 +958,34 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   this application cannot serve, such as Security Logs on a Quarkus application without
   `quarkus.security.events.enabled`, now names what would make it available instead of reporting the panel as disabled
   or the evidence as insufficient. The panel's evidence stays out of the projection either way
-  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.5). ([#1224](https://github.com/jdubois/boot-ui/pull/1224))
+  ([Runtime Insights](docs/features/overview.md#runtime-insights)). ([#1224](https://github.com/jdubois/boot-ui/pull/1224))
 
 - **Quarkus reports application-event publications as unrecorded.** Quarkus records which observers ran but not who
   fired the event, so a change impact that reaches code only through an event now says so in its limitations, rather
-  than implying the Spring adapters' `PUBLISHES` edge exists there ([Quarkus support](docs/QUARKUS-SUPPORT.md),
-  PLAN-v2 §5.18). ([#1224](https://github.com/jdubois/boot-ui/pull/1224))
+  than implying the Spring adapters' `PUBLISHES` edge exists there ([Quarkus support](docs/QUARKUS-SUPPORT.md)). ([#1224](https://github.com/jdubois/boot-ui/pull/1224))
 
 - **A cleared correlation scope holds on Quarkus.** Work run deliberately outside a request, such as a managed task
   taken from a snapshot with no request, is no longer re-correlated by the Vert.x duplicated context it happens to run
   on, and closing any correlation scope restores the request the thread was being metered for instead of stopping its
-  measurement (PLAN-v2 §5.1). ([#1224](https://github.com/jdubois/boot-ui/pull/1224))
+  measurement. ([#1224](https://github.com/jdubois/boot-ui/pull/1224))
 
 - **`bootui.runtime-insights.ai-token-threshold` is validated on Quarkus.** A zero, negative, or unreadable value now
   fails at startup with the same message as on Spring, instead of being silently replaced by the default
-  ([Properties](docs/PROPERTIES.md), PLAN-v2 §5.5). ([#1224](https://github.com/jdubois/boot-ui/pull/1224))
+  ([Properties](docs/PROPERTIES.md)). ([#1224](https://github.com/jdubois/boot-ui/pull/1224))
 
 - **Retained request and execution profiles.** Live Activity displays the runtime-journal timeline even after an
   HTTP exchange leaves the shorter buffer. `get_request_profile` and `bootui request-profile` open journal requests,
   scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the
-  HTTP-exchange profile when necessary. Missing ids identify both retention windows (PLAN-v2 M2-9b, M3-7).
+  HTTP-exchange profile when necessary. Missing ids identify both retention windows.
 
-- **Runtime observation accuracy (OBS-01, OBS-02, OBS-08).** Proxy bypass no longer judges `@Cacheable(sync = true)`
+- **Runtime observation accuracy.** Proxy bypass no longer judges `@Cacheable(sync = true)`
   or condition-dependent cache methods as bypasses when Spring legitimately records no preceding cache access.
   Anonymous writes identify each captured DML target, including JDBC batch previews, not tables read by INSERT … SELECT,
   subqueries, or UPDATE … FROM; ambiguous multi-table forms stay visible as labelled lexical candidates, not proven
   writes. Truncated batch literals no longer hide later previews; truncation, uncertain comments, and DELETE … USING
   never produce exact write claims. Possible batch truncation is explicit. The anonymous-access documentation now describes intended public
   writes and unproven anonymity honestly
-  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-12, M4-13). ([#1230](https://github.com/jdubois/boot-ui/pull/1230))
+  ([Runtime Insights](docs/features/overview.md#runtime-insights)). ([#1230](https://github.com/jdubois/boot-ui/pull/1230))
 
 - **Late runtime-journal events keep their request attribution.** AI exports, managed-executor work, SQL, exceptions,
   connection releases, authorization decisions, and ORM sessions that finish after the HTTP response now update the
@@ -1148,8 +995,7 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   in the aggregator topology stay out. Trace-only AI edges now use the same unique request-window rule as Live Activity
   and request profiles, including events received before their HTTP anchor and ambiguous traces shared by overlapping
   requests; a call that no request of its trace spans is counted apart and is not reported as a comparison limitation
-  ([#1235](https://github.com/jdubois/boot-ui/pull/1235);
-  PLAN-v2 M2-2, M3-3c, M3-9, M4-1).
+  ([#1235](https://github.com/jdubois/boot-ui/pull/1235)).
 - **Java agent claim handoffs preserve request ownership.** Overlapping submissions of the same task across restarts
   stay unowned rather than taking a newer claim's snapshot. Immediate reclaim cancels queued executor/thread sensor
   removal or reinstalls the sensor after an in-flight reset, restoring thread subclasses even when the new claim
@@ -1210,7 +1056,7 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   every exposure mode, including in kept runs and the baseline file; legacy fingerprints are sanitized on read,
   and masking-indistinguishable groups retain summed counts and histograms
   ([#1222](https://github.com/jdubois/boot-ui/pull/1222),
-  [Run comparison](docs/PLAN-v2.md#58-run-comparison--runtime-insights--delivered), CMP-02/04/05/06/07, M4-18b, C15-1).
+  [Run comparison](docs/features/overview.md#runtime-insights)).
 
 - **Runtime Insights no longer reports what it could not see.** From the 2.0 validation run
   ([report](docs/V2-VALIDATION-REPORT.md)): `route-time-breakdown` stops calling time "application code" when a request
@@ -1225,12 +1071,12 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   query a view ran while rendering, such as through a Thymeleaf formatter, and advises loading it in the handler, with
   the application frame as the call site; frames of applications in `org.springframework.samples` or
   `io.quarkus.sample` count as application code. The `errors-behind-2xx` sentence reads "2 requests whose transaction
-  rolled back", and insufficient findings are labelled **Not enough evidence** (PLAN-v2 M4-18a).
+  rolled back", and insufficient findings are labelled **Not enough evidence**.
 - **Live Activity says when nothing has been recorded yet.** An empty feed with no filter, search, or toggle narrowing
   it said "No activity matches the current filters"; it now says no activity is recorded yet and how to produce some,
   keeping the filter message for a feed a filter narrowed. `orm-auto-flush` applies its threshold per request, as the
   plan sets it, so one request that auto-flushed three times or more, or for a fifth of its ORM time, reports its route
-  instead of waiting for a second one ([report](docs/V2-VALIDATION-REPORT.md), PLAN-v2 M4-18c).
+  instead of waiting for a second one ([report](docs/V2-VALIDATION-REPORT.md)).
 - **The Mappings panel lists Spring WebFlux routes.** The Actuator-backed provider read only Spring MVC's
   `dispatcherServlets`, so a WebFlux application showed no mapping and, without OpenTelemetry, grouped its requests by
   masked paths. It now also reads WebFlux's `dispatcherHandlers`: annotated controllers, and functional routes whose
@@ -1402,7 +1248,7 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   structural label but dropping free text under `METADATA_ONLY`, and are read only while the panel that owns them is
   enabled. Runtime Insights quote a statement's literal-free shape, never its grouping fingerprint, which kept MySQL
   double-quoted strings and a truncated dollar quote verbatim. Applies on Spring MVC, Spring WebFlux, and Quarkus
-  ([Live Activity safety](docs/features/overview.md#safety-and-limits), PLAN-v2 §8,
+  ([Live Activity safety](docs/features/overview.md#safety-and-limits),
   [#1216](https://github.com/jdubois/boot-ui/pull/1216)).
 - **Trace data now follows the value-exposure policy.** `GET /bootui/api/traces/{id}`, the trace embedded in the
   per-request profile (`GET /bootui/api/activity/request/{id}`), and their `get_request_profile` MCP tool and
