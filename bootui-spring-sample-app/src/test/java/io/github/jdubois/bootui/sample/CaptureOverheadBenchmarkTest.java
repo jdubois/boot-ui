@@ -37,8 +37,9 @@ import org.springframework.context.ConfigurableApplicationContext;
  *
  * <pre>./mvnw -pl bootui-spring-sample-app test -Dtest=CaptureOverheadBenchmarkTest -Dbootui.benchmark=true</pre>
  *
- * <p>Milestone M2 adds a journal-on and journal-off pair to the same report. {@link AgentOverheadBenchmarkIT} drives the
- * same route and load against the executable jar with and without the BootUI agent.</p>
+ * <p>It compares BootUI on with BootUI off only: the journal is on, its default, whenever BootUI is. The journal's own
+ * cost, BootUI on in both runs with the journal on and off, is {@link JournalOverheadBenchmarkIT}'s, and the BootUI
+ * agent's is {@link AgentOverheadBenchmarkIT}'s; both drive the same route and load against the executable jar.</p>
  */
 @EnabledIfSystemProperty(named = "bootui.benchmark", matches = "true")
 class CaptureOverheadBenchmarkTest {
