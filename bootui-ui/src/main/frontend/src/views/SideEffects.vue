@@ -800,18 +800,18 @@ function hookStatus(value, label) {
 }
 
 .side-effects-toggle {
-  border: 1px solid var(--bs-border-color);
+  border: 1px solid var(--bootui-border);
   border-radius: var(--bootui-radius-md);
   padding: 0.75rem 1rem;
 }
 
 .side-effects-hooks .badge {
-  color: var(--bs-body-color);
+  color: var(--bootui-text);
   font-weight: 500;
 }
 
 .side-effects-row-other td {
-  background: var(--bs-tertiary-bg);
+  background: var(--bootui-surface-alt);
 }
 
 .side-effects-row-other td:first-child {

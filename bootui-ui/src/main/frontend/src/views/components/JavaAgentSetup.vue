@@ -159,8 +159,8 @@ function languageLabel(language) {
 }
 
 .java-agent-code {
-  background: var(--bs-dark);
-  color: var(--bs-light);
+  background: var(--bootui-code-pane-bg);
+  color: var(--bootui-code-pane-text);
   font-size: 0.85rem;
   max-height: 26rem;
   overflow: auto;
