@@ -20,7 +20,8 @@ final class CheckWording {
             SideEffectsCatalog.WEAK_CIPHER,
             SideEffectsCatalog.TRUST_MANAGER,
             SideEffectsCatalog.HOSTNAME_VERIFIER,
-            SideEffectsCatalog.SOCKET_FACTORY);
+            SideEffectsCatalog.SOCKET_FACTORY,
+            SideEffectsCatalog.TRUST_ALL);
 
     private CheckWording() {}
 
@@ -76,6 +77,19 @@ final class CheckWording {
                     : "Application code initialized an SSLContext with a trust manager of its own (" + target + ")"
                             + at;
             return who + ". Check that it validates certificate chains and never trusts every certificate.";
+        }
+        if (SideEffectsCatalog.TRUST_ALL.equals(kind)) {
+            String who = library
+                    ? "by library code " + libraryFrame
+                            + (callSite == null || callSite.equals(location)
+                                    ? ""
+                                    : " for application frame `" + callSite + "`")
+                    : "by application code" + at;
+            String accepts = target != null && target.endsWith("TrustSelfSignedStrategy")
+                    ? "every self-signed certificate"
+                    : "every certificate";
+            return "An SSLContext was initialized " + who + " with a trust manager that accepts " + accepts + " ("
+                    + target + "). Check that this configuration never reaches a deployed environment.";
         }
         if (SideEffectsCatalog.HOSTNAME_VERIFIER.equals(kind)) {
             return "Application code set the default hostname verifier (" + target + ")" + at + ". Every"

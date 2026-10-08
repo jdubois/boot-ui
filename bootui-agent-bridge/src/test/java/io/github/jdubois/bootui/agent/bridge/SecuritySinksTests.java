@@ -393,6 +393,110 @@ class SecuritySinksTests {
     }
 
     @Test
+    void aStreamsOwnNestedReadsReturnAtOnceAndAFilteredStreamCountsOncePerRead() throws Exception {
+        long token = enabledClaim(SecuritySinks.GROUPS);
+        ObjectInputStream filtered = stream(List.of(1));
+        filtered.setObjectInputFilter(info -> ObjectInputFilter.Status.ALLOWED);
+
+        // A filtered HashMap of three entries: one outermost read, three nested ones on the same stream.
+        assertThat(Shop.reading(filtered)).isZero();
+        for (int depth = 1; depth <= 3; depth++) {
+            assertThat(Shop.readingNested(filtered, depth)).isZero();
+        }
+        // The same shape unfiltered: one tracked read, its nested entries untouched, one record.
+        ObjectInputStream unfiltered = stream(List.of(2));
+        long outer = Shop.reading(unfiltered);
+        int before = CodePaths.frame().serial.depth;
+        for (int depth = 1; depth <= 3; depth++) {
+            assertThat(Shop.readingNested(unfiltered, depth)).isZero();
+        }
+        SecuritySinks.resolved(java.util.HashMap.class);
+        Shop.read(outer, null);
+
+        assertThat(before).isEqualTo(1);
+        assertThat(SideEffects.status(SideEffects.SECURITY_SINKS)).containsEntry("filteredDeserializations", 1L);
+        assertThat(drain(token))
+                .singleElement()
+                .satisfies(record ->
+                        assertThat(string(record[SideEffects.R_TARGET])).isEqualTo("java.util.HashMap"));
+    }
+
+    @Test
+    void aJdkVerdictIsRememberedPerCallerSoItsClassIsNotAskedAgain() {
+        enabledClaim(SecuritySinks.GROUPS);
+        Claim claim = AgentBridge.current();
+        java.util.concurrent.atomic.AtomicInteger asked = new java.util.concurrent.atomic.AtomicInteger();
+        for (int i = 0; i < 3; i++) {
+            long[] who = new SecuritySinks.Attribution(
+                            claim, SideEffects.HOOK_DIGEST, "java.security.MessageDigest", "MD5".hashCode())
+                    .apply(Stream.of(
+                            frame("java.security.MessageDigest", "getInstance"),
+                            countingFrame(java.util.UUID.class, "nameUUIDFromBytes", asked)));
+            assertThat(who).isNull();
+        }
+
+        assertThat(asked.get())
+                .as("the caller's class is asked once, then remembered")
+                .isEqualTo(1);
+        assertThat(SideEffects.status(SideEffects.SECURITY_SINKS)).containsEntry("jdkRequests", 3L);
+    }
+
+    @Test
+    void knownLibraryTrustAllManagersAreRecordedThroughTheirWrappersAndOthersAreNot() {
+        long token = enabledClaim(SecuritySinks.GROUPS);
+        Object netty = io.netty.handler.ssl.util.InsecureTrustManagerFactory.TRUST_MANAGER;
+
+        Shop.trust(new Object[] {new io.netty.handler.ssl.EnhancingX509ExtendedTrustManager(netty)});
+        // Netty 4.1's shape: its insecure trust manager inside X509TrustManagerWrapper, inside the resumption wrapper.
+        Shop.trust(new Object[] {new io.netty.handler.ssl.util.X509TrustManagerWrapper(netty)});
+        Shop.trust(new Object[] {
+            new org.apache.hc.core5.ssl.SSLContextBuilder.TrustManagerDelegate(
+                    new Object(), org.apache.hc.client5.http.ssl.TrustAllStrategy.INSTANCE)
+        });
+        // A wrapper around a trust manager that checks: nothing.
+        Shop.trust(new Object[] {new io.netty.handler.ssl.EnhancingX509ExtendedTrustManager(new Object())});
+        Shop.trust(
+                new Object[] {new org.apache.hc.core5.ssl.SSLContextBuilder.TrustManagerDelegate(new Object(), null)});
+
+        // The application's own strategy inside Apache's delegate: the application's trust manager.
+        Shop.trust(new Object[] {
+            new org.apache.hc.core5.ssl.SSLContextBuilder.TrustManagerDelegate(new Object(), new Shop.TrustAll())
+        });
+
+        List<long[]> records = drain(token);
+        assertThat(records).hasSize(4);
+        assertThat(records.subList(0, 3)).allSatisfy(record -> {
+            assertThat(record[SideEffects.R_KIND]).isEqualTo(SecuritySinks.KIND_TRUST_ALL);
+            assertThat(outcome(record)).isEqualTo(SecuritySinks.ORIGIN_APPLICATION);
+        });
+        assertThat(string(records.get(0)[SideEffects.R_TARGET]))
+                .isEqualTo("io.netty.handler.ssl.util.InsecureTrustManagerFactory");
+        assertThat(string(records.get(1)[SideEffects.R_TARGET]))
+                .isEqualTo("io.netty.handler.ssl.util.InsecureTrustManagerFactory");
+        assertThat(string(records.get(2)[SideEffects.R_TARGET]))
+                .isEqualTo("org.apache.hc.client5.http.ssl.TrustAllStrategy");
+        assertThat(records.get(3)[SideEffects.R_KIND]).isEqualTo(SecuritySinks.KIND_TRUST_MANAGER);
+        assertThat(string(records.get(3)[SideEffects.R_TARGET])).isEqualTo("com.example.checks.Shop$TrustAll");
+        assertThat(SideEffects.status(SideEffects.SECURITY_SINKS)).containsEntry("trustAllManagers", 3L);
+    }
+
+    @Test
+    void trustAllNamesMatchExactlyOrTheirNestedClasses() {
+        assertThat(SecuritySinks.trustAllName("io.vertx.core.net.impl.TrustAllTrustManager"))
+                .isEqualTo("io.vertx.core.net.impl.TrustAllTrustManager");
+        assertThat(SecuritySinks.trustAllName("io.netty.handler.ssl.util.InsecureTrustManagerFactory$1"))
+                .isEqualTo("io.netty.handler.ssl.util.InsecureTrustManagerFactory");
+        assertThat(SecuritySinks.trustAllName("org.apache.http.conn.ssl.TrustSelfSignedStrategy"))
+                .isEqualTo("org.apache.http.conn.ssl.TrustSelfSignedStrategy");
+        assertThat(SecuritySinks.trustAllName("io.vertx.core.net.impl.TrustAllTrustManagerFactory"))
+                .isNull();
+        assertThat(SecuritySinks.trustAllName("io.netty.handler.ssl.util.InsecureTrustManagerFactoryX"))
+                .isNull();
+        assertThat(SecuritySinks.trustAllName("sun.security.ssl.X509TrustManagerImpl"))
+                .isNull();
+    }
+
+    @Test
     void theOutermostExitClosesTheReadEvenWhenANestedExitWasLost() throws Exception {
         long token = enabledClaim(SecuritySinks.GROUPS);
         ObjectInputStream stream = stream(List.of(1));
@@ -570,6 +674,54 @@ class SecuritySinksTests {
 
             @Override
             public Class<?> getDeclaringClass() {
+                return type;
+            }
+
+            @Override
+            public int getByteCodeIndex() {
+                return 0;
+            }
+
+            @Override
+            public String getFileName() {
+                return null;
+            }
+
+            @Override
+            public int getLineNumber() {
+                return -1;
+            }
+
+            @Override
+            public boolean isNativeMethod() {
+                return false;
+            }
+
+            @Override
+            public StackTraceElement toStackTraceElement() {
+                return named.toStackTraceElement();
+            }
+        };
+    }
+
+    /** A frame retaining its class, counting how often the class is asked for. */
+    private static StackWalker.StackFrame countingFrame(
+            Class<?> type, String method, java.util.concurrent.atomic.AtomicInteger asked) {
+        StackWalker.StackFrame named = frame(type.getName(), method);
+        return new StackWalker.StackFrame() {
+            @Override
+            public String getClassName() {
+                return named.getClassName();
+            }
+
+            @Override
+            public String getMethodName() {
+                return method;
+            }
+
+            @Override
+            public Class<?> getDeclaringClass() {
+                asked.incrementAndGet();
                 return type;
             }
 

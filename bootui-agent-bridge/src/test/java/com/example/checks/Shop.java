@@ -28,7 +28,12 @@ public final class Shop {
     }
 
     public static long reading(ObjectInputStream stream) {
-        return SecuritySinks.reading(stream);
+        return SecuritySinks.reading(stream, 0L);
+    }
+
+    /** A call inside the stream's own read, as a {@code HashMap}'s entries are read. */
+    public static long readingNested(ObjectInputStream stream, long depth) {
+        return SecuritySinks.reading(stream, depth);
     }
 
     public static void read(long token, Throwable thrown) {

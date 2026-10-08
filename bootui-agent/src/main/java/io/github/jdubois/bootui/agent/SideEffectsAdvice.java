@@ -506,12 +506,15 @@ final class SideEffectsAdvice {
         }
     }
 
-    /** {@code ObjectInputStream.readObject()}: the stream at entry, for its filter; the outermost call ends at exit. */
+    /**
+     * {@code ObjectInputStream.readObject()} and {@code readUnshared()}: the stream at entry, for its filter, with its own {@code depth} field, 0 only
+     * at its outermost call (JDK 17 to 26), so a nested element's read returns at once; the outermost call ends at exit.
+     */
     static final class ReadObject {
 
         @Advice.OnMethodEnter(suppress = Throwable.class)
-        static long enter(@Advice.This java.io.ObjectInputStream stream) {
-            return SecuritySinks.reading(stream);
+        static long enter(@Advice.This java.io.ObjectInputStream stream, @Advice.FieldValue("depth") long depth) {
+            return SecuritySinks.reading(stream, depth);
         }
 
         @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)

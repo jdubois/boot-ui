@@ -918,14 +918,14 @@ sensor is not claimed.
 ### JDK checks
 
 With `security-sinks` in `bootui.agent.sensors`, whatever `bootui.agent.security-sinks.request-values` says, the
-sensor also hooks the JDK's security APIs (M5-6b2) and records three kinds of facts as Security sinks rows, each worded
+sensor also hooks the JDK's security APIs and records three kinds of facts as Security sinks rows, each worded
 as what was seen, never as a vulnerability:
 
 | Check | Hooks | Recorded | The row |
 | --- | --- | --- | --- |
-| Deserialization without a filter | `ObjectInputStream.readObject()` (core), `resolveClass` (optional) | The outermost `readObject` on a thread whose stream has no `ObjectInputFilter`: its own, which the JVM's filter factory set from `jdk.serialFilter` when the stream was built | The first class read, the others (at most 16, merged per call site), and the call site: "Deserialization without an ObjectInputFilter at `CacheCodec#decode` (classes read: …)" |
+| Deserialization without a filter | `ObjectInputStream.readObject()` and `readUnshared()` (core), `resolveClass` (optional) | The outermost read of a stream that has no `ObjectInputFilter`: its own, which the JVM's filter factory set from `jdk.serialFilter` when the stream was built | The first class read, the others (at most 16, merged per call site), and the call site: "Deserialization without an ObjectInputFilter at `CacheCodec#decode` (classes read: …)" |
 | Weak algorithms | `MessageDigest.getInstance`, every overload, and `Cipher.getInstance(String)` and `(String, Provider)` (core) | MD5, MD2, SHA-1, DES, DESede, RC4, a block cipher (AES, Blowfish, RC2) in ECB mode, or by its bare name, which defaults to ECB. `RSA/ECB/...` is not | The algorithm and who asked: "Weak algorithm MD5 requested by application code at `UserService#hash`", or "by library code X for application frame Y", grouped apart as a library's |
-| Trust managers and hostname verifiers | `SSLContext.init` (core), `HttpsURLConnection.setDefaultHostnameVerifier` and `setDefaultSSLSocketFactory` (optional) | A trust manager whose class is in the application's packages, nested and anonymous classes included; a default the application, not a library, installed | The class, a lambda's cut before its hidden-class suffix, and the installer's call site |
+| Trust managers and hostname verifiers | `SSLContext.init` (core), `HttpsURLConnection.setDefaultHostnameVerifier` and `setDefaultSSLSocketFactory` (optional) | A trust manager whose class is in the application's packages, nested and anonymous classes included; one of the library trust-alls listed below; a default the application, not a library, installed | The class, a lambda's cut before its hidden-class suffix, and the installer's call site |
 
 Only what passes an allocation-free check takes the slow path: an algorithm's name, a stream's filter, a trust
 manager's package. A bounded `StackWalker` walk then finds the immediate caller past reflection: a caller in the JDK,
@@ -947,12 +947,27 @@ is off). A group whose core hook fails, or whose checks reach their own budget o
 alone, its reason on the sensor's row; request-value matching and the other groups keep running. The sensor's reason lists the
 groups that run, then request-value matching's state.
 
-Not checked: `readUnshared`, classes a subclass resolves itself (the row then says "not named"), `KeyGenerator`,
+Library trust managers that accept every certificate (or, for `TrustSelfSignedStrategy`, every self-signed one) are
+recognized by exact class name only, at `SSLContext.init`:
+Netty's `io.netty.handler.ssl.util.InsecureTrustManagerFactory` (its trust manager, a nested class), Vert.x's
+`io.vertx.core.net.impl.TrustAllTrustManager`, and Apache HttpClient's `TrustAllStrategy` and `TrustSelfSignedStrategy`
+(`org.apache.hc.client5.http.ssl` and `org.apache.http.conn.ssl`). They are found inside Netty's
+`ResumptionController$X509ExtendedWrapTrustManager`, `EnhancingX509ExtendedTrustManager`, and
+`util.X509TrustManagerWrapper` (Netty 4.1 wraps its insecure trust manager in it) and Apache's
+`SSLContextBuilder$TrustManagerDelegate` (`org.apache.hc.core5.ssl`, `org.apache.http.ssl`,
+`org.apache.http.conn.ssl`), whose wrapped object the agent reads from the wrapper's own field on this rare path; an application trust manager or
+trust strategy inside one, as `loadTrustMaterial(null, (chain, type) -> true)` passes, is shown as the application's. Such
+a row is a library's when Netty, Vert.x, or Apache initialized the context, with the application frame above it. Not
+detected: any other library's trust-all, a wrapper in a module that does not open its package to the agent, and Netty's
+OpenSSL provider, which never calls `SSLContext.init`.
+
+A stream's own nested reads, as a `HashMap`'s entries, are recognized by the stream's own nesting depth and cost no
+more than a field read. Not checked: classes a subclass resolves itself (the row then says "not named"), `KeyGenerator`,
 `Signature`, `Mac`, `SecureRandom`, and PBE algorithms, and a library's own default verifier or factory, which is only
-counted. The checks stay opt-in (D37) with the sensor: the `agent-overhead` job measures them on a route with a SHA-256
-digest, an AES/GCM cipher, a filtered read, and one application MD5 per request, and prints whether they would meet
-the default rule, judged by the lower bound of each median's interval as D48 does (own increment at most 3 %, cumulative
-at most 10 %), without failing the build; see [Overhead](#overhead) for the measured numbers.
+counted. The checks stay opt-in with the sensor: the `agent-overhead` job measures them on a route with a SHA-256
+digest, an AES/GCM cipher, a filtered read, and one application MD5 per request, and prints whether they would meet the
+default rule, judged by the lower bound of each median's 95 % interval (own increment at most 3 %, cumulative at most
+10 %), without failing the build; see [Overhead](#overhead) for the measured numbers.
 
 ## The blocking sensor
 
@@ -1354,7 +1369,7 @@ median interval's lower bound is above the 10 % budget. The blocking check appli
 cumulative checks below still read the plain median until one of them is proposed for the defaults. A median that stays above 10 % across runs, with intervals
 that still reach below it, is a reason to measure more pairs.
 
-The `security-sinks` sensor's JDK checks are opt-in. On the checks route, in one CI run (#1302, 15 pairs each), their own
+The `security-sinks` sensor's JDK checks are opt-in. On the checks route, in one CI run before they shipped (15 pairs each), their own
 increment over the default sensors, request-value matching off, had a median of 3.9 % with a 95 % interval of
 [0.4, 6.8] % (pairs −3.1 to 11.7 %). That median is above the 3 % default rule; the interval's lower bound is not. The
 cumulative overhead with them had a median of 8.8 % [3.4, 11.7] %. These numbers are not enough to make the checks a

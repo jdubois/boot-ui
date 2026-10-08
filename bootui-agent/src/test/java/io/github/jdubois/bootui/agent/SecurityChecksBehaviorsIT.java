@@ -47,6 +47,8 @@ class SecurityChecksBehaviorsIT {
             "the JDK's own MD5 (UUID.nameUUIDFromBytes) is not recorded, only counted",
             "an unfiltered deserialization records its top class, the classes read, and its call site",
             "a stream with a filter records nothing",
+            "a HashMap of twenty HashMaps is one read: one row, and a filtered one counted once",
+            "an unfiltered readUnshared is recorded as a read",
             "an application trust manager passed to SSLContext.init is recorded, the JDK's default is not",
             "the application's default hostname verifier is recorded with its lambda's class");
 

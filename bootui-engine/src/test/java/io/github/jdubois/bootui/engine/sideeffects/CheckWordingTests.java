@@ -48,4 +48,35 @@ class CheckWordingTests {
                         + " the stack).")
                 .doesNotContainIgnoringCase("vulnerab");
     }
+
+    @Test
+    void aLibraryTrustAllIsWordedAsAFactWithTheApplicationFrame() {
+        assertThat(CheckWording.detail(
+                        SideEffectsCatalog.TRUST_ALL,
+                        "io.netty.handler.ssl.util.InsecureTrustManagerFactory",
+                        "com.example.ClientConfig#webClient",
+                        SideEffectOrigins.LIBRARY,
+                        "io.netty.handler.ssl.JdkSslClientContext#newSSLContext",
+                        List.of(),
+                        false))
+                .isEqualTo("An SSLContext was initialized by library code"
+                        + " `io.netty.handler.ssl.JdkSslClientContext#newSSLContext` for application frame"
+                        + " `com.example.ClientConfig#webClient` with a trust manager that accepts every certificate"
+                        + " (io.netty.handler.ssl.util.InsecureTrustManagerFactory). Check that this configuration never"
+                        + " reaches a deployed environment.")
+                .doesNotContainIgnoringCase("vulnerab");
+    }
+
+    @Test
+    void aTrustSelfSignedStrategyIsWordedForWhatItAccepts() {
+        assertThat(CheckWording.detail(
+                        SideEffectsCatalog.TRUST_ALL,
+                        "org.apache.hc.client5.http.ssl.TrustSelfSignedStrategy",
+                        "com.example.Client#build",
+                        SideEffectOrigins.APPLICATION,
+                        null,
+                        List.of(),
+                        false))
+                .contains("a trust manager that accepts every self-signed certificate");
+    }
 }

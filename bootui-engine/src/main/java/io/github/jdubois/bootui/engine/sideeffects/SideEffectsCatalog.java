@@ -63,6 +63,7 @@ public final class SideEffectsCatalog {
     static final int KIND_CHECK_TRUST_MANAGER = 8;
     static final int KIND_CHECK_HOSTNAME_VERIFIER = 9;
     static final int KIND_CHECK_SOCKET_FACTORY = 10;
+    static final int KIND_CHECK_TRUST_ALL = 11;
 
     /** A JDK check's outcome bits ({@code SecuritySinks.ORIGIN_*}, {@code FLAG_ERROR}). */
     static final int CHECK_APPLICATION = 1;
@@ -81,12 +82,11 @@ public final class SideEffectsCatalog {
     public static final String TRUST_MANAGER = "trust manager";
     public static final String HOSTNAME_VERIFIER = "default hostname verifier";
     public static final String SOCKET_FACTORY = "default SSL socket factory";
+    public static final String TRUST_ALL = "trust-all trust manager";
 
     /** Whether a record is one of the security-sinks sensor's JDK checks rather than a request-value match. */
     static boolean check(int sensor, int kind) {
-        return sensor == RECORD_SECURITY_SINKS
-                && kind >= KIND_CHECK_DESERIALIZATION
-                && kind <= KIND_CHECK_SOCKET_FACTORY;
+        return sensor == RECORD_SECURITY_SINKS && kind >= KIND_CHECK_DESERIALIZATION && kind <= KIND_CHECK_TRUST_ALL;
     }
 
     /** A security-sinks record's outcome bits ({@code RequestValues.POSITION_*} and {@code FLAG_*}). */
@@ -343,6 +343,7 @@ public final class SideEffectsCatalog {
                 case KIND_CHECK_TRUST_MANAGER -> TRUST_MANAGER;
                 case KIND_CHECK_HOSTNAME_VERIFIER -> HOSTNAME_VERIFIER;
                 case KIND_CHECK_SOCKET_FACTORY -> SOCKET_FACTORY;
+                case KIND_CHECK_TRUST_ALL -> TRUST_ALL;
                 default -> "sink";
             };
         }

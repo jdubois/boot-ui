@@ -47,7 +47,7 @@ public final class Launcher {
 
     /** An unfiltered outermost read of {@code stream} resolving {@code classes}, then ending, thrown or not. */
     public static void deserialize(java.io.ObjectInputStream stream, boolean thrown, Class<?>... classes) {
-        long token = io.github.jdubois.bootui.agent.bridge.SecuritySinks.reading(stream);
+        long token = io.github.jdubois.bootui.agent.bridge.SecuritySinks.reading(stream, 0L);
         for (Class<?> type : classes) {
             io.github.jdubois.bootui.agent.bridge.SecuritySinks.resolved(type);
         }

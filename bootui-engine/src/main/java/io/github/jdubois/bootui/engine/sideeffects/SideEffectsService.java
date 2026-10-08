@@ -253,12 +253,17 @@ public final class SideEffectsService implements AutoCloseable {
     static final String LIMITATION_SECURITY_CHECKS = "Security sinks' JDK checks: a deserialization is one outermost"
             + " ObjectInputStream.readObject whose stream has no ObjectInputFilter, named by the classes"
             + " ObjectInputStream.resolveClass resolved, at most 16, so a subclass that resolves classes itself names none;"
-            + " readUnshared is left out. A weak algorithm is MessageDigest MD5, MD2, or SHA-1, or a Cipher with DES,"
+            + " readUnshared is checked as readObject is. A weak algorithm is MessageDigest MD5, MD2, or SHA-1, or a Cipher with DES,"
             + " DESede, RC4, or a block cipher in ECB mode, which a bare AES, Blowfish, or RC2 defaults to; KeyGenerator,"
             + " Signature, Mac, SecureRandom, and PBE algorithms are left out. What the JDK asks for itself, as"
             + " UUID.nameUUIDFromBytes, SecureRandom, TLS, or jar verification, is counted, never shown; a library's"
-            + " request is shown apart. A trust manager is shown when its class is the application's; a default hostname"
-            + " verifier or SSL socket factory when the application installed it. A check group whose JDK hook failed its"
+            + " request is shown apart. A trust manager is shown when its class is the application's, or when it is one"
+            + " of a few known library trust-alls (Netty's InsecureTrustManagerFactory, Vert.x's TrustAllTrustManager,"
+            + " Apache HttpClient's TrustAllStrategy and TrustSelfSignedStrategy, the last accepting every self-signed"
+            + " certificate), also inside Netty's and Apache's own wrappers, which also reveal an application trust"
+            + " manager or trust strategy they wrap; any other library trust manager that accepts every certificate is not seen, nor one Netty's"
+            + " OpenSSL provider uses, which never reaches SSLContext.init. A default hostname verifier or SSL socket"
+            + " factory is shown when the application installed it. A check group whose JDK hook failed its"
             + " self-test is off alone.";
 
     /** A deserialization row whose classes no {@code resolveClass} named, as a subclass resolving them itself. */

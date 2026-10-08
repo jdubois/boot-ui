@@ -118,7 +118,16 @@ public final class SideEffects {
     public static final int SENSOR_RESOURCES = 9;
 
     static final String[] SENSOR_NAMES = {
-        "other", PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY, THREAD_LOCALS, SECURITY_SINKS, RESOURCES
+        "other",
+        PROCESSES,
+        NETWORK,
+        FILES,
+        ENVIRONMENT,
+        BLOCKING,
+        THREAD_ACTIVITY,
+        THREAD_LOCALS,
+        SECURITY_SINKS,
+        RESOURCES
     };
 
     public static final int MASK_PROCESSES = 1 << SENSOR_PROCESSES;

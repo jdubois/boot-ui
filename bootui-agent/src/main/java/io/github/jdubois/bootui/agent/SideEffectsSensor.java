@@ -871,7 +871,8 @@ final class SideEffectsSensor {
     /**
      * The security-sinks sensor's JDK checks (M5-6b2): {@code MessageDigest.getInstance}, every overload; {@code
      * Cipher.getInstance(String)} and {@code (String, Provider)}, not {@code (String, String)}, which calls the latter
-     * on JDK 17 to 26, so a request is seen once; {@code ObjectInputStream.readObject()} and {@code resolveClass};
+     * on JDK 17 to 26, so a request is seen once; {@code ObjectInputStream.readObject()} and {@code readUnshared()}, one
+     * hook, and {@code resolveClass};
      * {@code SSLContext.init}; and the two static defaults of {@code HttpsURLConnection}.
      */
     private static void securitySinksVisits(List<String> types, List<ExecutorSensor.Visit> visits, Set<String> left) {
@@ -902,9 +903,8 @@ final class SideEffectsSensor {
                 .and(
                         "ObjectInputStream.readObject",
                         Advice.to(SideEffectsAdvice.ReadObject.class)
-                                .on(ElementMatchers.named("readObject")
+                                .on(ElementMatchers.namedOneOf("readObject", "readUnshared")
                                         .and(ElementMatchers.isPublic())
-                                        .and(ElementMatchers.isFinal())
                                         .and(ElementMatchers.takesArguments(0))))
                 .and(
                         "ObjectInputStream.resolveClass",

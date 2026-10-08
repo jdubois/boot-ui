@@ -107,7 +107,8 @@ application's own code did. See [Java Agent](features/java-agent.md).
 - `request-input-in-sink` as opt-in Security sinks rows: request input reaching SQL text, a command, a file path, or
   an outbound URL unchanged, with query and path parameters;
 - the opt-in Security sinks JDK checks: deserialization without a filter, weak algorithms, and trust managers and
-  hostname verifiers;
+  hostname verifiers; request-value matching now turns on with the side-effect sensors' transformer, so when that
+  transformer fails to install or its self-test fails, matching is off too;
 - agent guidance in the MCP instructions and prompts, and the scripted "did my change run?" agent investigation.
 
 **Planned, may not be in 2.0:**
