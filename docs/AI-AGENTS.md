@@ -402,7 +402,9 @@ required argument: id (an observation id from get_runtime_insights)`. In the pan
 always empty.
 
 `INSUFFICIENT`, `PARTIAL`, `NOT_APPLICABLE`, `UNAVAILABLE`, and `NOT_COMPARABLE` are not successes, and an empty list
-never means healthy: read `requests`, `checksNotRun`, and `limitations` first. `requests` counts completed HTTP
+never means healthy: read `requests`, `checksNotRun`, and `limitations` first. `checksNotRun` also lists a check that
+ran but left evidence out, as `<kind>: EVALUATED, partly: <what it could not see>`, such as changed methods the agent
+could not track; what a check judged and does not report, such as fast calls, is not listed. `requests` counts completed HTTP
 exchanges only. `requests: 0` means not exercised only when the limitations say so: an observation that names a
 request or execution, a limitation naming retained scheduled runs or consumed messages, or evicted events mean work
 ran that `requests` does not count. A run-level observation with no exemplar does not. If comparison's limitations
@@ -532,9 +534,9 @@ reactive or asynchronous result, not the work that runs later.
 With the [BootUI agent](features/java-agent.md) attached, [Side Effects](features/java-agent.md#side-effects) lists the
 side-effect sensors and, in this version, the processes application code starts from the agent's `processes` sensor,
 its network from the `network` sensor: hosts and ports it connects to, datagrams it sends, and names the JVM resolves,
-each with the recognized client and whether any panel captured the work, and, opt-in, the files it opens, deletes, moves,
-and copies from the `files` sensor and the environment variables and system properties it reads from the `environment`
-sensor, the blocking calls started on an event loop from the `blocking` sensor, and, opt-in, the threads it starts and
+each with the recognized client and whether any panel captured the work, the files it opens, deletes, moves,
+and copies from the `files` sensor, and, opt-in, the environment variables and system properties it reads from the
+`environment` sensor, the blocking calls started on an event loop from the `blocking` sensor, and, opt-in, the threads it starts and
 the executors it creates from the `thread-activity` sensor, with those a request left running when it ended
 (`leftRunning`) and how many a request starts (`count` / `requests`), and, opt-in, the thread locals a request or a job
 left set on its pooled thread from the `thread-locals` sensor, named by the static field holding them, never their
