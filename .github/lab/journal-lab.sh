@@ -20,7 +20,7 @@ run_one() { # name jar journal extra profile(none|cpu|alloc|wall) label
   local pid=$!
   for i in $(seq 1 180); do curl -sf -o /dev/null "http://localhost:$port/bootui/api/overview" && break; sleep 1; done
   local url="http://127.0.0.1:$port/api/sample/product-search?term=console"
-  ab -q -k -t 10 -n 100000000 -c 16 "$url" > "$d/warm.txt" 2>&1
+  ab -q -k -t ${WARM:-10} -n 100000000 -c 16 "$url" > "$d/warm.txt" 2>&1
   local t0; t0=$(tail -1 "$d/gc.log" | sed -E 's/^\[([0-9.]+)s.*/\1/')
   "$JCMD" $pid Thread.print > "$d/td0.txt" 2>/dev/null
   local c0; c0=$(awk '{print $14+$15}' /proc/$pid/stat)
