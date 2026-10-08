@@ -46,6 +46,11 @@ class ReactiveBootUiMcpStreamDisconnectTests {
     }
 
     @Test
+    void theStreamWritesTheSameRawBytesAsEveryStack() throws Exception {
+        SUPPORT.assertFrames(port);
+    }
+
+    @Test
     void closingTheStreamCancelsTheCall() throws Exception {
         // WebFlux notices the close at once, well before a keep-alive could reveal it.
         SUPPORT.closeAfterFirstEventCancels(

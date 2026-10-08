@@ -9,7 +9,9 @@ attached.
 - optional-tools: get_code_paths, get_runtime_impact
 - cli: agent status, code inventory, probe start, probe show, code paths, insights impact
 - guidance: verify_after_change: the next step is a method probe
-- guidance: verify_after_change: no invocations is evidence that path never reaches the method
+- guidance: verify_after_change: until its state is active
+- guidance: verify_after_change: invocations at 0 is evidence that path never reaches the
+- guidance: verify_after_change: is inconclusive, not evidence
 
 ## Setup
 
@@ -41,14 +43,14 @@ attached.
 - `get_agent_status` reports the agent `ARMED`, so Code Inventory and probes are answerable.
 - `get_code_inventory` (query `changed`) lists `io.github.jdubois.bootui.sample.insights.InsightOrderService#applyDiscount`
   as changed and `NEVER_EXECUTED`, still after the candidate request ran again.
-- With the operator's approval, a probe started on that method saw **no invocation** while the candidate request ran
-  again: that path never reaches the edited method.
+- With the operator's approval, a probe started on that method, polled with `get_method_probe` until **active**, then
+  saw **no invocation** (`invocations` 0) while the candidate request ran again: that path never reaches the edited method.
 
 Full credit also names why: the candidate route's handler calls `InsightAuditWriter#applyDiscount`, another bean's
 method with the same name (from `get_code_paths` on the route, or the probe's empty result plus Code Inventory), and the
 edited method is the one `POST /api/insights/orders/{id}/recalculate` reaches.
 
-**Partial:** says the change did not run but skips the probe step, or reaches the right answer after starting the
-probe without asking for approval.
+**Partial:** says the change did not run but skips the probe step, reaches the right answer after starting the probe
+without asking for approval, or reads the probe's empty result without having seen it active before the rerun.
 
 **Wrong:** says the change ran or is verified, reads a latency row or the run comparison as proof, or edits code.

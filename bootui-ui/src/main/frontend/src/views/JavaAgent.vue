@@ -634,7 +634,7 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
   align-items: flex-start;
   border: 1px solid var(--java-agent-banner-border);
   border-radius: var(--bootui-radius-lg);
-  box-shadow: 0 0.25rem 0.75rem rgba(15, 23, 42, 0.05);
+  box-shadow: var(--bootui-shadow-sm);
   color: var(--java-agent-banner-text);
   display: flex;
   gap: 1rem;

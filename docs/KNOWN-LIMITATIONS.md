@@ -42,7 +42,7 @@ See [WebFlux design notes](WEBFLUX-SUPPORT.md) for the panel-by-panel detail.
 
 See [Quarkus design notes](QUARKUS-SUPPORT.md) for the panel-by-panel detail.
 
-- **54 of the 64 panels ship.** GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring Security,
+- **55 of the 65 panels ship.** GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring Security,
   Spring DevTools, and Transactions do not apply to Quarkus; JMS is not available yet.
 - **No transaction capture.** SQL statements carry no transaction id, and `transaction-across-remote-call` and
   `split-transaction-writes` are unavailable.
@@ -94,23 +94,29 @@ application's own code did. See [Java Agent](features/java-agent.md).
   `changed-code-not-executed`;
 - **Code Paths**: route trees, component-boundary timing, and the handler split of `route-time-breakdown`;
 - change impact by method, and a run comparison led by code changes;
-- metadata-only method probes: invocations, durations, outcomes, and request ids, never arguments or return values;
+- metadata-only method probes: invocations, durations, outcomes, and request ids, never arguments or return values,
+  with optional argument and return shapes, shown in the panel only: types and sizes, plus an enum constant's name and
+  a string's length under `FULL`;
 - runtime reach in the Vulnerabilities panel;
-- the **Side Effects** panel with its `processes`, `files`, and `environment` sensors, on by default;
-- the Exceptions panel's **Caught in application code** section, with the agent's opt-in `caught-exceptions` sensor.
+- the **Side Effects** panel with the default `network` (outbound hosts), `processes`, `files`, `environment`, and
+  `blocking` sensors, and the opt-in `thread-activity` (threads per request) and `thread-locals` (`thread-local-left-set`)
+  sensors; `files`, `environment`, `thread-activity`, and `thread-locals` are switched on and off at run time from the
+  Java Agent and Side Effects panels;
+- side effects in the run comparison: hosts, file patterns, processes, and variable names new or gone since the
+  previous run;
+- the Exceptions panel's **Caught in application code** section, with the agent's opt-in `caught-exceptions` sensor;
 - `request-input-in-sink` as opt-in Security sinks rows: request input reaching SQL text, a command, a file path, or
-  an outbound URL unchanged, with query and path parameters, not yet form values.
+  an outbound URL unchanged, with query and path parameters;
+- agent guidance in the MCP instructions and prompts, and the scripted "did my change run?" agent investigation.
 
 **Planned, may not be in 2.0:**
 
-- the remaining Side Effects sensors: hosts, threads, thread locals, blocking calls, and leaked streams, with
-  `thread-local-left-set`;
-- caught exceptions as evidence of `errors-behind-2xx`; and the rest of security sinks: deserialization without a
-  filter, weak algorithms, trust managers, and form values in `request-input-in-sink`;
-- side effects in change impact and run comparison, and methods no longer executed on routes exercised in both runs;
-- argument and return shapes in method probes;
-- dynamic access recording;
-- the remaining agent tools and agent guidance, and the eleventh scripted agent investigation ("did my change run?").
+- the `resources` sensor: resources a request opened and left open, such as leaked streams (`resource-not-closed`);
+- caught exceptions as evidence of `errors-behind-2xx`;
+- the rest of security sinks: form values in `request-input-in-sink`, outbound URLs opened through `HttpClient` or
+  `URL.openConnection`, deserialization without a filter, weak algorithms, and trust managers;
+- side effects in change impact, and methods no longer executed on routes exercised in both runs;
+- dynamic access recording.
 
 **Limits of the agent itself:**
 

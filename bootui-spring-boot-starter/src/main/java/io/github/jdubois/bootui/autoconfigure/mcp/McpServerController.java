@@ -82,6 +82,7 @@ public class McpServerController {
                 stats.timeouts(),
                 stats.responseLimitRefusals(),
                 stats.cancellations(),
+                stats.progressDropped(),
                 toolInfos.size(),
                 toolInfos);
     }

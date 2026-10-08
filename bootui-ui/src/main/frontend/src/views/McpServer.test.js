@@ -88,6 +88,19 @@ describe('McpServer', () => {
     expect(wrapper.get('[data-testid="mcp-call-stats"]').text()).toBe('7 · 1 timed out · 2 cancelled')
   })
 
+  it('shows dropped progress events only when there are some', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(mcpStatus({progressDropped: 0}))))
+    wrapper = mount(McpServer)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="mcp-progress-dropped"]').exists()).toBe(false)
+    wrapper.unmount()
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(mcpStatus({progressDropped: 3}))))
+    wrapper = mount(McpServer)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="mcp-progress-dropped"]').text()).toBe('3 over bootui.mcp.max-response-bytes')
+  })
+
   it('falls back to the single advertised revision', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(mcpStatus({supportedProtocolVersions: undefined}))))
 
