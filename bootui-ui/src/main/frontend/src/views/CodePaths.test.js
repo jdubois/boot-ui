@@ -197,6 +197,68 @@ describe('Code Paths panel', () => {
     expect(wrapper.find('.code-paths-assembly-note').exists()).toBe(false)
   })
 
+  /** Answers the first tree read at once and holds every later one until the test settles it. */
+  function mountWithHeldTrees() {
+    const held = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        const path = decodeURIComponent(String(url))
+        if (!path.includes('api/code-paths/route')) return Promise.resolve(jsonResponse(summary))
+        const body = path.includes('GET /api/stream') ? streamTree : quoteTree
+        if (!held.initial) {
+          held.initial = true
+          return Promise.resolve(jsonResponse(body))
+        }
+        return new Promise((resolve) => {
+          held.push({
+            answer: () => resolve(jsonResponse(body)),
+            fail: () => resolve({ok: false, status: 500, json: () => Promise.resolve({message: 'boom'})})
+          })
+        })
+      })
+    )
+    wrapper = mount(CodePaths, {global: {stubs: {RouterLink: RouterLinkStub}}})
+    return held
+  }
+
+  async function selectStreamThenQuote() {
+    await wrapper.findAll('.code-paths-routes tbody tr')[1].get('button').trigger('click')
+    await wrapper.findAll('.code-paths-routes tbody tr')[0].get('button').trigger('click')
+    await flushPromises()
+  }
+
+  it('keeps the newest route’s tree when an older route answers last', async () => {
+    const held = mountWithHeldTrees()
+    await flushPromises()
+    await selectStreamThenQuote()
+    expect(held).toHaveLength(2)
+
+    held[1].answer()
+    await flushPromises()
+    held[0].answer()
+    await flushPromises()
+
+    expect(wrapper.get('#code-paths-tree-heading').text()).toBe('GET /api/quote')
+    expect(wrapper.get('.code-paths-tree').text()).toContain('SlowPricingService.quote')
+    expect(wrapper.get('.code-paths-tree').text()).not.toContain('StreamService.prices')
+  })
+
+  it('does not show an older route’s failure under the newer route', async () => {
+    const held = mountWithHeldTrees()
+    await flushPromises()
+    await selectStreamThenQuote()
+
+    held[1].answer()
+    await flushPromises()
+    held[0].fail()
+    await flushPromises()
+
+    expect(wrapper.get('#code-paths-tree-heading').text()).toBe('GET /api/quote')
+    expect(wrapper.find('section[aria-labelledby="code-paths-tree-heading"] .alert-danger').exists()).toBe(false)
+    expect(wrapper.get('.code-paths-tree').text()).toContain('SlowPricingService.quote')
+  })
+
   it('shows a method’s callers and the routes that reach it, and follows a route', async () => {
     ;({wrapper} = mountPanel({
       'api/code-paths/route?route=GET /api/stream': streamTree,

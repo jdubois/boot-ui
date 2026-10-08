@@ -156,33 +156,56 @@ function statusQuery() {
   return neverExecutedOnly.value ? '&status=never-executed' : ''
 }
 
+// Only the newest read of each list may land, and only while the package and status filter it was asked for are
+// still the ones shown: an older answer arriving last must not fill a newer selection.
+let codeRequest = 0
+let packageRequest = 0
+
+function packageIdentity(name) {
+  return `${name}${statusQuery()}`
+}
+
 async function loadCode() {
+  const request = ++codeRequest
+  const status = statusQuery()
   codeError.value = null
   try {
-    code.value = await getJson(`api/code-inventory/methods?limit=1${statusQuery()}`)
+    const result = await getJson(`api/code-inventory/methods?limit=1${status}`)
+    if (request !== codeRequest || status !== statusQuery()) return
+    code.value = result
     if (selectedPackage.value) {
       await loadPackage(selectedPackage.value)
     }
   } catch (e) {
+    if (request !== codeRequest || status !== statusQuery()) return
     codeError.value = formatLoadError(e, 'Unable to load the application code')
   }
 }
 
 async function loadPackage(name) {
+  const request = ++packageRequest
+  const identity = packageIdentity(name)
+  const current = () =>
+    request === packageRequest && selectedPackage.value && packageIdentity(selectedPackage.value) === identity
   packageError.value = null
   try {
-    packageMethods.value = await getJson(
+    const result = await getJson(
       `api/code-inventory/methods?package=${encodeURIComponent(name)}&limit=${PAGE}${statusQuery()}`
     )
+    if (!current()) return
+    packageMethods.value = result
   } catch (e) {
+    if (!current()) return
     packageError.value = formatLoadError(e, `Unable to load ${name}`)
   }
 }
 
 async function togglePackage(name) {
   if (selectedPackage.value === name) {
+    packageRequest++
     selectedPackage.value = null
     packageMethods.value = null
+    packageError.value = null
     return
   }
   selectedPackage.value = name
