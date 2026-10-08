@@ -294,15 +294,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   published jar: a consumer resolves it with no dependency, and a JVM started with it as its `-javaagent` reports it
   dormant. `bootui-agent-bridge` is built and shaded into the agent but never published.
 
-- **Agent-ready request profiles and Copy for AI.** The new read-only `get_request_profile` MCP tool, also the
-  `bootui request-profile <id>` command, returns a selection with `available`, `unavailableReason`, `source`,
-  `journal`, and `buffers` on Spring MVC, Spring WebFlux, and Quarkus. It consults journal evidence first and, for a
-  retained HTTP request, includes the richer HTTP-exchange profile in `buffers`; `source` is `none` when neither
-  retention window holds the id. Each buffer-profile exception carries an additive `exceptionGroupId` for
-  `get_exception_detail`. The Live Activity profile drawer and the Exceptions detail gain **Copy for AI**, which
-  previews one Markdown document, listing what it omits, before anything is copied; **Copy profile** now copies
-  Markdown from the same helper. Exports contain only what the panels show, honor `METADATA_ONLY`, and send nothing
-  ([Investigate one request](docs/AI-AGENTS.md#investigate-one-request)).
 
 - **The MySQL panel reads MariaDB reached through MySQL Connector/J, labelled unsupported.** A MariaDB server behind a
   `jdbc:mysql:` datasource is now read on a best-effort basis on Spring MVC, WebFlux, and Quarkus instead of being
@@ -421,8 +412,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   whose rows open in place; the comparison and change impact, the resource profiler, and the run's coverage and check
   limits move to tabs of their own ([Runtime Insights](docs/features/overview.md#runtime-insights),
   [#1328](https://github.com/jdubois/boot-ui/pull/1328)).
-- **Quarkus 3.40.1 LTS.** Updated the Quarkus compatibility platform to the latest LTS micro release and kept the
-  RabbitMQ metadata test fixture compatible with the managed SmallRye API.
 
 - **Tabs that look like tabs, in every theme.** Every panel tab strip now shares one component, with muted labels
   instead of link-blue text, arrow-key navigation, and a selected tab drawn in each theme's own idiom.

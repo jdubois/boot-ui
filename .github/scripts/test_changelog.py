@@ -8,7 +8,7 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 HEADER = "# Changelog\n\n## [Unreleased]\n\n"
-RELEASED = "\n## [1.0.0] - 2026-01-01\n\n### Fixed\n\n- **Same title.** Released.\n- **Same title.** Released (M4-20).\n"
+RELEASED = "\n## [1.0.0] - 2026-01-01\n\n### Fixed\n\n- **Released.** Text.\n- **Released.** Text (M4-20).\n"
 
 
 class ChangelogTests(unittest.TestCase):
@@ -33,19 +33,24 @@ class ChangelogTests(unittest.TestCase):
         self.assertIn("'### Fixed' subsection 2 times", problems[0])
 
     def test_rejects_plan_identifiers_outside_link_targets(self):
-        for jargon in ("(PLAN-v2 M5-6)", "(M4-22)", "(D37)", "(PLAN-v2 §5.14)", "(docs/PLAN.md §3.19)"):
+        for jargon in ("(PLAN-v2 M5-6)", "(M4-22)", "(D37)", "(PLAN-v2 §5.14)", "(docs/PLAN.md §3.19)", "(PLAN §3.25)", "(§5.14, §8)"):
             with self.subTest(jargon=jargon):
                 problems = MODULE.check(HEADER + f"### Added\n\n- **One.** Text {jargon}.\n")
                 self.assertEqual(len(problems), 1)
                 self.assertIn("plan identifier", problems[0])
 
-    def test_accepts_links_rfc_sections_and_pull_requests(self):
+    def test_accepts_links_specification_sections_and_pull_requests(self):
         text = HEADER + (
             "### Added\n\n- **One.** See [Run comparison](docs/PLAN-v2.md#58-run-comparison) and"
-            " [report](docs/V2-VALIDATION-REPORT.md), RFC 9110 §10.2.3"
-            " ([#1234](https://github.com/jdubois/boot-ui/pull/1234)).\n"
+            " [report](docs/V2-VALIDATION-REPORT.md), RFC 9110 §10.2.3, JLS §17.4, Jakarta Servlet §3, EXPLAIN PLAN output,"
+            " (OWASP ASVS §5.3) ([#1234](https://github.com/jdubois/boot-ui/pull/1234)).\n"
         )
         self.assertEqual(MODULE.check(text), [])
+
+    def test_rejects_an_entry_a_released_version_already_lists(self):
+        problems = MODULE.check(HEADER + "### Added\n\n- **Released.** Again.\n- **New.** Text.\n" + RELEASED)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("'Released.' at line 7, which a released version already lists", problems[0])
 
 
 if __name__ == "__main__":
