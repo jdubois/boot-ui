@@ -111,6 +111,10 @@ public class McpBridgeResource {
     private StreamingOutput events(QuarkusMcpEnvelope.Stream stream, RoutingContext routing) {
         McpStreamingCall call = stream.call();
         routing.addEndHandler(ended -> call.cancel());
+        if (routing.response().closed()) {
+            // The client went away before the stream started: the end handler may never fire for it.
+            call.cancel();
+        }
         return output -> {
             CountDownLatch closed = new CountDownLatch(1);
             try {

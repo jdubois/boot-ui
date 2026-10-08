@@ -2,8 +2,10 @@ package io.github.jdubois.bootui.autoconfigure.mcp;
 
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveRequestCorrelationFilter;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.mcp.McpStreamingCall;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.micrometer.context.ContextRegistry;
+import java.time.Duration;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,7 +47,9 @@ class ReactiveBootUiMcpStreamDisconnectTests {
 
     @Test
     void closingTheStreamCancelsTheCall() throws Exception {
-        SUPPORT.closeAfterFirstEventCancels(port, service);
+        // WebFlux notices the close at once, well before a keep-alive could reveal it.
+        SUPPORT.closeAfterFirstEventCancels(
+                port, service, Duration.ofMillis(McpStreamingCall.HEARTBEAT_MILLIS * 3 / 4));
     }
 
     @SpringBootConfiguration

@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
 import io.github.jdubois.bootui.engine.progress.OperationProgress;
 import io.github.jdubois.bootui.engine.progress.ProgressEvent;
+import java.io.IOException;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -134,9 +135,10 @@ public final class McpStreamingCall {
         try {
             WRITERS.execute(() -> write(sink));
         } catch (RuntimeException | Error failure) {
+            // Recorded before closing the sink, whose close path may report a disconnect and hide the fault.
+            fail(failure);
             sink.close();
             releasePart();
-            fail(failure);
             return;
         }
         try {
@@ -165,6 +167,15 @@ public final class McpStreamingCall {
     private void fail(Throwable failure) {
         if (end(EndKind.COMPLETED, new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE))) {
             failureReporter.report("dispatching a request", failure);
+        }
+    }
+
+    /** A fault while writing the stream (not a client gone): it ends the call, and is reported even after the end. */
+    private void failWriting(Throwable failure) {
+        if (end(EndKind.COMPLETED, new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE))) {
+            failureReporter.report("dispatching a request", failure);
+        } else {
+            failureReporter.report("writing a stream", failure);
         }
     }
 
@@ -267,9 +278,12 @@ public final class McpStreamingCall {
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             cancel();
-        } catch (Exception | Error writeFailure) {
+        } catch (IOException writeFailure) {
             // The client is gone or the stream broke: that is the cancellation of this request.
             cancel();
+        } catch (RuntimeException | Error fault) {
+            // A server fault (a rendering bug, a refused frame) is not the client's cancellation.
+            failWriting(fault);
         } finally {
             sink.close();
             releasePart();

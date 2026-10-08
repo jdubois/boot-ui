@@ -3502,9 +3502,11 @@ Design rules:
   lines with no ids; keep-alive comments every 2 seconds, so Spring MVC, which only notices a closed stream when a write
   fails, does so within about 4 seconds; WebFlux and Quarkus notice it at once. Closing the stream cancels the call:
   nothing more is written, the tool is interrupted and stops at its next step, and its concurrency permit is released
-  exactly once, when the tool has returned and the stream is written. A cancelled call is counted in the `/mcp-server`
-  status's `cancellations`, apart from `timeouts`, and a cancelled blocking call answers `-32800` ("MCP request
-  cancelled"); the status also lists `supportedProtocolVersions`. The execution timeout stays absolute, and a call
+  exactly once, when the tool has returned and the stream is written. Only a streamed call is cancelled by a
+  disconnect, including one whose client left before the stream started; a blocking JSON call runs to its end or its
+  timeout. A cancelled call is counted in the `/mcp-server` status's `cancellations`, apart from `timeouts` (and in
+  `callCount`), while a server fault during writing is reported as a fault; the status also lists
+  `supportedProtocolVersions`. The execution timeout stays absolute, and a call
   that timed out before its stream opened still ends with the timeout response. Each event is one line of compact JSON
   regardless of the application's mapper configuration, built through one engine helper that refuses a line break. A
   writer blocked on a client that stops reading keeps the permit (WebFlux emits only on subscriber demand) and gives up
