@@ -394,6 +394,20 @@ class BootUiMcpServiceTests {
     }
 
     @Test
+    void aNonFiniteNumericIdIsServedLikeAnyOtherId() throws Exception {
+        for (String method : List.of("tools/call", "tools/list", "ping")) {
+            JsonNode request = objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1e400,\"method\":\"" + method
+                    + "\",\"params\":{\"name\":\"get_overview\",\"arguments\":{}}}");
+
+            JsonNode response = service.handle(request);
+
+            assertThat(response.path("error").path("code").asInt())
+                    .as(method + " " + response)
+                    .isNotEqualTo(McpProtocol.INTERNAL_ERROR);
+        }
+    }
+
+    @Test
     void toolClientErrorIsRenderedInBandInsteadOfAnInternalError() {
         BootUiMcpService failing = new BootUiMcpService(
                 new BootUiMcpTools(List.of(new McpTool(

@@ -16,9 +16,12 @@ public final class McpRequestKey {
         return "s:" + Objects.requireNonNull(id, "id");
     }
 
-    /** The key of a numeric id, compared by value. */
+    /**
+     * The key of a numeric id, compared by value. Scientific notation keeps the key short whatever the exponent (an id
+     * like {@code 1e999999999} would otherwise expand to a gigabyte), and stays one string per value.
+     */
     public static String number(BigDecimal id) {
         BigDecimal value = Objects.requireNonNull(id, "id");
-        return "n:" + (value.signum() == 0 ? "0" : value.stripTrailingZeros().toPlainString());
+        return "n:" + (value.signum() == 0 ? "0" : value.stripTrailingZeros().toString());
     }
 }

@@ -30,6 +30,15 @@ class McpLegacyProgressTests {
     private final AtomicInteger reported = new AtomicInteger();
 
     @Test
+    void requestKeysCompareNumbersByValueAndStayShortWhateverTheExponent() {
+        assertThat(McpRequestKey.number(new BigDecimal("7"))).isEqualTo(McpRequestKey.number(new BigDecimal("7.00")));
+        assertThat(McpRequestKey.number(new BigDecimal("70"))).isEqualTo(McpRequestKey.number(new BigDecimal("7E+1")));
+        assertThat(McpRequestKey.number(new BigDecimal("0.0"))).isEqualTo(McpRequestKey.number(BigDecimal.ZERO));
+        assertThat(McpRequestKey.number(new BigDecimal("7"))).isNotEqualTo(McpRequestKey.text("7"));
+        assertThat(McpRequestKey.number(new BigDecimal("1E+999999999"))).hasSizeLessThan(32);
+    }
+
+    @Test
     void aLegacyProgressCallStreamsProgressThenItsLegacyResponse() throws Exception {
         McpDispatcher dispatcher = dispatcher(args -> {
             OperationProgress.current().report(PHASE, 1, 2);

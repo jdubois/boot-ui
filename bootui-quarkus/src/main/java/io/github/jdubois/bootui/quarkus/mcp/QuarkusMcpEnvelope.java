@@ -334,11 +334,15 @@ public class QuarkusMcpEnvelope {
                 parsedArguments.offset(),
                 serve.era(),
                 serve.progressToken(),
-                requestKey(id),
+                // Only a call that can be cancelled, or a cancellation, needs the key.
+                "tools/call".equals(method) ? requestKey(id) : null,
                 "notifications/cancelled".equals(method) ? requestKey(params.get("requestId")) : null);
     }
 
-    /** The canonical key of a JSON-RPC id, so a cancellation finds its request by value. */
+    /**
+     * The canonical key of a JSON-RPC id, so a cancellation finds its request by value; {@code null} for an id that has
+     * none, such as a non-finite number ({@code 1e400} reads as infinity), which then simply cannot be cancelled.
+     */
     private static String requestKey(JsonNode id) {
         if (id == null) {
             return null;
@@ -346,7 +350,10 @@ public class QuarkusMcpEnvelope {
         if (id.isTextual()) {
             return McpRequestKey.text(id.asText());
         }
-        return id.isNumber() ? McpRequestKey.number(id.decimalValue()) : null;
+        if (!id.isNumber() || (id.isFloatingPointNumber() && !Double.isFinite(id.doubleValue()))) {
+            return null;
+        }
+        return McpRequestKey.number(id.decimalValue());
     }
 
     private static ParsedArguments parseArguments(JsonNode arguments) {

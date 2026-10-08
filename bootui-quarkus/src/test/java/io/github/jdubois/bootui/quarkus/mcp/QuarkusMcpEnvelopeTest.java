@@ -307,6 +307,21 @@ class QuarkusMcpEnvelopeTest {
     }
 
     @Test
+    void aNonFiniteNumericIdIsServedLikeAnyOtherId() throws Exception {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        QuarkusMcpEnvelope envelope = envelope(tool(args -> java.util.Map.of("name", "demo")), diagnostics);
+        for (String method : List.of("tools/call", "tools/list", "ping")) {
+            JsonNode response = envelope.handle(objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1e400,\"method\":\""
+                    + method + "\",\"params\":{\"name\":\"get_overview\",\"arguments\":{}}}"));
+
+            assertThat(response.path("error").path("code").asInt())
+                    .as(method + " " + response)
+                    .isNotEqualTo(McpProtocol.INTERNAL_ERROR);
+        }
+        assertThat(diagnostics.count).hasValue(0);
+    }
+
+    @Test
     void toolClientErrorIsRenderedInBandInsteadOfAnInternalError() {
         RecordingFailureReporter diagnostics = new RecordingFailureReporter();
         McpTool tool = tool(QuarkusMcpToolFailures.translating(args -> {
