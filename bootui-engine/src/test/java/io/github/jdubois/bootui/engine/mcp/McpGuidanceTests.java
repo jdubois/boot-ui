@@ -53,7 +53,8 @@ class McpGuidanceTests {
                                     "the next step is a method probe",
                                     "separate approval",
                                     "get_method_probe",
-                                    "no invocations is evidence that path never reaches the method",
+                                    "invocations at 0 is evidence that path never reaches the",
+                                    "within its 60-second window",
                                     "until its state is active",
                                     "is inconclusive, not evidence");
                     assertThat(text.indexOf("until its state is active"))

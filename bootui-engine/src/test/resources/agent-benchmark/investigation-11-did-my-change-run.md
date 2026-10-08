@@ -10,7 +10,7 @@ attached.
 - cli: agent status, code inventory, probe start, probe show, code paths, insights impact
 - guidance: verify_after_change: the next step is a method probe
 - guidance: verify_after_change: until its state is active
-- guidance: verify_after_change: no invocations is evidence that path never reaches the method
+- guidance: verify_after_change: invocations at 0 is evidence that path never reaches the
 - guidance: verify_after_change: is inconclusive, not evidence
 
 ## Setup
@@ -44,7 +44,7 @@ attached.
 - `get_code_inventory` (query `changed`) lists `io.github.jdubois.bootui.sample.insights.InsightOrderService#applyDiscount`
   as changed and `NEVER_EXECUTED`, still after the candidate request ran again.
 - With the operator's approval, a probe started on that method, polled with `get_method_probe` until **active**, then
-  saw **no invocation** while the candidate request ran again: that path never reaches the edited method.
+  saw **no invocation** (`invocations` 0) while the candidate request ran again: that path never reaches the edited method.
 
 Full credit also names why: the candidate route's handler calls `InsightAuditWriter#applyDiscount`, another bean's
 method with the same name (from `get_code_paths` on the route, or the probe's empty result plus Code Inventory), and the

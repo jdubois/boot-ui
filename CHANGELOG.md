@@ -740,8 +740,8 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
-- **Method probes no longer give false "never reached" answers.** Agent guidance and the BootUI skill now wait until a
-  probe is `active` before rerunning the code, and call an empty result from a probe that never became active
+- **Method probe guidance avoids false "never reached" answers.** Agents and the BootUI skill now wait until a probe
+  is `active`, rerun within its window, and treat an empty result from a probe that was not active throughout as
   inconclusive ([AI agents](docs/AI-AGENTS.md#did-this-method-run-and-how)).
 - **MCP progress streams stay within `bootui.mcp.max-response-bytes`.** A string progress token is at most 128
   characters, and a progress event that would not fit is dropped ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).

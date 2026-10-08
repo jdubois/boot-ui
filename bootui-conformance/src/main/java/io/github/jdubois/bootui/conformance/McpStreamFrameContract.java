@@ -30,8 +30,11 @@ import java.util.Map;
 public final class McpStreamFrameContract {
 
     private static final ProgressPhase PHASE = ProgressPhase.of("Checking frames");
-    /** Longer than the 2-second keep-alive interval, so a success stream carries at least one heartbeat. */
-    private static final long SLOW_MILLIS = 2_300;
+    /**
+     * Twice the 2-second keep-alive interval: the keep-alive clock starts with the writer, not the tool, so this leaves
+     * room for scheduling on a loaded runner and still guarantees a heartbeat.
+     */
+    private static final long SLOW_MILLIS = 4_200;
 
     private static final String TOKEN_JSON = "tok-\u00e9\u2713\\r\\n";
     private static final String HEARTBEAT = ":\n\n";
@@ -68,7 +71,8 @@ public final class McpStreamFrameContract {
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                 }
-                return Map.of("note", "caf\u00e9 \u2713\r\n");
+                // U+2028 is not a line break in SSE: every stack writes it as is, inside the data: line.
+                return Map.of("note", "caf\u00e9 \u2713\u2028\r\n");
             }
             case TOOL_ERROR -> throw new McpToolClientException(404, "No caf\u00e9 \u2713 here\r\n");
             default -> {
@@ -82,8 +86,8 @@ public final class McpStreamFrameContract {
         String serverInfo = ",\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\""
                 + serverVersion + "\"}}";
         String success =
-                "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"note\\\":\\\"caf\u00e9 \u2713\\\\r\\\\n\\\"}\"}],"
-                        + "\"structuredContent\":{\"note\":\"caf\u00e9 \u2713\\r\\n\"},\"isError\":false";
+                "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"note\\\":\\\"caf\u00e9 \u2713\u2028\\\\r\\\\n\\\"}\"}],"
+                        + "\"structuredContent\":{\"note\":\"caf\u00e9 \u2713\u2028\\r\\n\"},\"isError\":false";
 
         mode = Mode.SUCCESS;
         assertStream(

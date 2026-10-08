@@ -224,13 +224,37 @@ public abstract class AbstractMcpConformanceTest {
                     .as("no refused modern call ran its tool")
                     .isEqualTo(callsBefore);
 
-            // Without a modern _meta, an absent or null id is still a notification, answered 202, as in BootUI 1.x.
+            // Without a modern _meta, an absent or null id is still a notification, answered 202, as in BootUI 1.x,
+            // and a tools/call sent that way still runs, as it did there.
             for (String id : List.of("", ",\"id\":null")) {
                 Response legacy = probe().request(
                                 "POST", "/bootui/api/mcp", json, "{\"jsonrpc\":\"2.0\"" + id + ",\"method\":\"ping\"}");
                 assertThat(legacy.status()).as(id).isEqualTo(202);
                 assertThat(legacy.body()).isEmpty();
+                Response legacyCall = probe().request(
+                                "POST",
+                                "/bootui/api/mcp",
+                                json,
+                                "{\"jsonrpc\":\"2.0\"" + id
+                                        + ",\"method\":\"tools/call\",\"params\":{\"name\":\"get_health\",\"arguments\":{}}}");
+                assertThat(legacyCall.status()).as(id).isEqualTo(202);
+                assertThat(legacyCall.body()).isEmpty();
             }
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+            while (probe().get("/bootui/api/mcp-server")
+                                    .json()
+                                    .path("callCount")
+                                    .asLong()
+                            < callsBefore + 2
+                    && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+            assertThat(probe().get("/bootui/api/mcp-server")
+                            .json()
+                            .path("callCount")
+                            .asLong())
+                    .as("the two legacy tools/call notifications ran, as in BootUI 1.x")
+                    .isEqualTo(callsBefore + 2);
         }
     }
 

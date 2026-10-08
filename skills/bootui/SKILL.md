@@ -205,11 +205,13 @@ With the agent attached, a "did my change run?" question is one named workflow, 
    read the inventory again before claiming the change works or reading any latency.
 3. If it still did not run, the next step is a method probe. Ask the user for separate approval, then
    `bootui probe start <method> --json` with the method as Code Inventory names it. It returns `starting`: poll
-   `bootui probe show <id> --json` until it is `active`, then rerun the same test or request and read it again (see
-   [Check whether a method runs, and how](#check-whether-a-method-runs-and-how)). Once the probe was active before the
-   rerun, no invocation is evidence that path never reaches the method: the wrong route, the wrong bean (another bean's
-   method of the same name), or never wired. A probe that never became active, failed, or ended before the rerun is
-   inconclusive. `bootui code paths --query "<route>" --json` shows which methods the route did
+   `bootui probe show <id> --json` until it is `active`, then, within its 60-second window (before its `endsAt`; send
+   the request rather than a slow test run), rerun the same test or request and read it again (see
+   [Check whether a method runs, and how](#check-whether-a-method-runs-and-how)). `invocations` at 0 is evidence that
+   path never reaches the method (the wrong route, the wrong bean, such as another bean's method of the same name, or
+   never wired) only when the probe was active before the rerun and is still active after it, or the rerun finished
+   before its `endsAt` and it did not end early. A probe that never became active, failed, or ended before the rerun
+   finished is inconclusive. `bootui code paths --query "<route>" --json` shows which methods the route did
    run.
 4. Report plainly whether the change ran and on which route; never report it verified while it is `NEVER_EXECUTED`.
 
@@ -239,10 +241,12 @@ With the agent attached and the user's separate approval, `bootui probe start <m
 and Code Inventory name it. It is an action: read-only policy refuses it, and it changes the running code for its
 window. It starts `starting` and retransforms the method afterwards, so poll `bootui probe show <id> --json`
 (`get_method_probe`) until it is `active` before you run the test or send the request that should reach the method, then
-read it again: each invocation's duration, thread kind, request id, outcome or exception type, and calling frame, never
-argument or return values; shapes the user asked for in the panel stay there. No invocation is evidence the path never
-reaches the method only when the probe was active before the code ran; a probe that never became active, failed, or
-ended first is inconclusive. A
+read it again before its `endsAt` (60 seconds from activation): each invocation's duration, thread kind, request id,
+outcome or exception type, and calling frame, never argument or return values; shapes the user asked for in the panel
+stay there. `invocations` at 0 is evidence the path never reaches the method only when the probe was active before the
+code ran and is still active, or the code finished before its `endsAt` and it did not end early; a probe that never
+became active, failed, or ended before the code finished is inconclusive (`dropped` above 0 means invocations it could
+not record). A
 probe `waitingForClass` has not seen this run load its class yet; an `async` method's durations time its result's
 assembly only.
 

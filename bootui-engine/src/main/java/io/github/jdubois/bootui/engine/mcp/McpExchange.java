@@ -110,7 +110,7 @@ public final class McpExchange {
                     McpProtocol.BATCH_NOT_SUPPORTED_MESSAGE,
                     IdEcho.NULL);
         }
-        Plan.Reject badModernId = checkModernId(envelope);
+        Plan.Reject badModernId = checkModernId(envelope, headers);
         if (badModernId != null) {
             return badModernId;
         }
@@ -137,19 +137,18 @@ public final class McpExchange {
     }
 
     /**
-     * The refusal of a request whose {@code _meta} names a modern protocol version but whose id MCP 2026-07-28 does not
-     * allow, or {@code null}. A modern request id is a string or an integer: {@code null} and fractional ids are
-     * refused, and a request method sent without an id is refused rather than run as a notification, so a modern {@code
-     * tools/call} never runs without an answer. Only a {@code notifications/} method may omit its id. A request without
-     * a modern {@code _meta} is never judged here, so legacy requests answer exactly as in BootUI 1.x.
+     * The refusal of a request that is not a BootUI 1.x request (its {@code _meta} names a protocol version other than
+     * MCP 2025-06-18, or one that is not a string, or its only {@code MCP-Protocol-Version} header is MCP 2026-07-28) but
+     * whose id MCP 2026-07-28 does not allow, or {@code null}. A modern request id is a string or an integer: {@code
+     * null}, fractional, and other ids are refused, and a request method sent without an id is refused rather than run
+     * as a notification, so a modern {@code tools/call} never runs without an answer. Only a {@code notifications/}
+     * method may omit its id. BootUI 1.x clients send none of these markers, so they answer exactly as before.
      */
-    static Plan.Reject checkModernId(Envelope envelope) {
+    static Plan.Reject checkModernId(Envelope envelope, McpRequestHeaders headers) {
         if (!envelope.object()
-                || envelope.meta().protocolVersion() != McpRequestMeta.Field.VALID
-                || !McpProtocol.MODERN_VERSIONS.contains(envelope.meta().protocolVersionValue())
+                || !claimsModern(envelope, headers)
                 || "initialize".equals(envelope.method())
-                || envelope.id().modernRequestId()
-                || envelope.id() == IdShape.INVALID) {
+                || envelope.id().modernRequestId()) {
             return null;
         }
         if (envelope.id() == IdShape.ABSENT
@@ -161,6 +160,20 @@ public final class McpExchange {
                 ? McpProtocol.MODERN_ID_REQUIRED_MESSAGE
                 : McpProtocol.MODERN_ID_TYPE_MESSAGE;
         return Plan.Reject.of(McpEra.MODERN, 400, McpProtocol.INVALID_REQUEST, message, IdEcho.NULL);
+    }
+
+    /** Whether a request claims a protocol era BootUI 1.x never saw, so its id is judged by MCP 2026-07-28's rules. */
+    private static boolean claimsModern(Envelope envelope, McpRequestHeaders headers) {
+        McpRequestMeta.Field version = envelope.meta().protocolVersion();
+        if (version == McpRequestMeta.Field.INVALID) {
+            return true;
+        }
+        if (version == McpRequestMeta.Field.VALID
+                && !McpProtocol.KNOWN_VERSIONS.contains(envelope.meta().protocolVersionValue())) {
+            return true;
+        }
+        List<String> header = headers.protocolVersion();
+        return header.size() == 1 && McpProtocol.MODERN_VERSIONS.contains(header.get(0));
     }
 
     /**
