@@ -745,6 +745,9 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **Rule catalogs match the advisors again.** The Spring, Quarkus, Database, and Hibernate catalogs use the
+  advisors' current rule titles, and the CRaC, Database, and Hibernate rule indexes render with every severity
+  ([Spring checks](docs/SPRING-CHECKS.md)).
 - **Method probe guidance avoids false "never reached" answers.** Agents and the BootUI skill now wait until a probe
   is `active`, rerun within its window, and treat an empty result from a probe that was not active throughout as
   inconclusive ([AI agents](docs/AI-AGENTS.md#did-this-method-run-and-how)).

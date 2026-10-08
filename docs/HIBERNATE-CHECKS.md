@@ -96,8 +96,9 @@ units.
 ### Version baseline
 
 The audited baselines are Spring Boot 4.1.1 with Hibernate 7.4.5.Final, and Quarkus 3.33.3.1 with Hibernate
-7.2.19.Final, both on Jakarta Persistence 3.2.0. Your application may override these versions, and version-dependent
-conclusions use runtime evidence. Primary references and version caveats are listed at the end of this catalog.
+7.2.19.Final, both on Jakarta Persistence 3.2.0. BootUI now builds its Quarkus adapter against Quarkus 3.40.1, which
+manages Hibernate 7.4.9.Final. Your application may override these versions, and version-dependent conclusions use
+runtime evidence. Primary references and version caveats are listed at the end of this catalog.
 
 ## Severity scale
 
@@ -278,7 +279,7 @@ eliminate Cartesian multiplication when multiple collections are fetched togethe
 ### HIB-ID-005 - Review generated UUID strategy when index locality matters
 
 - **Severity**: LOW
-- **Inspects**: `UUID` identifier attributes annotated with `@GeneratedValue`, and the runtime Hibernate ORM version.
+- **Inspects**: `UUID` identifier attributes annotated with `@GeneratedValue`.
 - **Fires when**: the attribute is not also annotated with `@UuidGenerator`.
 - **Why it matters**: default random UUID generation can affect index locality, depending on the database and workload.
   This declaration-level check does not establish an effective custom generator or measured index fragmentation.
@@ -286,16 +287,15 @@ eliminate Cartesian multiplication when multiple collections are fetched togethe
   also acceptable). Both styles are monotonic, index-friendly UUID variants and only exist starting in Hibernate 7.0
   (both `@Incubating`) - confirmed by diffing `UuidGenerator.java` between the 6.6 branch (only `AUTO`/`RANDOM`/`TIME`)
   and the 7.0 branch (adds `VERSION_6`/`VERSION_7`).
-- **Older-runtime caveat**: `style = TIME` produces an RFC 4122
+- **`TIME` caveat**: `style = TIME` produces an RFC 4122
   **version 1** UUID (per `@UuidGenerator`'s own Javadoc: "time-based generation strategy consistent with RFC 4122
   version 1, but with IP address instead of MAC address"), which places the fast-changing `time_low` field first and is
   **not materially more index-friendly than a random (v4) UUID** - it does not yield the monotonic ordering that makes
-  `VERSION_6`/`VERSION_7` genuinely index-friendly. The recommendation is annotated with this caveat rather than
-  presenting `TIME` as a real fix. An unknown runtime is not assumed to be an older release.
+  `VERSION_6`/`VERSION_7` genuinely index-friendly, so do not treat `TIME` as a fix.
 - **Generator caveat**: `@UuidGenerator` without a style still defaults to AUTO/RANDOM; its presence does not prove
   ordered UUIDs. String-based, named and custom generators are not fully resolved by this check.
-- **Version detection**: the runtime Hibernate ORM version is read from `HibernateContext`/`HibernateEntityModel` the
-  same way HIB-FETCH-003/HIB-CONFIG-016 gate their Hibernate-7.4 pagination behavior.
+- **Version handling**: the check does not read the runtime Hibernate version; every supported runtime uses ORM 7,
+  where `VERSION_6`/`VERSION_7` are available.
 
 ### HIB-ID-006 - GenerationType.IDENTITY disables JDBC batch inserts
 
@@ -438,8 +438,9 @@ eliminate Cartesian multiplication when multiple collections are fetched togethe
 - **Recommendation**: prefer non-final entities (and `open` Kotlin entities) when lazy subclass proxies are needed.
   Bytecode-enhanced entities are exempt.
 - **Kotlin note**: Kotlin classes are final by default. Before Kotlin 2.3.20 the JPA plugin supplied no-arg constructors
-  but did not itself enable all-open; since 2.3.20 JPA setup enables both. Boot's managed Kotlin 2.3.21 and Quarkus's
-  2.3.10 therefore differ. The emitted class, not dependency or plugin-name presence, determines finality.
+  but did not itself enable all-open; since 2.3.20 JPA setup enables both. Boot's managed Kotlin 2.3.21 and Quarkus
+  3.40's 2.4.10 are both at or above 2.3.20, but an application can pin an older Kotlin plugin. The emitted class, not
+  dependency or plugin-name presence, determines finality.
 
 ### HIB-MAP-012 - SINGLE_TABLE inheritance should declare @DiscriminatorColumn
 
@@ -528,7 +529,7 @@ duplicate that work by assuming absent `@Index` means absent database index.
 ### HIB-MAP-021 - Legacy @Where restrictions should be migrated
 
 **Retired.** Hibernate ORM 7.0 removed `@Where` and `@WhereJoinTable`, and every supported runtime uses ORM 7 (Spring
-Framework 7 requires ORM 7.1 or later; Quarkus 3.33 ships 7.2). Code cannot compile against the removed types, and an
+Framework 7 requires ORM 7.1 or later; Quarkus 3.40 ships 7.4). Code cannot compile against the removed types, and an
 annotation whose type is missing at runtime is silently dropped by reflection, so the check could never fire. Migrate
 any remaining restrictions to `@SQLRestriction`, `@SQLJoinTableRestriction`, or `@SoftDelete` as part of the ORM 7
 upgrade.
@@ -635,6 +636,8 @@ proves lazy loading here; safe ID-only implementations must not receive this fin
 
 - **Severity**: INFO
 - **Inspects**: primitive-version declarations in the supported Spring Data JPA newness context.
+- **Fires when**: a verified standard Spring Data JPA repository domain entity that does not implement `Persistable`
+  declares a primitive `@Version` attribute.
 - **Why it matters**: primitive identifiers and versions are legal. Spring Data recognizes zero-valued numeric primitive
   identifiers as new, but cannot use a primitive version as a nullable newness signal and falls back to identifier
   inspection. A wrapper alone does not prove correct custom newness or equality behavior.
@@ -826,8 +829,8 @@ Named and dynamic queries outside the observed metadata remain outside coverage.
 ### HIB-CONFIG-001 - Open Session in View should be disabled
 
 **Retired.** Open Session in View is a Spring MVC application setting, not a Hibernate factory option, and the Spring
-advisor's [SPRING-JPA-001](SPRING-CHECKS.md#spring-jpa-001-review-open-session-in-view) reviews the same activation
-with richer registration evidence. Keeping both counted one observation against two advisor scores.
+advisor's [SPRING-JPA-001](SPRING-CHECKS.md#spring-jpa-001-review-servlet-open-session-in-view) reviews the same
+activation with richer registration evidence. Keeping both counted one observation against two advisor scores.
 
 ### HIB-CONFIG-003 - Lazy loading outside transactions should stay disabled
 
@@ -858,9 +861,10 @@ with richer registration evidence. Keeping both counted one observation against 
 - **Why it matters**: batches are grouped by SQL/table shape; interleaved entity types reduce batch efficiency.
 - **Recommendation**: benchmark ordering when writes are interleaved across multiple entity types; sorting adds cost.
 - **Quarkus**: `hibernate.order_inserts`/`hibernate.order_updates` have no first-class `quarkus.hibernate-orm.*`
-  equivalent, but `QuarkusHibernatePropertyLookup` falls back to Quarkus' generic
+  equivalent, but Quarkus' generic
   `quarkus.hibernate-orm.unsupported-properties."hibernate.order_inserts"` (and `"hibernate.order_updates"`) escape
-  hatch. A live-boot spike against `bootui-quarkus-integration-tests` confirmed this end to end: with
+  hatch reaches the effective factory options this rule reads. A live-boot spike against
+  `bootui-quarkus-integration-tests` confirmed this end to end: with
   `quarkus.hibernate-orm.jdbc.statement-batch-size` and both `unsupported-properties` entries set, Hibernate's own
   `SessionFactoryOptions.isOrderInsertsEnabled()`/`isOrderUpdatesEnabled()` both report `true` at runtime, and this
   rule correctly does not fire.
@@ -872,8 +876,8 @@ with richer registration evidence. Keeping both counted one observation against 
 - **Fires when**: an observed threshold is not positive. Unavailable runtime evidence is not an unset effective default.
 - **Why it matters**: a local slow-query threshold helps spot expensive SQL before it reaches shared environments.
 - **Recommendation**: configure a bounded threshold in development and staging profiles.
-- **Quarkus**: the neutral Hibernate threshold keys map to
-  `quarkus.hibernate-orm.log.queries-slower-than-ms`, so a native Quarkus threshold is recognized.
+- **Quarkus**: `quarkus.hibernate-orm.log.queries-slower-than-ms` sets the factory's effective threshold, so a native
+  Quarkus threshold is recognized.
 
 ### HIB-CONFIG-007 - Hibernate statistics should be enabled when tuning
 
@@ -883,19 +887,19 @@ with richer registration evidence. Keeping both counted one observation against 
 - **Why it matters**: statistics expose query counts, fetch counts, and cache hit ratios useful during performance tuning.
 - **Recommendation**: enable statistics in development or performance-test profiles when investigating data-access
   behavior. Leaving statistics disabled outside tuning sessions can intentionally avoid collection overhead.
-- **Quarkus**: `hibernate.generate_statistics` maps to `quarkus.hibernate-orm.statistics` via
-  `QuarkusHibernatePropertyLookup`, so this rule no longer false-positives when statistics are enabled with the
-  native Quarkus property name.
+- **Quarkus**: `quarkus.hibernate-orm.statistics` enables the same live factory statistics, so this rule does not
+  report a unit whose statistics are enabled with the native Quarkus property name.
 - **UI consumer**: the standalone Hibernate Statistics panel (Database group) reads these same live counters once
-  enabled — see `docs/features/` and `docs/SPECIFICATION.md` §5.17.1.1 for the panel this recommendation now
-  unlocks.
+  enabled — see the [feature guide](features/database.md#hibernate-statistics) and the
+  [specification](SPECIFICATION.md#_5-17-1-1-hibernate-statistics-panel) for the panel this recommendation unlocks.
 
 ### HIB-CONFIG-008 - Connection providers should disable auto-commit explicitly
 
 - **Severity**: INFO
 - **Inspects**: attributed connection-provider and transaction evidence, not a stale Hikari property in isolation.
 - **Fires when**: supported observations establish a resource-local provider guarantee that makes the recommendation
-  applicable. Otherwise the check is skipped; BootUI never acquires a JDBC connection to discover auto-commit.
+  applicable. Otherwise the check is skipped; BootUI never acquires a JDBC connection to discover auto-commit. Neither
+  adapter supplies that observation today, so the check is always skipped with an `INFO` diagnostic.
 - **Why it matters**: when the pool already disables auto-commit, this setting lets Hibernate delay connection acquisition.
 - **Recommendation**: configure the pool with auto-commit disabled and set
   `hibernate.connection.provider_disables_autocommit=true`.
@@ -907,9 +911,8 @@ with richer registration evidence. Keeping both counted one observation against 
 - **Fires when**: such a query exists and `hibernate.query.in_clause_parameter_padding` is not enabled.
 - **Why it matters**: variable-length `IN` predicates can produce many SQL shapes and reduce plan-cache reuse.
 - **Recommendation**: enable IN-clause parameter padding when the database benefits from statement plan reuse.
-- **Quarkus**: `hibernate.query.in_clause_parameter_padding` maps to
-  `quarkus.hibernate-orm.query.in-clause-parameter-padding` via `QuarkusHibernatePropertyLookup`, so the property is
-  read correctly. The repository-scanning half of this rule only inspects Spring Data JPQL query methods, so it has
+- **Quarkus**: the effective padding flag reflects `quarkus.hibernate-orm.query.in-clause-parameter-padding`. The
+  repository-scanning half of this rule only inspects Spring Data JPQL query methods, so it has
   nothing to flag on a Panache-based Quarkus app regardless of the property value.
 
 ### HIB-CONFIG-010 - Query caching requires effective region support
@@ -923,21 +926,22 @@ with richer registration evidence. Keeping both counted one observation against 
   eligibility and concurrency semantics.
 - **Recommendation**: configure appropriate provider infrastructure or disable query caching. Entity-cache coverage
   is a separate workload choice; factory query-cache enablement does not prove that any query opts in.
-- **Quarkus**: `hibernate.cache.use_query_cache` maps to `quarkus.hibernate-orm.second-level-caching-enabled` via
-  `QuarkusHibernatePropertyLookup` — Quarkus exposes a single unified toggle for second-level/query caching, not a
-  separate query-cache property, so both the query-cache and second-level-cache reads resolve to the same Quarkus
-  setting. When enabled, Quarkus supplies its integrated second-level cache implementation even though it does not
-  expose a `hibernate.cache.region.factory_class` property.
+- **Quarkus**: Quarkus exposes a single unified `quarkus.hibernate-orm.second-level-caching-enabled` toggle for
+  second-level/query caching, not a separate query-cache property; the rule reads the resulting effective factory
+  query-cache state and region factory. When enabled, Quarkus supplies its integrated second-level cache implementation
+  even though it does not expose a `hibernate.cache.region.factory_class` property.
 
 ### HIB-CONFIG-011 - Review effective cache concurrency strategy
 
 - **Severity**: MEDIUM
 - **Inspects**: observed cache activation and available concurrency-strategy evidence.
 - **Fires when**: supported evidence establishes a strategy problem, not merely absence of a Hibernate `@Cache`
-  annotation. Providers may supply a valid default; unresolved effective strategy/eligibility is unknown.
+  annotation. Providers may supply a valid default; unresolved effective strategy/eligibility is unknown. Neither
+  adapter observes the provider-selected strategy today, so when a cache-enabled unit has `@Cacheable` entities without
+  `@Cache` the check is skipped with an `INFO` diagnostic rather than reporting findings.
 - **Why it matters**: concurrency behavior must fit the data, but an explicit annotation is not mandatory.
 - **Recommendation**: review the effective strategy and data mutability before adding annotations or changing cache use.
-- **Quarkus**: `hibernate.cache.use_second_level_cache` maps to the same
+- **Quarkus**: the effective factory second-level-cache state reflects the same
   `quarkus.hibernate-orm.second-level-caching-enabled` toggle as HIB-CONFIG-010, so the precondition check for
   "second-level caching appears configured" is read correctly on Quarkus too.
 
@@ -958,10 +962,10 @@ with richer registration evidence. Keeping both counted one observation against 
 ### HIB-CONFIG-012 - SQL logging should be off when a production profile is active
 
 - **Severity**: MEDIUM
-- **Inspects**: `spring.jpa.show-sql`, `hibernate.show_sql`, and DEBUG/TRACE log levels for `org.hibernate.SQL` /
-  `org.hibernate.orm.jdbc.bind` / `org.hibernate.type.descriptor.sql.BasicBinder`.
-- **Fires when**: any of those are enabled while a profile named `prod`, `production`, `staging`, or `*-prod` /
-  `*-production` is active.
+- **Inspects**: `spring.jpa.show-sql`/`hibernate.show_sql` (statement output to standard out), the live
+  `org.hibernate.SQL` logger at DEBUG or finer, and the live `org.hibernate.orm.jdbc.bind` logger at TRACE.
+- **Fires when**: any of those are enabled while a profile named `prod`, `production`, `staging`, `prod-*`, or
+  `*-prod` / `*-production` is active.
 - **Why it matters**: statement logging adds workload-dependent overhead and can reveal sensitive SQL text. Parameter
   values have a separate binding logger checked by HIB-CONFIG-018; no measured throughput loss is inferred.
 - **Recommendation**: keep SQL logging off in production-like environments and rely on structured slow-query logging or
@@ -995,7 +999,8 @@ with richer registration evidence. Keeping both counted one observation against 
 ### HIB-CONFIG-015 - Deferred script initialization should have an intentional order
 
 - **Severity**: INFO
-- **Inspects**: `spring.jpa.defer-datasource-initialization` and `spring.jpa.hibernate.ddl-auto`.
+- **Inspects**: `spring.jpa.defer-datasource-initialization` and whether Spring Boot registered a
+  `DataSourceScriptDatabaseInitializer`.
 - **Fires when**: supported Spring initializer evidence establishes deferred initialization. Ignored Spring property
   names in Quarkus cannot activate this rule.
 - **Why it matters**: the property moves script-based datasource initialization until after JPA initialization. That can
@@ -1022,7 +1027,7 @@ with richer registration evidence. Keeping both counted one observation against 
 ### HIB-CONFIG-017 - Disable SQL formatting in production
 
 - **Severity**: LOW
-- **Inspects**: the `hibernate.format_sql` property, SQL-logging state, and active Spring profiles.
+- **Inspects**: the effective `hibernate.format_sql` setting, SQL-logging state, and active Spring or Quarkus profiles.
 - **Fires when**: a production profile is active, `hibernate.format_sql` is `true`, and statement logging is enabled.
   Binder-only logging does not establish that SQL statements are formatted.
 - **Why it matters**: Hibernate formats a statement only when it logs that statement. Formatting every verbose SQL log
@@ -1034,16 +1039,15 @@ with richer registration evidence. Keeping both counted one observation against 
 ### HIB-CONFIG-018 - Bind-parameter logging should be off in production
 
 - **Severity**: HIGH
-- **Inspects**: TRACE-level logging for `org.hibernate.orm.jdbc.bind` (and the legacy
-  `org.hibernate.type.descriptor.sql.BasicBinder` binder logger), plus the active Spring/Quarkus profile.
+- **Inspects**: the live TRACE level of the `org.hibernate.orm.jdbc.bind` logger, plus the active Spring/Quarkus
+  profile. The legacy `org.hibernate.type.descriptor.sql.BasicBinder` logger is not inspected.
 - **Fires when**: a production-like profile is active and bind-parameter logging is enabled at TRACE.
 - **Why it matters**: at TRACE, Hibernate logs every bound parameter value - this can leak PII, credentials, or tokens
   passed as query parameters into application logs.
 - **Recommendation**: keep bind-parameter logging off in production; only enable it temporarily, in a non-production
   environment, while diagnosing a specific issue.
-- **Quarkus**: also detects the Quarkus-native `quarkus.hibernate-orm.log.bind-parameters` convenience flag (and its
-  deprecated `.bind-param` alias), which `QuarkusHibernatePropertyLookup` reports as the neutral TRACE logger state -
-  Quarkus's own guide explicitly warns against enabling this in production.
+- **Quarkus**: the Quarkus-native `quarkus.hibernate-orm.log.bind-parameters` convenience flag raises that same logger to
+  TRACE, so it is detected too - Quarkus's own guide explicitly warns against enabling this in production.
 
 ### HIB-CONFIG-019 - SQL comments should be enabled intentionally
 
@@ -1057,14 +1061,14 @@ with richer registration evidence. Keeping both counted one observation against 
 ### HIB-CONFIG-020 - Oracle JDBC fetch size should exceed the driver default
 
 - **Severity**: INFO
-- **Inspects**: attributed database/driver classification and the owning unit's fetch-size evidence. Raw JDBC URLs and
+- **Inspects**: the owning unit's observed dialect family and effective fetch size. Raw JDBC URLs and
   credentials are not report evidence.
 - **Fires when**: Oracle is identifiable and the fetch size is absent or no greater than Oracle JDBC's default of 10.
 - **Why it matters**: iterating result sets larger than ten rows can require avoidable database roundtrips. PostgreSQL and
   MySQL have different driver behavior, so this check deliberately does not prescribe a global fetch size.
 - **Recommendation**: for Oracle queries that commonly return more than ten rows, benchmark a bounded fetch size above 10;
   retain the default when result sets are consistently small.
-- **Quarkus**: reads `quarkus.hibernate-orm.jdbc.statement-fetch-size` through the native property lookup.
+- **Quarkus**: the effective factory fetch size reflects `quarkus.hibernate-orm.jdbc.statement-fetch-size`.
 
 ## Caching
 
