@@ -397,6 +397,9 @@ give the details.
   full `docker` profile (PostgreSQL, Redis, Kafka, and Ollama for Spring AI), and a new `run-history` profile that keeps
   Live Activity's history in PostgreSQL and the last run's summary in `.bootui/run-baseline.bin`, so a new run is
   compared with the previous one after a full restart.
+- **Launchers for the WebFlux and Quarkus samples.** Each sample has a `run-local.sh`, a `run-local-agent.sh` that
+  attaches the BootUI Java agent with its default sensors, and a `run-local-all.sh` that turns on every sensor, as the
+  Spring MVC sample does.
 
 ### Changed
 

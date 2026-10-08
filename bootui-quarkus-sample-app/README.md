@@ -53,6 +53,9 @@ Install the extension (and its dependencies) once, then launch the sample in dev
 ./mvnw -f bootui-quarkus-sample-app/pom.xml quarkus:dev
 ```
 
+`./bootui-quarkus-sample-app/run-local.sh` does both, with the isolated `.m2` repository, and forwards additional Maven
+arguments to `quarkus:dev`.
+
 Then open the console at <http://localhost:8082/bootui/> and the landing page at <http://localhost:8082/>.
 Ollama is optional: the chat endpoint returns a clear "AI unavailable" response when it is not reachable.
 
@@ -71,6 +74,17 @@ BootUI (`quarkus.otel.exporter.otlp.endpoint` in `application.properties`, defau
 This is harmless if the Spring app is not running (the export just fails quietly in the background); it is
 disabled in the Docker image below, which has no Spring app nearby.
 
+
+### Run it with the BootUI Java agent
+
+```bash
+./bootui-quarkus-sample-app/run-local-agent.sh
+```
+
+It builds the agent with the sample and passes it to the dev-mode JVM through `-Djvm.args=-javaagent:…`, with the
+agent's default sensors; live reload claims the agent again. Set `BOOTUI_AGENT_JAR` to use another agent jar, and
+`BOOTUI_AGENT_SENSORS` to choose the sensors. `./bootui-quarkus-sample-app/run-local-all.sh` turns on every sensor the
+agent ships, the opt-in ones included. A `-Djvm.args` argument passed to either script replaces the agent.
 
 ## Optional MySQL diagnostics
 
