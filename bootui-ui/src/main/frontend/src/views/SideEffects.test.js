@@ -390,6 +390,150 @@ describe('Side Effects panel', () => {
     )
   })
 
+  it('shows thread activity rows per route, with threads left running and library pools grouped apart', async () => {
+    const leftRow = row({
+      sensor: 'thread-activity',
+      kind: 'thread',
+      target: 'report-refresher-{n}',
+      callSite: 'demo.ReportService#refreshLater',
+      insideMethod: null,
+      origin: 'application',
+      count: 6,
+      requests: 3,
+      leftRunning: 2,
+      failed: 0,
+      completed: 0,
+      totalMillis: 0,
+      maxMillis: 0,
+      exemplarRequestIds: ['00000000000000dd']
+    })
+    const executorRow = row({
+      sensor: 'thread-activity',
+      kind: 'executor',
+      target: 'java.util.concurrent.ThreadPoolExecutor',
+      callSite: 'demo.ExportService#export',
+      insideMethod: null,
+      origin: 'application',
+      count: 4,
+      requests: 4,
+      leftRunning: 1,
+      failed: 1,
+      completed: 3,
+      totalMillis: 90,
+      maxMillis: 40
+    })
+    const libraryRow = row({
+      sensor: 'thread-activity',
+      kind: 'thread',
+      target: 'HikariPool-{n} housekeeper',
+      callSite: 'com.zaxxer.hikari.pool.HikariPool#<init>',
+      insideMethod: null,
+      origin: 'library',
+      count: 1,
+      requests: 1,
+      leftRunning: 0
+    })
+    ;({wrapper} = mountPanel({
+      'api/side-effects/sensor?sensor=thread-activity&offset=0&limit=50': sensorReport('thread-activity', [
+        leftRow,
+        executorRow,
+        libraryRow
+      ]),
+      'api/side-effects': summary({
+        sensors: {'thread-activity': {state: 'recording', rows: 3, occurrences: 11}}
+      })
+    }))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Threads and leaks')
+      .trigger('click')
+    await flushPromises()
+
+    const headers = wrapper.findAll('.side-effects-table thead th').map((th) => th.text())
+    expect(headers).toEqual(
+      expect.arrayContaining(['Thread / executor', 'Started', 'Per request', 'Left running', 'Shut down'])
+    )
+    const rows = wrapper.findAll('.side-effects-table tbody tr')
+    expect(rows[0].findAll('td')).toHaveLength(headers.length / 2)
+    const own = wrapper.get('.side-effects-table').text()
+    expect(own).toContain('report-refresher-{n}')
+    expect(own).toContain('demo.ReportService#refreshLater')
+    expect(wrapper.findAll('.side-effects-left-running').map((badge) => badge.text())).toEqual(['1', '2'])
+    expect(own).toContain('java.util.concurrent.ThreadPoolExecutor')
+    const apart = wrapper.get('.side-effects-apart')
+    expect(apart.text()).toContain('Libraries and the JDK (1), grouped apart')
+    expect(apart.text()).toContain('HikariPool-{n} housekeeper')
+    expect(own).not.toContain('HikariPool')
+  })
+
+  it('shows thread locals left set by their holder, set during the request, never a value', async () => {
+    const leftRow = row({
+      sensor: 'thread-locals',
+      kind: 'left set',
+      target: 'demo.TenantContext.CURRENT',
+      callSite: null,
+      insideMethod: null,
+      origin: 'application',
+      count: 4,
+      requests: 4,
+      exemplarRequestIds: ['00000000000000ee']
+    })
+    const cacheRow = row({
+      sensor: 'thread-locals',
+      kind: 'left set (with initial value)',
+      target: 'demo.Formats.FORMAT',
+      callSite: null,
+      insideMethod: null,
+      origin: 'application',
+      count: 2,
+      requests: 2
+    })
+    const unresolvedRow = row({
+      sensor: 'thread-locals',
+      kind: 'left set',
+      target: 'holder not resolved (java.lang.ThreadLocal)',
+      callSite: null,
+      insideMethod: null,
+      origin: 'unknown',
+      count: 1,
+      requests: 1
+    })
+    ;({wrapper} = mountPanel({
+      'api/side-effects/sensor?sensor=thread-locals&offset=0&limit=50': sensorReport('thread-locals', [
+        leftRow,
+        cacheRow,
+        unresolvedRow
+      ]),
+      'api/side-effects': summary({
+        sensors: {'thread-locals': {state: 'recording', rows: 2, occurrences: 6}}
+      })
+    }))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Threads and leaks')
+      .trigger('click')
+    await flushPromises()
+
+    const table = wrapper
+      .findAll('.side-effects-table')
+      .find((candidate) => candidate.text().includes('demo.TenantContext.CURRENT'))
+    expect(table).toBeTruthy()
+    const headers = table.findAll('thead th').map((th) => th.text())
+    expect(headers).toEqual(expect.arrayContaining(['Thread local (holder)', 'Times left set', 'Origin']))
+    expect(table.findAll('tbody tr')[0].findAll('td')).toHaveLength(headers.length)
+    expect(table.text()).toContain('left set (with initial value)')
+    expect(table.findAll('.side-effects-set-during').map((cell) => cell.text())).toEqual([
+      'set during the request',
+      'set during the request'
+    ])
+    expect(table.text()).not.toContain('holder not resolved')
+    const apart = wrapper.get('.side-effects-apart')
+    expect(apart.text()).toContain('Holders not resolved (1), grouped apart')
+    expect(apart.text()).toContain('holder not resolved (java.lang.ThreadLocal)')
+  })
+
   it('says why blocking is not applicable on a stack without event loops', async () => {
     ;({wrapper} = mountPanel({
       'api/side-effects/sensor?sensor=blocking&offset=0&limit=50': sensorReport('blocking', []),

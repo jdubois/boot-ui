@@ -5,11 +5,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.SideEffects;
+import io.github.jdubois.bootui.core.dto.JavaAgentSensorToggleDto;
 import io.github.jdubois.bootui.core.dto.SideEffectsAgentReport;
+import io.github.jdubois.bootui.core.dto.SideEffectsHookDto;
 import io.github.jdubois.bootui.core.dto.SideEffectsReport;
 import io.github.jdubois.bootui.core.dto.SideEffectsRowDto;
 import io.github.jdubois.bootui.core.dto.SideEffectsSensorDto;
 import io.github.jdubois.bootui.core.dto.SideEffectsSensorReport;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
@@ -22,6 +25,7 @@ import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -30,6 +34,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import sideeffectsapp.EventLoopWork;
 import sideeffectsapp.Launcher;
+import sideeffectsapp.ThreadWork;
 
 /**
  * Side Effects against the real bridge class from the test class path, driven as the processes sensor's advice would
@@ -195,9 +200,16 @@ class SideEffectsServiceTests {
                         "blocking",
                         "security-sinks");
         assertThat(report.sensors())
-                .filteredOn(
-                        sensor -> !List.of("processes", "network", "files", "environment", "blocking", "security-sinks")
-                                .contains(sensor.id()))
+                .filteredOn(sensor -> !List.of(
+                                "processes",
+                                "network",
+                                "files",
+                                "environment",
+                                "blocking",
+                                "thread-activity",
+                                "thread-locals",
+                                "security-sinks")
+                        .contains(sensor.id()))
                 .allSatisfy(sensor -> {
                     assertThat(sensor.state()).isEqualTo(SideEffectsSensorDto.NOT_AVAILABLE);
                     assertThat(sensor.reason()).isEqualTo(SideEffectsCatalog.NOT_IN_THIS_VERSION);
@@ -257,6 +269,17 @@ class SideEffectsServiceTests {
                 .satisfies(row -> assertThat(row.target()).isEqualTo("git"));
         assertThat(bySensor.rows()).hasSize(1);
         assertThat(bySensor.omitted()).isEqualTo(1);
+        assertThat(bySensor.sensors())
+                .extracting(SideEffectsSensorDto::id)
+                .containsExactlyElementsOf(service.report().sensors().stream()
+                        .map(SideEffectsSensorDto::id)
+                        .toList());
+        assertThat(all.rows())
+                .allSatisfy(row -> assertThat(row.exemplarRequestIds()).contains(REQUEST));
+        assertThat(service.agentReport(REQUEST, null).matched())
+                .as("a request id matches the rows naming it among their exemplars")
+                .isEqualTo(2);
+        assertThat(service.agentReport("00000000deadbeef", null).matched()).isZero();
         assertThat(evidence.status().stores()).singleElement().satisfies(store -> {
             assertThat(store.store()).isEqualTo("side-effects");
             assertThat(store.retainedBytes()).isPositive();
@@ -276,6 +299,70 @@ class SideEffectsServiceTests {
         assertThat(service.sensor("processes", null, null).rows())
                 .singleElement()
                 .satisfies(row -> assertThat(row.target()).isEqualTo("git"));
+    }
+
+    @Test
+    void agentsGetEverySensorsCoverageAndOnlyTheNamedSensorsHooks() {
+        SideEffectsHookDto hook = new SideEffectsHookDto("connect", "java.net.Socket", true, true, "passed", 3);
+        JavaAgentSensorToggleDto toggle =
+                new JavaAgentSensorToggleDto("files", false, false, false, "off", "Opt-in", true, null, null);
+        List<SideEffectsSensorDto> sensors = List.of(
+                new SideEffectsSensorDto(
+                        "network", "Network", "Connects", SideEffectsSensorDto.RECORDING, null, 4, 9, 1, List.of(hook)),
+                new SideEffectsSensorDto(
+                        "files",
+                        "Files and processes",
+                        "Files",
+                        SideEffectsSensorDto.NOT_CLAIMED,
+                        "Off",
+                        0,
+                        0,
+                        0,
+                        List.of(hook),
+                        toggle));
+
+        List<SideEffectsSensorDto> summary = SideEffectsService.agentSensors(sensors, null);
+        List<SideEffectsSensorDto> network = SideEffectsService.agentSensors(sensors, "network");
+
+        assertThat(summary).allSatisfy(sensor -> assertThat(sensor.hooks()).isEmpty());
+        assertThat(summary.get(0))
+                .usingRecursiveComparison()
+                .ignoringFields("hooks")
+                .isEqualTo(sensors.get(0));
+        assertThat(summary.get(1).toggle()).isEqualTo(toggle);
+        assertThat(summary.get(1).reason()).isEqualTo("Off");
+        assertThat(network.get(0)).isEqualTo(sensors.get(0));
+        assertThat(network.get(1).hooks()).isEmpty();
+    }
+
+    @Test
+    void agentsGetTheFixedLimitationsOfTheSensorsTheySeeAndEveryRunSpecificOne() {
+        List<String> all = List.of(
+                SideEffectsService.LIMITATION_SCOPE,
+                SideEffectsService.LIMITATION_VALUES,
+                SideEffectsService.LIMITATION_NETWORK,
+                SideEffectsService.LIMITATION_CAPTURE,
+                SideEffectsService.LIMITATION_FILES,
+                SideEffectsService.LIMITATION_BLOCKING,
+                SideEffectsService.LIMITATION_ATTRIBUTION,
+                "3 threads or executors were not tracked.");
+
+        List<String> network = SideEffectsService.agentLimitations(all, java.util.Set.of("network"));
+
+        assertThat(network)
+                .containsExactly(
+                        SideEffectsService.LIMITATION_SCOPE,
+                        SideEffectsService.LIMITATION_NETWORK,
+                        SideEffectsService.LIMITATION_CAPTURE,
+                        SideEffectsService.LIMITATION_ATTRIBUTION,
+                        "3 threads or executors were not tracked.",
+                        SideEffectsService.LIMITATION_AGENT_OMITTED);
+        assertThat(SideEffectsService.agentLimitations(all, java.util.Set.of("files")))
+                .contains(SideEffectsService.LIMITATION_VALUES, SideEffectsService.LIMITATION_FILES)
+                .doesNotContain(SideEffectsService.LIMITATION_NETWORK);
+        assertThat(SideEffectsService.agentLimitations(
+                        List.of(SideEffectsService.LIMITATION_SCOPE), java.util.Set.of()))
+                .containsExactly(SideEffectsService.LIMITATION_SCOPE);
     }
 
     @Test
@@ -300,12 +387,9 @@ class SideEffectsServiceTests {
                 .hasMessageContaining("proceses")
                 .hasMessageContaining("processes")
                 .hasMessageContaining("not available in this version");
-        AgentSensorSettings planned =
-                new AgentSensorSettings(List.of("executors", "resources", "thread-locals"), null, null, null);
-        assertThat(planned.notAvailable()).containsExactly("resources", "thread-locals");
-        assertThat(planned.notAvailableWarning())
-                .contains("resources, thread-locals")
-                .contains("not available");
+        AgentSensorSettings planned = new AgentSensorSettings(List.of("executors", "resources"), null, null, null);
+        assertThat(planned.notAvailable()).containsExactly("resources");
+        assertThat(planned.notAvailableWarning()).contains("resources").contains("not available");
         assertThat(AgentSensorSettings.defaults().notAvailableWarning()).isNull();
         assertThat(AgentSensorSettings.NOT_AVAILABLE_SENSORS)
                 .as("the catalog's sensors this version does not ship")
@@ -491,6 +575,32 @@ class SideEffectsServiceTests {
         ((java.util.concurrent.atomic.LongAdder) full.get(null)).increment();
 
         assertThat(service.report().limitations()).contains(SideEffectsService.LIMITATION_LOOPS_REFUSED);
+    }
+
+    @Test
+    void saysWhenThreadActivityCouldNotCheckThreadsAtTheirRequestsEnd() throws Exception {
+        start();
+        assertThat(service.report().limitations()).noneMatch(line -> line.contains("not checked"));
+        java.lang.reflect.Field field = Class.forName("io.github.jdubois.bootui.agent.bridge.ThreadActivity")
+                .getDeclaredField("TRACKER");
+        field.setAccessible(true);
+        Object tracker = field.get(null);
+        for (String counter : List.of("unresolved", "endsLost")) {
+            java.lang.reflect.Field adder = tracker.getClass().getDeclaredField(counter);
+            adder.setAccessible(true);
+            ((java.util.concurrent.atomic.LongAdder) adder.get(tracker)).add(2);
+        }
+        try {
+            assertThat(service.report().limitations())
+                    .anyMatch(line -> line.startsWith("2 threads or executors were not checked"))
+                    .anyMatch(line -> line.startsWith("2 requests' ends were lost"));
+        } finally {
+            for (String counter : List.of("unresolved", "endsLost")) {
+                java.lang.reflect.Field adder = tracker.getClass().getDeclaredField(counter);
+                adder.setAccessible(true);
+                ((java.util.concurrent.atomic.LongAdder) adder.get(tracker)).reset();
+            }
+        }
     }
 
     /** Holds a registered loop's thread, so its weak entry outlives the test's assertions. */
@@ -691,6 +801,74 @@ class SideEffectsServiceTests {
                 .satisfies(row -> assertThat(row.capture()).isEqualTo(SideEffectsRowDto.NOT_CAPTURED));
     }
 
+    /**
+     * M5-5e: a thread and an executor a request's application code left running when it ended are rows of its route,
+     * reported left running once the request's end, heard from {@code RequestPhases}, is past its grace; a thread joined
+     * before the end is a row never left running, and an executor's shutdown lands on its creation's row.
+     */
+    @Test
+    void threadsAndExecutorsARequestLeftRunningAreRowsOfItsRoute() throws Exception {
+        start();
+        RequestPhases phases = new RequestPhases();
+        service.listenToRequestEnds(phases);
+        routes.put(REQUEST, "GET /refresh");
+        CountDownLatch release = new CountDownLatch(1);
+        context.set(CorrelationContext.forRequest(REQUEST));
+        Thread left = ThreadWork.startWaiting("report-refresher-1", release);
+        ThreadWork.startAndJoin("report-refresh-now-2");
+        java.util.concurrent.ThreadPoolExecutor executor = ThreadWork.create();
+        context.set(CorrelationContext.NONE);
+        phases.end(REQUEST);
+        try {
+            Thread.sleep(400);
+            SideEffectsSensorReport report = service.sensor("thread-activity", null, null);
+
+            assertThat(report.sensor().state()).isEqualTo(SideEffectsSensorDto.RECORDING);
+            assertThat(report.rows())
+                    .filteredOn(row -> row.target().equals("report-refresher-{n}"))
+                    .singleElement()
+                    .satisfies(row -> {
+                        assertThat(row.scope()).isEqualTo(SideEffectsRowDto.ROUTE);
+                        assertThat(row.attribution()).isEqualTo("GET /refresh");
+                        assertThat(row.kind()).isEqualTo("thread");
+                        assertThat(row.origin()).isEqualTo("application");
+                        assertThat(row.callSite()).isEqualTo("sideeffectsapp.ThreadWork#start");
+                        assertThat(row.count()).isEqualTo(1L);
+                        assertThat(row.requests()).isEqualTo(1L);
+                        assertThat(row.leftRunning()).isEqualTo(1L);
+                        assertThat(row.exemplarRequestIds()).containsExactly(REQUEST);
+                    });
+            assertThat(report.rows())
+                    .filteredOn(row -> row.target().equals("report-refresh-now-{n}"))
+                    .singleElement()
+                    .satisfies(row -> assertThat(row.leftRunning()).as("joined").isZero());
+            SideEffectsRowDto created = report.rows().stream()
+                    .filter(row -> row.kind().equals("executor"))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(created.target()).isEqualTo("java.util.concurrent.ThreadPoolExecutor");
+            assertThat(created.leftRunning()).isEqualTo(1L);
+            assertThat(created.completed()).isZero();
+
+            ThreadWork.shutdown(executor);
+
+            assertThat(service.sensor("thread-activity", null, null).rows())
+                    .filteredOn(row -> row.kind().equals("executor"))
+                    .singleElement()
+                    .satisfies(row -> {
+                        assertThat(row.count())
+                                .as("a shutdown is never a creation")
+                                .isEqualTo(1L);
+                        assertThat(row.completed()).isEqualTo(1L);
+                        assertThat(row.leftRunning()).isEqualTo(1L);
+                    });
+            assertThat(report.limitations()).contains(SideEffectsService.LIMITATION_THREADS);
+        } finally {
+            release.countDown();
+            left.join();
+        }
+    }
+
     private void start() {
         claim = AgentClaim.claim(
                 AgentBridgeAccess.bind(AgentBridge.class),
@@ -699,13 +877,16 @@ class SideEffectsServiceTests {
                 "dev",
                 List.of("sideeffectsapp"),
                 new AgentSensorSettings(
-                        List.of("processes", "network", "files", "environment", "blocking"),
+                        List.of("processes", "network", "files", "environment", "blocking", "thread-activity"),
                         List.of(),
                         List.of(),
                         null,
                         AgentSensorSettings.DEFAULT_RING_CAPACITY));
         claim.attach(new AgentHandoffs(context::get, null, null));
-        SideEffects.enable(SideEffects.MASK_PROCESSES | SideEffects.MASK_FILES | SideEffects.MASK_ENVIRONMENT);
+        SideEffects.enable(SideEffects.MASK_PROCESSES
+                | SideEffects.MASK_FILES
+                | SideEffects.MASK_ENVIRONMENT
+                | SideEffects.MASK_THREADS);
         service = new SideEffectsService(
                 AgentBridgeAccess.bind(AgentBridge.class),
                 () -> claim,

@@ -531,7 +531,7 @@ public final class CodeInventoryService implements AutoCloseable {
     /**
      * Code Inventory for agents: the summary, then at most {@code limit} rows of {@code query}: {@code changed} (the
      * default, not executed first), {@code never-executed}, {@code not-tracked}, {@code executed},
-     * {@code dependencies}, or a package or class name.
+     * {@code dependencies}, or a package, class, or method name.
      */
     public CodeInventoryAgentReport agentReport(String query, Integer limit) {
         AgentEvidence.Read read = read();
@@ -572,7 +572,8 @@ public final class CodeInventoryService implements AutoCloseable {
                                 || simpleName(method.className()).equals(q)
                                 || method.packageName().equals(q)
                                 || method.packageName().startsWith(q + ".")
-                                || method.key().startsWith(q + "#"))
+                                || method.key().startsWith(q + "#")
+                                || namesMethod(method, q))
                         .toList();
                 viewName = "package";
             }
@@ -699,7 +700,7 @@ public final class CodeInventoryService implements AutoCloseable {
 
     /**
      * The scanned methods named {@code methodName} of the classes {@code className} names, by binary name, by its
-     * source form ({@code Outer.Inner}), or by simple name, with their status, change, and access flags, for change
+     * source form ({@code Outer.Inner}), or by simple name, or of every class when {@code className} is {@code null}, with their status, change, and access flags, for change
      * impact by method ({@code docs/PLAN-v2.md} §5.7, M5-7a); with the reason, and nothing else, when the sensor does not
      * record this run.
      */
@@ -713,7 +714,8 @@ public final class CodeInventoryService implements AutoCloseable {
         ClassScanner.Result result = view.scan.result();
         List<InventoryMethod> found = new ArrayList<>();
         for (CodeInventoryMethodDto method : view.methods) {
-            if (!method.name().equals(methodName) || !namesClass(method.className(), className)) {
+            if (!method.name().equals(methodName)
+                    || (className != null && !namesClass(method.className(), className))) {
                 continue;
             }
             int access = -1;
@@ -784,6 +786,22 @@ public final class CodeInventoryService implements AutoCloseable {
         } catch (RuntimeException ex) {
             return false;
         }
+    }
+
+    /**
+     * Whether {@code asked} names {@code method}: its name, such as {@code applyDiscount}, or its class, as
+     * {@link #namesClass} reads it, and name, such as {@code OrderService#applyDiscount}, either optionally followed by
+     * the start of its descriptor, such as {@code applyDiscount(J)}.
+     */
+    static boolean namesMethod(CodeInventoryMethodDto method, String asked) {
+        int hash = asked.indexOf('#');
+        String member = hash < 0 ? asked : asked.substring(hash + 1);
+        if (hash >= 0 && !namesClass(method.className(), asked.substring(0, hash))) {
+            return false;
+        }
+        String descriptor = method.descriptor() == null ? "" : method.descriptor();
+        return member.equals(method.name())
+                || (member.indexOf('(') > 0 && (method.name() + descriptor).startsWith(member));
     }
 
     /** Whether {@code asked} names the class {@code className}: its binary name, source form, or simple name. */

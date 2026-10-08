@@ -3,10 +3,12 @@ package io.github.jdubois.bootui.quarkus.mcp;
 import io.github.jdubois.bootui.core.dto.RestClientTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsAgentView;
+import io.github.jdubois.bootui.engine.mcp.McpAgentViews;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
+import io.github.jdubois.bootui.engine.memory.MemoryAgentViews;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.web.AiResource;
 import io.github.jdubois.bootui.quarkus.web.ArchitectureResource;
@@ -28,6 +30,7 @@ import io.github.jdubois.bootui.quarkus.web.GitHubResource;
 import io.github.jdubois.bootui.quarkus.web.HealthResource;
 import io.github.jdubois.bootui.quarkus.web.HeapDumpResource;
 import io.github.jdubois.bootui.quarkus.web.HibernateResource;
+import io.github.jdubois.bootui.quarkus.web.HibernateStatisticsResource;
 import io.github.jdubois.bootui.quarkus.web.HttpExchangesResource;
 import io.github.jdubois.bootui.quarkus.web.JavaAgentResource;
 import io.github.jdubois.bootui.quarkus.web.JvmTuningResource;
@@ -58,6 +61,7 @@ import io.github.jdubois.bootui.quarkus.web.SqlTraceResource;
 import io.github.jdubois.bootui.quarkus.web.ThreadsResource;
 import io.github.jdubois.bootui.quarkus.web.TracesResource;
 import io.github.jdubois.bootui.quarkus.web.VulnerabilitiesResource;
+import io.github.jdubois.bootui.quarkus.web.WebSocketsResource;
 import jakarta.inject.Singleton;
 import java.util.ArrayList;
 import java.util.List;
@@ -94,6 +98,7 @@ import java.util.function.Predicate;
 public class QuarkusMcpTools {
 
     private final List<McpTool> tools;
+    private final QuarkusPanelAvailability availability;
 
     public QuarkusMcpTools(
             QuarkusPanelAvailability availability,
@@ -146,7 +151,10 @@ public class QuarkusMcpTools {
             JavaAgentResource javaAgent,
             CodeInventoryResource codeInventory,
             CodePathsResource codePaths,
-            SideEffectsResource sideEffects) {
+            SideEffectsResource sideEffects,
+            HibernateStatisticsResource hibernateStatistics,
+            WebSocketsResource webSockets) {
+        this.availability = availability;
         List<McpTool> registry = new ArrayList<>();
 
         // --- Advisor tools (panel actions; behind the LocalhostGuard write floor) ---
@@ -319,16 +327,28 @@ public class QuarkusMcpTools {
                 tool(
                         "get_vulnerabilities_report",
                         McpToolDescriptions.quarkus("get_vulnerabilities_report"),
-                        args -> vulnerabilities.dependencies()));
+                        args -> McpAgentViews.vulnerabilities(
+                                vulnerabilities.dependencies(), args.query(), args.limit())));
 
         // --- Diagnostics / runtime tools ---
         addIfAvailable(
                 registry,
                 availability,
-                tool(
-                        "get_live_activity",
-                        McpToolDescriptions.quarkus("get_live_activity"),
-                        args -> liveActivity.activity(args.limit(), null, null, null, null, null, null, null)));
+                tool("get_live_activity", McpToolDescriptions.quarkus("get_live_activity"), args -> {
+                    McpAgentViews.ActivityFilter filter = McpAgentViews.ActivityFilter.of(args.query());
+                    return McpAgentViews.liveActivity(
+                            liveActivity.activity(
+                                    McpAgentViews.liveActivityFetch(filter, args.limit()),
+                                    McpAgentViews.adapterType(filter),
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null),
+                            filter,
+                            args.limit());
+                }));
         addIfAvailable(
                 registry,
                 availability,
@@ -340,7 +360,10 @@ public class QuarkusMcpTools {
         addIfAvailable(
                 registry,
                 availability,
-                tool("get_agent_status", McpToolDescriptions.quarkus("get_agent_status"), args -> javaAgent.report()));
+                tool(
+                        "get_agent_status",
+                        McpToolDescriptions.quarkus("get_agent_status"),
+                        args -> McpAgentViews.agentStatus(javaAgent.report(), args.query())));
         // Code Inventory, advertised while the BootUI agent's inventory sensor records this start (§5.15).
         addIfAvailable(
                 registry,
@@ -443,7 +466,10 @@ public class QuarkusMcpTools {
         addIfAvailable(
                 registry,
                 availability,
-                tool("get_sql_traces", McpToolDescriptions.quarkus("get_sql_traces"), args -> sqlTrace.trace()));
+                tool(
+                        "get_sql_traces",
+                        McpToolDescriptions.quarkus("get_sql_traces"),
+                        args -> McpAgentViews.sqlTraces(sqlTrace.trace(), args.query(), args.limit())));
         addIfAvailable(
                 registry,
                 availability,
@@ -477,7 +503,7 @@ public class QuarkusMcpTools {
                 tool(
                         "get_log_tail",
                         McpToolDescriptions.quarkus("get_log_tail"),
-                        args -> Map.of("entries", logTail.recent())));
+                        args -> McpAgentViews.logTail(logTail.recent(), args.query(), args.limit())));
         addIfAvailable(
                 registry,
                 availability,
@@ -508,7 +534,7 @@ public class QuarkusMcpTools {
                 tool(
                         "get_config",
                         McpToolDescriptions.quarkus("get_config"),
-                        args -> config.list(args.query(), null, false, null, args.limit())));
+                        args -> McpAgentViews.config(config.list(args.query(), null, false, null, args.limit()))));
         addIfAvailable(
                 registry,
                 availability,
@@ -571,14 +597,14 @@ public class QuarkusMcpTools {
                 tool(
                         "get_live_memory",
                         McpToolDescriptions.quarkus("get_live_memory"),
-                        args -> liveMemory.memory(null, null, null, null, null)));
+                        args -> MemoryAgentViews.liveMemory(liveMemory.memory(null, null, null, null, null))));
         addIfAvailable(
                 registry,
                 availability,
                 tool(
                         "get_jvm_tuning",
                         McpToolDescriptions.quarkus("get_jvm_tuning"),
-                        args -> jvmTuning.jvmTuning(null, null, null, null, null)));
+                        args -> MemoryAgentViews.jvmTuning(jvmTuning.jvmTuning(null, null, null, null, null))));
         addIfAvailable(
                 registry,
                 availability,
@@ -685,16 +711,36 @@ public class QuarkusMcpTools {
                 tool(
                         "get_copilot_sessions",
                         McpToolDescriptions.quarkus("get_copilot_sessions"),
-                        args -> copilot.sessions(null, null)));
+                        args -> McpAgentViews.sessions(copilot.sessions(null, null), args.query(), args.limit())));
         addIfAvailable(
                 registry,
                 availability,
                 tool(
                         "get_claude_code_sessions",
                         McpToolDescriptions.quarkus("get_claude_code_sessions"),
-                        args -> claudeCode.sessions(null, null)));
+                        args -> McpAgentViews.sessions(claudeCode.sessions(null, null), args.query(), args.limit())));
+
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_hibernate_statistics",
+                        McpToolDescriptions.quarkus("get_hibernate_statistics"),
+                        args -> hibernateStatistics.statistics()));
+        addIfAvailable(
+                registry,
+                availability,
+                tool("get_websockets", McpToolDescriptions.quarkus("get_websockets"), args -> webSockets.report()));
 
         this.tools = List.copyOf(registry);
+    }
+
+    /**
+     * Why a panel is unavailable in this application, in the panel manifest's own words, or {@code null} when it is
+     * available, so a call to a tool this registry does not advertise can say why.
+     */
+    public String panelUnavailableReason(String panelId) {
+        return availability == null ? null : availability.panelUnavailableReason(panelId);
     }
 
     /** All tools in advertised order. */

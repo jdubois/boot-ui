@@ -29,13 +29,14 @@ final class HelpListing {
                 out,
                 INDENT,
                 "<angle brackets> are required, [square brackets] optional; a command shown without arguments runs as"
-                        + " shown. 'bootui <command> --help' gives the whole description.",
+                        + " shown. " + ToolManifest.Tool.ACTION_TAG + " marks a command that changes the application's"
+                        + " state: ask the user before running it. 'bootui <command> --help' gives the whole description.",
                 wrapAt);
         out.append(System.lineSeparator());
         for (ToolManifest.Tool tool : tools) {
             String synopsis = tool.synopsis();
             out.append(INDENT).append(synopsis).append(System.lineSeparator());
-            wrap(out, DETAIL, shorten(tool.summary()) + CommandTree.stackNote(tool), wrapAt);
+            wrap(out, DETAIL, tool.tag() + shorten(tool.summary()) + CommandTree.stackNote(tool), wrapAt);
             if (!tool.idHelp().isEmpty()) {
                 wrap(out, DETAIL, "<id>: " + tool.idHelp(), wrapAt);
             }

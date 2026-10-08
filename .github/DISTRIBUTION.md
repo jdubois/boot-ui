@@ -14,16 +14,54 @@ Context: this is the hand-off from [issue #1067](https://github.com/jdubois/boot
 
 | Channel | Audience | How to submit | Status |
 | --- | --- | --- | --- |
+| [GitHub Agent Finder](https://agentfinder.github.com) | GitHub Copilot users searching for skills in natural language | Pull request to [`github/agentfinder-catalog`](https://github.com/github/agentfinder-catalog) | submitted — [`github/agentfinder-catalog#66`](https://github.com/github/agentfinder-catalog/pull/66) |
 | Claude Code plugin marketplace (this repository) | Claude Code users | Nothing to submit — the marketplace is self-hosted here and works as soon as this PR merges | shipped |
-| GitHub repository topics | GitHub search, and auto-updating trackers that discover projects by topic | Repository Settings → About → Topics | todo — owner |
+| GitHub repository topics | GitHub search, and auto-updating trackers that discover projects by topic | Repository Settings → About → Topics | shipped |
 | [mcpservers.org](https://mcpservers.org) | People browsing MCP servers | Web form only, no pull request path | todo — owner |
-| [cursor.directory](https://cursor.directory) | Cursor users looking for MCP servers and skills | Web form — **Manual tab**, never the GitHub auto-scan | todo — owner |
+| [Cursor Marketplace](https://cursor.com/marketplace) | Cursor users installing plugins from Customize | Agent Plugin in this repository, then repository submission at `cursor.com/marketplace/publish` | todo — owner, plugin ready after merge |
+| [cursor.directory](https://cursor.directory) | Cursor users browsing community plugins | Plugin submission form at `cursor.directory/plugins/new` | shipped — [`BootUI`](https://cursor.directory/plugins/bootui) |
 | [hesreallyhim/awesome-claude-code](https://github.com/hesreallyhim/awesome-claude-code) | Claude Code users | Open an issue on that repository | todo — delegable |
 | [ComposioHQ/awesome-claude-skills](https://github.com/ComposioHQ/awesome-claude-skills) | Agent skill users | Open a pull request on that repository | todo — delegable |
 | [skills.sh](https://skills.sh) | Agent skill users | No submission form — a repository is listed once people install its skills with `npx skills add` | nothing to submit; the docs carry the command, the listing follows real installs |
 | [Official MCP Registry](https://registry.modelcontextprotocol.io) | MCP clients that read the registry | — | not eligible — no `server.json`, see below |
 | [Glama](https://glama.ai) | Broad MCP audience | — | not eligible — no `glama.json`, nothing to containerise |
 | GitHub MCP Registry / VS Code MCP gallery | VS Code and Copilot users | — | out of reach — both are fed by the Official MCP Registry |
+
+## Encourage real skill installations
+
+[skills.sh](https://skills.sh/jdubois/boot-ui) has no submission form: its listing and popularity follow real
+installations. Make the exact canonical-skill command the primary call to action in user-facing documentation, release
+notes, demonstrations, and community posts:
+
+```bash
+npx skills add https://github.com/jdubois/boot-ui/tree/main/skills/bootui
+```
+
+Keep the native Copilot, Cursor, and Claude Code routes available for users who prefer them, but do not hide the
+portable installer behind an "other agents" label. Do not generate synthetic installs from CI or maintainer machines;
+the useful signal is adoption by actual users.
+
+## GitHub Agent Finder
+
+[GitHub Agent Finder](https://github.blog/changelog/2026-06-17-agent-finder-for-github-copilot-now-available/)
+is now the highest-priority discovery channel for the BootUI skill. It lets Copilot search a curated public catalog for
+skills, MCP servers and other agent resources from a natural-language task. This is separate from the Official MCP
+Registry: BootUI's embedded localhost MCP server still does not fit that registry, but the user-facing agent skill is
+eligible for Agent Finder.
+
+Checked on 2026-10-07:
+
+- `gh skill search bootui` already found the skill directly in this repository, and
+  `gh skill preview jdubois/boot-ui skills/bootui` loaded the canonical consumer skill successfully.
+- Agent Finder itself did not return BootUI for either an exact `BootUI` search or a task asking to diagnose a running
+  Spring Boot or Quarkus application. It returned generic Spring Boot and MCP skills instead.
+- [`github/agentfinder-catalog#66`](https://github.com/github/agentfinder-catalog/pull/66) was opened to add the
+  canonical `skills/bootui/SKILL.md` as an `application/ai-skill`. The entry deliberately points to the canonical
+  skill rather than the byte-for-byte plugin copy under `plugins/`, so Agent Finder has one authoritative result.
+
+Once that pull request merges, query <https://agentfinder.github.com/api/v1/search> for `BootUI` and for a representative
+runtime-diagnostics task. Update the table above to `shipped` only after the public search result resolves to
+`https://github.com/jdubois/boot-ui/blob/main/skills/bootui/SKILL.md`.
 
 ## Why this repository has no `server.json` or `glama.json`
 
@@ -110,24 +148,33 @@ the running application before proposing a fix, and verify the fix afterwards. N
 the machine.
 ```
 
-### 3. Submit to cursor.directory, using the Manual tab
+### 3. Submit the plugin to Cursor
 
-Where: https://cursor.directory. The submission form has a GitHub tab and a Manual tab.
+Checked on 2026-10-07:
 
-Why only you: as above, the listing should be owned by the project owner.
+- Cursor loads the open Agent Plugins format from a root `plugin.json`, including skills under `skills/` and MCP
+  servers from `mcp.json`.
+- A multi-plugin repository can advertise payload directories through `.cursor-plugin/marketplace.json`; this
+  repository points its `bootui` entry at `plugins/bootui`.
+- Official marketplace submissions go through <https://cursor.com/marketplace/publish>, take a repository link, and are
+  manually reviewed by the Cursor team.
+- The separate community directory accepts plugin submissions at <https://cursor.directory/plugins/new>.
+- Both submission forms were behind Vercel bot protection, so their current fields could not be inspected or submitted
+  by an agent. Submission remains a manual owner action.
 
-**Use the Manual tab.** The GitHub tab runs an auto-scan that indexes every `SKILL.md` in the repository, including
-files under `.github/skills`. That would advertise `.github/skills/bootui-java-development/SKILL.md` to users. That
-skill teaches an agent how to work on BootUI itself; it is maintainer-only and must not be offered to people who only
-want to scan their own application. The Manual tab lets you list exactly one skill and nothing else.
+The repository is ready for both submissions after this plugin pull request merges. Use:
 
-The only skill to list is the user-facing one, `skills/bootui/SKILL.md`. Reuse the name, repository, website, license
-and descriptions from the mcpservers.org section above. If an install command is requested:
+- Name: `bootui`
+- Display name, if requested: `BootUI`
+- Repository: `https://github.com/jdubois/boot-ui`
+- Plugin source, if requested: `plugins/bootui`
+- Website: `https://www.julien-dubois.com/boot-ui/`
+- License: `Apache-2.0`
+- Summary and longer description: reuse the text in the mcpservers.org section above
 
-```
-/plugin marketplace add jdubois/boot-ui
-/plugin install bootui@bootui
-```
+The Agent Plugins manifest cannot carry a logo field. A logo is optional in Cursor's documented checklist; if either
+form requests one, the repository already contains `docs/.vuepress/public/favicon.svg`, so no new artwork is needed.
+Do not submit the maintainer-only `.github/skills/bootui-java-development` skill as a separate user plugin.
 
 ### 4. The two community lists, which are delegable
 
@@ -152,17 +199,26 @@ advisors) and read live runtime diagnostics over a local MCP server.
 
 None of this needs repeating.
 
-- `.claude-plugin/marketplace.json` and `plugins/bootui/.claude-plugin/plugin.json` — the self-hosted marketplace and
-  the plugin manifest, so `/plugin marketplace add jdubois/boot-ui` followed by `/plugin install bootui@bootui` works
-  from the default branch, with no external submission anywhere.
+- `.claude-plugin/marketplace.json` and `plugins/bootui/.claude-plugin/plugin.json` — the self-hosted Claude Code
+  marketplace and manifest, so `/plugin marketplace add jdubois/boot-ui` followed by
+  `/plugin install bootui@bootui` works from the default branch, with no external submission anywhere.
+- `.cursor-plugin/marketplace.json`, `plugins/bootui/plugin.json`, and `plugins/bootui/mcp.json` — the repository
+  marketplace pointer and portable Agent Plugins manifest. They make the same payload loadable by Cursor; public
+  discovery still requires the manual submissions above.
 - `plugins/bootui/skills/bootui/SKILL.md` — the shipped copy of the canonical `skills/bootui/SKILL.md`, and only that
   skill. The maintainer-only `bootui-java-development` skill is deliberately kept out of the plugin payload.
 - `ClaudeCodePluginPayloadTests` in `bootui-engine` — the drift guard. It fails the build if the shipped skill stops
   matching the canonical one, and if any skill other than `bootui` ever appears in the plugin payload.
-- `docs/AI-AGENTS.md` and `plugins/README.md` — the user-facing installation instructions for the plugin, and the
-  maintainer note explaining why the plugin payload is a curated copy rather than the repository root.
-- The `npx skills add jdubois/boot-ui` command in the documentation, which is the whole skills.sh mechanism: that site
-  lists a repository once people install its skills that way, and there is nothing else to submit.
+- `AgentSkillDiscoverabilityTests` in `bootui-engine` — the discoverability guard. It fails the build if the canonical
+  skill loses its installable frontmatter, if a documented `gh skill` or `npx skills add` command stops naming the
+  canonical `skills/bootui` path, if a document outside the checked set grows its own install command, or if the
+  advertised marketplace plugin stops carrying the skill. It runs offline, so it never asks whether a registry is up.
+- `docs/AI-AGENTS.md`, `plugins/bootui/README.md`, and `plugins/README.md` — the user-facing installation instructions
+  and the maintainer note explaining why the plugin payload is a curated copy rather than the repository root.
+- The exact-path
+  `npx skills add https://github.com/jdubois/boot-ui/tree/main/skills/bootui` command in the documentation, which is
+  the whole skills.sh mechanism: that site lists a repository once people install its skill that way, and there is
+  nothing else to submit.
 
 ## Keeping this honest
 

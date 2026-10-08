@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.autoconfigure.databaseadvisor.DatabaseAdvisorCon
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
+import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateStatisticsController;
 import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.CodeInventoryController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.CodePathsController;
@@ -61,14 +62,17 @@ import io.github.jdubois.bootui.autoconfigure.web.StartupController;
 import io.github.jdubois.bootui.autoconfigure.web.ThreadDumpController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.autoconfigure.web.VulnerabilitiesController;
+import io.github.jdubois.bootui.autoconfigure.websocket.WebSocketController;
 import io.github.jdubois.bootui.core.dto.RestClientTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.TransactionRecordingRequest;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsAgentView;
+import io.github.jdubois.bootui.engine.mcp.McpAgentViews;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
+import io.github.jdubois.bootui.engine.memory.MemoryAgentViews;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -302,15 +306,27 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "get_vulnerabilities_report",
                     McpToolDescriptions.spring("get_vulnerabilities_report"),
-                    args -> vulnerabilitiesBean.dependencies()));
+                    args -> McpAgentViews.vulnerabilities(
+                            vulnerabilitiesBean.dependencies(), args.query(), args.limit())));
         }
 
         // --- Diagnostics / runtime tools ---
         if (liveActivityBean != null) {
-            registry.add(tool(
-                    "get_live_activity",
-                    McpToolDescriptions.spring("get_live_activity"),
-                    args -> liveActivityBean.activity(null, null, 0, args.limit(), null, null, null, 0)));
+            registry.add(tool("get_live_activity", McpToolDescriptions.spring("get_live_activity"), args -> {
+                McpAgentViews.ActivityFilter filter = McpAgentViews.ActivityFilter.of(args.query());
+                return McpAgentViews.liveActivity(
+                        liveActivityBean.activity(
+                                McpAgentViews.adapterType(filter),
+                                null,
+                                0,
+                                McpAgentViews.liveActivityFetch(filter, args.limit()),
+                                null,
+                                null,
+                                null,
+                                0),
+                        filter,
+                        args.limit());
+            }));
             registry.add(tool(
                     "get_request_profile",
                     McpToolDescriptions.spring("get_request_profile"),
@@ -321,7 +337,7 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "get_agent_status",
                     McpToolDescriptions.spring("get_agent_status"),
-                    args -> javaAgentBean.report()));
+                    args -> McpAgentViews.agentStatus(javaAgentBean.report(), args.query())));
         }
         if (codeInventoryBean != null) {
             registry.add(tool(
@@ -394,8 +410,10 @@ public class BootUiMcpTools {
                     args -> securityLogsBean.logs(null, null, null, null, args.limit())));
         }
         if (sqlTraceBean != null) {
-            registry.add(
-                    tool("get_sql_traces", McpToolDescriptions.spring("get_sql_traces"), args -> sqlTraceBean.trace()));
+            registry.add(tool(
+                    "get_sql_traces",
+                    McpToolDescriptions.spring("get_sql_traces"),
+                    args -> McpAgentViews.sqlTraces(sqlTraceBean.trace(), args.query(), args.limit())));
             registry.add(tool(
                     "clear_sql_traces", McpToolDescriptions.spring("clear_sql_traces"), args -> sqlTraceBean.clear()));
             registry.add(tool(
@@ -437,7 +455,7 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "get_log_tail",
                     McpToolDescriptions.spring("get_log_tail"),
-                    args -> Map.of("entries", logTailBean.recent())));
+                    args -> McpAgentViews.logTail(logTailBean.recent(), args.query(), args.limit())));
         }
         if (httpExchangesBean != null) {
             registry.add(tool(
@@ -462,7 +480,7 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "get_config",
                     McpToolDescriptions.spring("get_config"),
-                    args -> configBean.list(args.query(), null, false, null, args.limit())));
+                    args -> McpAgentViews.config(configBean.list(args.query(), null, false, null, args.limit()))));
         }
         if (beansBean != null) {
             registry.add(tool(
@@ -547,7 +565,9 @@ public class BootUiMcpTools {
             ObjectProvider<DevServicesController> devServices,
             ObjectProvider<GitHubController> github,
             ObjectProvider<CopilotController> copilot,
-            ObjectProvider<ClaudeCodeController> claudeCode) {
+            ObjectProvider<ClaudeCodeController> claudeCode,
+            ObjectProvider<HibernateStatisticsController> hibernateStatistics,
+            ObjectProvider<WebSocketController> webSockets) {
         List<McpTool> registry = new ArrayList<>(tools);
 
         MetricsController metricsBean = metrics.getIfAvailable();
@@ -570,14 +590,14 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "get_live_memory",
                     McpToolDescriptions.spring("get_live_memory"),
-                    args -> liveMemoryBean.memory(null, null, null, null, null)));
+                    args -> MemoryAgentViews.liveMemory(liveMemoryBean.memory(null, null, null, null, null))));
         }
         JvmTuningController jvmTuningBean = jvmTuning.getIfAvailable();
         if (jvmTuningBean != null) {
             registry.add(tool(
                     "get_jvm_tuning",
                     McpToolDescriptions.spring("get_jvm_tuning"),
-                    args -> jvmTuningBean.jvmTuning(null, null, null, null, null)));
+                    args -> MemoryAgentViews.jvmTuning(jvmTuningBean.jvmTuning(null, null, null, null, null))));
         }
         HeapDumpController heapDumpBean = heapDump.getIfAvailable();
         if (heapDumpBean != null) {
@@ -602,7 +622,7 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "get_startup_timeline",
                     McpToolDescriptions.spring("get_startup_timeline"),
-                    args -> startupBean.startup()));
+                    args -> McpAgentViews.startup(startupBean.startup(), args.query(), args.limit())));
         }
         ProfileDiffController profileDiffBean = profileDiff.getIfAvailable();
         if (profileDiffBean != null) {
@@ -714,14 +734,26 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "get_copilot_sessions",
                     McpToolDescriptions.spring("get_copilot_sessions"),
-                    args -> copilotBean.sessions(null, null)));
+                    args -> McpAgentViews.sessions(copilotBean.sessions(null, null), args.query(), args.limit())));
         }
         ClaudeCodeController claudeCodeBean = claudeCode.getIfAvailable();
         if (claudeCodeBean != null) {
             registry.add(tool(
                     "get_claude_code_sessions",
                     McpToolDescriptions.spring("get_claude_code_sessions"),
-                    args -> claudeCodeBean.sessions(null, null)));
+                    args -> McpAgentViews.sessions(claudeCodeBean.sessions(null, null), args.query(), args.limit())));
+        }
+        HibernateStatisticsController hibernateStatisticsBean = hibernateStatistics.getIfAvailable();
+        if (hibernateStatisticsBean != null) {
+            registry.add(tool(
+                    "get_hibernate_statistics",
+                    McpToolDescriptions.spring("get_hibernate_statistics"),
+                    args -> hibernateStatisticsBean.statistics()));
+        }
+        WebSocketController webSocketsBean = webSockets.getIfAvailable();
+        if (webSocketsBean != null) {
+            registry.add(tool(
+                    "get_websockets", McpToolDescriptions.spring("get_websockets"), args -> webSocketsBean.report()));
         }
 
         this.panelsController = panels.getIfAvailable();
@@ -732,6 +764,21 @@ public class BootUiMcpTools {
     BootUiMcpTools(List<McpTool> tools) {
         this.panelsController = null;
         this.tools = List.copyOf(tools);
+    }
+
+    /**
+     * Why a panel is unavailable in this application, in the panel manifest's own words, or {@code null} when it is
+     * available or not known, so a call to a tool this registry does not advertise can say why.
+     */
+    public String panelUnavailableReason(String panelId) {
+        if (panelsController == null) {
+            return null;
+        }
+        return panelsController.panels().panels().stream()
+                .filter(panel -> panel.id().equals(panelId) && !panel.available())
+                .map(panel -> panel.unavailableReason() == null ? "" : panel.unavailableReason())
+                .findFirst()
+                .orElse(null);
     }
 
     /** All tools in advertised order. */

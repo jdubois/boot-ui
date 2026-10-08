@@ -137,7 +137,8 @@ public final class PostgresInsightService {
     public PostgresInsightReport initialReport() {
         return report(
                 "NOT_READ",
-                "The database has not been read yet. Click Run PostgreSQL read to query its own statistics views.",
+                "The database has not been read yet. Run PostgreSQL read in the panel, or call postgresql_read"
+                        + " (bootui db postgres read), to query its own statistics views.",
                 null,
                 List.of(),
                 List.of(),

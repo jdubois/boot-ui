@@ -11,7 +11,8 @@ import java.util.List;
  * @param reason why the status is not {@code RESOLVED}, or {@code null}
  * @param symbol the symbol asked for
  * @param node the node it resolved to, such as {@code REPOSITORY productRepository}, or {@code null}
- * @param candidates the nodes an ambiguous symbol names, at most {@value #MAX_ROWS}
+ * @param candidates the nodes an ambiguous symbol names, or, for a method whose parameters match none of its overloads,
+ *     the overloads Code Inventory has, at most {@value #MAX_ROWS}
  * @param structuralReach how many nodes reach the changed code through the bean graph or observed access, within five
  *     steps
  * @param observed the routes that reach it and ran in this run, most requests first
@@ -20,7 +21,8 @@ import java.util.List;
  * @param notExercisedTotal how many there are
  * @param sharedResources the routes outside its reach that use a table, cache, or host it writes or calls
  * @param sharedResourcesTotal how many there are
- * @param limitations what the impact cannot see
+ * @param limitations what the impact cannot see, and, for a list holding more than {@value #MAX_ROWS} routes, the
+ *     names of the others
  * @param notExercisedUndetermined whether some reached routes cannot be classified: after aggregate overflow, or, for a
  *     method, routes that ran without their call trees showing it ({@code notObserved})
  * @param observedFrom how observed routes were found: {@code STRUCTURE} (the bean graph and route traffic),

@@ -38,7 +38,17 @@ export default defineUserConfig({
       }
     ]
   ],
-  bundler: viteBundler(),
+  // @vuepress/plugin-slimsearch moved its client code into @vuepress/search-helper, which ships CSS
+  // imports. The bundler only adds registered plugins to ssr.noExternal, and that helper is a plain
+  // dependency rather than a plugin, so SSR would leave it external and Node would fail loading its
+  // raw .css during page rendering. Inline it so Vite handles the stylesheet.
+  bundler: viteBundler({
+    viteOptions: {
+      ssr: {
+        noExternal: ['@vuepress/search-helper']
+      }
+    }
+  }),
   // The default theme renders home feature cards as plain divs, so swap in a version that can
   // link each card to the page it describes.
   alias: {

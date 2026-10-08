@@ -25,8 +25,8 @@ const allPanelLinks = [
   {id: 'database-connection-pools', title: 'Database Connection Pools', heading: /Database Connection Pools/},
   {id: 'postgresql', title: 'PostgreSQL', heading: /^PostgreSQL/},
   {id: 'mysql', title: 'MySQL', heading: /^MySQL/},
-  {id: 'transactions', title: 'Transactions', heading: /^Transactions/},
   {id: 'sql-trace', title: 'SQL Trace', heading: /SQL Trace/},
+  {id: 'transactions', title: 'Transactions', heading: /^Transactions/},
   {id: 'data', title: 'Spring Data', heading: /Spring Data repositories/},
   {id: 'database-advisor', title: 'Database', heading: /^Database$/},
   {id: 'hibernate', title: 'Hibernate', heading: /^Hibernate/},
@@ -430,7 +430,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Security', count: 2},
       {title: 'Services', count: 10},
       {title: 'Diagnostics', count: 5},
-      {title: 'Java agent', count: 4},
+      {title: 'Instrumentation', count: 4},
       {title: 'Developer tools', count: 7}
     ]
 
@@ -457,8 +457,8 @@ test.describe('BootUI app shell', () => {
       'Database Connection Pools',
       'PostgreSQL',
       'MySQL',
-      'Transactions',
       'SQL Trace',
+      'Transactions',
       'Hibernate Statistics',
       'Spring Data',
       'Flyway',
@@ -494,13 +494,10 @@ test.describe('BootUI app shell', () => {
       'HTTP Probe'
     ])
 
-    await page.getByRole('button', {name: /Java agent\s+4/}).click()
-    await expect(page.getByRole('group', {name: 'Java agent panels'}).locator('.bootui-nav-link__label')).toHaveText([
-      'Java Agent',
-      'Code Paths',
-      'Code Inventory',
-      'Side Effects'
-    ])
+    await page.getByRole('button', {name: /Instrumentation\s+4/}).click()
+    await expect(
+      page.getByRole('group', {name: 'Instrumentation panels'}).locator('.bootui-nav-link__label')
+    ).toHaveText(['Java Agent', 'Code Paths', 'Code Inventory', 'Side Effects'])
 
     await page.getByRole('button', {name: /Developer tools\s+7/}).click()
     await expect(
@@ -571,7 +568,7 @@ test.describe('BootUI app shell', () => {
     )
   })
 
-  test('sidebar keeps agent panels in the Java agent group until configuration disables them', async ({page}) => {
+  test('sidebar keeps agent panels in the Instrumentation group until configuration disables them', async ({page}) => {
     const reason = 'The BootUI agent is not attached to this JVM'
     await mockPanelAvailability(page, {
       'code-paths': {available: false, unavailableReason: reason},
@@ -579,10 +576,10 @@ test.describe('BootUI app shell', () => {
     })
     await page.goto('/bootui/')
 
-    const agentToggle = page.getByRole('button', {name: /Java agent\s+3/})
+    const agentToggle = page.getByRole('button', {name: /Instrumentation\s+3/})
     await expect(agentToggle).toHaveAttribute('aria-expanded', 'false')
     await agentToggle.click()
-    const agentGroup = page.getByRole('group', {name: 'Java agent panels'})
+    const agentGroup = page.getByRole('group', {name: 'Instrumentation panels'})
     await expect(agentGroup.locator('.bootui-nav-link__label')).toHaveText(['Java Agent', 'Code Paths', 'Side Effects'])
     const codePathsLink = agentGroup.locator('.nav-link', {hasText: 'Code Paths'})
     await expect(codePathsLink).toHaveClass(/bootui-nav-link--unavailable/)

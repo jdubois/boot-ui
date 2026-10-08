@@ -18,7 +18,10 @@ import java.util.function.UnaryOperator;
  */
 final class TextRenderer {
 
-    /** Wide enough for a stack frame or a bean name, narrow enough to stay in an 80-column terminal. */
+    /**
+     * Wide enough for a stack frame or a bean name, narrow enough to keep a table in an 80-column terminal. Only table
+     * cells are cut; a value on its own line is printed whole.
+     */
     private static final int MAX_CELL_WIDTH = 60;
 
     private final boolean color;
@@ -176,7 +179,8 @@ final class TextRenderer {
             // An empty object or array; anything non-empty was handled as a nested structure.
             return dim(value.toJson());
         }
-        return truncate(value.asDisplayText());
+        // Whole, outside a table: a reason or a limitation cut at a column width loses the part that says why.
+        return safe(value.asDisplayText());
     }
 
     private static String truncate(String text) {

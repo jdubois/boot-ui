@@ -545,12 +545,18 @@ jobs:
   # the cumulative overhead with it (nine pairs against no agent), which decide whether files can be on by default
   # (D37): on with files' own median at most 3 % and the cumulative median at most 10 %. The first run measured 2.3 %
   # and 10.6 %, so files stays opt-in.
+  # The same rule decides the caught-exceptions sensor's default (M5-6a2), on the caught route, which adds one caught
+  # exception per request: its own share (the default sensors plus caught-exceptions against the default sensors,
+  # fifteen pairs, budget 3 %) and the cumulative overhead with it (fifteen pairs against no agent, budget 10 %). Each
+  # step prints PASS or FAIL against its budget, and fails the build on a FAIL once the sensor is on by default
+  # (bootui.benchmark.agent.enforce-when-default); while it is opt-in, only the 30 % alarm fails it. The first run
+  # measured 2.9 % and 5.9 %, the second a 5.0 % own share, over its budget, so caught-exceptions stays opt-in.
   agent-overhead:
     name: Agent overhead (Java 17)
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.agent == 'true'
-    timeout-minutes: 200
+    timeout-minutes: 220
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -623,6 +629,27 @@ jobs:
           -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,files
           -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 
+      - name: Measure the caught-exceptions sensor's share on the caught route
+        if: needs.changes.outputs.extras == 'true'
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.route=caught -Dbootui.benchmark.report=spring-mvc-caught-ab
+          -Dbootui.benchmark.agent.budget-percent=3 -Dbootui.benchmark.agent.enforce-when-default=caught-exceptions
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,caught-exceptions
+          -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network,blocking
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Measure the agent's overhead with caught-exceptions on the caught route
+        if: needs.changes.outputs.extras == 'true'
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.route=caught -Dbootui.benchmark.report=spring-mvc-agent-caught
+          -Dbootui.benchmark.agent.budget-percent=10 -Dbootui.benchmark.agent.enforce-when-default=caught-exceptions
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,caught-exceptions
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
       # Request-value matching of the security-sinks sensor (M5-6b1, D37), on the sinks route (two query parameters,
       # one SQL statement, and one file read): its own increment, the same sensors with matching on against off, fifteen
       # pairs, fails the build above 3 %; the cumulative overhead with it, fifteen pairs against no agent, prints PASS or
@@ -632,6 +659,7 @@ jobs:
         run: >
           ./mvnw -B -ntp -pl bootui-spring-sample-app verify
           -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=3
+          -Dbootui.benchmark.agent.budget-percent=3
           -Dbootui.benchmark.route=sinks -Dbootui.benchmark.report=spring-mvc-sinks-ab
           -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,files,security-sinks
           -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network,files,security-sinks
@@ -644,7 +672,7 @@ jobs:
         run: >
           ./mvnw -B -ntp -pl bootui-spring-sample-app verify
           -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
-          -Dbootui.benchmark.agent.rule-percent=10
+          -Dbootui.benchmark.agent.budget-percent=10
           -Dbootui.benchmark.route=sinks -Dbootui.benchmark.report=spring-mvc-agent-sinks
           -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,files,security-sinks
           -Dbootui.benchmark.agent.extra=--bootui.agent.security-sinks.request-values=true
@@ -660,6 +688,7 @@ jobs:
         run: >
           ./mvnw -B -ntp -pl bootui-spring-sample-app verify
           -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.agent.budget-percent=3
           -Dbootui.benchmark.route=checks -Dbootui.benchmark.report=spring-mvc-checks-ab
           -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,security-sinks
           -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network
@@ -671,7 +700,7 @@ jobs:
         run: >
           ./mvnw -B -ntp -pl bootui-spring-sample-app verify
           -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
-          -Dbootui.benchmark.agent.rule-percent=10
+          -Dbootui.benchmark.agent.budget-percent=10
           -Dbootui.benchmark.route=checks -Dbootui.benchmark.report=spring-mvc-agent-checks
           -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,security-sinks
           -Dbootui.benchmark.agent.extra=--bootui.agent.security-sinks.request-values=false
@@ -692,13 +721,16 @@ jobs:
             echo "::warning::The BootUI agent's median overhead is ${overhead} %, above its ${budget} % budget."
           fi
           for report in spring-mvc-agent-io spring-mvc-network-ab spring-mvc-blocking-ab spring-mvc-files-ab \
-            spring-mvc-agent-io-files spring-mvc-sinks-ab spring-mvc-agent-sinks spring-mvc-checks-ab \
-            spring-mvc-agent-checks; do
+            spring-mvc-agent-io-files spring-mvc-caught-ab spring-mvc-agent-caught spring-mvc-sinks-ab \
+            spring-mvc-agent-sinks spring-mvc-checks-ab spring-mvc-agent-checks; do
             if [ -f "$directory/$report.md" ]; then
               cat "$directory/$report.md" >> "$GITHUB_STEP_SUMMARY"
               overhead=$(sed -n 's/^overheadPercent=//p' "$directory/$report.properties")
-              if awk -v overhead="$overhead" -v limit="$budget" 'BEGIN { exit !(overhead > limit) }'; then
-                echo "::warning::The ${report} median overhead is ${overhead} %, above its ${budget} % limit."
+              own=$(sed -n 's/^budgetPercent=//p' "$directory/$report.properties")
+              verdict=$(sed -n 's/^verdict=//p' "$directory/$report.properties")
+              echo "${verdict:-?}: ${report} median overhead ${overhead} % against its ${own:-$budget} % budget."
+              if awk -v overhead="$overhead" -v limit="${own:-$budget}" 'BEGIN { exit !(overhead > limit) }'; then
+                echo "::warning::The ${report} median overhead is ${overhead} %, above its ${own:-$budget} % limit."
               fi
             fi
           done
@@ -766,6 +798,214 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: agent-overhead
+          path: |
+            bootui-spring-sample-app/target/agent-overhead/
+            bootui-spring-sample-app/target/failsafe-reports/*AgentOverheadBenchmarkIT*
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # The thread-activity sensor's default (M5-5e): an A/B on one runner, in its own job so agent-overhead stays within its
+  # timeout. On the thread route, which starts and joins a thread and creates and shuts down an executor per request,
+  # the default sensors plus thread-activity against the default sensors (its own increment, fifteen pairs), and against
+  # no agent (the cumulative overhead with it, fifteen pairs). It may be on by default only with its own median at most
+  # 3 % and the cumulative median at most 10 %: the check step prints PASS or FAIL, and fails the job when the verdict
+  # is FAIL while thread-activity is among the default sensors. Pushes, manual runs, and pull requests labelled agent.
+  # The first run measured 11.5 % own and 16.6 % cumulative, so thread-activity stays opt-in. Java 17 measures platform threads; a server that starts a virtual thread per request (Java 21+) takes the cached
+  # path of a start no request owns, which this route does not exercise.
+  agent-overhead-thread-activity:
+    name: Agent overhead, thread activity A/B (Java 17)
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.agent == 'true' && needs.changes.outputs.extras == 'true'
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: bootui-ui/src/main/frontend/package-lock.json
+
+      - name: Build the Spring sample app and the BootUI agent
+        run: ./mvnw -T 1C -B -ntp -pl bootui-spring-sample-app -am -DskipTests install
+
+      - name: Measure the thread-activity sensor's share on the thread route
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.route=threads -Dbootui.benchmark.report=spring-mvc-thread-activity-ab
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,thread-activity
+          -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network,blocking
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Measure the agent's overhead with thread-activity on the thread route
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.route=threads -Dbootui.benchmark.report=spring-mvc-agent-threads
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,thread-activity
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Check the thread-activity sensor's default
+        if: ${{ !cancelled() }}
+        run: |
+          directory=bootui-spring-sample-app/target/agent-overhead
+          for file in spring-mvc-thread-activity-ab.properties spring-mvc-agent-threads.properties; do
+            if [ ! -f "$directory/$file" ]; then
+              echo "::error::The thread-activity sensor's default cannot be checked: $file is missing."
+              exit 1
+            fi
+          done
+          for report in spring-mvc-thread-activity-ab spring-mvc-agent-threads; do
+            cat "$directory/$report.md" >> "$GITHUB_STEP_SUMMARY"
+          done
+          read_value() { sed -n "s/^$2=//p" "$directory/$1"; }
+          increment=$(read_value spring-mvc-thread-activity-ab.properties overheadPercent)
+          increment_range="$(read_value spring-mvc-thread-activity-ab.properties minOverheadPercent) to $(read_value spring-mvc-thread-activity-ab.properties maxOverheadPercent)"
+          cumulative=$(read_value spring-mvc-agent-threads.properties overheadPercent)
+          cumulative_range="$(read_value spring-mvc-agent-threads.properties minOverheadPercent) to $(read_value spring-mvc-agent-threads.properties maxOverheadPercent)"
+          for value in "$increment" "$cumulative"; do
+            if ! [[ "$value" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+              echo "::error::The thread-activity sensor's default cannot be checked: '$value' is not a percentage."
+              exit 1
+            fi
+          done
+          verdict=PASS
+          if awk -v increment="$increment" -v cumulative="$cumulative" 'BEGIN { exit !(increment > 3 || cumulative > 10) }'; then
+            verdict=FAIL
+          fi
+          default=no
+          if sed -n '/DEFAULT_SENSORS =/,/;/p' bootui-engine/src/main/java/io/github/jdubois/bootui/engine/javaagent/AgentSensorSettings.java | grep -Eq 'THREAD_ACTIVITY|"thread-activity"'; then
+            default=yes
+          fi
+          line="Thread-activity sensor overhead: ${verdict}. Increment median ${increment} % (pairs ${increment_range} %, limit 3 %); cumulative median ${cumulative} % (pairs ${cumulative_range} %, limit 10 %), on the thread route. On by default: ${default}."
+          echo "$line"
+          printf '\n**%s**\n' "$line" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$verdict" = FAIL ] && [ "$default" = yes ]; then
+            echo "::error::$line It must stay opt-in."
+            exit 1
+          fi
+          if [ "$verdict" = FAIL ]; then
+            echo "::notice::$line It stays opt-in."
+          fi
+
+      - name: Upload the overhead report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: agent-overhead-thread-activity
+          path: |
+            bootui-spring-sample-app/target/agent-overhead/
+            bootui-spring-sample-app/target/failsafe-reports/*AgentOverheadBenchmarkIT*
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # The thread-locals sensor's overhead (M5-5f, D37): an A/B on one runner, in its own job. On the default route, every
+  # request of which is a Spring MVC scope the sensor scans when it opens and closes, the default sensors plus
+  # thread-locals against the default sensors (its own increment, fifteen pairs), and against no agent (the cumulative
+  # overhead with it, fifteen pairs). The sensor stays opt-in whatever it measures (D37): the check step prints the
+  # figures and fails only if thread-locals were among the default sensors with a median increment above 3 % or a
+  # cumulative median above 10 %. Pushes, manual runs, and pull requests labelled agent. Java 17 measures platform
+  # threads, which are scanned; virtual threads never are.
+  agent-overhead-thread-locals:
+    name: Agent overhead, thread locals A/B (Java 17)
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.agent == 'true' && needs.changes.outputs.extras == 'true'
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: bootui-ui/src/main/frontend/package-lock.json
+
+      - name: Build the Spring sample app and the BootUI agent
+        run: ./mvnw -T 1C -B -ntp -pl bootui-spring-sample-app -am -DskipTests install
+
+      - name: Measure the thread-locals sensor's share
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.report=spring-mvc-thread-locals-ab
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,thread-locals
+          -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network,blocking
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Measure the agent's overhead with thread-locals
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.report=spring-mvc-agent-thread-locals
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,thread-locals
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Check the thread-locals sensor's overhead
+        if: ${{ !cancelled() }}
+        run: |
+          directory=bootui-spring-sample-app/target/agent-overhead
+          for file in spring-mvc-thread-locals-ab.properties spring-mvc-agent-thread-locals.properties; do
+            if [ ! -f "$directory/$file" ]; then
+              echo "::error::The thread-locals sensor's overhead cannot be checked: $file is missing."
+              exit 1
+            fi
+          done
+          for report in spring-mvc-thread-locals-ab spring-mvc-agent-thread-locals; do
+            cat "$directory/$report.md" >> "$GITHUB_STEP_SUMMARY"
+          done
+          read_value() { sed -n "s/^$2=//p" "$directory/$1"; }
+          increment=$(read_value spring-mvc-thread-locals-ab.properties overheadPercent)
+          increment_range="$(read_value spring-mvc-thread-locals-ab.properties minOverheadPercent) to $(read_value spring-mvc-thread-locals-ab.properties maxOverheadPercent)"
+          cumulative=$(read_value spring-mvc-agent-thread-locals.properties overheadPercent)
+          cumulative_range="$(read_value spring-mvc-agent-thread-locals.properties minOverheadPercent) to $(read_value spring-mvc-agent-thread-locals.properties maxOverheadPercent)"
+          for value in "$increment" "$cumulative"; do
+            if ! [[ "$value" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+              echo "::error::The thread-locals sensor's overhead cannot be checked: '$value' is not a percentage."
+              exit 1
+            fi
+          done
+          verdict=PASS
+          if awk -v increment="$increment" -v cumulative="$cumulative" 'BEGIN { exit !(increment > 3 || cumulative > 10) }'; then
+            verdict=FAIL
+          fi
+          default=no
+          if sed -n '/DEFAULT_SENSORS =/,/;/p' bootui-engine/src/main/java/io/github/jdubois/bootui/engine/javaagent/AgentSensorSettings.java | grep -Eq 'THREAD_LOCALS|"thread-locals"'; then
+            default=yes
+          fi
+          line="Thread-locals sensor overhead: ${verdict}. Increment median ${increment} % (pairs ${increment_range} %, limit 3 %); cumulative median ${cumulative} % (pairs ${cumulative_range} %, limit 10 %), on the default route. On by default: ${default}."
+          echo "$line"
+          printf '\n**%s**\n' "$line" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$verdict" = FAIL ] && [ "$default" = yes ]; then
+            echo "::error::$line It must stay opt-in."
+            exit 1
+          fi
+
+      - name: Upload the overhead report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: agent-overhead-thread-locals
           path: |
             bootui-spring-sample-app/target/agent-overhead/
             bootui-spring-sample-app/target/failsafe-reports/*AgentOverheadBenchmarkIT*

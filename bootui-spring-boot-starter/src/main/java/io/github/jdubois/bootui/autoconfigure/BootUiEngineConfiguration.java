@@ -27,6 +27,7 @@ import io.github.jdubois.bootui.autoconfigure.javaagent.AgentClaimOwner;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.journal.ControlMarkerPublisher;
+import io.github.jdubois.bootui.autoconfigure.journal.LogbackLogCoverage;
 import io.github.jdubois.bootui.autoconfigure.journal.RunStartPublisher;
 import io.github.jdubois.bootui.autoconfigure.journal.RuntimeEventPublisherInstaller;
 import io.github.jdubois.bootui.autoconfigure.journal.RuntimeJournalLogAppender;
@@ -69,6 +70,8 @@ import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.email.EmailStore;
 import io.github.jdubois.bootui.engine.errorcontract.ErrorContractService;
+import io.github.jdubois.bootui.engine.exceptions.CaughtExceptionsReader;
+import io.github.jdubois.bootui.engine.exceptions.LogCoverage;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceService;
 import io.github.jdubois.bootui.engine.flyway.FlywayService;
@@ -96,6 +99,7 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RunBaselineFile;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
+import io.github.jdubois.bootui.engine.journal.RunningHandoffs;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
@@ -356,6 +360,15 @@ public class BootUiEngineConfiguration {
         RuntimeJournalLogAppender bootUiRuntimeJournalLogAppender(RuntimeJournal journal) {
             return journal.settings().records(JournalSource.LOG) ? RuntimeJournalLogAppender.install(journal) : null;
         }
+
+        /**
+         * Whether that appender sees every {@code WARN}+ log, for the caught-exception outcomes ({@code docs/PLAN-v2.md}
+         * M5-6).
+         */
+        @Bean
+        LogCoverage bootUiLogCoverage() {
+            return LogbackLogCoverage.install();
+        }
     }
 
     /** The phase markers of recent requests ({@code docs/PLAN-v2.md} §5.1), shared by both web stacks. */
@@ -484,6 +497,19 @@ public class BootUiEngineConfiguration {
     }
 
     /**
+     * The Exceptions panel's <b>Caught in application code</b> section ({@code docs/PLAN-v2.md} M5-6): what became of
+     * the exceptions application code caught, from the agent's {@code caught-exceptions} sensor. Without the sensor it
+     * reports why; a read drains the agent and starts nothing else.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    CaughtExceptionsReader bootUiCaughtExceptionsReader(
+            RuntimeJournal journal, ObjectProvider<AgentCaughtExceptions> sensor, ObjectProvider<LogCoverage> logs) {
+        return new CaughtExceptionsReader(
+                journal, sensor::getIfUnique, logs.getIfUnique(() -> LogCoverage.UNREADABLE), RunningHandoffs.shared());
+    }
+
+    /**
      * Code Inventory ({@code docs/PLAN-v2.md} §5.15): this run's executed and changed application methods and its
      * dependency use, from the BootUI agent's inventory sensor. The run's {@link AgentClaimOwner} starts it once the
      * context is refreshed and its claim is armed; it stops its drain and scan threads when the context closes. Without
@@ -591,7 +617,8 @@ public class BootUiEngineConfiguration {
             ObjectProvider<RuntimeJournal> journal,
             AgentEvidence evidence,
             org.springframework.core.env.Environment environment,
-            org.springframework.context.ApplicationContext applicationContext) {
+            org.springframework.context.ApplicationContext applicationContext,
+            ObjectProvider<RequestPhases> requestPhases) {
         SideEffectsService service = new SideEffectsService(
                 AgentBridgeAccess.locate(),
                 () -> {
@@ -622,6 +649,8 @@ public class BootUiEngineConfiguration {
         // loop
         // is registered (M5-5c). Asked on each read, as the server starts after this lazy bean may be created.
         service.setServerEventLoops(() -> nettyServer(applicationContext));
+        // Each request's end, as both web stacks mark it, so the thread-activity sensor checks what it left running.
+        service.listenToRequestEnds(requestPhases.getIfAvailable());
         if (journalAggregates != null) {
             // The run's side-effect keys go into its summary, for the next run's comparison (M5-7b).
             journalAggregates.setRunSideEffects(service::runSideEffects);

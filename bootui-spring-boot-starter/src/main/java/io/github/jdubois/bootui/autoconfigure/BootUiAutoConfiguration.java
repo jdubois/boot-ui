@@ -72,6 +72,7 @@ import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.cli.CliService;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.javaagent.AgentThreadLocals;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
@@ -630,7 +631,11 @@ public class BootUiAutoConfiguration {
         CliService bootUiCliService(BootUiMcpTools tools, BootUiProperties properties) {
             String version = BootUiAutoConfiguration.class.getPackage().getImplementationVersion();
             return BootUiCliServiceFactory.create(
-                    tools::tools, new SpringMcpPanelPolicy(properties), properties, version);
+                    tools::tools,
+                    tools::panelUnavailableReason,
+                    new SpringMcpPanelPolicy(properties),
+                    properties,
+                    version);
         }
 
         @Bean
@@ -1040,6 +1045,9 @@ public class BootUiAutoConfiguration {
                 ExchangeSlowThreshold.resolve(properties, environment),
                 phases);
         filter.setRuntimeEventSink(journal);
+        // A Spring MVC request's scope is its whole handling on its pooled worker: the BootUI agent's thread-locals
+        // sensor scans there (docs/PLAN-v2.md §5.16, M5-5f).
+        AgentThreadLocals.configure(true);
         FilterRegistrationBean<RequestCorrelationFilter> registration = new FilterRegistrationBean<>(filter);
         registration.addUrlPatterns("/*");
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 100);

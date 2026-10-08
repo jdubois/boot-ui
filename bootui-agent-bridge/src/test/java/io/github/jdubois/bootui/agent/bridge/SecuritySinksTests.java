@@ -509,10 +509,9 @@ class SecuritySinksTests {
     }
 
     @Test
-    void theReservedSensorIdsAreNeverReported() {
+    void theSecuritySinksSensorIsReportedBesideTheOthers() {
         assertThat(SideEffects.sensorIds())
-                .contains(SideEffects.SECURITY_SINKS, SideEffects.BLOCKING)
-                .doesNotContain(SideEffects.RESERVED);
+                .contains(SideEffects.SECURITY_SINKS, SideEffects.BLOCKING, SideEffects.THREAD_ACTIVITY);
         assertThat(SideEffects.bit(SideEffects.SECURITY_SINKS)).isEqualTo(SideEffects.MASK_SECURITY_SINKS);
     }
 

@@ -277,7 +277,8 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
                 row.parentId(),
                 rule.omitsText() ? null : row.securedPrincipal(),
                 row.sqlNPlusOneSuspected(),
-                row.badges());
+                row.badges(),
+                row.exceptionGroupId());
     }
 
     /**

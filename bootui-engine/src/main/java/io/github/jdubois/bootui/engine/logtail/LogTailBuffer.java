@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.logtail;
 
 import io.github.jdubois.bootui.core.dto.LogLineDto;
+import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -43,14 +44,14 @@ public final class LogTailBuffer {
     /** Default line cap; matches the historical Spring Logback ring depth so its wire is byte-identical. */
     public static final int DEFAULT_MAX_LINES = 500;
 
-    private static final ThreadLocal<Boolean> DELIVERY_THREAD = ThreadLocal.withInitial(() -> Boolean.FALSE);
+    private static final ThreadLocal<Boolean> DELIVERY_THREAD = BootUiThreadLocal.withInitial(() -> Boolean.FALSE);
 
     private final int maxLines;
     private final long maxBytes;
 
     private final ArrayDeque<Entry> lines;
     private final CopyOnWriteArrayList<Consumer<LogLineDto>> subscribers = new CopyOnWriteArrayList<>();
-    private final ThreadLocal<Boolean> appending = ThreadLocal.withInitial(() -> Boolean.FALSE);
+    private final ThreadLocal<Boolean> appending = BootUiThreadLocal.withInitial(() -> Boolean.FALSE);
     private long totalBytes;
 
     public LogTailBuffer() {

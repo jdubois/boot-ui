@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.transactions;
 
+import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import io.github.jdubois.bootui.engine.transactions.TransactionRecorder;
 import io.github.jdubois.bootui.engine.transactions.TransactionRecorder.Status;
 import java.sql.Connection;
@@ -30,9 +31,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 public final class BootUiTransactionExecutionListener implements TransactionExecutionListener {
 
     private final TransactionRecorder recorder;
-    private final ThreadLocal<Deque<Long>> pending = ThreadLocal.withInitial(ArrayDeque::new);
+    private final ThreadLocal<Deque<Long>> pending = BootUiThreadLocal.withInitial(ArrayDeque::new);
     /** Whether the transaction completing on this thread was marked rollback-only, read just before it completes. */
-    private final ThreadLocal<Boolean> rollbackOnly = new ThreadLocal<>();
+    private final ThreadLocal<Boolean> rollbackOnly = new BootUiThreadLocal<>();
 
     public BootUiTransactionExecutionListener(TransactionRecorder recorder) {
         this.recorder = recorder;

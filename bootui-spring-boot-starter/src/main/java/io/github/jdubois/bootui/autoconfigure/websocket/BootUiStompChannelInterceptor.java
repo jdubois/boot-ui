@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.websocket;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import io.github.jdubois.bootui.engine.websocket.WebSocketActivityRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import org.springframework.messaging.Message;
@@ -48,8 +49,8 @@ public class BootUiStompChannelInterceptor implements ExecutorChannelInterceptor
         this.direction = direction;
     }
 
-    private final ThreadLocal<Long> startedAt = new ThreadLocal<>();
-    private final ThreadLocal<HandledMessage> handling = new ThreadLocal<>();
+    private final ThreadLocal<Long> startedAt = new BootUiThreadLocal<>();
+    private final ThreadLocal<HandledMessage> handling = new BootUiThreadLocal<>();
     private final StompDestinationTemplates templates = new StompDestinationTemplates();
 
     /** The execution a handler is running for: its scope, its destination template, and when it started. */

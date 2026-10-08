@@ -118,6 +118,41 @@ class ObservationHonestyHarnessTests {
     }
 
     /**
+     * Every text a real report shows users and agents, from each fixture's whole replay, is plain: no plan identifier and
+     * no word of the external validation ({@link UserFacingPlanJargonTests#PLAN_JARGON}).
+     */
+    @TestFactory
+    Stream<DynamicNode> everyFixturesReportIsWrittenInPlainLanguage() {
+        return FIXTURES.stream()
+                .map(fixture -> DynamicTest.dynamicTest(fixture.toString(), () -> {
+                    RuntimeInsightsReportDto report = replay(fixture, Replay.whole());
+                    List<String> texts = new ArrayList<>(report.limitations());
+                    texts.add(report.unavailableReason());
+                    for (RuntimeInsightCheckDto check : report.checks()) {
+                        texts.add(check.title());
+                        texts.add(check.reason());
+                    }
+                    for (RuntimeObservationDto row : report.observations()) {
+                        texts.add(row.sentence());
+                        texts.add(row.unlistedReason());
+                        texts.addAll(row.whatToCheck());
+                        texts.addAll(row.limitations());
+                    }
+                    for (String query : new String[] {null, "all"}) {
+                        texts.addAll(
+                                RuntimeInsightsAgentView.list(report, query, 50).limitations());
+                    }
+                    assertThat(texts)
+                            .as("%s reads plainly", fixture)
+                            .filteredOn(text -> text != null
+                                    && UserFacingPlanJargonTests.PLAN_JARGON
+                                            .matcher(text)
+                                            .find())
+                            .isEmpty();
+                }));
+    }
+
+    /**
      * With any one of its events dropped, a check reading the dropped source never claims a complete evaluation, and a
      * row the whole fixture does not show is only ever {@code PARTIAL}.
      */

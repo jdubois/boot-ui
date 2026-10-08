@@ -14,6 +14,21 @@ import java.util.List;
  */
 public final class InternalPackageMatcher {
 
+    /**
+     * BootUI's own packages, whose loggers BootUI never records as the application's: not the sample applications',
+     * which live under {@code io.github.jdubois.bootui} too and are application code.
+     */
+    public static final InternalPackageMatcher BOOTUI = new InternalPackageMatcher(List.of(
+            "io.github.jdubois.bootui.autoconfigure",
+            "io.github.jdubois.bootui.engine",
+            "io.github.jdubois.bootui.core",
+            "io.github.jdubois.bootui.spi",
+            "io.github.jdubois.bootui.agent",
+            "io.github.jdubois.bootui.cli",
+            "io.github.jdubois.bootui.client",
+            "io.github.jdubois.bootui.quarkus",
+            "io.github.jdubois.bootui.conformance"));
+
     private final List<String> packages;
 
     public InternalPackageMatcher(List<String> packages) {

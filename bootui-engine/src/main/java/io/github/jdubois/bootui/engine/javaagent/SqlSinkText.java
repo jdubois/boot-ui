@@ -9,7 +9,10 @@ import java.util.Arrays;
  * escaping, MySQL's double-quoted strings, PostgreSQL's dollar quoting, prefixed and typed literals, and numbers), whatever
  * the exposure policy, except that a literal holding a matched value shows {@code {name}} in its place; comments are
  * dropped; whitespace runs are collapsed. And, for each matched value, whether it sat inside a literal or outside one,
- * where an identifier, a keyword, or an operator stands. Never a value or a literal's text.
+ * where an identifier, a keyword, or an operator stands. Never a request value: every matched span is replaced by its
+ * value's name, whatever the lexer saw around it. A literal SQL Trace's lexer misreads, as PostgreSQL's {@code 'C:'}
+ * with standard strings, a MySQL {@code "abc123"} it takes for an identifier, or {@code 0xDEAD}, may show as the
+ * statement's own text, as it does in SQL Trace's fingerprint.
  */
 final class SqlSinkText {
 
@@ -20,51 +23,118 @@ final class SqlSinkText {
 
     /**
      * The masked statement, {@code positions} filled per value index with {@link AgentRequestValues#POSITION_IN_LITERAL}
-     * or {@link AgentRequestValues#POSITION_OUTSIDE_LITERAL}, from the first span of each value.
+     * or {@link AgentRequestValues#POSITION_OUTSIDE_LITERAL}, from the first span of each value, with
+     * {@link AgentRequestValues#FLAG_BARE_LITERAL} for a value inside a number or {@code true}/{@code false}, and
+     * {@link AgentRequestValues#FLAG_CROSSES_LITERAL} for one that crosses a literal's or a comment's bounds. A value whose
+     * spans another value's covered whole, as {@code created} inside {@code created_at}, is
+     * {@link AgentRequestValues#POSITION_UNKNOWN}: the text names the other value there, so the row waits for
+     * confirmation.
+     *
+     * <p>Every character is classified first (the literal or comment holding it, or none), then emitted from that alone:
+     * a character inside a literal or a comment is never copied, whatever a value's span did beside it.
      */
     static String mask(String sql, int[] spans, String[] names, int[] positions) {
         int length = Math.min(sql.length(), MAX_LENGTH);
         int count = Math.min(spans[AgentRequestValues.S_COUNT], AgentRequestValues.MAX_SPANS);
-        // Which value covers each character, -1 for none.
+        int[] ranges = SqlStatementNormalizer.ranges(sql.substring(0, length));
+        // The range (its offset in ranges) holding each character, -1 for none.
+        int[] region = new int[length];
+        Arrays.fill(region, -1);
+        for (int r = 0; r + 2 < ranges.length; r += 3) {
+            for (int c = Math.max(0, ranges[r]); c < ranges[r + 1] && c < length; c++) {
+                region[c] = r;
+            }
+        }
+        // Which value covers each character: inside one literal or comment (value), or anywhere else (outside), -1 for
+        // none. A span crossing a literal's or a comment's bounds is outside as a whole.
         int[] value = new int[length];
+        int[] outside = new int[length];
         Arrays.fill(value, -1);
+        Arrays.fill(outside, -1);
+        boolean[] crosses = new boolean[positions.length];
+        // Per value: whether every span crossing a bound is only a sign or spaces beside one number, as -33.8688, whose
+        // minus SQL Trace's lexer leaves outside the literal.
+        boolean[] signed = new boolean[positions.length];
+        boolean[] other = new boolean[positions.length];
+        boolean[] reported = new boolean[positions.length];
         for (int s = 0; s < count; s++) {
             int slot = AgentRequestValues.S_FIRST + 3 * s;
             int index = spans[slot];
-            for (int c = Math.max(0, spans[slot + 1]); c < spans[slot + 2] && c < length; c++) {
-                if (value[c] < 0) {
-                    value[c] = index;
+            if (index >= 0 && index < reported.length) {
+                reported[index] = true;
+            }
+            int from = Math.max(0, spans[slot + 1]);
+            int to = Math.min(spans[slot + 2], length);
+            if (from >= to) {
+                continue;
+            }
+            int first = region[from];
+            boolean same = true;
+            for (int c = from; c < to; c++) {
+                same &= region[c] == first;
+            }
+            boolean contained = same && first >= 0;
+            if (!same && index >= 0 && index < crosses.length) {
+                crosses[index] = true;
+                if (signedNumber(sql, region, ranges, from, to)) {
+                    signed[index] = true;
+                } else {
+                    other[index] = true;
+                }
+            }
+            for (int c = from; c < to; c++) {
+                if (value[c] < 0 && outside[c] < 0) {
+                    (contained ? value : outside)[c] = index;
                 }
             }
         }
-        int[] ranges = SqlStatementNormalizer.ranges(sql.substring(0, length));
         boolean[] decided = new boolean[positions.length];
         StringBuilder out = new StringBuilder(Math.min(length, 2_048));
         int i = 0;
-        int r = 0;
         while (i < length) {
-            if (r < ranges.length && ranges[r] == i) {
-                int end = Math.min(ranges[r + 1], length);
-                if (ranges[r + 2] == SqlStatementNormalizer.RANGE_LITERAL) {
-                    literal(out, sql, value, i, end, positions, decided, names);
-                } else {
+            if (outside[i] >= 0) {
+                i = outsideSpan(out, outside, i, positions, decided, names);
+                continue;
+            }
+            int r = region[i];
+            if (r >= 0) {
+                // The rest of this literal or comment up to its end, or to a value outside it that cut it.
+                int end = i;
+                while (end < length && region[end] == r && outside[end] < 0) {
+                    end++;
+                }
+                if (ranges[r + 2] != SqlStatementNormalizer.RANGE_LITERAL) {
                     // A comment: dropped, a value inside it being outside any literal.
                     mark(value, i, end, positions, decided, AgentRequestValues.POSITION_OUTSIDE_LITERAL);
                     space(out);
+                } else {
+                    boolean quoted = quoted(sql, ranges[r], Math.min(ranges[r + 1], length));
+                    if (i == ranges[r] && end == Math.min(ranges[r + 1], length)) {
+                        literal(out, sql, value, i, end, quoted, positions, decided, names);
+                    } else {
+                        piece(out, sql, value, i, end, quoted, positions, decided, names);
+                    }
                 }
-                i = Math.max(end, i + 1);
-                r += 3;
+                i = end;
                 continue;
             }
+            // Neither a literal, a comment, nor a value: SQL's own text.
             char c = sql.charAt(i);
-            if (value[i] >= 0) {
-                i = outsideSpan(out, value, i, positions, decided, names);
-            } else if (Character.isWhitespace(c)) {
+            if (Character.isWhitespace(c)) {
                 space(out);
-                i++;
             } else {
                 out.append(c);
-                i++;
+            }
+            i++;
+        }
+        for (int index = 0; index < positions.length; index++) {
+            if (reported[index] && !decided[index]) {
+                // Every character of its spans went to another value: where it sat is not this value's to say.
+                positions[index] = AgentRequestValues.POSITION_UNKNOWN;
+            } else if (crosses[index] && decided[index]) {
+                positions[index] = AgentRequestValues.POSITION_OUTSIDE_LITERAL
+                        | AgentRequestValues.FLAG_CROSSES_LITERAL
+                        | (signed[index] && !other[index] ? AgentRequestValues.FLAG_BARE_LITERAL : 0);
             }
         }
         if (sql.length() > length) {
@@ -73,13 +143,65 @@ final class SqlSinkText {
         return out.toString().trim();
     }
 
-    /** Writes a literal from {@code start} to {@code end}: {@code ?}, or its matched values' names in its place. */
+    /**
+     * Whether characters {@code from} to {@code to} are a sign or spaces outside any literal and comment, and the rest one
+     * unquoted literal (a number, true, or false): a signed number such as {@code -33.8688}, never a fact on its own.
+     */
+    private static boolean signedNumber(String sql, int[] region, int[] ranges, int from, int to) {
+        int literal = -1;
+        for (int c = from; c < to; c++) {
+            int r = region[c];
+            if (r < 0) {
+                char ch = sql.charAt(c);
+                if (ch != '-' && ch != '+' && !Character.isWhitespace(ch)) {
+                    return false;
+                }
+            } else if (literal < 0) {
+                literal = r;
+            } else if (literal != r) {
+                return false;
+            }
+        }
+        return literal >= 0
+                && ranges[literal + 2] == SqlStatementNormalizer.RANGE_LITERAL
+                && !quoted(sql, ranges[literal], Math.min(ranges[literal + 1], region.length));
+    }
+
+    /**
+     * Writes the part of a literal a value outside it cut off: nothing when it is only delimiters, such as the quote a
+     * value closed; otherwise {@code ?} or its own values' names, as a whole literal's.
+     */
+    private static void piece(
+            StringBuilder out,
+            String sql,
+            int[] value,
+            int start,
+            int end,
+            boolean quoted,
+            int[] positions,
+            boolean[] decided,
+            String[] names) {
+        boolean delimiters = true;
+        for (int c = start; c < end && delimiters; c++) {
+            char ch = sql.charAt(c);
+            delimiters = value[c] < 0 && (ch == '\'' || ch == '"' || ch == '$' || Character.isWhitespace(ch));
+        }
+        if (!delimiters) {
+            literal(out, sql, value, start, end, quoted, positions, decided, names);
+        }
+    }
+
+    /**
+     * Writes a literal from {@code start} to {@code end}: {@code ?}, or its matched values' names in its place. Never a
+     * character of it: {@code quoted} says whether the literal is a string, rather than a number, true, or false.
+     */
     private static void literal(
             StringBuilder out,
             String sql,
             int[] value,
             int start,
             int end,
+            boolean quoted,
             int[] positions,
             boolean[] decided,
             String[] names) {
@@ -99,7 +221,9 @@ final class SqlSinkText {
                 continue;
             }
             if (index < positions.length && !decided[index]) {
-                positions[index] = AgentRequestValues.POSITION_IN_LITERAL;
+                // A number, true, or false: a value matching one is not a fact on its own.
+                positions[index] =
+                        AgentRequestValues.POSITION_IN_LITERAL | (quoted ? 0 : AgentRequestValues.FLAG_BARE_LITERAL);
                 decided[index] = true;
             }
             if (index != last) {
@@ -118,7 +242,7 @@ final class SqlSinkText {
         if (gap) {
             inside.append('…');
         }
-        if (quoted(sql, start, end)) {
+        if (quoted) {
             out.append('\'').append(inside).append('\'');
         } else {
             out.append(inside);

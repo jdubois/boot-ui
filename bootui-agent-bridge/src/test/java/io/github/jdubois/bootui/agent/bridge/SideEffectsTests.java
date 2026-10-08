@@ -551,4 +551,58 @@ class SideEffectsTests {
         String[] strings = SideEffects.interned(generation(), (int) id);
         return strings == null || strings.length == 0 ? null : strings[0];
     }
+
+    @Test
+    void anotherSensorsReinstallKeepsWhatThreadActivityWaitsToCheck() {
+        ThreadActivity.reset();
+        Object executor = new Object();
+        SideEffects.enable(SideEffects.MASK_THREADS | SideEffects.MASK_FILES);
+        try {
+            assertThat(ThreadActivity.TRACKER.track(
+                            executor,
+                            false,
+                            1L,
+                            0x42L,
+                            0L,
+                            0,
+                            1,
+                            0,
+                            3,
+                            5L,
+                            9L,
+                            0,
+                            System.currentTimeMillis(),
+                            new ArrayList<>()))
+                    .isTrue();
+
+            SideEffects.disable(SideEffects.MASK_FILES, null);
+            assertThat(ThreadActivity.TRACKER.size())
+                    .as("a files switch never drops thread-activity's pending checks")
+                    .isEqualTo(1);
+
+            SideEffects.disable(SideEffects.MASK_THREADS, null);
+            assertThat(ThreadActivity.TRACKER.size()).isZero();
+            assertThat(ThreadActivity.TRACKER.dropped.sum()).isEqualTo(1L);
+        } finally {
+            SideEffects.disable(-1, null);
+            ThreadActivity.reset();
+        }
+    }
+
+    @Test
+    void onlyAThreadNameThatIsItsOwnFamilyIsRemembered() {
+        claim(List.of(SideEffects.THREAD_ACTIVITY));
+        ThreadActivity.State state = new ThreadActivity.State(1L);
+
+        int first = ThreadActivity.nameTarget(state, "Thread-7");
+        int second = ThreadActivity.nameTarget(state, "Thread-8");
+        int named = ThreadActivity.nameTarget(state, "report-refresher");
+
+        assertThat(first).as("one family, one target").isEqualTo(second).isNotZero();
+        assertThat(named).isNotZero().isNotEqualTo(first);
+        assertThat(state.names)
+                .as("a name carrying an id is unique: never remembered")
+                .containsOnlyKeys("report-refresher");
+        assertThat(ThreadActivity.nameTarget(state, "report-refresher")).isEqualTo(named);
+    }
 }

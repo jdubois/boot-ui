@@ -142,7 +142,10 @@ class CaughtExceptionsVisitTests {
         String[] swallowed = sites.get("bootuicaughtapp/Handlers#swallowed()I#0#java/io/IOException");
         assertThat(swallowed).isNotNull();
         assertThat(Integer.parseInt(swallowed[2])).as("line").isPositive();
-        assertThat(flags(swallowed)).isEqualTo(CaughtExceptions.FLAG_EXIT_HANDLER | CaughtExceptions.FLAG_COMPLETE);
+        assertThat(flags(swallowed))
+                .isEqualTo(CaughtExceptions.FLAG_EXIT_HANDLER
+                        | CaughtExceptions.FLAG_COMPLETE
+                        | CaughtExceptions.SHAPE_DISCARDS);
 
         String[] multi = sites.get("bootuicaughtapp/Handlers#multi(I)I#0#java/lang/IllegalStateException|"
                 + "java/lang/UnsupportedOperationException");
@@ -173,6 +176,58 @@ class CaughtExceptionsVisitTests {
                 .isNotEmpty()
                 .allSatisfy(site -> assertThat(flags(site) & CaughtExceptions.FLAG_EXIT_HANDLER)
                         .isNotZero());
+    }
+
+    @Test
+    void handlerShapesAreReadFromTheHandlersOwnCode() throws Exception {
+        visitAlone(original("bootuicaughtapp.Handlers"));
+        Map<String, String[]> sites = sites();
+
+        assertThat(shapes(sites, "swallowed()I#0#java/io/IOException")).isEqualTo(CaughtExceptions.SHAPE_DISCARDS);
+        // Straight-line code ending by a throw: a rethrow or a wrap shows it too, and is recorded as rethrown first.
+        assertThat(shapes(sites, "rethrows()I#0#java/lang/IllegalStateException"))
+                .isEqualTo(CaughtExceptions.SHAPE_THROWS_NEW);
+        assertThat(shapes(sites, "wraps()I#0#java/io/IOException")).isEqualTo(CaughtExceptions.SHAPE_THROWS_NEW);
+        assertThat(shapes(sites, "replaced()I#0#java/io/IOException"))
+                .isEqualTo(CaughtExceptions.SHAPE_DISCARDS | CaughtExceptions.SHAPE_THROWS_NEW);
+        assertThat(shapes(sites, "replacedSometimes(Z)I#0#java/io/IOException"))
+                .isEqualTo(CaughtExceptions.SHAPE_DISCARDS);
+        assertThat(shapes(sites, "nestedThenHandsOn()Ljava/util/concurrent/CompletableFuture;#0#java/io/IOException"))
+                .isEqualTo(CaughtExceptions.SHAPE_PASSES_AS_VALUE);
+        assertThat(shapes(sites, "emitted(Lbootuicaughtapp/Handlers$Emitter;)I#0#java/io/IOException"))
+                .isEqualTo(CaughtExceptions.SHAPE_PASSES_AS_VALUE);
+        assertThat(shapes(sites, "logged(Lbootuicaughtapp/Handlers$AuditLogger;)I#0#java/io/IOException"))
+                .isZero();
+        assertThat(shapes(
+                        sites,
+                        "afterTheHandler(Ljava/lang/String;)Ljava/util/concurrent/CompletableFuture;#0"
+                                + "#java/lang/NumberFormatException"))
+                .isEqualTo(CaughtExceptions.SHAPE_DISCARDS);
+        assertThat(shapes(
+                        sites,
+                        "slotReused(Ljava/lang/String;)Ljava/util/concurrent/CompletableFuture;#0"
+                                + "#java/lang/NumberFormatException"))
+                // The later variable's loads keep it from reading as discarding, and its store from reading as handed
+                // on.
+                .isZero();
+        assertThat(shapes(sites, "printed()I#0#java/lang/IllegalStateException"))
+                .isEqualTo(CaughtExceptions.SHAPE_PRINTS_STACK_TRACE);
+        assertThat(shapes(sites, "interrupted()I#0#java/lang/InterruptedException"))
+                .isEqualTo(CaughtExceptions.SHAPE_DISCARDS | CaughtExceptions.SHAPE_REINTERRUPTS);
+        assertThat(shapes(sites, "handedOn()Ljava/util/concurrent/CompletableFuture;#0#java/io/IOException"))
+                .isEqualTo(CaughtExceptions.SHAPE_PASSES_AS_VALUE);
+        assertThat(shapes(sites, "readsLater()I#0#java/io/IOException")).isZero();
+    }
+
+    private static int shapes(Map<String, String[]> sites, String key) {
+        String[] site = sites.get("bootuicaughtapp/Handlers#" + key);
+        assertThat(site).as("%s in %s", key, sites.keySet()).isNotNull();
+        return flags(site)
+                & (CaughtExceptions.SHAPE_DISCARDS
+                        | CaughtExceptions.SHAPE_PRINTS_STACK_TRACE
+                        | CaughtExceptions.SHAPE_REINTERRUPTS
+                        | CaughtExceptions.SHAPE_PASSES_AS_VALUE
+                        | CaughtExceptions.SHAPE_THROWS_NEW);
     }
 
     @Test
@@ -215,13 +270,82 @@ class CaughtExceptionsVisitTests {
     }
 
     @Test
-    void aHandlerWithoutALineNumberInAMethodWithLinesIsForeign() throws Exception {
-        byte[] transformed = visitAlone(Hand.handlerWithoutLine());
+    void aThrowableHandlerWithoutALineNumberOrANamedLocalInAMethodWithLinesIsForeign() throws Exception {
+        byte[] transformed = visitAlone(Hand.handlerWithoutLine("java/lang/Throwable"));
 
-        String[] site = sites().get(Hand.FOREIGN.replace('.', '/') + "#f()I#0#java/lang/IllegalStateException");
+        String[] site = sites().get(Hand.FOREIGN.replace('.', '/') + "#f()I#0#java/lang/Throwable");
         assertThat(site).isNotNull();
         assertThat(flags(site) & CaughtExceptions.FLAG_FOREIGN).isNotZero();
         assertThat(run(Hand.FOREIGN, transformed, "f", null)).isEqualTo(3);
+    }
+
+    /** Inlined advice catches {@code Throwable}: a handler of another type without a line number is the application's. */
+    @Test
+    void aTypedHandlerWithoutALineNumberIsTheApplications() throws Exception {
+        visitAlone(Hand.handlerWithoutLine("java/lang/IllegalStateException"));
+
+        String[] site = sites().get(Hand.FOREIGN.replace('.', '/') + "#f()I#0#java/lang/IllegalStateException");
+        assertThat(site).isNotNull();
+        assertThat(flags(site) & CaughtExceptions.FLAG_FOREIGN).isZero();
+    }
+
+    /**
+     * javac gives no handler a line number of its own when it is on its try's line ({@code Code.addLineNumber} skips a
+     * repeated line), so a whole try/catch written on one line is the application's, whatever it catches. Compiled
+     * here, from source, so no formatter can split the line.
+     */
+    @Test
+    void aTryCatchWrittenOnOneLineIsTheApplications() throws Exception {
+        String source = "package bootuicaughtoneline;\n"
+                + "public class OneLine {\n"
+                + "    public static int sleep(long millis) {\n"
+                + "        try { Thread.sleep(millis); } catch (InterruptedException e) { return 1; }\n"
+                + "        return 0;\n"
+                + "    }\n"
+                + "    public static int parse(String text) {\n"
+                + "        int value; try { value = Integer.parseInt(text); } catch (NumberFormatException e) { value = -1; } return value;\n"
+                + "    }\n"
+                + "    public static int any(Object value) {\n"
+                + "        try { return value.hashCode(); } catch (Throwable t) { return -2; }\n"
+                + "    }\n"
+                + "}\n";
+        byte[] original = OneLineSource.compile("bootuicaughtoneline.OneLine", source);
+        assertThat(lines(original).get("parse(Ljava/lang/String;)I"))
+                .as("javac gave the one-line method's handler no line of its own")
+                .hasSize(1);
+        byte[] transformed = visitAlone(original);
+
+        Map<String, String[]> sites = sites();
+        for (String key : List.of(
+                "bootuicaughtoneline/OneLine#sleep(J)I#0#java/lang/InterruptedException",
+                "bootuicaughtoneline/OneLine#parse(Ljava/lang/String;)I#0#java/lang/NumberFormatException",
+                "bootuicaughtoneline/OneLine#any(Ljava/lang/Object;)I#0#java/lang/Throwable")) {
+            assertThat(sites.get(key)).as(key).isNotNull();
+            assertThat(flags(sites.get(key)) & CaughtExceptions.FLAG_FOREIGN)
+                    .as(key)
+                    .isZero();
+        }
+        Class<?> type = Class.forName(
+                "bootuicaughtoneline.OneLine", true, new Loader(Map.of("bootuicaughtoneline.OneLine", transformed)));
+        assertThat(type.getMethod("parse", String.class).invoke(null, "x")).isEqualTo(-1);
+        assertThat(type.getMethod("any", Object.class).invoke(null, (Object) null))
+                .isEqualTo(-2);
+    }
+
+    /** kotlinc's one-line {@code try}/{@code catch} expression, compiled by the build, is the application's too. */
+    @Test
+    void kotlinsOneLineTryCatchIsTheApplications() throws Exception {
+        visitAlone(original("bootuicaughtkt.OneLineKt"));
+
+        Map<String, String[]> sites = sites();
+        assertThat(sites.keySet())
+                .as("%s", sites.keySet())
+                .anyMatch(key -> key.startsWith("bootuicaughtkt/OneLineKt#parse(Ljava/lang/String;)I#0#"));
+        sites.forEach((key, site) -> {
+            if (key.startsWith("bootuicaughtkt/OneLineKt#")) {
+                assertThat(flags(site) & CaughtExceptions.FLAG_FOREIGN).as(key).isZero();
+            }
+        });
     }
 
     @Test
@@ -592,6 +716,70 @@ class CaughtExceptionsVisitTests {
         return frames;
     }
 
+    /** Per method, the lines its LineNumberTable lists. */
+    static Map<String, List<Integer>> lines(byte[] bytes) {
+        Map<String, List<Integer>> lines = new LinkedHashMap<>();
+        new ClassReader(bytes)
+                .accept(
+                        new ClassVisitor(Opcodes.ASM9) {
+                            @Override
+                            public MethodVisitor visitMethod(
+                                    int access, String name, String descriptor, String signature, String[] exceptions) {
+                                List<Integer> found = new ArrayList<>();
+                                lines.put(name + descriptor, found);
+                                return new MethodVisitor(Opcodes.ASM9) {
+                                    @Override
+                                    public void visitLineNumber(int line, Label start) {
+                                        found.add(line);
+                                    }
+                                };
+                            }
+                        },
+                        0);
+        return lines;
+    }
+
+    /** Compiles one class from source with javac's default debug information, in memory. */
+    static final class OneLineSource {
+
+        static byte[] compile(String name, String source) throws IOException {
+            javax.tools.JavaCompiler compiler = javax.tools.ToolProvider.getSystemJavaCompiler();
+            assertThat(compiler).as("javac").isNotNull();
+            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+            javax.tools.JavaFileObject input =
+                    new javax.tools.SimpleJavaFileObject(
+                            java.net.URI.create("string:///" + name.replace('.', '/') + ".java"),
+                            javax.tools.JavaFileObject.Kind.SOURCE) {
+                        @Override
+                        public CharSequence getCharContent(boolean ignoreEncodingErrors) {
+                            return source;
+                        }
+                    };
+            javax.tools.StandardJavaFileManager standard = compiler.getStandardFileManager(null, null, null);
+            javax.tools.JavaFileManager files = new javax.tools.ForwardingJavaFileManager<>(standard) {
+                @Override
+                public javax.tools.JavaFileObject getJavaFileForOutput(
+                        Location location,
+                        String className,
+                        javax.tools.JavaFileObject.Kind kind,
+                        javax.tools.FileObject sibling) {
+                    return new javax.tools.SimpleJavaFileObject(
+                            java.net.URI.create("bytes:///" + className.replace('.', '/') + ".class"), kind) {
+                        @Override
+                        public java.io.OutputStream openOutputStream() {
+                            return bytes;
+                        }
+                    };
+                }
+            };
+            Boolean compiled = compiler.getTask(
+                            null, files, null, List.of("-g", "--release", "17"), null, List.of(input))
+                    .call();
+            assertThat(compiled).as("compiled %s", name).isTrue();
+            return bytes.toByteArray();
+        }
+    }
+
     static String describe(Object local) {
         if (local == Opcodes.TOP) {
             return "TOP";
@@ -695,7 +883,7 @@ class CaughtExceptionsVisitTests {
         }
 
         /** {@code static int f()}: its handler's first line number comes six instructions in. */
-        static byte[] handlerWithoutLine() {
+        static byte[] handlerWithoutLine(String caught) {
             ClassWriter writer = start(FOREIGN, Opcodes.V17);
             MethodVisitor m = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "f", "()I", null, null);
             m.visitCode();
@@ -703,13 +891,13 @@ class CaughtExceptionsVisitTests {
             Label end = new Label();
             Label handler = new Label();
             Label later = new Label();
-            m.visitTryCatchBlock(start, end, handler, "java/lang/IllegalStateException");
+            m.visitTryCatchBlock(start, end, handler, caught);
             m.visitLabel(start);
             m.visitLineNumber(30, start);
             throwNew(m);
             m.visitLabel(end);
             m.visitLabel(handler);
-            m.visitFrame(Opcodes.F_FULL, 0, new Object[0], 1, new Object[] {"java/lang/IllegalStateException"});
+            m.visitFrame(Opcodes.F_FULL, 0, new Object[0], 1, new Object[] {caught});
             m.visitInsn(Opcodes.POP);
             for (int i = 0; i < 5; i++) {
                 m.visitInsn(Opcodes.NOP);

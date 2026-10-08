@@ -1,6 +1,9 @@
 package io.github.jdubois.bootui.engine.mcp;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The typed outcome of an {@link McpDispatcher} evaluation. The adapter renders each variant to JSON,
@@ -10,7 +13,7 @@ import java.util.List;
  *
  * <ul>
  *   <li>{@link NoResponse} — a notification; the transport emits no body (HTTP 202).
- *   <li>{@link InitializeResult}/{@link PingResult}/{@link ToolsListResult}/{@link PromptsListResult}/
+ *   <li>{@link InitializeResult}/{@link DiscoverResult}/{@link PingResult}/{@link ToolsListResult}/{@link PromptsListResult}/
  *       {@link PromptGetResult}/{@link ToolCallResult} — a JSON-RPC {@code result} envelope.
  *   <li>{@link ToolCallError} — a {@code result} carrying {@code isError:true} (an in-band tool
  *       failure the agent can read).
@@ -20,13 +23,15 @@ import java.util.List;
 public sealed interface McpDispatchOutcome
         permits McpDispatchOutcome.NoResponse,
                 McpDispatchOutcome.InitializeResult,
+                McpDispatchOutcome.DiscoverResult,
                 McpDispatchOutcome.PingResult,
                 McpDispatchOutcome.ToolsListResult,
                 McpDispatchOutcome.PromptsListResult,
                 McpDispatchOutcome.PromptGetResult,
                 McpDispatchOutcome.ToolCallResult,
                 McpDispatchOutcome.ToolCallError,
-                McpDispatchOutcome.ProtocolError {
+                McpDispatchOutcome.ProtocolError,
+                McpDispatchOutcome.Cancelled {
 
     /** A notification: no response is emitted. */
     record NoResponse() implements McpDispatchOutcome {}
@@ -41,6 +46,22 @@ public sealed interface McpDispatchOutcome
      */
     record InitializeResult(String protocolVersion, String serverName, String serverVersion, String instructions)
             implements McpDispatchOutcome {}
+
+    /**
+     * The modern {@code server/discover} result.
+     *
+     * @param supportedVersions every supported revision, newest first
+     * @param serverName the advertised server name
+     * @param serverVersion the advertised server version
+     * @param instructions the advertised usage instructions (framework-specific copy)
+     */
+    record DiscoverResult(List<String> supportedVersions, String serverName, String serverVersion, String instructions)
+            implements McpDispatchOutcome {
+
+        public DiscoverResult {
+            supportedVersions = List.copyOf(supportedVersions);
+        }
+    }
 
     /** The {@code ping} result (an empty object). */
     record PingResult() implements McpDispatchOutcome {}
@@ -123,6 +144,24 @@ public sealed interface McpDispatchOutcome
      * @param code the JSON-RPC error code (see {@link McpProtocol})
      * @param message the human-readable error message; unexpected failures use the detail-free {@link
      *     McpProtocol#INTERNAL_ERROR_MESSAGE}
+     * @param data the optional machine-readable {@code error.data} members, or {@code null}
      */
-    record ProtocolError(int code, String message) implements McpDispatchOutcome {}
+    record ProtocolError(int code, String message, Map<String, String> data) implements McpDispatchOutcome {
+
+        public ProtocolError {
+            data = data == null ? null : Collections.unmodifiableMap(new LinkedHashMap<>(data));
+        }
+
+        /** An error without {@code data}. */
+        public ProtocolError(int code, String message) {
+            this(code, message, null);
+        }
+    }
+
+    /**
+     * A {@code tools/call} that its caller cancelled (or that stopped at a cancellation checkpoint), counted apart from
+     * timeouts and failures. Rendered as the JSON-RPC error {@link McpProtocol#REQUEST_CANCELLED}, which a client that
+     * cancelled ignores; it is never reported as a server fault.
+     */
+    record Cancelled() implements McpDispatchOutcome {}
 }

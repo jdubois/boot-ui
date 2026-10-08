@@ -226,6 +226,45 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         }
     }
 
+    /**
+     * Ends the request's timeline now, or, when its handler started async processing, once its async context completes
+     * and its response was written ({@code AsyncListener.onComplete}, which also follows a timeout or an error), so a
+     * {@code Callable}, {@code DeferredResult}, or streaming request ends too. Never throws.
+     */
+    static void endWhenComplete(HttpServletRequest request, RequestPhases phases, String requestId) {
+        try {
+            if (!request.isAsyncStarted()) {
+                phases.end(requestId);
+                return;
+            }
+            request.getAsyncContext().addListener(new AsyncListener() {
+                @Override
+                public void onComplete(AsyncEvent event) {
+                    phases.end(requestId);
+                }
+
+                @Override
+                public void onTimeout(AsyncEvent event) {
+                    // onComplete follows, once the timeout's response was written.
+                }
+
+                @Override
+                public void onError(AsyncEvent event) {
+                    // onComplete follows, once the error's response was written.
+                }
+
+                @Override
+                public void onStartAsync(AsyncEvent event) {
+                    // A new async cycle of the same request: this listener is not carried over by the container.
+                    event.getAsyncContext().addListener(this);
+                }
+            });
+        } catch (RuntimeException ex) {
+            // A request the container already completed or recycled: its end is the timeline's best effort.
+            phases.end(requestId);
+        }
+    }
+
     private static CorrelationContext asyncContext(HttpServletRequest request) {
         Object attribute = request.getAttribute(CORRELATION_ATTRIBUTE);
         return attribute instanceof CorrelationContext context ? context : CorrelationContext.NONE;
@@ -262,8 +301,8 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
                     failedOrSlow);
             // An async request answers on a later dispatch, so its handler is still running: work it handed over and
             // that ends before that dispatch writes the response did not run after it.
-            if (phases != null && !request.isAsyncStarted()) {
-                phases.end(requestId);
+            if (phases != null) {
+                endWhenComplete(request, phases, requestId);
             }
             try {
                 journal.offer(RuntimeEvent.of(
@@ -282,7 +321,8 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
                                 phases == null ? null : phases.operationOf(requestId),
                                 status,
                                 resources,
-                                RequestTiming.of(startNanos, phases == null ? null : phases.markers(requestId)))));
+                                RequestTiming.of(startNanos, phases == null ? null : phases.markers(requestId)),
+                                !threw && request.isAsyncStarted())));
             } catch (RuntimeException ex) {
                 // Publishing never disturbs the request it observes.
             }

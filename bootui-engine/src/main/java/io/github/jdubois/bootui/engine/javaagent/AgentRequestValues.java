@@ -50,6 +50,7 @@ public final class AgentRequestValues {
     public static final int F_STOPPED = 4;
     public static final int F_REPEATED = 8;
     public static final int F_BUSY = 16;
+    public static final int F_SEEN = 32;
 
     /** Name-value pairs an adapter passes per request at most: the bridge keeps at most 32 and counts the rest. */
     public static final int MAX_PAIRS = 64;
@@ -157,6 +158,12 @@ public final class AgentRequestValues {
     public static final int POSITION_OUTSIDE_LITERAL = 2;
     public static final int POSITION_UNKNOWN = 3;
     public static final int FLAG_NUMERIC = 4;
+
+    /** The value crossed a literal's or a comment's bounds, as a quote it closed: shown from one request. */
+    public static final int FLAG_CROSSES_LITERAL = 8;
+
+    /** The value sat inside an unquoted literal (a number, true, or false): never a fact on its own. */
+    public static final int FLAG_BARE_LITERAL = 16;
 
     /**
      * Publishes an engine-side sink's match of the calling thread's request's value named {@code name}: the sink's

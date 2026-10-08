@@ -48,8 +48,25 @@ public record McpTool(
         return handler.apply(arguments);
     }
 
-    /** The advertised descriptor for this tool ({@code tools/list}). */
-    public McpToolDescriptor describe() {
-        return new McpToolDescriptor(name, description, schema);
+    /**
+     * {@code true} when this tool's operation reports measured phases (see {@link McpToolCatalog#reportsProgress}), so
+     * a modern call with a progress token may answer on a request-scoped event stream.
+     */
+    public boolean reportsProgress() {
+        return McpToolCatalog.reportsProgress(name);
+    }
+
+    /**
+     * The advertised descriptor for this tool ({@code tools/list}).
+     *
+     * @param maxResults the transport's {@code max-results} cap, which bounds the advertised default page sizes
+     */
+    public McpToolDescriptor describe(int maxResults) {
+        return new McpToolDescriptor(
+                name,
+                description,
+                schema,
+                McpToolInputSchema.of(name, schema, maxResults),
+                McpToolAnnotations.of(name, action));
     }
 }

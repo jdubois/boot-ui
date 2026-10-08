@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.SideEffectsRowDto;
 import io.github.jdubois.bootui.core.dto.SideEffectsSensorDto;
 import io.github.jdubois.bootui.core.dto.SideEffectsSensorReport;
 import io.github.jdubois.bootui.engine.codepaths.CodePathStamps;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
@@ -26,6 +27,7 @@ import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -77,10 +79,63 @@ public final class SideEffectsService implements AutoCloseable {
             + " Runtime.exec and ProcessBuilder.startPipeline also reach; its network: connects, datagram sends, and"
             + " the host names the JVM resolves; the blocking calls started on an event loop; and, opt-in, the files it"
             + " opens, deletes, moves, and copies, through FileInputStream, FileOutputStream, RandomAccessFile, the Files"
-            + " methods, and FileChannel.open, the environment variables and system properties it reads by name"
-            + " through System.getenv and System.getProperty, and request input reaching SQL text, a command, a file"
-            + " path, or an outbound URL unchanged, deserialization without a filter, weak algorithms, and trust managers"
-            + " and hostname verifiers (security sinks). Threads are not available in this version.";
+            + " methods, and FileChannel.open, and the environment variables and system properties it reads by name"
+            + " through System.getenv and System.getProperty; and, opt-in, the threads it starts and the executors it"
+            + " creates; and, opt-in, the thread locals a request or a job left set on its pooled thread, and request"
+            + " input reaching SQL text, a command, a file path, or an outbound URL unchanged, deserialization without a"
+            + " filter, weak algorithms, and trust managers and hostname verifiers (security sinks)."
+            + " Resources left open are not available in this version.";
+
+    static final String LIMITATION_THREADS =
+            "Thread activity: Thread.start, VirtualThread.start, the ThreadPoolExecutor,"
+                    + " ForkJoinPool, and thread-per-task executors' constructors, and their shutdown, shutdownNow, and close."
+                    + " A pool's own workers are its executor's row, never threads of their own. A thread or an executor is the"
+                    + " application's when the first frame outside the JDK that started or created it is in the application's"
+                    + " packages, else a library's (a framework's pool, a client, an @Async executor), or the JDK's when the JDK"
+                    + " created it, or in a static initializer; only the application's, started or created for a request, are"
+                    + " reported left running: still alive, or not shut down, 250 ms after the request's response completed,"
+                    + " checked once. An executor nothing references is reclaimed by the collector, or by the JDK's cleaner"
+                    + " for newSingleThreadExecutor, without a shutdown. A start no request owns is counted under its starting"
+                    + " thread's family with the call site of its first sighting. Never a thread-local, a task, or anything a"
+                    + " thread holds.";
+
+    static final String LIMITATION_THREAD_LOCALS = "Thread locals: found by scanning a pooled platform thread's"
+            + " thread-local maps when a request's or a job's scope on it closes, against what they held when it opened:"
+            + " a thread local with a value then that had none, or was absent, at the open is left set; a null value"
+            + " counts as cleared. Scopes: a Spring MVC request on its worker, a request's task on a pool's own worker, a"
+            + " Quarkus blocking resource method on its worker, a Quarkus managed executor's task, and a scheduled run."
+            + " Event loops, virtual threads (not pooled), asynchronous dispatches, and threads the application starts"
+            + " itself are not scanned. A thread local is reported once per pool thread until a scope clears it: a later"
+            + " request that sets it again is not. No call site: it was set during the request. A row names the static"
+            + " field holding it, found in an already-initialized class of the application, or of a known framework,"
+            + " without initializing a class; else a hint, else its class (an instance field's, a library's, or the"
+            + " JDK's). A thread local with an initial value (ThreadLocal.withInitial or an initialValue override) is a"
+            + " per-thread cache filled by get(), shown only when its holder is in the application's packages. Never a"
+            + " value or a toString(). A Spring Security context row may be an empty context: getContext() sets one"
+            + " when it reads none.";
+
+    static final String LIMITATION_THREAD_LOCALS_INVENTORY = "Thread locals: this JDK did not let the agent ask"
+            + " whether a class is initialized, so holders are resolved only in application classes Code Inventory saw"
+            + " run, and framework holders are not resolved.";
+
+    /** The agent's time to name thread locals' holders, per {@value #HOLDER_WINDOW_MILLIS} ms. */
+    static final long HOLDER_BUDGET_NANOS = 20_000_000L;
+
+    static final long HOLDER_WINDOW_MILLIS = 1_000L;
+
+    /**
+     * How long a thread local waits for its holder, at most, and how many wait: longer than the agent's periodic index
+     * rebuild (10 s), which answers a miss its throttled forced rebuild left for later.
+     */
+    static final long HOLDER_WAIT_MILLIS = 15_000L;
+
+    static final int MAX_HOLDER_WAITING = 1_024;
+
+    /** The answer of a thread local whose holder the agent had no time to name: "not resolved", never remembered. */
+    private static final String[] GAVE_UP = {null, "false", "false", null};
+
+    /** The holders and answers a run remembers, one per slot of the bridge's thread-local registry. */
+    static final int MAX_HOLDERS = 1_024;
 
     static final String LIMITATION_NETWORK = "A network row shows a host and port, never a byte sent or received, nor a"
             + " URL's path or query. A non-blocking connect's time is known once it finishes. A name lookup is"
@@ -186,9 +241,9 @@ public final class SideEffectsService implements AutoCloseable {
     static final String LIMITATION_SECURITY_CHECKS = "Security sinks' JDK checks: a deserialization is one outermost"
             + " ObjectInputStream.readObject whose stream has no ObjectInputFilter, named by the classes"
             + " ObjectInputStream.resolveClass resolved, at most 16, so a subclass that resolves classes itself names none;"
-            + " readUnshared is not checked. A weak algorithm is MessageDigest MD5, MD2, or SHA-1, or a Cipher with DES,"
+            + " readUnshared is left out. A weak algorithm is MessageDigest MD5, MD2, or SHA-1, or a Cipher with DES,"
             + " DESede, RC4, or a block cipher in ECB mode, which a bare AES, Blowfish, or RC2 defaults to; KeyGenerator,"
-            + " Signature, Mac, SecureRandom, and PBE algorithms are not checked. What the JDK asks for itself, as"
+            + " Signature, Mac, SecureRandom, and PBE algorithms are left out. What the JDK asks for itself, as"
             + " UUID.nameUUIDFromBytes, SecureRandom, TLS, or jar verification, is counted, never shown; a library's"
             + " request is shown apart. A trust manager is shown when its class is the application's; a default hostname"
             + " verifier or SSL socket factory when the application installed it. A check group whose JDK hook failed its"
@@ -228,6 +283,7 @@ public final class SideEffectsService implements AutoCloseable {
     private volatile NetworkCapture networkCapture = NetworkCapture.NONE;
     private volatile Set<String> exporterEndpoints = Set.of();
     private final AgentEvidence evidence;
+    private volatile ThreadLocalHolders.Resolver threadLocalHolders = ThreadLocalHolders.AGENT;
     private final AgentEvidence.Store store = new Store();
     /** Code Paths' panel, whose evidence a row's bean method is: read for its visibility only, never registered. */
     private final AgentEvidence.Store codePathsPanel = new CodePathsPanel();
@@ -244,6 +300,12 @@ public final class SideEffectsService implements AutoCloseable {
     private long lastClearedAt = Long.MIN_VALUE;
 
     private boolean closed;
+
+    /** The current run's claim while it asks for the thread-activity sensor, read on every request's end. */
+    private volatile AgentClaim threadActivityClaim;
+
+    private RequestPhases phases;
+    private final Consumer<String> requestEnd = this::requestEnded;
 
     /** This application run's side effects, frozen by {@link #endRun()}; {@code null} before. */
     private RunSideEffects ended;
@@ -433,7 +495,12 @@ public final class SideEffectsService implements AutoCloseable {
                 }
                 // The thread that finished starting may hold the end of startup's records in its table (M5-7b).
                 access.sideEffectsFlushThread();
+                // Whatever the claim asked for: thread-activity can be switched on at run time, and the bridge
+                // ignores a request's end while the sensor is off, with one volatile read.
+                threadActivityClaim = access.threadActivitySupported() ? claim : null;
                 run = new Run(claim, clock.getAsLong());
+                // The bridge's thread-activity counters last for the JVM: the panel reports this run's increase.
+                run.threadBaseline = sensorCounters(AgentSensorSettings.THREAD_ACTIVITY);
                 publish(run);
                 run.start();
             }
@@ -449,6 +516,11 @@ public final class SideEffectsService implements AutoCloseable {
         endRun();
         synchronized (lock) {
             closed = true;
+            threadActivityClaim = null;
+            if (phases != null) {
+                phases.removeEndListener(requestEnd);
+                phases = null;
+            }
             if (run != null) {
                 run.close();
                 run = null;
@@ -487,6 +559,40 @@ public final class SideEffectsService implements AutoCloseable {
             }
         } catch (RuntimeException ex) {
             log.log(Level.WARNING, "BootUI could not end the run's side effects", ex);
+        }
+    }
+
+    /**
+     * Hears each request's end from {@code requestPhases}, where the adapters mark it once the response is complete,
+     * so the thread-activity sensor checks what the request left running (M5-5e). Idempotent; {@link #close()} stops
+     * listening.
+     */
+    public void listenToRequestEnds(RequestPhases requestPhases) {
+        synchronized (lock) {
+            if (closed || requestPhases == null || phases == requestPhases) {
+                return;
+            }
+            if (phases != null) {
+                phases.removeEndListener(requestEnd);
+            }
+            phases = requestPhases;
+            requestPhases.addEndListener(requestEnd);
+        }
+    }
+
+    /**
+     * A request ended: when this run claimed the thread-activity sensor, the bridge notes it without a lock. Called on
+     * the thread that ended the request, an event loop on Spring WebFlux and Quarkus: one volatile read otherwise.
+     */
+    void requestEnded(String requestId) {
+        AgentClaim claim = threadActivityClaim;
+        if (claim == null || requestId == null || requestId.length() != 16) {
+            return;
+        }
+        try {
+            claim.threadActivityRequestEnded(Long.parseUnsignedLong(requestId, 16));
+        } catch (RuntimeException ex) {
+            // Not a BootUI request id: nothing to check.
         }
     }
 
@@ -799,19 +905,21 @@ public final class SideEffectsService implements AutoCloseable {
 
     /**
      * Side Effects for agents: every sensor's coverage, then the rows of the shipped sensors matching {@code query}, a
-     * sensor id or part of a row's attribution, target, or call site, most frequent first, at most {@code limit}.
+     * sensor id, part of a row's attribution, target, or call site, or a request id among its exemplars, most frequent
+     * first, at most {@code limit}.
      */
     public SideEffectsAgentReport agentReport(String query, Integer limit) {
         String asked = query == null ? "" : query.trim();
         int max = limit == null || limit <= 0 ? SideEffectsAgentReport.DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
         AgentEvidence.Read read = read();
         SideEffectsReport report = report(read);
+        boolean bySensor = SideEffectsCatalog.sensor(asked) != null;
+        List<SideEffectsSensorDto> sensors = agentSensors(report.sensors(), bySensor ? asked : null);
         if (!report.available()) {
             return new SideEffectsAgentReport(
-                    false, report.unavailableReason(), asked, report.sensors(), 0, List.of(), 0, List.of());
+                    false, report.unavailableReason(), asked, sensors, 0, List.of(), 0, List.of());
         }
         String needle = asked.toLowerCase(Locale.ROOT);
-        boolean bySensor = SideEffectsCatalog.sensor(asked) != null;
         List<SideEffectsRowDto> matching = new ArrayList<>();
         Run current = settledRun();
         if (current != null) {
@@ -833,19 +941,96 @@ public final class SideEffectsService implements AutoCloseable {
         matching.sort(Comparator.comparingLong((SideEffectsRowDto row) -> row.count() + row.completed())
                 .reversed());
         List<SideEffectsRowDto> listed = matching.subList(0, Math.min(max, matching.size()));
-        List<String> limitations = new ArrayList<>(report.limitations());
+        Set<String> shown = new HashSet<>();
+        listed.forEach(row -> shown.add(row.sensor()));
+        if (bySensor) {
+            shown.add(asked);
+        }
+        List<String> limitations = agentLimitations(report.limitations(), shown);
         if (matching.isEmpty() && !needle.isEmpty()) {
-            limitations.add("No row matched \"" + asked + "\": call get_side_effects without a query to list them.");
+            limitations.add("No row matched \"" + asked + "\": call get_side_effects without a query to list them."
+                    + (needle.matches("[0-9a-f]{16}")
+                            ? " A request id matches only the rows naming it among their exemplar requests, at most"
+                                    + " three each."
+                            : ""));
         }
         return new SideEffectsAgentReport(
                 true,
                 null,
                 asked,
-                report.sensors(),
+                sensors,
                 matching.size(),
                 List.copyOf(listed),
                 matching.size() - listed.size(),
                 limitations);
+    }
+
+    /** The sensors whose rows each fixed limitation describes; the others apply to every row. */
+    private static final Map<String, Set<String>> LIMITATION_SENSORS = Map.of(
+            LIMITATION_VALUES,
+            Set.of(SideEffectsCatalog.PROCESSES_ID, SideEffectsCatalog.FILES_ID, SideEffectsCatalog.ENVIRONMENT_ID),
+            LIMITATION_NETWORK,
+            Set.of(SideEffectsCatalog.NETWORK_ID),
+            LIMITATION_CAPTURE,
+            Set.of(SideEffectsCatalog.NETWORK_ID),
+            LIMITATION_FILES,
+            Set.of(SideEffectsCatalog.FILES_ID),
+            LIMITATION_ENVIRONMENT,
+            Set.of(SideEffectsCatalog.ENVIRONMENT_ID),
+            LIMITATION_BLOCKING,
+            Set.of(AgentSensorSettings.BLOCKING),
+            LIMITATION_THREADS,
+            Set.of(SideEffectsCatalog.THREAD_ACTIVITY_ID),
+            LIMITATION_THREAD_LOCALS,
+            Set.of(SideEffectsCatalog.THREAD_LOCALS_ID));
+
+    static final String LIMITATION_AGENT_OMITTED =
+            "What the rows of a sensor without listed rows cannot see is left" + " out: query its id for it.";
+
+    /**
+     * The limitations for an agent: those of this run and those every row shares, and the fixed description of what a
+     * sensor's rows cannot see only for the sensors in {@code shown}, whose rows are listed or which the query named.
+     */
+    static List<String> agentLimitations(List<String> limitations, Set<String> shown) {
+        List<String> kept = new ArrayList<>(limitations.size());
+        boolean omitted = false;
+        for (String limitation : limitations) {
+            Set<String> sensors = LIMITATION_SENSORS.get(limitation);
+            if (sensors == null || sensors.stream().anyMatch(shown::contains)) {
+                kept.add(limitation);
+            } else {
+                omitted = true;
+            }
+        }
+        if (omitted) {
+            kept.add(LIMITATION_AGENT_OMITTED);
+        }
+        return kept;
+    }
+
+    /**
+     * The sensors for an agent, summary first: each one's state, reason, counters, and runtime switch, and its hooks
+     * only for {@code detailed}, the sensor a query named, or for none.
+     */
+    static List<SideEffectsSensorDto> agentSensors(List<SideEffectsSensorDto> sensors, String detailed) {
+        List<SideEffectsSensorDto> summarized = new ArrayList<>(sensors.size());
+        for (SideEffectsSensorDto sensor : sensors) {
+            summarized.add(
+                    sensor.id().equals(detailed)
+                            ? sensor
+                            : new SideEffectsSensorDto(
+                                    sensor.id(),
+                                    sensor.group(),
+                                    sensor.label(),
+                                    sensor.state(),
+                                    sensor.reason(),
+                                    sensor.rows(),
+                                    sensor.occurrences(),
+                                    sensor.dropped(),
+                                    List.of(),
+                                    sensor.toggle()));
+        }
+        return List.copyOf(summarized);
     }
 
     /** {@code sensor}'s rows of {@code current}, under the lock: the store's, then, for files, its bucket rows. */
@@ -915,7 +1100,9 @@ public final class SideEffectsService implements AutoCloseable {
                     List.of(),
                     null,
                     null,
-                    null));
+                    null,
+                    0,
+                    0));
         }
         return rows;
     }
@@ -1031,6 +1218,7 @@ public final class SideEffectsService implements AutoCloseable {
                 || contains(row.insideMethod(), needle)
                 || contains(row.sensor(), needle)
                 || contains(row.client(), needle)
+                || row.exemplarRequestIds().stream().anyMatch(id -> id.equalsIgnoreCase(needle))
                 || (SideEffectsRowDto.NOT_CAPTURED.equals(row.capture())
                         && ("not captured by any panel".contains(needle)
                                 || "not-captured".contains(needle)
@@ -1069,6 +1257,25 @@ public final class SideEffectsService implements AutoCloseable {
             }
             return new String[] {SideEffectsRowDto.NOT_CAPTURED, null};
         };
+    }
+
+    /** What a registry slot named, for the thread local whose hash code it was asked with. */
+    record Named<T>(int hash, T value) {
+
+        /** {@code named}'s value when it names the thread local with {@code hash}; {@code null} for another one. */
+        static <T> T of(Named<T> named, int hash) {
+            return named != null && named.hash() == hash ? named.value() : null;
+        }
+    }
+
+    /**
+     * Remembers {@code value} for registry slot {@code id}, replacing what a slot the bridge reused named before;
+     * nothing more once {@value #MAX_HOLDERS} slots are known, which the bridge's registry never exceeds.
+     */
+    static <T> void remember(Map<Integer, Named<T>> cache, int id, int hash, T value) {
+        if (cache.size() < MAX_HOLDERS || cache.containsKey(id)) {
+            cache.put(id, new Named<>(hash, value));
+        }
     }
 
     /** One panel, for its visibility only. */
@@ -1244,9 +1451,21 @@ public final class SideEffectsService implements AutoCloseable {
                 LIMITATION_FILES,
                 LIMITATION_ENVIRONMENT,
                 LIMITATION_BLOCKING,
+                LIMITATION_THREADS,
+                LIMITATION_THREAD_LOCALS,
                 LIMITATION_SECURITY_SINKS,
                 LIMITATION_SECURITY_CHECKS,
                 LIMITATION_ATTRIBUTION));
+        if (current != null && current.claim.sensors().threadLocals()) {
+            if ("inventory".equals(threadLocalsStatus("initializationCheck"))) {
+                limitations.add(LIMITATION_THREAD_LOCALS_INVENTORY);
+            }
+            Object virtual = threadLocalsStatus("virtualSkipped");
+            if (virtual instanceof Number skipped && skipped.longValue() > 0) {
+                limitations.add("Thread locals: " + skipped.longValue() + " scopes ran on virtual threads, which are"
+                        + " not pooled and not scanned; with spring.threads.virtual.enabled, requests run on them.");
+            }
+        }
         if (current != null && current.claim.sensors().blocking()) {
             if (serverEventLoops() && eventLoops() == 0) {
                 limitations.add(LIMITATION_NO_EVENT_LOOP);
@@ -1263,6 +1482,38 @@ public final class SideEffectsService implements AutoCloseable {
                 limitations.add(LIMITATION_CALL_SITES_FAILED);
             }
         }
+        if (current != null
+                && (current.claim.uses(AgentSensorSettings.THREAD_ACTIVITY)
+                        || current.claim.sensorOverrides().containsKey(AgentSensorSettings.THREAD_ACTIVITY))) {
+            // Also once switched off at run time, when what it dropped is reported.
+            Map<String, Object> counters = sensorCounters(AgentSensorSettings.THREAD_ACTIVITY);
+            Map<String, Object> baseline = current.threadBaseline;
+            long untracked = increase(counters, baseline, "untracked");
+            if (untracked > 0) {
+                limitations.add(untracked + (untracked == 1 ? " thread or executor was" : " threads or executors were")
+                        + " not tracked: the sensor tracks at most 1,024 threads waiting for their request's end and"
+                        + " 1,024 executors at a time, so what they left running is not reported.");
+            }
+            long unresolved = increase(counters, baseline, "unresolved");
+            if (unresolved > 0) {
+                limitations.add(
+                        unresolved + (unresolved == 1 ? " thread or executor was" : " threads or executors were")
+                                + " not checked: their request's end never reached the sensor within 10 minutes, so whether"
+                                + " they outlived it is unknown.");
+            }
+            long endsLost = increase(counters, baseline, "requestEndsLost");
+            if (endsLost > 0) {
+                limitations.add(endsLost + (endsLost == 1 ? " request's end was" : " requests' ends were")
+                        + " lost: more requests ended at once than the sensor holds, so what they started waits 10"
+                        + " minutes, then is counted not checked.");
+            }
+            long dropped = increase(counters, baseline, "dropped");
+            if (dropped > 0) {
+                limitations.add(dropped + (dropped == 1 ? " thread or executor was" : " threads or executors were")
+                        + " never checked: they still waited for their request's end when the thread-activity sensor"
+                        + " was switched off.");
+            }
+        }
         if (read.shown() && !read.requests()) {
             limitations.add(LIMITATION_ROUTES_HIDDEN);
         }
@@ -1277,19 +1528,27 @@ public final class SideEffectsService implements AutoCloseable {
                 if (current.clears > 0) {
                     limitations.add(RECORDING_CLEARED);
                 }
-                String holder = holderLine(AgentRequestValues.enabled() ? AgentRequestValues.status() : Map.of());
-                if (holder != null) {
-                    limitations.add(holder);
+                String requestValues =
+                        holderLine(AgentRequestValues.enabled() ? AgentRequestValues.status() : Map.of());
+                if (requestValues != null) {
+                    limitations.add(requestValues);
                 }
                 long unconfirmed = current.store.unconfirmed();
                 if (unconfirmed > 0) {
                     limitations.add(unconfirmed
                             + (unconfirmed == 1 ? " security-sinks match is" : " security-sinks" + " matches are")
-                            + " not shown yet: a value outside an SQL literal or made of digits only may be a word the"
-                            + " text always holds, until a second request confirms the text varies with it.");
+                            + " not shown yet: a value outside an SQL literal, a number, or one whose place in the text"
+                            + " is not known may be a word the text always holds, until a second request confirms the"
+                            + " text varies with it.");
                 }
                 if (current.stale > 0) {
                     limitations.add(current.stale + " records of an earlier run were dropped.");
+                }
+                if (!current.excludedHolders.isEmpty()) {
+                    List<String> dropped = new ArrayList<>();
+                    current.excludedHolders.forEach((holder, count) -> dropped.add(holder + " " + count));
+                    limitations.add("Thread locals left set but not shown, as frameworks clear them or as per-thread"
+                            + " caches: " + String.join(", ", dropped) + ".");
                 }
             }
         }
@@ -1346,10 +1605,47 @@ public final class SideEffectsService implements AutoCloseable {
     }
 
     /** One of the bridge's blocking counters, 0 when unavailable. */
-    private long blockingCounter(String name) {
+    private Object threadLocalsStatus(String name) {
         try {
-            Object value = AgentBridgeAccess.map(access.status(), AgentSensorSettings.BLOCKING)
+            return AgentBridgeAccess.map(access.status(), AgentSensorSettings.THREAD_LOCALS)
                     .get(name);
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    /** Tests only: how thread locals' holders are named. */
+    void threadLocalHolders(ThreadLocalHolders.Resolver resolver) {
+        this.threadLocalHolders = resolver == null ? ThreadLocalHolders.AGENT : resolver;
+    }
+
+    private long blockingCounter(String name) {
+        return sensorCounter(AgentSensorSettings.BLOCKING, name);
+    }
+
+    /** A side-effect sensor's counter in the bridge's status, 0 when absent. */
+    /** The bridge's counters of {@code sensor}, read once; empty when it reports none. */
+    private Map<String, Object> sensorCounters(String sensor) {
+        try {
+            return AgentBridgeAccess.map(access.status(), sensor);
+        } catch (RuntimeException ex) {
+            return Map.of();
+        }
+    }
+
+    /** How much counter {@code name} grew since {@code baseline}. */
+    private static long increase(Map<String, Object> counters, Map<String, Object> baseline, String name) {
+        return Math.max(0L, counter(counters, name) - counter(baseline, name));
+    }
+
+    private static long counter(Map<String, Object> counters, String name) {
+        Object value = counters.get(name);
+        return value instanceof Number number ? number.longValue() : 0L;
+    }
+
+    private long sensorCounter(String sensor, String name) {
+        try {
+            Object value = AgentBridgeAccess.map(access.status(), sensor).get(name);
             return value instanceof Number number ? number.longValue() : 0L;
         } catch (RuntimeException ex) {
             return 0L;
@@ -1384,6 +1680,8 @@ public final class SideEffectsService implements AutoCloseable {
             return null;
         }
         current.drainNow();
+        // Outside the lock: the agent may take its time budget to name thread locals' holders.
+        current.retryHolders();
         synchronized (lock) {
             current.resolve(true);
             publish(current);
@@ -1521,6 +1819,8 @@ public final class SideEffectsService implements AutoCloseable {
                 }
                 int rows = current.store.rowCount();
                 current.store.clear();
+                current.excludedHolders.clear();
+                current.givenUp.clear();
                 current.claim.sideEffectsRecordingCleared();
                 // Buckets are the bridge's counters since the claim: counted from now on.
                 current.bucketBaseline = new HashMap<>(
@@ -1549,17 +1849,48 @@ public final class SideEffectsService implements AutoCloseable {
          * at most the rows the store keeps.
          */
         long indexBytes() {
-            return strings.size() * STRING_BYTES + methods.size() * METHOD_BYTES;
+            return strings.size() * STRING_BYTES
+                    + (methods.size() + holders.size() + givenUp.size()) * METHOD_BYTES
+                    + holderWaiting.size() * SideEffectsStore.PENDING_BYTES;
         }
 
+        /**
+         * The thread locals' holders this run named, by registry id, each with the hash code of the thread local it
+         * named: a slot the bridge reuses for another thread local replaces its entry, so there are at most
+         * {@value #MAX_HOLDERS}.
+         */
+        final Map<Integer, Named<ThreadLocalHolders.Holder>> holders = new HashMap<>();
+
+        /** Thread-locals records waiting for the agent's time to name their holder. */
+        final java.util.ArrayDeque<WaitingHolder> holderWaiting = new java.util.ArrayDeque<>();
+
+        /** Thread locals dropped, by framework holder or reason, with how often they were left set. */
+        final Map<String, Long> excludedHolders = new java.util.TreeMap<>();
+
+        /**
+         * The thread locals whose holder the engine gave up on, by registry id with their hash code: their rows are
+         * marked, and move to their holder, or go when it is a framework's, once a later record resolves it.
+         */
+        final Map<Integer, Integer> givenUp = new HashMap<>();
+
+        /** The agent's answers, by registry id with their thread local's hash code, asked for outside the lock. */
+        final Map<Integer, Named<String[]>> answers = new java.util.concurrent.ConcurrentHashMap<>();
+
+        /** Guards the holders' time budget, never held while the agent resolves. */
+        final Object holderBudget = new Object();
+
+        long holderWindowStart = Long.MIN_VALUE / 2;
+        long holderSpentNanos;
+
         long maxIndexBytes() {
-            return MAX_STRINGS * STRING_BYTES + (long) store.maxRows() * METHOD_BYTES;
+            return MAX_STRINGS * STRING_BYTES + ((long) store.maxRows() + 1_024L) * METHOD_BYTES;
         }
 
         long records;
         long stale;
         long malformed;
         long bootUi;
+        Map<String, Object> threadBaseline = Map.of();
         long clears;
         long cleared;
         long clearedAt = lastClearedAt;
@@ -1640,6 +1971,14 @@ public final class SideEffectsService implements AutoCloseable {
         @Override
         public void accept(long[] raw) {
             SideEffectRecord record = SideEffectRecord.decode(raw);
+            String[] answer = null;
+            if (record != null
+                    && record.sensor() == SideEffectsCatalog.RECORD_THREAD_LOCALS
+                    && record.generation() == generation) {
+                // Outside the lock: reads and Clear recording never wait for the agent's time budget.
+                retryHolders();
+                answer = answer(record, false);
+            }
             synchronized (lock) {
                 if (record == null) {
                     malformed++;
@@ -1688,6 +2027,10 @@ public final class SideEffectsService implements AutoCloseable {
                             application != null ? application : outside,
                             insideMethod(record.stamp()),
                             normalizer.threadFamily(string(record.threadName()))));
+                } else if (record.sensor() == SideEffectsCatalog.RECORD_THREADS) {
+                    store.add(threads(record, sensor, target, outside, application));
+                } else if (record.sensor() == SideEffectsCatalog.RECORD_THREAD_LOCALS) {
+                    threadLocal(record, sensor, target, answer, clock.getAsLong());
                 } else if (record.sensor() == SideEffectsCatalog.RECORD_BLOCKING) {
                     // The target is the event loop's thread name: shown as its family, as a thread row's is.
                     String loop = normalizer.threadFamily(target);
@@ -1725,6 +2068,212 @@ public final class SideEffectsService implements AutoCloseable {
                 resolve(false);
                 publish(this);
             }
+        }
+
+        /** A thread-locals record waiting for its holder, since {@code since}. */
+        record WaitingHolder(SideEffectRecord record, SideEffectsCatalog.Sensor sensor, String target, long since) {}
+
+        /**
+         * A thread-locals record, under the lock, with the agent's {@code answer} naming its holder, which decides its
+         * row or drops it as a framework's or a per-thread cache, counted; {@code null} when the agent had no time: it
+         * waits, at most {@value #HOLDER_WAIT_MILLIS} ms, then shows as not resolved.
+         */
+        private void threadLocal(
+                SideEffectRecord record, SideEffectsCatalog.Sensor sensor, String target, String[] answer, long now) {
+            if (answer == null) {
+                if (holderWaiting.size() < MAX_HOLDER_WAITING) {
+                    holderWaiting.add(new WaitingHolder(record, sensor, target, now));
+                    return;
+                }
+                answer = answer(record, true);
+            }
+            observeThreadLocal(record, sensor, target, answer);
+        }
+
+        /**
+         * The waiting thread locals the agent has time for, and those waiting too long, as not resolved: asked outside
+         * the lock, observed under it.
+         */
+        void retryHolders() {
+            while (true) {
+                WaitingHolder waiting;
+                long now;
+                synchronized (lock) {
+                    waiting = holderWaiting.peek();
+                    now = clock.getAsLong();
+                }
+                if (waiting == null) {
+                    return;
+                }
+                // Asked again first: retries are as sparse as the records, so one past the wait may be its first.
+                String[] answer = answer(waiting.record(), false);
+                if (answer == null && now - waiting.since() > HOLDER_WAIT_MILLIS) {
+                    answer = answer(waiting.record(), true);
+                }
+                if (answer == null) {
+                    return;
+                }
+                synchronized (lock) {
+                    if (holderWaiting.peek() != waiting) {
+                        // Another thread observed it meanwhile.
+                        continue;
+                    }
+                    holderWaiting.poll();
+                    if (waiting.record().firstMillis() > clearedAt) {
+                        observeThreadLocal(waiting.record(), waiting.sensor(), waiting.target(), answer);
+                    }
+                    publish(this);
+                }
+            }
+        }
+
+        /**
+         * The agent's answer naming a record's holder, within the time budget, never under the lock: {@code null} when
+         * out of time, unless {@code giveUp}, which answers "not resolved" without asking, and is never remembered.
+         */
+        String[] answer(SideEffectRecord record, boolean giveUp) {
+            int id = (record.exitStatus() >>> 8) & 0xFFFF;
+            int hash = (int) record.nanos();
+            String[] known = Named.of(answers.get(id), hash);
+            if (known != null) {
+                return known;
+            }
+            if (id == 0 || giveUp) {
+                // Never remembered: a later record of the same thread local asks the agent again.
+                return GAVE_UP;
+            }
+            long left;
+            synchronized (holderBudget) {
+                long now = clock.getAsLong();
+                if (now - holderWindowStart >= HOLDER_WINDOW_MILLIS) {
+                    holderWindowStart = now;
+                    holderSpentNanos = 0L;
+                }
+                left = HOLDER_BUDGET_NANOS - holderSpentNanos;
+            }
+            if (left <= 0L) {
+                return null;
+            }
+            long started = System.nanoTime();
+            String[] answer = threadLocalHolders.holder(
+                    generation,
+                    id,
+                    hash,
+                    claim.packages().toArray(new String[0]),
+                    ThreadLocalHolders.HOLDER_CLASSES.toArray(new String[0]),
+                    left);
+            synchronized (holderBudget) {
+                holderSpentNanos += System.nanoTime() - started;
+            }
+            if (answer != null) {
+                remember(answers, id, hash, answer);
+            }
+            return answer;
+        }
+
+        /** Its holder, under the lock: decided once per thread local, whose exclusion the bridge is told once. */
+        private ThreadLocalHolders.Holder holder(SideEffectRecord record, String target, String[] answer) {
+            int detail = record.exitStatus() & 0xFF;
+            int id = (record.exitStatus() >>> 8) & 0xFFFF;
+            int hash = (int) record.nanos();
+            ThreadLocalHolders.Holder known = Named.of(holders.get(id), hash);
+            if (known != null) {
+                return known;
+            }
+            ThreadLocalHolders.Holder holder = ThreadLocalHolders.decide(answer, target, detail);
+            if (id != 0 && answer != GAVE_UP) {
+                remember(holders, id, hash, holder);
+                Integer gaveUpOn = givenUp.get(id);
+                if (gaveUpOn != null && gaveUpOn == hash) {
+                    // Resolved after a give-up: its "not resolved" rows move to the holder, or go with it.
+                    givenUp.remove(id);
+                    long removed = store.resolveThreadLocal(
+                            SideEffectsStore.unresolvedThreadLocal(id, hash),
+                            holder.kind(),
+                            holder.target(),
+                            holder.origin(),
+                            holder.excludedBy() != null);
+                    if (removed > 0) {
+                        excludedHolders.merge(holder.excludedBy(), removed, Long::sum);
+                    }
+                }
+                if (holder.excludedBy() != null) {
+                    // Skipped by the bridge from now on, so it never takes an application's thread local's place.
+                    threadLocalHolders.exclude(generation, id, hash);
+                }
+            }
+            return holder;
+        }
+
+        private void observeThreadLocal(
+                SideEffectRecord record, SideEffectsCatalog.Sensor sensor, String target, String[] answer) {
+            ThreadLocalHolders.Holder holder = holder(record, target, answer);
+            if (holder.excludedBy() != null) {
+                excludedHolders.merge(holder.excludedBy(), record.count(), Long::sum);
+                return;
+            }
+            int id = (record.exitStatus() >>> 8) & 0xFFFF;
+            int hash = (int) record.nanos();
+            String marker = null;
+            if (answer == GAVE_UP && id != 0) {
+                // Marked, so a later record resolving the same thread local can move or drop these rows.
+                marker = SideEffectsStore.unresolvedThreadLocal(id, hash);
+                if (givenUp.size() < MAX_HOLDERS || givenUp.containsKey(id)) {
+                    givenUp.put(id, hash);
+                }
+            }
+            store.add(new SideEffectsStore.Observation(
+                    record,
+                    sensor.id(),
+                    holder.kind(),
+                    holder.target(),
+                    null,
+                    null,
+                    normalizer.threadFamily(string(record.threadName())),
+                    null,
+                    marker,
+                    null,
+                    -1,
+                    holder.origin(),
+                    null));
+        }
+
+        /**
+         * A thread-activity record's observation: a thread's or an executor's, its target the started thread's family
+         * or the executor's class, its origin from the bridge's walk, and its call site the first application frame,
+         * else the first frame outside the JDK. A follow-up carries its creation's target, frames, and detail, so it
+         * lands on its creation's row.
+         */
+        private SideEffectsStore.Observation threads(
+                SideEffectRecord record,
+                SideEffectsCatalog.Sensor sensor,
+                String target,
+                String outside,
+                String application) {
+            int detail = record.exitStatus();
+            String kind = SideEffectsCatalog.kind(record.sensor(), record.kind());
+            if (SideEffectsCatalog.THREAD.equals(kind) && (detail & SideEffectsCatalog.DETAIL_VIRTUAL) != 0) {
+                kind = SideEffectsCatalog.VIRTUAL_THREAD;
+            }
+            String origin =
+                    switch (detail & SideEffectsCatalog.DETAIL_ORIGIN) {
+                        case SideEffectsCatalog.ORIGIN_APPLICATION -> SideEffectOrigins.APPLICATION;
+                        case SideEffectsCatalog.ORIGIN_JDK -> SideEffectOrigins.JDK;
+                        default -> SideEffectOrigins.LIBRARY;
+                    };
+            String shown = target == null
+                    ? "(unknown)"
+                    : SideEffectsCatalog.EXECUTOR.equals(kind) ? target : normalizer.target(target);
+            return new SideEffectsStore.Observation(
+                    record,
+                    sensor.id(),
+                    kind,
+                    shown,
+                    application != null ? application : outside,
+                    insideMethod(record.stamp()),
+                    normalizer.threadFamily(string(record.threadName())),
+                    origin,
+                    null);
         }
 
         /**

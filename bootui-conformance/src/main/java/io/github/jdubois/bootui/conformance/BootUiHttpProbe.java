@@ -202,13 +202,35 @@ public final class BootUiHttpProbe {
      * across JDK versions.
      */
     public Response request(String method, String path, Map<String, String> headers, String body) {
+        return request(method, path, headers, body, Duration.ofSeconds(30));
+    }
+
+    /**
+     * Like {@link #request(String, String, Map, String)}, with a request {@code timeout} of the caller's own, for a call
+     * whose client grants it a different budget.
+     */
+    public Response request(String method, String path, Map<String, String> headers, String body, Duration timeout) {
         HttpRequest.BodyPublisher publisher =
                 body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body);
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + path))
-                .timeout(Duration.ofSeconds(30))
+                .timeout(timeout)
                 .method(method, publisher);
         headers.forEach(builder::header);
+        return send(builder.build());
+    }
+
+    /**
+     * Like {@link #request(String, String, Map, String)}, but sends each header entry as its own header line, so a
+     * header name may repeat.
+     */
+    public Response requestWithHeaderLines(
+            String method, String path, List<Map.Entry<String, String>> headerLines, String body) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + path))
+                .timeout(Duration.ofSeconds(30))
+                .method(method, HttpRequest.BodyPublishers.ofString(body));
+        headerLines.forEach(line -> builder.header(line.getKey(), line.getValue()));
         return send(builder.build());
     }
 

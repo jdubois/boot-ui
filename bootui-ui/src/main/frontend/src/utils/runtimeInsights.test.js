@@ -13,9 +13,9 @@ import {
   isMachineColumn,
   isListed,
   textParts,
+  themeFilters,
   themeOf,
-  unlistedSummary,
-  validationOf
+  unlistedSummary
 } from './runtimeInsights.js'
 
 const report = {
@@ -79,6 +79,15 @@ describe('runtimeInsights helpers', () => {
     expect(groupObservations(report, {query: '/api/orders', theme: 'time'})[0].observations[0].id).toBe('c')
     expect(groupObservations(report, {theme: 'errors'})).toEqual([])
     expect(themeOf('ai-usage-by-route')).toBe('ai')
+  })
+
+  it('finds the rows of a check by its title or kind by its title or kind, as the reason of a left-out row says', () => {
+    const ids = (query) =>
+      groupObservations(report, {query})
+        .flatMap((group) => group.observations)
+        .map((observation) => observation.id)
+    expect(ids('repeated selects')).toEqual(['b', 'a'])
+    expect(ids('route-time-breakdown')).toEqual(['c'])
   })
 
   it('shows only the rows listed by default unless every row or a search is asked for, listed rows first', () => {
@@ -167,35 +176,6 @@ describe('runtimeInsights helpers', () => {
   })
 })
 
-describe('validationOf', () => {
-  it('marks the kinds that did not pass their external validation, with the engine reason (M4-20)', () => {
-    expect(validationOf({validation: 'NOT_VALIDATED', validationReason: 'It found nothing.'})).toEqual({
-      marker: 'Not externally validated',
-      reason: 'It found nothing.'
-    })
-    expect(validationOf({validation: 'UNDER_SAMPLED', validationReason: 'Too few facts.'}).marker).toBe(
-      'Not externally validated'
-    )
-    expect(validationOf({validation: 'FAILED', validationReason: 'r'}).marker).toBe('Did not pass external validation')
-    expect(validationOf({validation: 'NOT_JUDGED', validationReason: 'r'}).marker).toBe('Not judged yet')
-  })
-
-  it('marks nothing for a kind that passed, one not listed by design, or a server that predates the field', () => {
-    expect(validationOf({validation: 'PASSED', validationReason: 'r'})).toBeNull()
-    expect(validationOf({validation: 'NOT_LISTED', validationReason: 'r'})).toBeNull()
-    expect(validationOf({kind: 'repeated-selects'})).toBeNull()
-    expect(validationOf(undefined)).toBeNull()
-  })
-
-  it('carries the marker on each group, from its check', () => {
-    const marked = {
-      ...report,
-      checks: report.checks.map((check) => ({...check, validation: 'NOT_VALIDATED', validationReason: 'Silent.'}))
-    }
-    expect(groupObservations(marked, {all: true}).every((group) => group.validation?.reason === 'Silent.')).toBe(true)
-  })
-})
-
 describe('evidenceShares', () => {
   it('reads each share and marks the largest phase', () => {
     const detail = {
@@ -262,5 +242,30 @@ describe('theme coverage', () => {
       'ai-usage-by-route'
     ]
     expect(engineKinds.filter((kind) => !THEMES.some((theme) => theme.kinds.includes(kind)))).toEqual([])
+  })
+})
+
+describe('verdict and theme filters', () => {
+  const checks = [
+    {kind: 'errors-behind-2xx', title: 'Errors behind 2xx responses'},
+    {kind: 'safe-method-dml', title: 'Writes in GET requests'},
+    {kind: 'route-time-breakdown', title: 'Route time breakdown'}
+  ]
+  const observations = [
+    {id: 'a', kind: 'errors-behind-2xx', subject: 'POST /import', sentence: '', affected: 1},
+    {id: 'b', kind: 'safe-method-dml', subject: 'GET /orders', sentence: '', affected: 1},
+    {id: 'c', kind: 'route-time-breakdown', subject: 'GET /fast', sentence: '', affected: 1, listed: false}
+  ]
+  const run = {checks, observations}
+
+  it('counts the listed rows of each theme, leaving out a theme with none unless it is selected', () => {
+    expect(themeFilters(run).map(({id, count}) => [id, count])).toEqual([
+      ['', 2],
+      ['queries', 1],
+      ['errors', 1]
+    ])
+    expect(themeFilters(run, {theme: 'time'}).map(({id, count}) => [id, count])).toContainEqual(['time', 0])
+    expect(themeFilters(run, {all: true}).map(({id, count}) => [id, count])).toContainEqual(['time', 1])
+    expect(themeFilters(run, {query: 'orders'})[0].count).toBe(1)
   })
 })

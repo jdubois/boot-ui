@@ -14,8 +14,8 @@ import java.util.List;
  *
  * @param sensors the sensors to install: {@code executors}, {@code inventory}, {@code code-paths}, {@code processes},
  *     {@code network}, and {@code blocking}, and the opt-in {@code threads}, {@code files}, {@code environment},
- *     {@code caught-exceptions}, and {@code security-sinks}; the Side Effects sensors this version does not ship are accepted
- *     ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
+ *     {@code thread-activity}, {@code caught-exceptions}, and {@code security-sinks}; the Side Effects sensors this
+ *     version does not ship are accepted ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
  * @param skipTasks task class-name prefixes the propagation sensors never propagate
  * @param skipThreads thread-name prefixes the propagation sensors never propagate to
  * @param maxHandoff how long a handoff's work is attributed to its request
@@ -82,6 +82,21 @@ public record AgentSensorSettings(
     public static final String BLOCKING = "blocking";
 
     /**
+     * The Side Effects sensor recording the threads the application starts and the executors it creates per route,
+     * and those a request's application code left running when it ended (M5-5e, §5.16), never a thread-local or a
+     * task. Distinct from {@link #THREADS}, which carries a request's context into threads. Opt-in until a same-runner
+     * A/B of the agent's overhead benchmark shows its own increment at most 3 % and the cumulative overhead at most 10 %.
+     */
+    public static final String THREAD_ACTIVITY = "thread-activity";
+
+    /**
+     * The Side Effects sensor recording the thread locals a request or a job left set on its pooled platform thread
+     * (M5-5f, §5.16), found by scanning the thread's thread-local maps when its scope closes, never their values.
+     * Opt-in (D37) until its overhead is measured.
+     */
+    public static final String THREAD_LOCALS = "thread-locals";
+
+    /**
      * The sensor reporting the exceptions application code catches (M5-6a): opt-in until its overhead is measured
      * against the default sensors' budget (D21, D37).
      */
@@ -96,7 +111,7 @@ public record AgentSensorSettings(
 
     /** The Side Effects sensors this version ships. */
     public static final List<String> SIDE_EFFECT_SENSORS =
-            List.of(PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, SECURITY_SINKS);
+            List.of(PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY, THREAD_LOCALS, SECURITY_SINKS);
 
     /** Every sensor id this version installs. */
     public static final List<String> KNOWN_SENSORS = List.of(
@@ -109,6 +124,8 @@ public record AgentSensorSettings(
             FILES,
             ENVIRONMENT,
             BLOCKING,
+            THREAD_ACTIVITY,
+            THREAD_LOCALS,
             CAUGHT_EXCEPTIONS,
             SECURITY_SINKS);
 
@@ -116,7 +133,7 @@ public record AgentSensorSettings(
      * The Side Effects sensors the panel lists but this version does not ship ({@code docs/PLAN-v2.md} §5.16):
      * {@code bootui.agent.sensors} accepts them, with a warning, and the panel reports them not available.
      */
-    public static final List<String> NOT_AVAILABLE_SENSORS = List.of("thread-activity", "thread-locals", "resources");
+    public static final List<String> NOT_AVAILABLE_SENSORS = List.of("resources");
 
     /** The default {@code bootui.agent.sensors}. */
     public static final List<String> DEFAULT_SENSORS =
@@ -127,7 +144,8 @@ public record AgentSensorSettings(
      * run time ({@code docs/PLAN-v2.md} M5-14). {@code caught-exceptions} (M5-6a), also off by default, is not switched at
      * run time: its visit of every application class is installed with the claim only.
      */
-    public static final List<String> OPT_IN_SENSORS = List.of(THREADS, FILES, ENVIRONMENT);
+    public static final List<String> OPT_IN_SENSORS =
+            List.of(THREADS, FILES, ENVIRONMENT, THREAD_ACTIVITY, THREAD_LOCALS);
 
     /**
      * Why {@code id}, one of {@link #OPT_IN_SENSORS}, is off by default, as the panels show it beside its switch; or
@@ -147,6 +165,12 @@ public record AgentSensorSettings(
             case ENVIRONMENT ->
                 "Off by default: it advises System.getProperty, which frameworks call often; a read takes about 23–28 ns"
                         + " with it instead of 5–6 ns.";
+            case THREAD_ACTIVITY ->
+                "Off by default: on a route that starts a thread per request, it added about 11.5 % to the agent's"
+                        + " overhead, 16.6 % with the default sensors, over the 3 % and 10 % budgets.";
+            case THREAD_LOCALS ->
+                "Off by default until its overhead is measured on more routes: it scans the thread-local maps of every"
+                        + " pooled request thread; the benchmark's route measured about 0.5 % over the default sensors.";
             default -> null;
         };
     }
@@ -292,6 +316,16 @@ public record AgentSensorSettings(
     /** Whether the {@code blocking} sensor is asked for. */
     public boolean blocking() {
         return sensors.contains(BLOCKING);
+    }
+
+    /** Whether the {@code thread-activity} sensor is asked for. */
+    public boolean threadActivity() {
+        return sensors.contains(THREAD_ACTIVITY);
+    }
+
+    /** Whether the {@code thread-locals} sensor is asked for. */
+    public boolean threadLocals() {
+        return sensors.contains(THREAD_LOCALS);
     }
 
     /** Whether any Side Effects sensor is asked for. */

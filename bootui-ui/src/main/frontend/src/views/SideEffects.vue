@@ -41,6 +41,9 @@ const SENSOR_ORDER = [
 const OPT_IN = {
   files: 'the path patterns of the files the application opens, deletes, moves, and copies',
   environment: 'the names read',
+  'thread-activity':
+    'the threads the application starts and the executors it creates per route, and those a request left running',
+  'thread-locals': 'the thread locals a request or a job left set on its pooled thread, never their values',
   'security-sinks':
     'deserialization without a filter, weak algorithms, and trust managers, and, with bootui.agent.security-sinks.request-values=true, where request input reaches SQL text, a command, a file path, or an outbound URL unchanged'
 }
@@ -94,18 +97,24 @@ const LOCATION_LABELS = {
 
 const GROUPED_APART = new Set(['class-path', 'jdk', 'logging'])
 
-/** A sensor whose rows are grouped apart by other origins: security sinks' library requests (M5-6b2). */
-const APART_BY_SENSOR = {
-  'security-sinks': {origins: new Set(['library']), label: 'Requested by libraries'}
-}
-
-const APART_DEFAULT = {origins: GROUPED_APART, label: 'Class path, JDK, and logging'}
+/** Thread activity's rows of libraries' pools and the JDK's own threads, grouped apart from the application's. */
+const THREADS_APART = new Set(['library', 'jdk'])
 
 const SENSOR_COLUMNS = {
   processes: {target: 'Command', count: 'Starts', failed: true, exits: true, time: 'Lifetime (total / max ms)'},
   network: {target: 'Host / name', count: 'Count', failed: true, network: true, time: 'Time (total / max ms)'},
   files: {target: 'Path pattern', count: 'Operations', failed: true, origin: true, time: 'Time (total / max ms)'},
   environment: {target: 'Name', count: 'Reads', origin: true},
+  'thread-activity': {
+    target: 'Thread / executor',
+    count: 'Started',
+    origin: true,
+    threads: true,
+    failed: true,
+    failedLabel: 'Reclaimed without shutdown',
+    time: 'Executor lifetime (total / max ms)'
+  },
+  'thread-locals': {target: 'Thread local (holder)', count: 'Times left set', origin: true},
   blocking: {
     target: 'Event loop / operation',
     count: 'Calls',
@@ -122,6 +131,8 @@ const EMPTY_TEXT = {
   files: 'No file has been opened yet in this run.',
   environment: 'No environment variable or system property has been read yet in this run.',
   blocking: 'No blocking call has started on an event loop yet in this run.',
+  'thread-activity': 'No thread has been started and no executor created yet in this run.',
+  'thread-locals': 'No thread local has been left set by a request or a job yet in this run.',
   'security-sinks':
     'No deserialization without a filter, weak algorithm, or trust manager seen, and no request input has reached SQL text, a command, a file path, or an outbound URL in this run.'
 }
@@ -331,22 +342,43 @@ function columnCount(sensor) {
     (columns.time ? 1 : 0) +
     (columns.origin ? 1 : 0) +
     (columns.parameter ? 1 : 0) +
-    (columns.network ? 3 : 0)
+    (columns.network ? 3 : 0) +
+    (columns.threads ? 3 : 0)
   )
 }
 
+function groupedApart(row) {
+  if (row.sensor === 'thread-locals') return row.origin === 'unknown'
+  // Security sinks' JDK checks requested by libraries (M5-6b2).
+  if (row.sensor === 'security-sinks') return row.origin === 'library'
+  return row.sensor === 'thread-activity' ? THREADS_APART.has(row.origin) : GROUPED_APART.has(row.origin)
+}
+
+/** What a sensor's rows grouped apart are. */
+function apartLabel(sensor) {
+  if (sensor.id === 'thread-locals') return 'Holders not resolved'
+  if (sensor.id === 'security-sinks') return 'Requested by libraries'
+  return sensor.id === 'thread-activity' ? 'Libraries and the JDK' : 'Class path, JDK, and logging'
+}
+
+/** How many a request started or created, on average, of a thread-activity row. */
+function perRequest(row) {
+  if (!row.requests) return '—'
+  const average = row.count / row.requests
+  return Number.isInteger(average) ? formatNumber(average) : average.toFixed(1)
+}
+
 /**
- * The application's rows, then, collapsed, those grouped apart: class loading, the JDK, and logging, or, for security
- * sinks, what libraries requested.
+ * The application's rows, then, collapsed, those grouped apart: class loading, the JDK, and logging, or for thread
+ * activity libraries' pools and the JDK's own threads, or for security sinks what libraries requested.
  */
 function sections(report) {
-  const grouping = APART_BY_SENSOR[report?.sensor?.id] ?? APART_DEFAULT
   const rows = sensorRows(report)
-  const own = rows.filter((row) => !grouping.origins.has(row.origin))
-  const apart = rows.filter((row) => grouping.origins.has(row.origin))
+  const own = rows.filter((row) => !groupedApart(row))
+  const apart = rows.filter(groupedApart)
   const list = []
   if (own.length || !apart.length) list.push({id: 'own', apart: false, rows: own})
-  if (apart.length) list.push({id: 'apart', apart: true, label: grouping.label, rows: apart})
+  if (apart.length) list.push({id: 'apart', apart: true, rows: apart})
   return list
 }
 
@@ -457,7 +489,8 @@ function hookStatus(value, label) {
             BootUI groups observations by route, thread family, target, and call site. Process rows show only the
             executable name, network rows a host and port, file rows a path pattern, and environment rows a name:
             arguments, bytes sent or received, file contents, and values are never recorded. Blocking rows show calls
-            that blocked an event loop, reported, never refused.
+            that blocked an event loop, reported, never refused. Thread activity rows show the threads and executors a
+            route started, and those still running when its request ended; never what a thread holds.
           </p>
           <details v-if="summary.limitations?.length" class="mt-3 small side-effects-limitations">
             <summary>What these sensors cannot see ({{ summary.limitations.length }})</summary>
@@ -563,7 +596,7 @@ function hookStatus(value, label) {
                   :class="section.apart ? 'side-effects-apart mb-3' : ''"
                 >
                   <summary v-if="section.apart" class="small fw-semibold mb-2">
-                    {{ section.label }} ({{ formatNumber(section.rows.length) }}), grouped apart
+                    {{ apartLabel(sensor) }} ({{ formatNumber(section.rows.length) }}), grouped apart
                   </summary>
                   <div class="table-responsive">
                     <table class="table table-sm align-middle side-effects-table">
@@ -572,7 +605,7 @@ function hookStatus(value, label) {
                         {{
                           sensor.label
                         }}{{
-                          section.apart ? ': ' + section.label.toLowerCase() : ''
+                          section.apart ? `: ${apartLabel(sensor).toLowerCase()}` : ''
                         }}
                       </caption>
                       <thead>
@@ -587,6 +620,11 @@ function hookStatus(value, label) {
                           <th scope="col">Call site</th>
                           <th v-if="columnsOf(sensor).origin" scope="col">Origin</th>
                           <th scope="col" class="text-end">{{ columnsOf(sensor).count }}</th>
+                          <template v-if="columnsOf(sensor).threads">
+                            <th scope="col" class="text-end">Per request</th>
+                            <th scope="col" class="text-end">Left running</th>
+                            <th scope="col" class="text-end">Shut down</th>
+                          </template>
                           <th v-if="columnsOf(sensor).failed" scope="col" class="text-end">
                             {{ columnsOf(sensor).failedLabel || 'Failed' }}
                           </th>
@@ -602,7 +640,13 @@ function hookStatus(value, label) {
                       <tbody>
                         <tr v-if="!section.rows.length">
                           <td :colspan="columnCount(sensor)" class="small text-muted">
-                            Only class loading, the JDK, and logging so far.
+                            {{
+                              sensor.id === 'thread-activity'
+                                ? "Only libraries' and the JDK's threads and executors so far."
+                                : sensor.id === 'thread-locals'
+                                  ? 'Only thread locals whose holder was not resolved so far.'
+                                  : 'Only class loading, the JDK, and logging so far.'
+                            }}
                           </td>
                         </tr>
                         <tr
@@ -653,6 +697,9 @@ function hookStatus(value, label) {
                           </template>
                           <td class="side-effects-call-site">
                             <code v-if="row.callSite" class="bootui-break-anywhere">{{ row.callSite }}</code>
+                            <span v-else-if="row.sensor === 'thread-locals'" class="text-muted side-effects-set-during"
+                              >set during the request</span
+                            >
                             <span v-else class="text-muted">—</span>
                             <div v-if="row.insideMethod" class="small text-muted bootui-break-anywhere">
                               inside {{ row.insideMethod }}
@@ -665,7 +712,24 @@ function hookStatus(value, label) {
                             <span v-else class="text-muted">—</span>
                           </td>
                           <td class="text-end">{{ formatNumber(row.count) }}</td>
-                          <td v-if="columnsOf(sensor).failed" class="text-end">{{ formatNumber(row.failed) }}</td>
+                          <template v-if="columnsOf(sensor).threads">
+                            <td class="text-end">{{ perRequest(row) }}</td>
+                            <td class="text-end">
+                              <span
+                                v-if="row.leftRunning > 0"
+                                class="badge text-bg-warning side-effects-left-running"
+                                :title="`Still running when ${row.leftRunning === 1 ? 'its request' : 'their requests'} ended`"
+                                >{{ formatNumber(row.leftRunning) }}</span
+                              >
+                              <span v-else>0</span>
+                            </td>
+                            <td class="text-end">
+                              {{ row.kind === 'executor' ? formatNumber(row.completed) : '—' }}
+                            </td>
+                          </template>
+                          <td v-if="columnsOf(sensor).failed" class="text-end">
+                            {{ columnsOf(sensor).threads && row.kind !== 'executor' ? '—' : formatNumber(row.failed) }}
+                          </td>
                           <td v-if="columnsOf(sensor).exits" class="text-end">
                             {{ formatNumber(row.completed) }}
                             <div v-if="row.nonZeroExits > 0" class="small">
@@ -678,7 +742,9 @@ function hookStatus(value, label) {
                           <td v-if="columnsOf(sensor).network" class="text-end">
                             {{ row.kind === 'connect' ? formatNumber(row.completed) : '—' }}
                           </td>
-                          <td v-if="columnsOf(sensor).time" class="text-end">{{ formatLifetime(row) }}</td>
+                          <td v-if="columnsOf(sensor).time" class="text-end">
+                            {{ columnsOf(sensor).threads && row.kind !== 'executor' ? '—' : formatLifetime(row) }}
+                          </td>
                           <td>
                             <span>{{ formatSeen(row.lastSeen) }}</span>
                             <div class="small text-muted">{{ formatTimestamp(row.lastSeen) }}</div>

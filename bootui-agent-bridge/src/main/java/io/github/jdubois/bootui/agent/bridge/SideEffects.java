@@ -85,6 +85,12 @@ public final class SideEffects {
     /** The blocking sensor's id ({@link Blocking}, M5-5c). */
     public static final String BLOCKING = "blocking";
 
+    /** The thread-activity sensor's id ({@link ThreadActivity}, M5-5e), opt-in until its overhead A/B passes. */
+    public static final String THREAD_ACTIVITY = "thread-activity";
+
+    /** The thread-locals sensor's id ({@link ThreadLocals}, M5-5f), opt-in (D37). */
+    public static final String THREAD_LOCALS = "thread-locals";
+
     /**
      * The security-sinks sensor's id (M5-6b): its request-value matching (M5-6b1, {@link RequestValues}) and its JDK
      * checks (M5-6b2, {@link SecuritySinks}) publish their records on this ring.
@@ -103,15 +109,11 @@ public final class SideEffects {
     public static final int SENSOR_FILES = 3;
     public static final int SENSOR_ENVIRONMENT = 4;
     public static final int SENSOR_BLOCKING = 5;
-
-    /**
-     * Ids 6 and 7 are reserved for the thread-activity and thread-locals sensors (PLAN-v2 M5-5e and M5-5f): their names
-     * here never match a claim, and status never reports them.
-     */
-    static final String RESERVED = "(reserved)";
+    public static final int SENSOR_THREADS = 6;
+    public static final int SENSOR_THREAD_LOCALS = 7;
 
     static final String[] SENSOR_NAMES = {
-        "other", PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, RESERVED, RESERVED, SECURITY_SINKS
+        "other", PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY, THREAD_LOCALS, SECURITY_SINKS
     };
 
     public static final int MASK_PROCESSES = 1 << SENSOR_PROCESSES;
@@ -119,6 +121,8 @@ public final class SideEffects {
     public static final int MASK_FILES = 1 << SENSOR_FILES;
     public static final int MASK_ENVIRONMENT = 1 << SENSOR_ENVIRONMENT;
     public static final int MASK_BLOCKING = 1 << SENSOR_BLOCKING;
+    public static final int MASK_THREADS = 1 << SENSOR_THREADS;
+    public static final int MASK_THREAD_LOCALS = 1 << SENSOR_THREAD_LOCALS;
 
     /**
      * Set in {@link #mask} with {@link #MASK_BLOCKING} once an adapter registered an event loop for the current claim
@@ -164,15 +168,29 @@ public final class SideEffects {
     /** Not advised: a network or file operation another sensor's hook records, started on an event loop. */
     public static final int HOOK_ON_LOOP = 25;
 
-    /** The security-sinks sensor's JDK checks ({@link SecuritySinks}, M5-6b2). */
-    public static final int HOOK_DIGEST = 26;
+    /** The thread-activity sensor's hooks ({@link ThreadActivity}, M5-5e). */
+    public static final int HOOK_THREAD_START = 26;
 
-    public static final int HOOK_CIPHER = 27;
-    public static final int HOOK_READ_OBJECT = 28;
-    public static final int HOOK_RESOLVE_CLASS = 29;
-    public static final int HOOK_SSL_INIT = 30;
-    public static final int HOOK_DEFAULT_VERIFIER = 31;
-    public static final int HOOK_DEFAULT_FACTORY = 32;
+    public static final int HOOK_VIRTUAL_THREAD_START = 27;
+    public static final int HOOK_ADD_WORKER = 28;
+    public static final int HOOK_PER_TASK_START = 29;
+    public static final int HOOK_TPE_CREATED = 30;
+    public static final int HOOK_FJP_CREATED = 31;
+    public static final int HOOK_PER_TASK_CREATED = 32;
+    public static final int HOOK_TPE_SHUTDOWN = 33;
+    public static final int HOOK_TPE_SHUTDOWN_NOW = 34;
+    public static final int HOOK_FJP_SHUTDOWN = 35;
+    public static final int HOOK_PER_TASK_SHUTDOWN = 36;
+
+    /** The security-sinks sensor's JDK checks ({@link SecuritySinks}, M5-6b2). */
+    public static final int HOOK_DIGEST = 37;
+
+    public static final int HOOK_CIPHER = 38;
+    public static final int HOOK_READ_OBJECT = 39;
+    public static final int HOOK_RESOLVE_CLASS = 40;
+    public static final int HOOK_SSL_INIT = 41;
+    public static final int HOOK_DEFAULT_VERIFIER = 42;
+    public static final int HOOK_DEFAULT_FACTORY = 43;
 
     static final String[] HOOKS = {
         "ProcessBuilder.start",
@@ -201,6 +219,17 @@ public final class SideEffects {
         "Thread.sleep call sites",
         "Object.wait call sites",
         "network and file operations",
+        "Thread.start",
+        "VirtualThread.start",
+        "ThreadPoolExecutor.addWorker",
+        "ThreadPerTaskExecutor.start",
+        "ThreadPoolExecutor.<init>",
+        "ForkJoinPool.<init>",
+        "ThreadPerTaskExecutor.<init>",
+        "ThreadPoolExecutor.shutdown",
+        "ThreadPoolExecutor.shutdownNow",
+        "ForkJoinPool.shutdown",
+        "ThreadPerTaskExecutor.shutdown",
         "MessageDigest.getInstance",
         "Cipher.getInstance",
         "ObjectInputStream.readObject",
@@ -236,6 +265,17 @@ public final class SideEffects {
         SENSOR_BLOCKING,
         SENSOR_BLOCKING,
         SENSOR_BLOCKING,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
+        SENSOR_THREADS,
         SENSOR_SECURITY_SINKS,
         SENSOR_SECURITY_SINKS,
         SENSOR_SECURITY_SINKS,
@@ -286,6 +326,18 @@ public final class SideEffects {
     public static final int KIND_PARK = 18;
     public static final int KIND_BLOCKING_NETWORK = 19;
     public static final int KIND_BLOCKING_FILE = 20;
+
+    /** The thread-activity sensor's kinds ({@link ThreadActivity}). */
+    public static final int KIND_THREAD_START = 21;
+
+    public static final int KIND_THREAD_LEFT_RUNNING = 22;
+    public static final int KIND_EXECUTOR_CREATE = 23;
+    public static final int KIND_EXECUTOR_SHUTDOWN = 24;
+    public static final int KIND_EXECUTOR_LEFT_RUNNING = 25;
+    public static final int KIND_EXECUTOR_RECLAIMED = 26;
+
+    /** A thread local a request or a job left set on its pooled thread ({@link ThreadLocals}). */
+    public static final int KIND_THREAD_LOCAL_LEFT_SET = 27;
 
     /** Outcomes. */
     public static final int OUTCOME_STARTED = 1;
@@ -658,9 +710,10 @@ public final class SideEffects {
             long stamp = CodePaths.stamp();
             long frames = frames(claim);
             // Request input in the command's arguments (M5-6b), never an argument recorded: only while matching runs.
-            // An executable that held a value is not named by this record either.
-            if (RequestValues.commandStarted(claim, command, name, stamp, frames)) {
-                name = RequestValues.FROM_REQUEST_INPUT;
+            // An executable that held a value, or that the request's matching could not check, is not named either.
+            String notNamed = RequestValues.commandStarted(claim, command, name, stamp, frames);
+            if (notNamed != null) {
+                name = notNamed;
             }
             int target = intern(name);
             Owner owner = owner(frame, claim);
@@ -1061,7 +1114,7 @@ public final class SideEffects {
                 && ((java.nio.channels.SelectableChannel) channel).isBlocking();
     }
 
-    private static boolean recording(Claim claim, int bit) {
+    static boolean recording(Claim claim, int bit) {
         return claim != null && claim.armed && claim.generation == generation && (mask & bit) != 0;
     }
 
@@ -1082,7 +1135,7 @@ public final class SideEffects {
     }
 
     /** The calling thread's family, digit runs folded, interned once per thread name and generation. */
-    private static int threadFamilyId(CodePaths.Frame frame, long current) {
+    static int threadFamilyId(CodePaths.Frame frame, long current) {
         Thread thread = Thread.currentThread();
         String name = thread.getName();
         if (frame != null && frame.sideEffectThreadGeneration == current && name.equals(frame.sideEffectThreadName)) {
@@ -1942,6 +1995,28 @@ public final class SideEffects {
     static final int SLOTS = 8;
 
     /**
+     * Whether a sensor outside Side Effects reads the owner slots, as the caught-exceptions sensor does (PLAN-v2
+     * M5-6a): the slots are then pushed and popped while no side-effect sensor records too.
+     */
+    private static volatile boolean slotReaders;
+
+    /**
+     * A sensor outside Side Effects starts ({@code reading}) or stops reading the owner slots for claim generation
+     * {@code readerGeneration}, which the slots pushed from now on are stamped with when no side-effect sensor's claim
+     * is newer. Never throws.
+     */
+    static void slotReaders(boolean reading, long readerGeneration) {
+        try {
+            if (reading && readerGeneration > generation) {
+                generation = readerGeneration;
+            }
+            slotReaders = reading;
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
+    }
+
+    /**
      * An adapter opened a request's scope on this thread ({@link CodePaths#begin()}), with the owner the code-paths
      * sensor captured there, or {@code null}: a slot is pushed for the scope, naming that owner, or no owner, so that a
      * hook inside captures its own. When the code-paths sensor made no capture ({@code attempted} false, as when it is
@@ -1951,7 +2026,7 @@ public final class SideEffects {
     static void scopeBegin(long[] captured, boolean attempted) {
         try {
             CodePaths.Frame frame;
-            if (mask == 0) {
+            if (mask == 0 && !slotReaders) {
                 // A stack in use stays balanced while a sensor is off, as between a claim and its self-test.
                 frame = CodePaths.FRAME.get();
                 if (frame == null || frame.slots == 0) {
@@ -1960,7 +2035,10 @@ public final class SideEffects {
             } else {
                 frame = CodePaths.frame();
             }
-            if (captured == null && !attempted && (mask & (MASK_FILES | MASK_ENVIRONMENT)) != 0) {
+            if (captured == null
+                    && !attempted
+                    && ((mask & (MASK_FILES | MASK_ENVIRONMENT)) != 0
+                            || ((mask & MASK_THREAD_LOCALS) != 0 && ThreadLocals.adapterScopes()))) {
                 Claim claim = AgentBridge.current();
                 Owner owner = new Owner();
                 boolean owned = false;
@@ -1976,6 +2054,7 @@ public final class SideEffects {
                 }
                 if (owned) {
                     push(frame, SLOT_SCOPE, generation, owner.request, owner.execution, owner.executionKind);
+                    scopeThreadLocals(frame);
                     return;
                 }
             }
@@ -1984,8 +2063,16 @@ public final class SideEffects {
             } else {
                 push(frame, SLOT_SCOPE, generation, captured[0], captured[1], (int) captured[2]);
             }
+            scopeThreadLocals(frame);
         } catch (Throwable ex) {
             failed(ex);
+        }
+    }
+
+    /** An adapter's request scope opened a slot: a thread-locals scope opens where the stack asks for one. */
+    private static void scopeThreadLocals(CodePaths.Frame frame) {
+        if ((mask & MASK_THREAD_LOCALS) != 0 && ThreadLocals.adapterScopes()) {
+            ThreadLocals.pushed(frame);
         }
     }
 
@@ -2020,6 +2107,8 @@ public final class SideEffects {
         } catch (Throwable ex) {
             failed(ex);
         }
+        // The caught exceptions counted, not published one by one, for the scope's owner (PLAN-v2 M5-6a).
+        CaughtExceptions.flushThread();
     }
 
     /**
@@ -2028,9 +2117,17 @@ public final class SideEffects {
      * runs another request's task on a request's own thread. Never throws.
      */
     static void handoff(Object[] payload, long snapshotGeneration) {
+        handoff(payload, snapshotGeneration, false);
+    }
+
+    /**
+     * As {@link #handoff(Object[], long)}; {@code pooled} when the work is a pool's task on that pool's own worker, which
+     * the thread-locals sensor scans when the task ends ({@link ThreadLocals}). Never throws.
+     */
+    static void handoff(Object[] payload, long snapshotGeneration, boolean pooled) {
         try {
             CodePaths.Frame frame;
-            if (mask == 0) {
+            if (mask == 0 && !slotReaders) {
                 frame = CodePaths.FRAME.get();
                 if (frame == null || frame.slots == 0) {
                     return;
@@ -2050,6 +2147,9 @@ public final class SideEffects {
             } else {
                 // The reopened execution's own id is the engine's: the request is what attributes the work.
                 push(frame, SLOT_HANDOFF, current, request, 0L, CodePaths.EXECUTION_NONE);
+                if (pooled && (mask & MASK_THREAD_LOCALS) != 0) {
+                    ThreadLocals.pushed(frame);
+                }
             }
         } catch (Throwable ex) {
             failed(ex);
@@ -2066,6 +2166,7 @@ public final class SideEffects {
         } catch (Throwable ex) {
             failed(ex);
         }
+        CaughtExceptions.flushThread();
     }
 
     private static void push(
@@ -2100,6 +2201,10 @@ public final class SideEffects {
             return;
         }
         flush(frame);
+        if (frame.threadLocals != null) {
+            // The thread-locals scope this slot opened, if any, closes while the slot still names its owner.
+            ThreadLocals.popping(frame, index);
+        }
         frame.slots = index;
     }
 
@@ -2123,8 +2228,17 @@ public final class SideEffects {
     }
 
     /** As {@link #owner(CodePaths.Frame, Claim, boolean)}, capturing an owner the slot does not name only when asked. */
-    private static Owner owner(CodePaths.Frame frame, Claim claim, boolean threadName, boolean capture) {
-        Owner owner = new Owner();
+    static Owner owner(CodePaths.Frame frame, Claim claim, boolean threadName, boolean capture) {
+        return owner(new Owner(), frame, claim, threadName, capture);
+    }
+
+    /** As {@link #owner(CodePaths.Frame, Claim, boolean, boolean)}, into {@code owner}, every field rewritten. */
+    static Owner owner(Owner owner, CodePaths.Frame frame, Claim claim, boolean threadName, boolean capture) {
+        owner.request = 0L;
+        owner.execution = 0L;
+        owner.executionKind = 0;
+        owner.threadName = 0;
+        owner.slot = false;
         Thread thread = Thread.currentThread();
         owner.threadKind = ThreadPropagation.isVirtual(thread) ? THREAD_VIRTUAL : THREAD_PLATFORM;
         owner.generation = claim.generation;
@@ -3102,7 +3216,7 @@ public final class SideEffects {
     }
 
     /** Publishes one occurrence at once, first seen at {@code firstMillis}. */
-    private static void publishOne(
+    static void publishOne(
             Owner owner,
             int sensor,
             int kind,
@@ -3567,6 +3681,8 @@ public final class SideEffects {
                 return 0;
             }
             try {
+                // On the drain thread: what requests left running, unowned starts counted, executors reclaimed.
+                ThreadActivity.sweep(claim);
                 return ring.drain(claim.generation, sink);
             } finally {
                 ring.draining.set(false);
@@ -3735,7 +3851,12 @@ public final class SideEffects {
 
     /** The agent disables the sensors of {@code bits}: their self-test failed, or their transformer was removed. */
     public static void disable(int bits, String reason) {
+        boolean threadsLeave = (bits & enabled & MASK_THREADS) != 0;
         enabled &= ~bits;
+        if (threadsLeave) {
+            // Only when thread-activity itself stops: another sensor's reinstall keeps its pending checks.
+            ThreadActivity.disabled();
+        }
         if ((bits & MASK_NETWORK) != 0) {
             // Never kept past the sensor's life: the channels still waiting and the datagram frames remembered.
             Network network = NETWORK_STATE.get();
@@ -3868,6 +3989,10 @@ public final class SideEffects {
             status(ENVIRONMENT);
             Blocking.warm();
             status(BLOCKING);
+            ThreadActivity.warm();
+            status(THREAD_ACTIVITY);
+            ThreadLocals.warm();
+            status(THREAD_LOCALS);
             SecuritySinks.warm();
             status(SECURITY_SINKS);
         } catch (Throwable ex) {
@@ -4012,6 +4137,12 @@ public final class SideEffects {
             if (sensor == SENSOR_BLOCKING) {
                 Blocking.putStatus(map, generation);
             }
+            if (sensor == SENSOR_THREADS) {
+                ThreadActivity.putStatus(map);
+            }
+            if (sensor == SENSOR_THREAD_LOCALS) {
+                ThreadLocals.putStatus(map);
+            }
             if (sensor == SENSOR_SECURITY_SINKS) {
                 SecuritySinks.putStatus(map);
             }
@@ -4055,23 +4186,16 @@ public final class SideEffects {
 
     /** The ids of every side-effect sensor this bridge knows. */
     static String[] sensorIds() {
-        int count = 0;
+        String[] ids = new String[SENSOR_NAMES.length - 1];
         for (int i = 1; i < SENSOR_NAMES.length; i++) {
-            if (SENSOR_NAMES[i] != RESERVED) {
-                count++;
-            }
-        }
-        String[] ids = new String[count];
-        for (int i = 1, j = 0; i < SENSOR_NAMES.length; i++) {
-            if (SENSOR_NAMES[i] != RESERVED) {
-                ids[j++] = SENSOR_NAMES[i];
-            }
+            ids[i - 1] = SENSOR_NAMES[i];
         }
         return ids;
     }
 
     /** Tests only: forgets the ring, the table, the switches, and the counters; the exit worker stays handed out. */
     static void reset() {
+        slotReaders = false;
         RING.set(null);
         INTERNS.set(null);
         COUNTERS.reset();
@@ -4123,6 +4247,8 @@ public final class SideEffects {
         enabled = 0;
         generation = -1L;
         Blocking.reset();
+        ThreadActivity.reset();
+        ThreadLocals.reset();
         SecuritySinks.reset();
         off = false;
         offReason = null;
@@ -4137,6 +4263,7 @@ public final class SideEffects {
             frame.sideEffectThreadName = null;
             frame.sideEffectThreadGeneration = -1L;
             frame.environmentSeen = null;
+            frame.poolStarts = 0;
         }
     }
 

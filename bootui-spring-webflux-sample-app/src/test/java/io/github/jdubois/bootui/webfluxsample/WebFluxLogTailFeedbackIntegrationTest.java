@@ -49,10 +49,14 @@ class WebFluxLogTailFeedbackIntegrationTest {
 
     private static final int LINES = 300;
 
+    // The server event loops that write the stream run as "webflux-http-*" in this test (Spring's own loop resources),
+    // not as Reactor Netty's global "reactor-http-*": a stall dump needs both, and Reactor's boundedElastic workers.
     private static final List<String> STALL_THREADS = List.of(
             "main",
             "bootui-log-tail-stream-reactive-",
+            "webflux-http-",
             "reactor-http-",
+            "boundedElastic-",
             "HttpClient-",
             "bootui-conformance-stream-reader");
 

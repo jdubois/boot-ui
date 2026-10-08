@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.LogPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.journal.ThrowableMarks;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
@@ -80,7 +81,8 @@ public final class QuarkusLogTailHandler extends Handler {
                             logger == null ? "ROOT" : logger,
                             level,
                             record.getMessage(),
-                            thrown == null ? null : thrown.getClass().getName())));
+                            thrown == null ? null : thrown.getClass().getName(),
+                            ThrowableMarks.of(thrown))));
         } catch (RuntimeException ex) {
             // Recording never disturbs the application's logging.
         }

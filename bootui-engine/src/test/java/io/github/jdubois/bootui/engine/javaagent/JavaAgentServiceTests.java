@@ -696,7 +696,9 @@ class JavaAgentServiceTests {
                 .containsExactly(
                         org.assertj.core.api.Assertions.tuple("threads", false, false, false, "off", true),
                         org.assertj.core.api.Assertions.tuple("files", true, true, false, "installing", true),
-                        org.assertj.core.api.Assertions.tuple("environment", false, false, false, "off", true));
+                        org.assertj.core.api.Assertions.tuple("environment", false, false, false, "off", true),
+                        org.assertj.core.api.Assertions.tuple("thread-activity", false, false, false, "off", true),
+                        org.assertj.core.api.Assertions.tuple("thread-locals", false, false, false, "off", true));
         assertThat(service.report().toggles())
                 .allSatisfy(toggle -> assertThat(toggle.optInReason()).startsWith("Off by default"));
 

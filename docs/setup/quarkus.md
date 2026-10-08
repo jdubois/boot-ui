@@ -7,8 +7,12 @@ backed by the Quarkus build of the framework-neutral engine.
 
 - Java 17 or later
 - A Quarkus application, built and tested against the platform version pinned by the root `pom.xml`
-  (`quarkus.platform.version`, currently the `3.33.3.2` LTS release)
+  (`quarkus.platform.version`, currently the `3.40.1` LTS release)
 - Maven or Gradle (or their local wrappers)
+
+The extension's core, REST client, production-guard, and Hibernate JVM integration fixtures have also passed with
+Quarkus **3.33.4 LTS** and **3.39.5**. Quarkus 3.39 is the most recently released non-LTS line, but
+[its upstream support ended when 3.40 shipped](https://quarkus.io/releases/).
 
 ## Add the extension
 

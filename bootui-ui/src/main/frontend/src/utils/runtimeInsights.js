@@ -54,23 +54,6 @@ export function availableThemes(report) {
   return THEMES.filter((theme) => theme.kinds.some((kind) => kinds.has(kind)))
 }
 
-/** The short marker of each external validation outcome a kind did not pass (docs/PLAN-v2.md M4-20). */
-const VALIDATION_MARKERS = {
-  NOT_VALIDATED: 'Not externally validated',
-  UNDER_SAMPLED: 'Not externally validated',
-  FAILED: 'Did not pass external validation',
-  NOT_JUDGED: 'Not judged yet'
-}
-
-/**
- * A check's external validation (docs/PLAN-v2.md M4-20) as the panel shows it with the kind's rows: a short marker and
- * the engine's reason, or null for a kind that passed, one not listed by design, or a server that predates it.
- */
-export function validationOf(check) {
-  const marker = VALIDATION_MARKERS[check?.validation]
-  return marker ? {marker, reason: check.validationReason ?? null} : null
-}
-
 /**
  * Whether the default list shows an observation (docs/PLAN-v2.md M4-19). A server that predates the flag lists them
  * all.
@@ -89,7 +72,8 @@ function shown(observation, {query = '', all = false, selectedId = null} = {}) {
 
 /**
  * The observations matching the search text and theme, grouped by check in the report's check order. The search
- * matches the route or subject, the sentence, and the evidence a sentence names, such as a table or a logger. Without
+ * matches the check's title and kind, the route or subject, the sentence, and the evidence a sentence names, such as a
+ * table or a logger. Without
  * `all` or a search, only the observations listed by default are shown, and the selected one, so a refresh that leaves
  * it out never takes it away from the developer; with them, the listed ones stay first.
  */
@@ -98,17 +82,17 @@ export function groupObservations(report, {query = '', theme = '', all = false, 
   const titles = new Map((report?.checks ?? []).map((check) => [check.kind, check.title]))
   const groups = new Map()
   for (const check of report?.checks ?? []) {
-    groups.set(check.kind, {kind: check.kind, title: check.title, validation: validationOf(check), observations: []})
+    groups.set(check.kind, {kind: check.kind, title: check.title, observations: []})
   }
   for (const observation of report?.observations ?? []) {
     if (theme && themeOf(observation.kind) !== theme) continue
-    if (needle && !`${observation.subject} ${observation.sentence}`.toLowerCase().includes(needle)) continue
+    const searched = `${titles.get(observation.kind) ?? ''} ${observation.kind} ${observation.subject} ${observation.sentence}`
+    if (needle && !searched.toLowerCase().includes(needle)) continue
     if (!shown(observation, {query, all, selectedId})) continue
     if (!groups.has(observation.kind)) {
       groups.set(observation.kind, {
         kind: observation.kind,
         title: titles.get(observation.kind) ?? observation.kind,
-        validation: null,
         observations: []
       })
     }
@@ -125,6 +109,25 @@ export function groupObservations(report, {query = '', theme = '', all = false, 
           b.affected - a.affected
       )
     }))
+}
+
+/**
+ * The theme filters above the list, each with the number of rows it would show under the current search and listing,
+ * led by every theme. A theme with nothing to show is left out unless it is the one selected, so no filter leads to an
+ * empty list by construction.
+ */
+export function themeFilters(report, {query = '', theme = '', all = false, selectedId = null} = {}) {
+  const observations = groupObservations(report, {query, all, selectedId}).flatMap((group) => group.observations)
+  return [
+    {id: '', label: 'All', count: observations.length},
+    ...availableThemes(report)
+      .map((entry) => ({
+        id: entry.id,
+        label: entry.label,
+        count: observations.filter((observation) => themeOf(observation.kind) === entry.id).length
+      }))
+      .filter((entry) => entry.count > 0 || entry.id === theme)
+  ]
 }
 
 /**

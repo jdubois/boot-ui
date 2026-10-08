@@ -325,9 +325,19 @@ transaction (Transactions open across remote calls), a self-invoked `@Transactio
 a bean (Proxy bypass), an import that rolls back yet answers 200 (Errors behind 2xx responses), a report that reads
 during the response write (SQL after the handler returned), an unreadable body (Framework warnings), an anonymous debug
 reset (Anonymous writes), and a payroll report whose exact security matcher misses `/api/insights/reports/PAYROLL`
-(Anonymous success on a restricted route), and tags saved before each count against counted first (Hibernate
-auto-flushes). The WebFlux sample adds blocking JDBC on the event loop and a per-note loop.
-With the app running, send the traffic and open the panel, no tracing needed:
+(Anonymous success on a restricted route), tags saved before each count against counted first (Hibernate
+auto-flushes), and 600 tags loaded as entities against their labels only (Large persistence contexts). The WebFlux
+sample adds blocking JDBC on the event loop and a per-note loop.
+
+The easiest way to try it is the **Runtime Insights** section of the welcome page (`http://localhost:8080/`): one button
+per finding sends that finding's requests, then reads the panel's report and links to what it found, saying whether the
+panel lists it by default or only with **Show all routes**. **Generate all findings** runs every button this run can
+use. Each card reads BootUI's own report to disable the findings this app cannot produce, with the reason: **Work after
+the response** needs the BootUI agent, **AI usage by route** a chat model (the `docker` profile), **Blocking on event
+loops** the WebFlux sample, and **Changed code not executed** the agent plus a previous run: edit a method, let
+DevTools restart the app, then click it. Garbage-collection rows are reached from the Memory panel instead.
+
+From a terminal, send the same traffic and open the panel, no tracing needed:
 
 ```bash
 cd e2e && node scripts/insights-demo.mjs http://localhost:8080        # Spring MVC
@@ -335,7 +345,8 @@ cd e2e && node scripts/insights-demo.mjs http://localhost:8081 webflux # Spring 
 ```
 
 Never copy these routes into an application. `RuntimeInsightsSeedsTest` and the `runtime-insights-demo` browser tests
-check that each seed is reported and each counterexample is not.
+check that each seed is reported and each counterexample is not; the `runtime-insights-lab` browser test clicks
+**Generate all findings** and checks that the panel lists them.
 
 ## Stop it
 

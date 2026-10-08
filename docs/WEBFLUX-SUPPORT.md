@@ -216,8 +216,15 @@ were already framework-neutral in practice, not just in the engine underneath th
     is unowned and captured by a REST client call at the same time. The opt-in `files` and `environment` sensors
     (M5-5d) capture the owner when no slot names one, too. The `blocking` sensor (M5-5c) records too: the WebFlux
     adapter registers Reactor Netty's event loops with it from the first request each serves, and, for a WebClient built
-    from Spring Boot's `WebClient.Builder` with REST client tracing on, from the first response each delivers; Reactor's `parallel` and `boundedElastic` threads are never event loops. The other
-    sensor groups are listed as not available in this version. The opt-in `security-sinks` sensor's JDK checks
+    from Spring Boot's `WebClient.Builder` with REST client tracing on, from the first response each delivers; Reactor's `parallel` and `boundedElastic` threads are never event loops. The opt-in
+    `thread-activity` sensor (M5-5e) records too, capturing the owner the same way; a request's end, which it checks
+    for what the request left running, is when its filter chain terminates. Reactor's and Reactor Netty's own threads
+    are a library's. The opt-in `thread-locals` sensor (M5-5f) never scans an event loop: a Reactor schedule hook scans
+    around each task a `boundedElastic` worker (or another scheduler's) runs, owned once Reactor's automatic context
+    propagation makes a request's context current inside it, so it needs `spring.reactor.context-propagation=auto`, the
+    default, and platform threads: with
+    `spring.threads.virtual.enabled` on Java 21 and later, `boundedElastic` runs on virtual threads, never scanned. The
+    other sensor groups are listed as not available in this version. The opt-in `security-sinks` sensor's JDK checks
     (deserialization without a filter, weak algorithms, trust managers) record on WebFlux as on Spring MVC; its request-value
     matching (M5-6b1) holds the query parameters WebFlux already parsed and reads the path variables from the exchange
     once its handler mapping set them, at the request's first check; it never subscribes to the form data, so form
@@ -342,7 +349,7 @@ depended on `SseEmitter` (SQL Trace, Log Tail, Security Logs, Exceptions, REST C
 | Transactions  | `ReactiveTransactionsController` over `ReactiveBootUiChangeStream`, feeding the same `TransactionRecorder`. See the fidelity note below. |
 | Log Tail      | `ReactiveLogTailController` — same `LogTailBuffer`/Logback appender, SSE via `ReactiveBootUiChangeStream`.                |
 | Security Logs | `ReactiveSecurityLogsController` over a fallback `InMemoryAuditEventRepository` (Spring's audit-event bus is framework-neutral, so no reactive-specific capture code was needed). |
-| Exceptions    | `ReactiveExceptionsController` + new `ReactiveBootUiExceptionHandler` (a `WebExceptionHandler` at `HIGHEST_PRECEDENCE`, replacing the servlet `HandlerExceptionResolver`); see the fidelity note below. |
+| Exceptions    | `ReactiveExceptionsController` + new `ReactiveBootUiExceptionHandler` (a `WebExceptionHandler` at `HIGHEST_PRECEDENCE`, replacing the servlet `HandlerExceptionResolver`); see the fidelity note below. The **Caught in application code** section (`GET /exceptions/caught`, PLAN-v2 M5-6) is shared; a cancelled request, published with status 0 before the error handlers run, keeps its caught exceptions unknown, and a log written on a Reactor thread without a request id counts only on the catching thread. |
 | Copilot       | `ReactiveCopilotController` over the same `AgentSessionStore`, SSE via `ReactiveBootUiChangeStream`.                      |
 | Claude Code   | `ReactiveClaudeCodeController` over the same `AgentSessionStore`, SSE via `ReactiveBootUiChangeStream`.                   |
 | REST Client   | `ReactiveRestClientTraceController` — same `RestClientTraceRecorder`, SSE via `ReactiveBootUiChangeStream`. See the fidelity note below. |

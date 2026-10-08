@@ -211,14 +211,14 @@ describe('App sidebar navigation', () => {
     expect(groupToggle(wrapper, 'Services').classes()).toContain('active')
   })
 
-  it('keeps agent panels in the Java agent group without the agent, but moves a config-disabled one', async () => {
+  it('keeps agent panels in the Instrumentation group without the agent, but moves a config-disabled one', async () => {
     mockShellFetch('spring-boot', {
       'code-paths': {available: false, unavailableReason: 'The BootUI agent is not attached'},
       'code-inventory': {available: false, enabled: false}
     })
     const {wrapper} = await mountApp('/code-paths')
 
-    const agentToggle = groupToggle(wrapper, 'Java agent')
+    const agentToggle = groupToggle(wrapper, 'Instrumentation')
     expect(agentToggle.classes()).toContain('active')
     expect(agentToggle.attributes('aria-expanded')).toBe('true')
     const agentGroup = wrapper.find('#bootui-nav-group-agent')

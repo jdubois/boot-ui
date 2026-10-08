@@ -12,8 +12,18 @@ import java.util.List;
  *     the same failure keeps its signature when an edit shifts its lines ({@code docs/PLAN-v2.md} §5.5), or
  *     {@code null} when unknown
  * @param types bounded class and superclass names, deepest cause first, without messages
+ * @param marks the exception's identity marks ({@link ThrowableMarks}, M5-6a), so the engine can tell that an exception
+ *     application code caught was later reported; never rendered, exported, or persisted, and {@code null} when none
+ * @param logged whether a log feeder reported it, rather than the framework's error handling (a handler resolver, a
+ *     failure handler)
  */
-public record ExceptionPayload(String groupId, String exceptionClass, String signature, List<String> types)
+public record ExceptionPayload(
+        String groupId,
+        String exceptionClass,
+        String signature,
+        List<String> types,
+        ThrowableMarks marks,
+        boolean logged)
         implements RuntimeEventPayload {
 
     public static final int MAX_TYPES = 16;
@@ -22,6 +32,10 @@ public record ExceptionPayload(String groupId, String exceptionClass, String sig
         types = types == null
                 ? List.of()
                 : List.copyOf(types.stream().limit(MAX_TYPES).toList());
+    }
+
+    public ExceptionPayload(String groupId, String exceptionClass, String signature, List<String> types) {
+        this(groupId, exceptionClass, signature, types, null, false);
     }
 
     public ExceptionPayload(String groupId, String exceptionClass, String signature) {
@@ -40,7 +54,9 @@ public record ExceptionPayload(String groupId, String exceptionClass, String sig
                 dictionary.shared(groupId),
                 dictionary.shared(exceptionClass),
                 dictionary.shared(signature),
-                types.stream().map(dictionary::shared).toList());
+                types.stream().map(dictionary::shared).toList(),
+                marks,
+                logged);
     }
 
     /** Its fixed part and its strings, each counted as the payload's own. */
@@ -59,6 +75,7 @@ public record ExceptionPayload(String groupId, String exceptionClass, String sig
                 + JournalDictionary.retained(dictionary, signature)
                 + types.stream()
                         .mapToInt(type -> JournalDictionary.retained(dictionary, type))
-                        .sum();
+                        .sum()
+                + (marks == null ? 0 : marks.estimatedBytes());
     }
 }

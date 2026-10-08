@@ -13,10 +13,25 @@ class McpToolCatalogTests {
 
     @Test
     void advertisesTheFullToolSurfacePerStack() {
-        assertThat(McpToolCatalog.entries()).hasSize(101);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(101);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(100);
-        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(85);
+        assertThat(McpToolCatalog.entries()).hasSize(103);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(103);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(102);
+        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(87);
+    }
+
+    @Test
+    void hibernateStatisticsAndWebSocketsArePassiveReadsOnEveryStackOnAnExistingSchema() {
+        // The published CLI binds options by schema name, so both reuse NONE and older CLIs keep working.
+        assertThat(McpToolCatalog.byName("get_hibernate_statistics").orElseThrow())
+                .isEqualTo(new McpToolCatalog.Entry(
+                        "get_hibernate_statistics",
+                        McpToolSchema.NONE,
+                        BootUiPanels.HIBERNATE_STATISTICS,
+                        false,
+                        Set.of(Stack.values())));
+        assertThat(McpToolCatalog.byName("get_websockets").orElseThrow())
+                .isEqualTo(new McpToolCatalog.Entry(
+                        "get_websockets", McpToolSchema.NONE, BootUiPanels.WEBSOCKETS, false, Set.of(Stack.values())));
     }
 
     @Test
@@ -32,6 +47,38 @@ class McpToolCatalogTests {
         assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).contains("get_side_effects");
         assertThat(McpToolCatalog.defaultLimit("get_side_effects"))
                 .isEqualTo(io.github.jdubois.bootui.core.dto.SideEffectsAgentReport.DEFAULT_LIMIT);
+    }
+
+    @Test
+    void largeReadsAreAgentSizedOnTheExistingQueryLimitSchema() {
+        // Widened from NONE (LIMIT for live activity): a 1.x CLI still sends only the arguments its manifest knows,
+        // and every one of them is still accepted, so it keeps working and gets the short default page.
+        for (String name : List.of(
+                "get_sql_traces",
+                "get_startup_timeline",
+                "get_log_tail",
+                "get_copilot_sessions",
+                "get_claude_code_sessions",
+                "get_vulnerabilities_report",
+                "get_live_activity",
+                "get_agent_status")) {
+            McpToolCatalog.Entry entry = McpToolCatalog.byName(name).orElseThrow();
+            assertThat(entry.schema()).as(name).isEqualTo(McpToolSchema.QUERY_LIMIT);
+            assertThat(entry.action()).as(name).isFalse();
+        }
+        assertThat(McpToolCatalog.defaultLimit("get_sql_traces")).isEqualTo(20);
+        assertThat(McpToolCatalog.defaultLimit("get_startup_timeline")).isEqualTo(25);
+        assertThat(McpToolCatalog.defaultLimit("get_log_tail")).isEqualTo(50);
+        assertThat(McpToolCatalog.defaultLimit("get_copilot_sessions")).isEqualTo(10);
+        assertThat(McpToolCatalog.defaultLimit("get_claude_code_sessions")).isEqualTo(10);
+        assertThat(McpToolCatalog.defaultLimit("get_vulnerabilities_report")).isEqualTo(10);
+        assertThat(McpToolCatalog.defaultLimit("get_live_activity")).isEqualTo(25);
+        for (String inventory : List.of(
+                "get_http_exchanges", "get_beans", "get_metrics", "get_conditions", "get_config", "get_threads")) {
+            assertThat(McpToolCatalog.defaultLimit(inventory)).as(inventory).isEqualTo(25);
+        }
+        // Agent status lists every sensor: the summary is small, and a query narrows it to one sensor's hooks.
+        assertThat(McpToolCatalog.defaultLimit("get_agent_status")).isNull();
     }
 
     @Test
@@ -211,5 +258,13 @@ class McpToolCatalogTests {
                 .isThrownBy(() ->
                         new McpToolCatalog.Entry("bogus_tool", McpToolSchema.NONE, BootUiPanels.BEANS, false, Set.of()))
                 .withMessageContaining("at least one stack");
+    }
+
+    @Test
+    void onlyToolsWithMeasuredPhasesReportProgress() {
+        assertThat(McpToolCatalog.reportsProgress("architecture_scan")).isTrue();
+        assertThat(McpToolCatalog.reportsProgress("get_overview")).isFalse();
+        assertThat(McpToolCatalog.reportsProgress("unknown_tool")).isFalse();
+        assertThat(McpToolCatalog.names()).contains("architecture_scan");
     }
 }

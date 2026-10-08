@@ -9,6 +9,30 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Change impact has its own Runtime Insights tab.** It opens on its search field instead of sitting below the run
+  comparison, offers the methods changed since the previous run, and each changed method in **Changes** links to it
+  with **See its impact**; `?impact=<symbol>` opens it, and `?tab=` opens any tab.
+- **MCP 2026-07-28 beside MCP 2025-06-18.** The MCP endpoint also serves modern clients, with `server/discover`, result
+  envelopes, and header checks, while existing clients answer as before ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+- **Live MCP progress for architecture scans.** A modern MCP client that asks for progress sees `architecture_scan`'s
+  phases as they happen, and closing the call stops the scan ([AI agents](docs/AI-AGENTS.md#protocol-eras)).
+- **MCP cancellations counted.** The MCP Server status reports the protocol versions served and counts calls a client
+  cancelled by closing their stream apart from timeouts ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+
+- **Hibernate Statistics and WebSockets for agents.** `get_hibernate_statistics` (`bootui hibernate statistics`) and
+  `get_websockets` (`bootui websockets`) are passive reads on Spring MVC, Spring WebFlux, and Quarkus; enabling
+  statistics and the capture switch stay in the panels ([AI agents](docs/AI-AGENTS.md#tools-the-agent-can-call)).
+- **MCP tool hints and per-tool argument schemas.** `tools/list` carries `annotations` (`readOnlyHint`,
+  `destructiveHint`, `idempotentHint`, `openWorldHint`) derived from each tool's kind, and each argument says what it
+  means for that tool, with an example and the `default` page size a call gets.
+
+- **Runtime Insights buttons in the Spring sample.** The welcome page generates each main finding with one click, or all
+  at once, and links to it in the panel ([sample README](bootui-spring-sample-app/README.md#runtime-insights-demo)).
+- **Caught in application code (M5-6a2).** With the agent's `caught-exceptions` sensor, the Exceptions panel shows what
+  became of each exception application code caught; a finding states it was not seen rethrown or logged at `WARN` or
+  above, and incomplete evidence is shown as unknown with its reason, never as swallowed
+  (`GET /exceptions/caught`, `caughtInCode` in `get_exceptions`). ([PLAN-v2 M5-6](docs/PLAN-v2.md))
+
 - **Opt-in agent sensors switched at run time.** The Java Agent and Side Effects panels switch `threads`, `files`, and
   `environment` on or off without a restart, until the JVM ends ([Java Agent](docs/features/java-agent.md#switching-opt-in-sensors-at-run-time), [#1290](https://github.com/jdubois/boot-ui/pull/1290)).
 - **Side effects in the run comparison (M5-7b).** With the BootUI agent, Runtime Insights' comparison lists the hosts,
@@ -193,6 +217,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `LockSupport.park`, and the network and files sensors' blocking operations started on an event loop, reported, never
   thrown, in Side Effects' **Blocking** tab; Spring MVC shows it `not-applicable`
   ([Java Agent](docs/features/java-agent.md#the-blocking-sensor), M5-5c).
+- **Thread activity sensor in the BootUI agent.** The opt-in `thread-activity` sensor shows, per route, the threads
+  application code starts and the executors it creates, and those still running when the request ended, in Side Effects'
+  **Threads and leaks** tab, and can be switched at run time ([Java Agent](docs/features/java-agent.md#the-thread-activity-sensor), M5-5e). An async
+  Spring MVC request now ends when its async context completes, so work it handed over can be marked after response.
+- **Thread locals sensor in the BootUI agent.** The opt-in `thread-locals` sensor shows the thread locals a request or a
+  job left set on its pooled thread, by the static field that holds them, never their values, in Side Effects'
+  **Threads and leaks** tab, and can be switched at run time ([Java Agent](docs/features/java-agent.md#the-thread-locals-sensor), M5-5f).
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
   correlation into the tasks it hands to a raw `ExecutorService`, a `ForkJoinPool`, or `CompletableFuture`, so their
@@ -355,12 +386,48 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Change impact names its unexercised routes for their scope.** The list is now **Reaches it, but didn't run**
+  (with the BootUI agent, **Reaches it, but didn't run it**), and a line says it holds only routes that reach what you
+  checked, linking to the separate, app-wide **Not exercised in this run** list in **Coverage & limits**. The
+  `notExercised` field is unchanged.
+- **Timed-out architecture scans stop.** An MCP or CLI `architecture_scan` past its execution timeout now stops at the
+  next rule instead of running on, and the previous report is kept ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+- **Agent-sized MCP and CLI answers.** Large reads return a short first page without `limit`, take a `query`, and say
+  when rows were left out (`page.hasMore`): SQL traces, startup, log tail, coding-agent sessions, the vulnerabilities
+  report, Live Activity (by type, severity, or route), HTTP exchanges, configuration, beans, metrics, threads, and
+  conditions, which now pages both outcomes together. `get_config` drops the browser's property suggestions, agent status and Side Effects
+  summarize sensors until a query names one, and `tools/list` is smaller. A 1.x CLI keeps working
+  ([Agent-sized defaults](docs/AI-AGENTS.md#agent-sized-defaults)).
+- **Sidebar group names and icons.** The command palette shows and finds each panel by its sidebar group title
+  (*Instrumentation*, *Developer tools*), still matching the old group key, and every sidebar group has its own icon,
+  never a panel's, so the collapsed rail tells groups apart. The feature docs follow the sidebar's names and order.
+- **A tool this application does not advertise says why.** MCP answers a known BootUI tool whose panel is unavailable
+  with `Tool not available in this application: <tool>.` and the panel's reason, also in `error.data`, instead of
+  `Unknown tool`; the CLI facade still answers `404`.
+- **Whole CLI help per command.** `bootui <command> --help` prints the tool's whole description, so `probe start` keeps
+  its approval and metadata-only wording and `memory scan` its full-GC warning; every action is tagged
+  `[action - needs approval]` in the listing and in its help. The readable output no longer cuts a value outside a table,
+  such as a `checksNotRun` reason.
+- **Agent guidance.** The MCP instructions say the default `get_runtime_insights` list leaves some kinds out and
+  that `start_method_probe` needs separate approval; the skill proposes the Java agent for
+  Code Inventory, Code Paths, Side Effects, probes, and caught exceptions, lists the browser-only controls, and documents
+  `bootui tools --json` and the exit code of a command whose tool is not exposed. An advisor that has not run yet names
+  the tool and command to run it.
+
+- **Runtime Insights leads with its verdict.** The panel opens on how many things this run lists to check and how many
+  the default list leaves out. Findings are one list filtered by theme,
+  whose rows open in place; the comparison and change impact, the resource profiler, and the run's coverage and check
+  limits move to tabs of their own ([Runtime Insights](docs/features/overview.md#runtime-insights),
+  [#1328](https://github.com/jdubois/boot-ui/pull/1328)).
+- **Quarkus 3.40.1 LTS.** Updated the Quarkus compatibility platform to the latest LTS micro release and kept the
+  RabbitMQ metadata test fixture compatible with the managed SmallRye API.
+
 - **Tabs that look like tabs, in every theme.** Every panel tab strip now shares one component, with muted labels
   instead of link-blue text, arrow-key navigation, and a selected tab drawn in each theme's own idiom.
 
-- **Runtime Insights lists only what passed its external validation.** Failed and under-sampled kinds leave the
-  default list, silent kinds are marked not externally validated, and five wording and attribution bugs are fixed
-  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-24).
+- **A shorter Runtime Insights default list.** Some kinds move to the panels showing the same evidence or appear only
+  on request, each row saying where, and five wording and attribution bugs are fixed
+  ([Runtime Insights](docs/features/overview.md#runtime-insights)).
 - **Eight Maven Central artifacts instead of thirteen; one Spring Boot starter for Spring MVC and WebFlux.** BootUI
   2.0 publishes `bootui-core`, `bootui-engine`, `bootui-ui`, `bootui-spring-boot-starter`, `bootui-quarkus`,
   `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`. To migrate:
@@ -666,9 +733,25 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Malformed MCP envelopes answer the same on every stack.** A `null`, numeric, or object `method` or tool name, a
+  repeated `MCP-Protocol-Version`, and a version header sent with an oversized or batch body now get the same
+  documented client error on Spring and Quarkus; `MCP-Protocol-Version: 2026-07-28` without `_meta` is now `-32602`
+  with the request id rather than `-32600` with a `null` one ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+- **Links between MCP and CLI results.** `get_runtime_impact` resolves a bare method name such as `applyDiscount`
+  (`AMBIGUOUS` with each declaring class when several do), names the real overloads when the asked parameters match
+  none, and names every route beyond the 8 it lists per list; `get_code_inventory` matches method names. Side Effects
+  captures an event-loop connect a concurrent REST client call names: the journal's newest-first order made it index
+  only one event per refresh, on all three stacks. Live Activity `EXCEPTION` entries carry `exceptionGroupId`, which
+  `get_exception_detail` takes. A `get_runtime_insights` route query lists that route first and follows it up;
+  `get_side_effects` matches a request id; `get_live_memory` and `get_jvm_tuning` return their own panel's part.
+- **The runtime journal records the sample applications' logs.** Its Spring appender skipped every logger under
+  `io.github.jdubois.bootui`, the samples' included; it now skips only BootUI's own packages, as on Quarkus.
 - **Side Effects sensors no longer hide each other's records.** A connect a file system provider makes inside a file
   operation now records, and one sensor's many distinct paths or frames no longer leave another's targets unknown
   ([Java Agent](docs/features/java-agent.md#side-effects), M5-5d).
+- **The `caught-exceptions` sensor stays opt-in.** On the caught benchmark route its own share measured 2.9 % then
+  5.0 % (15 pairs each), over its 3 % budget once; the cumulative overhead with it was 5.9 %
+  ([Java Agent](docs/features/java-agent.md#the-caught-exceptions-sensor)).
 - **The `files` sensor stays opt-in.** On the I/O benchmark route its own share is a 2.3 % median (15 pairs), but the
   default sensors plus `files` reach 10.6 % (9 pairs), over the 10 % budget ([Java Agent](docs/features/java-agent.md#the-files-sensor)).
 - **Code Paths keeps recording on a thread after a deep stack overflow.** An application's runaway recursion through

@@ -125,9 +125,9 @@ withheld its message.
 The Exceptions panel captures exceptions thrown by the running application and groups repeated failures into one entry
 with an occurrence count.
 
-Exception groups per route, which Runtime Insights no longer lists by default since `exception-hotspots` did not pass its external
-validation ([overview](overview.md#runtime-insights), M4-20), are linked from this panel: the link opens Runtime
-Insights with every row shown.
+Exception groups per route, from the runtime journal, are in [Runtime Insights](overview.md#runtime-insights)
+(`exception-hotspots`), which does not list them by default; this panel links to them, and the link opens Runtime Insights with
+every row shown.
 
 Grouping uses a stable fingerprint derived from the exception type and the top stack frames, so a recurring error
 collapses into a single row. That row shows the type, the latest message, first and last seen times, the originating
@@ -162,6 +162,43 @@ When a **Resolved** group throws again, BootUI treats it as a regression. The gr
 A status filter narrows the list alongside the text and source filters. Changing a status calls
 `POST /bootui/api/exceptions/{id}/status` with `{"status": "..."}`, validated against the three values: anything else
 returns `400`, and an unknown group returns `404`.
+
+### Caught in application code
+
+With the BootUI agent's opt-in [`caught-exceptions` sensor](java-agent.md#the-caught-exceptions-sensor), the panel adds a
+**Caught in application code** section (`GET /bootui/api/exceptions/caught`, and `caughtInCode` in the panel's report
+and MCP `get_exceptions`). It groups the exceptions application handlers caught by route, handler, and caught class,
+and counts each occurrence under one outcome:
+
+| Outcome | What BootUI saw |
+| --- | --- |
+| **Rethrown** | The exception left the method by a throw, as is or as a cause, or was caught again |
+| **Replaced** | The handler's straight-line code throws another exception without it |
+| **Reported** | The exception, or a wrapper of it, reached the framework's error handling |
+| **Logged** | It was logged at `WARN` or above, or a `WARN` was logged on the catching thread right after, before it caught anything else |
+| **Handed on** | The handler passed it on as an error value: a failed future, an error signal, a deferred error result |
+| **Re-interrupted** | The handler restored the thread's interrupt |
+| **Retried** | A later attempt at the same handler in the same request was rethrown, reported, or logged |
+| **Not seen rethrown or logged at WARN or above** | None of these, while the evidence was complete |
+| **Unknown** | The evidence was incomplete; the row names the most frequent reason |
+| **Settling** | Its request ended less than five seconds ago, or work it handed over still runs |
+
+A row is a finding when occurrences not seen rethrown or logged came from at least three requests, or from one for an
+SQL, I/O, or data-access exception. A finding states a fact, never a verdict: BootUI never calls an exception
+swallowed. An occurrence is judged only when every piece of evidence is complete: it was caught under an HTTP request,
+whose event is retained, that started after the last **Clear recording**, that lost no record in the journal or the
+agent, that did not go asynchronous or get cancelled, and none of whose work ran after the response; the agent's
+`executors` sensor records handoffs; the handler's method has the agent's exit handler, or the handler never reads
+what it caught; the exception wraps no other (`ExecutionException`, `CompletionException`); and BootUI's appender
+(Logback) or handler (the JBoss LogManager) sees every `WARN` log, with no logger that keeps its events from the root
+logger. Otherwise the occurrence is unknown, with the first missing piece as its reason. Matching uses the identity
+hashes of the logged or reported throwable and its causes, never the exception itself. With HTTP Exchanges hidden, rows
+name no route or request; with Log Tail hidden, logs are not consulted and nothing is known not logged.
+
+Known limits: a task queued for longer than the five-second settle window before it starts is not yet followed, so
+what it rethrows or logs later is seen only then; an exception the panel's capture ignores or deduplicates carries no
+identity of its own; and on Spring, `java.util.logging` must be bridged to Logback, as Spring Boot does, or every
+occurrence stays unknown.
 
 ### Exposure and bounds
 

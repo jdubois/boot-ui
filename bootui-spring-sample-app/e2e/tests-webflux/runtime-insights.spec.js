@@ -21,12 +21,16 @@ test.describe('Runtime Insights on Spring WebFlux', () => {
     await item.click()
     await expect(page.locator('#insight-sentence')).toContainText('warm median')
     await expect(page.locator('.insight-detail')).toContainText('WebFlux marks no phases')
+
+    await page.getByRole('tab', {name: /^Coverage & limits/}).click()
     await expect(page.locator('.insight-unrun')).toContainText('SQL after the handler returned')
 
+    await page.getByRole('tab', {name: /^Changes/}).click()
     const comparison = page.locator('.insight-comparison')
     await expect(comparison.getByRole('heading', {name: 'Compared with the previous run'})).toBeVisible()
     await expect(comparison).toContainText(/Compared|Needs more traffic|Not comparable|No previous run/)
 
+    await page.getByRole('tab', {name: /^Change impact/}).click()
     const impact = page.locator('.insight-impact')
     const symbol = impact.getByRole('combobox', {name: /Symbol to check/})
     await symbol.fill('noSuchSymbolAnywhere')
@@ -41,6 +45,7 @@ test.describe('Runtime Insights on Spring WebFlux', () => {
     await expect(symbol).toHaveValue('GET /api/greetings/{name}')
     await expect(impact.locator('[data-list="observed"]')).toContainText('GET /api/greetings/{name}')
 
+    await page.getByRole('tab', {name: /^Profile/}).click()
     const profile = page.locator('.insight-profile')
     await expect(profile.getByRole('heading', {name: 'Profile resources'})).toBeVisible()
     await expect(profile.getByRole('button', {name: /Profile (resources|again)/})).toBeEnabled()

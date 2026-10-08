@@ -26,17 +26,29 @@ test.describe('Work after the response', () => {
           if (!seed) return 0
           journal = await (await page.request.get(`/bootui/api/activity/request/${seed.id}/journal`)).json()
           journal.requestId = seed.id
-          return journal.handoffs?.length ?? 0
+          return journal.handoffs ?? []
         },
         {timeout: 15_000}
       )
-      .toBe(1)
+      // Polled to its full shape: the handoff and the statement it ran reach the journal separately.
+      .toMatchObject([{afterResponse: true, sqlCount: 1, failed: false}])
     const seed = {id: journal.requestId}
-    expect(journal.handoffs[0]).toMatchObject({afterResponse: true, sqlCount: 1, failed: false})
     const profile = await (await page.request.get(`/bootui/api/activity/request/${seed.id}`)).json()
     expect(profile.correlationTiers.find((tier) => tier.tier === 'PROPAGATED')).toMatchObject({available: true})
-    // The propagated statement ran while the response was written, but it is the handoff's work, not lazy loading.
-    const report = await (await page.request.get('/bootui/api/runtime-insights')).json()
+    // The report is read once it observes the seed, so it already holds the handoff's statement: that statement ran
+    // while the response was written, but it is the handoff's work, not lazy loading.
+    let report = null
+    await expect
+      .poll(
+        async () => {
+          report = await (await page.request.get('/bootui/api/runtime-insights')).json()
+          return report.observations
+            .filter((observation) => observation.kind === 'work-after-response')
+            .map((observation) => observation.subject)
+        },
+        {timeout: 15_000}
+      )
+      .toContain(`GET ${SEED}`)
     expect(
       report.observations.filter(
         (observation) => observation.kind === 'lazy-sql-after-handler' && observation.subject.includes(SEED)
@@ -73,13 +85,8 @@ test.describe('Work after the response', () => {
     ).toHaveCount(0)
 
     await openView('runtime-insights', 'Runtime Insights')
-    await expect(page.getByRole('heading', {name: 'Work after the response', level: 2, exact: true})).toBeVisible({
-      timeout: 15_000
-    })
-    const group = page
-      .locator('nav[aria-label="Observations"] > div')
-      .filter({has: page.getByRole('heading', {name: 'Work after the response', level: 2, exact: true})})
-    await expect(group.locator('.insight-item', {hasText: SEED}).first()).toBeVisible()
+    const group = page.locator('.insight-row').filter({has: page.getByText('Work after the response', {exact: true})})
+    await expect(group.locator('.insight-item', {hasText: SEED}).first()).toBeVisible({timeout: 15_000})
     await expect(group.locator('.insight-item', {hasText: `${SEED}/waits`})).toHaveCount(0)
   })
 })

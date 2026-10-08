@@ -1,10 +1,18 @@
 package io.github.jdubois.bootui.engine;
 
+import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaCodeUnitAccess;
+import com.tngtech.archunit.core.domain.JavaConstructor;
+import com.tngtech.archunit.core.domain.JavaStaticInitializer;
 import com.tngtech.archunit.core.importer.ImportOption.DoNotIncludeTests;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
+import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition;
+import io.github.jdubois.bootui.engine.progress.ProgressPhase;
 
 /**
  * Pins the framework-neutrality of {@code bootui-engine}: its services must never depend on a
@@ -85,4 +93,44 @@ class EngineBoundaryArchitectureTests {
                     + "BootUiIdentitySpanProcessor and OtelSpanEnricher (R2 optional-dependency port); the rest "
                     + "of the telemetry engine works over neutral NormalizedSpan records so the OTLP-decoding "
                     + "adapter never forces OTel on a consumer");
+
+    /**
+     * BootUI's own thread locals are {@code BootUiThreadLocal}s, which the agent's {@code thread-locals} sensor never
+     * reports, by class ({@code docs/PLAN-v2.md} §5.16, M5-5f).
+     */
+    @ArchTest
+    static final ArchRule threadLocalsAreBootUiThreadLocals = ArchRuleDefinition.noClasses()
+            .that()
+            .haveNameNotMatching("io\\.github\\.jdubois\\.bootui\\.engine\\.support\\.BootUiThreadLocal(\\$.*)?")
+            .should()
+            .callConstructor(ThreadLocal.class)
+            .orShould()
+            .callConstructor(InheritableThreadLocal.class)
+            .orShould()
+            .callMethod(ThreadLocal.class, "withInitial", java.util.function.Supplier.class)
+            .because("the BootUI agent's thread-locals sensor recognizes BootUI's own thread locals by their class,"
+                    + " BootUiThreadLocal");
+
+    /**
+     * Progress phase labels are constants: creating one anywhere but a static initializer could build a label from
+     * runtime values, which progress notifications must never carry.
+     */
+    @ArchTest
+    static final ArchRule progressPhasesAreStaticConstants = ArchRuleDefinition.noClasses()
+            .that()
+            .doNotHaveFullyQualifiedName(ProgressPhase.class.getName())
+            .should(new ArchCondition<JavaClass>("create a ProgressPhase outside a static initializer") {
+                @Override
+                public void check(JavaClass javaClass, ConditionEvents events) {
+                    for (JavaCodeUnitAccess<?> call : javaClass.getCodeUnitAccessesFromSelf()) {
+                        if (call.getTargetOwner().isEquivalentTo(ProgressPhase.class)
+                                && (call.getName().equals("of")
+                                        || call.getName().equals(JavaConstructor.CONSTRUCTOR_NAME))
+                                && !call.getOrigin().getName().equals(JavaStaticInitializer.STATIC_INITIALIZER_NAME)) {
+                            events.add(SimpleConditionEvent.violated(call, call.getDescription()));
+                        }
+                    }
+                }
+            })
+            .because("a progress message is a fixed phase label, never built from runtime values");
 }

@@ -23,6 +23,7 @@ import io.github.jdubois.bootui.engine.devservices.DevServicesReportService;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.email.EmailStore;
 import io.github.jdubois.bootui.engine.errorcontract.ErrorContractService;
+import io.github.jdubois.bootui.engine.exceptions.CaughtExceptionsReader;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
@@ -54,6 +55,7 @@ import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RunBaselineFile;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
+import io.github.jdubois.bootui.engine.journal.RunningHandoffs;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
@@ -109,6 +111,7 @@ import io.github.jdubois.bootui.quarkus.faulttolerance.QuarkusFaultTolerancePoli
 import io.github.jdubois.bootui.quarkus.health.QuarkusHealthGuidance;
 import io.github.jdubois.bootui.quarkus.hibernate.QuarkusHibernatePropertyLookup;
 import io.github.jdubois.bootui.quarkus.javaagent.QuarkusAgentClaim;
+import io.github.jdubois.bootui.quarkus.logging.QuarkusLogCoverage;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
 import io.github.jdubois.bootui.quarkus.mappings.QuarkusMappingProvider;
 import io.github.jdubois.bootui.quarkus.pentesting.QuarkusPentestingObservationCollector;
@@ -389,7 +392,8 @@ public class BootUiEngineProducer {
             Instance<JournalAggregates> aggregates,
             Instance<RuntimeJournal> journal,
             AgentEvidence evidence,
-            Config config) {
+            Config config,
+            RequestPhases requestPhases) {
         QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
         SideEffectsService service = new SideEffectsService(
                 AgentBridgeAccess.locate(),
@@ -407,6 +411,9 @@ public class BootUiEngineProducer {
         // Connections to a telemetry exporter the application configures are infrastructure (M5-5b).
         service.setExporterEndpoints(
                 key -> config.getOptionalValue(key, String.class).orElse(null));
+        // Each request's end, as the capture filter marks it, so the thread-activity sensor checks what it left
+        // running.
+        service.listenToRequestEnds(requestPhases);
         if (journalAggregates != null) {
             // The run's side-effect keys go into its summary, for the next start's comparison (M5-7b).
             journalAggregates.setRunSideEffects(service::runSideEffects);
@@ -440,6 +447,22 @@ public class BootUiEngineProducer {
     /** Stops routing caught exceptions with the application. */
     public void closeAgentCaughtExceptions(@Disposes AgentCaughtExceptions caught) {
         caught.close();
+    }
+
+    /**
+     * The Exceptions panel's <b>Caught in application code</b> section ({@code docs/PLAN-v2.md} M5-6): what became of
+     * the exceptions application code caught, from the agent's {@code caught-exceptions} sensor, with the JBoss
+     * LogManager's coverage. Without the sensor it reports why; a read drains the agent and starts nothing else.
+     */
+    @Produces
+    @Singleton
+    public CaughtExceptionsReader caughtExceptionsReader(
+            RuntimeJournal journal, Instance<AgentCaughtExceptions> caught) {
+        return new CaughtExceptionsReader(
+                journal,
+                () -> caught.isResolvable() ? caught.get() : null,
+                new QuarkusLogCoverage(),
+                RunningHandoffs.shared());
     }
 
     /**

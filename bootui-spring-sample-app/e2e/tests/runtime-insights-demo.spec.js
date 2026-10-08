@@ -4,8 +4,8 @@ import {seedInsights} from '../scripts/insights-demo.mjs'
 
 /**
  * The scripted Runtime Insights demo on Spring MVC (docs/PLAN-v2.md M3-6, §5.5): with tracing off, the seeded traffic
- * lists each seed's observation whose kind is listed by default since its external validation (M4-20), marking those
- * not externally validated; **Show all routes** reaches the others with their reason; the secured route's time
+ * lists each seed's observation whose kind is listed by default since its external validation (M4-20), which the panel
+ * never mentions; **Show all routes** reaches the others with their reason; the secured route's time
  * breakdown opens with its evidence, and its exemplar request opens in Live Activity.
  */
 test.describe('Runtime Insights demo', () => {
@@ -16,6 +16,8 @@ test.describe('Runtime Insights demo', () => {
     }, 'mvc')
 
     await openView('runtime-insights', 'Runtime Insights')
+    // Each row names its check above its route or subject.
+    const kind = (title) => page.locator('.insight-row').filter({has: page.getByText(title, {exact: true})})
     for (const [title, subject] of [
       ['Writes in GET requests', '/api/insights/orders/{id}'],
       ['Transactions open across remote calls', '/api/insights/orders/{id}/price-check'],
@@ -24,30 +26,26 @@ test.describe('Runtime Insights demo', () => {
       ['Anonymous success on a restricted route', '/api/insights/reports/{name}'],
       ['Transactional listeners skipped', '/api/insights/orders/{id}/notify'],
       ['Writes after commit', '/api/insights/orders/{id}/archive'],
-      ['Hibernate auto-flushes', '/api/insights/tags/auto-flush']
+      ['Hibernate auto-flushes', '/api/insights/tags/auto-flush'],
+      ['Large persistence contexts', '/api/insights/tags/export']
     ]) {
-      await expect(page.getByRole('heading', {name: title, level: 2, exact: true})).toBeVisible({timeout: 15_000})
-      await expect(page.locator('.insight-item', {hasText: subject}).first()).toBeVisible()
+      await expect(kind(title).locator('.insight-item', {hasText: subject}).first()).toBeVisible({timeout: 15_000})
     }
 
-    const group = (title) =>
-      page
-        .locator('nav[aria-label="Observations"] > div')
-        .filter({has: page.getByRole('heading', {name: title, level: 2, exact: true})})
-    // A kind that stayed silent on the validation applications is listed, marked as not externally validated; one
-    // that passed is not marked.
-    await expect(group('Writes in GET requests').locator('.insight-validation')).toHaveText('Not externally validated')
-    await expect(group('Errors behind 2xx responses').locator('.insight-validation')).toHaveCount(0)
+    const group = kind
+    // The external validation (M4-20) decides what is listed, but stays in the plan: no row mentions it.
+    await expect(page.locator('.insight-list')).not.toContainText(/validat/i)
 
     // Left out of the default list: the kinds that did not pass their external validation, or had too few facts to
-    // judge (M4-20). Show all routes lists them, each in its own group, marked and explained.
+    // judge (M4-20). Show all routes lists them, each in its own group, saying where they are shown.
+    const onRequest = 'when all rows are shown'
     const leftOut = [
-      ['Repeated SELECTs', '/api/insights/orders', 'too few facts'],
-      ['Connections held together', '/api/insights/orders/{id}/confirm', 'did not pass its external validation'],
-      ['Writes split across transactions', '/api/insights/orders/{id}/confirm', 'too few facts'],
+      ['Repeated SELECTs', '/api/insights/orders', onRequest],
+      ['Connections held together', '/api/insights/orders/{id}/confirm', 'Database connection pools panel'],
+      ['Writes split across transactions', '/api/insights/orders/{id}/confirm', onRequest],
       ['Exception hotspots', 'GET /api/sample/boom', 'Exceptions panel'],
-      ['Anonymous writes', '/api/insights/debug/reset-totals', 'too few facts'],
-      ['SQL after the handler returned', '/api/insights/orders/report', 'too few facts']
+      ['Anonymous writes', '/api/insights/debug/reset-totals', onRequest],
+      ['SQL after the handler returned', '/api/insights/orders/report', onRequest]
     ]
     for (const [title] of leftOut) {
       await expect(group(title)).toHaveCount(0)
@@ -59,6 +57,7 @@ test.describe('Runtime Insights demo', () => {
       await expect(item).toContainText('Not listed by default')
       await item.click()
       await expect(page.locator('.insight-unlisted-reason')).toContainText(reason)
+      await expect(page.locator('.insight-detail')).not.toContainText(/validat/i)
     }
 
     const secured = page.locator('.insight-item', {hasText: 'GET /api/secure/products'}).first()
