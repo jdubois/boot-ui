@@ -840,6 +840,49 @@ describe('Side Effects panel', () => {
     expect(table.text()).not.toContain('Failed')
   })
 
+  it('shows JDK check rows with their origin, and groups what libraries requested apart', async () => {
+    const own = row({
+      sensor: 'security-sinks',
+      kind: 'weak digest',
+      target: 'MD5',
+      origin: 'application',
+      callSite: 'com.example.UserService#hash',
+      detail:
+        'Weak algorithm MD5 requested by application code at `com.example.UserService#hash`. MD5 and SHA-1 remain fine for checksums and ETags; check that this one protects no password, signature, or token.',
+      count: 3
+    })
+    const library = row({
+      sensor: 'security-sinks',
+      kind: 'weak digest',
+      target: 'MD5',
+      origin: 'library',
+      location: 'org.springframework.util.DigestUtils#md5',
+      callSite: 'com.example.EtagService#tag',
+      detail:
+        'Weak algorithm MD5 requested by library code `org.springframework.util.DigestUtils#md5` for application frame `com.example.EtagService#tag`.',
+      count: 9
+    })
+    ;({wrapper} = mountPanel({
+      'api/side-effects/sensor?sensor=security-sinks&offset=0&limit=50': sensorReport('security-sinks', [own, library]),
+      'api/side-effects': summary({sensors: {'security-sinks': {state: 'recording', reason: null}}})
+    }))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Security sinks')
+      .trigger('click')
+    await flushPromises()
+
+    const tables = wrapper.findAll('.side-effects-table')
+    expect(tables).toHaveLength(2)
+    expect(tables[0].text()).toContain('Sink (value redacted) or check')
+    expect(tables[0].text()).toContain('Application')
+    expect(tables[0].text()).toContain('requested by application code')
+    expect(wrapper.get('.side-effects-apart summary').text()).toBe('Requested by libraries (1), grouped apart')
+    expect(tables[1].text()).toContain('org.springframework.util.DigestUtils#md5')
+    expect(wrapper.text().toLowerCase()).not.toContain('vulnerab')
+  })
+
   it('explains that the files sensor is opt-in, and not the processes sensor', async () => {
     ;({wrapper} = mountPanel({
       'api/side-effects': summary({

@@ -47,6 +47,44 @@ public final class SideEffectsCatalog {
     static final int KIND_SINK_FILE = 3;
     static final int KIND_SINK_URL = 4;
 
+    /**
+     * The security-sinks sensor's JDK checks (M5-6b2, {@code SecuritySinks.KIND_*}): a deserialization without a filter,
+     * a weak digest or cipher, a trust manager of the application, and a default hostname verifier or SSL socket factory
+     * the application installed.
+     */
+    static final int KIND_CHECK_DESERIALIZATION = 5;
+
+    static final int KIND_CHECK_WEAK_DIGEST = 6;
+    static final int KIND_CHECK_WEAK_CIPHER = 7;
+    static final int KIND_CHECK_TRUST_MANAGER = 8;
+    static final int KIND_CHECK_HOSTNAME_VERIFIER = 9;
+    static final int KIND_CHECK_SOCKET_FACTORY = 10;
+
+    /** A JDK check's outcome bits ({@code SecuritySinks.ORIGIN_*}, {@code FLAG_ERROR}). */
+    static final int CHECK_APPLICATION = 1;
+
+    static final int CHECK_LIBRARY = 2;
+    static final int CHECK_ERROR = 4;
+
+    /** The marker the agent appends to a deserialization's classes past its bound. */
+    static final String MORE_CLASSES = "(more)";
+
+    /** What a JDK check row's kind says. */
+    public static final String DESERIALIZATION = "deserialization without a filter";
+
+    public static final String WEAK_DIGEST = "weak digest";
+    public static final String WEAK_CIPHER = "weak cipher";
+    public static final String TRUST_MANAGER = "trust manager";
+    public static final String HOSTNAME_VERIFIER = "default hostname verifier";
+    public static final String SOCKET_FACTORY = "default SSL socket factory";
+
+    /** Whether a record is one of the security-sinks sensor's JDK checks rather than a request-value match. */
+    static boolean check(int sensor, int kind) {
+        return sensor == RECORD_SECURITY_SINKS
+                && kind >= KIND_CHECK_DESERIALIZATION
+                && kind <= KIND_CHECK_SOCKET_FACTORY;
+    }
+
     /** A security-sinks record's outcome bits ({@code RequestValues.POSITION_*} and {@code FLAG_*}). */
     static final int SINK_IN_LITERAL = 1;
 
@@ -232,7 +270,8 @@ public final class SideEffectsCatalog {
             new Sensor(
                     SECURITY_SINKS_ID,
                     SECURITY_SINKS,
-                    "Request input reaching SQL, commands, file paths, and URLs",
+                    "Request input reaching SQL, commands, file paths, and URLs; deserialization without a filter, weak"
+                            + " algorithms, and trust managers",
                     true,
                     RECORD_SECURITY_SINKS));
 
@@ -269,6 +308,12 @@ public final class SideEffectsCatalog {
                 case KIND_SINK_COMMAND -> COMMAND;
                 case KIND_SINK_FILE -> FILE_PATH;
                 case KIND_SINK_URL -> OUTBOUND_URL;
+                case KIND_CHECK_DESERIALIZATION -> DESERIALIZATION;
+                case KIND_CHECK_WEAK_DIGEST -> WEAK_DIGEST;
+                case KIND_CHECK_WEAK_CIPHER -> WEAK_CIPHER;
+                case KIND_CHECK_TRUST_MANAGER -> TRUST_MANAGER;
+                case KIND_CHECK_HOSTNAME_VERIFIER -> HOSTNAME_VERIFIER;
+                case KIND_CHECK_SOCKET_FACTORY -> SOCKET_FACTORY;
                 default -> "sink";
             };
         }

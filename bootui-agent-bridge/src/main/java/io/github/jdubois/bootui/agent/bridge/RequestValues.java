@@ -292,6 +292,11 @@ public final class RequestValues {
         return claim != null && claim.armed && claim.generation == sensor && claim.generation == tableGeneration;
     }
 
+    /** The claim generation the sensor is on for, or {@link Long#MIN_VALUE}: what {@link SideEffects} last set. */
+    static long sensorGeneration() {
+        return sensorGeneration;
+    }
+
     /**
      * The {@code security-sinks} sensor was enabled for the claim of {@code generation}, or disabled: going off wipes
      * every entry. Never throws.

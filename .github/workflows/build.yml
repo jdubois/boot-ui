@@ -572,7 +572,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.agent == 'true'
-    timeout-minutes: 190
+    timeout-minutes: 280
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -695,6 +695,35 @@ jobs:
           -Dbootui.benchmark.agent.extra=--bootui.agent.security-sinks.request-values=true
           -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 
+      # The security-sinks sensor's JDK checks (M5-6b2), opt-in (D37): on the checks route (a SHA-256 digest, an
+      # AES/GCM cipher, a read with a filter, and one MD5 the application asks for per request), their own increment,
+      # the default sensors with and without security-sinks (request-value matching off), and the cumulative overhead
+      # with them against no agent, fifteen pairs each. They fail only above 30 %; the check below prints PASS or FAIL
+      # against 3 % and 10 % and fails only once the sensor becomes a default.
+      # They run even when an earlier step failed, so their numbers are always measured.
+      - name: Measure the security-sinks JDK checks' share on the checks route
+        if: ${{ !cancelled() && needs.changes.outputs.extras == 'true' }}
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.agent.budget-percent=3
+          -Dbootui.benchmark.route=checks -Dbootui.benchmark.report=spring-mvc-checks-ab
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,security-sinks
+          -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network
+          -Dbootui.benchmark.agent.extra=--bootui.agent.security-sinks.request-values=false
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Measure the agent's overhead with the security-sinks JDK checks on the checks route
+        if: ${{ !cancelled() && needs.changes.outputs.extras == 'true' }}
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
+          -Dbootui.benchmark.agent.budget-percent=10
+          -Dbootui.benchmark.route=checks -Dbootui.benchmark.report=spring-mvc-agent-checks
+          -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,security-sinks
+          -Dbootui.benchmark.agent.extra=--bootui.agent.security-sinks.request-values=false
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
       - name: Publish the overhead report
         if: ${{ !cancelled() }}
         run: |
@@ -711,7 +740,7 @@ jobs:
           fi
           for report in spring-mvc-agent-io spring-mvc-network-ab spring-mvc-blocking-ab spring-mvc-files-ab \
             spring-mvc-agent-io-files spring-mvc-caught-ab spring-mvc-agent-caught spring-mvc-sinks-ab \
-            spring-mvc-agent-sinks; do
+            spring-mvc-agent-sinks spring-mvc-checks-ab spring-mvc-agent-checks; do
             if [ -f "$directory/$report.md" ]; then
               cat "$directory/$report.md" >> "$GITHUB_STEP_SUMMARY"
               overhead=$(sed -n 's/^overheadPercent=//p' "$directory/$report.properties")
@@ -762,6 +791,34 @@ jobs:
           if [ "$verdict" = FAIL ]; then
             echo "::error::$line"
             exit 1
+          fi
+
+      # The security-sinks JDK checks stay opt-in whatever they measure (D37): this prints whether they would meet the
+      # default rule (own increment at most 3 %, cumulative at most 10 %) and never fails while they are opt-in.
+      - name: Check the security-sinks JDK checks against the default rule
+        if: ${{ !cancelled() && needs.changes.outputs.extras == 'true' }}
+        run: |
+          directory=bootui-spring-sample-app/target/agent-overhead
+          for file in spring-mvc-checks-ab.properties spring-mvc-agent-checks.properties; do
+            if [ ! -f "$directory/$file" ]; then
+              echo "::warning::The security-sinks JDK checks cannot be checked: $file is missing."
+              exit 0
+            fi
+          done
+          read_value() { sed -n "s/^$2=//p" "$directory/$1"; }
+          increment=$(read_value spring-mvc-checks-ab.properties overheadPercent)
+          increment_range="$(read_value spring-mvc-checks-ab.properties minOverheadPercent) to $(read_value spring-mvc-checks-ab.properties maxOverheadPercent)"
+          cumulative=$(read_value spring-mvc-agent-checks.properties overheadPercent)
+          cumulative_range="$(read_value spring-mvc-agent-checks.properties minOverheadPercent) to $(read_value spring-mvc-agent-checks.properties maxOverheadPercent)"
+          verdict=PASS
+          if awk -v increment="$increment" -v cumulative="$cumulative" 'BEGIN { exit !(increment > 3 || cumulative > 10) }'; then
+            verdict=FAIL
+          fi
+          line="Security-sinks JDK checks (opt-in) against the default rule: ${verdict}. Increment median ${increment} % (pairs ${increment_range} %, limit 3 %); cumulative median ${cumulative} % (pairs ${cumulative_range} %, limit 10 %)."
+          echo "$line"
+          printf '\n**%s**\n' "$line" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$verdict" = FAIL ]; then
+            echo "::warning::$line"
           fi
 
       - name: Upload the overhead report

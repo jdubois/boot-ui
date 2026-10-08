@@ -45,7 +45,7 @@ const OPT_IN = {
     'the threads the application starts and the executors it creates per route, and those a request left running',
   'thread-locals': 'the thread locals a request or a job left set on its pooled thread, never their values',
   'security-sinks':
-    'where request input reaches SQL text, a command, a file path, or an outbound URL unchanged, with bootui.agent.security-sinks.request-values=true'
+    'deserialization without a filter, weak algorithms, and trust managers, and, with bootui.agent.security-sinks.request-values=true, where request input reaches SQL text, a command, a file path, or an outbound URL unchanged'
 }
 
 const STATE = {
@@ -122,7 +122,7 @@ const SENSOR_COLUMNS = {
     failedLabel: 'Interrupted or failed',
     time: 'Blocked (total / max ms)'
   },
-  'security-sinks': {target: 'Sink (value redacted)', count: 'Times', parameter: true}
+  'security-sinks': {target: 'Sink (value redacted) or check', count: 'Times', parameter: true, origin: true}
 }
 
 const EMPTY_TEXT = {
@@ -133,7 +133,8 @@ const EMPTY_TEXT = {
   blocking: 'No blocking call has started on an event loop yet in this run.',
   'thread-activity': 'No thread has been started and no executor created yet in this run.',
   'thread-locals': 'No thread local has been left set by a request or a job yet in this run.',
-  'security-sinks': 'No request input has reached SQL text, a command, a file path, or an outbound URL in this run.'
+  'security-sinks':
+    'No deserialization without a filter, weak algorithm, or trust manager seen, and no request input has reached SQL text, a command, a file path, or an outbound URL in this run.'
 }
 
 const summary = ref(null)
@@ -348,12 +349,15 @@ function columnCount(sensor) {
 
 function groupedApart(row) {
   if (row.sensor === 'thread-locals') return row.origin === 'unknown'
+  // Security sinks' JDK checks requested by libraries (M5-6b2).
+  if (row.sensor === 'security-sinks') return row.origin === 'library'
   return row.sensor === 'thread-activity' ? THREADS_APART.has(row.origin) : GROUPED_APART.has(row.origin)
 }
 
 /** What a sensor's rows grouped apart are. */
 function apartLabel(sensor) {
   if (sensor.id === 'thread-locals') return 'Holders not resolved'
+  if (sensor.id === 'security-sinks') return 'Requested by libraries'
   return sensor.id === 'thread-activity' ? 'Libraries and the JDK' : 'Class path, JDK, and logging'
 }
 
@@ -366,7 +370,7 @@ function perRequest(row) {
 
 /**
  * The application's rows, then, collapsed, those grouped apart: class loading, the JDK, and logging, or for thread
- * activity libraries' pools and the JDK's own threads.
+ * activity libraries' pools and the JDK's own threads, or for security sinks what libraries requested.
  */
 function sections(report) {
   const rows = sensorRows(report)
@@ -657,7 +661,7 @@ function hookStatus(value, label) {
                             >
                             <div class="small bootui-break-anywhere mt-1">{{ attribution(row) }}</div>
                           </td>
-                          <td>
+                          <td class="side-effects-target">
                             <code class="bootui-break-anywhere">{{ row.target || '—' }}</code>
                             <div class="small text-muted">
                               <span v-if="row.kind">{{ row.kind }}</span>
@@ -691,7 +695,7 @@ function hookStatus(value, label) {
                               <span v-else class="text-muted">—</span>
                             </td>
                           </template>
-                          <td>
+                          <td class="side-effects-call-site">
                             <code v-if="row.callSite" class="bootui-break-anywhere">{{ row.callSite }}</code>
                             <span v-else-if="row.sensor === 'thread-locals'" class="text-muted side-effects-set-during"
                               >set during the request</span
@@ -797,6 +801,20 @@ function hookStatus(value, label) {
 
 .side-effects-state {
   white-space: nowrap;
+}
+
+/* A row's sentence never squeezes its call site, a class and method that would break into single letters. */
+.side-effects-target {
+  min-width: 22rem;
+  max-width: 36rem;
+}
+
+.side-effects-call-site {
+  min-width: 14rem;
+}
+
+.side-effects-detail {
+  overflow-wrap: break-word;
 }
 
 .side-effects-toggle {

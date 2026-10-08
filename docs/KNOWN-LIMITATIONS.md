@@ -89,14 +89,15 @@ application's own code did. See [Java Agent](features/java-agent.md).
 - the **Side Effects** panel with its `processes` sensor and the opt-in `files` and `environment` sensors;
 - the Exceptions panel's **Caught in application code** section, with the agent's opt-in `caught-exceptions` sensor.
 - `request-input-in-sink` as opt-in Security sinks rows: request input reaching SQL text, a command, a file path, or
-  an outbound URL unchanged, with query and path parameters, not yet form values.
+  an outbound URL unchanged, with query and path parameters, not yet form values;
+- the opt-in Security sinks JDK checks: deserialization without a filter, weak algorithms, and trust managers and
+  hostname verifiers.
 
 **Planned, may not be in 2.0:**
 
 - the remaining Side Effects sensors: hosts, threads, thread locals, blocking calls, and leaked streams, with
   `thread-local-left-set`;
-- caught exceptions as evidence of `errors-behind-2xx`; and the rest of security sinks: deserialization without a
-  filter, weak algorithms, trust managers, and form values in `request-input-in-sink`;
+- caught exceptions as evidence of `errors-behind-2xx`; and form values in `request-input-in-sink`;
 - side effects in change impact and run comparison, and methods no longer executed on routes exercised in both runs;
 - argument and return shapes in method probes;
 - dynamic access recording;

@@ -854,8 +854,8 @@ masked.
 
 `bootui.agent.sensors=...,security-sinks` with `bootui.agent.security-sinks.request-values=true` checks whether
 request input reaches a sink **unchanged**: whether the value of one of the current request's query or path parameters
-appears verbatim in SQL text, a command, a file path, or an outbound URL. Both are opt-in (D37): the sensor does nothing
-without the property, and the property does nothing without the sensor. Each match is a row of the Side Effects
+appears verbatim in SQL text, a command, a file path, or an outbound URL. Both are opt-in (D37): the sensor alone runs
+only its [JDK checks](#jdk-checks), and the property does nothing without the sensor. Each match is a row of the Side Effects
 **Security sinks** tab and of `get_side_effects`' `security-sinks` query (`request-input-in-sink`), worded as a fact,
 never as a vulnerability:
 
@@ -906,11 +906,48 @@ request, marked as seen in one request so far, including a value that crosses a 
 quote: the row then shows it outside any literal, every literal around it still masked. Only per-process keyed hashes of the raw and redacted texts are compared,
 never the texts. Past the tab's row cap, a match not confirmed yet is counted, never shown in its Other row.
 
-The sensor adds no hook of its own in this version: its deserialization, weak algorithm, and trust manager checks
-follow (M5-6b2), and the `HttpClient` and `URL.openConnection` hooks are deferred, so a JDK `HttpClient` call is checked
-only when it goes through a REST client BootUI records. With matching on, the tab's limitations show the holder's
-counters: requests held, checks run, and what it skipped or could not keep; the sensor's reason names the sinks it
-cannot check because their sensor is not claimed.
+The `HttpClient` and `URL.openConnection` hooks are deferred, so a JDK `HttpClient` call is checked only when it goes
+through a REST client BootUI records. With matching on, the tab's limitations show the holder's counters: requests held,
+checks run, and what it skipped or could not keep; the sensor's reason names the sinks it cannot check because their
+sensor is not claimed.
+
+### JDK checks
+
+With `security-sinks` in `bootui.agent.sensors`, whatever `bootui.agent.security-sinks.request-values` says, the
+sensor also hooks the JDK's security APIs (M5-6b2) and records three kinds of facts as Security sinks rows, each worded
+as what was seen, never as a vulnerability:
+
+| Check | Hooks | Recorded | The row |
+| --- | --- | --- | --- |
+| Deserialization without a filter | `ObjectInputStream.readObject()` (core), `resolveClass` (optional) | The outermost `readObject` on a thread whose stream has no `ObjectInputFilter`: its own, which the JVM's filter factory set from `jdk.serialFilter` when the stream was built | The first class read, the others (at most 16, merged per call site), and the call site: "Deserialization without an ObjectInputFilter at `CacheCodec#decode` (classes read: …)" |
+| Weak algorithms | `MessageDigest.getInstance`, every overload, and `Cipher.getInstance(String)` and `(String, Provider)` (core) | MD5, MD2, SHA-1, DES, DESede, RC4, a block cipher (AES, Blowfish, RC2) in ECB mode, or by its bare name, which defaults to ECB. `RSA/ECB/...` is not | The algorithm and who asked: "Weak algorithm MD5 requested by application code at `UserService#hash`", or "by library code X for application frame Y", grouped apart as a library's |
+| Trust managers and hostname verifiers | `SSLContext.init` (core), `HttpsURLConnection.setDefaultHostnameVerifier` and `setDefaultSSLSocketFactory` (optional) | A trust manager whose class is in the application's packages, nested and anonymous classes included; a default the application, not a library, installed | The class, a lambda's cut before its hidden-class suffix, and the installer's call site |
+
+Only what passes an allocation-free check takes the slow path: an algorithm's name, a stream's filter, a trust
+manager's package. A bounded `StackWalker` walk then finds the immediate caller past reflection: a caller in the JDK,
+as `UUID.nameUUIDFromBytes`, `SecureRandom`, TLS, or jar verification asking for SHA-1 or MD5 themselves, is the
+JDK's own use, counted and never shown. A frame is the JDK's when its class was loaded by the boot or platform class
+loader or belongs to a `java.` or `jdk.` module, never by its package alone: a library in a `com.sun.` package, as
+Mojarra's `com.sun.faces` deserializing client view state, is a library. The first frame outside the JDK decides between application and library code,
+and the attribution is remembered per immediate caller and algorithm, so a call site walks once. While a check records,
+the thread's side-effect bit is held, so the walk's own class loading never records; the advised methods never hold it,
+so a `readObject` running application code still shows its files and connects.
+
+Each group's core hooks are self-tested without I/O and without changing the JVM: digests and ciphers asked for by a
+null or empty name, which the JDK refuses before reading any configuration; `init` on an `SSLContext` of the agent's own
+whose engine does nothing; each `HttpsURLConnection` default set to null, which the JDK refuses before setting it; and
+`readObject` and `resolveClass` on a stream allocated without running a constructor, since building any
+`ObjectInputStream` fixes the JVM's serial filter factory for the JVM's life, after which an application's own
+`ObjectInputFilter.Config.setSerialFilterFactory` would throw (without `jdk.unsupported`, the deserialization group
+is off). A group whose core hook fails, or whose checks reach their own budget of internal errors, is switched off
+alone, its reason on the sensor's row; request-value matching and the other groups keep running. The sensor's reason lists the
+groups that run, then request-value matching's state.
+
+Not checked: `readUnshared`, classes a subclass resolves itself (the row then says "not named"), `KeyGenerator`,
+`Signature`, `Mac`, `SecureRandom`, and PBE algorithms, and a library's own default verifier or factory, which is only
+counted. The checks stay opt-in (D37) with the sensor: the `agent-overhead` job measures them on a route with a SHA-256
+digest, an AES/GCM cipher, a filtered read, and one application MD5 per request, and prints whether they would meet
+the default rule (own increment at most 3 %, cumulative at most 10 %).
 
 ## The blocking sensor
 
@@ -1614,7 +1651,7 @@ The panel has one tab per sensor group:
 | Environment | `environment` | Records when `bootui.agent.sensors` opts in or it is switched on; otherwise `not-claimed`. |
 | Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `thread-activity` and `thread-locals` record when `bootui.agent.sensors` opts in or they are switched on (see [the thread-activity sensor](#the-thread-activity-sensor) and [the thread-locals sensor](#the-thread-locals-sensor)); `resources` is `not-available`: Not available in this version. |
 | Blocking | `blocking` | records on Spring WebFlux and Quarkus; `not-applicable` on Spring MVC until a WebClient's event loop is registered. |
-| Security sinks | `security-sinks` | Records request input reaching SQL text, a command, a file path, or an outbound URL when `bootui.agent.sensors` opts in and `bootui.agent.security-sinks.request-values=true` (see [the security-sinks sensor](#the-security-sinks-sensor)). |
+| Security sinks | `security-sinks` | Records deserialization without a filter, weak algorithms, and trust managers and hostname verifiers when `bootui.agent.sensors` opts in, and request input reaching SQL text, a command, a file path, or an outbound URL with `bootui.agent.security-sinks.request-values=true` too (see [the security-sinks sensor](#the-security-sinks-sensor)). |
 
 The `processes` sensor is on by default through `bootui.agent.sensors`. It hooks the JDK process start path used by
 `ProcessBuilder.start()`, `ProcessBuilder.startPipeline(...)`, and `Runtime.exec(...)`. A row records the command name

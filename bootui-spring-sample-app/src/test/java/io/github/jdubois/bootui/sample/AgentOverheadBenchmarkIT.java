@@ -52,6 +52,9 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
  * bootui.benchmark.agent.extra} and {@code bootui.benchmark.agent.baseline-extra} add comma-separated application
  * arguments to the agent arm and to the other arm, so an A/B can claim the same sensors with matching on and off.
  *
+ * <p>{@code bootui.benchmark.route=checks} drives {@value #CHECKS_ROUTE}: the search plus the security-sinks sensor's JDK
+ * checks, their fast paths and one weak path (M5-6b2).
+ *
  * <p>The budget is 10 %. Timings depend on the machine, so this is opt-in. It fails only when
  * {@code bootui.benchmark.agent.fail-above-percent} is set and the median paired overhead exceeds it. CI sets it to 30,
  * well above the run-to-run noise on a shared runner, so only a clear regression fails a build (see CONTRIBUTING.md):</p>
@@ -80,6 +83,12 @@ class AgentOverheadBenchmarkIT {
 
     /** The security-sinks variant's route (M5-6b): two query parameters, one SQL statement, and one file read. */
     static final String SINKS_ROUTE = "/api/side-effects/benchmark-sinks?term=console&tag=sample-tag";
+
+    /**
+     * The security-sinks JDK checks variant's route (M5-6b2): the search, a SHA-256 digest, an AES/GCM cipher, a read
+     * with a filter, and one MD5 the application asks for.
+     */
+    static final String CHECKS_ROUTE = "/api/side-effects/benchmark-checks?term=console";
 
     private static final Duration WARM_UP = Duration.ofSeconds(10);
 
@@ -110,7 +119,11 @@ class AgentOverheadBenchmarkIT {
                         ? CAUGHT_ROUTE
                         : "threads".equals(routeName)
                                 ? THREADS_ROUTE
-                                : "sinks".equals(routeName) ? SINKS_ROUTE : CaptureOverheadBenchmarkTest.ROUTE;
+                                : "sinks".equals(routeName)
+                                        ? SINKS_ROUTE
+                                        : "checks".equals(routeName)
+                                                ? CHECKS_ROUTE
+                                                : CaptureOverheadBenchmarkTest.ROUTE;
         List<String> agentExtra = arguments(System.getProperty("bootui.benchmark.agent.extra", ""));
         List<String> baselineExtra = arguments(System.getProperty("bootui.benchmark.agent.baseline-extra", ""));
         double budget = Double.parseDouble(

@@ -44,6 +44,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   agent-gated `NOT_APPLICABLE` as not measured; `verify_after_change` and the skill add verify-then-probe.
 - **Request input reaching a sink (M5-6b1).** Opt-in Security sinks rows show a request parameter reaching SQL, a
   command, a file path, or a URL unchanged, its value redacted. ([#1296](https://github.com/jdubois/boot-ui/pull/1296))
+- **Security sinks JDK checks (M5-6b2).** The opt-in `security-sinks` sensor also shows deserialization without a
+  filter, weak digests and ciphers, and application trust managers, as facts.
 - **Caught exceptions, recorded by the BootUI agent (M5-6a, first part).** The agent's new opt-in `caught-exceptions`
   sensor (`bootui.agent.sensors=...,caught-exceptions`) reports each exception application code catches, at a handler
   that names a type, and which of them are thrown again: by the method itself, by a library helper it calls, or wrapped
