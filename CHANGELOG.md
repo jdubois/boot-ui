@@ -375,6 +375,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Code Paths opens a route's tree under its row.** The routes are a searchable, sortable list, and opening one shows
+  its call tree right there, with the hot path marked, collapsible branches, keyboard navigation, and each method's
+  detail and **Probe this method** under its row; `?method=` links to a method ([Java Agent](docs/features/java-agent.md#code-paths)).
 - **The Java Agent panel opens on its setup when the agent is not attached.** The steps and setup snippets follow the
   **Not attached** status, then a short explanation of what a Java agent is, how BootUI's works, which features need it,
   and its cost; the sections that only describe an attached agent wait until it is attached
