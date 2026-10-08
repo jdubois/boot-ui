@@ -190,8 +190,8 @@ class RunSummaryTests {
 
     @Test
     void theRunsApplicationRoundTripsAndAVersionTwelveSummaryReadsWithoutOne() {
-        RunSummary summary =
-                RunSummary.of(new RunIdentity("old", 1, 1), "dev:orders", new JournalAggregates().snapshot(), null, null, 2);
+        RunSummary summary = RunSummary.of(
+                new RunIdentity("old", 1, 1), "dev:orders", new JournalAggregates().snapshot(), null, null, 2);
         byte[] encoded = RunSummaryCodec.encode(summary, RunHistory.MAX_SUMMARY_BYTES);
         assertThat(RunSummaryCodec.header(encoded).application()).isEqualTo("dev:orders");
         assertThat(RunSummaryCodec.decode(encoded).header().application()).isEqualTo("dev:orders");

@@ -407,6 +407,18 @@ class BootUiAutoConfigurationTests {
     }
 
     @Test
+    void theRemovedBuffersFeedSourceFailsTheStartNamingItsReplacement() {
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.activity.feed-source=buffers")
+                .run(context -> assertThat(context)
+                        .hasFailed()
+                        .getFailure()
+                        .rootCause()
+                        .hasMessage(io.github.jdubois.bootui.engine.journal.ActivityFeedSource.BUFFERS_REMOVED));
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.activity.feed-source=journal")
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
+    @Test
     void theJavaAgentPanelSaysWhyTheAgentIsNotClaimedWhenBootUiIsForcedOnInAProductionProfile() {
         runner.withPropertyValues("bootui.enabled=ON", "spring.profiles.active=prod")
                 .run(context -> {
@@ -420,8 +432,9 @@ class BootUiAutoConfigurationTests {
                         "bootui.enabled=ON",
                         "spring.profiles.active=prod",
                         "bootui.agent.allow-in-disabled-profiles=true")
-                .run(context -> assertThat(
-                                context.getBean(JavaAgentController.class).report().state())
+                .run(context -> assertThat(context.getBean(JavaAgentController.class)
+                                .report()
+                                .state())
                         .isNotEqualTo(JavaAgentReport.DISABLED));
     }
 

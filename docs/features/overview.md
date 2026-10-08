@@ -454,7 +454,7 @@ when the run ends, and read back at the next start when the JVM keeps no previou
 scoped by the `bootui.runtime-journal.*` [properties](../PROPERTIES.md#runtime-journal).
 
 **Recorded by** chooses where the feed comes from. **Default** follows `bootui.activity.feed-source`, which is the
-runtime journal unless set to `buffers`. **Runtime journal** renders the feed from the journal: every child nests under
+runtime journal; the panel buffers serve it only while the journal does not record. **Runtime journal** renders the feed from the journal: every child nests under
 its request, scheduled run, or consumed message by id, transactions and log events appear as rows, an AI call appears as
 an **AI** row with its model, provider, tokens, and finish reason, nested under the request that started it (an error
 when it failed, a warning when the model stopped at its length limit), and four more filters apply on the server (not while durable activity storage serves the feed, which keeps no run or request grouping, so the panel hides them then): a

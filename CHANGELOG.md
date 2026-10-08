@@ -717,6 +717,11 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
   remove `bootui.activity.persistence.capture-interval`, which is now ignored, and keep the runtime journal enabled
   (the default): with `bootui.runtime-journal.enabled=false`, persistence logs a warning and writes nothing
   ([Runtime journal](docs/PROPERTIES.md#runtime-journal)).
+- **`bootui.activity.feed-source=buffers` is removed.** Live Activity reads the runtime journal on Spring MVC,
+  Spring WebFlux, and Quarkus, and an application that still sets `buffers` fails to start with a message naming the
+  replacement. **Migration:** remove the property, or set it to `journal`. With `bootui.runtime-journal.enabled=false`,
+  the panel buffers still serve the feed on their own, and the panel's **Panel buffers** choice
+  (`?source=buffers`) still shows them on request ([Live Activity](docs/PROPERTIES.md#live-activity)).
 
 ### Fixed
 

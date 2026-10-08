@@ -51,12 +51,13 @@ import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.AgentSetupSnippets;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentSettings;
+import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
 import io.github.jdubois.bootui.engine.journal.AgentEvidence;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RunBaselineFile;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
-import io.github.jdubois.bootui.engine.journal.RunningHandoffs;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
+import io.github.jdubois.bootui.engine.journal.RunningHandoffs;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
@@ -198,6 +199,21 @@ public class BootUiEngineProducer {
     void validateRuntimeInsightsThreshold(
             @jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
         runtimeInsightsTokenThreshold(config);
+    }
+
+    /**
+     * Rejects {@code bootui.activity.feed-source=buffers}, which 2.0.0 removed, and any unknown value at startup, as
+     * Spring's property binder does: {@code LiveActivityResource} is a REST resource that Quarkus constructs lazily.
+     */
+    void validateActivityFeedSource(
+            @jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
+        activityFeedSource(config);
+    }
+
+    /** The validated {@code bootui.activity.feed-source}. */
+    public static ActivityFeedSource activityFeedSource(Config config) {
+        return ActivityFeedSource.parseConfigured(config.getOptionalValue(ActivityFeedSource.PROPERTY, String.class)
+                .orElse(null));
     }
 
     /** The validated {@code bootui.runtime-insights.ai-token-threshold}. */

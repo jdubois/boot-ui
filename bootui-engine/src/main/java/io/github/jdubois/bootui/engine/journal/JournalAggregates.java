@@ -225,9 +225,8 @@ public final class JournalAggregates implements JournalListener {
         RunHistory target = history;
         RunIdentity ended = run;
         if (target != null && ended != null) {
-            RunSummary summary =
-                    RunSummary.of(
-                            ended, application, snapshot(), runStart(), runSideEffects(), System.currentTimeMillis());
+            RunSummary summary = RunSummary.of(
+                    ended, application, snapshot(), runStart(), runSideEffects(), System.currentTimeMillis());
             target.record(summary);
             RunBaselineFile file = baseline;
             if (file != null) {

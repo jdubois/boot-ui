@@ -26,8 +26,9 @@ public final class AgentProfileGuard {
             return null;
         }
         if ("true"
-                .equalsIgnoreCase(
-                        environment.getProperty(ALLOW_IN_DISABLED_PROFILES, "false").strip())) {
+                .equalsIgnoreCase(environment
+                        .getProperty(ALLOW_IN_DISABLED_PROFILES, "false")
+                        .strip())) {
             return null;
         }
         return "BootUI was forced on with bootui.enabled=ON despite the disabled profile '"

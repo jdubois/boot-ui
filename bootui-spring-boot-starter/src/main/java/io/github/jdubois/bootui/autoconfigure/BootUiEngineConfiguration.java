@@ -24,11 +24,11 @@ import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateStatisticsProvider;
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.javaagent.AgentClaimOwner;
+import io.github.jdubois.bootui.autoconfigure.javaagent.AgentProfileGuard;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.journal.ControlMarkerPublisher;
 import io.github.jdubois.bootui.autoconfigure.journal.LogbackLogCoverage;
-import io.github.jdubois.bootui.autoconfigure.javaagent.AgentProfileGuard;
 import io.github.jdubois.bootui.autoconfigure.journal.RunApplicationKey;
 import io.github.jdubois.bootui.autoconfigure.journal.RunStartPublisher;
 import io.github.jdubois.bootui.autoconfigure.journal.RuntimeEventPublisherInstaller;

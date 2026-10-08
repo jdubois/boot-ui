@@ -97,7 +97,9 @@ class PreviousRunSelectionTests {
                 .extracting(RunSummary.Header::runId)
                 .containsExactly(a.id());
         assertThat(history.headers("dev:b")).hasSize(1);
-        assertThat(history.headers("dev:c")).extracting(RunSummary.Header::runId).containsExactly(c.id());
+        assertThat(history.headers("dev:c"))
+                .extracting(RunSummary.Header::runId)
+                .containsExactly(c.id());
 
         history.record(RunSummary.of(RunIdentity.start(), "dev:d", served(1), null, null, 10));
         assertThat(history.headers())
@@ -117,7 +119,9 @@ class PreviousRunSelectionTests {
 
         history.loadBaseline(file, "dev:a");
 
-        assertThat(history.headers("dev:a")).extracting(RunSummary.Header::runId).containsExactly(a1.id());
+        assertThat(history.headers("dev:a"))
+                .extracting(RunSummary.Header::runId)
+                .containsExactly(a1.id());
         assertThat(history.baselineRunId()).isEqualTo(a1.id());
     }
 
