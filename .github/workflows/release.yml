@@ -182,7 +182,10 @@ jobs:
           # Belt-and-braces: fail the release if any other declared dependency/plugin
           # version string still points at the previous release version anywhere in the
           # docs site or README, so a missed replacement can't silently ship stale docs.
-          if grep -RnE "com\.julien-dubois\.bootui:[A-Za-z0-9_-]+:$CURRENT_VERSION" README.md docs/ jbang-catalog.json; then
+          # Skipped when the branch already declares the target version: re-preparing a release
+          # whose earlier tag was withdrawn before anything reached Maven Central.
+          if [[ "$CURRENT_VERSION" != "$VERSION" ]] &&
+            grep -RnE "com\.julien-dubois\.bootui:[A-Za-z0-9_-]+:$CURRENT_VERSION" README.md docs/ jbang-catalog.json; then
             echo "::error::Found leftover references to the previous version ($CURRENT_VERSION) in docs/README after bumping to $VERSION"
             exit 1
           fi
