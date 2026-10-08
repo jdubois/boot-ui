@@ -3523,8 +3523,8 @@ Design rules:
   With no sessions in MCP 2025-06-18, any local caller that passes the transport checks can cancel a request whose id
   it knows, including by accident: a late cancellation from one client can cancel another client's in-flight call with
   the same id, whose stream then ends with no response (an accepted limitation; an `Mcp-Session-Id` would change the
-  legacy bytes). Ids two in-flight calls share are never cancelled, ids that are not a string, an integer, or a whole
-  number below 2^53 are never matched, the `reason` is only logged at debug level, and the in-flight registry holds at
+  legacy bytes). Ids two in-flight calls share are never cancelled, fractional ids are matched by
+  their double value only when it is whole, non-zero, and below 2^53, the `reason` is only logged at debug level, and the in-flight registry holds at
   most one entry per permit in use, removed before that permit is released. A legacy request is never rejected
   because of its token, and one without a usable token answers byte for byte as before. Everything else and every
   refusal is one JSON response; there is still no `GET` stream, live push, resource, or `subscriptions/listen`.

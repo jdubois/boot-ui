@@ -804,8 +804,9 @@ compatibility rules describe:
   by `bootui.mcp.execution-timeout`, and keeps its concurrency slot until it returns. A client that leaves before its
   stream even starts releases the call at once: nothing has begun, and there is nowhere left to answer. A `notifications/cancelled`
   notification whose `params.requestId` names an in-flight legacy `tools/call` is answered `202` and cancels it.
-  Numeric ids match by value, so `7.0` finds `7`; an id that is not a string, an integer, or a whole number below
-  2^53 (`7.5`, `1e-400`) is never matched, so its call cannot be cancelled. A cancelled **stream ends with no
+  Numeric ids match by value: an integer exactly, and a fractional id by its double value, so `7.0`, or an id within
+  double rounding of `7`, finds `7`. A fractional id whose double value is not whole, is zero, or reaches 2^53 (`7.5`,
+  `1e-400`, `1e400`) is never matched, so its call cannot be cancelled. A cancelled **stream ends with no
   response**: the cancellation rule ("Not send a response for the cancelled request") takes precedence over the
   transport's one-response-per-stream rule. A cancelled **blocking call answers `-32800`**, because its HTTP request
   still needs an answer, which the client ignores ("The sender of the cancellation notification SHOULD ignore any

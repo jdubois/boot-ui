@@ -342,8 +342,8 @@ public class QuarkusMcpEnvelope {
 
     /**
      * The canonical key of a JSON-RPC id, so a cancellation finds its request by value; {@code null} for an id that has
-     * none, which then simply cannot be cancelled: anything but a string, an integer, or a whole, non-zero double below
-     * 2^53.
+     * none, which then simply cannot be cancelled: anything but a string, an integer, or a fractional number whose
+     * double value is whole, non-zero, and below 2^53.
      */
     static String requestKey(JsonNode id) {
         if (id == null) {
@@ -368,8 +368,9 @@ public class QuarkusMcpEnvelope {
             }
             return McpRequestKey.number(exact);
         }
-        // A fractional id is keyed only when it is exactly a small whole number, so 7.0 finds 7; anything a double
-        // cannot represent exactly (1e-400 reads as 0, 1e400 as infinity) has no key and cannot be cancelled.
+        // A fractional id read as a double is matched by that double: a whole, non-zero value below 2^53 finds that
+        // integer (7.0 finds 7, and so does an id within double rounding of 7); a fraction, zero (1e-400 underflows to
+        // it), infinity, or a larger value has no key and cannot be cancelled. A BigDecimal node above is exact.
         double value = id.doubleValue();
         if (!Double.isFinite(value) || value != Math.rint(value) || value == 0 || Math.abs(value) >= MAX_EXACT_DOUBLE) {
             return null;

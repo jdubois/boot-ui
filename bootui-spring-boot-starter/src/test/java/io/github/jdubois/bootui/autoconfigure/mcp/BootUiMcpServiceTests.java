@@ -431,6 +431,8 @@ class BootUiMcpServiceTests {
         assertThat(key("7")).isEqualTo(McpRequestKey.number(new java.math.BigDecimal("7")));
         assertThat(key("7.0")).isEqualTo(key("7"));
         assertThat(key("1e2")).isEqualTo(key("100"));
+        // The default mapper reads a fraction as a double: an id within double rounding of 7 is 7.
+        assertThat(key("7.0000000000000000001")).isEqualTo(key("7"));
         assertThat(key("123456789012345678901234567890"))
                 .isEqualTo(McpRequestKey.number(new java.math.BigDecimal("123456789012345678901234567890")));
         assertThat(key("0")).isEqualTo(McpRequestKey.number(java.math.BigDecimal.ZERO));
