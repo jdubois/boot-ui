@@ -20,7 +20,7 @@ on:
         type: boolean
         default: true
       resume_after_publish:
-        description: Resume availability checks after an existing tagged deployment was published; skips Maven deploy
+        description: Resume availability checks after an existing tagged deployment was published; skips the Central bundle upload
         type: boolean
         default: false
 
@@ -457,7 +457,7 @@ jobs:
           # shades it into the published -javaagent jar, and the two parents only because they parent
           # the reactor; every published module carries a flattened, parentless POM.
           ./mvnw -B -ntp -Prelease clean install \
-            -pl .,bootui-core,bootui-engine,bootui-spring-boot-starter,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-cli,bootui-agent-bridge,bootui-agent \
+            -pl .,bootui-engine,bootui-spring-boot-starter,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-cli,bootui-agent-bridge,bootui-agent \
             -am
 
           # The bundle is assembled from the installed, signed files rather than by
@@ -470,6 +470,26 @@ jobs:
           BUNDLE_DIR="$(mktemp -d)"
           unzip -q target/central-bundle.zip -d "$BUNDLE_DIR"
           python3 .github/scripts/check-central-bundle.py "$BUNDLE_DIR" "$VERSION"
+          # Every signature in the bundle, the flattened POMs' included, must verify and come from the release key
+          # before the upload, so a bad one fails here rather than in Central's validation of a consumed coordinate.
+          RELEASE_KEY_FINGERPRINT="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
+          if [[ -z "$RELEASE_KEY_FINGERPRINT" ]]; then
+            echo "::error::No GPG release key is available to verify the Central bundle signatures"
+            exit 1
+          fi
+          signatures=0
+          while IFS= read -r -d '' signature; do
+            verification="$(gpg --batch --status-fd 1 --verify "$signature" "${signature%.asc}")"
+            if ! grep -Eq "^\[GNUPG:\] VALIDSIG .* ${RELEASE_KEY_FINGERPRINT}\$" <<<"$verification"; then
+              echo "::error::${signature#"$BUNDLE_DIR"/} is not a valid signature by the release key"
+              exit 1
+            fi
+            signatures=$((signatures + 1))
+          done < <(find "$BUNDLE_DIR" -type f -name '*.asc' -print0)
+          if (( signatures == 0 )); then
+            echo "::error::The Central bundle holds no signature to verify"
+            exit 1
+          fi
           python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip "bootui-$VERSION" "$CENTRAL_AUTO_PUBLISH"
 
       - name: Wait for Maven Central availability
@@ -485,7 +505,6 @@ jobs:
           # check-central-bundle.py, and consumer-smoke-tests.sh.
           # Missing any one artifact causes the release to fail with the coordinate in the error.
           ARTIFACTS=(
-            "bootui-core/${VERSION}/bootui-core-${VERSION}.jar"
             "bootui-engine/${VERSION}/bootui-engine-${VERSION}.jar"
             "bootui-ui/${VERSION}/bootui-ui-${VERSION}.jar"
             "bootui-spring-boot-starter/${VERSION}/bootui-spring-boot-starter-${VERSION}.jar"

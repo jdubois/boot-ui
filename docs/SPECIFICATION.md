@@ -3008,13 +3008,12 @@ Quarkus modules:
 Dependency direction is one-way, by package inside `bootui-engine` and by module beyond it:
 `io.github.jdubois.bootui.core` depends only on the JDK, the engine and SPI packages depend on it, and each framework
 adapter depends on `bootui-engine`. `CoreBoundaryArchitectureTests` keeps the core package off the engine, the SPI, the
-adapters, and every external library.
-`bootui-cli` sits outside that chain entirely: its client package depends on nothing, its command line on picocli
-(optional), and it uses `bootui-engine` only in test scope, to generate its command manifest. Maven Central receives
-seven coordinates, each with a flattened, parentless POM: `bootui-engine`, `bootui-ui`,
-`bootui-spring-boot-starter`, `bootui-quarkus`, `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`.
-The shared `engine` (with its `core` package), `conformance`, and UI modules never depend on Spring or Quarkus. JSON parsing and
-serialization stay in the adapters because Spring Boot and Quarkus use incompatible Jackson major versions.
+adapters, and every external library. `bootui-cli` sits outside that chain entirely: its client package depends on
+nothing, its command line on picocli (optional), and it uses `bootui-engine` only in test scope, to generate its command
+manifest. Maven Central receives seven coordinates, each with a flattened, parentless POM: `bootui-engine`, `bootui-ui`,
+`bootui-spring-boot-starter`, `bootui-quarkus`, `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`. The
+shared `engine` (with its `core` package), `conformance`, and UI modules never depend on Spring or Quarkus. JSON parsing
+and serialization stay in the adapters because Spring Boot and Quarkus use incompatible Jackson major versions.
 
 Core DTO immutability is enforced, not just documented. Every collection component of a core DTO record is
 defensively copied in the record's compact constructor, so a caller cannot change a published report by mutating the

@@ -106,7 +106,7 @@ require_literal "git ls-remote --tags --refs origin 'refs/tags/v*'" \
   'documentation redeploy decision from the tags on origin'
 require_literal "if: env.CENTRAL_AUTO_PUBLISH == 'true' && env.REDEPLOY_DOCS == 'true'" \
   'documentation redeploy restricted to the newest major'
-readonly PUBLICATION_REACTOR='-pl .,bootui-core,bootui-engine,bootui-spring-boot-starter,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-cli,bootui-agent-bridge,bootui-agent \'
+readonly PUBLICATION_REACTOR='-pl .,bootui-engine,bootui-spring-boot-starter,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-cli,bootui-agent-bridge,bootui-agent \'
 require_literal "$PUBLICATION_REACTOR" 'publication-only Maven reactor'
 require_literal 'bootui-cli/${VERSION}/bootui-cli-${VERSION}-all.jar' \
   'runnable CLI uber-jar availability check'
@@ -116,7 +116,6 @@ require_literal '"bootui-agent/${VERSION}/bootui-agent-${VERSION}.jar"' \
 # The published coordinates. Each published module carries a flattened, parentless consumer POM, and
 # neither parent POM is published. Every list of them below must say exactly this.
 readonly PUBLISHED_ARTIFACTS=(
-  bootui-core
   bootui-engine
   bootui-ui
   bootui-spring-boot-starter
@@ -190,15 +189,31 @@ if grep -Eq '"bootui-(quarkus-)?parent/' <<<"$availability_step"; then
   report_error 'neither parent POM is published, so neither may be polled on Maven Central'
 fi
 
-# The staging script builds the same reactor as the publication step, and the same bundle from it.
+# The 1-based number of the first line of the text $2 that is exactly $1, or nothing.
+line_number_of() {
+  local match
+  match="$(grep -nFx -- "$1" <<<"$2" | head -n 1 || true)"
+  printf '%s' "${match%%:*}"
+}
+
+# The staging script builds the same reactor as the publication step, and the same bundle from it, by whole
+# command lines in the same order under set -e: install, assemble, unpack, then check.
 if ! grep -Fq -- "$PUBLICATION_REACTOR" "$STAGE_SCRIPT"; then
   report_error "$STAGE_SCRIPT must stage the publication-only Maven reactor ('$PUBLICATION_REACTOR')"
 fi
+stage_script="$(cat "$STAGE_SCRIPT")"
+previous_line=0
 for literal in 'set -euo pipefail' './mvnw -B -ntp -Prelease clean install \' \
   'python3 "$REPOSITORY_ROOT/.github/scripts/assemble_central_bundle.py" --unsigned "$LOCAL_REPO" "$VERSION" "$BUNDLE"' \
+  'unzip -q "$BUNDLE" -d "$OUTPUT"' \
   'python3 "$REPOSITORY_ROOT/.github/scripts/check-central-bundle.py" "$OUTPUT" "$VERSION"'; do
-  if ! grep -Fxq -- "$literal" "$STAGE_SCRIPT"; then
+  found_line="$(line_number_of "$literal" "$stage_script")"
+  if [[ -z "$found_line" ]]; then
     report_error "$STAGE_SCRIPT must use '$literal' on a line of its own"
+  elif (( found_line <= previous_line )); then
+    report_error "$STAGE_SCRIPT must run '$literal' after the previous staging command: install, assemble, unpack, then check"
+  else
+    previous_line="$found_line"
   fi
 done
 if sed -e ':join' -e '/\\$/N' -e 's/\\\n[[:space:]]*/ /' -e 't join' "$STAGE_SCRIPT" |
@@ -298,13 +313,11 @@ if grep -Fq -- '--unsigned' <<<"$publish_step"; then
   report_error 'Maven Central publication must bundle the signed release, never with --unsigned'
 fi
 
-# The bundle is assembled, unpacked, checked and uploaded by whole command lines of the publication step, in that
-# order, under set -e: a commented-out command or one suffixed with "|| true" would let a bundle the check refuses
+# The bundle is assembled, unpacked, checked, signature-verified and uploaded by whole command lines of the
+# publication step, in that order, under set -e: a commented-out command or one suffixed with "|| true" would let a bundle the check refuses
 # reach Central.
 step_line_of() {
-  local match
-  match="$(grep -nFx -- "$1" <<<"$publish_step" | head -n 1 || true)"
-  printf '%s' "${match%%:*}"
+  line_number_of "$1" "$publish_step"
 }
 previous_line=0
 for entry in \
@@ -312,6 +325,11 @@ for entry in \
   '          python3 .github/scripts/assemble_central_bundle.py "$LOCAL_REPO" "$VERSION" target/central-bundle.zip|Central bundle assembled from the installed release' \
   '          unzip -q target/central-bundle.zip -d "$BUNDLE_DIR"|unpacked Central bundle for its check' \
   '          python3 .github/scripts/check-central-bundle.py "$BUNDLE_DIR" "$VERSION"|check of the assembled Central bundle before its upload' \
+  "          RELEASE_KEY_FINGERPRINT=\"\$(gpg --batch --with-colons --list-secret-keys | awk -F: '\$1 == \"fpr\" { print \$10; exit }')\"|release key fingerprint for the bundle signature verification" \
+  '            verification="$(gpg --batch --status-fd 1 --verify "$signature" "${signature%.asc}")"|verification of every bundle signature before its upload' \
+  '            if ! grep -Eq "^\[GNUPG:\] VALIDSIG .* ${RELEASE_KEY_FINGERPRINT}\$" <<<"$verification"; then|check that every bundle signature is by the release key' \
+  "          done < <(find \"\$BUNDLE_DIR\" -type f -name '*.asc' -print0)|every .asc file of the unpacked bundle fed to the signature verification" \
+  '          if (( signatures == 0 )); then|refusal of a bundle without signatures' \
   '          python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip "bootui-$VERSION" "$CENTRAL_AUTO_PUBLISH"|Central Portal bundle upload'; do
   command_line="${entry%|*}"
   description="${entry##*|}"
@@ -319,7 +337,7 @@ for entry in \
   if [[ -z "$found_line" ]]; then
     report_error "missing $description ('${command_line#"${command_line%%[![:space:]]*}"}' on a line of its own in the publication step)"
   elif (( found_line <= previous_line )); then
-    report_error "the publication step must run $description after the previous bundle command: assemble, unpack, check, then upload"
+    report_error "the publication step must run $description after the previous bundle command: assemble, unpack, check, verify signatures, then upload"
   else
     previous_line="$found_line"
   fi
@@ -402,7 +420,7 @@ for module in "${PUBLISHED_ARTIFACTS[@]}"; do
     report_pom_error "$REPOSITORY_ROOT/$module/pom.xml" 'a published module must declare flatten-maven-plugin'
   fi
 done
-for removed in bootui-spring-autoconfigure bootui-spring-boot-starter-reactive bootui-client; do
+for removed in bootui-core bootui-spring-autoconfigure bootui-spring-boot-starter-reactive bootui-client; do
   if grep -Fq "<module>$removed</module>" "$ROOT_POM" || grep -Fq "<artifactId>$removed</artifactId>" "$ROOT_POM"; then
     report_pom_error "$ROOT_POM" "$removed was merged into another published module and must not return"
   fi

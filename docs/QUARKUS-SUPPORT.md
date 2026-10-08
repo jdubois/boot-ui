@@ -22,8 +22,8 @@ layer; the bulk of BootUI's logic lives in framework-neutral shared modules.
 Concretely:
 
 1. **One UI artifact.** `bootui-ui` (the Vue 3 SPA) is built once and served unchanged by both backends.
-2. **One data contract.** The immutable `record` DTOs in `bootui-engine`'s core package are the contract; both backends emit identical
-   JSON at the configured API path (`/bootui/api/**` by default).
+2. **One data contract.** The immutable `record` DTOs in `bootui-engine`'s core package are the contract; both backends
+   emit identical JSON at the configured API path (`/bootui/api/**` by default).
 3. **One engine.** Advisor rule engines, scanners, the OSV scanner, the OTLP/telemetry store, JVM/MXBean readers, the
    dependency catalog, secret masking, scoring, and the MCP server move into a shared, Spring-free engine module.
 4. **Thin per-framework adapters.** Spring and Quarkus each provide: a web binding (Spring MVC controllers vs JAX-RS /

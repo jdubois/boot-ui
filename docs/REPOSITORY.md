@@ -46,7 +46,7 @@ Maven Central receives seven coordinates under `com.julien-dubois.bootui`: `boot
 and `bootui-agent`. Their POMs are flattened by `flatten-maven-plugin`: no `<parent>`, every dependency version
 resolved, and the project metadata inlined, so neither `bootui-parent` nor `bootui-quarkus-parent` is published. Every
 other module is built but never published. The release installs the publication reactor and uploads a bundle that
-`.github/scripts/assemble_central_bundle.py` assembles from exactly those eight coordinates.
+`.github/scripts/assemble_central_bundle.py` assembles from exactly those seven coordinates.
 `.github/scripts/stage-release-candidate.sh` builds the same bundle, unsigned, into a local file repository, and `.github/scripts/consumer-smoke-tests.sh <version> <directory>` runs the release's
 consumer smoke tests against it. `.github/scripts/published-cli-smoke.sh <spring-sample-jar>` runs the newest published
 `bootui-cli`, pinned by SHA-256, against the Spring sample built from the checkout, so a server change that breaks the

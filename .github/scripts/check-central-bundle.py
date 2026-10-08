@@ -25,7 +25,6 @@ GROUP = "com.julien-dubois.bootui"
 NS = {"m": "http://maven.apache.org/POM/4.0.0"}
 
 PUBLISHED = (
-    "bootui-core",
     "bootui-engine",
     "bootui-ui",
     "bootui-spring-boot-starter",

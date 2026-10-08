@@ -71,7 +71,7 @@ class AssembleCentralBundleTests(unittest.TestCase):
             assemble(unsigned, VERSION, self.output)
         names = assemble(unsigned, VERSION, self.output, signed=False)
         self.assertFalse([n for n in names if n.endswith(".asc")])
-        self.assertIn("com/julien-dubois/bootui/bootui-core/1.2.3/bootui-core-1.2.3.jar.sha1", names)
+        self.assertIn("com/julien-dubois/bootui/bootui-engine/1.2.3/bootui-engine-1.2.3.jar.sha1", names)
         with self.assertRaisesRegex(BundleError, "assembled as unsigned"):
             assemble(self.repository, VERSION, self.output, signed=False)
 
@@ -92,7 +92,7 @@ class AssembleCentralBundleTests(unittest.TestCase):
         assemble(self.repository, VERSION, self.output)
         with zipfile.ZipFile(self.output) as bundle:
             names = bundle.namelist()
-            pom = "com/julien-dubois/bootui/bootui-core/1.2.3/bootui-core-1.2.3.pom"
+            pom = "com/julien-dubois/bootui/bootui-engine/1.2.3/bootui-engine-1.2.3.pom"
             self.assertEqual(bundle.read(pom + ".sha1").decode(), hashlib.sha1(pom.rsplit("/", 1)[1].encode()).hexdigest())
             self.assertEqual(bundle.read(pom + ".md5").decode(), hashlib.md5(pom.rsplit("/", 1)[1].encode()).hexdigest())
         directories = {name.rsplit("/", 1)[0] for name in names}
@@ -105,11 +105,11 @@ class AssembleCentralBundleTests(unittest.TestCase):
         self.assertIn("com/julien-dubois/bootui/bootui-cli/1.2.3/bootui-cli-1.2.3-all.jar.asc", names)
 
     def test_stale_checksums_are_regenerated(self):
-        directory = self.repository / "com/julien-dubois/bootui/bootui-core" / VERSION
-        (directory / "bootui-core-1.2.3.pom.sha1").write_text("stale")
+        directory = self.repository / "com/julien-dubois/bootui/bootui-engine" / VERSION
+        (directory / "bootui-engine-1.2.3.pom.sha1").write_text("stale")
         assemble(self.repository, VERSION, self.output)
         with zipfile.ZipFile(self.output) as bundle:
-            self.assertNotEqual(bundle.read("com/julien-dubois/bootui/bootui-core/1.2.3/bootui-core-1.2.3.pom.sha1"), b"stale")
+            self.assertNotEqual(bundle.read("com/julien-dubois/bootui/bootui-engine/1.2.3/bootui-engine-1.2.3.pom.sha1"), b"stale")
 
     def test_missing_module_is_refused(self):
         directory = self.repository / "com/julien-dubois/bootui/bootui-cli" / VERSION
@@ -130,12 +130,12 @@ class AssembleCentralBundleTests(unittest.TestCase):
             assemble(self.repository, VERSION, self.output)
 
     def test_unsigned_file_is_refused(self):
-        (self.repository / "com/julien-dubois/bootui/bootui-core/1.2.3/bootui-core-1.2.3.jar.asc").unlink()
-        with self.assertRaisesRegex(BundleError, "unsigned file: bootui-core-1.2.3.jar"):
+        (self.repository / "com/julien-dubois/bootui/bootui-engine/1.2.3/bootui-engine-1.2.3.jar.asc").unlink()
+        with self.assertRaisesRegex(BundleError, "unsigned file: bootui-engine-1.2.3.jar"):
             assemble(self.repository, VERSION, self.output)
 
     def test_foreign_file_is_refused(self):
-        (self.repository / "com/julien-dubois/bootui/bootui-core/1.2.3/notes.txt").write_text("?")
+        (self.repository / "com/julien-dubois/bootui/bootui-engine/1.2.3/notes.txt").write_text("?")
         with self.assertRaisesRegex(BundleError, "unexpected file"):
             assemble(self.repository, VERSION, self.output)
 

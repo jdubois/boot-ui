@@ -41,7 +41,7 @@ rm -rf "$LOCAL_REPO"/com/julien-dubois/bootui/*/"$VERSION"
 
 # The same reactor as release.yml's "Publish to Maven Central" step; check-release-integrity.sh keeps them equal.
 ./mvnw -B -ntp -Prelease clean install \
-  -pl .,bootui-core,bootui-engine,bootui-spring-boot-starter,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-cli,bootui-agent-bridge,bootui-agent \
+  -pl .,bootui-engine,bootui-spring-boot-starter,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-cli,bootui-agent-bridge,bootui-agent \
   -am \
   -DskipTests \
   -Dgpg.skip=true
