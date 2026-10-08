@@ -53,6 +53,7 @@ public final class ChildMain {
             case "blocking-behaviors" -> BlockingBehaviors.main(new String[] {args[1]});
             case "files-environment-behaviors" -> FilesEnvironmentBehaviors.main(new String[] {args[1]});
             case "network-behaviors" -> NetworkBehaviors.main(new String[] {args[1]});
+            case "security-sinks-behaviors" -> SecuritySinksBehaviors.main(new String[0]);
             case "thread-activity-behaviors" -> ThreadActivityBehaviors.main(new String[] {args[1]});
             case "resources-behaviors" -> ResourcesBehaviors.main(new String[] {args[1]});
             case "sensor-switch-behaviors" -> SensorSwitchBehaviors.main(new String[0]);

@@ -177,6 +177,25 @@ class McpEraResolverTests {
                 .isEqualTo(200);
     }
 
+    @Test
+    void onlyAnExplicitEventStreamWithAPositiveQualityAllowsStreaming() {
+        assertThat(McpProtocol.acceptsEventStream(List.of("application/json, text/event-stream")))
+                .isTrue();
+        assertThat(McpProtocol.acceptsEventStream(List.of("application/json", "TEXT/EVENT-STREAM;q=0.5")))
+                .isTrue();
+        assertThat(McpProtocol.acceptsEventStream(List.of("text/event-stream; charset=utf-8")))
+                .isTrue();
+        assertThat(McpProtocol.acceptsEventStream(null)).isFalse();
+        assertThat(McpProtocol.acceptsEventStream(List.of())).isFalse();
+        assertThat(McpProtocol.acceptsEventStream(List.of("*/*"))).isFalse();
+        assertThat(McpProtocol.acceptsEventStream(List.of("text/*"))).isFalse();
+        assertThat(McpProtocol.acceptsEventStream(List.of("application/json"))).isFalse();
+        assertThat(McpProtocol.acceptsEventStream(List.of("text/event-stream;q=0")))
+                .isFalse();
+        assertThat(McpProtocol.acceptsEventStream(List.of("text/event-stream;q=abc")))
+                .isFalse();
+    }
+
     private static McpEraDecision resolve(String method, McpRequestMeta meta, McpRequestHeaders headers) {
         return McpEraResolver.resolve(method, false, null, meta, headers);
     }

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.mcp;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -47,6 +48,47 @@ public final class McpProtocol {
     public static final String META_SERVER_INFO = "io.modelcontextprotocol/serverInfo";
     /** Request {@code _meta} key opting the request into progress notifications. */
     public static final String META_PROGRESS_TOKEN = "progressToken";
+
+    /** Request header listing the media types the client accepts. */
+    public static final String ACCEPT_HEADER = "Accept";
+    /** Media type of a request-scoped MCP event stream. */
+    public static final String EVENT_STREAM_MEDIA_TYPE = "text/event-stream";
+    /** Response header that tells reverse proxies such as nginx not to buffer the event stream. */
+    public static final String ACCEL_BUFFERING_HEADER = "X-Accel-Buffering";
+    /** Prefix of the line carrying one JSON-RPC message in an SSE event; every stack writes it without a space. */
+    public static final String SSE_DATA_PREFIX = "data:";
+    /** Terminator of one SSE event. */
+    public static final String SSE_EVENT_END = "\n\n";
+    /** An SSE comment: a keep-alive that clients ignore. */
+    public static final String SSE_HEARTBEAT = ":\n\n";
+
+    /**
+     * One JSON-RPC message as an SSE event: {@code data:}, the message, and the event terminator. The message must be
+     * compact JSON on one line, because an SSE parser ends the {@code data:} field at the first line break and the
+     * remaining lines would be lost or reassembled differently by each stack; a line break is refused rather than
+     * written.
+     *
+     * @throws IllegalArgumentException if {@code json} contains a carriage return or a line feed
+     */
+    public static String sseDataFrame(String json) {
+        return SSE_DATA_PREFIX + sseData(json) + SSE_EVENT_END;
+    }
+
+    /**
+     * {@code json} itself, after checking that it fits one SSE {@code data:} line, for transports that write the
+     * {@code data:} field themselves.
+     *
+     * @throws IllegalArgumentException if {@code json} contains a carriage return or a line feed
+     */
+    public static String sseData(String json) {
+        Objects.requireNonNull(json, "json");
+        if (json.indexOf('\n') >= 0 || json.indexOf('\r') >= 0) {
+            throw new IllegalArgumentException("An MCP stream event must be one line of compact JSON");
+        }
+        return json;
+    }
+    /** JSON-RPC method of a progress notification. */
+    public static final String PROGRESS_NOTIFICATION = "notifications/progress";
 
     /** The modern {@code resultType} of every final result BootUI returns. */
     public static final String RESULT_TYPE_COMPLETE = "complete";
@@ -96,6 +138,13 @@ public final class McpProtocol {
     public static final int TOOL_TIMEOUT = -32002;
     /** Server-defined: a rendered response exceeded its byte budget. */
     public static final int RESPONSE_TOO_LARGE = -32003;
+    /**
+     * BootUI-defined, outside the JSON-RPC reserved range: the caller cancelled the request. The code is the one the
+     * Language Server Protocol uses for the same outcome.
+     */
+    public static final int REQUEST_CANCELLED = -32800;
+    /** Reported when the caller cancelled the request. */
+    public static final String REQUEST_CANCELLED_MESSAGE = "MCP request cancelled";
 
     // MCP 2026-07-28 protocol error codes.
     /** The HTTP headers do not match the request body, or a required header is missing or malformed. */
@@ -156,8 +205,15 @@ public final class McpProtocol {
         return era == McpEra.MODERN && code == METHOD_NOT_FOUND ? 404 : 200;
     }
 
+    /** The HTTP status of the JSON response carrying {@code outcome} for {@code era}, derived from the outcome itself. */
+    public static int httpStatus(McpEra era, McpDispatchOutcome outcome) {
+        return outcome instanceof McpDispatchOutcome.ProtocolError error ? errorHttpStatus(era, error.code()) : 200;
+    }
+
     /** Returned when the request is not a JSON-RPC object. */
     public static final String MALFORMED_REQUEST_MESSAGE = "Request must be a JSON-RPC object";
+    /** Returned when a request omits {@code jsonrpc: "2.0"}. */
+    public static final String MISSING_JSONRPC_MESSAGE = "Request must include jsonrpc: \"2.0\"";
     /** Returned when a (non-notification) request omits {@code method}. */
     public static final String MISSING_METHOD_MESSAGE = "Missing 'method'";
     /** Returned when the transport receives a batch request, which MCP Streamable HTTP forbids. */
@@ -255,6 +311,42 @@ public final class McpProtocol {
     public static String missingArgumentMessage(String message, String toolName) {
         McpToolGuide.IdSource source = McpToolGuide.idSource(toolName);
         return source == null ? message : message + " (" + source.describe() + ")";
+    }
+
+    /**
+     * {@code true} when one of the {@code Accept} header values lists {@code text/event-stream} explicitly with a
+     * non-zero quality. A wildcard does not count: a client must say it can read a stream before it gets one.
+     */
+    public static boolean acceptsEventStream(List<String> acceptHeaders) {
+        if (acceptHeaders == null) {
+            return false;
+        }
+        for (String header : acceptHeaders) {
+            if (header == null) {
+                continue;
+            }
+            for (String range : header.split(",")) {
+                String[] parts = range.split(";");
+                if (!EVENT_STREAM_MEDIA_TYPE.equalsIgnoreCase(parts[0].trim())) {
+                    continue;
+                }
+                double quality = 1;
+                for (int i = 1; i < parts.length; i++) {
+                    String parameter = parts[i].trim();
+                    if (parameter.length() > 2 && parameter.substring(0, 2).equalsIgnoreCase("q=")) {
+                        try {
+                            quality = Double.parseDouble(parameter.substring(2).trim());
+                        } catch (NumberFormatException malformed) {
+                            quality = 0;
+                        }
+                    }
+                }
+                if (quality > 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** Canonical invalid-type message used by both adapter codecs. */

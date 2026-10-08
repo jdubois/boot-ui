@@ -301,6 +301,154 @@ public abstract class AbstractMcpConformanceTest {
         assertThat(refused.status()).isEqualTo(403);
     }
 
+    private Response progressCall(String id, String accept, boolean withToken) {
+        Map<String, String> headers = new java.util.LinkedHashMap<>();
+        headers.put("Content-Type", "application/json");
+        headers.put("Accept", accept);
+        headers.put("MCP-Protocol-Version", MODERN);
+        headers.put("Mcp-Method", "tools/call");
+        headers.put("Mcp-Name", "architecture_scan");
+        String body = "{\"jsonrpc\":\"2.0\",\"id\":" + id
+                + ",\"method\":\"tools/call\",\"params\":{\"name\":\"architecture_scan\",\"arguments\":{},"
+                + "\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
+                + "\"io.modelcontextprotocol/clientCapabilities\":{}"
+                + (withToken ? ",\"progressToken\":\"p-1\"" : "") + "}}}";
+        return probe().request("POST", "/bootui/api/mcp", headers, body, java.time.Duration.ofSeconds(60));
+    }
+
+    @Test
+    void testModernProgressCallAnswersOnARequestScopedEventStream() throws Exception {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            Response response = progressCall("21", "application/json, text/event-stream", true);
+
+            assertThat(response.status()).isEqualTo(200);
+            assertThat(response.contentType()).startsWith("text/event-stream");
+            assertThat(response.header("X-Accel-Buffering")).isEqualTo("no");
+            String body = response.body();
+            assertThat(body).endsWith("\n\n");
+            List<JsonNode> messages = new java.util.ArrayList<>();
+            ObjectMapper mapper = new ObjectMapper();
+            for (String event : body.split("\n\n")) {
+                if (event.startsWith(":")) {
+                    continue;
+                }
+                assertThat(event)
+                        .as("one JSON-RPC message per event, no event ids")
+                        .startsWith("data:");
+                assertThat(event).doesNotContain("\n");
+                messages.add(mapper.readTree(event.substring("data:".length())));
+            }
+            assertThat(messages.size()).as(body).isGreaterThanOrEqualTo(5);
+            List<JsonNode> progress = messages.subList(0, messages.size() - 1);
+            JsonNode last = messages.get(messages.size() - 1);
+
+            double total = progress.get(0).path("params").path("total").asDouble();
+            assertThat(total).as("rules evaluated plus three phases").isGreaterThan(3);
+            assertThat(progress.get(0).toString())
+                    .isEqualTo("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":"
+                            + "{\"progressToken\":\"p-1\",\"progress\":0,\"total\":" + (long) total
+                            + ",\"message\":\"Importing application classes\"}}");
+            assertThat(progress.get(1).path("params").path("message").asText()).isEqualTo("Checking generated code");
+            assertThat(progress.get(2).path("params").path("message").asText())
+                    .isEqualTo("Evaluating architecture rules");
+            JsonNode final_ = progress.get(progress.size() - 1).path("params");
+            assertThat(final_.path("message").asText()).isEqualTo("Locating violations");
+            assertThat(final_.path("progress").asDouble())
+                    .as("the final response, not a notification, marks completion")
+                    .isEqualTo(total - 1);
+            double previous = -1;
+            for (JsonNode notification : progress) {
+                assertThat(notification.has("id"))
+                        .as("notifications carry no id")
+                        .isFalse();
+                assertThat(notification.path("method").asText()).isEqualTo("notifications/progress");
+                assertThat(notification.path("params").path("progressToken").asText())
+                        .isEqualTo("p-1");
+                assertThat(notification.path("params").path("progress").asDouble())
+                        .isGreaterThan(previous);
+                previous = notification.path("params").path("progress").asDouble();
+            }
+
+            assertThat(last.path("id").asInt()).isEqualTo(21);
+            assertThat(last.has("method")).isFalse();
+            JsonNode result = last.path("result");
+            assertThat(result.path("resultType").asText()).isEqualTo("complete");
+            assertThat(result.path("isError").asBoolean()).as(last.toString()).isFalse();
+            assertThat(result.path("structuredContent")
+                            .path("scan")
+                            .path("status")
+                            .asText())
+                    .isIn("SCANNED", "PARTIAL");
+            assertThat(result.path("_meta")
+                            .path("io.modelcontextprotocol/serverInfo")
+                            .path("name")
+                            .asText())
+                    .isEqualTo("bootui");
+        }
+    }
+
+    @Test
+    void testModernCallsWithoutATokenOrStreamSupportStayJson() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            for (Response response : List.of(
+                    progressCall("22", "application/json, text/event-stream", false),
+                    progressCall("23", "application/json", true),
+                    progressCall("24", "*/*", true))) {
+                assertThat(response.status()).isEqualTo(200);
+                assertThat(response.contentType()).startsWith("application/json");
+                JsonNode result = response.json().path("result");
+                assertThat(result.path("resultType").asText()).isEqualTo("complete");
+                assertThat(result.path("isError").asBoolean()).isFalse();
+            }
+        }
+    }
+
+    @Test
+    void testNullAndNonStringEnvelopeFieldsAreTheSameClientErrorOnEveryStack() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            Map<String, String> json = Map.of("Content-Type", "application/json");
+            for (String method : List.of("null", "5", "{}")) {
+                Response response = probe().request(
+                                "POST",
+                                "/bootui/api/mcp",
+                                json,
+                                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":" + method + "}");
+                assertThat(response.status()).isEqualTo(200);
+                assertThat(response.body())
+                        .as(method)
+                        .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,"
+                                + "\"message\":\"Missing 'method'\"}}");
+            }
+            Response nullName = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            json,
+                            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":null}}");
+            assertThat(nullName.body())
+                    .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32602,"
+                            + "\"message\":\"Missing tool name\"}}");
+            Response nullNotification =
+                    probe().request("POST", "/bootui/api/mcp", json, "{\"jsonrpc\":\"2.0\",\"method\":null}");
+            assertThat(nullNotification.status()).isEqualTo(202);
+            Map<String, String> modern = Map.of(
+                    "Content-Type", "application/json", "MCP-Protocol-Version", MODERN, "Mcp-Method", "tools/call");
+            Response modernNullName = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            modern,
+                            "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":null,"
+                                    + "\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
+                                    + "\"io.modelcontextprotocol/clientCapabilities\":{}}}}");
+            assertThat(modernNullName.status()).isEqualTo(200);
+            assertThat(modernNullName.body())
+                    .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-32602,"
+                            + "\"message\":\"Missing tool name\"}}");
+        }
+    }
+
     @Test
     void testInitializeStaysLegacyWhenItCarriesModernMeta() {
         assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();

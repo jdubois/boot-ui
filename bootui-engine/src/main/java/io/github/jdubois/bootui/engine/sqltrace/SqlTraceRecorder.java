@@ -13,6 +13,8 @@ import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.ThreadKinds;
 import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
+import io.github.jdubois.bootui.engine.javaagent.AgentRequestValues;
+import io.github.jdubois.bootui.engine.javaagent.RequestInputSinks;
 import io.github.jdubois.bootui.engine.journal.ApplicationFrames;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -559,6 +561,11 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
             String dataSource) {
         if (!enabled || BootUiJdbcCaptureGuard.isSuppressed()) {
             return;
+        }
+        // Whether request input reached this statement's text, on the thread that issued it (docs/PLAN-v2.md §5.16,
+        // M5-6b): only while request-value matching is on; never a value or the text kept.
+        if (AgentRequestValues.enabled()) {
+            RequestInputSinks.sql(sql, correlation.current());
         }
         // A paused or idle-suspended panel skips its own buffer, listeners, and span enrichment, but the runtime
         // journal keeps recording whenever it records SQL (docs/PLAN-v2.md §5.2).

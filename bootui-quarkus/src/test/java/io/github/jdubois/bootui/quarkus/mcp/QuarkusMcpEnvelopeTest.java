@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.jdubois.bootui.conformance.McpCodecParity;
+import io.github.jdubois.bootui.conformance.McpModernParity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
@@ -407,11 +408,7 @@ class QuarkusMcpEnvelopeTest {
         assertThat(modern(envelope, "tools/call", "4", "get_overview", "2026-07-28", true)
                         .body()
                         .toString())
-                .isEqualTo(
-                        "{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"resultType\":\"complete\","
-                                + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
-                                + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
-                                + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}");
+                .isEqualTo(McpModernParity.TOOL_CALL_DEMO);
 
         QuarkusMcpEnvelope.Reply unknown = modern(envelope, "ping", "6", null, "2026-07-28", true);
         assertThat(unknown.status()).isEqualTo(404);
@@ -443,6 +440,27 @@ class QuarkusMcpEnvelopeTest {
     }
 
     @Test
+    void modernEnvelopesMatchTheSharedParityContract() throws Exception {
+        QuarkusMcpEnvelope envelope =
+                envelope(tool(args -> java.util.Map.of("name", "demo")), new RecordingFailureReporter());
+        ObjectNode discover = (ObjectNode) modern(envelope, "server/discover", "1", null, "2026-07-28", true)
+                .body()
+                .path("result");
+        discover.remove("instructions");
+        assertThat(discover.toString()).isEqualTo(McpModernParity.DISCOVER_WITHOUT_INSTRUCTIONS);
+        ObjectNode tools = (ObjectNode) modern(envelope, "tools/list", "2", null, "2026-07-28", true)
+                .body()
+                .path("result");
+        tools.remove("tools");
+        assertThat(tools.toString()).isEqualTo(McpModernParity.LIST_ENVELOPE);
+        ObjectNode prompts = (ObjectNode) modern(envelope, "prompts/list", "3", null, "2026-07-28", true)
+                .body()
+                .path("result");
+        prompts.remove("prompts");
+        assertThat(prompts.toString()).isEqualTo(McpModernParity.LIST_ENVELOPE);
+    }
+
+    @Test
     void containerValuedEnvelopeFieldsAreClientErrorsLikeOnSpring() throws Exception {
         QuarkusMcpEnvelope envelope =
                 envelope(tool(args -> java.util.Map.of("name", "demo")), new RecordingFailureReporter());
@@ -464,6 +482,73 @@ class QuarkusMcpEnvelopeTest {
                         .toString())
                 .isEqualTo(
                         "{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-32602,\"message\":\"Missing tool name\"}}");
+    }
+
+    @Test
+    void streamFinalResponsesStayOneLineWithAnIndentingApplicationMapper() throws Exception {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        McpDispatcher dispatcher = new McpDispatcher(
+                List.of(tool(args -> java.util.Map.of("name", "demo"))),
+                List.of(),
+                new AllowAllPolicy(),
+                "1.2.3",
+                "instructions",
+                50,
+                20,
+                diagnostics);
+        ObjectMapper indenting =
+                new ObjectMapper().enable(com.fasterxml.jackson.databind.SerializationFeature.INDENT_OUTPUT);
+        QuarkusMcpEnvelope envelope = new QuarkusMcpEnvelope(dispatcher, indenting, diagnostics);
+
+        String finalResponse = envelope.renderFinal(
+                objectMapper.readTree("7"),
+                io.github.jdubois.bootui.engine.mcp.McpEra.MODERN,
+                new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult(
+                        java.util.Map.of("name", "demo")));
+
+        assertThat(finalResponse).doesNotContain("\n", "\r");
+        // The text content is a JSON string, so the mapper's line breaks inside it are escaped; the envelope is
+        // compact.
+        assertThat(McpProtocol.sseDataFrame(finalResponse))
+                .startsWith("data:{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"resultType\":\"complete\","
+                        + "\"content\":[{\"type\":\"text\",\"text\":\"")
+                .endsWith(
+                        "\"}],\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
+                                + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}\n\n");
+        assertThat(diagnostics.count).hasValue(0);
+    }
+
+    @Test
+    void streamFramesAreTheSameBytesOnEveryStack() throws Exception {
+        QuarkusMcpEnvelope envelope =
+                envelope(tool(args -> java.util.Map.of("name", "demo")), new RecordingFailureReporter());
+        assertThat(envelope.renderProgress(
+                        io.github.jdubois.bootui.engine.mcp.McpProgressToken.of("tok"),
+                        new io.github.jdubois.bootui.engine.progress.ProgressEvent(
+                                3, 43.0, "Evaluating architecture rules")))
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":"
+                        + "{\"progressToken\":\"tok\",\"progress\":3,\"total\":43,"
+                        + "\"message\":\"Evaluating architecture rules\"}}");
+        assertThat(envelope.renderProgress(
+                        io.github.jdubois.bootui.engine.mcp.McpProgressToken.of(9),
+                        new io.github.jdubois.bootui.engine.progress.ProgressEvent(1.5, null, "Working")))
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":"
+                        + "{\"progressToken\":9,\"progress\":1.5,\"message\":\"Working\"}}");
+        assertThat(envelope.renderFinal(
+                        objectMapper.readTree("7"),
+                        new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError(
+                                McpProtocol.TOOL_TIMEOUT, McpProtocol.TOOL_TIMEOUT_MESSAGE)))
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":7,\"error\":{\"code\":-31002,"
+                        + "\"message\":\"MCP tool execution timed out\"}}");
+        assertThat(envelope.renderFinal(
+                        objectMapper.readTree("7"),
+                        new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult(
+                                java.util.Map.of("name", "demo"))))
+                .isEqualTo(
+                        "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"resultType\":\"complete\","
+                                + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
+                                + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
+                                + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}");
     }
 
     private QuarkusMcpEnvelope.Reply modern(

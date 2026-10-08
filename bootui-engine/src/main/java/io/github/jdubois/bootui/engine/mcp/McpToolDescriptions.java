@@ -354,7 +354,8 @@ public final class McpToolDescriptions {
                             + "with files the streams, a request left open or never closed (resources), and, opt-in, the "
                             + "files it opens, deletes, moves, and copies, the environment variables and system "
                             + "properties it reads, the threads it starts and executors it creates (thread-activity), "
-                            + "and the thread locals a request or a job left set on its pooled thread (thread-locals). "
+                            + "the thread locals a request or a job left set on its pooled thread (thread-locals), "
+                            + "and request input reaching a sink (security-sinks, request-input-in-sink). "
                             + "Advertised only while "
                             + "the agent is armed for this run (see get_agent_status). Every sensor first, with its "
                             + "coverage (recording, not-claimed, not-available in this version, ...), without its hooks "
@@ -383,7 +384,11 @@ public final class McpToolDescriptions {
                             + "show it, by origin (application, or a library the application called), how many were "
                             + "reclaimed by the garbage collector never closed (failed: the leak), still open after their "
                             + "request (leftRunning) and closed after it (completed), both a pool's or a cache's hand-off "
-                            + "rather than a leak, never contents."),
+                            + "rather than a leak, never contents; a security-sinks row the SQL text, command "
+                            + "and argument index, file path pattern, or outbound URL that a request parameter's value "
+                            + "reached unchanged, with that value redacted to {name}, the parameter's name, and a "
+                            + "sentence stating the fact (for SQL, inside or outside a literal), a fact to check in the "
+                            + "code."),
             Map.entry(
                     "get_jvm_tuning",
                     "Return the current JVM sizing facts and generated tuning recommendations using detected defaults: "

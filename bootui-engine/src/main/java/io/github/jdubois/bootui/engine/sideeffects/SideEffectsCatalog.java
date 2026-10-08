@@ -38,6 +38,40 @@ public final class SideEffectsCatalog {
     /** The bridge's sensor id of {@code resources} in records ({@code Resources}, M5-5g). */
     static final int RECORD_RESOURCES = 9;
 
+    /** The bridge's sensor id of {@code security-sinks} in records (M5-6b). */
+    static final int RECORD_SECURITY_SINKS = 8;
+
+    /** The security-sinks sensor's id. */
+    public static final String SECURITY_SINKS_ID = "security-sinks";
+
+    /** The security-sinks sensor's record kinds: the sink request input reached ({@code RequestValues.SINK_*}). */
+    static final int KIND_SINK_SQL = 1;
+
+    static final int KIND_SINK_COMMAND = 2;
+    static final int KIND_SINK_FILE = 3;
+    static final int KIND_SINK_URL = 4;
+
+    /** A security-sinks record's outcome bits ({@code RequestValues.POSITION_*} and {@code FLAG_*}). */
+    static final int SINK_IN_LITERAL = 1;
+
+    static final int SINK_OUTSIDE_LITERAL = 2;
+    static final int SINK_POSITION_UNKNOWN = 3;
+    static final int SINK_NUMERIC = 4;
+    static final int SINK_CROSSES_LITERAL = 8;
+    static final int SINK_BARE_LITERAL = 16;
+
+    /** Where in an SQL text a value sat, as a security-sinks row's location says. */
+    public static final String INSIDE_LITERAL = "inside a literal";
+
+    public static final String OUTSIDE_LITERAL = "outside a literal";
+
+    /** What a security-sinks row's kind says. */
+    public static final String SQL_TEXT = "SQL text";
+
+    public static final String COMMAND = "command";
+    public static final String FILE_PATH = "file path";
+    public static final String OUTBOUND_URL = "outbound URL";
+
     /** The bridge's record kinds. */
     static final int KIND_PROCESS_START = 1;
 
@@ -224,7 +258,12 @@ public final class SideEffectsCatalog {
                     true,
                     RECORD_RESOURCES),
             new Sensor("blocking", BLOCKING, "Blocking calls started on an event loop", true, RECORD_BLOCKING),
-            new Sensor("security-sinks", SECURITY_SINKS, "Request input reaching SQL, commands, and paths", false, 0));
+            new Sensor(
+                    SECURITY_SINKS_ID,
+                    SECURITY_SINKS,
+                    "Request input reaching SQL, commands, file paths, and URLs",
+                    true,
+                    RECORD_SECURITY_SINKS));
 
     private SideEffectsCatalog() {}
 
@@ -252,6 +291,15 @@ public final class SideEffectsCatalog {
     static String kind(int recordId, int kind) {
         if (recordId == RECORD_PROCESSES) {
             return "process";
+        }
+        if (recordId == RECORD_SECURITY_SINKS) {
+            return switch (kind) {
+                case KIND_SINK_SQL -> SQL_TEXT;
+                case KIND_SINK_COMMAND -> COMMAND;
+                case KIND_SINK_FILE -> FILE_PATH;
+                case KIND_SINK_URL -> OUTBOUND_URL;
+                default -> "sink";
+            };
         }
         if (recordId == RECORD_NETWORK) {
             return switch (kind) {

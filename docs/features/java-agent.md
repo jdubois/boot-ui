@@ -830,6 +830,68 @@ masked.
 28 ns per call instead of 5 to 6 ns on JDK 17, 21, and 26 (`FilesEnvironmentBehaviorsIT`). Add `environment` to
 `bootui.agent.sensors` to record it, or [switch it on at run time](#switching-opt-in-sensors-at-run-time). Its three hooks are core: one that fails its self-test disables the sensor alone.
 
+## The security-sinks sensor
+
+`bootui.agent.sensors=...,security-sinks` with `bootui.agent.security-sinks.request-values=true` checks whether
+request input reaches a sink **unchanged**: whether the value of one of the current request's query or path parameters
+appears verbatim in SQL text, a command, a file path, or an outbound URL. Both are opt-in (D37): the sensor does nothing
+without the property, and the property does nothing without the sensor. Each match is a row of the Side Effects
+**Security sinks** tab and of `get_side_effects`' `security-sinks` query (`request-input-in-sink`), worded as a fact,
+never as a vulnerability:
+
+> Request input reached this SQL text unchanged: the value of `name` appeared inside a literal. Check that it is bound
+> as a parameter or escaped.
+
+A row names the sink, the parameter's name, the call site, and the sink's text with the value **redacted** to
+`{name}`. It never holds the value:
+
+| Sink | Where it is checked | The row's target |
+| --- | --- | --- |
+| SQL text | Where SQL Trace's JDBC capture records the statement, on the thread that ran it. R2DBC is not captured | The statement with every literal masked, as SQL Trace's fingerprint masks it whatever the exposure, and `{name}` in the value's place; the row says whether it sat **inside** or **outside a literal** |
+| Command | The `processes` sensor's `ProcessBuilder.start` hook, in each of the command's first 32 elements | The command's file name and the argument's index, `convert, argument 2`, never an argument |
+| File path | The `files` sensor's hooks, so only with `files` claimed | The path pattern of the redacted path, `./reports/{name}.csv`; the `files` row names that pattern too |
+| Outbound URL | Where the REST client panel records the call: `RestTemplate`, `RestClient`, `WebClient`, and the Quarkus REST client, on the thread that issues it, its host, decoded path, and decoded query parameters checked apart | The scheme, host, and port, the redacted path with numeric and UUID segments as `{id}`, and the query's keys only; never user information or the fragment, and no text when the value is in the host |
+
+**How values are held.** The adapters hand the values to the agent's request value holder at the handler phase, only
+while matching is on: Spring MVC parses the query string itself and reads the handler mapping's path variables, never
+calling `getParameter*`, so a body is never read; Spring WebFlux takes the query parameters it already parsed and reads
+the path variables once its handler mapping set them, never the form data; Quarkus takes the decoded query and the
+matched path parameters. Form values, headers, and bodies are never held. The holder keeps at most 128 requests and 32
+values of 4 to 256 characters each (on Spring MVC, BootUI's own decoding of the query string), and removes a request's values where its response
+really completes: the filter's end, the async cycle's end, the WebFlux chain's end, or Quarkus' response end handler.
+A missed end is swept after 60 seconds, and a new claim, a DevTools restart, a live reload, or a release wipes the
+holder. The values are not part of BootUI's correlation context, so no executor snapshot copies them, and a task the
+agent propagated, or any other request's work, is never matched; a task the request hands to a managed executor still
+matches, until the response completes. Matching is bounded per request: at most 256 checks, 16 KB of text per check,
+and 4 Mi character comparisons in all, each check costing its text's length times the held values' total length. An
+identical text scanned whole that matched nothing, while the request's values are unchanged, is not checked again; one that
+already matched is compared and redacted again, not reported twice, and not counted as a check, though its comparisons
+count, so a statement repeated in a long loop can still reach the comparison budget. When a text was scanned only
+in part, or held more matches than could be redacted, the row keeps no text. Once a request reached its budget, its
+later sinks are not checked: a `files` or `processes` row then names its path or executable `(not kept: not checked for
+request input)`, never the text, as it does for a path or executable longer than a check scans; the tab's limitations say when that happened. **Clear recording** clears the rows; the holder,
+empty between requests, is not evidence.
+
+**Overhead.** On the agent overhead job's sinks route (two query parameters, one SQL statement, and one file read per
+request), matching added 2.6 %, −0.2 %, 2.9 %, and 1.1 % to the same sensors without it over four runs (median of 15
+pairs each), and the run with every sensor, `files` included, measured 10.9 %, 8.4 %, 10.8 %, and 9.7 % against no
+agent, at the edge of the 10 % budget; matching stays opt-in.
+
+**False positives.** A value that sits outside an SQL literal, inside a number or `true`/`false`, or that is itself a
+number (digits, with an optional sign and decimal point, as `-33.8688`), may be a word the text always holds, as a
+value equal to a column name. Such a match is shown only once a second request produced a different raw text with the
+same redacted text, which shows the text varies with the value; until then the panel counts it as not
+shown yet; a value repeated in requests with the same text confirms nothing. Any other match is shown from one
+request, marked as seen in one request so far, including a value that crosses a literal's bounds, as one closing a
+quote: the row then shows it outside any literal, every literal around it still masked. Only per-process keyed hashes of the raw and redacted texts are compared,
+never the texts. Past the tab's row cap, a match not confirmed yet is counted, never shown in its Other row.
+
+The sensor adds no hook of its own in this version: its deserialization, weak algorithm, and trust manager checks
+follow (M5-6b2), and the `HttpClient` and `URL.openConnection` hooks are deferred, so a JDK `HttpClient` call is checked
+only when it goes through a REST client BootUI records. With matching on, the tab's limitations show the holder's
+counters: requests held, checks run, and what it skipped or could not keep; the sensor's reason names the sinks it
+cannot check because their sensor is not claimed.
+
 ## The blocking sensor
 
 The `blocking` sensor, on by default, reports `Thread.sleep`, `TimeUnit.sleep`, `Object.wait`, `LockSupport.park`, and
@@ -1262,7 +1324,8 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, `resources` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, and `resources`, and the opt-in `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, and `caught-exceptions`. The Side Effects sensor this version does not ship (`security-sinks`) is accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, `resources` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, and `resources`, and the opt-in `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks`. Any other id fails the start while the agent is attached. |
+| `bootui.agent.security-sinks.request-values` | `false` | With the `security-sinks` sensor, holds the current request's query and path parameter values while it runs, so a sink it reaches can be checked for one appearing verbatim ([the security-sinks sensor](#the-security-sinks-sensor)). Never stored, logged, or displayed. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window: a task belongs to its request when it starts no later than this after the request ended, its work is attributed until this long after it started, and it is published `capped` when it runs longer. |
@@ -1580,7 +1643,7 @@ The panel has one tab per sensor group:
 | Environment | `environment` | Records when `bootui.agent.sensors` opts in or it is switched on; otherwise `not-claimed`. |
 | Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `resources` records by default, sockets through `network` and file streams once `files` is on (see [the resources sensor](#the-resources-sensor)); `thread-activity` and `thread-locals` record when `bootui.agent.sensors` opts in or they are switched on (see [the thread-activity sensor](#the-thread-activity-sensor) and [the thread-locals sensor](#the-thread-locals-sensor)). |
 | Blocking | `blocking` | records on Spring WebFlux and Quarkus; `not-applicable` on Spring MVC until a WebClient's event loop is registered. |
-| Security sinks | `security-sinks` | `not-available`: Not available in this version. |
+| Security sinks | `security-sinks` | Records request input reaching SQL text, a command, a file path, or an outbound URL when `bootui.agent.sensors` opts in and `bootui.agent.security-sinks.request-values=true` (see [the security-sinks sensor](#the-security-sinks-sensor)). |
 
 The `processes` sensor is on by default through `bootui.agent.sensors`. It hooks the JDK process start path used by
 `ProcessBuilder.start()`, `ProcessBuilder.startPipeline(...)`, and `Runtime.exec(...)`. A row records the command name

@@ -156,7 +156,8 @@ explicitly enabled, which requires authentication.
 The endpoint speaks both MCP eras. A client that opens with `initialize` gets MCP 2025-06-18 exactly as before; a client
 that sends MCP 2026-07-28 per-request `_meta` (with the matching `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name`
 headers) can call `server/discover` and gets `resultType`, the server's identity, and cache hints on every result. Both
-eras see the same tools, prompts, policies, and limits, and every response is a single JSON object. There is no `GET`
+eras see the same tools, prompts, policies, and limits. A modern call that asks for progress on a tool with real phases
+answers on a request-scoped `text/event-stream`; every other response is a single JSON object. There is no `GET`
 stream in either era (`405`). See [Protocol eras](#protocol-eras) for the details a client implementer needs.
 
 1. **Run your app locally with BootUI active** (the `dev` / `local` profiles, or `spring-boot-devtools` on the
@@ -748,9 +749,14 @@ BootUI selects the era of each `POST /bootui/api/mcp` from the request itself, a
 compatibility rules describe:
 
 - **Legacy (MCP 2025-06-18).** A request without `_meta["io.modelcontextprotocol/protocolVersion"]`, and every
-  `initialize`, is served as in BootUI 1.x: `initialize`, `ping`, the same result shapes, and error codes
-  `-32000` (disabled), `-32001` (at capacity), `-32002` (timeout), and `-32003` (response too large). An
-  `MCP-Protocol-Version` header other than `2025-06-18` is refused with `400` and `-32600`.
+  `initialize`, is served as in BootUI 1.x: `initialize`, `ping`, the same result shapes, and error codes `-32000`
+  (disabled), `-32001` (at capacity), `-32002` (timeout), and `-32003` (response too large). An `MCP-Protocol-Version`
+  header with any value other than `2025-06-18` or `2026-07-28`, or sent more than once, is refused with `400` and
+  `-32600`; `2026-07-28` without the modern `_meta` is a malformed modern request (`400`, `-32602`, echoing the request
+  id; BootUI 1.x answered `-32600` with a `null` id). The envelope fields `jsonrpc`, `method`, and `params.name` count
+  only when they are strings, so a `null` or numeric `method` is `Missing 'method'` and a `null` tool name is `Missing
+  tool name` on every stack. `MCP-Protocol-Version` is judged after the body is read, so an oversized, unparseable, or
+  batch body reports that problem first.
 - **Modern (MCP 2026-07-28).** A request whose `_meta` names a protocol version is validated in this order, each failure
   being `400`: the version must be a string (`-32602`); `MCP-Protocol-Version` must be sent once and equal it
   (`-32020`); an unsupported version answers `-32022` with `data.supported` (`["2026-07-28", "2025-06-18"]`) and
@@ -758,6 +764,8 @@ compatibility rules describe:
   once and equal the method (`-32020`); for `tools/call` and `prompts/get`, `Mcp-Name` must be sent once and equal
   `params.name`, after decoding the `=?base64?…?=` form (`-32020`); a `progressToken` must be a string or an integer
   (`-32602`). A request whose `_meta` names `2025-06-18` is served as legacy.
+- **Progress is modern-only.** A legacy request's `progressToken` is ignored, never rejected, and legacy answers stay
+  single JSON objects.
 - **Modern results.** Every result carries `resultType: "complete"` and `_meta["io.modelcontextprotocol/serverInfo"]`.
   `server/discover`, `tools/list`, and `prompts/list` also carry `ttlMs: 60000` and `cacheScope: "private"`; tools stay
   in catalog order. Modern clients have no `initialize` or `ping`; an unknown method answers `404` with `-32601`.
@@ -765,8 +773,32 @@ compatibility rules describe:
   (at capacity), `-31002` (timeout), and `-31003` (response too large), with the same messages.
 - **Unchanged in both eras.** Loopback, Host, cross-site write, token, panel enable and read-only, masking,
   payload/response limits, concurrency, and `bootui.mcp.execution-timeout` apply exactly the same way. Notifications
-  answer `202`. Responses are single JSON objects; request-scoped progress over `text/event-stream` is planned
-  ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+  answer `202`.
+- **Progress on a request-scoped stream (modern only).** A modern `tools/call` with `_meta.progressToken` (a string or
+  an integer), to a tool that reports measured phases (today `architecture_scan`), from a client whose `Accept` lists
+  `text/event-stream` explicitly, answers `200` with `Content-Type: text/event-stream` and `X-Accel-Buffering: no`.
+  The stream carries `data:` events, each one JSON-RPC message: `notifications/progress` with the request's token, a
+  strictly increasing `progress`, the `total` when known, and a fixed phase `message`, then exactly one final
+  response, after which the stream closes. There are no event ids, and `:` comment lines every 2 seconds keep the
+  connection open. Notifications are rate-limited: a burst of 8, then one every 250 ms, coalescing to the newest. Any
+  other call, including every refusal and a call without a token, stays a single JSON response, and a legacy request's
+  `progressToken` is ignored.
+- **Cancellation by closing the stream.** Closing the response stream cancels the call, as MCP 2026-07-28 requires:
+  BootUI writes nothing more, interrupts the tool, which stops at its next step and keeps its previous report, and frees
+  the concurrency slot once the tool has returned and the stream is written. WebFlux and Quarkus notice the disconnect
+  at once; Spring MVC notices it when a write fails, within two keep-alive intervals (about 4 seconds).
+  `bootui.mcp.execution-timeout` stays the absolute bound, whatever progress flows: a timed-out stream ends with the
+  timeout error as its final response, even when the call timed out before its stream opened. Events are always one
+  line of compact JSON, whatever the application's Jackson configuration (an indenting mapper included). A blocking
+  call that is cancelled rather than timed out (a tool that stops at a cancellation checkpoint) answers the BootUI
+  error `-32800` "MCP request cancelled", the code the Language Server Protocol uses for the same outcome. The `GET
+  /bootui/api/mcp-server` status reports `supportedProtocolVersions` and counts `cancellations` (streams a client
+  closed and cancelled calls) apart from `timeouts`.
+- **A client that stops reading.** The writer then blocks and keeps the call's concurrency slot, so
+  `bootui.mcp.max-concurrent-calls` also bounds stalled streams; on WebFlux it waits for the subscriber's demand
+  instead of buffering. On every stack it gives up 10 seconds after the execution timeout: Spring MVC's async request
+  times out, WebFlux stops waiting for demand, and Quarkus resets the response, which frees the slot.
+
 ## Assess an application and approve an action plan
 
 When you do not know which panel to investigate first, ask your coding agent for an application assessment:
