@@ -134,6 +134,23 @@ public class QuarkusMcpEnvelope {
         return reply.body() == null && reply.stream() == null ? new Reply(202, null) : reply;
     }
 
+    /** The JSON type of a request id, which the engine judges per era. */
+    private static McpExchange.IdShape idShape(JsonNode id) {
+        if (id == null) {
+            return McpExchange.IdShape.ABSENT;
+        }
+        if (id.isNull()) {
+            return McpExchange.IdShape.NULL;
+        }
+        if (id.isTextual()) {
+            return McpExchange.IdShape.STRING;
+        }
+        if (id.isIntegralNumber()) {
+            return McpExchange.IdShape.INTEGER;
+        }
+        return id.isNumber() ? McpExchange.IdShape.FRACTIONAL : McpExchange.IdShape.INVALID;
+    }
+
     /** The neutral envelope fields of {@code request}; the decisions are {@link McpExchange}'s. */
     private static McpExchange.Envelope envelope(JsonNode request) {
         if (request == null || !request.isObject()) {
@@ -148,11 +165,7 @@ public class QuarkusMcpEnvelope {
                 false,
                 true,
                 jsonrpc != null && McpProtocol.JSONRPC_VERSION.equals(text(jsonrpc)),
-                id == null || id.isNull()
-                        ? McpExchange.IdShape.ABSENT_OR_NULL
-                        : id.isTextual() || id.isNumber()
-                                ? McpExchange.IdShape.STRING_OR_NUMBER
-                                : McpExchange.IdShape.INVALID,
+                idShape(id),
                 params == null || params.isObject(),
                 method != null && method.isTextual() ? method.asText() : null,
                 name != null && name.isTextual() ? name.asText() : null,
@@ -213,7 +226,10 @@ public class QuarkusMcpEnvelope {
         }
         return response;
     }
-    /** One {@code notifications/progress} of a stream, as compact JSON. */
+    /**
+     * One {@code notifications/progress} of a stream, as compact JSON, or {@code null} when it would exceed {@code
+     * bootui.mcp.max-response-bytes}: the transport then sends nothing for that event.
+     */
     public String renderProgress(McpProgressToken token, ProgressEvent event) {
         ObjectNode params = JsonNodeFactory.instance.objectNode();
         if (token.isText()) {
@@ -230,7 +246,13 @@ public class QuarkusMcpEnvelope {
         notification.put("jsonrpc", McpProtocol.JSONRPC_VERSION);
         notification.put("method", McpProtocol.PROGRESS_NOTIFICATION);
         notification.set("params", params);
-        return notification.toString();
+        String compact = notification.toString();
+        if (McpExchange.progressFits(
+                compact.getBytes(java.nio.charset.StandardCharsets.UTF_8).length, maxResponseBytes)) {
+            return compact;
+        }
+        dispatcher.runtimeStats().recordProgressDropped();
+        return null;
     }
 
     /** Integral values render as integers so every stack writes the same bytes. */

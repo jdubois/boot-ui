@@ -334,15 +334,21 @@ public final class McpToolDescriptions {
                             + "Inventory, and get_code_paths name it (com.example.PriceService#quote(I)J); it must be a "
                             + "method the agent instrumented, in the application's packages. Refused while the Code "
                             + "Paths panel or BootUI is read-only, without the BootUI agent, or when five probes run. "
-                            + "Returns the probe, starting; call get_method_probe with its id after the code runs. "
+                            + "Returns the probe, starting: retransformation happens afterwards, so call "
+                            + "get_method_probe with its id until it is active before running the code, run the code "
+                            + "before its endsAt, then call it again. "
                             + "Metadata only, in every exposure mode: durations, thread kind, request id, outcome, "
                             + "exception type, and calling frame, never argument or return values."),
             Map.entry(
                     "get_method_probe",
                     "Return a method probe by the id start_method_probe returned: its state (starting, active, ending, ended, failed), why it ended "
                             + "or failed, and each recorded invocation's duration, thread kind, request id, outcome or "
-                            + "exception type, and calling frame. Metadata only, never argument or return values. No "
-                            + "invocations after the code ran is evidence the path never reached the method; an active "
+                            + "exception type, and calling frame. Metadata only, never argument or return values. Poll "
+                            + "it until active before running the code: invocations at 0 is evidence the path never "
+                            + "reached the method only when the probe was active before the code ran and is still "
+                            + "active, or the code finished before its endsAt and it did not end early; a probe that "
+                            + "never became active, failed, or ended before the code finished is inconclusive. An "
+                            + "active "
                             + "probe waitingForClass has not seen its class load in this run yet, and an async method's "
                             + "durations time the assembly of its result only."),
             Map.entry(

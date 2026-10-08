@@ -264,6 +264,13 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus, {enabled: manif
                     >· {{ status.timeouts ?? 0 }} timed out · {{ status.cancellations ?? 0 }} cancelled</span
                   >
                 </dd>
+                <template v-if="status.progressDropped > 0">
+                  <dt class="col-5 text-muted fw-normal">Progress dropped</dt>
+                  <dd class="col-7" data-testid="mcp-progress-dropped">
+                    {{ status.progressDropped }}
+                    <span class="text-muted">over <code>bootui.mcp.max-response-bytes</code></span>
+                  </dd>
+                </template>
               </dl>
             </div>
           </div>
