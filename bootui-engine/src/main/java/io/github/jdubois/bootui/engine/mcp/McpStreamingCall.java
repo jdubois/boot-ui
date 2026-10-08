@@ -170,12 +170,20 @@ public final class McpStreamingCall {
         }
     }
 
-    /** A fault while writing the stream (not a client gone): it ends the call, and is reported even after the end. */
+    /**
+     * A fault while writing the stream (not a client gone): it ends the call as a fault, reported even after the end,
+     * and stops a tool still running, whose result can no longer be delivered and which no timeout bounds any more.
+     */
     private void failWriting(Throwable failure) {
         if (end(EndKind.COMPLETED, new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE))) {
             failureReporter.report("dispatching a request", failure);
         } else {
             failureReporter.report("writing a stream", failure);
+        }
+        progress.cancel();
+        Future<?> future = toolFuture;
+        if (future != null) {
+            future.cancel(true);
         }
     }
 
