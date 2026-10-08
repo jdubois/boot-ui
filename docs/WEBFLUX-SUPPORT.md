@@ -234,7 +234,8 @@ were already framework-neutral in practice, not just in the engine underneath th
     all, neither a recorded call nor authentication time, is insufficient rather than one unattributed span;
     `lazy-sql-after-handler` is not applicable. BootUI records
     JDBC, not R2DBC, so in an application without a traced `DataSource` the checks that read SQL report `UNAVAILABLE`
-    with that reason; only blocking transactions are placed. With the BootUI agent attached,
+    with that reason; a reactive transaction is placed in a request only when its pipeline carried the request's
+    context to the thread it began on. With the BootUI agent attached,
     `work-after-response` applies as on Spring MVC. Reactor's own schedulers already carry BootUI's context when
     `spring.reactor.context-propagation=auto`, so the agent's executors sensor then skips their `parallel-`,
     `boundedElastic-`, and `single-` threads; raw executors and `CompletableFuture` are propagated by the agent.
@@ -370,12 +371,15 @@ candidate list. Statement rankings are unaffected.
 
 **Transactions.** Capture is identical to the servlet adapter: BootUI contributes a `TransactionExecutionListener`
 through Spring Boot's standard transaction-manager customization and completes registration for user-defined
-`ConfigurableTransactionManager` beans after singleton initialization, observing any configurable blocking transaction
-manager a WebFlux application still uses (e.g. JDBC repositories behind a thread-blocking data access layer). *Fidelity
-gap, accepted:* a WebFlux application backed only by a `ReactiveTransactionManager` (R2DBC) has no
-`ConfigurableTransactionManager` bean to observe — Spring's transaction-execution listener hook exists solely on the
-blocking SPI — so the panel reports "No configurable PlatformTransactionManager bean is available" rather than silently
-showing an empty table.
+`ConfigurableTransactionManager` beans after singleton initialization. That covers the blocking transaction managers a
+WebFlux application still uses, such as `@Transactional` JDBC work run on a Reactor `boundedElastic` worker, and a
+`ReactiveTransactionManager` such as R2DBC's, which implements the same listener SPI: each callback names its
+transaction by the execution Spring passes to every callback of one boundary, so a reactive transaction that begins on
+one thread and commits on another is recorded once, with the right outcome. A reactive transaction has no thread-bound
+parent or JDBC isolation, so it is recorded as a new transaction with an `UNKNOWN` isolation. An application with no
+configurable transaction manager reports "No configurable PlatformTransactionManager bean is available" rather than
+silently showing an empty table. The sample's `GET /api/sample/transaction-samples` runs a commit, a slow commit, and a
+rollback, which `WebFluxTransactionsIntegrationTest` and `tests-webflux/transactions.spec.js` check.
 
 **Exceptions.** *Known fidelity gap, accepted, documented in code (`ReactiveBootUiExceptionHandler`'s Javadoc):* a
 `@RestController`'s own local `@ExceptionHandler` method consumes an exception *inside* the WebFlux dispatch pipeline,
@@ -666,8 +670,8 @@ for populated, correctly-nested (`parentId`) trace ids — none of which a unit 
 ## 8. Sample app & end-to-end testing
 
 - **`bootui-spring-webflux-sample-app`** is a minimal WebFlux app (Netty, `spring-boot-starter-webflux`, deliberately no
-  `spring-boot-starter-web`) with `notes`/`scheduling`/`greeting` packages, seeded with a scheduled task and an H2
-  datasource (Flyway + Liquibase migrations on separate baselined schemas) so the data-source-backed panels (Flyway,
+  `spring-boot-starter-web`) with `notes`/`scheduling`/`greeting`/`transactions` packages, seeded with a scheduled task
+  and an H2 datasource (Flyway + Liquibase migrations on separate baselined schemas) so the data-source-backed panels (Flyway,
   Liquibase, Database Connection Pools, SQL Trace, PostgreSQL) have something real to show or a truthful wrong-vendor
   skip.
 - **`bootui-conformance`** gained `expected-panels-webflux.json` — identical to `expected-panels-spring.json` except

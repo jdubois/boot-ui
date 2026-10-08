@@ -34,8 +34,9 @@ See [WebFlux design notes](WEBFLUX-SUPPORT.md) for the panel-by-panel detail.
   report `UNAVAILABLE`, and no SQL time appears in `route-time-breakdown`. R2DBC capture is deferred until after 2.0.
 - **`route-time-breakdown` has no handler or response phase.** It times authentication and the recorded calls; the
   rest of a request's time is reported as unattributed, never as application code.
-- **Transactions are blocking only.** `transaction-across-remote-call` and `split-transaction-writes` read blocking
-  transactions; a `ReactiveTransactionManager` is not captured.
+- **A reactive transaction has no thread-bound context.** A `ReactiveTransactionManager`'s transactions are recorded
+  without a parent transaction or isolation level, and `transaction-across-remote-call` and `split-transaction-writes`
+  place one in a request only when its pipeline carried the request's context to the thread it began on.
 - **`lazy-sql-after-handler` does not apply**, and WebSocket frames and the HTTP Sessions panel are unavailable.
 
 ## Quarkus

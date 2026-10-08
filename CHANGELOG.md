@@ -754,6 +754,14 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **`get_code_paths` finds a route by its handler after one request.** A class or method query now matches any method
+  a route's requests ran, its first request included, and says when only that first request matched.
+- **The first `get_code_inventory` call no longer waits for the dependency catalogue.** It is read once at startup,
+  in the background, beside the class-file scan.
+- **The first MCP call on Quarkus no longer waits for agent session scans.** Copilot and Claude Code session files are
+  read when their own tool or panel is first used.
+- **Reactive transactions are recorded with the right outcome.** An R2DBC transaction that commits on another thread
+  than it began now completes its own row, without a parent taken from that thread.
 - **An asynchronous Spring MVC request is recorded when it answers.** A request whose handler returned a
   `DeferredResult`, `Callable`, or `CompletableFuture` reached the runtime journal when that handler returned, as a
   `200` lasting only the handler's own time, so a request that later answered `503` or failed, or timed out, read as a

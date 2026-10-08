@@ -193,7 +193,8 @@ public final class TransactionAcrossRemoteCall implements Observation {
         limitations.add("A call is placed in a transaction by time within its request; parallel work of the same"
                 + " request on another thread could be placed too.");
         if (snapshot.stack() == InsightsStack.SPRING_WEBFLUX) {
-            limitations.add("Only blocking transactions are recorded; a reactive transaction is not.");
+            limitations.add("A reactive transaction belongs to a request only when its pipeline carried the request's"
+                    + " context to the thread it began on.");
         }
         return new Finding(
                 route + ":" + InsightText.stableHash(method),

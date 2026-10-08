@@ -233,6 +233,48 @@ class CodePathsServiceTests {
         assertThat(service.routeTreesFingerprint()).isNotEqualTo(fingerprint);
     }
 
+    /**
+     * A class or method query matches a route through any method its requests executed, its first request's included,
+     * though that request is kept apart from the warm tree, and the report says so.
+     */
+    @Test
+    void aClassOrMethodQueryMatchesARouteOnlyItsFirstRequestReached() {
+        start(AgentSensorSettings.defaults());
+        service.setRequestOutcomes(ids -> {
+            Map<String, RequestOutcome> named = new LinkedHashMap<>();
+            for (String id : ids) {
+                named.put(id, new RequestOutcome(id.endsWith("1") ? "GET /api/once" : "GET /api/warm", 200, false));
+            }
+            return named;
+        });
+        int once = CodeInventory.methodId("shop.OnceController#atOnce()V");
+        int repository = CodeInventory.methodId("shop.NoteRepository#findAll()Ljava/util/List;");
+        int warm = CodeInventory.methodId("shop.WarmController#list()V");
+        request("0000000000000001", () -> call(once, () -> call(repository, null)));
+        for (int i = 2; i <= 4; i++) {
+            request(String.format("%016x", i), () -> call(warm, CodePathsServiceTests::spin));
+        }
+        clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
+
+        CodePathsAgentReport byClass = service.agentReport("OnceController", null);
+        assertThat(byClass.matched()).isEqualTo(1);
+        assertThat(byClass.routes()).singleElement().satisfies(route -> {
+            assertThat(route.route()).isEqualTo("GET /api/once");
+            assertThat(route.warmRequests()).isZero();
+            assertThat(route.topMethods()).isEmpty();
+        });
+        assertThat(byClass.limitations())
+                .anyMatch(limitation -> limitation.startsWith("GET /api/once matched because its first recorded"));
+        assertThat(service.agentReport("OnceController#atOnce", null).matched()).isEqualTo(1);
+        assertThat(service.agentReport("noterepository", null).routes())
+                .extracting(CodePathsRouteDto::route)
+                .containsExactly("GET /api/once");
+        CodePathsAgentReport warmRoute = service.agentReport("WarmController", null);
+        assertThat(warmRoute.routes()).extracting(CodePathsRouteDto::route).containsExactly("GET /api/warm");
+        assertThat(warmRoute.limitations()).noneMatch(limitation -> limitation.contains(" matched because its first"));
+        assertThat(service.agentReport("NothingRanThis", null).matched()).isZero();
+    }
+
     /** Spring WebFlux installs {@link CodePathsService#EVERY_REQUEST} once: every request's tree is assembly only. */
     @Test
     void aStackWhoseHandlersAllAssembleMarksEveryRequestOnce() {

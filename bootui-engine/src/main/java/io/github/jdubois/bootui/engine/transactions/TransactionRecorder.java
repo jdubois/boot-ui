@@ -164,6 +164,23 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
      */
     public long beginTransaction(
             String methodName, boolean readOnly, String isolation, String thread, String traceId, boolean savepoint) {
+        return beginTransaction(methodName, readOnly, isolation, thread, traceId, savepoint, true);
+    }
+
+    /**
+     * Records the start of a transaction boundary, as {@link #beginTransaction(String, boolean, String, String, String,
+     * boolean)} does; with {@code threadBound} {@code false}, as a reactive transaction that begins and completes on
+     * whichever threads its pipeline runs, it takes no parent from this thread's stack and is not pushed on it, so it
+     * never becomes the parent of a later transaction of this thread.
+     */
+    public long beginTransaction(
+            String methodName,
+            boolean readOnly,
+            String isolation,
+            String thread,
+            String traceId,
+            boolean savepoint,
+            boolean threadBound) {
         if (!enabled) {
             return -1;
         }
@@ -174,8 +191,8 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
             return -1;
         }
         long id = sequence.incrementAndGet();
-        Deque<Long> stack = threadStack.get();
-        Long parentId = stack.peekLast();
+        Deque<Long> stack = threadBound ? threadStack.get() : null;
+        Long parentId = stack == null ? null : stack.peekLast();
         ActiveTransaction transaction = new ActiveTransaction(
                 id,
                 methodName == null ? "unknown" : methodName,
@@ -191,7 +208,9 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
                 correlation.current(),
                 panel);
         active.put(id, transaction);
-        stack.addLast(id);
+        if (stack != null) {
+            stack.addLast(id);
+        }
         return id;
     }
 

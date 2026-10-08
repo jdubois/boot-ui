@@ -231,7 +231,8 @@ flushes at commit shows under the method that called the `@Transactional` one, s
 A call recorded on another thread than the one that issued it, as a streaming AI call, carries no stamp and shows under
 no method. An `assemblyOnly` route's handler ran on an event loop, returned a reactive or
 asynchronous result, or BootUI could not tell where its work ran: its tree times assembly, not the work, so do not
-optimize from it.
+optimize from it. A class or method as `--query` lists the routes whose requests ran it, including a route sent only
+once, which has no method times until it is sent again.
 
 ### Check whether a method runs, and how
 
