@@ -197,6 +197,12 @@ describe('Runtime Insights panel', () => {
 
     expect(wrapper.get('#insight-verdict-title').text()).toBe('Nothing to report across 9 requests')
     expect(wrapper.get('.insight-empty').text()).toContain('1 of 2 checks ran')
+    const elsewhere = wrapper.get('.insight-elsewhere')
+    expect(elsewhere.text().replace(/\s+/g, ' ')).toBe(
+      'Some checks show their findings in other panels: Live Activity (why a route is slow), Exceptions, ' +
+        'Database Connection Pools, AI Framework, and Memory (garbage collection and heap).'
+    )
+    expect(elsewhere.findAll('a')).toHaveLength(5)
   })
 
   it('never counts a check that could not see its evidence as one that ran', async () => {
@@ -635,6 +641,56 @@ describe('Runtime Insights panel', () => {
     expect(wrapper.find('.insight-evidence').text()).toContain('r-7')
     const detailCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes('/insights/'))
     expect(detailCalls).toHaveLength(2)
+  })
+
+  it('labels the evidence as stale and turns Copy for AI off when its refresh fails, until one succeeds', async () => {
+    let detailFails = false
+    let held = null
+    let current = report
+    const fetchMock = vi.fn((url) => {
+      // Every read parses a new report, as the browser does, so the open observation is a new object each time.
+      if (!String(url).includes('/insights/')) return Promise.resolve(jsonResponse(structuredClone(current)))
+      const failure = {ok: false, status: 500, json: () => Promise.resolve({message: 'boom'})}
+      if (held) return new Promise((resolve) => (held = () => resolve(failure)))
+      return Promise.resolve(detailFails ? failure : jsonResponse(detail))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPanel()
+    await flushPromises()
+    await openRow(wrapper)
+    expect(wrapper.find('.insight-evidence-stale').exists()).toBe(false)
+    expect(wrapper.get('.insight-copy-ai').attributes('disabled')).toBeUndefined()
+
+    current = {...report, observations: [{...report.observations[0], affected: 5, evidenceRows: 2}]}
+    detailFails = true
+    await wrapper.findComponent({name: 'PanelHeader'}).vm.$emit('refresh')
+    await flushPromises()
+
+    const stale = wrapper.get('.insight-evidence-stale')
+    expect(stale.attributes('role')).toBe('alert')
+    expect(stale.text()).toContain('Unable to refresh this observation’s evidence')
+    expect(stale.text()).toContain('from an earlier refresh and may not match the sentence and counts above')
+    expect(wrapper.find('.insight-evidence').text()).toContain('r-1')
+    expect(wrapper.get('.insight-copy-ai').attributes('disabled')).toBeDefined()
+
+    // Another failed refresh keeps the same warning on screen throughout, so it is not announced again.
+    const warning = stale.text()
+    held = true
+    await wrapper.findComponent({name: 'PanelHeader'}).vm.$emit('refresh')
+    await flushPromises()
+    expect(typeof held).toBe('function')
+    expect(wrapper.get('.insight-evidence-stale').text()).toBe(warning)
+    held()
+    held = null
+    await flushPromises()
+    expect(wrapper.get('.insight-evidence-stale').text()).toBe(warning)
+
+    detailFails = false
+    await wrapper.findComponent({name: 'PanelHeader'}).vm.$emit('refresh')
+    await flushPromises()
+
+    expect(wrapper.find('.insight-evidence-stale').exists()).toBe(false)
+    expect(wrapper.get('.insight-copy-ai').attributes('disabled')).toBeUndefined()
   })
 
   it('exports the report it already has as JSON without another request', async () => {
