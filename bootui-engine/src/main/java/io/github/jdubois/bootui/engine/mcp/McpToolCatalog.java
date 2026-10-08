@@ -332,7 +332,7 @@ public final class McpToolCatalog {
      * io.github.jdubois.bootui.engine.progress.OperationProgress}, so a modern call with a progress token can stream
      * them. Only tools with genuine units of work belong here; a percentage is never invented.
      */
-    private static final Set<String> PROGRESS_TOOLS = Set.of("architecture_scan");
+    private static final Set<String> PROGRESS_TOOLS = Set.of("architecture_scan", "vulnerabilities_scan");
 
     private McpToolCatalog() {}
 

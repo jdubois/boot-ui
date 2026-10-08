@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.engine.progress.ProgressEvent;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -46,6 +47,8 @@ public class ReactiveBootUiMcpController {
     private static final long BACKSTOP_GRACE_MILLIS = 10_000;
     /** How often a writer waiting for demand rechecks whether the client went away. */
     private static final long DEMAND_POLL_MILLIS = 100;
+    /** Marks an exchange cancelled before its stream call was registered. */
+    static final Object CANCELLED = new Object();
 
     private final BootUiMcpService service;
     private final McpServerState state;
@@ -64,13 +67,36 @@ public class ReactiveBootUiMcpController {
     public Mono<ResponseEntity<?>> rpc(@RequestBody Flux<DataBuffer> requestBody, @RequestHeader HttpHeaders headers) {
         McpRequestHeaders mcpHeaders = BootUiMcpService.headers(headers);
         boolean acceptsEventStream = McpProtocol.acceptsEventStream(headers.get(HttpHeaders.ACCEPT));
+        // A stream whose response is dropped before it is written (the client went away first) is cancelled here,
+        // rather than holding its concurrency permit until the execution timeout.
+        AtomicReference<Object> unstarted = new AtomicReference<>();
         return DataBufferUtils.join(requestBody, maxPayloadBytes)
                 .publishOn(Schedulers.boundedElastic())
-                .<ResponseEntity<?>>map(buffer -> handle(readAndRelease(buffer), mcpHeaders, acceptsEventStream))
-                .switchIfEmpty(Mono.fromSupplier(() -> handle(new byte[0], mcpHeaders, acceptsEventStream)))
+                .<ResponseEntity<?>>map(
+                        buffer -> handle(readAndRelease(buffer), mcpHeaders, acceptsEventStream, unstarted))
+                .switchIfEmpty(Mono.fromSupplier(() -> handle(new byte[0], mcpHeaders, acceptsEventStream, unstarted)))
                 .onErrorResume(
                         DataBufferLimitException.class,
-                        ex -> Mono.just(json(413, error(null, McpProtocol.PARSE_ERROR, PAYLOAD_LIMIT_MESSAGE))));
+                        ex -> Mono.just(json(413, error(null, McpProtocol.PARSE_ERROR, PAYLOAD_LIMIT_MESSAGE))))
+                .doOnCancel(() -> cancelUnstarted(unstarted));
+    }
+
+    /**
+     * The exchange was cancelled before its body was subscribed: cancels a call already registered, and leaves the
+     * {@link #CANCELLED} mark so a call {@code handle} registers afterwards is cancelled at once.
+     */
+    /** Registers a stream call until its body is subscribed; cancels it at once if the exchange already was. */
+    static void registerUnstarted(AtomicReference<Object> unstarted, McpStreamingCall call) {
+        if (!unstarted.compareAndSet(null, call)) {
+            // The exchange was already cancelled: nobody will subscribe to this stream.
+            call.cancel();
+        }
+    }
+
+    static void cancelUnstarted(AtomicReference<Object> unstarted) {
+        if (unstarted.getAndSet(CANCELLED) instanceof McpStreamingCall call) {
+            call.cancel();
+        }
     }
 
     @GetMapping
@@ -78,7 +104,11 @@ public class ReactiveBootUiMcpController {
         return Mono.just(ResponseEntity.status(405).build());
     }
 
-    private ResponseEntity<?> handle(byte[] requestBody, McpRequestHeaders headers, boolean acceptsEventStream) {
+    private ResponseEntity<?> handle(
+            byte[] requestBody,
+            McpRequestHeaders headers,
+            boolean acceptsEventStream,
+            AtomicReference<Object> unstarted) {
         if (requestBody != null && requestBody.length > maxPayloadBytes) {
             return json(413, error(null, McpProtocol.PARSE_ERROR, PAYLOAD_LIMIT_MESSAGE));
         }
@@ -90,10 +120,11 @@ public class ReactiveBootUiMcpController {
         }
         BootUiMcpService.Reply reply = service.exchange(request, headers, state.isEnabled(), acceptsEventStream);
         if (reply.stream() != null) {
+            registerUnstarted(unstarted, reply.stream().call());
             return ResponseEntity.ok()
                     .contentType(MediaType.TEXT_EVENT_STREAM)
                     .header(McpProtocol.ACCEL_BUFFERING_HEADER, "no")
-                    .body(events(reply.stream()));
+                    .body(events(reply.stream(), unstarted));
         }
         if (reply.body() == null) {
             return ResponseEntity.accepted().build();
@@ -112,10 +143,12 @@ public class ReactiveBootUiMcpController {
      * same backstop as theirs: past the execution timeout plus a grace period, the writer gives up as if the write had
      * failed.
      */
-    private Flux<ServerSentEvent<String>> events(BootUiMcpService.Stream stream) {
+    private Flux<ServerSentEvent<String>> events(BootUiMcpService.Stream stream, AtomicReference<Object> unstarted) {
         McpStreamingCall call = stream.call();
         // A stream that is never subscribed is still released by the call's own execution timeout.
         return Flux.create(sink -> {
+            // Subscribed: from now on the stream's own cancellation handles a client that goes away.
+            unstarted.compareAndSet(call, null);
             Object demand = new Object();
             long giveUpAt = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(backstopMillis);
             sink.onRequest(requested -> {

@@ -237,7 +237,10 @@ host access. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the exact evidence l
 
 **MCP Server** is a full JSON-RPC bridge. The shared engine `McpDispatcher` owns method routing/gating/tool lookup, and
 a thin Jackson-2 `QuarkusMcpEnvelope` codec + `QuarkusMcpTools` catalog + working enable toggle sit behind the
-`LocalhostGuard` write floor. JVM-mode integration is covered end to end; native-image availability follows each backing
+`LocalhostGuard` write floor. It is dual-era (MCP 2026-07-28 and 2025-06-18) like the Spring stacks: a modern progress
+call answers on a request-scoped `text/event-stream` from the same `@POST`, written through a JAX-RS `StreamingOutput`,
+and the Vert.x routing context's end handler cancels the call as soon as the client closes the stream. JVM-mode
+integration is covered end to end; native-image availability follows each backing
 panel and is not claimed beyond the native-image tests that exercise that capability.
 
 **Command-line endpoint** (`/bootui/api/cli`) is served at full parity with Spring MVC and Spring WebFlux: a CDI

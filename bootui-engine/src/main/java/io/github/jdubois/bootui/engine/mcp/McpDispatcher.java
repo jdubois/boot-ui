@@ -66,6 +66,7 @@ public final class McpDispatcher {
     private final String instructions;
     private final int maxResults;
     private final Semaphore toolCallSemaphore;
+    private final int maxConcurrentCalls;
     private final McpFailureReporter failureReporter;
     private final long executionTimeoutMillis;
     private final McpRuntimeStats runtimeStats;
@@ -196,7 +197,8 @@ public final class McpDispatcher {
         this.serverVersion = serverVersion == null ? "dev" : serverVersion;
         this.instructions = instructions;
         this.maxResults = Math.max(1, maxResults);
-        this.toolCallSemaphore = new Semaphore(Math.max(1, maxConcurrentCalls));
+        this.maxConcurrentCalls = Math.max(1, maxConcurrentCalls);
+        this.toolCallSemaphore = new Semaphore(this.maxConcurrentCalls);
         this.failureReporter = Objects.requireNonNull(failureReporter, "failureReporter");
         this.executionTimeoutMillis = Math.max(1, executionTimeoutMillis);
         this.runtimeStats = new McpRuntimeStats();
@@ -238,9 +240,17 @@ public final class McpDispatcher {
         return serverVersion;
     }
 
-    /** Concurrency permits not held by a running or pending tool call. */
-    int availableCallPermits() {
+    /**
+     * Concurrency permits not held by a running or pending tool call; {@link #maxConcurrentCalls()} when the server is
+     * idle. Exposed for tests that prove a permit is released exactly once.
+     */
+    public int availableCallPermits() {
         return toolCallSemaphore.availablePermits();
+    }
+
+    /** The {@code bootui.mcp.max-concurrent-calls} bound, floored at 1. */
+    public int maxConcurrentCalls() {
+        return maxConcurrentCalls;
     }
 
     /** Operational counters exposed by the MCP Server panel. */

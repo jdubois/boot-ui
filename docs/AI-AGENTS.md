@@ -773,7 +773,7 @@ compatibility rules describe:
   payload/response limits, concurrency, and `bootui.mcp.execution-timeout` apply exactly the same way. Notifications
   answer `202`.
 - **Progress on a request-scoped stream (modern only).** A modern `tools/call` with `_meta.progressToken` (a string or
-  an integer), to a tool that reports measured phases (today `architecture_scan`), from a client whose `Accept` lists
+  an integer), to a tool that reports measured phases (`architecture_scan` and `vulnerabilities_scan`), from a client whose `Accept` lists
   `text/event-stream` explicitly, answers `200` with `Content-Type: text/event-stream` and `X-Accel-Buffering: no`.
   The stream carries `data:` events, each one JSON-RPC message: `notifications/progress` with the request's token, a
   strictly increasing `progress`, the `total` when known, and a fixed phase `message`, then exactly one final
@@ -787,15 +787,34 @@ compatibility rules describe:
   at once; Spring MVC notices it when a write fails, within two keep-alive intervals (about 4 seconds).
   `bootui.mcp.execution-timeout` stays the absolute bound, whatever progress flows: a timed-out stream ends with the
   timeout error as its final response, even when the call timed out before its stream opened. Events are always one
-  line of compact JSON, whatever the application's Jackson configuration (an indenting mapper included). A blocking
-  call that is cancelled rather than timed out (a tool that stops at a cancellation checkpoint) answers the BootUI
-  error `-32800` "MCP request cancelled", the code the Language Server Protocol uses for the same outcome. The `GET
-  /bootui/api/mcp-server` status reports `supportedProtocolVersions` and counts `cancellations` (streams a client
-  closed and cancelled calls) apart from `timeouts`.
+  line of compact JSON, whatever the application's Jackson configuration (an indenting mapper included). Only a
+  streamed call is cancelled by a disconnect: a single JSON response has no stream to close, so a blocking call runs to
+  its end or its timeout. A client that goes away before its stream starts is a cancellation too, not a timeout. The
+  `GET /bootui/api/mcp-server` status reports `supportedProtocolVersions` and counts `cancellations` apart from
+  `timeouts`; `callCount` includes cancelled calls. A server fault while writing a stream is reported as a fault, not
+  counted as a cancellation.
 - **A client that stops reading.** The writer then blocks and keeps the call's concurrency slot, so
   `bootui.mcp.max-concurrent-calls` also bounds stalled streams; on WebFlux it waits for the subscriber's demand
   instead of buffering. On every stack it gives up 10 seconds after the execution timeout: Spring MVC's async request
   times out, WebFlux stops waiting for demand, and Quarkus resets the response, which frees the slot.
+
+### Client compatibility
+
+Checked on 2026-10-07 and 2026-10-08. Clients that speak only the legacy era keep working as before, with single JSON
+answers and no progress stream; they gain progress when they adopt MCP 2026-07-28, with no BootUI change.
+
+| Client | Version checked | Date | Era it uses with BootUI | Progress from BootUI | How it was checked |
+| ------ | --------------- | ---- | ----------------------- | -------------------- | ------------------ |
+| GitHub Copilot CLI | 1.0.93-1 | 2026-10-08 | 2026-07-28: sends `server/discover` and `initialize` together and keeps 2026-07-28 when discovery answers within about a second; legacy fallback otherwise | Yes: it sends a `progressToken` on `tools/call` and showed 11 `architecture_scan` events as `tool.execution_progress` | Run against the Spring sample app; its log recorded the exchange |
+| GitHub Copilot CLI | 1.0.92 | 2026-10-07 | Legacy: its MCP client's latest version was `2025-11-25` | No | Read from the installed bundle |
+| Claude Code | 2.1.154 | 2026-10-08 | Legacy: `initialize` asking for `2025-11-25`, then `2025-06-18` | No | Recorded on the wire against a local recorder |
+| VS Code (GitHub Copilot) | 1.141.0 | 2026-10-07 | Legacy: its MCP client's latest version is `2025-11-25` | No | Read from the installed bundle; not observed on the wire |
+| Cursor | Not installed | — | Not verified | Not verified | Not checked locally |
+
+Anthropic states that MCP 2026-07-28 support is
+[rolling out across Claude products](https://claude.com/resources/articles/bringing-mcp-2026-07-28-to-claude). Until a
+client sends per-request `_meta`, BootUI serves it as a legacy client and never streams. Cancellation from a real client
+was not observed: none of these runs cancelled a call.
 
 ## Assess an application and approve an action plan
 

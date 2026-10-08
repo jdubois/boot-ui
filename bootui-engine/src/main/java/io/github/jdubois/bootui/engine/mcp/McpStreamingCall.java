@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
 import io.github.jdubois.bootui.engine.progress.OperationProgress;
 import io.github.jdubois.bootui.engine.progress.ProgressEvent;
+import java.io.IOException;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -79,6 +80,8 @@ public final class McpStreamingCall {
     private final OperationProgress progress;
     private final ScheduledFuture<?> timeoutTask;
     private volatile Future<?> toolFuture;
+    /** Set when the tool must stop: it may be read only after the tool's future is assigned, so neither side misses. */
+    private volatile boolean stopTool;
 
     McpStreamingCall(
             McpTool tool,
@@ -134,15 +137,16 @@ public final class McpStreamingCall {
         try {
             WRITERS.execute(() -> write(sink));
         } catch (RuntimeException | Error failure) {
+            // Recorded before closing the sink, whose close path may report a disconnect and hide the fault.
+            fail(failure);
             sink.close();
             releasePart();
-            fail(failure);
             return;
         }
         try {
             Future<?> future = toolExecutor.submit(this::runTool);
             toolFuture = future;
-            if (endKind() == EndKind.CANCELLED || endKind() == EndKind.TIMED_OUT) {
+            if (stopTool) {
                 future.cancel(true);
             }
         } catch (RuntimeException | Error failure) {
@@ -165,6 +169,29 @@ public final class McpStreamingCall {
     private void fail(Throwable failure) {
         if (end(EndKind.COMPLETED, new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE))) {
             failureReporter.report("dispatching a request", failure);
+        }
+    }
+
+    /**
+     * A fault while writing the stream (not a client gone): it ends the call as a fault, reported even after the end,
+     * and stops a tool still running, whose result can no longer be delivered and which no timeout bounds any more.
+     */
+    private void failWriting(Throwable failure) {
+        if (end(EndKind.COMPLETED, new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE))) {
+            failureReporter.report("dispatching a request", failure);
+        } else {
+            failureReporter.report("writing a stream", failure);
+        }
+        progress.cancel();
+        interruptTool();
+    }
+
+    /** Interrupts the tool, now or as soon as {@link #start} has submitted it. */
+    private void interruptTool() {
+        stopTool = true;
+        Future<?> future = toolFuture;
+        if (future != null) {
+            future.cancel(true);
         }
     }
 
@@ -218,10 +245,7 @@ public final class McpStreamingCall {
         if (before == Lifecycle.CREATED) {
             releasePart();
         } else if (kind != EndKind.COMPLETED) {
-            Future<?> future = toolFuture;
-            if (future != null) {
-                future.cancel(true);
-            }
+            interruptTool();
         }
         outbox.signal();
         return true;
@@ -241,6 +265,7 @@ public final class McpStreamingCall {
 
     private void write(McpStreamSink sink) {
         long nextHeartbeat = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(HEARTBEAT_MILLIS);
+        boolean completing = false;
         try {
             while (true) {
                 End current = end.get();
@@ -249,6 +274,7 @@ public final class McpStreamingCall {
                         for (ProgressEvent event : outbox.drainAll()) {
                             sink.progress(progressToken, event);
                         }
+                        completing = true;
                         sink.complete(current.outcome());
                     }
                     return;
@@ -267,9 +293,21 @@ public final class McpStreamingCall {
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             cancel();
-        } catch (Exception | Error writeFailure) {
+        } catch (IOException writeFailure) {
             // The client is gone or the stream broke: that is the cancellation of this request.
             cancel();
+        } catch (RuntimeException | Error fault) {
+            // A server fault (a rendering bug, a refused frame) is not the client's cancellation.
+            failWriting(fault);
+            End ended = end.get();
+            if (!completing && ended != null && ended.kind() != EndKind.CANCELLED) {
+                // The stream still answers once, with the -32603 the fault ended the call with.
+                try {
+                    sink.complete(ended.outcome());
+                } catch (Exception | Error unwritable) {
+                    // Nothing more can be written.
+                }
+            }
         } finally {
             sink.close();
             releasePart();

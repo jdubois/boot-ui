@@ -3498,16 +3498,18 @@ Design rules:
   MCP 2026-07-28 reserves `-32000`..`-32099`. Era selection precedes the disabled short-circuit, so a malformed modern
   request is a `400` even while the server is off. The CLI facade and the engine keep the legacy codes.
 - **Request-scoped progress (modern only).** A modern `tools/call` with a string or integer `_meta.progressToken`, to a
-  tool whose operation reports measured phases through the engine's `OperationProgress` (today `architecture_scan`),
+  tool whose operation reports measured phases through the engine's `OperationProgress` (`architecture_scan` and `vulnerabilities_scan`),
   from a client whose `Accept` explicitly lists `text/event-stream`, answers on a `text/event-stream` POST response with
   `X-Accel-Buffering: no`: rate-limited `notifications/progress` (burst 8, then one per 250 ms, coalescing to the
   newest, flushed before the end) and exactly one final response, after which the stream closes. Events are `data:`
   lines with no ids; keep-alive comments every 2 seconds, so Spring MVC, which only notices a closed stream when a write
   fails, does so within about 4 seconds; WebFlux and Quarkus notice it at once. Closing the stream cancels the call:
   nothing more is written, the tool is interrupted and stops at its next step, and its concurrency permit is released
-  exactly once, when the tool has returned and the stream is written. A cancelled call is counted in the `/mcp-server`
-  status's `cancellations`, apart from `timeouts`, and a cancelled blocking call answers `-32800` ("MCP request
-  cancelled"); the status also lists `supportedProtocolVersions`. The execution timeout stays absolute, and a call
+  exactly once, when the tool has returned and the stream is written. Only a streamed call is cancelled by a
+  disconnect, including one whose client left before the stream started; a blocking JSON call runs to its end or its
+  timeout. A cancelled call is counted in the `/mcp-server` status's `cancellations`, apart from `timeouts` (and in
+  `callCount`), while a server fault during writing is reported as a fault; the status also lists
+  `supportedProtocolVersions`. The execution timeout stays absolute, and a call
   that timed out before its stream opened still ends with the timeout response. Each event is one line of compact JSON
   regardless of the application's mapper configuration, built through one engine helper that refuses a line break. A
   writer blocked on a client that stops reading keeps the permit (WebFlux emits only on subscriber demand) and gives up
