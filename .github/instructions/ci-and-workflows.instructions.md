@@ -24,9 +24,6 @@ applyTo: ".github/workflows/**,.github/scripts/**,.github/dependabot.yml,Dockerf
   support for it. Keep new checks on the baseline workflow unless they are genuinely JDK-specific.
 - Quarkus/Hibernate build-time augmentation is gated to the JDKs the shared Quarkus LTS platform supports. Preserve the
   JDK skip profile and the matrix gating rather than widening a job onto an unsupported JDK.
-- `dependency-submission.yml` submits the Maven dependency tree, transitive dependencies included, to the dependency
-  graph on pushes to `main` only, since Dependabot alerts read only the default branch. GitHub's automatic dependency
-  submission is turned off because it ran on every branch and pull request; keep it off.
 - Keep workflow permissions least-privilege and never echo secrets into command arguments or logs.
 - The `Dockerfile*` variants (JVM, AOT, CRaC, native, WebFlux, Quarkus) and their `docker-compose*.yml` files ship the
   sample apps only. They are demonstration surfaces, not published artifacts; keep them building from the same reactor
