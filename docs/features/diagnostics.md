@@ -22,7 +22,7 @@ services can export spans into the same in-memory store. On Quarkus, spans are c
 OpenTelemetry `SpanProcessor` registered only when the application depends on `quarkus-opentelemetry`, and there is no
 embedded receiver. The empty state points at whichever model applies.
 
-Trace data resets on application restart and through the panel's clear action. When `bootui.telemetry.enabled=false`,
+Trace data resets on application restart and through the panel's clear action, which keeps no lifetime count. When `bootui.telemetry.enabled=false`,
 the sidebar dims the panel and the view shows a disabled state, so an empty list never reads as "no traces yet".
 
 ### Trace value exposure
@@ -209,6 +209,7 @@ are they shown verbatim. Request paths are captured without their query string, 
 only class, method, file, and line information.
 
 The in-memory store resets on restart and through the panel's clear action, which honors the panel's read-only setting.
+The occurrence total counts the retained groups, so a clear resets it too; the panel keeps no lifetime count.
 It is bounded by three properties:
 
 | Property | Default | Bounds |

@@ -403,6 +403,8 @@ give the details.
 
 ### Changed
 
+- **Compact MCP and CLI answers from scans and capture controls.** Scans answer with their counts and top ten findings,
+  and pause, resume, and clear with a short acknowledgement ([AI agents](docs/AI-AGENTS.md#compact-answers-from-scans-and-capture-controls)).
 - **The Java Agent panel opens on its setup when the agent is not attached.** The steps and setup snippets follow the
   **Not attached** status, then a short explanation of what a Java agent is, how BootUI's works, which features need it,
   and its cost; the sections that only describe an attached agent wait until it is attached

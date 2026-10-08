@@ -57,6 +57,10 @@ A **Most frequent calls** table groups calls by method, host, and normalized pat
 *chatty*. Rows filter by HTTP method, a slow-only toggle, or free text, and each expands for full detail. Local-only
 **Pause**, **Resume**, and **Clear** actions stop recording or empty the buffer without removing instrumentation.
 Pausing stops only this panel's buffer: the [runtime journal](overview.md#runtime-journal) keeps recording calls.
+**Clear** empties the retained window — the entries, the aggregate stats, and the top calls — and resets nothing else:
+the header's "captured since startup" count and the evictions are lifetime counts. Over MCP and the CLI, the controls
+answer with a [compact acknowledgement](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls) instead of the
+panel.
 
 ::: details Breakdowns, grouping, and chatty detection
 A per-method breakdown badges GET/POST/PUT/DELETE/other counts, and an "Instrumented clients" row lists which client
