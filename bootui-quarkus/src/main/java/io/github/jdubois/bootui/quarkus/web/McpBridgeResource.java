@@ -106,8 +106,8 @@ public class McpBridgeResource {
      * McpStreamingCall#clientClosed()}, which cancels a modern call (MCP 2026-07-28) and only stops writing a legacy one
      * (MCP 2025-06-18). The frames are the same bytes the Spring transports write. If the writer is still not done when
      * the backstop wait expires (the execution timeout plus a grace period), it is stuck on a client that stopped
-     * reading: the connection is closed, which fails the pending write and frees the call's concurrency permit, rather
-     * than waiting for the HTTP idle timeout.
+     * reading: the response is reset (an HTTP/2 RST_STREAM, or closing an HTTP/1.1 connection), which fails the pending
+     * write and frees the call's concurrency permit, rather than waiting for the HTTP idle timeout.
      */
     private StreamingOutput events(QuarkusMcpEnvelope.Stream stream, RoutingContext routing) {
         McpStreamingCall call = stream.call();
@@ -141,7 +141,8 @@ public class McpBridgeResource {
                 });
                 if (!closed.await(streamWaitMillis, TimeUnit.MILLISECONDS)) {
                     call.cancel();
-                    routing.request().connection().close();
+                    // Resets only this stream: on HTTP/2 the client's other calls on the connection go on.
+                    routing.response().reset();
                 }
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();

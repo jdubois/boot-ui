@@ -3506,7 +3506,7 @@ Design rules:
   that timed out before its stream opened still ends with the timeout response. Each event is one line of compact JSON
   regardless of the application's mapper configuration, built through one engine helper that refuses a line break. A
   writer blocked on a client that stops reading keeps the permit (WebFlux emits only on subscriber demand) and gives up
-  10 seconds after the execution timeout on every stack; Quarkus then closes the connection. Spring MVC falls back to
+  10 seconds after the execution timeout on every stack; Quarkus then resets the response. Spring MVC falls back to
   one JSON response when the request cannot go async. A legacy stream ends with a legacy final response, and closing it
   does not cancel the call, because MCP 2025-06-18 says "Disconnection SHOULD NOT be interpreted as the client
   cancelling its request": the tool runs on within the timeout. A legacy `notifications/cancelled` naming an in-flight
