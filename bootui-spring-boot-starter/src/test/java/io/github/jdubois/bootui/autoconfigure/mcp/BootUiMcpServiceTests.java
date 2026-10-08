@@ -717,6 +717,40 @@ class BootUiMcpServiceTests {
     }
 
     @Test
+    void streamFinalResponsesStayOneLineWithAnIndentingApplicationMapper() {
+        ObjectMapper indenting = tools.jackson.databind.json.JsonMapper.builder()
+                .enable(tools.jackson.databind.SerializationFeature.INDENT_OUTPUT)
+                .build();
+        BootUiMcpService indented = new BootUiMcpService(
+                new BootUiMcpTools(List.of(new McpTool(
+                        "get_overview",
+                        "Read the application overview.",
+                        schema(),
+                        BootUiPanels.OVERVIEW,
+                        false,
+                        args -> java.util.Map.of("name", "demo")))),
+                properties,
+                indenting,
+                "1.2.3");
+
+        String finalResponse = indented.renderFinal(
+                objectMapper.readTree("7"),
+                io.github.jdubois.bootui.engine.mcp.McpEra.MODERN,
+                new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult(
+                        java.util.Map.of("name", "demo")));
+
+        assertThat(finalResponse).doesNotContain("\n", "\r");
+        // The text content is a JSON string, so the mapper's line breaks inside it are escaped; the envelope is
+        // compact.
+        assertThat(McpProtocol.sseDataFrame(finalResponse))
+                .startsWith("data:{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"resultType\":\"complete\","
+                        + "\"content\":[{\"type\":\"text\",\"text\":\"")
+                .endsWith(
+                        "\"}],\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
+                                + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}\n\n");
+    }
+
+    @Test
     void streamFramesAreTheSameBytesOnEveryStack() throws Exception {
         assertThat(service.renderProgress(
                         io.github.jdubois.bootui.engine.mcp.McpProgressToken.of("tok"),

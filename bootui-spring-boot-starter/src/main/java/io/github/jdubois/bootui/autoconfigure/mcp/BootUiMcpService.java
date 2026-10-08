@@ -335,19 +335,20 @@ public class BootUiMcpService {
     }
 
     /**
-     * The final JSON-RPC response of a stream in {@code era}, as compact JSON: rendered and size-limited exactly like a
-     * JSON response, so a stream never carries more than {@code bootui.mcp.max-response-bytes}.
+     * The final JSON-RPC response of a stream in {@code era}, as compact JSON on one line whatever the application's
+     * mapper is configured to do (an indenting mapper would break the SSE framing), and size-limited on those bytes
+     * exactly like a JSON response, so a stream never carries more than {@code bootui.mcp.max-response-bytes}.
      */
     public String renderFinal(JsonNode id, McpEra era, McpDispatchOutcome outcome) {
         try {
-            JsonNode response = render(outcome, id, era);
-            byte[] bytes = objectMapper.writeValueAsBytes(response);
-            McpExchange.Plan.Reject tooLarge = McpExchange.checkResponseSize(era, bytes.length, maxResponseBytes);
+            String compact = render(outcome, id, era).toString();
+            McpExchange.Plan.Reject tooLarge = McpExchange.checkResponseSize(
+                    era, compact.getBytes(java.nio.charset.StandardCharsets.UTF_8).length, maxResponseBytes);
             if (tooLarge != null) {
                 dispatcher.runtimeStats().recordResponseLimitRefusal();
                 return error(id, tooLarge.code(), tooLarge.message()).toString();
             }
-            return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            return compact;
         } catch (RuntimeException | Error failure) {
             failureReporter.report("rendering a response", failure);
             return error(id, era, McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE)

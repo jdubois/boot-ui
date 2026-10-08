@@ -104,7 +104,10 @@ public class McpBridgeResource {
      * one that writes. Vert.x reports the client going away through the routing context's end handler, and a write
      * to a closed response, which Quarkus REST drops silently, fails instead; both reach {@link
      * McpStreamingCall#clientClosed()}, which cancels a modern call (MCP 2026-07-28) and only stops writing a legacy one
-     * (MCP 2025-06-18). The frames are the same bytes the Spring transports write.
+     * (MCP 2025-06-18). The frames are the same bytes the Spring transports write. If the writer is still not done when
+     * the backstop wait expires (the execution timeout plus a grace period), it is stuck on a client that stopped
+     * reading: the connection is closed, which fails the pending write and frees the call's concurrency permit, rather
+     * than waiting for the HTTP idle timeout.
      */
     private StreamingOutput events(QuarkusMcpEnvelope.Stream stream, RoutingContext routing) {
         McpStreamingCall call = stream.call();
@@ -115,12 +118,7 @@ public class McpBridgeResource {
                 call.start(new McpStreamSink() {
                     @Override
                     public void progress(McpProgressToken token, ProgressEvent event) throws IOException {
-                        write(
-                                routing,
-                                output,
-                                McpProtocol.SSE_DATA_PREFIX
-                                        + envelope.renderProgress(token, event)
-                                        + McpProtocol.SSE_EVENT_END);
+                        write(routing, output, McpProtocol.sseDataFrame(envelope.renderProgress(token, event)));
                     }
 
                     @Override
@@ -133,9 +131,7 @@ public class McpBridgeResource {
                         write(
                                 routing,
                                 output,
-                                McpProtocol.SSE_DATA_PREFIX
-                                        + envelope.renderFinal(stream.id(), call.era(), outcome)
-                                        + McpProtocol.SSE_EVENT_END);
+                                McpProtocol.sseDataFrame(envelope.renderFinal(stream.id(), call.era(), outcome)));
                     }
 
                     @Override
@@ -145,6 +141,7 @@ public class McpBridgeResource {
                 });
                 if (!closed.await(streamWaitMillis, TimeUnit.MILLISECONDS)) {
                     call.cancel();
+                    routing.request().connection().close();
                 }
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();

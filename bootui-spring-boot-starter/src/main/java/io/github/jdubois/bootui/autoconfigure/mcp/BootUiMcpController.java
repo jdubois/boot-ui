@@ -90,7 +90,8 @@ public class BootUiMcpController {
                 request,
                 BootUiMcpService.headers(headers),
                 state.isEnabled(),
-                McpProtocol.acceptsEventStream(headers.get(HttpHeaders.ACCEPT)));
+                // A request that cannot go async (a host filter without async support) falls back to JSON.
+                servletRequest.isAsyncSupported() && McpProtocol.acceptsEventStream(headers.get(HttpHeaders.ACCEPT)));
         if (reply.stream() != null) {
             stream(servletRequest, servletResponse, reply.stream());
             // The response is written asynchronously; a null entity tells Spring MVC it is already handled.
@@ -145,11 +146,7 @@ public class BootUiMcpController {
             call.start(new McpStreamSink() {
                 @Override
                 public void progress(McpProgressToken token, ProgressEvent event) throws IOException {
-                    write(
-                            output,
-                            McpProtocol.SSE_DATA_PREFIX
-                                    + service.renderProgress(token, event)
-                                    + McpProtocol.SSE_EVENT_END);
+                    write(output, McpProtocol.sseDataFrame(service.renderProgress(token, event)));
                 }
 
                 @Override
@@ -159,11 +156,7 @@ public class BootUiMcpController {
 
                 @Override
                 public void complete(McpDispatchOutcome outcome) throws IOException {
-                    write(
-                            output,
-                            McpProtocol.SSE_DATA_PREFIX
-                                    + service.renderFinal(stream.id(), call.era(), outcome)
-                                    + McpProtocol.SSE_EVENT_END);
+                    write(output, McpProtocol.sseDataFrame(service.renderFinal(stream.id(), call.era(), outcome)));
                 }
 
                 @Override
