@@ -13,10 +13,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Maven Central sometimes answers 429 or 5xx, or stalls, for a moment: Maven's resolver (2.0.x, Maven 3.10) retries a
-# download five times, waiting 10 s more each time (at most 60 s), on those answers, and gives up on a connection that
-# sends nothing for two minutes, so a short outage does not fail a job. The repository's mvnw passes MAVEN_OPTS to the JVM
-# that runs Maven, whose resolver reads these as system properties (MAVEN_ARGS is not read by it). A 404 is not retried.
+# Maven Central sometimes answers 429 or 5xx for a moment: Maven's resolver (2.0.x, Maven 3.10) retries such an answer
+# five times, waiting 10 s more each time (at most 60 s), so a short outage does not fail a job. Only those answers are
+# retried: a 404, a refused connection, and a timeout are not (the HTTP client never retries an interrupted transfer), and
+# a transfer that sends nothing for two minutes now fails then instead of hanging for the default thirty. The
+# repository's mvnw passes MAVEN_OPTS to the JVM that runs Maven, whose resolver reads these as system properties
+# (MAVEN_ARGS is not read by it).
 env:
   MAVEN_OPTS: >-
     -Daether.transport.http.connectTimeout=30000
@@ -559,7 +561,7 @@ jobs:
         run: npm run format:check
 
       # Playwright's browsers, and the .deb files of the few system packages the runner image lacks, are cached per
-      # Playwright version, read from the lock file, so a leg downloads them only when that version changes.
+      # runner image and Playwright version, read from the lock file, so a leg downloads them only when either changes.
       - name: Read the Playwright version
         id: playwright
         if: env.SKIP_LEG != 'true'
@@ -571,6 +573,8 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # The runner image (ubuntu24, ...) too: the .deb files a key keeps are the ones its image lacked.
+          echo "image=${ImageOS:-unknown}" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright's browsers
         if: env.SKIP_LEG != 'true'
@@ -579,7 +583,7 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             ~/.cache/playwright-apt
-          key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+          key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.image }}-${{ steps.playwright.outputs.version }}
 
       - name: Install Playwright browsers
         if: env.SKIP_LEG != 'true'
@@ -725,13 +729,13 @@ jobs:
   # (bootui.benchmark.agent.enforce-when-default); while it is opt-in, only the 30 % alarm fails it. The first run
   # measured 2.9 % and 5.9 %, the second a 5.0 % own share, over its budget, so caught-exceptions stays opt-in.
   #
-  # Each measurement is one leg of this matrix, on its own runner, so they run at the same time: a leg is a whole A/B,
-  # both arms alternating on the same runner, so splitting them across runners changes nothing a leg measures. A leg
-  # builds the sample and the agent itself (about a minute and a half with the Maven cache), runs its measurement with
+  # Each measurement is one leg of this matrix or of agent-overhead-extra-legs below, on its own runner, so they run at
+  # the same time: a leg is a whole A/B, both arms alternating on the same runner, so splitting them across runners
+  # changes nothing a leg measures. A leg builds the sample and the agent itself (about a minute and a half with the Maven cache), runs its measurement with
   # the same arguments it had as a step of one job, and uploads its report; it fails, as the step did, above its 30 %
   # alarm or on a FAIL its enforce-when-default asks for. The `agent-overhead` job below, which keeps the job's name,
   # gathers every leg's report, runs the checks, publishes the combined report, and fails when any leg failed. The
-  # `extras` legs run only where the steps ran: pushes, manual runs, and pull requests labelled `agent`.
+  # extra legs run only where their steps ran: pushes, manual runs, and pull requests labelled `agent`.
   agent-overhead-legs:
     name: Agent overhead leg, ${{ matrix.leg.name }} (Java 17)
     runs-on: ubuntu-latest
@@ -739,8 +743,6 @@ jobs:
     if: needs.changes.outputs.agent == 'true'
     # The longest leg, fifteen pairs, takes about 22 minutes.
     timeout-minutes: 60
-    env:
-      SKIP_LEG: ${{ matrix.leg.extras && needs.changes.outputs.extras != 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -749,20 +751,70 @@ jobs:
           - id: spring-mvc-agent
             name: default route
             step: Measure the agent's overhead
-            extras: false
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=9 -Dbootui.benchmark.agent.fail-above-percent=30
           - id: spring-mvc-agent-io
             name: I/O route
             step: Measure the agent's overhead on the I/O route
-            extras: false
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=9 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-agent-io
+    steps: &agent-overhead-leg-steps
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: bootui-ui/src/main/frontend/package-lock.json
+
+      # The sample's -am build includes bootui-agent, its test-scope dependency.
+      - name: Build the Spring sample app and the BootUI agent
+        run: ./mvnw -T 1C -B -ntp -pl bootui-spring-sample-app -am -DskipTests install
+
+      - name: ${{ matrix.leg.step }}
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
+          ${{ matrix.leg.args }}
+          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Upload the leg's report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: agent-overhead-leg-${{ matrix.leg.id }}
+          path: |
+            bootui-spring-sample-app/target/agent-overhead/
+            bootui-spring-sample-app/target/failsafe-reports/*AgentOverheadBenchmarkIT*
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # The measurements that run only on pushes, manual runs, and pull requests labelled `agent` (the `extras` output of
+  # the changes job), gated here at job level so a run without them starts no runner for them. The legs run the steps
+  # of agent-overhead-legs above.
+  agent-overhead-extra-legs:
+    name: Agent overhead leg, ${{ matrix.leg.name }} (Java 17)
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.agent == 'true' && needs.changes.outputs.extras == 'true'
+    # The longest leg, fifteen pairs, takes about 22 minutes.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        leg:
           - id: spring-mvc-network-ab
             name: network A/B
             step: Measure the network sensor's share on the I/O route
-            extras: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=9 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-network-ab
@@ -770,7 +822,6 @@ jobs:
           - id: spring-mvc-blocking-ab
             name: blocking A/B
             step: Measure the blocking sensor's share
-            extras: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.report=spring-mvc-blocking-ab
@@ -778,7 +829,6 @@ jobs:
           - id: spring-mvc-files-ab
             name: files A/B
             step: Measure the files sensor's share on the I/O route
-            extras: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-files-ab
@@ -787,7 +837,6 @@ jobs:
           - id: spring-mvc-agent-io-files
             name: files cumulative
             step: Measure the agent's overhead with files on the I/O route
-            extras: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=9 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-agent-io-files
@@ -795,7 +844,6 @@ jobs:
           - id: spring-mvc-caught-ab
             name: caught-exceptions A/B
             step: Measure the caught-exceptions sensor's share on the caught route
-            extras: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.route=caught -Dbootui.benchmark.report=spring-mvc-caught-ab
@@ -805,7 +853,6 @@ jobs:
           - id: spring-mvc-agent-caught
             name: caught-exceptions cumulative
             step: Measure the agent's overhead with caught-exceptions on the caught route
-            extras: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.route=caught -Dbootui.benchmark.report=spring-mvc-agent-caught
@@ -821,7 +868,6 @@ jobs:
           - id: spring-mvc-sinks-ab
             name: request-value matching A/B
             step: Measure request-value matching's share on the sinks route
-            extras: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.agent.budget-percent=3
@@ -833,7 +879,6 @@ jobs:
           - id: spring-mvc-agent-sinks
             name: request-value matching cumulative
             step: Measure the agent's overhead with request-value matching on the sinks route
-            extras: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.agent.budget-percent=10
@@ -852,7 +897,6 @@ jobs:
           - id: spring-mvc-thread-activity-ab
             name: thread-activity A/B
             step: Measure the thread-activity sensor's share on the thread route
-            extras: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.route=threads -Dbootui.benchmark.report=spring-mvc-thread-activity-ab
@@ -861,7 +905,6 @@ jobs:
           - id: spring-mvc-agent-threads
             name: thread-activity cumulative
             step: Measure the agent's overhead with thread-activity on the thread route
-            extras: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.route=threads -Dbootui.benchmark.report=spring-mvc-agent-threads
@@ -876,7 +919,6 @@ jobs:
           - id: spring-mvc-thread-locals-ab
             name: thread-locals A/B
             step: Measure the thread-locals sensor's share
-            extras: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.report=spring-mvc-thread-locals-ab
@@ -885,7 +927,6 @@ jobs:
           - id: spring-mvc-agent-thread-locals
             name: thread-locals cumulative
             step: Measure the agent's overhead with thread-locals
-            extras: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.report=spring-mvc-agent-thread-locals
@@ -902,7 +943,6 @@ jobs:
           - id: spring-mvc-resources-ab
             name: resources A/B
             step: Measure the resources sensor's share on the I/O route
-            extras: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-resources-ab
@@ -911,7 +951,6 @@ jobs:
           - id: spring-mvc-agent-io-resources
             name: resources cumulative
             step: Measure the agent's overhead with resources on the I/O route
-            extras: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-agent-io-resources
@@ -919,59 +958,12 @@ jobs:
           - id: spring-mvc-resources-files-ab
             name: resources beside files A/B
             step: Measure the resources sensor's share beside files on the I/O route
-            extras: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.route=io -Dbootui.benchmark.report=spring-mvc-resources-files-ab
               -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,blocking,files,resources
               -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network,blocking,files
-    steps:
-      - name: Skip the leg when this run has no extra measurements
-        if: env.SKIP_LEG == 'true'
-        run: echo "::notice::This measurement runs on pushes, manual runs, and pull requests labelled agent only."
-
-      - name: Checkout
-        if: env.SKIP_LEG != 'true'
-        uses: actions/checkout@v7
-
-      - name: Set up JDK 17
-        if: env.SKIP_LEG != 'true'
-        uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
-
-      - name: Set up Node.js
-        if: env.SKIP_LEG != 'true'
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24.18.0'
-          cache: npm
-          cache-dependency-path: bootui-ui/src/main/frontend/package-lock.json
-
-      # The sample's -am build includes bootui-agent, its test-scope dependency.
-      - name: Build the Spring sample app and the BootUI agent
-        if: env.SKIP_LEG != 'true'
-        run: ./mvnw -T 1C -B -ntp -pl bootui-spring-sample-app -am -DskipTests install
-
-      - name: ${{ matrix.leg.step }}
-        if: env.SKIP_LEG != 'true'
-        run: >
-          ./mvnw -B -ntp -pl bootui-spring-sample-app verify
-          ${{ matrix.leg.args }}
-          -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
-
-      - name: Upload the leg's report
-        if: ${{ !cancelled() && env.SKIP_LEG != 'true' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: agent-overhead-leg-${{ matrix.leg.id }}
-          path: |
-            bootui-spring-sample-app/target/agent-overhead/
-            bootui-spring-sample-app/target/failsafe-reports/*AgentOverheadBenchmarkIT*
-          if-no-files-found: ignore
-          retention-days: 7
+    steps: *agent-overhead-leg-steps
 
   # Gathers the legs' reports into bootui-spring-sample-app/target/agent-overhead, as the measurements left them when
   # they were steps of this one job, and runs the checks on them unchanged. It fails when any leg failed, so this job's
@@ -979,7 +971,7 @@ jobs:
   agent-overhead:
     name: Agent overhead (Java 17)
     runs-on: ubuntu-latest
-    needs: [ changes, agent-overhead-legs ]
+    needs: [ changes, agent-overhead-legs, agent-overhead-extra-legs ]
     if: ${{ !cancelled() && needs.changes.outputs.agent == 'true' }}
     timeout-minutes: 15
     steps:
@@ -1263,12 +1255,18 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           LEGS_RESULT: ${{ needs.agent-overhead-legs.result }}
+          EXTRA_LEGS_RESULT: ${{ needs.agent-overhead-extra-legs.result }}
+          EXTRAS: ${{ needs.changes.outputs.extras }}
         run: |
           if [ "$LEGS_RESULT" != success ]; then
             echo "::error::At least one agent overhead leg did not pass (${LEGS_RESULT}): see the failed 'Agent overhead leg' job."
             exit 1
           fi
-          echo "Every agent overhead leg passed."
+          if [ "$EXTRAS" = true ] && [ "$EXTRA_LEGS_RESULT" != success ]; then
+            echo "::error::At least one extra agent overhead leg did not pass (${EXTRA_LEGS_RESULT}): see the failed 'Agent overhead leg' job."
+            exit 1
+          fi
+          echo "Every agent overhead leg passed (extra legs: ${EXTRA_LEGS_RESULT})."
 
       - name: Upload the overhead report
         if: ${{ !cancelled() }}
@@ -1375,7 +1373,7 @@ jobs:
         run: npm run format:check
 
       # Playwright's browsers, and the .deb files of the few system packages the runner image lacks, are cached per
-      # Playwright version, read from the lock file, so a leg downloads them only when that version changes.
+      # runner image and Playwright version, read from the lock file, so a leg downloads them only when either changes.
       - name: Read the Playwright version
         id: playwright
         if: env.SKIP_LEG != 'true'
@@ -1387,6 +1385,8 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # The runner image (ubuntu24, ...) too: the .deb files a key keeps are the ones its image lacked.
+          echo "image=${ImageOS:-unknown}" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright's browsers
         if: env.SKIP_LEG != 'true'
@@ -1395,7 +1395,7 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             ~/.cache/playwright-apt
-          key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+          key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.image }}-${{ steps.playwright.outputs.version }}
 
       - name: Install Playwright browsers
         if: env.SKIP_LEG != 'true'

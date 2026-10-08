@@ -22,10 +22,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Maven Central sometimes answers 429 or 5xx, or stalls, for a moment: Maven's resolver (2.0.x, Maven 3.10) retries a
-# download five times, waiting 10 s more each time (at most 60 s), on those answers, and gives up on a connection that
-# sends nothing for two minutes, so a short outage does not fail a job. The repository's mvnw passes MAVEN_OPTS to the JVM
-# that runs Maven, whose resolver reads these as system properties (MAVEN_ARGS is not read by it). A 404 is not retried.
+# Maven Central sometimes answers 429 or 5xx for a moment: Maven's resolver (2.0.x, Maven 3.10) retries such an answer
+# five times, waiting 10 s more each time (at most 60 s), so a short outage does not fail a job. Only those answers are
+# retried: a 404, a refused connection, and a timeout are not (the HTTP client never retries an interrupted transfer), and
+# a transfer that sends nothing for two minutes now fails then instead of hanging for the default thirty. The
+# repository's mvnw passes MAVEN_OPTS to the JVM that runs Maven, whose resolver reads these as system properties
+# (MAVEN_ARGS is not read by it).
 env:
   MAVEN_OPTS: >-
     -Daether.transport.http.connectTimeout=30000
@@ -181,7 +183,7 @@ jobs:
         run: npm ci --ignore-scripts
 
       # Playwright's browsers, and the .deb files of the few system packages the runner image lacks, are cached per
-      # Playwright version, read from the lock file, so a leg downloads them only when that version changes.
+      # runner image and Playwright version, read from the lock file, so a leg downloads them only when either changes.
       - name: Read the Playwright version
         id: playwright
         working-directory: bootui-spring-sample-app/e2e
@@ -192,6 +194,8 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # The runner image (ubuntu24, ...) too: the .deb files a key keeps are the ones its image lacked.
+          echo "image=${ImageOS:-unknown}" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright's browsers
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -199,7 +203,7 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             ~/.cache/playwright-apt
-          key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+          key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.image }}-${{ steps.playwright.outputs.version }}
 
       - name: Install Playwright browsers
         # Usually 1 to 8 minutes; apt-get can stall for hours on a runner's package mirror: fail fast, so a rerun gets
