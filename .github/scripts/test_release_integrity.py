@@ -1,4 +1,5 @@
 import hashlib
+import importlib.util
 import os
 import subprocess
 import tempfile
@@ -14,17 +15,13 @@ DOCKER = ROOT / ".github/workflows/docker-publish.yml"
 SMOKE = ROOT / ".github/scripts/consumer-smoke-tests.sh"
 STAGE = ROOT / ".github/scripts/stage-release-candidate.sh"
 BUNDLE_CHECK = ROOT / ".github/scripts/check-central-bundle.py"
+BUNDLE_ASSEMBLER = ROOT / ".github/scripts/assemble_central_bundle.py"
 STARTER_POM = "bootui-spring-boot-starter/pom.xml"
-PUBLISHED = (
-    "bootui-core",
-    "bootui-engine",
-    "bootui-ui",
-    "bootui-spring-boot-starter",
-    "bootui-quarkus",
-    "bootui-quarkus-deployment",
-    "bootui-cli",
-    "bootui-agent",
-)
+_BUNDLE_CHECK_SPEC = importlib.util.spec_from_file_location("check_central_bundle", BUNDLE_CHECK)
+_bundle_check = importlib.util.module_from_spec(_BUNDLE_CHECK_SPEC)
+_BUNDLE_CHECK_SPEC.loader.exec_module(_bundle_check)
+# The published coordinates, from the one list the assembler and the bundle check read.
+PUBLISHED = _bundle_check.PUBLISHED
 
 NEXT_VERSION_CALL = (
     'bash .github/scripts/release-version-policy.sh next-version "$VERSION" "$CURRENT_VERSION" "$RELEASE_LINE"'
@@ -54,7 +51,9 @@ AGENT_DEPENDENCY_FREE = 'if [[ "$AGENT_CLASSPATH" != "bootui-agent-${VERSION}.ja
 
 
 class ReleaseIntegrityTests(unittest.TestCase):
-    def check(self, content=None, pages=None, docker=None, smoke=None, stage=None, bundle=None, root_files=None):
+    def check(
+        self, content=None, pages=None, docker=None, smoke=None, stage=None, bundle=None, assembler=None, root_files=None
+    ):
         """Runs the guard on mutated copies. root_files maps repository paths to replacement contents and
         runs the guard against a copy of the POMs and the release line it reads from the repository."""
         with tempfile.TemporaryDirectory() as directory:
@@ -66,6 +65,7 @@ class ReleaseIntegrityTests(unittest.TestCase):
                 ("consumer-smoke-tests.sh", smoke, SMOKE),
                 ("stage-release-candidate.sh", stage, STAGE),
                 ("check-central-bundle.py", bundle, BUNDLE_CHECK),
+                ("assemble_central_bundle.py", assembler, BUNDLE_ASSEMBLER),
             ):
                 path = Path(directory) / name
                 path.write_text(source.read_text(encoding="utf-8") if text is None else text, encoding="utf-8")
@@ -366,16 +366,19 @@ class ReleaseIntegrityTests(unittest.TestCase):
         self.assert_rejected(
             None, "must stage the publication-only Maven reactor", stage=self.mutate_file(STAGE, "bootui-cli,", "")
         )
-        self.assert_rejected(
-            None,
-            '-DcentralBaseUrl="$STUB_URL"',
-            stage=self.mutate_file(STAGE, '  -DcentralBaseUrl="$STUB_URL" \\\n', ""),
-        )
-        self.assert_rejected(
-            None,
-            "-Dcentral.autoPublish=false",
-            stage=self.mutate_file(STAGE, "  -Dcentral.autoPublish=false \\\n", ""),
-        )
+        for old, new, message in (
+            ("-Prelease clean install \\", "-Prelease clean deploy \\", "not run the Maven deploy phase"),
+            ("-Prelease clean install \\", "-Prelease clean package \\", "clean install"),
+            ("  -Dgpg.skip=true\n", "  -Dgpg.skip=true \\\n  deploy\n", "not run the Maven deploy phase"),
+            ('--unsigned "$LOCAL_REPO"', '--unsigned "$HOME/.m2/repository"', "assemble_central_bundle.py"),
+            ('check-central-bundle.py" "$OUTPUT" "$VERSION"', 'true" "$OUTPUT"', "check-central-bundle.py"),
+            ('check-central-bundle.py" "$OUTPUT" "$VERSION"', 'check-central-bundle.py" "$OUTPUT" "$VERSION" || true', "check-central-bundle.py"),
+            ('python3 "$REPOSITORY_ROOT/.github/scripts/check-central-bundle.py"', '# python3 "$REPOSITORY_ROOT/.github/scripts/check-central-bundle.py"', "check-central-bundle.py"),
+            ('"$LOCAL_REPO" "$VERSION" "$BUNDLE"\n', '"$LOCAL_REPO" "$VERSION" "$BUNDLE" || true\n', "assemble_central_bundle.py"),
+            ("set -euo pipefail\n", "set -uo pipefail\n", "set -euo pipefail"),
+        ):
+            with self.subTest(new=new):
+                self.assert_rejected(None, message, stage=self.mutate_file(STAGE, old, new))
 
     def test_every_list_names_the_same_coordinates(self):
         self.assert_rejected(
@@ -388,6 +391,18 @@ class ReleaseIntegrityTests(unittest.TestCase):
             "must expect exactly the published coordinates",
             bundle=self.mutate_file(BUNDLE_CHECK, '    "bootui-agent",\n)', ")"),
         )
+        own_list = "ARTIFACT_IDS = _load_bundle_check().PUBLISHED"
+        for new in (
+            'ARTIFACT_IDS = ("bootui-core", "bootui-agent-bridge")',
+            own_list + ' + ("bootui-parent",)',
+            own_list + '\nARTIFACT_IDS = ("bootui-parent",)',
+        ):
+            with self.subTest(new=new):
+                self.assert_rejected(
+                    None,
+                    "must bundle check-central-bundle.py's PUBLISHED",
+                    assembler=self.mutate_file(BUNDLE_ASSEMBLER, own_list, new),
+                )
 
     def test_parents_stay_unpublished(self):
         for parent in ("bootui-parent", "bootui-quarkus-parent"):
@@ -593,6 +608,77 @@ class ReleaseIntegrityTests(unittest.TestCase):
         seam = "    env:\n      BOOTUI_CENTRAL_URL: http://example.invalid\n"
         pages = self.mutate_file(PAGES, "    outputs:\n", seam + "    outputs:\n")
         self.assert_rejected(None, "test seams must never be set", pages=pages)
+
+    def test_publication_uploads_the_assembled_bundle(self):
+        self.assert_rejected(
+            self.mutate("./mvnw -B -ntp -Prelease clean install \\\n", "./mvnw -B -ntp -Prelease clean deploy \\\n"),
+            "not run the Maven deploy phase",
+        )
+        self.assert_rejected(
+            self.mutate("            -am\n\n          # The bundle", "            -am \\\n            deploy\n\n          # The bundle"),
+            "not run the Maven deploy phase",
+        )
+        self.assert_rejected(
+            self.mutate("          python3 .github/scripts/assemble_central_bundle.py", "          true"),
+            "Central bundle assembled from the installed release",
+        )
+        self.assert_rejected(
+            self.mutate("          python3 .github/scripts/publish_central_bundle.py", "          true"),
+            "Central Portal bundle upload",
+        )
+
+    def test_assembled_bundle_is_signed_and_checked_before_upload(self):
+        assemble = '          python3 .github/scripts/assemble_central_bundle.py "$LOCAL_REPO"'
+        check = '          python3 .github/scripts/check-central-bundle.py "$BUNDLE_DIR" "$VERSION"\n'
+        publish = "          python3 .github/scripts/publish_central_bundle.py"
+        self.assert_rejected(
+            self.mutate(assemble, '          python3 .github/scripts/assemble_central_bundle.py --unsigned "$LOCAL_REPO"'),
+            "never with --unsigned",
+        )
+        self.assert_rejected(self.mutate(check, ""), "check of the assembled Central bundle before its upload")
+        publish_line = publish + ' target/central-bundle.zip "bootui-$VERSION" "$CENTRAL_AUTO_PUBLISH"\n'
+        self.assert_rejected(
+            self.mutate(check + publish_line, publish_line + check), "after the previous bundle command"
+        )
+        unzip = '          unzip -q target/central-bundle.zip -d "$BUNDLE_DIR"\n'
+        for line, message in (
+            (assemble, "Central bundle assembled from the installed release"),
+            (unzip.rstrip("\n"), "unpacked Central bundle"),
+            (check.rstrip("\n"), "check of the assembled Central bundle before its upload"),
+            (publish, "Central Portal bundle upload"),
+        ):
+            for mutated in (line.replace("          ", "          # ", 1), line.replace("          ", "          true || ", 1)):
+                with self.subTest(mutated=mutated):
+                    self.assert_rejected(self.mutate(line, mutated), message)
+        full_check = check.rstrip("\n")
+        self.assert_rejected(self.mutate(full_check + "\n", full_check + " || true\n"), "check of the assembled")
+        self.assert_rejected(
+            self.mutate(publish_line, publish_line.rstrip("\n") + " || true\n"), "Central Portal bundle upload"
+        )
+        errexit = (
+            "          set -euo pipefail\n\n"
+            '          VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"\n'
+            "          LOCAL_REPO="
+        )
+        self.assert_rejected(
+            self.mutate(errexit, errexit.replace("set -euo pipefail", "set -uo pipefail")),
+            "errexit for the Maven Central publication step",
+        )
+
+    def test_bundle_artifacts_match_the_availability_poll_list(self):
+        import re
+        import sys
+
+        sys.path.insert(0, str(SCRIPT.parent))
+        try:
+            from assemble_central_bundle import ARTIFACT_IDS
+        finally:
+            sys.path.pop(0)
+        content = WORKFLOW.read_text(encoding="utf-8")
+        step = content.split("- name: Wait for Maven Central availability", 1)[1].split("- name: ", 1)[0]
+        polled = set(re.findall(r'"(bootui-[a-z-]+)/\$\{VERSION\}/', step))
+        self.assertEqual(polled, set(ARTIFACT_IDS))
+        self.assertEqual(set(ARTIFACT_IDS), set(PUBLISHED))
 
     def test_rebase_and_passphrase_arguments_are_refused(self):
         self.assert_rejected(

@@ -29,9 +29,9 @@ were judged useful.
 ## Release sign-off
 
 **Not signed off.** This section is the release decision for 2.0.0 ([v2 plan](PLAN-v2.md) §4.3). M4-20's rerun fills
-every `TODO` below under its registered protocol, and the maintainer signs it off. Done is not passed: a measure that
+every pending cell below under its registered protocol, and the maintainer signs it off. Done is not passed: a measure that
 was run but missed its target is recorded as **Not met**, with its exception, never left out or rounded up. 2.0.0 is
-not released while any row reads `TODO`.
+not released while any cell is still pending.
 
 | Field | Value |
 | --- | --- |

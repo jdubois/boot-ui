@@ -96,7 +96,7 @@ Hibernate's sequence emulation (a single integer `next_val` column, which Hibern
 (`ID` plus a unique `UNIQUE_KEY`). Their DDL belongs to the framework, so a PK recommendation is not actionable.
 See [Hibernate `SequenceStyleGenerator`](https://docs.hibernate.org/orm/7.2/javadocs/org/hibernate/id/enhanced/SequenceStyleGenerator.html).
 
-### DB-SCHEMA-002 - Foreign key columns without a supporting index
+### DB-SCHEMA-002 - Foreign-key access-path review
 
 **MEDIUM.** Reviews physical FKs without a known ordinary leading index access path over the complete child
 column set. An equality lookup can use those leading columns in a different order; indexing just one column
@@ -112,7 +112,7 @@ invalid or slow. See [PostgreSQL FK constraints](https://www.postgresql.org/docs
 [MySQL FK restrictions](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/create-table-foreign-keys.html) and
 [Oracle concurrency](https://docs.oracle.com/en/database/oracle/oracle-database/19/cncpt/data-concurrency-and-consistency.html).
 
-### DB-SCHEMA-003 - Duplicate/redundant indexes
+### DB-SCHEMA-003 - Exact duplicate index candidates
 
 **LOW.** Reviews exact ordinary-index definition overlap only when the relevant semantics are known.
 A shorter leading prefix of a longer index is **not** sufficient evidence of redundancy. Included payload,
@@ -138,7 +138,7 @@ classification alone cannot establish coercion behavior or query-plan quality. M
 sign of integer and decimal FK pairs to match; see
 [MySQL 8.4 FK constraints](https://dev.mysql.com/doc/refman/8.4/en/create-table-foreign-keys.html).
 
-### DB-SCHEMA-005 - Redundant unique index duplicating the primary key
+### DB-SCHEMA-005 - Unique index duplicating a proven primary-key backing index
 
 **LOW.** Reviews an additional exact unique-index definition only when the actual PK backing identity and
 relevant index semantics are established. The first unique index with matching columns is not assumed to
@@ -151,7 +151,7 @@ per index, naming the datasource, table and index. Oracle may use a **nonunique*
 constraint.
 Review full definitions and dependencies, never drop a guessed constraint backing index.
 
-### DB-SCHEMA-006 - Duplicate foreign key constraints
+### DB-SCHEMA-006 - Potential duplicate foreign-key definitions
 
 **LOW.** Reviews relationships with identical qualified parent identities and child-to-parent pairs,
 including known update/delete actions and deferrability. Reordering the same pairs does not change the
@@ -342,11 +342,10 @@ and [NUMBER types](https://docs.oracle.com/en/database/oracle/oracle-database/19
 
 These checks compare available declarations with observed metadata, **not Hibernate's effective runtime
 mapping**. Even explicit annotation/XML names are logical names subject to a physical naming strategy.
-The pinned Spring Boot 4.1.1 BOM selects Hibernate 7.4.5.Final; Quarkus 3.33.3.1 selects 7.2.19.Final;
+The pinned Spring Boot 4.1.1 BOM selects Hibernate 7.4.5.Final; Quarkus 3.40.1 selects 7.4.9.Final;
 both use Persistence 3.2.0. The matching
-[7.4](https://docs.hibernate.org/orm/7.4/javadocs/org/hibernate/boot/model/naming/PhysicalNamingStrategy.html) and
-[7.2](https://docs.hibernate.org/orm/7.2/javadocs/org/hibernate/boot/model/naming/PhysicalNamingStrategy.html)
-contracts explicitly distinguish logical names from names used in generated DML/DDL.
+[7.4](https://docs.hibernate.org/orm/7.4/javadocs/org/hibernate/boot/model/naming/PhysicalNamingStrategy.html)
+contract explicitly distinguishes logical names from names used in generated DML/DDL.
 
 No persistence-unit-to-datasource or effective optimizer contract is guessed. Failed or ambiguous source
 inventories, unresolved inheritance/overrides, incomplete columns and unsupported association placement
@@ -356,7 +355,7 @@ same default written explicitly.
 The bridge recognizes annotation-visible converters and placement restrictions, but does not resolve
 auto-applied converters, XML overrides or provider-specific effective JDBC mappings.
 
-### DB-HIB-002 - Mapped entity table not found in the physical schema
+### DB-HIB-002 - Declared entity relation name not found in the observed schema
 
 **MEDIUM.** Reviews an explicit declared table name not observed in sufficiently complete scoped relation
 metadata. This is not proof that the effective Hibernate table is missing. Review naming strategy,
@@ -365,7 +364,7 @@ relation type, privileges, migration and persistence-unit/datasource assignment 
 ### DB-HIB-003 - Declared column nullability differs from observed metadata
 
 **MEDIUM.** Compares a declared `@Column(nullable=false)` against known physical nullability. Java type families are
-not JDBC mapping evidence, so this rule does not compare column types despite its historical heading.
+not JDBC mapping evidence, so this rule does not compare column types.
 Relations reported by JDBC as `VIEW` or `MATERIALIZED VIEW`, including secondary views, are excluded:
 a view's reported nullable column does not establish a missing physical NOT NULL constraint.
 Views remain available for relation-name and column-name checks. When only view columns would be
@@ -376,7 +375,7 @@ Default-valued true does not establish explicit intent. Raw Java type family no 
 JDBC type mismatch: converters, Boolean/UUID emulation and custom types are valid.
 Review declarations and actual column constraints, not a guessed Java-to-SQL representation.
 
-### DB-HIB-004 - Mapped column length longer than the physical column size
+### DB-HIB-004 - Declared column length exceeds observed column size
 
 **MEDIUM.** Compares positive **nondefault** declared lengths with a positively bounded physical string
 column. LOB, conversion, native-definition and unresolved placement ambiguity are excluded.
@@ -389,7 +388,7 @@ An arbitrary large length is not synonymous with an unbounded SQL type.
 `@Column(length=...)` describes schema generation, not runtime input validation; review declaration versus
 database definition rather than assuming the mapping accepts or validates every string of that length.
 
-### DB-HIB-005 - Mapped unique constraint has no backing physical unique index
+### DB-HIB-005 - Declared uniqueness has no observed enforcing key
 
 **HIGH.** Reviews declared uniqueness against known physical guarantees, separately from optimizer
 visibility. Invisible/ignored UNIQUE indexes still enforce uniqueness. A value-prefix key may reject
@@ -405,13 +404,13 @@ Partial, invalid, operator-class and unknown definitions require precise evidenc
 cover the declared columns; an uncertain index on other columns does not hide a missing key. Review full
 constraint semantics before adding a new guarantee.
 
-### DB-HIB-006 - Mapped column not found in the physical table
+### DB-HIB-006 - Declared column name not found in the observed relation
 
 **MEDIUM.** Reviews an explicit declared column name not observed in a resolved relation with complete
 column metadata. Physical naming, inherited/secondary placement and source ambiguity must be considered.
 Do not infer inevitable runtime SQL failure or prescribe applying a migration solely from annotation names.
 
-### DB-HIB-007 - Mapped association has no physical foreign key constraint
+### DB-HIB-007 - Declared association has no matching observed foreign key
 
 **MEDIUM.** Reviews a complete explicit association declaration against actual qualified child-to-parent
 pairs. Respects `NO_CONSTRAINT`, supported join placement and explicit target information. A single join column
@@ -498,9 +497,8 @@ review remains `DB-SCHEMA-002`; workload-specific child lookup tuning is not inf
 Retired: annotation allocation size alone lacks effective optimizer, mismatch strategy, qualified sequence
 and persistence-unit provenance. Hibernate's documented FIX strategy can override the mapping from the
 database. Compare effective generator contracts when diagnosing a real mismatch, not coincidentally equal
-bare names. See matching
-[Hibernate 7.4](https://docs.hibernate.org/orm/7.4/javadocs/org/hibernate/id/SequenceMismatchStrategy.html) and
-[7.2](https://docs.hibernate.org/orm/7.2/javadocs/org/hibernate/id/SequenceMismatchStrategy.html) APIs.
+bare names. See the matching
+[Hibernate 7.4](https://docs.hibernate.org/orm/7.4/javadocs/org/hibernate/id/SequenceMismatchStrategy.html) API.
 
 ## Deliberately not checked
 
