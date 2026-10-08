@@ -13,7 +13,7 @@ inventory repairs or a new scanner. That research submitted no dependency invent
 [#989](https://github.com/jdubois/boot-ui/issues/989) added evidence-based panel and Overview scoring, retaining the
 cached GET-only dismissal refresh.
 
-The 2026 advisor audit ([§ 2026 advisor audit](#_2026-advisor-audit)) added CVSS v4.0 scoring with a v4-over-v3
+The [2026 advisor audit](#_2026-advisor-audit) added CVSS v4.0 scoring with a v4-over-v3
 preference, `CRITICAL` malicious-package (`MAL-`) advisories, and honest Quarkus inventory coverage. It was grounded in
 live OSV.dev Maven records and FIRST's reference calculator, and each change was reviewed by three independent models.
 :::
@@ -50,7 +50,8 @@ finding was retained in that partial result. Even a completed lookup does not pr
 free of vulnerabilities, or the upstream database exhaustive.
 
 The immutable DTO fields, routes, MCP tools, CLI commands, configuration defaults, and
-`advisoryId::packageName` dismissal identities do not change. Findings count **advisory occurrences per dependency**,
+`advisoryId::packageName` dismissal identities do not change; [advisory symbols and runtime
+reach](#advisory-symbols-and-runtime-reach) only add fields. Findings count **advisory occurrences per dependency**,
 not unique CVEs: different advisory IDs can describe the same CVE.
 
 ## Package and affected-version interpretation
@@ -217,6 +218,20 @@ Probability and percentile are distinct. The unchanged DTO does not expose the s
 version; separate latest-data requests can straddle a daily update. Do not imply the scalar represents every alias,
 is date-pinned, or demonstrates zero risk.
 
+## Advisory symbols and runtime reach
+
+Each interpreted advisory carries the classes or `Class#method` symbols it names (`advisorySymbols`, Java binary names,
+at most 20) and their provenance (`advisorySymbolSource`): `OSV` from the matching `affected[]` entries' structured
+symbol fields, otherwise `ADVISORY_TEXT` from fully qualified class names in its summary and details (which may name a
+proof of concept's or another artifact's classes), otherwise an explicit `NONE`. Symbols are never guessed.
+
+With the BootUI agent's inventory sensor recording and the Code Inventory panel enabled, reports also carry
+`runtimeReach`: whether a dependency's classes, or a class the advisory names, loaded in this JVM. It is read from the
+agent's in-memory class-load evidence when the report is answered, never cached with the scan, and `NOT_LOADED` is said
+only when the evidence could have shown a load; otherwise the status is `UNKNOWN` with a reason. Runtime reach is load
+evidence, not static reachability analysis, and it never changes a finding's severity, score, counts, dismissals, or
+Scorecard penalty. See the [specification](SPECIFICATION.md#_5-11-vulnerabilities-panel) for the field contract.
+
 ## Inventory limitations: explicitly deferred
 
 Spring merges SBOM, Maven descriptors, and adjacent-POM/classpath evidence by coordinate/version with source priority
@@ -272,8 +287,8 @@ independently verified inventory completeness.
 
 Coverage still transports exact reported counts and at most 200 unidentified names with truncation information.
 An SBOM can help identify artifacts without Maven descriptors, but is not proof of full coverage. No hash lookup,
-external coordinate resolution, shaded-library bytecode discovery, dependency-path graph, or reachability analysis
-is added.
+external coordinate resolution, shaded-library bytecode discovery, dependency-path graph, or static reachability
+analysis is added.
 
 ## Complete audit disposition
 
@@ -300,7 +315,7 @@ Mixed dispositions intentionally preserve an existing behavior while acknowledgi
 | INV-12 | KEEP | Exact reported coverage counts, at most 200 unidentified names, explicit truncation. |
 | INV-13 | KEEP | Quarkus non-production build-time model emits de-duplicated JAR coordinates and excludes malformed entries. |
 | INV-14 | UPDATE | A missing/blank Quarkus model, a malformed entry, or a build-time-skipped coordinate reports UNAVAILABLE, never COMPLETE (2026 audit). |
-| INV-15 | KEEP | Explicit non-capabilities: dependency paths, reachability, shaded-content discovery, and hash lookup. |
+| INV-15 | KEEP | Explicit non-capabilities: dependency paths, static reachability, shaded-content discovery, and hash lookup; the agent's runtime reach is class-load evidence only. |
 | INV-16 | KEEP | Archives whose every class lives in the application's (multi-segment) base packages are first-party, counted and named (at most 200) separately, and never a coverage gap; one foreign class, a `META-INF/maven/` descriptor, a bundled archive, or placement outside (or an unreadable) `layers.idx` `application` layer keeps an archive unidentified. |
 | INV-17 | KEEP | `spring-boot-jarmode-tools` is the only archive identified from its manifest, and only when file name, title, and version agree and it carries the jarmode tools classes. |
 
@@ -430,7 +445,7 @@ assumed present in every advisory. API pagination thresholds and upstream model 
 | [OSV severity](https://github.com/ossf/osv-schema/blob/b388a18021a32b55da40c31eaef9fd4ce780447d/docs/schema.md#severity-field) | Typed vectors and mutually exclusive package/top-level assessments; maximum selection is BootUI policy. |
 | [OSV query](https://google.github.io/osv.dev/post-v1-query/) and [querybatch](https://google.github.io/osv.dev/post-v1-querybatch/) | Case sensitivity, potentially fuzzy versions, ordered batch responses, detail fetch requirement, per-query tokens. |
 | [OSV OpenAPI](https://osv.dev/docs/osv_service_v1.swagger.json) | Service response contract and 1,000-query batch bound; errors are not empty success. |
-| [Maven version order](https://maven.apache.org/pom.html#Version_Order_Specification) and [ComparableVersion 3.9.11 Javadoc](https://maven.apache.org/ref/3.9.11/maven-artifact/apidocs/org/apache/maven/artifact/versioning/ComparableVersion.html) | Qualifier aliases, numeric transitions, separator nesting and release normalization, not SemVer 2.0. The repository's test-only **3.9.16** oracle remains the executable compatibility target, distinct from this versioned Javadoc. |
+| [Maven version order](https://maven.apache.org/pom.html#Version_Order_Specification) and [ComparableVersion 3.9.11 Javadoc](https://maven.apache.org/ref/3.9.11/maven-artifact/apidocs/org/apache/maven/artifact/versioning/ComparableVersion.html) | Qualifier aliases, numeric transitions, separator nesting and release normalization, not SemVer 2.0. The repository's test-only **3.10.0** oracle remains the executable compatibility target, distinct from this versioned Javadoc. |
 | [FIRST CVSS 3.0](https://www.first.org/cvss/v3.0/specification-document), [3.1](https://www.first.org/cvss/v3.1/specification-document), and [3.1 user guide](https://www.first.org/cvss/v3.1/user-guide) | Full vector validation, Base metrics/equations, scope, optional metrics, Roundup, qualitative zero. |
 | [FIRST CVSS 4.0](https://www.first.org/cvss/v4.0/specification-document) and [reference calculator](https://github.com/FIRSTdotorg/cvss-v4-calculator) | MacroVector calculation, metric values, CVSS-B/BT/BE/BTE nomenclature, and the BSD-2-Clause reference implementation BootUI ports and tests against. |
 | [OpenSSF Malicious Packages](https://github.com/ossf/malicious-packages) and [OSV ID prefixes](https://ossf.github.io/osv-schema/#id-modified-fields) | `MAL-` records and their Maven entries; a malicious package is removed, not upgraded. |
@@ -463,4 +478,4 @@ Considered and deliberately not added:
 | Version provenance for `score` | Needs a DTO change; the catalog documents that `score` is the selected CVSS version's score instead. |
 
 See the [feature guide](features/advisors.md#vulnerabilities) for the user workflow and
-[specification §5.11](SPECIFICATION.md#_5-11-vulnerabilities-panel) for the stable panel contract.
+[specification](SPECIFICATION.md#_5-11-vulnerabilities-panel) for the stable panel contract.

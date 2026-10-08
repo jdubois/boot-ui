@@ -4,6 +4,9 @@ const RULE_HEADING = /^###\s+([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\s+(?:—|--|-)\s+(.
 const SEVERITY_BULLET = /^[-*]\s+\*\*Severity(?:\s*\/\s*confidence)?:?\*\*:?\s*(.+?)\s*$/i
 const TRAILING_SEVERITY = /\s*\((CRITICAL|HIGH|MEDIUM|LOW|INFO)(?:\s+or\s+(?:CRITICAL|HIGH|MEDIUM|LOW|INFO))?\)\s*$/
 const KNOWN_SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
+// Some catalogs open a rule's first paragraph with its severity in bold, such as `**HIGH**, or ...` or `**MEDIUM.**`.
+const LEADING_SEVERITY = /^\*\*(CRITICAL|HIGH|MEDIUM|LOW|INFO)\b/
+const RETIRED = /^(?:\*\*)?Retired\b/
 
 /**
  * Extracts the rule catalog from a `*-CHECKS.md` page.
@@ -49,15 +52,18 @@ export function parseRuleCatalog(content) {
       continue
     }
 
-    if (current && !current.severity) {
-      const severity = line.match(SEVERITY_BULLET)
+    if (current && !current.severity && !current.retired) {
+      const severity = line.match(SEVERITY_BULLET) ?? line.match(LEADING_SEVERITY)
       if (severity) {
         current.severity = normalizeSeverity(severity[1])
+      } else if (RETIRED.test(line)) {
+        current.retired = true
       }
     }
   }
 
-  return rules
+  // Retired IDs keep their headings for existing links but are no longer rules the advisor runs.
+  return rules.filter((rule) => !rule.retired).map(({retired, ...rule}) => rule)
 }
 
 function normalizeSeverity(value) {
