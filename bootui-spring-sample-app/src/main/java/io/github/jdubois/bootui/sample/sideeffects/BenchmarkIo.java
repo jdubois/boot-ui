@@ -45,6 +45,15 @@ public class BenchmarkIo {
         }
     }
 
+    /** Reads the file only: the security-sinks variant's one file open per request (M5-6b). */
+    public int read() {
+        try (InputStream in = Files.newInputStream(file())) {
+            return in.readAllBytes().length;
+        } catch (IOException ex) {
+            throw new UncheckedIOException(ex);
+        }
+    }
+
     private Path file() throws IOException {
         Path current = file;
         if (current == null) {

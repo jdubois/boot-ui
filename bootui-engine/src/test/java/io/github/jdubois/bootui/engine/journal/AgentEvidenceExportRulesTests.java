@@ -193,6 +193,8 @@ class AgentEvidenceExportRulesTests {
             "SideEffectsRowDto.client",
             "SideEffectsRowDto.completed",
             "SideEffectsRowDto.count",
+            // Security sinks (M5-6b): BootUI's sentence and the parameter's name, never its value.
+            "SideEffectsRowDto.detail",
             "SideEffectsRowDto.exemplarRequestIds",
             "SideEffectsRowDto.failed",
             "SideEffectsRowDto.firstSeen",
@@ -206,6 +208,7 @@ class AgentEvidenceExportRulesTests {
             "SideEffectsRowDto.maxMillis",
             "SideEffectsRowDto.nonZeroExits",
             "SideEffectsRowDto.origin",
+            "SideEffectsRowDto.parameter",
             "SideEffectsRowDto.requests",
             "SideEffectsRowDto.scope",
             "SideEffectsRowDto.sensor",

@@ -95,7 +95,7 @@ public final class RestClientTraceGrouping {
      * original {@code @GetMapping}-style template, so it cannot distinguish a numeric/UUID path segment
      * that is genuinely a literal route segment from one that is a path variable value.
      */
-    static String normalizePath(String path) {
+    public static String normalizePath(String path) {
         if (path == null || path.isBlank()) {
             return "/";
         }

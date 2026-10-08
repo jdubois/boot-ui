@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
+import io.github.jdubois.bootui.engine.javaagent.AgentRequestValues;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RequestTiming;
@@ -22,6 +23,8 @@ import org.springframework.core.Ordered;
 import org.springframework.http.server.reactive.HttpHandler;
 import org.springframework.http.server.reactive.HttpHandlerDecoratorFactory;
 import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.web.reactive.HandlerMapping;
+import org.springframework.web.reactive.function.server.RouterFunctions;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
@@ -123,6 +126,47 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
      * runs it through {@link #published}.
      */
     private Mono<Void> tracked(ServerWebExchange exchange, CorrelationContext correlation, WebFilterChain chain) {
+        if (!AgentRequestValues.active()) {
+            return trackedChain(exchange, correlation, chain);
+        }
+        String requestId = correlation.requestId();
+        pushRequestValues(exchange, requestId);
+        Mono<Void> tracked;
+        try {
+            tracked = trackedChain(exchange, correlation, chain);
+        } catch (RuntimeException ex) {
+            AgentRequestValues.end(requestId);
+            throw ex;
+        }
+        return tracked.doFinally(signal -> AgentRequestValues.end(requestId));
+    }
+
+    /**
+     * The path variable attributes a WebFlux handler mapping sets once it matched: an annotated controller's, then a
+     * router function's.
+     */
+    static final String[] PATH_VARIABLE_ATTRIBUTES = {
+        HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE, RouterFunctions.URI_TEMPLATE_VARIABLES_ATTRIBUTE
+    };
+
+    /**
+     * Hands the request's values to the BootUI agent's request value holder ({@code docs/PLAN-v2.md} §5.16, M5-6b),
+     * only while request-value matching is on: the query parameters WebFlux already parsed from the URI, never a body
+     * (the form data is never subscribed to), and the exchange's attributes, from which the holder reads the path
+     * variables at the request's first check, once the handler mapping set them. The request's chain ending removes
+     * them, on completion, error, or cancellation. Observes only, and never fails the request.
+     */
+    static void pushRequestValues(ServerWebExchange exchange, String requestId) {
+        try {
+            AgentRequestValues.Values values =
+                    new AgentRequestValues.Values().addAll(exchange.getRequest().getQueryParams());
+            AgentRequestValues.begin(requestId, values, exchange.getAttributes(), PATH_VARIABLE_ATTRIBUTES);
+        } catch (RuntimeException | LinkageError ex) {
+            // Request-value matching is diagnostics only; the request continues untouched.
+        }
+    }
+
+    private Mono<Void> trackedChain(ServerWebExchange exchange, CorrelationContext correlation, WebFilterChain chain) {
         RuntimeEventSink sink = journal;
         RequestPhases requestPhases = phases;
         if (requestPhases != null) {

@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.autoconfigure.config.BootUiActuatorDefaultsEnvir
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentPackages;
+import io.github.jdubois.bootui.engine.javaagent.AgentRequestValues;
 import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -49,6 +50,9 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
     /** Spring Cloud's {@code BootstrapApplicationListener.BOOTSTRAP_PROPERTY_SOURCE_NAME}, without its dependency. */
     private static final String SPRING_CLOUD_BOOTSTRAP = "bootstrap";
 
+    /** Request-value matching of the {@code security-sinks} sensor, opt-in (docs/PLAN-v2.md M5-6b, D37). */
+    static final String REQUEST_VALUES = "bootui.agent.security-sinks.request-values";
+
     private final Supplier<AgentBridgeAccess> bridge;
 
     public BootUiAgentClaimEnvironmentPostProcessor() {
@@ -92,9 +96,14 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
             boolean bootUiEnabled = BootUiActivationCondition.resolve(environment, application.getClassLoader())
                     .enabled();
             if (!bootUiEnabled || !agentEnabled(environment)) {
+                AgentRequestValues.configure(false);
                 AgentClaim.release(access, name, mode);
                 return;
             }
+            // Request-value matching is opt-in (docs/PLAN-v2.md D37): the adapters push no value unless it is on.
+            AgentRequestValues.configure(Binder.get(environment)
+                    .bind(REQUEST_VALUES, Bindable.of(Boolean.class))
+                    .orElse(false));
             AgentSensorSettings sensors;
             try {
                 sensors = sensors(environment);

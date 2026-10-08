@@ -43,7 +43,9 @@ const OPT_IN = {
   environment: 'the names read',
   'thread-activity':
     'the threads the application starts and the executors it creates per route, and those a request left running',
-  'thread-locals': 'the thread locals a request or a job left set on its pooled thread, never their values'
+  'thread-locals': 'the thread locals a request or a job left set on its pooled thread, never their values',
+  'security-sinks':
+    'where request input reaches SQL text, a command, a file path, or an outbound URL unchanged, with bootui.agent.security-sinks.request-values=true'
 }
 
 const STATE = {
@@ -119,7 +121,8 @@ const SENSOR_COLUMNS = {
     failed: true,
     failedLabel: 'Interrupted or failed',
     time: 'Blocked (total / max ms)'
-  }
+  },
+  'security-sinks': {target: 'Sink (value redacted)', count: 'Times', parameter: true}
 }
 
 const EMPTY_TEXT = {
@@ -129,7 +132,8 @@ const EMPTY_TEXT = {
   environment: 'No environment variable or system property has been read yet in this run.',
   blocking: 'No blocking call has started on an event loop yet in this run.',
   'thread-activity': 'No thread has been started and no executor created yet in this run.',
-  'thread-locals': 'No thread local has been left set by a request or a job yet in this run.'
+  'thread-locals': 'No thread local has been left set by a request or a job yet in this run.',
+  'security-sinks': 'No request input has reached SQL text, a command, a file path, or an outbound URL in this run.'
 }
 
 const summary = ref(null)
@@ -309,6 +313,7 @@ function rowKey(row) {
     row.location,
     row.client,
     row.capture,
+    row.parameter,
     row.firstSeen
   ].join('|')
 }
@@ -335,6 +340,7 @@ function columnCount(sensor) {
     (columns.exits ? 1 : 0) +
     (columns.time ? 1 : 0) +
     (columns.origin ? 1 : 0) +
+    (columns.parameter ? 1 : 0) +
     (columns.network ? 3 : 0) +
     (columns.threads ? 3 : 0)
   )
@@ -602,6 +608,7 @@ function hookStatus(value, label) {
                         <tr>
                           <th scope="col">Attribution</th>
                           <th scope="col">{{ columnsOf(sensor).target }}</th>
+                          <th v-if="columnsOf(sensor).parameter" scope="col">Parameter</th>
                           <template v-if="columnsOf(sensor).network">
                             <th scope="col">Client</th>
                             <th scope="col">Captured</th>
@@ -658,6 +665,11 @@ function hookStatus(value, label) {
                                 locationLabel(row.location)
                               }}</span>
                             </div>
+                            <div v-if="row.detail" class="small mt-1 side-effects-detail">{{ row.detail }}</div>
+                          </td>
+                          <td v-if="columnsOf(sensor).parameter">
+                            <code v-if="row.parameter" class="side-effects-parameter">{{ row.parameter }}</code>
+                            <span v-else class="text-muted">—</span>
                           </td>
                           <template v-if="columnsOf(sensor).network">
                             <td>

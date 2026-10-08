@@ -13,9 +13,9 @@ import java.util.List;
  * ({@code bootui.agent.ring-capacity}).
  *
  * @param sensors the sensors to install: {@code executors}, {@code inventory}, {@code code-paths}, {@code processes},
- *     {@code network}, and {@code blocking}, and the opt-in {@code threads}, {@code files}, {@code environment}, and
- *     {@code thread-activity}, and {@code caught-exceptions}; the Side Effects sensors this version does not ship are
- *     accepted ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
+ *     {@code network}, and {@code blocking}, and the opt-in {@code threads}, {@code files}, {@code environment},
+ *     {@code thread-activity}, {@code caught-exceptions}, and {@code security-sinks}; the Side Effects sensors this
+ *     version does not ship are accepted ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
  * @param skipTasks task class-name prefixes the propagation sensors never propagate
  * @param skipThreads thread-name prefixes the propagation sensors never propagate to
  * @param maxHandoff how long a handoff's work is attributed to its request
@@ -102,9 +102,16 @@ public record AgentSensorSettings(
      */
     public static final String CAUGHT_EXCEPTIONS = "caught-exceptions";
 
+    /**
+     * The Side Effects sensor checking whether request input reaches SQL text, a command, a file path, or an outbound
+     * URL verbatim (M5-6b), opt-in: its request-value matching runs only with {@code
+     * bootui.agent.security-sinks.request-values} on (D37).
+     */
+    public static final String SECURITY_SINKS = "security-sinks";
+
     /** The Side Effects sensors this version ships. */
     public static final List<String> SIDE_EFFECT_SENSORS =
-            List.of(PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY, THREAD_LOCALS);
+            List.of(PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY, THREAD_LOCALS, SECURITY_SINKS);
 
     /** Every sensor id this version installs. */
     public static final List<String> KNOWN_SENSORS = List.of(
@@ -119,13 +126,14 @@ public record AgentSensorSettings(
             BLOCKING,
             THREAD_ACTIVITY,
             THREAD_LOCALS,
-            CAUGHT_EXCEPTIONS);
+            CAUGHT_EXCEPTIONS,
+            SECURITY_SINKS);
 
     /**
      * The Side Effects sensors the panel lists but this version does not ship ({@code docs/PLAN-v2.md} §5.16):
      * {@code bootui.agent.sensors} accepts them, with a warning, and the panel reports them not available.
      */
-    public static final List<String> NOT_AVAILABLE_SENSORS = List.of("resources", "security-sinks");
+    public static final List<String> NOT_AVAILABLE_SENSORS = List.of("resources");
 
     /** The default {@code bootui.agent.sensors}. */
     public static final List<String> DEFAULT_SENSORS =
