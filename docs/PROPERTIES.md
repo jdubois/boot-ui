@@ -1002,7 +1002,7 @@ read-only, and all values flow through the same secret masking as the REST API.
 | `bootui.mcp.max-payload-bytes` | `1048576` | Maximum size (in bytes) of an incoming JSON-RPC request body; larger requests are rejected before parsing. |
 | `bootui.mcp.max-concurrent-calls` | `20`   | Maximum number of `tools/call` invocations the server executes concurrently; excess calls are refused with a rate-limited error. A progress stream holds its slot until its tool and its writer are both done. |
 | `bootui.mcp.execution-timeout` | `30s`     | Maximum wall-clock duration of one tool invocation; timed-out calls are interrupted and return JSON-RPC `-32002` (`-31002` for MCP 2026-07-28 clients). It stays the absolute bound when a call streams progress. A scan that reports progress (`architecture_scan`, `vulnerabilities_scan`) stops at its next step and keeps its previous report. |
-| `bootui.mcp.max-response-bytes` | `4194304` | Maximum size of a rendered JSON-RPC response; oversized results are replaced by JSON-RPC `-32003`. |
+| `bootui.mcp.max-response-bytes` | `4194304` | Maximum size of a rendered JSON-RPC response, and of each event of a progress stream; oversized results are replaced by JSON-RPC `-32003` (`-31003` for MCP 2026-07-28 clients), and an oversized progress notification is dropped and counted in the MCP Server status's `progressDropped`. |
 
 ### Command-line endpoint
 

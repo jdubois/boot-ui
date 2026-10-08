@@ -9,7 +9,8 @@ package io.github.jdubois.bootui.engine.mcp;
  * @param protocolVersion whether {@code io.modelcontextprotocol/protocolVersion} was present and a string
  * @param protocolVersionValue the version string when {@link Field#VALID}, otherwise {@code null}
  * @param clientCapabilities whether {@code io.modelcontextprotocol/clientCapabilities} was present and an object
- * @param progressToken whether {@code progressToken} was present and a string or an integer
+ * @param progressToken whether {@code progressToken} was present and a string of at most {@link
+ *     McpProgressToken#MAX_TEXT_LENGTH} characters or an integer; a longer string is {@link Field#INVALID}
  * @param progressTokenValue the token when {@link Field#VALID}, otherwise {@code null}
  */
 public record McpRequestMeta(
@@ -26,6 +27,13 @@ public record McpRequestMeta(
         protocolVersion = protocolVersion == null ? Field.ABSENT : protocolVersion;
         clientCapabilities = clientCapabilities == null ? Field.ABSENT : clientCapabilities;
         progressToken = progressToken == null ? Field.ABSENT : progressToken;
+        if (progressTokenValue != null
+                && progressTokenValue.isText()
+                && progressTokenValue.text().length() > McpProgressToken.MAX_TEXT_LENGTH) {
+            // Too long to echo in every notification: a modern request is refused, a legacy one ignores it.
+            progressToken = Field.INVALID;
+            progressTokenValue = null;
+        }
         if ((protocolVersion == Field.VALID) != (protocolVersionValue != null)) {
             throw new IllegalArgumentException("A valid protocol version needs a value, and only a valid one has one");
         }

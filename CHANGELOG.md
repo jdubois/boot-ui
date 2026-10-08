@@ -720,6 +720,13 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **Method probe guidance avoids false "never reached" answers.** Agents and the BootUI skill now wait until a probe
+  is `active`, rerun within its window, and treat an empty result from a probe that was not active throughout as
+  inconclusive ([AI agents](docs/AI-AGENTS.md#did-this-method-run-and-how)).
+- **MCP progress streams stay within `bootui.mcp.max-response-bytes`.** A string progress token is at most 128
+  characters, and a progress event that would not fit is dropped ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+- **Modern MCP requests need a string or integer id.** A `null`, fractional, or missing id on an MCP 2026-07-28
+  request is refused with `400` instead of running the call unanswered ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 - **A task its handler waited for is no longer badged "after response".** With the BootUI agent, Live Activity's
   **after response** badge and the request profile's **Handoffs** compared the task's run end with the response, and
   the JDK releases a waiting handler before that run returns, so on virtual threads about one waited-for `FutureTask`

@@ -3490,7 +3490,9 @@ Design rules:
   `2026-07-28`, or a repeated header, is `400`/`-32600`; `2026-07-28` without the modern `_meta` is a malformed modern
   request, `400`/`-32602` echoing the request id. The header is judged after the body is read, and the envelope fields
   `jsonrpc`, `method`, and `params.name` count only when they are strings, so both stacks answer a `null` or numeric
-  field with the same client error. A modern request is validated (version type, header agreement, supported version,
+  field with the same client error. A modern request is validated (a string or integer id, never `null`, fractional, or another type, and present unless
+  the method is a `notifications/` one, so a modern `tools/call` never runs unanswered; judged for any request with a
+  non-2025-06-18 or non-string `_meta` version, or a lone `2026-07-28` header; version type, header agreement, supported version,
   client capabilities, `Mcp-Method`, `Mcp-Name` with Base64 decoding, progress token type) with `400` and `-32602`,
   `-32020`, or `-32022` carrying `data.supported`. The modern era has `server/discover` but no `initialize` or `ping`,
   answers an unknown method with `404`, adds `resultType`, `_meta` server identity, and cache hints (`ttlMs: 60000`,
@@ -3501,7 +3503,9 @@ Design rules:
   tool whose operation reports measured phases through the engine's `OperationProgress` (`architecture_scan` and `vulnerabilities_scan`),
   from a client whose `Accept` explicitly lists `text/event-stream`, answers on a `text/event-stream` POST response with
   `X-Accel-Buffering: no`: rate-limited `notifications/progress` (burst 8, then one per 250 ms, coalescing to the
-  newest, flushed before the end) and exactly one final response, after which the stream closes. Events are `data:`
+  newest, flushed before the end, each dropped when it would exceed `bootui.mcp.max-response-bytes`) and exactly one
+  final response, after which the stream closes; a string progress token is at most 128 characters (refused when
+  modern, ignored when legacy). Events are `data:`
   lines with no ids; keep-alive comments every 2 seconds, so Spring MVC, which only notices a closed stream when a write
   fails, does so within about 4 seconds; WebFlux and Quarkus notice it at once. Closing a modern stream cancels the call:
   nothing more is written, the tool is interrupted and stops at its next step, and its concurrency permit is released
