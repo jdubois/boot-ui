@@ -70,6 +70,12 @@ const FEATURES = [
               The default sensors are held to a measured overhead budget of 10% on a benchmark route. Sensors that would
               go over it, such as file access, stay off until you switch them on.
             </li>
+            <li>
+              The evidence it keeps for Code Paths, Code Inventory, and Side Effects has its own memory ceiling, apart
+              from the runtime journal and the agent’s ring: about 68 MB by default, set with
+              <code class="bootui-break-anywhere">bootui.runtime-journal.agent-evidence-max-bytes</code>. It is a
+              ceiling, not memory taken up front.
+            </li>
             <li>It is a development tool: keep it off production, AOT, and native-image runs.</li>
             <li>HotSpot prints a class data sharing warning at start-up when it is attached; that is expected.</li>
             <li>Remove <code>-javaagent</code> and the application runs exactly as before.</li>

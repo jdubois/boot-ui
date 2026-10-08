@@ -13,9 +13,10 @@ import java.util.List;
  * ({@code bootui.agent.ring-capacity}).
  *
  * @param sensors the sensors to install: {@code executors}, {@code inventory}, {@code code-paths}, {@code processes},
- *     {@code network}, and {@code blocking}, and the opt-in {@code threads}, {@code files}, {@code environment},
- *     {@code thread-activity}, {@code caught-exceptions}, and {@code security-sinks}; the Side Effects sensors this
- *     version does not ship are accepted ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
+ *     {@code network}, {@code blocking}, and {@code resources}, and the opt-in {@code threads}, {@code files},
+ *     {@code environment}, {@code thread-activity}, {@code thread-locals}, {@code caught-exceptions}, and
+ *     {@code security-sinks}; the Side Effects sensors this version does not ship are accepted
+ *     ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
  * @param skipTasks task class-name prefixes the propagation sensors never propagate
  * @param skipThreads thread-name prefixes the propagation sensors never propagate to
  * @param maxHandoff how long a handoff's work is attributed to its request
@@ -97,6 +98,15 @@ public record AgentSensorSettings(
     public static final String THREAD_LOCALS = "thread-locals";
 
     /**
+     * The Side Effects sensor reporting the streams, channels, and sockets a request's or a job's work opened and left
+     * open past the request's end, or that became unreachable while never closed (M5-5g, §5.16, D46), never their
+     * contents. It tracks what the {@code files} and {@code network} sensors record, so sockets by default and file
+     * streams once {@code files} is on, and advises the JDK's close methods. On by default (D47, an exception to D37):
+     * its same-runner A/B measured -0.5 % own and 6.9 % cumulative, within the 3 % and 10 % budgets.
+     */
+    public static final String RESOURCES = "resources";
+
+    /**
      * The sensor reporting the exceptions application code catches (M5-6a): opt-in until its overhead is measured
      * against the default sensors' budget (D21, D37).
      */
@@ -110,8 +120,16 @@ public record AgentSensorSettings(
     public static final String SECURITY_SINKS = "security-sinks";
 
     /** The Side Effects sensors this version ships. */
-    public static final List<String> SIDE_EFFECT_SENSORS =
-            List.of(PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY, THREAD_LOCALS, SECURITY_SINKS);
+    public static final List<String> SIDE_EFFECT_SENSORS = List.of(
+            PROCESSES,
+            NETWORK,
+            FILES,
+            ENVIRONMENT,
+            BLOCKING,
+            THREAD_ACTIVITY,
+            THREAD_LOCALS,
+            SECURITY_SINKS,
+            RESOURCES);
 
     /** Every sensor id this version installs. */
     public static final List<String> KNOWN_SENSORS = List.of(
@@ -126,6 +144,7 @@ public record AgentSensorSettings(
             BLOCKING,
             THREAD_ACTIVITY,
             THREAD_LOCALS,
+            RESOURCES,
             CAUGHT_EXCEPTIONS,
             SECURITY_SINKS);
 
@@ -133,11 +152,11 @@ public record AgentSensorSettings(
      * The Side Effects sensors the panel lists but this version does not ship ({@code docs/PLAN-v2.md} §5.16):
      * {@code bootui.agent.sensors} accepts them, with a warning, and the panel reports them not available.
      */
-    public static final List<String> NOT_AVAILABLE_SENSORS = List.of("resources");
+    public static final List<String> NOT_AVAILABLE_SENSORS = List.of();
 
     /** The default {@code bootui.agent.sensors}. */
     public static final List<String> DEFAULT_SENSORS =
-            List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, BLOCKING);
+            List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, BLOCKING, RESOURCES);
 
     /**
      * The sensors this version ships off by default, which the Java Agent and Side Effects panels switch on and off at
@@ -215,8 +234,10 @@ public record AgentSensorSettings(
             if (!KNOWN_SENSORS.contains(sensor) && !NOT_AVAILABLE_SENSORS.contains(sensor)) {
                 throw new IllegalArgumentException("bootui.agent.sensors names an unknown sensor '" + sensor
                         + "': this version installs " + String.join(", ", KNOWN_SENSORS)
-                        + ", and Side Effects also lists " + String.join(", ", NOT_AVAILABLE_SENSORS)
-                        + ", which are not available in this version.");
+                        + (NOT_AVAILABLE_SENSORS.isEmpty()
+                                ? "."
+                                : ", and Side Effects also lists " + String.join(", ", NOT_AVAILABLE_SENSORS)
+                                        + ", which are not available in this version."));
             }
         }
         skipTasks = clean(skipTasks);
@@ -326,6 +347,11 @@ public record AgentSensorSettings(
     /** Whether the {@code thread-locals} sensor is asked for. */
     public boolean threadLocals() {
         return sensors.contains(THREAD_LOCALS);
+    }
+
+    /** Whether the {@code resources} sensor is asked for. */
+    public boolean resources() {
+        return sensors.contains(RESOURCES);
     }
 
     /** Whether any Side Effects sensor is asked for. */

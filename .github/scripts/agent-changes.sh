@@ -56,7 +56,7 @@ pattern+='|bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/aut
 # Where the adapters register their event loops with the blocking sensor (M5-5c).
 pattern+='|bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/(reactive/ReactiveThreadKinds|restclienttrace/RestClientTraceExchangeFilter)'
 pattern+='|bootui-quarkus/src/main/java/io/github/jdubois/bootui/quarkus/web/QuarkusHttpExchangeCaptureFilter'
-# Where the adapters wire request ends to the thread-activity sensor (M5-5e).
+# Where the adapters wire request ends to the thread-activity and resources sensors (M5-5e, M5-5g).
 pattern+='|bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/BootUiEngineConfiguration'
 pattern+='|bootui-quarkus/src/main/java/io/github/jdubois/bootui/quarkus/BootUiEngineProducer'
 # Where the adapters open the thread-locals sensor's scopes (M5-5f), and BootUI's own thread locals' marker class.

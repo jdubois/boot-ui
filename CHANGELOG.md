@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Resources sensor in the BootUI agent.** On by default, it shows the sockets, and with `files` the streams, a request
+  left open or never closed, in Side Effects' **Threads and leaks** tab ([Java Agent](docs/features/java-agent.md#the-resources-sensor)).
 - **Change impact has its own Runtime Insights tab.** It opens on its search field instead of sitting below the run
   comparison, offers the methods changed since the previous run, and each changed method in **Changes** links to it
   with **See its impact**; `?impact=<symbol>` opens it, and `?tab=` opens any tab.
@@ -487,10 +489,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   merged into its route, and no longer kept, now amends that route's executed methods instead of opening a second,
   partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too.
 - **`bootui.agent.sensors` rejects unknown sensor ids.** The default sensor set is now `executors`, `inventory`,
-  `code-paths`, `processes`, `network`, and `blocking`. `threads`, `files`, `environment`, `thread-activity`,
-  `thread-locals`, `caught-exceptions`, and `security-sinks` are opt-in; the first five can also be switched at run
-  time, while `caught-exceptions` and `security-sinks` are installed only when the application starts.
-  The `resources` sensor, which this version does not ship, is accepted with a warning and reported not available.
+  `code-paths`, `processes`, `network`, `blocking`, and `resources`. `threads`, `files`, `environment`,
+  `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks` are opt-in; the first five can also be
+  switched at run time, while `caught-exceptions` and `security-sinks` are installed only when the application starts.
   Any other id now fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with
   an error naming the accepted ids.
 
@@ -720,6 +721,9 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **Rule catalogs match the advisors again.** The Spring, Quarkus, Database, and Hibernate catalogs use the
+  advisors' current rule titles, and the CRaC, Database, and Hibernate rule indexes render with every severity
+  ([Spring checks](docs/SPRING-CHECKS.md)).
 - **Method probe guidance avoids false "never reached" answers.** Agents and the BootUI skill now wait until a probe
   is `active`, rerun within its window, and treat an empty result from a probe that was not active throughout as
   inconclusive ([AI agents](docs/AI-AGENTS.md#did-this-method-run-and-how)).
