@@ -1,0 +1,37 @@
+name: Dependency submission
+
+# Submits the Maven reactor's resolved dependency tree, transitive dependencies included, to the dependency graph, so
+# Dependabot alerts cover them. Alerts read only the default branch's snapshot, so this runs on pushes to main and
+# replaces GitHub's automatic dependency submission, which ran on every branch and pull request.
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  submit-maven:
+    name: Submit Maven dependencies
+    runs-on: ubuntu-latest
+    permissions:
+      # The dependency submission API requires contents: write.
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Submit the dependency snapshot
+        uses: advanced-security/maven-dependency-submission-action@a64327a7329c9939cf675e458452febe1894a70c # v6.0.1
