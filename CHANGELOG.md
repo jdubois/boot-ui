@@ -9,8 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **Resources sensor in the BootUI agent.** The `resources` sensor, on by default, shows the sockets, and with `files`
-  the streams, a request left open or never closed, in Side Effects' **Threads and leaks** tab ([Java Agent](docs/features/java-agent.md#the-resources-sensor), M5-5g).
+- **Resources sensor in the BootUI agent.** On by default, it shows the sockets, and with `files` the streams, a request
+  left open or never closed, in Side Effects' **Threads and leaks** tab ([Java Agent](docs/features/java-agent.md#the-resources-sensor)).
 - **Change impact has its own Runtime Insights tab.** It opens on its search field instead of sitting below the run
   comparison, offers the methods changed since the previous run, and each changed method in **Changes** links to it
   with **See its impact**; `?impact=<symbol>` opens it, and `?tab=` opens any tab.
