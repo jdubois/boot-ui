@@ -3501,7 +3501,9 @@ Design rules:
   tool whose operation reports measured phases through the engine's `OperationProgress` (`architecture_scan` and `vulnerabilities_scan`),
   from a client whose `Accept` explicitly lists `text/event-stream`, answers on a `text/event-stream` POST response with
   `X-Accel-Buffering: no`: rate-limited `notifications/progress` (burst 8, then one per 250 ms, coalescing to the
-  newest, flushed before the end) and exactly one final response, after which the stream closes. Events are `data:`
+  newest, flushed before the end, each dropped when it would exceed `bootui.mcp.max-response-bytes`) and exactly one
+  final response, after which the stream closes; a string progress token is at most 128 characters (refused when
+  modern, ignored when legacy). Events are `data:`
   lines with no ids; keep-alive comments every 2 seconds, so Spring MVC, which only notices a closed stream when a write
   fails, does so within about 4 seconds; WebFlux and Quarkus notice it at once. Closing a modern stream cancels the call:
   nothing more is written, the tool is interrupted and stops at its next step, and its concurrency permit is released

@@ -183,7 +183,8 @@ public final class McpProtocol {
     public static final String META_CLIENT_CAPABILITIES_TYPE_MESSAGE =
             "_meta " + META_CLIENT_CAPABILITIES + " must be an object";
     /** Returned when a progress token is neither a string nor an integer. */
-    public static final String PROGRESS_TOKEN_TYPE_MESSAGE = "_meta progressToken must be a string or an integer";
+    public static final String PROGRESS_TOKEN_TYPE_MESSAGE =
+            "_meta progressToken must be an integer or a string of at most 128 characters";
 
     /**
      * The JSON-RPC error code to put on the wire for {@code era}: modern clients receive BootUI's server-defined codes

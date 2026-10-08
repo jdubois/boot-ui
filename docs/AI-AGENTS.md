@@ -765,7 +765,7 @@ compatibility rules describe:
   (`-32020`); an unsupported version answers `-32022` with `data.supported` (`["2026-07-28", "2025-06-18"]`) and
   `data.requested`; `io.modelcontextprotocol/clientCapabilities` must be an object (`-32602`); `Mcp-Method` must be sent
   once and equal the method (`-32020`); for `tools/call` and `prompts/get`, `Mcp-Name` must be sent once and equal
-  `params.name`, after decoding the `=?base64?…?=` form (`-32020`); a `progressToken` must be a string or an integer
+  `params.name`, after decoding the `=?base64?…?=` form (`-32020`); a `progressToken` must be an integer or a string of at most 128 characters
   (`-32602`). A request whose `_meta` names `2025-06-18` is served as legacy.
 - **Legacy tokens are never refused.** A legacy request is never rejected or altered because of its
   `_meta.progressToken`: a string or integer token can start a progress stream (below), and any other value is ignored.
@@ -783,7 +783,10 @@ compatibility rules describe:
   The stream carries `data:` events, each one JSON-RPC message: `notifications/progress` with the request's token, a
   strictly increasing `progress`, the `total` when known, and a fixed phase `message`, then exactly one final
   response, after which the stream closes. There are no event ids, and `:` comment lines every 2 seconds keep the
-  connection open. Notifications are rate-limited: a burst of 8, then one every 250 ms, coalescing to the newest. Any
+  connection open. Notifications are rate-limited: a burst of 8, then one every 250 ms, coalescing to the newest. Every
+  event obeys `bootui.mcp.max-response-bytes`: a notification that would not fit is dropped, and a final response that
+  would not fit is replaced by the response-too-large error. A string `progressToken` longer than 128 characters is
+  refused on a modern request and ignored on a legacy one, which then answers with one JSON response. Any
   other call, including every refusal and a call without a token, stays a single JSON response, byte-identical to
   BootUI 1.x for a legacy client. A legacy stream's final response is a legacy one: no `resultType` or `_meta`, and the
   `-32000`…`-32003` codes.

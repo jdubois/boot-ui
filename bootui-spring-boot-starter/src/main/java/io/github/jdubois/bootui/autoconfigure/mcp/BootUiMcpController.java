@@ -146,7 +146,10 @@ public class BootUiMcpController {
             call.start(new McpStreamSink() {
                 @Override
                 public void progress(McpProgressToken token, ProgressEvent event) throws IOException {
-                    write(output, McpProtocol.sseDataFrame(service.renderProgress(token, event)));
+                    String json = service.renderProgress(token, event);
+                    if (json != null) {
+                        write(output, McpProtocol.sseDataFrame(json));
+                    }
                 }
 
                 @Override

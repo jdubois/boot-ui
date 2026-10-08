@@ -305,7 +305,10 @@ public class BootUiMcpService {
         }
         return response;
     }
-    /** One {@code notifications/progress} of a stream, as compact JSON. */
+    /**
+     * One {@code notifications/progress} of a stream, as compact JSON, or {@code null} when it would exceed {@code
+     * bootui.mcp.max-response-bytes}: the transport then sends nothing for that event.
+     */
     public String renderProgress(McpProgressToken token, ProgressEvent event) {
         ObjectNode params = JsonNodeFactory.instance.objectNode();
         if (token.isText()) {
@@ -322,7 +325,11 @@ public class BootUiMcpService {
         notification.put("jsonrpc", McpProtocol.JSONRPC_VERSION);
         notification.put("method", McpProtocol.PROGRESS_NOTIFICATION);
         notification.set("params", params);
-        return notification.toString();
+        String compact = notification.toString();
+        return McpExchange.progressFits(
+                        compact.getBytes(java.nio.charset.StandardCharsets.UTF_8).length, maxResponseBytes)
+                ? compact
+                : null;
     }
 
     /** Integral values render as integers so every stack writes the same bytes. */

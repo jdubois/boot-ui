@@ -156,6 +156,15 @@ public final class McpExchange {
                 IdEcho.AS_SENT);
     }
 
+    /**
+     * Whether a rendered {@code notifications/progress} of {@code renderedBytes} bytes may be sent: every event of a
+     * stream obeys {@code bootui.mcp.max-response-bytes} too. One that does not fit is dropped rather than replaced,
+     * because progress is advisory and the final response still ends the stream.
+     */
+    public static boolean progressFits(long renderedBytes, int maxResponseBytes) {
+        return renderedBytes <= Math.max(1, maxResponseBytes);
+    }
+
     /** The decision {@link #plan} makes for one request body. */
     public sealed interface Plan permits Plan.Reject, Plan.Accept, Plan.Disabled, Plan.Dispatch {
 

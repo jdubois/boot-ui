@@ -830,6 +830,61 @@ class BootUiMcpServiceTests {
     }
 
     @Test
+    void progressTokensAndProgressEventsStayWithinTheResponseBound() throws Exception {
+        BootUiProperties bounded = new BootUiProperties();
+        bounded.getMcp().setMaxResponseBytes(512);
+        BootUiMcpService small = new BootUiMcpService(
+                new BootUiMcpTools(List.of(new McpTool(
+                        "architecture_scan",
+                        "Run the architecture advisor.",
+                        McpToolSchema.NONE,
+                        BootUiPanels.ARCHITECTURE,
+                        true,
+                        args -> java.util.Map.of("findings", List.of())))),
+                bounded,
+                objectMapper,
+                "1.2.3");
+        String token = "t".repeat(2_048);
+
+        // Legacy: an oversized token is ignored, so the call answers as before, with one JSON response.
+        BootUiMcpService.Reply legacy = small.exchange(
+                objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":"
+                        + "{\"name\":\"architecture_scan\",\"arguments\":{},\"_meta\":{\"progressToken\":\"" + token
+                        + "\"}}}"),
+                McpRequestHeaders.NONE,
+                true,
+                true);
+        assertThat(legacy.stream()).isNull();
+        assertThat(legacy.body().path("result").path("isError").asBoolean()).isFalse();
+
+        // Modern: refused before anything runs.
+        BootUiMcpService.Reply modern = small.exchange(
+                objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":"
+                        + "{\"name\":\"architecture_scan\",\"arguments\":{},\"_meta\":{"
+                        + "\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
+                        + "\"io.modelcontextprotocol/clientCapabilities\":{},\"progressToken\":\"" + token + "\"}}}"),
+                new McpRequestHeaders(List.of("2026-07-28"), List.of("tools/call"), List.of("architecture_scan")),
+                true,
+                true);
+        assertThat(modern.stream()).isNull();
+        assertThat(modern.status()).isEqualTo(400);
+        assertThat(modern.body().path("error").path("message").asString())
+                .isEqualTo(McpProtocol.PROGRESS_TOKEN_TYPE_MESSAGE);
+
+        // A progress event that would not fit the bound is dropped, never sent past it.
+        String longest = "t".repeat(io.github.jdubois.bootui.engine.mcp.McpProgressToken.MAX_TEXT_LENGTH);
+        io.github.jdubois.bootui.engine.progress.ProgressEvent event =
+                new io.github.jdubois.bootui.engine.progress.ProgressEvent(1, 2.0, "Evaluating architecture rules");
+        assertThat(small.renderProgress(io.github.jdubois.bootui.engine.mcp.McpProgressToken.of(longest), event))
+                .hasSizeLessThanOrEqualTo(512);
+        BootUiProperties tiny = new BootUiProperties();
+        tiny.getMcp().setMaxResponseBytes(100);
+        BootUiMcpService tinyService = new BootUiMcpService(new BootUiMcpTools(List.of()), tiny, objectMapper, "1.2.3");
+        assertThat(tinyService.renderProgress(io.github.jdubois.bootui.engine.mcp.McpProgressToken.of(longest), event))
+                .isNull();
+    }
+
+    @Test
     void streamFramesAreTheSameBytesOnEveryStack() throws Exception {
         assertThat(service.renderProgress(
                         io.github.jdubois.bootui.engine.mcp.McpProgressToken.of("tok"),
