@@ -52,6 +52,14 @@ const selectedId = ref(typeof route?.query?.insight === 'string' ? route.query.i
 const showAll = ref(route?.query?.all === '1' || route?.query?.all === 'true')
 let deepLinkChecked = false
 const initialImpact = typeof route?.query?.impact === 'string' ? route.query.impact : ''
+// The panels that show some checks' findings in place of this list, as the engine's default listing says per check.
+const ELSEWHERE = [
+  {path: '/activity', title: 'Live Activity', detail: 'why a route is slow'},
+  {path: '/exceptions', title: 'Exceptions'},
+  {path: '/database-connection-pools', title: 'Database Connection Pools'},
+  {path: '/ai', title: 'AI Framework'},
+  {path: '/memory', title: 'Memory', detail: 'garbage collection and heap'}
+]
 const TAB_IDS = ['findings', 'changes', 'impact', 'profile', 'coverage']
 const linkedTab = typeof route?.query?.tab === 'string' && TAB_IDS.includes(route.query.tab) ? route.query.tab : null
 const tab = ref(initialImpact ? 'impact' : (linkedTab ?? 'findings'))
@@ -61,6 +69,9 @@ const detail = ref(null)
 const aiExport = ref(null)
 const detailError = ref(null)
 const detailLoading = ref(false)
+// A failed refresh of the open observation keeps its earlier evidence on screen, marked as stale, beside a report that
+// has moved on; Copy for AI waits until the evidence is current again.
+const detailStale = ref(false)
 // The comparison loads on its own; the verdict names it in a few words once it has. comparisonReady stays false only
 // until the first fetch settles (success or failure), so the verdict says "Comparing…" rather than showing nothing or
 // a stale sentence from a previous run's report.
@@ -185,21 +196,38 @@ watch(visibleObservations, (observations) => {
 let detailRequest = 0
 
 // Every refresh replaces the report, so the evidence is reloaded with it: the rows must match the sentence above them.
-// When the same observation stays open the old rows remain visible until the new ones arrive.
+// When the same observation stays open the old rows remain visible until the new ones arrive; when that refresh fails,
+// they stay visible labelled as stale, with the failure.
 watch(selected, async (observation, previous) => {
   const token = ++detailRequest
   if (!observation) {
     detail.value = null
+    detailStale.value = false
     return
   }
   const refresh = previous?.id === observation.id && detail.value?.observation?.id === observation.id
-  if (!refresh) detailLoading.value = true
-  detailError.value = null
+  // A refresh leaves a stale warning in place, unchanged, until it succeeds, so a failing auto-refresh neither blanks
+  // it nor has it announced again.
+  if (!refresh) {
+    detailLoading.value = true
+    detailStale.value = false
+    detailError.value = null
+  }
   try {
     const loaded = await getJson(`api/runtime-insights/insights/${encodeURIComponent(observation.id)}`)
-    if (token === detailRequest) detail.value = loaded
+    if (token === detailRequest) {
+      detail.value = loaded
+      detailStale.value = false
+      detailError.value = null
+    }
   } catch (e) {
-    if (token === detailRequest && !refresh) {
+    if (token !== detailRequest) return
+    if (refresh) {
+      // An open Copy for AI preview holds the earlier evidence too: close it rather than let it be copied as current.
+      aiExport.value = null
+      detailStale.value = true
+      detailError.value = formatLoadError(e, 'Unable to refresh this observation’s evidence')
+    } else {
       detail.value = null
       detailError.value = formatLoadError(e, 'Unable to load this observation’s evidence')
     }
@@ -295,6 +323,7 @@ provide(
     detail,
     detailLoading,
     detailError,
+    detailStale,
     aiExport,
     coverage,
     sources,
@@ -432,6 +461,15 @@ provide(
               did not.
             </span>
           </div>
+
+          <p v-if="empty === 'no-requests' || empty === 'nothing-observed'" class="small text-muted insight-elsewhere">
+            Some checks show their findings in other panels:
+            <template v-for="(panel, index) in ELSEWHERE" :key="panel.path"
+              >{{ index === 0 ? '' : index === ELSEWHERE.length - 1 ? ', and ' : ', '
+              }}<router-link :to="panel.path">{{ panel.title }}</router-link
+              ><template v-if="panel.detail"> ({{ panel.detail }})</template></template
+            >.
+          </p>
 
           <template v-else>
             <div class="d-flex flex-wrap gap-2 align-items-center mb-3 insight-toolbar">

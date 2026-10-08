@@ -25,7 +25,7 @@ const ctx = inject('runtimeInsights')
       v-if="!ctx.aiExport"
       type="button"
       class="btn btn-sm btn-outline-secondary text-nowrap insight-copy-ai"
-      :disabled="!ctx.detail || ctx.detail.observation?.id !== ctx.selected.id"
+      :disabled="!ctx.detail || ctx.detail.observation?.id !== ctx.selected.id || ctx.detailStale"
       @click="ctx.openAiExport"
     >
       <i class="bi bi-robot me-1" aria-hidden="true"></i>Copy for AI
@@ -61,8 +61,15 @@ const ctx = inject('runtimeInsights')
   </template>
 
   <h3 class="h6">Evidence</h3>
+  <div v-if="ctx.detailStale" class="alert alert-warning small py-2 insight-evidence-stale" role="alert">
+    <span class="d-block">{{ ctx.detailError }}</span>
+    The evidence below is from an earlier refresh and may not match the sentence and counts above. Copy for AI is off
+    until it refreshes.
+  </div>
   <div v-if="ctx.detailLoading" class="small text-muted mb-3" role="status">Loading evidence…</div>
-  <div v-else-if="ctx.detailError" class="alert alert-warning small py-2">{{ ctx.detailError }}</div>
+  <div v-else-if="ctx.detailError && !ctx.detailStale" class="alert alert-warning small py-2">
+    {{ ctx.detailError }}
+  </div>
   <div v-else-if="ctx.detail && !ctx.detail.available" class="small text-muted mb-3">
     {{ ctx.detail.unavailableReason }}
   </div>
