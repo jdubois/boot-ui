@@ -1058,7 +1058,7 @@ public abstract class AbstractMcpConformanceTest {
     }
 
     @Test
-    void testMcpRequestProfileNamesBothMissingRetentionWindows() throws Exception {
+    void testMcpRequestProfileRefusesAnIdNeitherRetentionWindowHas() throws Exception {
         assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
         try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
             String id = "conformance-unknown-request";
@@ -1071,13 +1071,11 @@ public abstract class AbstractMcpConformanceTest {
                                     + "\"arguments\":{\"id\":\"" + id + "\"}}}");
             assertThat(response.status()).isEqualTo(200);
             JsonNode result = response.json().path("result");
-            assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
-            JsonNode profile = new ObjectMapper()
-                    .readTree(result.path("content").get(0).path("text").asText());
-
-            assertThat(profile.path("available").asBoolean(true)).isFalse();
-            assertThat(profile.path("source").asText()).isEqualTo("none");
-            assertThat(profile.path("unavailableReason").asText()).contains(id, "journal", "buffer");
+            assertThat(result.path("isError").asBoolean())
+                    .as("an unknown id is a tool error, not an unavailable capability: " + result)
+                    .isTrue();
+            assertThat(result.path("content").get(0).path("text").asText())
+                    .contains(id, "journal", "buffer", "get_live_activity");
         }
     }
 
