@@ -135,8 +135,9 @@ public final class RuntimeInsightsService {
      * @param routes the application's declared routes, or {@code null}
      * @param panelEnabled whether a panel, by its id, is enabled; {@code null} enables every panel
      * @param stack the stack serving the application, or {@code null} when unknown
-     * @param runs the summaries of the runs kept in this JVM, newest first, such as
-     *     {@code RunHistory.shared()::summaries}, or {@code null}
+     * @param runs the summaries of this application's runs kept in this JVM, newest first, such as
+     *     {@code () -> RunHistory.shared().summaries(aggregates.application())}, so another application sharing the
+     *     JVM is never its previous run, or {@code null}
      */
     public RuntimeInsightsService(
             RuntimeJournal journal,
@@ -1250,9 +1251,7 @@ public final class RuntimeInsightsService {
         }
         evaluated.set(repeated, new Evaluated(done.observation(), kept, done.partial(), done.unseen()));
         RuntimeInsightCheckDto check = checks.get(repeatedAt);
-        String leftOut = InsightText.counted(left, "statement") + " that SQL after the handler returned reports on the"
-                + " same route, from the same call site, " + (left == 1 ? "is" : "are")
-                + " left to it, which names the cause.";
+        String leftOut = JudgedWithoutFinding.leftToLazySql(left);
         checks.set(
                 repeatedAt,
                 new RuntimeInsightCheckDto(

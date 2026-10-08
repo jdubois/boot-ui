@@ -15,7 +15,8 @@ import java.util.List;
  *     consumed messages, and evicted traffic are not counted. An empty observation list means not exercised only when
  *     {@code limitations} say so
  * @param coverage how each source's events are linked to their request or execution
- * @param checksNotRun the checks that did not apply or ran partially, each with its reason
+ * @param checksNotRun the checks that did not apply or ran partially, each with its reason, including an evaluated check
+ *     that left evidence out, as {@code <kind>: EVALUATED, partly: <what it could not see>}
  * @param observations the observations that matched, every kind's most affected first, then the rest
  * @param omitted the matching observations beyond {@code limit}
  * @param notExercised declared routes no request of this run reached, at most {@value #MAX_NOT_EXERCISED}

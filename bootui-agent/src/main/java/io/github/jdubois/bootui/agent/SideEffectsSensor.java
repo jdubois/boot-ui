@@ -53,7 +53,7 @@ import net.bytebuddy.matcher.ElementMatchers;
  * {@code DatagramSocket.send}, and {@code InetAddress.getAddressesFromNameService}; {@value SideEffects#FILES} (M5-5d)
  * hooks the private {@code open} methods of {@code FileInputStream} and {@code FileOutputStream}, its core hooks, and of
  * {@code RandomAccessFile}, the {@code Files} methods that open, delete, move, and copy, and {@code FileChannel.open};
- * the opt-in {@value SideEffects#ENVIRONMENT} (M5-5d) hooks {@code System.getenv(String)}, {@code System.getenv()}, and
+ * the {@value SideEffects#ENVIRONMENT} sensor (M5-5d) hooks {@code System.getenv(String)}, {@code System.getenv()}, and
  * {@code System.getProperty}, all core; {@value SideEffects#BLOCKING} (M5-5c) hooks every public {@code
  * LockSupport.park*} method, its core hook, whose advice returns at entry off event loops (its call-site hooks on
  * {@code Thread.sleep} and {@code Object.wait} are a visit of {@link ApplicationMethodsSensor}).

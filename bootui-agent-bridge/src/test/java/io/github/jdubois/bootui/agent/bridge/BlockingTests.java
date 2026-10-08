@@ -181,7 +181,9 @@ class BlockingTests {
             Blocking.registerEventLoop();
             long quick = Blocking.parking();
             assertThat(quick).isNotZero();
-            Blocking.parked(quick, null);
+            // The token is the park's start time: moving it a second ahead makes the park measure as instant, so a GC
+            // pause or a descheduled thread on a loaded runner cannot stretch it past MIN_PARK_NANOS (#1385).
+            Blocking.parked(quick + TimeUnit.SECONDS.toNanos(1L), null);
             long slow = Blocking.parking();
             Thread.sleep(3L);
             Blocking.parked(slow, null);

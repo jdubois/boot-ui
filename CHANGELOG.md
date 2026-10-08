@@ -7,9 +7,38 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Upgrading from 1.x
+
+BootUI 2.0 changes a few defaults and dependencies. Most applications only need the first point; the entries below
+give the details.
+
+- One Spring Boot starter serves Spring MVC and WebFlux. WebFlux applications replace
+  `bootui-spring-boot-starter-reactive` with `bootui-spring-boot-starter`. The starter no longer brings a web stack, so
+  the application declares its own `spring-boot-starter-web` or `spring-boot-starter-webflux`, as most already do
+  ([Setup](docs/SETUP.md); "Eight Maven Central artifacts" under Changed).
+- A direct `bootui-spring-autoconfigure` or `bootui-client` dependency becomes `bootui-spring-boot-starter` or
+  `bootui-cli`.
+- The runtime journal is on by default. It keeps the run's events in bounded memory, by default the smaller of 32 MB
+  and 5 % of the heap, and feeds Live Activity and Runtime Insights; `bootui.runtime-journal.enabled=false` turns it off
+  ([Runtime journal](docs/PROPERTIES.md#runtime-journal)).
+- Live Activity reads the journal by default: `bootui.activity.feed-source` is `journal`
+  ([Live Activity](docs/PROPERTIES.md#live-activity)).
+- `bootui.activity.persistence.capture-interval` is removed and ignored: durable history is written by the journal
+  ("The Live Activity persistence poller is removed" under Removed). A custom `TraceIdProvider` becomes a
+  `CorrelationContextProvider` (under Removed).
+- Durable Live Activity history no longer keeps principals, exception or log messages, or email subjects; the live
+  panels still show them ([Durable history](docs/features/overview.md#durable-history)).
+- The new BootUI agent is optional. When attached, it turns on its default sensors; the others are opt-in, and an
+  unknown id in `bootui.agent.sensors` stops the application's start
+  ([Java Agent](docs/features/java-agent.md#configuration)).
+- MCP and CLI scans answer with a summary, and pause, resume, and clear with an acknowledgement. A script that reads
+  `.results` or `.findings` from `bootui … scan --json`, or expects `{"cleared":true}`, reads the `… report` command
+  or `topFindings` and the acknowledgement's `action` instead
+  ([Compact answers](docs/AI-AGENTS.md#compact-answers-from-scans-and-capture-controls)).
+
 ### Added
 
-- **Resources sensor in the BootUI agent.** On by default, it shows the sockets, and with `files` the streams, a request
+- **Resources sensor in the BootUI agent.** On by default, it shows the sockets and file streams a request
   left open or never closed, in Side Effects' **Threads and leaks** tab ([Java Agent](docs/features/java-agent.md#the-resources-sensor)).
 - **Change impact has its own Runtime Insights tab.** It opens on its search field instead of sitting below the run
   comparison, offers the methods changed since the previous run, and each changed method in **Changes** links to it
@@ -38,8 +67,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   above, and incomplete evidence is shown as unknown with its reason, never as swallowed
   (`GET /exceptions/caught`, `caughtInCode` in `get_exceptions`).
 
-- **Opt-in agent sensors switched at run time.** The Java Agent and Side Effects panels switch `threads`, `files`,
-  `environment`, `thread-activity`, and `thread-locals` on or off without a restart, until the JVM ends ([Java Agent](docs/features/java-agent.md#switching-opt-in-sensors-at-run-time), [#1290](https://github.com/jdubois/boot-ui/pull/1290)).
+- **Agent sensors switched at run time.** The Java Agent and Side Effects panels switch `threads`, `files`,
+  `environment`, `thread-activity`, and `thread-locals` on or off without a restart, until the JVM ends ([Java Agent](docs/features/java-agent.md#switching-sensors-at-run-time), [#1290](https://github.com/jdubois/boot-ui/pull/1290)).
 - **Side effects in the run comparison.** With the BootUI agent, Runtime Insights' comparison lists the hosts,
   files, processes, and variable names a route, job, or startup newly uses or no longer uses, for sensors that recorded
   both runs whole ([Runtime Insights](docs/features/overview.md#runtime-insights)).
@@ -209,7 +238,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([Java Agent](docs/features/java-agent.md#the-processes-sensor)). The executors sensor's default
   `bootui.agent.executors.skip-tasks` now includes `java.lang.ProcessHandleImpl`, the JDK's process reaper, so a request
   that starts a process is no longer reported as doing work after its response.
-- **Files and environment sensors in the BootUI agent.** The opt-in `files` and `environment` agent sensors record
+- **Files and environment sensors in the BootUI agent.** The `files` agent sensor, on by default, and the opt-in
+  `environment` sensor record
   the files application code opens, deletes, moves, and copies, as path patterns (`./`, `$TMPDIR`, `~`, ids as `{n}`),
   and the environment variables and system properties it reads, by name; never contents or values, with class loading,
   the JDK, and logging appenders grouped apart ([Java Agent](docs/features/java-agent.md#the-files-sensor)).
@@ -372,9 +402,43 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   full `docker` profile (PostgreSQL, Redis, Kafka, and Ollama for Spring AI), and a new `run-history` profile that keeps
   Live Activity's history in PostgreSQL and the last run's summary in `.bootui/run-baseline.bin`, so a new run is
   compared with the previous one after a full restart.
+- **Launchers for the WebFlux and Quarkus samples.** Each sample has a `run-local.sh`, a `run-local-agent.sh` that
+  attaches the BootUI Java agent with its default sensors, and a `run-local-all.sh` that turns on every sensor, as the
+  Spring MVC sample does.
 
 ### Changed
 
+- **The `files` sensor is on by default, and still switched at run time.** `bootui.agent.sensors` now defaults to
+  `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `blocking`, and `resources`. The Java Agent panel's
+  **Runtime switches** card, renamed from **Opt-in sensors**, and the Side Effects sections switch it off, and back on,
+  without a restart, and say why each sensor is on or off by default. The agent overhead job now fails the build when
+  `files`' own increment over the other default sensors is above 3 % (the lower bound of its 15-pair median interval);
+  it measured 4.2 % and 3.0 %, with intervals reaching below 3 %. The `environment` sensor stays off by default: each
+  `System.getProperty` call from application code takes about 20 ns more with it, which cost 6.8 % of throughput on a
+  route reading fifty properties per request. Switch it on from either panel to see what the application reads
+  ([Java Agent](docs/features/java-agent.md#switching-sensors-at-run-time)).
+- **The agent overhead job's cumulative check measures 15 pairs and is documented as an alarm.** It fails when the lower
+  bound of the default sensors' cumulative median interval is above 10 %, which a true 14 % trips about four runs in
+  five and a true 12 % about one in four; with the 9 pairs it used, a true 12 % passed about four runs in five. A sensor
+  whose overhead is enforced once it is on by default now reads its cumulative check the same way
+  (`bootui.benchmark.agent.gate=interval`), so promoting one no longer fails a build on runner noise
+  ([Java Agent](docs/features/java-agent.md#overhead)).
+- **Runtime Insights' agent answer keeps what an evaluated check could not see.** `get_runtime_insights` and
+  `bootui insights list` now list, in `checksNotRun`, a check that ran but left evidence out, such as a changed method the
+  agent could not track next to one it saw run, as `<kind>: EVALUATED, partly: <reason>`; before, such a check vanished
+  from the answer, even with `query=all`. What a check judged and does not report, such as fast calls, stays out
+  ([AI agents](docs/AI-AGENTS.md)).
+- **Work after the response and Live Activity's badge use one rule.** Runtime Insights' `work-after-response` now
+  reads the same predicate as Live Activity's **after response** badge, and a task failure the agent timed after the
+  response marks the badge even without a confirmed body return
+  ([Java Agent](docs/features/java-agent.md#the-executors-sensor)).
+- **Caught in application code says when handlers went uninstrumented.** Past the agent's 16,384 exception handlers per
+  JVM, the section's limitations say some handlers were left out, whose catches are not seen
+  ([Java Agent](docs/features/java-agent.md#the-caught-exceptions-sensor)).
+- **Compact MCP and CLI answers from scans and capture controls.** Scans answer with their counts and top ten findings,
+  and pause, resume, and clear with a short acknowledgement ([AI agents](docs/AI-AGENTS.md#compact-answers-from-scans-and-capture-controls)).
+- **The vulnerabilities report bounds its advisories for agents.** `get_vulnerabilities_report` lists at most five
+  advisories per dependency without their full text, and an exact advisory id returns one whole ([AI agents](docs/AI-AGENTS.md#compact-answers-from-scans-and-capture-controls)).
 - **The Java Agent panel opens on its setup when the agent is not attached.** The steps and setup snippets follow the
   **Not attached** status, then a short explanation of what a Java agent is, how BootUI's works, which features need it,
   and its cost; the sections that only describe an attached agent wait until it is attached
@@ -489,9 +553,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   merged into its route, and no longer kept, now amends that route's executed methods instead of opening a second,
   partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too.
 - **`bootui.agent.sensors` rejects unknown sensor ids.** The default sensor set is now `executors`, `inventory`,
-  `code-paths`, `processes`, `network`, `blocking`, and `resources`. `threads`, `files`, `environment`,
-  `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks` are opt-in; the first five can also be
-  switched at run time, while `caught-exceptions` and `security-sinks` are installed only when the application starts.
+  `code-paths`, `processes`, `network`, `files`, `blocking`, and `resources`. `threads`, `environment`,
+  `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks` are opt-in; the first four, and `files`,
+  can also be switched at run time, while `caught-exceptions` and `security-sinks` are installed only when the
+  application starts.
   Any other id now fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with
   an error naming the accepted ids.
 
@@ -718,9 +783,39 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
   remove `bootui.activity.persistence.capture-interval`, which is now ignored, and keep the runtime journal enabled
   (the default): with `bootui.runtime-journal.enabled=false`, persistence logs a warning and writes nothing
   ([Runtime journal](docs/PROPERTIES.md#runtime-journal)).
+- **`bootui.activity.feed-source=buffers` is removed.** Live Activity reads the runtime journal on Spring MVC,
+  Spring WebFlux, and Quarkus, and an application that still sets `buffers` fails to start with a message naming the
+  replacement. **Migration:** remove the property, or set it to `journal`. With `bootui.runtime-journal.enabled=false`,
+  the panel buffers still serve the feed on their own, and the panel's **Panel buffers** choice
+  (`?source=buffers`) still shows them on request ([Live Activity](docs/PROPERTIES.md#live-activity)).
 
 ### Fixed
 
+- **MCP calls no longer keep a restarted application in memory.** BootUI's shared MCP, HTTP-client, and profiler
+  threads used to keep the application that first used them reachable across DevTools restarts and Quarkus live
+  reloads. They no longer inherit its class loader or thread-locals, and an MCP tool runs with its own application's
+  class loader.
+- **The Java agent bounds the tasks it remembers.** It holds at most 32,768 pending executor tasks and 32,768 pending
+  threads; past that, a task runs without its request, counted as **Over the limit** in the Java Agent panel and
+  `get_agent_status` ([Java Agent](docs/features/java-agent.md#counters)).
+- **An asynchronous Spring MVC request is recorded when it answers.** A request whose handler returned a
+  `DeferredResult`, `Callable`, or `CompletableFuture` reached the runtime journal when that handler returned, as a
+  `200` lasting only the handler's own time, so a request that later answered `503` or failed, or timed out, read as a
+  fast success in Live Activity, Runtime Insights, and run comparison. It is now recorded once, when its response
+  completes, with the status it answered and its whole duration, however many asynchronous steps it went through.
+- **Run comparison never compares two applications sharing a JVM.** Run history is kept per JVM, so with two
+  applications in one JVM, such as two Spring test contexts, a run of one could be compared with the other's last run.
+  Each kept run now carries its application, and the previous run, the runs to choose from, and a baseline file read
+  are this application's own. Each application keeps its last run while the history stays at five runs.
+- **Spring no longer claims the Java agent when BootUI is forced on in production.** With `bootui.enabled=ON`
+  overriding a disabled profile such as `prod`, the application claimed the BootUI Java agent, which must never be
+  attached to a production JVM. It now releases it, logs why, and the Java Agent panel says so, as Quarkus production
+  mode does; `bootui.agent.allow-in-disabled-profiles=true` claims it anyway
+  ([Java Agent](docs/features/java-agent.md#claims-and-lifecycle)).
+- **A failed Spring WebFlux request is recorded with the status it answered.** The runtime journal recorded a failed
+  request as `500`, unless the error declared its own status, before WebFlux's exception handlers ran, so a custom
+  handler's `400` or `404`, or a successful fallback, read as a server error. It now records the status that handler
+  rendered, when the response commits, as Actuator records the exchange.
 - **Rule catalogs match the advisors again.** The Spring, Quarkus, Database, and Hibernate catalogs use the
   advisors' current rule titles, and the CRaC, Database, and Hibernate rule indexes render with every severity
   ([Spring checks](docs/SPRING-CHECKS.md)).
@@ -757,8 +852,6 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 - **The `caught-exceptions` sensor stays opt-in.** On the caught benchmark route its own share measured 2.9 % then
   5.0 % (15 pairs each), over its 3 % budget once; the cumulative overhead with it was 5.9 %
   ([Java Agent](docs/features/java-agent.md#the-caught-exceptions-sensor)).
-- **The `files` sensor stays opt-in.** On the I/O benchmark route its own share is a 2.3 % median (15 pairs), but the
-  default sensors plus `files` reach 10.6 % (9 pairs), over the 10 % budget ([Java Agent](docs/features/java-agent.md#the-files-sensor)).
 - **Code Paths keeps recording on a thread after a deep stack overflow.** An application's runaway recursion through
   timed methods could overflow the stack a second time while the agent bridge was resetting the thread after the first
   overflow. The thread then stayed counted inside a call that had already returned. On a pooled thread that could stop

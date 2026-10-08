@@ -74,7 +74,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively scan application classes for architecture and dependency violations.",
-      "description": "Actively scan application classes for architecture and dependency violations. Use for structural reviews; verify each finding against intended module boundaries before changing code. It answers with the report get_architecture_report returns: read that tool's description for sampleViolations, truncated, and paging retained violationDetails with get_architecture_rule_violations without scanning again.",
+      "description": "Actively scan application classes for architecture and dependency violations. Use for structural reviews; verify each finding against intended module boundaries before changing code. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence and violationDetails.scanId. Read the cached report with get_architecture_report and page a rule's retained violations with get_architecture_rule_violations, without scanning again.",
       "example": "bootui architecture scan"
     },
     {
@@ -209,7 +209,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively assess Spring checkpoint/restore readiness.",
-      "description": "Actively assess Spring checkpoint/restore readiness. Verify resource-lifecycle findings in an actual CRaC checkpoint and restore test.",
+      "description": "Actively assess Spring checkpoint/restore readiness. Verify resource-lifecycle findings in an actual CRaC checkpoint and restore test. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence. Read the cached report with get_crac_report without scanning again.",
       "example": "bootui crac scan"
     },
     {
@@ -254,7 +254,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively read the application's MySQL JDBC datasources using bounded, read-only statistics queries.",
-      "description": "Actively read the application's MySQL JDBC datasources using bounded, read-only statistics queries. Returns sessions and blocking, normalized statement rankings, table/index activity, InnoDB metrics, local replication channels and curated settings. This is an operational observation, not an advisor or health score. Inspect each section's scope, reason and hint: server-wide counters include other clients, and default-schema association is not exhaustive access to that schema. Unknown values are null; large counters are exact decimal strings. Row-cap truncation is distinct from permission, instrumentation and timeout limitations. An empty replication list establishes absence only when its section was successfully read. Never enables monitoring, reads application records or returns raw session/sample SQL.",
+      "description": "Actively read the application's MySQL JDBC datasources using bounded, read-only statistics queries. Returns sessions and blocking, normalized statement rankings, table/index activity, InnoDB metrics, local replication channels and curated settings. This is an operational observation, not an advisor or health score. Inspect each section's scope, reason and hint: server-wide counters include other clients, and default-schema association is not exhaustive access to that schema. Unknown values are null; large counters are exact decimal strings. Row-cap truncation is distinct from permission, instrumentation and timeout limitations. An empty replication list establishes absence only when its section was successfully read. Never enables monitoring, reads application records or returns raw session/sample SQL. It answers with a summary, not the rows: status, message, readAt, truncated, and each datasource's status, message and sections (id, status, reason, rowCount, truncated). Read the rows, scopes and hints with get_mysql_report, which returns this read without querying again.",
       "example": "bootui db mysql read"
     },
     {
@@ -298,8 +298,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Actively read PostgreSQL's own pg_stat_* and pg_catalog views for the application datasources and return what the server currently reports: the live session snapshot, cache hit and rollback ratios, connection usage, transaction-ID age, the top normalized statements, index and relation activity, autovacuum state, replication and notable settings.",
-      "description": "Actively read PostgreSQL's own pg_stat_* and pg_catalog views for the application datasources and return what the server currently reports: the live session snapshot, cache hit and rollback ratios, connection usage, transaction-ID age, the top normalized statements, index and relation activity, autovacuum state, replication and notable settings. This is a runtime view, not an advisor: it grades nothing and emits no findings. The read is bounded and read-only. Read every section's `reason` before trusting its rows: a section BootUI read only partly stays `AVAILABLE` and carries a non-null `reason`, so `status` alone does not mean complete, while `SKIPPED` and `FAILED` mark a section it did not read at all. A `hint` is a methodology caveat on rows that were read, not missing evidence. `truncated` means the row cap was reached, and any of these degrades the database and report `status` to `PARTIAL`. The usual cause is a role without pg_monitor membership, which hides other backends from the session list and the statement text and replica details from their sections. Budget exhaustion is reported in `reason`, not as row-cap truncation. An empty replica list proves absence only when `replication.replicasAvailable` is true; otherwise the list was not read.",
+      "summary": "Actively read PostgreSQL's own pg_stat_* and pg_catalog views for the application datasources and record what the server currently reports: the live session snapshot, cache hit and rollback ratios, connection usage, transaction-ID age, the top normalized statements, index and relation activity, autovacuum state, replication and notable settings.",
+      "description": "Actively read PostgreSQL's own pg_stat_* and pg_catalog views for the application datasources and record what the server currently reports: the live session snapshot, cache hit and rollback ratios, connection usage, transaction-ID age, the top normalized statements, index and relation activity, autovacuum state, replication and notable settings. This is a runtime view, not an advisor: it grades nothing and emits no findings. The read is bounded and read-only. Read every section's `reason` before trusting its rows: a section BootUI read only partly stays `AVAILABLE` and carries a non-null `reason`, so `status` alone does not mean complete, while `SKIPPED` and `FAILED` mark a section it did not read at all. A `hint` is a methodology caveat on rows that were read, not missing evidence. `truncated` means the row cap was reached, and any of these degrades the database and report `status` to `PARTIAL`. The usual cause is a role without pg_monitor membership, which hides other backends from the session list and the statement text and replica details from their sections. Budget exhaustion is reported in `reason`, not as row-cap truncation. An empty replica list proves absence only when `replication.replicasAvailable` is true; otherwise the list was not read. It answers with a summary, not the rows: status, message, readAt, truncated, and each database's status, message and sections (id, status, reason, rowCount, truncated). Read the rows, hints and replication details with get_postgresql_report, which returns this read without querying again.",
       "example": "bootui db postgres read"
     },
     {
@@ -344,7 +344,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively introspect the physical database schema (tables, columns, keys, indexes) via read-only JDBC metadata, plus PostgreSQL/MySQL/MariaDB catalog checks and Hibernate mapping cross-reference when available.",
-      "description": "Actively introspect the physical database schema (tables, columns, keys, indexes) via read-only JDBC metadata, plus PostgreSQL/MySQL/MariaDB catalog checks and Hibernate mapping cross-reference when available. The scan is bounded; anything it could not read is reported as a diagnostic rather than as a passing check. Verify findings against the live schema before changing it. It answers with the report get_database_advisor_report returns: read that tool's description for sampleViolations, truncated, and paging retained violationDetails with get_database_advisor_rule_violations without scanning again.",
+      "description": "Actively introspect the physical database schema (tables, columns, keys, indexes) via read-only JDBC metadata, plus PostgreSQL/MySQL/MariaDB catalog checks and Hibernate mapping cross-reference when available. The scan is bounded; anything it could not read is reported as a diagnostic rather than as a passing check. Verify findings against the live schema before changing it. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence and violationDetails.scanId. Read the cached report with get_database_advisor_report and page a rule's retained violations with get_database_advisor_rule_violations, without scanning again.",
       "example": "bootui db scan"
     },
     {
@@ -418,7 +418,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Clear BootUI's bounded in-memory exception groups and occurrences.",
-      "description": "Clear BootUI's bounded in-memory exception groups and occurrences. This does not suppress, handle, or change application exceptions.",
+      "description": "Clear BootUI's bounded in-memory exception groups and occurrences. This does not suppress, handle, or change application exceptions. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Here retained counts exception groups, and totalCaptured is null: the panel keeps no lifetime count. Read the entries with get_exceptions.",
       "example": "bootui exceptions clear"
     },
     {
@@ -433,7 +433,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "List recent exception groups, newest first.",
-      "description": "List recent exception groups, newest first. Use a returned id with get_exception_detail for stack frames, causes, and individual occurrences. With the BootUI agent's caught-exceptions sensor, caughtInCode summarizes exceptions application code caught: a finding was not seen rethrown or logged at WARN or above while the evidence was complete; unknown means incomplete evidence, never swallowed.",
+      "description": "List recent exception groups, newest first. Use a returned id with get_exception_detail for stack frames, causes, and individual occurrences. With the BootUI agent's caught-exceptions sensor, caughtInCode summarizes exceptions application code caught: a finding was not seen rethrown or logged at WARN or above while the evidence was complete; unknown means incomplete evidence, never swallowed. totalExceptions counts the occurrences in the retained groups, so clear_exceptions resets it.",
       "example": "bootui exceptions list"
     },
     {
@@ -507,7 +507,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively assess Spring native-image readiness without the longer dependency metadata scan.",
-      "description": "Actively assess Spring native-image readiness without the longer dependency metadata scan. Verify reflection and resource findings against the intended native build.",
+      "description": "Actively assess Spring native-image readiness without the longer dependency metadata scan. Verify reflection and resource findings against the intended native build. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence. Read the cached report with get_graalvm_report without scanning again.",
       "example": "bootui graalvm scan"
     },
     {
@@ -552,7 +552,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively inspect JPA/Hibernate mappings and persistence configuration for correctness and performance risks.",
-      "description": "Actively inspect JPA/Hibernate mappings and persistence configuration for correctness and performance risks. Verify findings against actual query paths and database behavior. It answers with the report get_hibernate_report returns: read that tool's description for sampleViolations, truncated, and paging retained violationDetails with get_hibernate_rule_violations without scanning again.",
+      "description": "Actively inspect JPA/Hibernate mappings and persistence configuration for correctness and performance risks. Verify findings against actual query paths and database behavior. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence and violationDetails.scanId. Read the cached report with get_hibernate_report and page a rule's retained violations with get_hibernate_rule_violations, without scanning again.",
       "example": "bootui hibernate scan"
     },
     {
@@ -870,7 +870,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively analyze JVM memory and return prioritized findings.",
-      "description": "Actively analyze JVM memory and return prioritized findings. This can trigger a class histogram and full GC, so run only when memory evidence is needed. It answers with the report get_memory_report returns: read that tool's description for sampleViolations, truncated, and paging retained violationDetails with get_memory_rule_violations without scanning again.",
+      "description": "Actively analyze JVM memory and return prioritized findings. This can trigger a class histogram and full GC, so run only when memory evidence is needed. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence and violationDetails.scanId. Read the cached report with get_memory_report and page a rule's retained violations with get_memory_rule_violations, without scanning again.",
       "example": "bootui memory scan"
     },
     {
@@ -946,7 +946,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively send bounded synthetic probes to this application's loopback endpoint and return security findings.",
-      "description": "Actively send bounded synthetic probes to this application's loopback endpoint and return security findings. Run only with permission and verify findings before remediation.",
+      "description": "Actively send bounded synthetic probes to this application's loopback endpoint and return security findings. Run only with permission and verify findings before remediation. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence. Read the cached report with get_pentest_report without scanning again.",
       "example": "bootui pentest scan"
     },
     {
@@ -1068,7 +1068,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively inspect Spring REST controllers and API design for correctness and maintainability risks.",
-      "description": "Actively inspect Spring REST controllers and API design for correctness and maintainability risks. Verify recommendations against the public API contract. It answers with the report get_rest_api_report returns: read that tool's description for sampleViolations, truncated, and paging retained violationDetails with get_rest_api_rule_violations without scanning again.",
+      "description": "Actively inspect Spring REST controllers and API design for correctness and maintainability risks. Verify recommendations against the public API contract. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence and violationDetails.scanId. Read the cached report with get_rest_api_report and page a rule's retained violations with get_rest_api_rule_violations, without scanning again.",
       "example": "bootui rest-api scan"
     },
     {
@@ -1098,8 +1098,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Clear the bounded in-memory REST-client trace buffer and return the resulting report.",
-      "description": "Clear the bounded in-memory REST-client trace buffer and return the resulting report. This does not send an HTTP request or change recording state.",
+      "summary": "Clear the bounded in-memory REST-client trace buffer.",
+      "description": "Clear the bounded in-memory REST-client trace buffer. This does not send an HTTP request or change recording state. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_rest_client_traces.",
       "example": "bootui rest-client clear"
     },
     {
@@ -1113,8 +1113,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Pause REST-client trace recording and return the resulting report.",
-      "description": "Pause REST-client trace recording and return the resulting report. Existing buffered calls remain available until explicitly cleared.",
+      "summary": "Pause REST-client trace recording.",
+      "description": "Pause REST-client trace recording. Existing buffered calls remain available until explicitly cleared. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_rest_client_traces.",
       "example": "bootui rest-client pause"
     },
     {
@@ -1128,8 +1128,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Resume REST-client trace recording and return the resulting report.",
-      "description": "Resume REST-client trace recording and return the resulting report. This only affects BootUI's bounded local capture and sends no HTTP request.",
+      "summary": "Resume REST-client trace recording.",
+      "description": "Resume REST-client trace recording. This only affects BootUI's bounded local capture and sends no HTTP request. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_rest_client_traces.",
       "example": "bootui rest-client resume"
     },
     {
@@ -1144,7 +1144,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the current bounded REST-client trace snapshot with masked headers and bodies according to BootUI exposure policy.",
-      "description": "Return the current bounded REST-client trace snapshot with masked headers and bodies according to BootUI exposure policy. This does not send requests or change recording state. The retention object reports capacity and retained, reserved, and evicted counts: failed, error, and slow calls are kept longer, so the window is not complete.",
+      "description": "Return the current bounded REST-client trace snapshot with masked headers and bodies according to BootUI exposure policy. This does not send requests or change recording state. The retention object reports capacity and retained, reserved, and evicted counts: failed, error, and slow calls are kept longer, so the window is not complete. totalCaptured counts the calls recorded since startup, which clear_rest_client_traces does not reset; stats and entries cover the retained window only.",
       "example": "bootui rest-client traces"
     },
     {
@@ -1218,7 +1218,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively review application security configuration and return prioritized findings.",
-      "description": "Actively review application security configuration and return prioritized findings. Treat results as review evidence and verify exploitability before proposing a fix. It answers with the report get_security_report returns: read that tool's description for sampleViolations, truncated, and paging retained violationDetails with get_security_rule_violations without scanning again.",
+      "description": "Actively review application security configuration and return prioritized findings. Treat results as review evidence and verify exploitability before proposing a fix. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence and violationDetails.scanId. Read the cached report with get_security_report and page a rule's retained violations with get_security_rule_violations, without scanning again.",
       "example": "bootui security scan"
     },
     {
@@ -1312,7 +1312,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively inspect Spring configuration and bean usage for correctness and maintainability risks.",
-      "description": "Actively inspect Spring configuration and bean usage for correctness and maintainability risks. Verify each finding against effective configuration before changing code. It answers with the report get_spring_report returns: read that tool's description for sampleViolations, truncated, and paging retained violationDetails with get_spring_rule_violations without scanning again.",
+      "description": "Actively inspect Spring configuration and bean usage for correctness and maintainability risks. Verify each finding against effective configuration before changing code. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence and violationDetails.scanId. Read the cached report with get_spring_report and page a rule's retained violations with get_spring_rule_violations, without scanning again.",
       "example": "bootui spring scan"
     },
     {
@@ -1342,8 +1342,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Clear the bounded in-memory SQL trace buffer and return the resulting report.",
-      "description": "Clear the bounded in-memory SQL trace buffer and return the resulting report. This does not execute SQL or change whether trace recording is enabled.",
+      "summary": "Clear the bounded in-memory SQL trace buffer.",
+      "description": "Clear the bounded in-memory SQL trace buffer. This does not execute SQL or change whether trace recording is enabled. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_sql_traces.",
       "example": "bootui sql clear"
     },
     {
@@ -1357,8 +1357,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Pause SQL trace recording and return the resulting report.",
-      "description": "Pause SQL trace recording and return the resulting report. Existing buffered traces remain available until explicitly cleared.",
+      "summary": "Pause SQL trace recording.",
+      "description": "Pause SQL trace recording. Existing buffered traces remain available until explicitly cleared. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_sql_traces.",
       "example": "bootui sql pause"
     },
     {
@@ -1372,8 +1372,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Resume SQL trace recording and return the resulting report.",
-      "description": "Resume SQL trace recording and return the resulting report. This only affects BootUI's bounded local capture and does not execute SQL.",
+      "summary": "Resume SQL trace recording.",
+      "description": "Resume SQL trace recording. This only affects BootUI's bounded local capture and does not execute SQL. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_sql_traces.",
       "example": "bootui sql resume"
     },
     {
@@ -1388,7 +1388,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the current bounded SQL trace snapshot with statements and timings.",
-      "description": "Return the current bounded SQL trace snapshot with statements and timings. Application SQL may contain sensitive values; correlate it locally with request or trace identifiers. The retention object reports capacity and retained, reserved, and evicted counts: failed and slow statements are kept longer, so the window is not complete. At most limit (20) newest entries matching query (SQL text, category, call site, error, or request, trace, or execution id); page.hasMore means narrow the query or raise limit.",
+      "description": "Return the current bounded SQL trace snapshot with statements and timings. Application SQL may contain sensitive values; correlate it locally with request or trace identifiers. The retention object reports capacity and retained, reserved, and evicted counts: failed and slow statements are kept longer, so the window is not complete. At most limit (20) newest entries matching query (SQL text, category, call site, error, or request, trace, or execution id); page.hasMore means narrow the query or raise limit. totalCaptured counts the statements recorded since startup, which clear_sql_traces does not reset; stats and entries cover the retained window only.",
       "example": "bootui sql traces --query orders",
       "queryHelp": "text in the SQL, category, call site, or error, or a request, trace, or execution id"
     },
@@ -1434,7 +1434,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Clear BootUI's bounded in-memory trace buffer.",
-      "description": "Clear BootUI's bounded in-memory trace buffer. This does not contact a telemetry backend or alter application tracing configuration.",
+      "description": "Clear BootUI's bounded in-memory trace buffer. This does not contact a telemetry backend or alter application tracing configuration. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Here totalCaptured is null: the panel keeps no lifetime count. Read the entries with get_traces.",
       "example": "bootui traces clear"
     },
     {
@@ -1462,8 +1462,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Clear the bounded in-memory Spring transaction trace buffer and return the resulting report.",
-      "description": "Clear the bounded in-memory Spring transaction trace buffer and return the resulting report. This does not begin, commit, or roll back an application transaction.",
+      "summary": "Clear the bounded in-memory Spring transaction trace buffer.",
+      "description": "Clear the bounded in-memory Spring transaction trace buffer. This does not begin, commit, or roll back an application transaction. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_transactions.",
       "example": "bootui tx clear"
     },
     {
@@ -1477,7 +1477,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the current bounded transaction-boundary snapshot with outcomes, timings, nesting, and correlated SQL counts.",
-      "description": "Return the current bounded transaction-boundary snapshot with outcomes, timings, nesting, and correlated SQL counts. Use it to verify which local operations actually ran in a transaction.",
+      "description": "Return the current bounded transaction-boundary snapshot with outcomes, timings, nesting, and correlated SQL counts. Use it to verify which local operations actually ran in a transaction. totalCaptured counts the transactions recorded since startup, which clear_transactions does not reset; stats and entries cover the retained window only.",
       "example": "bootui tx list"
     },
     {
@@ -1490,8 +1490,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Pause Spring transaction-boundary recording and return the resulting report.",
-      "description": "Pause Spring transaction-boundary recording and return the resulting report. Existing buffered transactions remain available until explicitly cleared.",
+      "summary": "Pause Spring transaction-boundary recording.",
+      "description": "Pause Spring transaction-boundary recording. Existing buffered transactions remain available until explicitly cleared. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_transactions.",
       "example": "bootui tx pause"
     },
     {
@@ -1504,8 +1504,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Resume Spring transaction-boundary recording and return the resulting report.",
-      "description": "Resume Spring transaction-boundary recording and return the resulting report. This only affects BootUI's bounded local capture.",
+      "summary": "Resume Spring transaction-boundary recording.",
+      "description": "Resume Spring transaction-boundary recording. This only affects BootUI's bounded local capture. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_transactions.",
       "example": "bootui tx resume"
     },
     {
@@ -1520,9 +1520,9 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the cached vulnerability report, or the local dependency inventory before the first scan, without contacting OSV.dev or any other network service.",
-      "description": "Return the cached vulnerability report, or the local dependency inventory before the first scan, without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, `coverage` and `scan.packagesSkipped` before interpreting absent findings. Partial results retain available evidence; UNKNOWN severity is not zero risk. Coverage describes the inventory provider's accounting, not shaded-library discovery or exploitability. With the BootUI agent, `runtimeReach` says whether a dependency's classes, or a class its advisory names, loaded in this JVM: a prioritization hint that never changes severity, and NOT_LOADED means not loaded yet, not unreachable. At most limit (10) dependencies, vulnerable first, matching query (coordinates, severity, or an advisory id or alias); totals stay whole-report counts and page.matched counts the query hits.",
+      "description": "Return the cached vulnerability report, or the local dependency inventory before the first scan, without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, `coverage` and `scan.packagesSkipped` before interpreting absent findings. Partial results retain available evidence; UNKNOWN severity is not zero risk. Coverage describes the inventory provider's accounting, not shaded-library discovery or exploitability. With the BootUI agent, `runtimeReach` says whether a dependency's classes, or a class its advisory names, loaded in this JVM: a prioritization hint that never changes severity, and NOT_LOADED means not loaded yet, not unreachable. At most limit (10) dependencies, vulnerable first, matching query (coordinates, severity, or an advisory id or alias); totals stay whole-report counts and page.matched counts the query hits. Each dependency lists at most 5 advisories, active and most severe first, without details and with at most 3 references and symbols; advisories.omitted and advisories.detailsOmitted count what was left out. Query an exact group:artifact to list all its advisories, or an exact advisory id or alias to read it whole.",
       "example": "bootui vulnerabilities report --query CRITICAL",
-      "queryHelp": "group:artifact coordinates, a severity, or an advisory id or alias such as a CVE"
+      "queryHelp": "group:artifact coordinates, a severity, or an advisory id or alias such as a CVE; an exact group:artifact lists all its advisories, an exact advisory id or alias returns it whole"
     },
     {
       "name": "vulnerabilities_scan",
@@ -1536,7 +1536,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively query OSV.dev for known vulnerabilities in this application's dependencies and return severity-ranked findings.",
-      "description": "Actively query OSV.dev for known vulnerabilities in this application's dependencies and return severity-ranked findings. This sends package names/versions to OSV and, when enabled, CVE ids to FIRST for optional EPSS enrichment; run only with approval. Check `scan.status`, `scan.message`, `coverage` and `scan.packagesSkipped`: partial or unknown evidence is not a clean result, and inventory coverage does not prove reachability. Fixed versions are supported affected-interval candidates, not verified installable upgrades. Verify compatibility before changing a dependency. EPSS is the highest available per-CVE probability, not a combined probability or severity; optional enrichment failure retains OSV findings.",
+      "description": "Actively query OSV.dev for known vulnerabilities in this application's dependencies and return severity-ranked findings. This sends package names/versions to OSV and, when enabled, CVE ids to FIRST for optional EPSS enrichment; run only with approval. Check `scan.status`, `scan.message`, `coverage` and `scan.packagesSkipped`: partial or unknown evidence is not a clean result, and inventory coverage does not prove reachability. Fixed versions are supported affected-interval candidates, not verified installable upgrades. Verify compatibility before changing a dependency. EPSS is the highest available per-CVE probability, not a combined probability or severity; optional enrichment failure retains OSV findings. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence, plus dependencies, scanningEnabled and coverage. A finding is a vulnerable dependency: its coordinates, its most severe advisory, its highest severity, and its advisory count. Read every advisory with get_vulnerabilities_report without scanning again.",
       "example": "bootui vulnerabilities scan"
     },
     {

@@ -152,6 +152,7 @@ public final class JournalAggregates implements JournalListener {
     private volatile RunHistory history;
     private volatile RunIdentity run;
     private volatile RunBaselineFile baseline;
+    private volatile String application;
     private volatile Supplier<RunSideEffects> sideEffects;
     private RunStart runStart;
     private Long runReadyAtEpochMillis;
@@ -183,12 +184,32 @@ public final class JournalAggregates implements JournalListener {
      * ({@code docs/PLAN-v2.md} §5.8).
      */
     public void recordRunIn(RunHistory history, RunIdentity run, RunBaselineFile baseline) {
+        recordRunIn(history, run, baseline, null);
+    }
+
+    /**
+     * Keeps the summary of {@code run} of {@code application} in {@code history}, as
+     * {@link #recordRunIn(RunHistory, RunIdentity, RunBaselineFile)} does, so it is compared only with runs of the same
+     * application when several share the JVM.
+     *
+     * @param application the application, as {@link RunSummary#applicationKey} names it, or {@code null} when unknown
+     */
+    public void recordRunIn(RunHistory history, RunIdentity run, RunBaselineFile baseline, String application) {
         this.history = history;
         this.run = run;
         this.baseline = baseline;
+        this.application = application;
         if (history != null) {
-            history.loadBaseline(baseline);
+            history.loadBaseline(baseline, application);
         }
+    }
+
+    /**
+     * The application whose run these aggregates record, as {@link RunSummary#applicationKey} names it, or {@code null}
+     * when unknown: the kept runs it is compared with are its own.
+     */
+    public String application() {
+        return application;
     }
 
     /**
@@ -204,8 +225,8 @@ public final class JournalAggregates implements JournalListener {
         RunHistory target = history;
         RunIdentity ended = run;
         if (target != null && ended != null) {
-            RunSummary summary =
-                    RunSummary.of(ended, snapshot(), runStart(), runSideEffects(), System.currentTimeMillis());
+            RunSummary summary = RunSummary.of(
+                    ended, application, snapshot(), runStart(), runSideEffects(), System.currentTimeMillis());
             target.record(summary);
             RunBaselineFile file = baseline;
             if (file != null) {

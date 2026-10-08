@@ -106,7 +106,7 @@ public class RuntimeInsightsResource {
                 journalAggregates == null ? null : journalAggregates.declaredRoutes(),
                 panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel),
                 InsightsStack.QUARKUS,
-                RunHistory.shared()::summaries,
+                () -> RunHistory.shared().summaries(journalAggregates == null ? null : journalAggregates.application()),
                 BootUiEngineProducer.runtimeInsightsTokenThreshold(config));
         this.insights.setExposure(exposure);
         if (journalAggregates != null) {

@@ -124,6 +124,22 @@ class JournalActivityReportsTests {
     }
 
     @Test
+    void theConfiguredFeedSourceIsTheJournalAndBuffersFailsWithItsReplacement() {
+        assertThat(ActivityFeedSource.parseConfigured(null)).isEqualTo(ActivityFeedSource.JOURNAL);
+        assertThat(ActivityFeedSource.parseConfigured(" Journal ")).isEqualTo(ActivityFeedSource.JOURNAL);
+        org.assertj.core.api.Assertions.assertThatIllegalArgumentException()
+                .isThrownBy(() -> ActivityFeedSource.parseConfigured("Buffers"))
+                .withMessage(ActivityFeedSource.BUFFERS_REMOVED)
+                .withMessageContaining("removed in BootUI 2.0.0", "set it to journal");
+        org.assertj.core.api.Assertions.assertThatIllegalArgumentException()
+                .isThrownBy(() -> ActivityFeedSource.parseConfigured("disk"))
+                .withMessageContaining("Valid value: journal");
+        assertThat(ActivityFeedSource.parse("buffers", ActivityFeedSource.JOURNAL))
+                .as("a request may still ask for the panel buffers")
+                .isEqualTo(ActivityFeedSource.BUFFERS);
+    }
+
+    @Test
     void journalOnlyFiltersAreRecognizedAndTheFeedSourceParsesStrictly() {
         assertThat(JournalActivityReports.hasJournalOnlyFilter(Filter.NONE)).isFalse();
         assertThat(JournalActivityReports.hasJournalOnlyFilter(new Filter("SQL", "ERROR", 5, null, null, null, false)))

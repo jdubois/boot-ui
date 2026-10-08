@@ -3,7 +3,7 @@ import {computed, inject, ref, useId} from 'vue'
 import {apiFetch} from '../../api.js'
 import {formatLoadError} from '../../utils/loadError.js'
 
-// The runtime switch of one opt-in BootUI agent sensor (docs/PLAN-v2.md M5-14), shared by the Java Agent and Side
+// The runtime switch of one BootUI agent sensor (docs/PLAN-v2.md M5-14), shared by the Java Agent and Side
 // Effects panels. The endpoint belongs to the Java Agent panel (`POST api/java-agent/sensors/{id}`), so that panel's
 // enabled, available, and read-only state in the injected manifest decide whether the switch shows and is usable: the
 // same state the backend panel access filter enforces. A switch lasts until the JVM ends and is never written anywhere.

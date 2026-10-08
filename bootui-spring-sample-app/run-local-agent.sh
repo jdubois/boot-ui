@@ -45,9 +45,11 @@ case $AGENT_JAR in
         ;;
 esac
 
-# spring-boot.run.agents adds -javaagent to the forked JVM and leaves spring-boot.run.jvmArguments free for callers.
-# DevTools restarts stay enabled: each restart claims the agent again in the same slot, and Code Inventory then lists
-# the methods an edit changed. BOOTUI_SAMPLE_PROFILES picks other profiles, as run-local-all.sh does.
+# run-local.sh with the BootUI agent attached: the same dev profile (no Docker), and the agent's default sensors, since
+# this script sets no bootui.agent.sensors. spring-boot.run.agents adds -javaagent to the forked JVM and leaves
+# spring-boot.run.jvmArguments free for callers. DevTools restarts stay enabled: each restart claims the agent again in
+# the same slot, and Code Inventory then lists the methods an edit changed. BOOTUI_SAMPLE_PROFILES picks other profiles,
+# such as docker-postgresql, as run-local-all.sh does; BOOTUI_AGENT_SENSORS picks other sensors.
 exec ./mvnw -B -ntp -Dmaven.test.skip=true -pl bootui-spring-sample-app \
-    spring-boot:run "-Dspring-boot.run.profiles=${BOOTUI_SAMPLE_PROFILES:-docker-postgresql}" \
+    spring-boot:run "-Dspring-boot.run.profiles=${BOOTUI_SAMPLE_PROFILES:-dev}" \
     "-Dspring-boot.run.agents=$AGENT_JAR" "$@"

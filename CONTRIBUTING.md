@@ -303,12 +303,30 @@ because that scope would leak into whichever test the thread runs next. Close ev
 with try-with-resources.
 
 The capture overhead benchmark (`CaptureOverheadBenchmarkTest`) compares the Spring MVC sample app's throughput and
-latency with BootUI on and off. Timings depend on the machine, so it is opt-in and never a CI gate. It takes about
-three minutes and writes its report to `target/capture-overhead/`:
+latency with BootUI on and off; the runtime journal is on whenever BootUI is, so it does not isolate the journal's cost.
+Timings depend on the machine, so it is opt-in and never a CI gate. It takes about three minutes and writes its report
+to `target/capture-overhead/`:
 
 ```bash
 ./mvnw -B -ntp -pl bootui-spring-sample-app test -Dtest=CaptureOverheadBenchmarkTest -Dbootui.benchmark=true
 ```
+
+The runtime journal overhead benchmark (`JournalOverheadBenchmarkIT`) measures the journal's own cost against
+[PLAN-v2.md](docs/PLAN-v2.md) §2.2's 5 % target: the Spring sample's executable jar, BootUI on and no agent in both
+configurations, with the journal on and with `bootui.runtime-journal.enabled=false`, on the same route and load as the
+capture overhead benchmark. Like the agent overhead benchmark below, it runs the configurations in pairs whose order
+alternates and reports each pair's throughput ratio, their median, and the median's 95 % interval, with p99 latency, to
+`target/journal-overhead/spring-mvc-journal.md` and `.properties`. It only reports; `bootui.benchmark.passes` sets the
+number of pairs (3 by default):
+
+```bash
+./mvnw -B -ntp -pl bootui-spring-sample-app verify -Dbootui.benchmark=true -Dit.test=JournalOverheadBenchmarkIT \
+  -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+CI runs it with fifteen pairs as the runtime journal leg of `build.yml`'s `agent-overhead-extra-legs` matrix, on
+pushes, manual runs, and pull requests labelled `agent`; the `agent-overhead` job publishes the report to its summary,
+and the leg never fails the build.
 
 The agent overhead benchmark (`AgentOverheadBenchmarkIT`) measures the BootUI agent's cumulative cost against
 [PLAN-v2.md](docs/PLAN-v2.md) §8's budget: the Spring sample's executable jar, BootUI on in both configurations, without
@@ -334,10 +352,12 @@ and `bootui.benchmark.report` names the report (`spring-mvc-agent` by default):
 CI runs each measurement as its own leg of `build.yml`'s `agent-overhead-legs` matrix (or `agent-overhead-extra-legs`
 for the measurements below that run only with the `agent` label), all at the same time on separate runners (each A/B
 alternates its arms on one runner), then gathers their reports and runs the checks in the `agent-overhead` job. It
-runs nine pairs on a four-processor runner, then on the I/O route with nine pairs: every default sensor against no agent (`spring-mvc-agent-io`) on every agent run, and, on pushes, manual
-runs, and pull requests labelled `agent` only, every default sensor against the same agent without `network`
-(`spring-mvc-network-ab`), the default sensors plus the opt-in `files` against the default sensors, fifteen pairs
-(`spring-mvc-files-ab`), and the default sensors plus `files` against no agent (`spring-mvc-agent-io-files`). The load generator
+runs fifteen pairs on a four-processor runner, then on the I/O route with nine pairs: every default sensor against no
+agent (`spring-mvc-agent-io`) on every agent run, and, on pushes, manual runs, and pull requests labelled `agent`
+only, each default side-effect sensor's own share against the same agent without it: `network`
+(`spring-mvc-network-ab`), `blocking` (`spring-mvc-blocking-ab`), `files` on the I/O route (`spring-mvc-files-ab`),
+fifteen pairs each but `network`'s nine, and the opt-in `environment`'s against the default sensors, on a route adding
+fifty `System.getProperty` reads per request (`spring-mvc-environment-ab`), fifteen pairs. The load generator
 shares the processors with the sample and single pairs vary by more than ten points. That job records the report in its
 summary, warns above the 10 % budget, and fails only above 30 %: a clear regression, not noise. The first CI runs measured
 a median of about 17 % (pairs from 9 to 22 %), above the budget, so a gate at the budget, or at twice it, would fail
@@ -583,6 +603,12 @@ run its sample without `-am`:
 
 The Quarkus sample requires JDK 17 to 27 for augmentation and uses Dev
 Services, so Docker or Podman must be available.
+
+Each sample also has launchers that build it with the isolated `.m2`
+repository, then run it: `run-local.sh`, `run-local-agent.sh` (with the BootUI
+Java agent and its default sensors) and `run-local-all.sh` (with every sensor),
+for example `./bootui-spring-webflux-sample-app/run-local-agent.sh`. The Spring
+MVC sample has more; see its README.
 
 ## Front-end development
 

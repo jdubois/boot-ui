@@ -50,6 +50,21 @@ public record RunSummary(Header header, AggregatesSnapshot aggregates, RunSideEf
             RunStart runStart,
             RunSideEffects sideEffects,
             long endedAtEpochMillis) {
+        return of(run, null, aggregates, runStart, sideEffects, endedAtEpochMillis);
+    }
+
+    /**
+     * The summary of {@code run} of the application {@code application}, as {@link #applicationKey} names it, which
+     * ended at {@code endedAtEpochMillis}, from its final aggregates, what it recorded when it started, and its side
+     * effects, each possibly {@code null}.
+     */
+    public static RunSummary of(
+            RunIdentity run,
+            String application,
+            AggregatesSnapshot aggregates,
+            RunStart runStart,
+            RunSideEffects sideEffects,
+            long endedAtEpochMillis) {
         long events = aggregates.run().events().values().stream()
                 .mapToLong(Long::longValue)
                 .sum();
@@ -65,9 +80,25 @@ public record RunSummary(Header header, AggregatesSnapshot aggregates, RunSideEf
                         0,
                         0,
                         0,
-                        runStart),
+                        runStart,
+                        application),
                 aggregates,
                 sideEffects);
+    }
+
+    /**
+     * The key of an application whose runs are compared with each other, as the BootUI agent's claim slot names it:
+     * {@code mode:application}, such as {@code dev:orders}. Runs of another application, or of the same one in another
+     * mode, which may share the JVM, are never compared with them. {@code null} when the application is unknown.
+     *
+     * @param mode {@code dev} or {@code test}
+     * @param application the application's name
+     */
+    public static String applicationKey(String mode, String application) {
+        if (application == null || application.isBlank()) {
+            return null;
+        }
+        return (mode == null || mode.isBlank() ? "dev" : mode.strip()) + ":" + application.strip();
     }
 
     /**
@@ -86,6 +117,8 @@ public record RunSummary(Header header, AggregatesSnapshot aggregates, RunSideEf
      * @param encodedBytes the size of the encoded summary, or {@code 0} before it is encoded
      * @param runStart what the run recorded when it started ({@code docs/PLAN-v2.md} §5.18): its time to ready, its
      *     slowest startup steps, and its comparability facts, or {@code null} when it recorded none
+     * @param application the run's application, as {@link #applicationKey} names it, or {@code null} when unknown, as
+     *     for a run an earlier BootUI kept
      */
     public record Header(
             String runId,
@@ -98,10 +131,47 @@ public record RunSummary(Header header, AggregatesSnapshot aggregates, RunSideEf
             int omittedEntries,
             int omittedEdges,
             int encodedBytes,
-            RunStart runStart) {
+            RunStart runStart,
+            String application) {
 
         public Header {
             Objects.requireNonNull(runId, "runId must not be null");
+        }
+
+        /** A header without its application. */
+        public Header(
+                String runId,
+                int ordinal,
+                long startedAtEpochMillis,
+                long endedAtEpochMillis,
+                long requests,
+                long failedRequests,
+                long events,
+                int omittedEntries,
+                int omittedEdges,
+                int encodedBytes,
+                RunStart runStart) {
+            this(
+                    runId,
+                    ordinal,
+                    startedAtEpochMillis,
+                    endedAtEpochMillis,
+                    requests,
+                    failedRequests,
+                    events,
+                    omittedEntries,
+                    omittedEdges,
+                    encodedBytes,
+                    runStart,
+                    null);
+        }
+
+        /**
+         * Whether this run may be compared with a run of {@code application}: it is of the same application, or either
+         * application is unknown, as for a run an earlier BootUI kept, which is compared as before.
+         */
+        public boolean comparableWith(String application) {
+            return this.application == null || application == null || this.application.equals(application);
         }
     }
 }
