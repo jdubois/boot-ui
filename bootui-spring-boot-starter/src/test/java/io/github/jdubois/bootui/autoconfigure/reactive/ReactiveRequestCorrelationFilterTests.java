@@ -150,8 +150,14 @@ class ReactiveRequestCorrelationFilterTests {
         WebFilterChain fails = exchange -> Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND));
 
         filter.filter(ok, matches).block(Duration.ofSeconds(5));
-        assertThatThrownBy(() -> filter.filter(exchange("/api/missing"), fails).block(Duration.ofSeconds(5)))
+        MockServerWebExchange missing = exchange("/api/missing");
+        assertThatThrownBy(() -> filter.filter(missing, fails).block(Duration.ofSeconds(5)))
                 .isInstanceOf(ResponseStatusException.class);
+        assertThat(published)
+                .as("a failure is published once WebFlux's exception handlers rendered it")
+                .hasSize(1);
+        missing.getResponse().setStatusCode(HttpStatus.NOT_FOUND);
+        missing.getResponse().setComplete().block(Duration.ofSeconds(5));
 
         assertThat(published).hasSize(2);
         assertThat(published.get(0).source()).isEqualTo(JournalSource.HTTP);
@@ -240,6 +246,80 @@ class ReactiveRequestCorrelationFilterTests {
                     org.mockito.Mockito.never());
         }
         assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+    }
+
+    /**
+     * A failure is published with the status the application's own exception handler rendered, not one guessed from the
+     * failure, on WebFlux's real pipeline: a custom handler's {@code 400}, a successful fallback, an unhandled failure's
+     * {@code 500}, and a {@code ResponseStatusException}'s own status. The exchange trace record is kept then too.
+     */
+    @Test
+    void aFailureIsPublishedWithTheStatusTheApplicationsExceptionHandlerRendered() {
+        List<RuntimeEvent> published = new java.util.concurrent.CopyOnWriteArrayList<>();
+        filter.setRuntimeEventSink(published::add, 1_000, null);
+        io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry traces =
+                new io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry(10);
+        ReactiveHttpExchangeTraceFilter traceFilter =
+                new ReactiveHttpExchangeTraceFilter(new BootUiProperties(), traces, () -> null, 1_000);
+        org.springframework.web.server.WebHandler handler =
+                exchange -> switch (exchange.getRequest().getPath().value()) {
+                    case "/api/invalid" -> Mono.error(new IllegalArgumentException("invalid order"));
+                    case "/api/fallback" -> Mono.error(new UnsupportedOperationException("served from cache"));
+                    case "/api/gone" -> Mono.error(new ResponseStatusException(HttpStatus.GONE));
+                    default -> Mono.error(new IllegalStateException("unhandled"));
+                };
+        org.springframework.web.server.WebExceptionHandler custom = (exchange, failure) -> {
+            if (failure instanceof IllegalArgumentException) {
+                exchange.getResponse().setStatusCode(HttpStatus.BAD_REQUEST);
+                return exchange.getResponse().setComplete();
+            }
+            if (failure instanceof UnsupportedOperationException) {
+                return exchange.getResponse()
+                        .writeWith(
+                                Mono.just(exchange.getResponse().bufferFactory().wrap(new byte[] {'o', 'k'})));
+            }
+            return Mono.error(failure);
+        };
+        HttpHandler pipeline = org.springframework.web.server.adapter.WebHttpHandlerBuilder.webHandler(handler)
+                .filters(filters -> {
+                    filters.add(filter);
+                    filters.add(traceFilter);
+                })
+                .exceptionHandlers(handlers -> {
+                    handlers.add(custom);
+                    handlers.add(new org.springframework.web.server.handler.ResponseStatusExceptionHandler());
+                })
+                .build();
+
+        Map<String, Integer> rendered = new java.util.LinkedHashMap<>();
+        for (String path : List.of("/api/invalid", "/api/fallback", "/api/gone", "/api/unhandled")) {
+            org.springframework.mock.http.server.reactive.MockServerHttpResponse response =
+                    new org.springframework.mock.http.server.reactive.MockServerHttpResponse();
+            pipeline.handle(MockServerHttpRequest.get(path).build(), response).block(Duration.ofSeconds(5));
+            rendered.put(
+                    path,
+                    response.getStatusCode() == null
+                            ? 200
+                            : response.getStatusCode().value());
+        }
+
+        assertThat(rendered)
+                .containsExactly(
+                        Map.entry("/api/invalid", 400),
+                        Map.entry("/api/fallback", 200),
+                        Map.entry("/api/gone", 410),
+                        Map.entry("/api/unhandled", 500));
+        assertThat(published).hasSize(4);
+        for (RuntimeEvent event : published) {
+            HttpPayload http = (HttpPayload) event.payload();
+            assertThat(http.status()).as(http.path()).isEqualTo(rendered.get(http.path()));
+            assertThat(event.failedOrSlow()).as(http.path()).isEqualTo(http.status() >= 500);
+        }
+        io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.Matcher matcher = traces.matcher();
+        assertThat(published)
+                .as("each request's trace record is kept once its outcome is known")
+                .allSatisfy(event ->
+                        assertThat(matcher.byRequestId(event.requestId())).isNotNull());
     }
 
     @Test

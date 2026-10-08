@@ -56,7 +56,7 @@ class RunSideEffectsSummaryTests {
                 RunSummary.of(RunIdentity.start(), new JournalAggregates().snapshot(), null, sideEffects, 2),
                 RunHistory.MAX_SUMMARY_BYTES);
 
-        assertThat(encoded[4]).isEqualTo((byte) 12);
+        assertThat(encoded[4]).isEqualTo((byte) 13);
         assertThat(RunSummaryCodec.decode(encoded).sideEffects()).isEqualTo(sideEffects);
 
         byte[] none = RunSummaryCodec.encode(
@@ -64,8 +64,7 @@ class RunSideEffectsSummaryTests {
                 RunHistory.MAX_SUMMARY_BYTES);
         assertThat(RunSummaryCodec.decode(none).sideEffects()).isNull();
         // A version 11 summary, written before side effects, has none: never an empty, comparable set.
-        byte[] older = java.util.Arrays.copyOf(none, none.length - 1);
-        older[4] = 11;
+        byte[] older = LegacyRunSummaries.asVersion(java.util.Arrays.copyOf(none, none.length - 1), 11);
         assertThat(RunSummaryCodec.decode(older).sideEffects()).isNull();
         assertThat(RunSummaryCodec.decode(older).aggregates().overflowed())
                 .doesNotContainKey(JournalAggregates.LEGACY_TABLE_EDGES);

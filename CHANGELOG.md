@@ -7,6 +7,31 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Upgrading from 1.x
+
+BootUI 2.0 changes a few defaults and dependencies. Most applications only need the first point; the entries below
+give the details.
+
+- One Spring Boot starter serves Spring MVC and WebFlux. WebFlux applications replace
+  `bootui-spring-boot-starter-reactive` with `bootui-spring-boot-starter`. The starter no longer brings a web stack, so
+  the application declares its own `spring-boot-starter-web` or `spring-boot-starter-webflux`, as most already do
+  ([Setup](docs/SETUP.md); "Eight Maven Central artifacts" under Changed).
+- A direct `bootui-spring-autoconfigure` or `bootui-client` dependency becomes `bootui-spring-boot-starter` or
+  `bootui-cli`.
+- The runtime journal is on by default. It keeps the run's events in bounded memory, by default the smaller of 32 MB
+  and 5 % of the heap, and feeds Live Activity and Runtime Insights; `bootui.runtime-journal.enabled=false` turns it off
+  ([Runtime journal](docs/PROPERTIES.md#runtime-journal)).
+- Live Activity reads the journal by default: `bootui.activity.feed-source` is `journal`
+  ([Live Activity](docs/PROPERTIES.md#live-activity)).
+- `bootui.activity.persistence.capture-interval` is removed and ignored: durable history is written by the journal
+  ("The Live Activity persistence poller is removed" under Removed). A custom `TraceIdProvider` becomes a
+  `CorrelationContextProvider` (under Removed).
+- Durable Live Activity history no longer keeps principals, exception or log messages, or email subjects; the live
+  panels still show them ([Durable history](docs/features/overview.md#durable-history)).
+- The new BootUI agent is optional. When attached, it turns on its default sensors; the others are opt-in, and an
+  unknown id in `bootui.agent.sensors` stops the application's start
+  ([Java Agent](docs/features/java-agent.md#configuration)).
+
 ### Added
 
 - **Optional arguments for the MCP prompts.** `diagnose_runtime_issue`, `verify_after_change`, `review_application`, and
@@ -376,6 +401,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   full `docker` profile (PostgreSQL, Redis, Kafka, and Ollama for Spring AI), and a new `run-history` profile that keeps
   Live Activity's history in PostgreSQL and the last run's summary in `.bootui/run-baseline.bin`, so a new run is
   compared with the previous one after a full restart.
+- **Launchers for the WebFlux and Quarkus samples.** Each sample has a `run-local.sh`, a `run-local-agent.sh` that
+  attaches the BootUI Java agent with its default sensors, and a `run-local-all.sh` that turns on every sensor, as the
+  Spring MVC sample does.
 
 ### Changed
 
@@ -726,6 +754,11 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
   remove `bootui.activity.persistence.capture-interval`, which is now ignored, and keep the runtime journal enabled
   (the default): with `bootui.runtime-journal.enabled=false`, persistence logs a warning and writes nothing
   ([Runtime journal](docs/PROPERTIES.md#runtime-journal)).
+- **`bootui.activity.feed-source=buffers` is removed.** Live Activity reads the runtime journal on Spring MVC,
+  Spring WebFlux, and Quarkus, and an application that still sets `buffers` fails to start with a message naming the
+  replacement. **Migration:** remove the property, or set it to `journal`. With `bootui.runtime-journal.enabled=false`,
+  the panel buffers still serve the feed on their own, and the panel's **Panel buffers** choice
+  (`?source=buffers`) still shows them on request ([Live Activity](docs/PROPERTIES.md#live-activity)).
 
 ### Fixed
 
@@ -733,6 +766,24 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
   reads answer `Unknown advisor rule` for an id the scan did not evaluate ([AI agents](docs/AI-AGENTS.md#reading-retained-advisor-violations)).
 - **`analyze_heap_dump` describes what it does.** It analyzes the live heap's class histogram, with or without a
   captured dump; its MCP description no longer claims it reads an existing dump.
+- **An asynchronous Spring MVC request is recorded when it answers.** A request whose handler returned a
+  `DeferredResult`, `Callable`, or `CompletableFuture` reached the runtime journal when that handler returned, as a
+  `200` lasting only the handler's own time, so a request that later answered `503` or failed, or timed out, read as a
+  fast success in Live Activity, Runtime Insights, and run comparison. It is now recorded once, when its response
+  completes, with the status it answered and its whole duration, however many asynchronous steps it went through.
+- **Run comparison never compares two applications sharing a JVM.** Run history is kept per JVM, so with two
+  applications in one JVM, such as two Spring test contexts, a run of one could be compared with the other's last run.
+  Each kept run now carries its application, and the previous run, the runs to choose from, and a baseline file read
+  are this application's own. Each application keeps its last run while the history stays at five runs.
+- **Spring no longer claims the Java agent when BootUI is forced on in production.** With `bootui.enabled=ON`
+  overriding a disabled profile such as `prod`, the application claimed the BootUI Java agent, which must never be
+  attached to a production JVM. It now releases it, logs why, and the Java Agent panel says so, as Quarkus production
+  mode does; `bootui.agent.allow-in-disabled-profiles=true` claims it anyway
+  ([Java Agent](docs/features/java-agent.md#claims-and-lifecycle)).
+- **A failed Spring WebFlux request is recorded with the status it answered.** The runtime journal recorded a failed
+  request as `500`, unless the error declared its own status, before WebFlux's exception handlers ran, so a custom
+  handler's `400` or `404`, or a successful fallback, read as a server error. It now records the status that handler
+  rendered, when the response commits, as Actuator records the exchange.
 - **Rule catalogs match the advisors again.** The Spring, Quarkus, Database, and Hibernate catalogs use the
   advisors' current rule titles, and the CRaC, Database, and Hibernate rule indexes render with every severity
   ([Spring checks](docs/SPRING-CHECKS.md)).

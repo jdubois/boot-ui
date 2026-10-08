@@ -1541,8 +1541,8 @@ Data sources:
 
 - By default (`bootui.activity.feed-source=journal`) the feed renders the runtime journal's retained events, nesting
   every child under its request or execution by id; when the journal is disabled or not recording, the panel buffers
-  serve the feed instead. `bootui.activity.feed-source=buffers`, or `?source=buffers` on one request, selects the
-  merge of the panels' own buffers described below.
+  serve the feed instead. `?source=buffers` on one request selects the merge of the panels' own buffers described
+  below; the property's `buffers` value was removed in 2.0.0 and fails startup with a message naming `journal`.
 - Reuses the existing HTTP Exchanges, SQL Trace, REST Client, Exceptions, Security Logs, Email, and Health controllers/DTOs. The panel adds
   no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
   bounds are inherited unchanged from each source panel.
@@ -1977,8 +1977,8 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   contains the text, with their kind and class and the total matched: an exact name first, then a name or a route's
   path starting with it, then a class starting with it. It reads only the run's model, and answers `available=false`
   with the reason when the journal is disabled.
-- `GET /bootui/api/runtime-insights/comparison[?run=<runId>]` compares the current run with the newest kept run that
-  served HTTP requests (the newest kept run when none did), or the chosen one ([PLAN-v2.md](PLAN-v2.md) §5.8). Its status is `COMPARED`, `INSUFFICIENT` when no route served 3 requests
+- `GET /bootui/api/runtime-insights/comparison[?run=<runId>]` compares the current run with the newest kept run, even one
+  that served no HTTP request, or the chosen one ([PLAN-v2.md](PLAN-v2.md) §5.8). Its status is `COMPARED`, `INSUFFICIENT` when no route served 3 requests
   in both runs, `NOT_COMPARABLE` with the database, profile, or cache difference first, `NO_PREVIOUS_RUN` with the
   reason, or `UNAVAILABLE`. Behavior rows come first (statements, REST and AI calls, cache misses, and tokens per
   request; new statements, exceptions, and routes; status-class shares; allocation), then the runtime model's added and
@@ -3289,7 +3289,7 @@ Initial endpoints:
 | `/bootui/api/runtime-insights/insights/{id}` | GET    | One observation by its stable id, with up to 20 evidence rows and how many were left out; an unknown id answers unavailable |
 | `/bootui/api/runtime-insights/impact`        | GET    | `?symbol=<symbol>`: for a route, bean, class, method (`Class#method`, read from the route trees with the BootUI agent), repository, table, cache, or host, the routes that ran through it in this run, those that did not, and those sharing a resource with it; `AMBIGUOUS`, `NOT_FOUND`, or `UNAVAILABLE` with the reason |
 | `/bootui/api/runtime-insights/impact/symbols` | GET   | `?query=<text>`: at most 20 routes, beans, repositories, tables, caches, hosts, and events of the run's model matching the text, best first, each with its kind, for the change impact box |
-| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the newest kept run (including listener-only or idle runs), or `?run=<runId>`: with the BootUI agent, the code changes since the previous run first and the side effects new or gone outside the JVM, then route/execution behavior, new and gone fingerprints and edges from shared sources, adjacent-restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, `NO_PREVIOUS_RUN`, or `UNAVAILABLE` with the reason |
+| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the application's newest kept run (including listener-only or idle runs; another application sharing the JVM is never compared), or `?run=<runId>`: with the BootUI agent, the code changes since the previous run first and the side effects new or gone outside the JVM, then route/execution behavior, new and gone fingerprints and edges from shared sources, adjacent-restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, `NO_PREVIOUS_RUN`, or `UNAVAILABLE` with the reason |
 | `/bootui/api/runtime-insights/resource-profile` | GET | The **Profile resources** session's state and the last session's CPU samples, allocation, and hot frames by route; starts nothing |
 | `/bootui/api/runtime-insights/resource-profile` | POST | Start a JFR session bounded by `bootui.resources.jfr.max-duration` |
 | `/bootui/api/runtime-insights/resource-profile/stop` | POST | End the running session now and return its results |

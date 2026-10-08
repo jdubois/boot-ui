@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.javaagent;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiActivation;
 import io.github.jdubois.bootui.autoconfigure.BootUiActivationCondition;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiActuatorDefaultsEnvironmentPostProcessor;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
@@ -26,8 +27,9 @@ import org.springframework.core.env.ConfigurableEnvironment;
 /**
  * Claims the BootUI Java agent as early as Spring allows ({@code docs/PLAN-v2.md} D34): once the environment, and so
  * BootUI's activation, is known. Without the agent's bridge on the bootstrap class path it does nothing. When BootUI
- * resolves to disabled, or {@code bootui.agent.enabled=false}, it releases the agent, removing its transformers unless
- * another application's armed claim holds it. Otherwise it claims the agent for this run and hands the claim to an
+ * resolves to disabled, or {@code bootui.agent.enabled=false}, or BootUI was forced on despite a disabled profile such
+ * as {@code prod} without {@code bootui.agent.allow-in-disabled-profiles=true} ({@link AgentProfileGuard}), it releases
+ * the agent, removing its transformers unless another application's armed claim holds it. Otherwise it claims the agent for this run and hands the claim to an
  * {@link AgentClaimOwner}, which this run's initializers and listeners keep, and which refines and disarms it.
  *
  * <p>DevTools runs every {@code EnvironmentPostProcessor} again in each restart's class loader, so a restart claims
@@ -93,9 +95,12 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
             }
             String name = applicationName(environment, application);
             String mode = mode(environment);
-            boolean bootUiEnabled = BootUiActivationCondition.resolve(environment, application.getClassLoader())
-                    .enabled();
-            if (!bootUiEnabled || !agentEnabled(environment)) {
+            BootUiActivation activation = BootUiActivationCondition.resolve(environment, application.getClassLoader());
+            String refused = activation.enabled() ? AgentProfileGuard.refusal(activation, environment) : null;
+            if (refused != null) {
+                LOGGER.info(refused);
+            }
+            if (!activation.enabled() || !agentEnabled(environment) || refused != null) {
                 AgentRequestValues.configure(false);
                 AgentClaim.release(access, name, mode);
                 return;
@@ -179,7 +184,7 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
     }
 
     /** {@code bootui.agent.mode}, or with {@code auto}, test when a test framework started this application. */
-    static String mode(ConfigurableEnvironment environment) {
+    public static String mode(ConfigurableEnvironment environment) {
         String configured =
                 environment.getProperty("bootui.agent.mode", "auto").trim().toLowerCase(Locale.ROOT);
         if (AgentClaim.DEV.equals(configured) || AgentClaim.TEST.equals(configured)) {

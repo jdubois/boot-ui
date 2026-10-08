@@ -82,7 +82,7 @@ class RunSummaryTests {
                 RunSummary.of(new RunIdentity("sql-shapes", 2, 1000), aggregates.snapshot(), 2000),
                 RunHistory.MAX_SUMMARY_BYTES);
 
-        assertThat(encoded[4]).isEqualTo((byte) 12);
+        assertThat(encoded[4]).isEqualTo((byte) 13);
         assertThat(new String(encoded, StandardCharsets.UTF_8)).doesNotContain("zzsecretzz", "secondsecret");
         RunSummary decoded = RunSummaryCodec.decode(encoded);
         assertThat(decoded.aggregates().statements()).singleElement().satisfies(statement -> {
@@ -121,8 +121,7 @@ class RunSummaryTests {
         byte[] encoded = RunSummaryCodec.encode(
                 RunSummary.of(new RunIdentity("legacy-edges", 1, 1000), aggregates.snapshot(), 2000),
                 RunHistory.MAX_SUMMARY_BYTES);
-        encoded[4] = 10;
-        RunSummary legacy = RunSummaryCodec.decode(encoded);
+        RunSummary legacy = RunSummaryCodec.decode(LegacyRunSummaries.asVersion(encoded, 10));
 
         JournalAggregates current = new JournalAggregates();
         publish(current, sql("current-request", "select id from products", 1_000_000, "Products.find"));
@@ -175,10 +174,10 @@ class RunSummaryTests {
         byte[] encoded = RunSummaryCodec.encode(
                 RunSummary.of(new RunIdentity("old", 1, 1), new JournalAggregates().snapshot(), 2),
                 RunHistory.MAX_SUMMARY_BYTES);
-        // The empty v8 layout matches the newer formats up to their execution-capability flag, empty list, and the
-        // absent side effects.
-        byte[] old = java.util.Arrays.copyOf(encoded, encoded.length - 3);
-        old[4] = 8;
+        // The empty v8 layout matches the newer formats, without the header's application, up to their
+        // execution-capability flag, empty list, and the absent side effects.
+        byte[] withoutApplication = LegacyRunSummaries.asVersion(encoded, 8);
+        byte[] old = java.util.Arrays.copyOf(withoutApplication, withoutApplication.length - 3);
         RunSummary decoded = RunSummaryCodec.decode(old);
         assertThat(decoded.header().runId()).isEqualTo("old");
         assertThat(decoded.aggregates().executionsRecorded()).isFalse();
@@ -187,6 +186,36 @@ class RunSummaryTests {
         assertThatThrownBy(() -> RunSummaryCodec.decode(old))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("supported run summary");
+    }
+
+    @Test
+    void theRunsApplicationRoundTripsAndAVersionTwelveSummaryReadsWithoutOne() {
+        RunSummary summary = RunSummary.of(
+                new RunIdentity("old", 1, 1), "dev:orders", new JournalAggregates().snapshot(), null, null, 2);
+        byte[] encoded = RunSummaryCodec.encode(summary, RunHistory.MAX_SUMMARY_BYTES);
+        assertThat(RunSummaryCodec.header(encoded).application()).isEqualTo("dev:orders");
+        assertThat(RunSummaryCodec.decode(encoded).header().application()).isEqualTo("dev:orders");
+
+        byte[] v12 = LegacyRunSummaries.asVersion(
+                RunSummaryCodec.encode(
+                        RunSummary.of(new RunIdentity("old", 1, 1), new JournalAggregates().snapshot(), 2),
+                        RunHistory.MAX_SUMMARY_BYTES),
+                12);
+        RunSummary decoded = RunSummaryCodec.decode(v12);
+        assertThat(decoded.header().runId()).isEqualTo("old");
+        assertThat(decoded.header().application()).isNull();
+        assertThat(decoded.header().comparableWith("dev:orders"))
+                .as("a run an earlier BootUI kept is compared as before")
+                .isTrue();
+        assertThat(summary.header().comparableWith("dev:payments")).isFalse();
+        assertThat(summary.header().comparableWith(null)).isTrue();
+    }
+
+    @Test
+    void anApplicationKeyIsItsModeAndName() {
+        assertThat(RunSummary.applicationKey("test", " orders ")).isEqualTo("test:orders");
+        assertThat(RunSummary.applicationKey(null, "orders")).isEqualTo("dev:orders");
+        assertThat(RunSummary.applicationKey("dev", " ")).isNull();
     }
 
     @Test
