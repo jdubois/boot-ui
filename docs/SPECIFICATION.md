@@ -634,6 +634,9 @@ Features:
 - Show each installed `executors` or opt-in `threads` sensor's state, hooks, self-test, transformed types, and
   counters. When none is installed, say: "No sensor installed: the agent installs the sensors this application asks for
   when it claims the agent (bootui.agent.sensors)."
+- While the state is `NOT_ATTACHED`, open on the setup snippets with the steps to attach the agent, followed by what a
+  Java agent is, which features need it, what works without it, and its cost; leave out the sections that describe an
+  attached agent. Every other state shows the agent's diagnosis first and the setup snippets last.
 - Offer copyable setup snippets for Maven download (`maven-download`, **Download the agent**), Spring Boot Maven plugin
   `agents` (`maven-plugin`), Gradle Kotlin/Groovy `bootRun` (`gradle-kotlin`, `gradle-groovy`), Quarkus dev mode
   `-Djvm.args` (`quarkus-dev`), Surefire/Failsafe `@{argLine}` (`surefire`) for JaCoCo coexistence, IntelliJ VM options

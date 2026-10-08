@@ -384,6 +384,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The Java Agent panel opens on its setup when the agent is not attached.** The steps and setup snippets follow the
+  **Not attached** status, then a short explanation of what a Java agent is, how BootUI's works, which features need it,
+  and its cost; the sections that only describe an attached agent wait until it is attached
+  ([Java Agent](docs/features/java-agent.md#java-agent)).
 - **Change impact names its unexercised routes for their scope.** The list is now **Reaches it, but didn't run**
   (with the BootUI agent, **Reaches it, but didn't run it**), and a line says it holds only routes that reach what you
   checked, linking to the separate, app-wide **Not exercised in this run** list in **Coverage & limits**. The
@@ -733,6 +737,13 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **A task its handler waited for is no longer badged "after response".** With the BootUI agent, Live Activity's
+  **after response** badge and the request profile's **Handoffs** compared the task's run end with the response, and
+  the JDK releases a waiting handler before that run returns, so on virtual threads about one waited-for `FutureTask`
+  in twenty under load read as finishing after its response. Both now use the task body's own completion, as Runtime
+  Insights does, plus I/O, a failure, or 50 ms of work its result-publication tail had after the response. A handler
+  released from inside the task's body, as by `DeferredResult.setResult`, can still race it
+  ([Java Agent](docs/features/java-agent.md#accepted-limits)).
 - **Malformed MCP envelopes answer the same on every stack.** A `null`, numeric, or object `method` or tool name, a
   repeated `MCP-Protocol-Version`, and a version header sent with an oversized or batch body now get the same
   documented client error on Spring and Quarkus; `MCP-Protocol-Version: 2026-07-28` without `_meta` is now `-32602`
