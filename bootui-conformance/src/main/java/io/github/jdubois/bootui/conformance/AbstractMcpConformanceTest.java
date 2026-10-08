@@ -1026,8 +1026,8 @@ public abstract class AbstractMcpConformanceTest {
     /**
      * The agent's tools without the BootUI agent ({@code docs/PLAN-v2.md} M5-10's acceptance pass): only
      * {@code get_agent_status} is advertised, and it says the agent is not attached and why; a tool that needs one of
-     * the agent's sensors is not advertised, so calling it is the protocol's unknown tool rather than a tool failure or
-     * an empty success; and Runtime Insights lists its agent-gated checks among the checks not run, with the agent as
+     * the agent's sensors is not advertised, so calling it says its panel needs the agent rather than answering a tool
+     * failure or an empty success; and Runtime Insights lists its agent-gated checks among the checks not run, with the agent as
      * the reason, and compares runs without a code changes or side effects section.
      */
     @Test
@@ -1067,7 +1067,8 @@ public abstract class AbstractMcpConformanceTest {
                         .isTrue();
                 assertThat(call.json().path("error").path("message").asText())
                         .as("%s without the agent", tool)
-                        .isEqualTo("Unknown tool: " + tool);
+                        .startsWith("Tool not available in this application: " + tool + ".")
+                        .contains("Requires the BootUI agent");
             }
 
             JsonNode insights = callTool("get_runtime_insights", "{\"query\":\"all\",\"limit\":50}");
