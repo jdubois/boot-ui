@@ -405,6 +405,13 @@ public abstract class AbstractMcpConformanceTest {
         }
     }
 
+    /** A response body with the values a scan measures (timestamps, ids, numbers) normalised, keys and text kept. */
+    private static String withoutMetaShape(String body) {
+        return body.replaceAll("\\d{4}-\\d{2}-\\d{2}T[0-9:.]+Z?", "<time>")
+                .replaceAll("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "<uuid>")
+                .replaceAll("-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?", "<n>");
+    }
+
     private Response legacyProgressCall(String id, String accept, String token) {
         Map<String, String> headers = new java.util.LinkedHashMap<>();
         headers.put("Content-Type", "application/json");
@@ -456,11 +463,15 @@ public abstract class AbstractMcpConformanceTest {
     void testLegacyCallsWithoutAUsableTokenOrStreamSupportStayJson() {
         assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
         try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
-            for (Response response : List.of(
-                    legacyProgressCall("31", "application/json, text/event-stream", null),
-                    legacyProgressCall("32", "application/json", "\"t\""),
-                    legacyProgressCall("33", "application/json, text/event-stream", "{}"),
-                    legacyProgressCall("34", "application/json, text/event-stream", "null"))) {
+            String[][] cases = {
+                {"application/json, text/event-stream", null},
+                {"application/json", "\"t\""},
+                {"application/json, text/event-stream", "{}"},
+                {"application/json, text/event-stream", "null"},
+                {"application/json, text/event-stream", "1.5"}
+            };
+            for (String[] each : cases) {
+                Response response = legacyProgressCall("31", each[0], each[1]);
                 assertThat(response.status()).as(response.body()).isEqualTo(200);
                 assertThat(response.contentType()).startsWith("application/json");
                 JsonNode result = response.json().path("result");
@@ -468,6 +479,12 @@ public abstract class AbstractMcpConformanceTest {
                         .as("a legacy request is never rejected because of its token")
                         .isFalse();
                 assertThat(result.has("resultType")).isFalse();
+                // The same request without _meta: the same bytes, apart from what the scan measures (times, ids,
+                // counts).
+                Response withoutMeta = legacyProgressCall("31", each[0], null);
+                assertThat(withoutMetaShape(response.body()))
+                        .as("token " + each[1] + " changes nothing in a legacy answer")
+                        .isEqualTo(withoutMetaShape(withoutMeta.body()));
             }
         }
     }

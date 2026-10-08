@@ -72,6 +72,8 @@ public final class McpDispatcher {
     private final long executionTimeoutMillis;
     private final McpRuntimeStats runtimeStats;
     private final McpInFlightCalls inFlight = new McpInFlightCalls();
+    private static final System.Logger CANCELLATION_LOG = System.getLogger(McpDispatcher.class.getName());
+    private static final int MAX_LOGGED_LENGTH = 200;
     private final Function<String, String> panelUnavailableReason;
 
     /**
@@ -424,13 +426,22 @@ public final class McpDispatcher {
         }
         McpTool tool = ((PreparedCall) prepared).tool();
         McpArguments arguments = ((PreparedCall) prepared).arguments();
+        AtomicReference<McpInFlightCalls.Registration> registration = new AtomicReference<>();
         if (tracked(request)) {
-            try (McpInFlightCalls.Registration registered =
-                    inFlight.register(request.requestKey(), cancellation::cancel)) {
-                return invokeBlocking(tool, arguments, cancellation);
-            }
+            registration.set(inFlight.register(request.requestKey(), cancellation::cancel));
         }
-        return invokeBlocking(tool, arguments, cancellation);
+        // Removed before the permit is released, by whichever side releases it, so entries never outnumber permits.
+        Runnable unregister = () -> {
+            McpInFlightCalls.Registration registered = registration.getAndSet(null);
+            if (registered != null) {
+                registered.close();
+            }
+        };
+        try {
+            return invokeBlocking(tool, arguments, cancellation, unregister);
+        } finally {
+            unregister.run();
+        }
     }
 
     /**
@@ -451,8 +462,31 @@ public final class McpDispatcher {
         if (!request.notification()) {
             return new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: " + request.method());
         }
-        inFlight.cancel(request.cancelledRequestKey());
+        boolean cancelled = inFlight.cancel(request.cancelledRequestKey());
+        if (CANCELLATION_LOG.isLoggable(System.Logger.Level.DEBUG)) {
+            CANCELLATION_LOG.log(
+                    System.Logger.Level.DEBUG,
+                    "MCP notifications/cancelled for request " + loggable(request.cancelledRequestKey())
+                            + (cancelled ? " cancelled it" : " matched no single in-flight call")
+                            + (request.cancelReason() == null ? "" : ": " + loggable(request.cancelReason())));
+        }
         return new NoResponse();
+    }
+
+    /** A client-supplied value fit for a log line: control characters replaced, and at most 200 characters. */
+    static String loggable(String value) {
+        if (value == null) {
+            return "(none)";
+        }
+        StringBuilder safe = new StringBuilder(Math.min(value.length(), MAX_LOGGED_LENGTH + 1));
+        for (int i = 0; i < value.length() && safe.length() < MAX_LOGGED_LENGTH; i++) {
+            char c = value.charAt(i);
+            safe.append(Character.isISOControl(c) || Character.getType(c) == Character.FORMAT ? '?' : c);
+        }
+        if (value.length() > MAX_LOGGED_LENGTH) {
+            safe.append('…');
+        }
+        return safe.toString();
     }
 
     /** The legacy calls registered for cancellation right now. */
@@ -528,7 +562,8 @@ public final class McpDispatcher {
      * running, {@code 2} abandoned while running (the tool thread releases when it returns), {@code 3} done or abandoned
      * before it started (released by whoever moved it there).
      */
-    private McpDispatchOutcome invokeBlocking(McpTool tool, McpArguments arguments, McpCancellation cancellation) {
+    private McpDispatchOutcome invokeBlocking(
+            McpTool tool, McpArguments arguments, McpCancellation cancellation, Runnable unregister) {
         long startedAt = System.nanoTime();
         AtomicInteger invocationState = new AtomicInteger(0);
         OperationProgress progress = new OperationProgress(null);
@@ -542,6 +577,7 @@ public final class McpDispatcher {
                     return OperationProgress.runWith(progress, () -> tool.invoke(arguments));
                 } finally {
                     int previous = invocationState.getAndSet(3);
+                    unregister.run();
                     toolCallSemaphore.release();
                     if (previous == 1) {
                         runtimeStats.recordCall(System.nanoTime() - startedAt);
@@ -549,6 +585,7 @@ public final class McpDispatcher {
                 }
             });
         } catch (RuntimeException | Error failure) {
+            unregister.run();
             toolCallSemaphore.release();
             runtimeStats.recordCall(System.nanoTime() - startedAt);
             throw failure;
@@ -564,15 +601,15 @@ public final class McpDispatcher {
             return new ToolCallResult(invocation.get(executionTimeoutMillis, TimeUnit.MILLISECONDS));
         } catch (TimeoutException ex) {
             runtimeStats.recordTimeout();
-            abandon(invocationState, invocation, progress, startedAt);
+            abandon(invocationState, invocation, progress, startedAt, unregister);
             return new ProtocolError(McpProtocol.TOOL_TIMEOUT, McpProtocol.TOOL_TIMEOUT_MESSAGE);
         } catch (CancellationException ex) {
             runtimeStats.recordCancellation();
-            abandon(invocationState, invocation, progress, startedAt);
+            abandon(invocationState, invocation, progress, startedAt, unregister);
             return new McpDispatchOutcome.Cancelled();
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            abandon(invocationState, invocation, progress, startedAt);
+            abandon(invocationState, invocation, progress, startedAt, unregister);
             throw new IllegalStateException("Interrupted while invoking MCP tool", ex);
         } catch (ExecutionException ex) {
             Throwable cause = ex.getCause();
@@ -597,7 +634,13 @@ public final class McpDispatcher {
 
     /** Gives up waiting for a call: stops the tool and settles its permit and call count (see {@link #invokeBlocking}). */
     private void abandon(
-            AtomicInteger invocationState, Future<Object> invocation, OperationProgress progress, long startedAt) {
+            AtomicInteger invocationState,
+            Future<Object> invocation,
+            OperationProgress progress,
+            long startedAt,
+            Runnable unregister) {
+        // The call is answered: it can no longer be cancelled by id, even if its tool still holds the permit.
+        unregister.run();
         progress.cancel();
         int previous = invocationState.getAndUpdate(state -> state < 2 ? (state == 0 ? 3 : 2) : state);
         invocation.cancel(true);

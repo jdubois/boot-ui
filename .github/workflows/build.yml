@@ -675,13 +675,15 @@ jobs:
 
       # Request-value matching of the security-sinks sensor (M5-6b1, D37), on the sinks route (two query parameters,
       # one SQL statement, and one file read): its own increment, the same sensors with matching on against off, fifteen
-      # pairs, fails the build above 3 %; the cumulative overhead with it, fifteen pairs against no agent, prints PASS or
-      # FAIL against 10 % and fails only above 30 %. Matching stays opt-in whatever they measure.
+      # pairs, prints PASS or FAIL against 3 % and fails here only above 30 %, as the other opt-in sensors' A/Bs do; the
+      # "Check request-value matching's share" step below fails the build when the lower bound of its median's 95 %
+      # interval is above 3 % (PLAN-v2 D48). The cumulative overhead with it, fifteen pairs against no agent, prints PASS
+      # or FAIL against 10 % and fails only above 30 %. Matching stays opt-in whatever they measure.
       - name: Measure request-value matching's share on the sinks route
         if: needs.changes.outputs.extras == 'true'
         run: >
           ./mvnw -B -ntp -pl bootui-spring-sample-app verify
-          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=3
+          -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
           -Dbootui.benchmark.agent.budget-percent=3
           -Dbootui.benchmark.route=sinks -Dbootui.benchmark.report=spring-mvc-sinks-ab
           -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,files,security-sinks
@@ -763,6 +765,40 @@ jobs:
             verdict=FAIL
           fi
           line="Blocking sensor default: ${verdict}. Increment median ${increment} % (pairs ${increment_range} %, limit 3 %, a lower bound on Spring MVC); cumulative median ${cumulative} % (95 % interval ${cumulative_interval} %, pairs ${cumulative_range} %; fails when the interval's lower bound is above 10 %)."
+          echo "$line"
+          printf '\n**%s**\n' "$line" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$verdict" = FAIL ]; then
+            echo "::error::$line"
+            exit 1
+          fi
+
+      # Request-value matching's own increment, measured above. A run's median moves by a few points on unchanged code:
+      # on the same matching code, fifteen-pair medians measured -0.2 to 2.9 % on six runs, then 3.9 and 4.9 % on two
+      # branches that changed nothing it runs, so a median above 3 % fails a clean build about one run in six. This step
+      # fails only when the lower bound of the median's 95 % interval is above 3 % (PLAN-v2 D48); the report still says
+      # PASS or FAIL against 3 % for the median itself.
+      - name: Check request-value matching's share
+        if: ${{ !cancelled() && needs.changes.outputs.extras == 'true' }}
+        run: |
+          directory=bootui-spring-sample-app/target/agent-overhead
+          file=spring-mvc-sinks-ab.properties
+          if [ ! -f "$directory/$file" ]; then
+            echo "::error::Request-value matching's share cannot be checked: $file is missing."
+            exit 1
+          fi
+          read_value() { sed -n "s/^$1=//p" "$directory/$file"; }
+          median=$(read_value overheadPercent)
+          low=$(read_value lowOverheadPercent)
+          high=$(read_value highOverheadPercent)
+          if [ -z "$low" ]; then
+            echo "::error::Request-value matching's share cannot be checked: $file has no median interval."
+            exit 1
+          fi
+          verdict=PASS
+          if awk -v low="$low" 'BEGIN { exit !(low > 3) }'; then
+            verdict=FAIL
+          fi
+          line="Request-value matching's share: ${verdict}. Median ${median} % (95 % interval ${low} to ${high} %, pairs $(read_value minOverheadPercent) to $(read_value maxOverheadPercent) %); fails when the interval's lower bound is above 3 %."
           echo "$line"
           printf '\n**%s**\n' "$line" >> "$GITHUB_STEP_SUMMARY"
           if [ "$verdict" = FAIL ]; then

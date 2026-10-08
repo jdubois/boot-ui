@@ -19,7 +19,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **MCP cancellations counted.** The MCP Server panel shows the protocol versions served and counts calls a client
   cancelled by closing their stream apart from timeouts ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 - **MCP progress and cancellation for 2025-06-18 clients.** A legacy client that sends a progress token, such as GitHub
-  Copilot CLI, sees the same scan progress, and `notifications/cancelled` stops the call ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+  Copilot CLI, sees the same scan progress, and `notifications/cancelled` stops the call; a late cancellation can reach
+  another local client's call with the same id ([known limitations](docs/KNOWN-LIMITATIONS.md#mcp)).
 
 - **Hibernate Statistics and WebSockets for agents.** `get_hibernate_statistics` (`bootui hibernate statistics`) and
   `get_websockets` (`bootui websockets`) are passive reads on Spring MVC, Spring WebFlux, and Quarkus; enabling

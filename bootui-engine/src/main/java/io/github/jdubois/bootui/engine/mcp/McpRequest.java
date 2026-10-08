@@ -33,6 +33,8 @@ import java.util.Set;
  * @param requestKey this request's id as an {@link McpRequestKey}, or {@code null} for a notification
  * @param cancelledRequestKey for a legacy {@code notifications/cancelled}, the {@link McpRequestKey} of its {@code
  *     params.requestId}, or {@code null}
+ * @param cancelReason for a legacy {@code notifications/cancelled}, its {@code params.reason} when it is a string, or
+ *     {@code null}; it is only logged, sanitized and truncated
  */
 public record McpRequest(
         String jsonrpc,
@@ -50,11 +52,50 @@ public record McpRequest(
         McpEra era,
         McpProgressToken progressToken,
         String requestKey,
-        String cancelledRequestKey) {
+        String cancelledRequestKey,
+        String cancelReason) {
 
     public McpRequest {
         argumentNames = argumentNames == null ? Set.of() : Set.copyOf(argumentNames);
         era = era == null ? McpEra.LEGACY : era;
+    }
+
+    /** A request without a cancellation reason. */
+    public McpRequest(
+            String jsonrpc,
+            String method,
+            boolean notification,
+            String requestedProtocolVersion,
+            String toolName,
+            String rawQuery,
+            Integer rawLimit,
+            String rawId,
+            Set<String> argumentNames,
+            String argumentsError,
+            String rawScanId,
+            Integer rawOffset,
+            McpEra era,
+            McpProgressToken progressToken,
+            String requestKey,
+            String cancelledRequestKey) {
+        this(
+                jsonrpc,
+                method,
+                notification,
+                requestedProtocolVersion,
+                toolName,
+                rawQuery,
+                rawLimit,
+                rawId,
+                argumentNames,
+                argumentsError,
+                rawScanId,
+                rawOffset,
+                era,
+                progressToken,
+                requestKey,
+                cancelledRequestKey,
+                null);
     }
 
     /** Legacy-era constructor used by codecs and engine callers that predate era selection. */
@@ -85,6 +126,7 @@ public record McpRequest(
                 rawScanId,
                 rawOffset,
                 McpEra.LEGACY,
+                null,
                 null,
                 null,
                 null);
@@ -121,6 +163,7 @@ public record McpRequest(
                 rawOffset,
                 era,
                 progressToken,
+                null,
                 null,
                 null);
     }
