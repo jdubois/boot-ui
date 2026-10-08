@@ -1665,11 +1665,11 @@ Acceptance criteria:
   run's cumulative I/O-route median moves by about 2 points on unchanged sensors (3.6–11.4 % over 33 CI runs), so the
   10.7 % and 11.7 % of #1326's resources A/B (intervals [7.2, 12.7] and [4.2, 12.9] %) were runner noise, not a
   regression: no default sensor's own leave-one-out increment had an interval above zero on one machine (15 pairs
-  each), and the runs before and after #1299 and #1323 averaged 7.6 % and 8.5 % (t = 1.3). Proposed, for the
-  maintainer's decision: a sensor's default follows its own increment's A/B, and a cumulative median shows a regression
-  only when its interval's lower bound exceeds 10 %, or when it stays above 10 % across runs. Today the I/O route's
-  cumulative figure only warns, while M5-5c's blocking check still fails on the default route's 5-pair cumulative median
-  above 10 % ([Java Agent](features/java-agent.md#overhead)).
+  each), and the runs before and after #1299 and #1323 averaged 7.6 % and 8.5 % (t = 1.3). D48 adopts the rule this
+  suggests: a cumulative check fails only when its median interval's lower bound is above 10 %, and own-increment
+  gates stay at 3 %. M5-5c's blocking check applies it, on 9 pairs instead of 5; the opt-in sensors' checks follow when
+  one is proposed for the defaults, and the I/O route's
+  cumulative figure still only warns ([Java Agent](features/java-agent.md#overhead)).
 
 ### 5.14 Code Paths — Diagnostics 🚧 In progress
 
@@ -2360,6 +2360,7 @@ lands on `v2` and before 2.0.0:
 | D43 | Does `bootui-core` fold into `bootui-engine`? | **Maintainer decision** (2026-10-05): no. `bootui-core` stays its own published artifact, so 2.0 publishes the 8 coordinates of D42 |
 | D44 | Under which exposure do method probes' argument and return shapes show, now that D37 made them allowlist-only? | **Decided, as recommended** (2026-10-05, taken in M5-8's design review; reversible on review): by the live exposure, in the panel only. `METADATA_ONLY` shows none and refuses a probe that asks for them; `MASKED`, the default, shows runtime types, nullness, collection, map, and array sizes, and `Optional` presence; `FULL` (or `MASKED` with `bootui.mask-secrets=false`) adds the details derived from a value: a string's length, a `char[]` or `byte[]` length, and an enum constant's name. Numbers and booleans never show a value. MCP, the CLI, and exports never return a shape (D24, §5.17). §5.14 had put shapes under `FULL` only when they still carried a masked `toString()`; without it, `FULL` only, documented as discouraged, would have left the feature unused. Shapes stay opt-in per probe |
 | D45 | May the run summary, and so the opt-in baseline file, keep agent evidence? | **Maintainer decision** (2026-10-05), for M5-7b: yes, Side Effects' keys only, as names and masked, normalized patterns (hosts and ports, path patterns, process file names, variable names) with their route, execution, or startup owner, never a value, an argument, or a file's contents; kept only while the Side Effects panel is shown when the run ends, route owners as one hidden route while HTTP Exchanges is hidden, and re-gated by the live visibility on every read. The file is opt-in and already held outbound hosts, route templates, and exception signatures (M4-2); §5.17's export rule names this one exception, and a test asserts no secret-looking segment survives in the file |
+| D48 | How is the agent's cumulative overhead gated, given one run's median moves by about 2 points on unchanged sensors? | **Decided on the maintainer's behalf** (2026-10-08, by the v2 coordinator; reversible on review), from #1355's evidence: a cumulative-overhead check fails only when the lower bound of its median's distribution-free 95 % interval is above 10 %. Own-increment gates (at most 3 %) are unchanged. Applied now to M5-5c's blocking check, the one enforced cumulative check of a default sensor, whose cumulative run on the default route goes from 5 to 9 pairs; the opt-in sensors' cumulative checks (thread-activity, thread-locals, caught-exceptions) still read the plain median and move to this rule when one of them is proposed for the defaults. The I/O route's cumulative figure stays a warning, printed with its interval. Evidence in §5.13's overhead note and [Java Agent](features/java-agent.md#overhead) |
 
 ## Appendix A. Review log
 

@@ -117,12 +117,20 @@ public record AsyncHandoffPayload(
     }
 
     /**
+     * How long a task's run must last past its response, after a body that ended before it, for its result-publication
+     * tail to count as work after the response without recorded I/O: 50 ms, far above the 0 to 1 ms by which a waiting
+     * handler's release races the handoff's close.
+     */
+    public static final long LONG_TAIL_AFTER_RESPONSE_MICROS = 50_000L;
+
+    /**
      * Whether the task worked once its request's response had started, as Live Activity badges it and the request
      * profile lists it: a confirmed body completion first, which is ordered before the JDK releases a waiting handler,
      * so a handler that waited for the task never reads as answered before it however its handoff's close races the
      * response. After a body that ended before the response, only I/O of its result-publication tail, such as a
      * synchronous dependent stage, ending at least {@link HandoffWindow#RESPONSE_TIMESTAMP_SLACK_MICROS} past the
-     * response counts, or a failure the agent timed after it. Without a confirmed body, the run's end decides.
+     * response counts, a failure the agent timed after it, or a run lasting at least
+     * {@link #LONG_TAIL_AFTER_RESPONSE_MICROS} past it. Without a confirmed body, the run's end decides.
      *
      * @param lastWorkEndMicros when the last SQL statement, REST call, or message recorded under the task's execution
      *     ended, or {@link Long#MIN_VALUE} when none was
@@ -151,6 +159,13 @@ public record AsyncHandoffPayload(
 
     private boolean tailWorkedAfterResponse(long lastWorkEndMicros) {
         if (Boolean.TRUE.equals(failureAfterResponse)) {
+            return true;
+        }
+        if (Boolean.TRUE.equals(afterResponse)
+                && afterResponseMicros != null
+                && afterResponseMicros >= LONG_TAIL_AFTER_RESPONSE_MICROS) {
+            // Far beyond the race between a waiting handler's release and the handoff's close: a tail that computes,
+            // logs, writes a file, sleeps, or sends mail long after the response is work after it too.
             return true;
         }
         return Boolean.TRUE.equals(afterResponse)

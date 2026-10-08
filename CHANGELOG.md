@@ -729,8 +729,9 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   **after response** badge and the request profile's **Handoffs** compared the task's run end with the response, and
   the JDK releases a waiting handler before that run returns, so on virtual threads about one waited-for `FutureTask`
   in twenty under load read as finishing after its response. Both now use the task body's own completion, as Runtime
-  Insights does, plus I/O or a failure its result-publication tail had after the response
-  ([Java Agent](docs/features/java-agent.md#the-executors-sensor)).
+  Insights does, plus I/O, a failure, or 50 ms of work its result-publication tail had after the response. A handler
+  released from inside the task's body, as by `DeferredResult.setResult`, can still race it
+  ([Java Agent](docs/features/java-agent.md#accepted-limits)).
 - **Malformed MCP envelopes answer the same on every stack.** A `null`, numeric, or object `method` or tool name, a
   repeated `MCP-Protocol-Version`, and a version header sent with an oversized or batch body now get the same
   documented client error on Spring and Quarkus; `MCP-Protocol-Version: 2026-07-28` without `_meta` is now `-32602`

@@ -561,7 +561,8 @@ class RequestJournalProfilesTests {
     /**
      * A waited-for task's handoff can close just after its handler answered, since the JDK releases the handler before
      * the task's run returns: its confirmed body completion decides, never that race. A late result-publication tail
-     * counts only by its own late I/O, and a handoff without body evidence keeps its run's end.
+     * counts by its own late I/O, its failure after the response, or a run lasting 50 ms past it; a handoff without
+     * body evidence keeps its run's end.
      */
     @Test
     void aHandoffIsAfterTheResponseByItsBodyNotByItsCloseRacingTheResponse() {
@@ -571,6 +572,7 @@ class RequestJournalProfilesTests {
         CorrelationContext unconfirmed = CorrelationContext.forRequest("r1").withExecutionId("async-4");
         CorrelationContext quietTail = CorrelationContext.forRequest("r1").withExecutionId("async-5");
         CorrelationContext failedTail = CorrelationContext.forRequest("r1").withExecutionId("async-6");
+        CorrelationContext longTail = CorrelationContext.forRequest("r1").withExecutionId("async-7");
         long responseAt = 1_030_000L;
         offer(sql(waited, 1_010, 1_000_000));
         // Its body ended before the response; its handoff closed 50 µs after it.
@@ -586,6 +588,8 @@ class RequestJournalProfilesTests {
         // Its body ended before the response, then its done() callback threw after it.
         offer(bodyHandoff(
                 failedTail, 1_015, 40_000_000, true, 25_000L, false, 0L, responseAt, "IllegalStateException"));
+        // Its body ended before the response, then a done() callback computed, with no I/O, until 60 ms past it.
+        offer(bodyHandoff(longTail, 1_015, 75_000_000, true, 60_000L, false, 0L, responseAt));
         offer(http("r1", 1_000, 40_000_000, null));
 
         journal.dispatchPending();
@@ -601,7 +605,8 @@ class RequestJournalProfilesTests {
                         tuple("async-3", true, 25_000L),
                         tuple("async-4", true, 5_000L),
                         tuple("async-5", false, 0L),
-                        tuple("async-6", true, 25_000L));
+                        tuple("async-6", true, 25_000L),
+                        tuple("async-7", true, 60_000L));
 
         JournalActivityFeed.Feed feed = new JournalActivityFeed(1_000, 5, null)
                 .render(journal.entries(), journal::eventId, journal.run().id(), JournalActivityFeed.Filter.NONE, 0);
@@ -614,7 +619,8 @@ class RequestJournalProfilesTests {
                         tuple(journal.eventId(asyncEntry("async-3")), List.of("AFTER_RESPONSE")),
                         tuple(journal.eventId(asyncEntry("async-4")), List.of("AFTER_RESPONSE")),
                         tuple(journal.eventId(asyncEntry("async-5")), List.of()),
-                        tuple(journal.eventId(asyncEntry("async-6")), List.of("AFTER_RESPONSE")));
+                        tuple(journal.eventId(asyncEntry("async-6")), List.of("AFTER_RESPONSE")),
+                        tuple(journal.eventId(asyncEntry("async-7")), List.of("AFTER_RESPONSE")));
         // Captured one event per batch, as recorded: the tail's statement is in an earlier batch than its handoff.
         JournalActivityFeed capture = new JournalActivityFeed(1_000, 5, null);
         Map<String, Map<String, Integer>> pendingSelects = new HashMap<>();
@@ -636,7 +642,8 @@ class RequestJournalProfilesTests {
                         journal.eventId(asyncEntry("async-2")),
                         journal.eventId(asyncEntry("async-3")),
                         journal.eventId(asyncEntry("async-4")),
-                        journal.eventId(asyncEntry("async-6")));
+                        journal.eventId(asyncEntry("async-6")),
+                        journal.eventId(asyncEntry("async-7")));
         assertThat(pendingWorkEnds)
                 .as("each handoff's entry is forgotten once it renders")
                 .isEmpty();

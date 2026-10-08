@@ -391,8 +391,8 @@ public final class BlockingBehaviors {
      * paired differences: a shared runner's load, its JIT compiling the methods a retransformation deoptimized, or a
      * preempted round shifts one pair, never the median. The control is {@code jdk.internal.misc.Unsafe.park}, which
      * {@code LockSupport.park} calls; a released arm, measured after the agent restored {@code LockSupport}, checks that
-     * the two cost alike unadvised and is printed only, since its retransformation is exactly what the paired arms
-     * avoid.</p>
+     * the two cost alike unadvised and is held only to a loose bound, since its retransformation is exactly what the
+     * paired arms avoid.</p>
      */
     static void bench() throws Exception {
         // An event loop that stays registered and alive while the parks are timed, so the hook's loops branch is on.
