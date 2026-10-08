@@ -882,6 +882,9 @@ class BootUiMcpServiceTests {
         BootUiMcpService tinyService = new BootUiMcpService(new BootUiMcpTools(List.of()), tiny, objectMapper, "1.2.3");
         assertThat(tinyService.renderProgress(io.github.jdubois.bootui.engine.mcp.McpProgressToken.of(longest), event))
                 .isNull();
+        assertThat(tinyService.dispatcher().runtimeStats().snapshot().progressDropped())
+                .as("a dropped progress event is counted")
+                .isEqualTo(1);
     }
 
     @Test

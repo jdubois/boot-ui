@@ -794,7 +794,8 @@ compatibility rules describe:
   strictly increasing `progress`, the `total` when known, and a fixed phase `message`, then exactly one final
   response, after which the stream closes. There are no event ids, and `:` comment lines every 2 seconds keep the
   connection open. Notifications are rate-limited: a burst of 8, then one every 250 ms, coalescing to the newest. Every
-  event obeys `bootui.mcp.max-response-bytes`: a notification that would not fit is dropped, and a final response that
+  event obeys `bootui.mcp.max-response-bytes`: a notification that would not fit is dropped (counted as `progressDropped`
+  in the `GET /bootui/api/mcp-server` status and shown in the MCP Server panel), and a final response that
   would not fit is replaced by the response-too-large error. A string `progressToken` longer than 128 characters is
   refused on a modern request and ignored on a legacy one, which then answers with one JSON response. Any
   other call, including every refusal and a call without a token, stays a single JSON response, byte-identical to

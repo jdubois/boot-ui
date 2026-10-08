@@ -668,6 +668,9 @@ class QuarkusMcpEnvelopeTest {
         QuarkusMcpEnvelope tiny = new QuarkusMcpEnvelope(dispatcher, objectMapper, diagnostics, 100);
         assertThat(tiny.renderProgress(io.github.jdubois.bootui.engine.mcp.McpProgressToken.of(longest), event))
                 .isNull();
+        assertThat(dispatcher.runtimeStats().snapshot().progressDropped())
+                .as("a dropped progress event is counted")
+                .isEqualTo(1);
     }
 
     @Test

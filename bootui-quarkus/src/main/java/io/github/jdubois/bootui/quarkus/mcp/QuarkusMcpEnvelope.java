@@ -247,10 +247,12 @@ public class QuarkusMcpEnvelope {
         notification.put("method", McpProtocol.PROGRESS_NOTIFICATION);
         notification.set("params", params);
         String compact = notification.toString();
-        return McpExchange.progressFits(
-                        compact.getBytes(java.nio.charset.StandardCharsets.UTF_8).length, maxResponseBytes)
-                ? compact
-                : null;
+        if (McpExchange.progressFits(
+                compact.getBytes(java.nio.charset.StandardCharsets.UTF_8).length, maxResponseBytes)) {
+            return compact;
+        }
+        dispatcher.runtimeStats().recordProgressDropped();
+        return null;
     }
 
     /** Integral values render as integers so every stack writes the same bytes. */
