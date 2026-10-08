@@ -904,7 +904,7 @@ describe('Side Effects panel', () => {
     expect(table.text()).not.toContain('Failed')
   })
 
-  it('explains that the files sensor is opt-in, and not the processes sensor', async () => {
+  it('explains that the files sensor is on by default when left out, and not the processes sensor', async () => {
     ;({wrapper} = mountPanel({
       'api/side-effects': summary({
         sensors: {
@@ -930,7 +930,7 @@ describe('Side Effects panel', () => {
     const notes = wrapper.findAll('.side-effects-state-note').map((note) => note.text())
     const files = notes.find((note) => note.includes('does not include files'))
     const processes = notes.find((note) => note.includes('does not include processes'))
-    expect(files).toContain('It is opt-in: add files to bootui.agent.sensors')
+    expect(files).toContain('It is on by default, but not in this configuration: add files to bootui.agent.sensors')
     expect(files).toContain('path patterns')
     expect(processes).not.toContain('opt-in')
   })
@@ -993,6 +993,53 @@ describe('Side Effects panel', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="agent-sensor-toggle-environment"]').exists()).toBe(false)
     expect(wrapper.get('.side-effects-state-note').text()).not.toContain('switch it on')
+  })
+
+  it('points a default sensor switched off at run time back at its switch, not at the property', async () => {
+    const toggle = {
+      id: 'files',
+      configured: true,
+      enabled: false,
+      overridden: true,
+      state: 'off',
+      optInReason: 'On by default: it records the files the application opens.',
+      available: true,
+      unavailableReason: null
+    }
+    const panels = ref({panels: [{id: 'java-agent', enabled: true, available: true, readOnly: false}]})
+    ;({wrapper} = mountPanel(
+      {
+        'api/side-effects': summary({
+          sensors: {
+            files: {
+              state: 'not-claimed',
+              reason: "Switched off at run time: this application's bootui.agent.sensors includes files.",
+              toggle
+            }
+          }
+        }),
+        'api/side-effects/sensor?sensor=files&offset=0&limit=50': sensorReport('files', []),
+        'api/side-effects/sensor?sensor=processes&offset=0&limit=50': sensorReport('processes', [])
+      },
+      {},
+      panels
+    ))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Files and processes')
+      .trigger('click')
+    await flushPromises()
+
+    const control = wrapper.get('[data-testid="agent-sensor-toggle-files"]')
+    expect(control.get('input[role="switch"]').element.checked).toBe(false)
+    expect(control.text()).toContain('On by default')
+    const note = wrapper
+      .findAll('.side-effects-state-note')
+      .map((each) => each.text())
+      .find((text) => text.includes('Switched off at run time'))
+    expect(note).toContain('switch it on above to record again for this JVM')
+    expect(note).not.toContain('bootui.agent.sensors to record')
   })
 
   it('shows a switch’s answer at once and reads the summary again', async () => {

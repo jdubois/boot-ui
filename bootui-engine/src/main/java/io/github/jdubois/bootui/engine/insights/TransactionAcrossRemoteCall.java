@@ -136,14 +136,7 @@ public final class TransactionAcrossRemoteCall implements Observation {
             }
         }
         return new Evaluation(
-                eligible,
-                findings,
-                fast == 0
-                        ? null
-                        : InsightText.counted(fast, "transactional method")
-                                + " kept a transaction open only across calls under "
-                                + InsightText.millis(MIN_CALL_NANOS)
-                                + " ms, so " + (fast == 1 ? "it is" : "they are") + " not reported.");
+                eligible, findings, fast == 0 ? null : JudgedWithoutFinding.fastTransactions(fast, MIN_CALL_NANOS));
     }
 
     private Finding finding(String route, String method, Method found, long eligible, InsightsSnapshot snapshot) {

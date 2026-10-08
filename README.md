@@ -69,7 +69,7 @@ curl -fsSL https://www.julien-dubois.com/boot-ui/install.sh | sh
 
 ```bash
 bootui beans --query dataSource
-bootui hibernate scan --json | jq '.findings[]'
+bootui hibernate scan --json | jq '.topFindings[]'
 ```
 
 It needs no MCP client and no agent, prints exact JSON when piped, and exits `2` when a panel's own policy

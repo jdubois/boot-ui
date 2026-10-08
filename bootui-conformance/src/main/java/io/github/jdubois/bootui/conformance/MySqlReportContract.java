@@ -90,6 +90,37 @@ public final class MySqlReportContract {
                 .doesNotContain("\"lockData\"", "\"querySampleText\"", "\"processlistInfo\"", "\"trxQuery\"");
     }
 
+    /**
+     * The summary {@code mysql_read} answers agents with: the read's status and each datasource's section coverage, as
+     * the cached {@code report} has them, and no rows.
+     */
+    public static void assertReadSummary(JsonNode summary, JsonNode report) {
+        assertThat(summary.path("reportTool").asText()).isEqualTo("get_mysql_report");
+        for (String field : List.of("status", "message", "readAt", "dataSourcesRead", "truncated", "limitations")) {
+            assertThat(summary.path(field)).as(field).isEqualTo(report.path(field));
+        }
+        assertThat(summary.path("diagnostics").asInt())
+                .isEqualTo(report.path("diagnostics").size());
+        assertThat(summary.path("dataSources")).hasSameSizeAs(report.path("dataSources"));
+        for (int i = 0; i < report.path("dataSources").size(); i++) {
+            JsonNode source = report.path("dataSources").get(i);
+            JsonNode summarized = summary.path("dataSources").get(i);
+            assertThat(summarized.path("name")).isEqualTo(source.path("name"));
+            assertThat(summarized.path("status")).isEqualTo(source.path("status"));
+            assertThat(summarized.path("sections")).hasSameSizeAs(source.path("sections"));
+            for (int j = 0; j < source.path("sections").size(); j++) {
+                JsonNode section = source.path("sections").get(j);
+                JsonNode summarizedSection = summarized.path("sections").get(j);
+                for (String field : List.of("id", "status", "reason", "rowCount", "truncated")) {
+                    assertThat(summarizedSection.path(field)).as(field).isEqualTo(section.path(field));
+                }
+            }
+            for (String rows : List.of("sessions", "statements", "tables", "vitalSigns")) {
+                assertThat(summarized.has(rows)).as(rows).isFalse();
+            }
+        }
+    }
+
     /** Requires an available datasource and MCP enabled; exercises the same cache through all transports. */
     public static void verify(BootUiHttpProbe probe, String origin, String apiPath) {
         JsonNode panels = probe.get(apiPath + "/panels").json().path("panels");
@@ -117,13 +148,16 @@ public final class MySqlReportContract {
         assertThat(cli.json()).isEqualTo(report);
         assertThat(mcp(probe, apiPath, headers, "get_mysql_report")).isEqualTo(report);
 
+        // The agent transports answer an explicit read with a summary of the report they cached, not the report.
         var cliRead = probe.request("POST", apiPath + "/cli/tools/mysql_read", headers, "{}");
         assertThat(cliRead.status()).isEqualTo(200);
-        assertRead(cliRead.json());
-        assertThat(probe.get(apiPath + "/mysql").json()).isEqualTo(cliRead.json());
-        JsonNode mcpRead = mcp(probe, apiPath, headers, "mysql_read");
+        JsonNode cliCached = probe.get(apiPath + "/mysql").json();
+        assertRead(cliCached);
+        assertReadSummary(cliRead.json(), cliCached);
+        JsonNode mcpSummary = mcp(probe, apiPath, headers, "mysql_read");
+        JsonNode mcpRead = probe.get(apiPath + "/mysql").json();
         assertRead(mcpRead);
-        assertThat(probe.get(apiPath + "/mysql").json()).isEqualTo(mcpRead);
+        assertReadSummary(mcpSummary, mcpRead);
 
         var rejected = probe.post(
                 apiPath + "/mysql/read", Map.of("Origin", "https://foreign.invalid", "Sec-Fetch-Site", "cross-site"));

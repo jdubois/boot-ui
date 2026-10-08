@@ -77,13 +77,13 @@ public final class SideEffectsService implements AutoCloseable {
     static final String LIMITATION_SCOPE = "Side Effects records only what the BootUI agent's side-effect sensors hook:"
             + " this version records the processes the application starts, through ProcessBuilder.start, which"
             + " Runtime.exec and ProcessBuilder.startPipeline also reach; its network: connects, datagram sends, and"
-            + " the host names the JVM resolves; the blocking calls started on an event loop; and, opt-in, the files it"
+            + " the host names the JVM resolves; the blocking calls started on an event loop; the streams, channels, and"
+            + " sockets a request or a job left open (resources); the files it"
             + " opens, deletes, moves, and copies, through FileInputStream, FileOutputStream, RandomAccessFile, the Files"
-            + " methods, and FileChannel.open, and the environment variables and system properties it reads by name"
-            + " through System.getenv and System.getProperty; and, opt-in, the threads it starts and the executors it"
+            + " methods, and FileChannel.open; and, opt-in, the environment variables and system properties it reads"
+            + " by name through System.getenv and System.getProperty; and, opt-in, the threads it starts and the executors it"
             + " creates; and, opt-in, the thread locals a request or a job left set on its pooled thread, and request"
-            + " input reaching SQL text, a command, a file path, or an outbound URL unchanged (security sinks)."
-            + " Resources left open are not available in this version.";
+            + " input reaching SQL text, a command, a file path, or an outbound URL unchanged (security sinks).";
 
     static final String LIMITATION_THREADS =
             "Thread activity: Thread.start, VirtualThread.start, the ThreadPoolExecutor,"

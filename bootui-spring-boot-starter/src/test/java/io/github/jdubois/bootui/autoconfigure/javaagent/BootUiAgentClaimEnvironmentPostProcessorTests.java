@@ -123,6 +123,7 @@ class BootUiAgentClaimEnvironmentPostProcessorTests {
                                 "code-paths",
                                 "processes",
                                 "network",
+                                "files",
                                 "blocking",
                                 "resources"));
         assertThat(request).as("rounded up to a power of two").containsEntry("ringCapacity", 8192);

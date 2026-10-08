@@ -228,6 +228,10 @@ function inspectTemplate(template, lineOffset = 0) {
         modifierNames(click).includes('self') ||
         staticAttribute(node, 'aria-hidden') === 'true' ||
         staticAttribute(node, 'role') === 'option' ||
+        // A treegrid row is the focusable item: its own keydown handler gives Enter and Space the click's action.
+        (staticAttribute(node, 'role') === 'row' &&
+          eventDirective(node, 'keydown') &&
+          node.props.some((property) => property.type === 7 && property.arg?.content === 'tabindex')) ||
         hasKeyboardDelegate(node) ||
         (node.tag === 'dialog' && (eventDirective(node, 'keydown', 'esc') || eventDirective(node, 'cancel')))
       ) {

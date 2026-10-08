@@ -46,7 +46,7 @@ Spring when `bootui.enabled=ON` forces BootUI on in a disabled profile such as `
 Restart the application, then run `bootui agent status` or reopen the panel. `ARMED` means this application claimed the
 agent and its sensors record; the report lists each sensor. Any other state comes with its reason; see
 [Status states](../features/java-agent.md#status-states). The default sensors are `executors`, `inventory`,
-`code-paths`, `processes`, `network`, and `blocking`; `bootui.agent.sensors` adds the opt-in ones.
+`code-paths`, `processes`, `network`, `files`, `blocking`, and `resources`; `bootui.agent.sensors` adds the opt-in ones.
 
 ## 4. Answer "did my change run?"
 

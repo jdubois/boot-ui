@@ -7,8 +7,13 @@ import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.core.dto.MySqlInsightReport;
 import io.github.jdubois.bootui.core.dto.RestClientTraceRecordingRequest;
+import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
+import io.github.jdubois.bootui.core.dto.RestClientTraceStatsDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
+import io.github.jdubois.bootui.core.dto.SqlTraceReport;
+import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
@@ -93,7 +98,13 @@ class QuarkusMcpToolsTest {
         org.mockito.Mockito.verifyNoInteractions(mysql);
         invoke(tools, "get_mysql_report", new McpArguments(null, 100, null));
         verify(mysql).mysql();
-        invoke(tools, "mysql_read", new McpArguments(null, 100, null));
+        when(mysql.read())
+                .thenReturn(new MySqlInsightReport(
+                        true, "Local only.", "OK", null, 1L, 2L, 0, List.of(), List.of(), List.of(), false));
+        assertThat(invoke(tools, "mysql_read", new McpArguments(null, 100, null)))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry("reportTool", "get_mysql_report")
+                .containsEntry("status", "OK");
         verify(mysql).read();
         assertThat(tools)
                 .filteredOn(tool -> tool.name().equals("mysql_read"))
@@ -153,11 +164,46 @@ class QuarkusMcpToolsTest {
         RestClientTraceResource restClientTrace = mock(RestClientTraceResource.class);
         List<McpTool> tools = tools(availability, sqlTrace, restClientTrace);
         McpArguments noArguments = new McpArguments(null, 100, null);
+        when(sqlTrace.recording(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new SqlTraceReport(
+                        true,
+                        null,
+                        false,
+                        false,
+                        200,
+                        7,
+                        100,
+                        List.of(),
+                        SqlTraceStatsDto.empty(),
+                        List.of(),
+                        List.of(),
+                        List.of()));
+        when(restClientTrace.recording(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new RestClientTraceReport(
+                        true,
+                        null,
+                        true,
+                        false,
+                        50,
+                        3,
+                        1000,
+                        List.of(),
+                        RestClientTraceStatsDto.empty(),
+                        List.of(),
+                        List.of(),
+                        List.of()));
 
-        invoke(tools, "pause_sql_trace_recording", noArguments);
+        assertThat(invoke(tools, "pause_sql_trace_recording", noArguments))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry("action", "paused")
+                .containsEntry("capturing", false)
+                .containsEntry("totalCaptured", 7L);
         invoke(tools, "resume_sql_trace_recording", noArguments);
         invoke(tools, "pause_rest_client_recording", noArguments);
-        invoke(tools, "resume_rest_client_recording", noArguments);
+        assertThat(invoke(tools, "resume_rest_client_recording", noArguments))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry("action", "resumed")
+                .containsEntry("capacity", 50);
 
         verify(sqlTrace).recording(new SqlTraceRecordingRequest(false));
         verify(sqlTrace).recording(new SqlTraceRecordingRequest(true));
@@ -243,8 +289,8 @@ class QuarkusMcpToolsTest {
                 .tools();
     }
 
-    private static void invoke(List<McpTool> tools, String name, McpArguments arguments) {
-        tools.stream()
+    private static Object invoke(List<McpTool> tools, String name, McpArguments arguments) {
+        return tools.stream()
                 .filter(tool -> tool.name().equals(name))
                 .findFirst()
                 .orElseThrow()
