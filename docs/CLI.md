@@ -5,7 +5,7 @@ application one question and prints the answer — no browser, no MCP client, no
 
 ```console
 $ bootui beans --query dataSource
-$ bootui hibernate scan --json | jq '.findings[] | select(.severity == "HIGH")'
+$ bootui hibernate scan --json | jq '.topFindings[] | select(.severity == "HIGH")'
 $ bootui http exchanges --limit 20
 ```
 

@@ -775,7 +775,7 @@ browser, the MCP tools, and the CLI alike:
 | Counter | Panels | Counts | After a clear |
 | --- | --- | --- | --- |
 | `totalCaptured` | SQL Trace, Transactions, REST Client Trace | Entries recorded since startup, shown as "captured since startup" | Kept: it is a lifetime count |
-| `retention.evicted`, `stats.evicted` | SQL Trace, Transactions, REST Client Trace | Entries dropped since startup because the buffer was full | Kept |
+| `stats.evicted`, and `retention.evicted` on SQL Trace and REST Client Trace | SQL Trace, Transactions, REST Client Trace | Entries dropped since startup because the buffer was full | Kept |
 | `stats`, `entries`, `topStatements`, `topCalls` | SQL Trace, Transactions, REST Client Trace | The retained window | Reset |
 | `totalExceptions`, `groups` | Exceptions | Occurrences in the retained groups | Reset |
 | `retained`, `traces` | Traces | The retained traces | Reset |
@@ -1046,14 +1046,15 @@ join or entity graph where a use case needs it up front.
 
 ### 6. Verify
 
-The agent re-runs `hibernate_scan`. `HIB-FETCH-001`'s `violationCount` drops from 3 to 2, and its `sampleViolations`
+The agent re-runs `hibernate_scan`, whose summary counts `HIB-FETCH-001` at 2 instead of 3, then reads
+`get_hibernate_report`: the rule's `violationCount` is 2, and its `sampleViolations`
 no longer mention `SampleOrder#customer` — confirmed against the actually running app, not by re-reading the source.
 `HIB-FETCH-001` itself does **not** disappear from the report: `SampleAppPreferences#enabledFeatures` and
 `SampleOrder#details` are separate, intentional eager-fetch fixtures the same rule also catches, so the rule keeps
 firing until those are fixed too. Confirm just the one violation is gone from a terminal with:
 
 ```bash
-bootui hibernate scan --json \
+bootui hibernate scan > /dev/null && bootui hibernate report --json \
   | jq '.results[] | select(.id == "HIB-FETCH-001") | .sampleViolations[] | select(contains("SampleOrder#customer"))'
 ```
 
