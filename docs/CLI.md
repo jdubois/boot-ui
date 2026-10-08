@@ -137,12 +137,22 @@ When output is piped, or with `--json`, the CLI prints exactly the bytes the app
 the MCP tool returns, unmodified. That is the form to parse:
 
 ```bash
-bootui security scan --json | jq -r '.results[] | "\(.severity)\t\(.name)"'
+bootui security scan --json | jq -r '.topFindings[] | "\(.severity)\t\(.title)"'
 ```
 
-Advisor scans differ in how they name that array — `pentest scan` reports `findings`, the rule-based
-advisors report `results` — so check the shape with `bootui <command> --json | jq keys` before writing a
-filter. What every scan does share is `severityCounts`, which is what the [CI](#in-ci) gate below uses.
+Every scan command answers with the same compact summary: `findingsFound`, `severityCounts`, at most ten
+`topFindings` (`id`, `title`, `severity`, `count`, most severe first), `moreFindings` for the rest, and
+`reportTool`, the MCP name of the report that holds the rest (`get_security_report`, which `bootui security report`
+prints without scanning again).
+Reports differ in how they name their finding array — `pentest report` has `findings`, the rule-based advisors
+`results` — so check the shape with `bootui <command> --json | jq keys` before filtering one. What every scan and
+report shares is `severityCounts`, which is what the [CI](#in-ci) gate below uses.
+
+The capture controls (`sql pause`, `tx clear`, `rest-client resume`, `exceptions clear`, `traces clear`, ...)
+answer with a one-line acknowledgement — `action`, `available`, `unavailableReason`, `capturing`, `retained`,
+`capacity`, and `totalCaptured`, the entries recorded since startup, which a clear does not reset — and the
+matching read command (`sql traces`, `tx list`, ...) prints the rows. See
+[Compact answers from scans and capture controls](AI-AGENTS.md#compact-answers-from-scans-and-capture-controls).
 
 Search commands such as `bootui config --query` share a `page` envelope instead, where `total` counts everything
 the panel can see *before* the query is applied and `matched` counts what the query kept. A large `total` beside
@@ -399,11 +409,12 @@ The CLI is designed for a job that starts the application, asks it something, an
 
 Three details make that work as a gate rather than as a job that merely looks green.
 
-**Gate on `severityCounts`, not on the finding array.** Every scan command reports `severityCounts` as
-`[{"severity": …, "count": …}]`, so one expression works for all of them. The array of findings themselves is
-*not* uniform — `pentest scan` calls it `findings`, the rule-based advisors call it `results` — so a filter
-written against the wrong name does not report zero findings, it aborts with `Cannot iterate over null` and
-fails the build for a reason that has nothing to do with the application.
+**Gate on `severityCounts`, not on a finding array.** Every scan command reports `severityCounts` as
+`[{"severity": …, "count": …}]`, so one expression works for all of them. A scan's `topFindings` lists at most ten
+findings, and the report commands do not name their array uniformly — `pentest report` calls it `findings`, the
+rule-based advisors call it `results` — so a filter written against the wrong name does not report zero findings,
+it aborts with `Cannot iterate over null` and fails the build for a reason that has nothing to do with the
+application.
 
 **Capture the exit code instead of letting it abort the step.** A step runs under `bash -e`, so a bare
 `bootui …` that exits non-zero skips the rest of the script, including the shutdown. The `|| status=$?` form

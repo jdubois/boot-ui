@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.conformance.McpCodecParity;
+import io.github.jdubois.bootui.conformance.McpCompactAnswerContract;
 import io.github.jdubois.bootui.conformance.McpModernParity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
@@ -148,6 +149,73 @@ class BootUiMcpServiceTests {
         assertThat(retry.path("result").path("isError").asBoolean()).isFalse();
         assertThat(retry.has("error")).isFalse();
         assertThat(received.get()).isEqualTo(new McpArguments(null, 1, "RULE-1", "scan-1", 22));
+    }
+
+    @Test
+    void compactAnswersStayFarBelowTheReportsTheyReplaceWhileReportsPageUnderTheByteBudget() {
+        properties.getMcp().setMaxResponseBytes(McpCompactAnswerContract.MAX_RESPONSE_BYTES);
+        BootUiMcpService compact = new BootUiMcpService(
+                McpCompactAnswerContract.tools(), properties, objectMapper, "1.2.3", (operation, failure) -> {
+                    throw new AssertionError("Unexpected server failure: " + operation, failure);
+                });
+        for (String tool : List.of("vulnerabilities_scan", "hibernate_scan", "pause_sql_trace_recording")) {
+            JsonNode reply = compact.handle(objectMapper.readTree(McpCompactAnswerContract.call(tool, "{}")));
+            assertThat(reply.has("error")).as(tool).isFalse();
+            assertThat(objectMapper.writeValueAsString(reply).length())
+                    .as(tool)
+                    .isLessThan(McpCompactAnswerContract.COMPACT_BYTES);
+        }
+
+        JsonNode vulnerabilities = compact.handle(
+                        objectMapper.readTree(McpCompactAnswerContract.call("vulnerabilities_scan", "{}")))
+                .path("result")
+                .path("structuredContent");
+        assertThat(vulnerabilities.path("reportTool").asString()).isEqualTo("get_vulnerabilities_report");
+        assertThat(vulnerabilities.path("topFindings").size()).isEqualTo(10);
+        assertThat(vulnerabilities.path("moreFindings").asInt())
+                .isEqualTo(McpCompactAnswerContract.VULNERABLE_DEPENDENCIES - 10);
+        assertThat(vulnerabilities.path("topFindings").get(0).path("id").asString())
+                .isEqualTo("org.example:library-0:1.0.0");
+
+        JsonNode hibernate = compact.handle(
+                        objectMapper.readTree(McpCompactAnswerContract.call("hibernate_scan", "{}")))
+                .path("result")
+                .path("structuredContent");
+        assertThat(hibernate.path("detailsTool").asString()).isEqualTo("get_hibernate_rule_violations");
+        assertThat(hibernate.path("violationDetails").path("scanId").asString()).isEqualTo("scan-1");
+        assertThat(hibernate.path("topFindings").get(0).path("severity").asString())
+                .isEqualTo("HIGH");
+        assertThat(hibernate.toString()).doesNotContain("sampleViolations", "recommendation");
+
+        JsonNode paused = compact.handle(
+                        objectMapper.readTree(McpCompactAnswerContract.call("pause_sql_trace_recording", "{}")))
+                .path("result")
+                .path("structuredContent");
+        assertThat(paused.toString())
+                .isEqualTo("{\"action\":\"paused\",\"available\":true,\"unavailableReason\":null,"
+                        + "\"capturing\":false,\"retained\":200,\"capacity\":200,\"totalCaptured\":872}");
+
+        JsonNode report =
+                compact.handle(objectMapper.readTree(McpCompactAnswerContract.call("get_hibernate_report", "{}")));
+        assertThat(report.has("error")).isFalse();
+        assertThat(objectMapper.writeValueAsString(report).length())
+                .isGreaterThan(McpCompactAnswerContract.COMPACT_BYTES);
+
+        assertThat(compact.handle(objectMapper.readTree(
+                                McpCompactAnswerContract.call("get_vulnerabilities_report", "{}")))
+                        .path("error")
+                        .path("code")
+                        .asInt())
+                .isEqualTo(McpProtocol.RESPONSE_TOO_LARGE);
+        JsonNode page = compact.handle(
+                objectMapper.readTree(McpCompactAnswerContract.call("get_vulnerabilities_report", "{\"limit\":1}")));
+        assertThat(page.has("error")).isFalse();
+        assertThat(page.path("result")
+                        .path("structuredContent")
+                        .path("page")
+                        .path("hasMore")
+                        .asBoolean())
+                .isTrue();
     }
 
     @Test

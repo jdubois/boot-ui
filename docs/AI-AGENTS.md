@@ -273,7 +273,8 @@ user; BootUI's own panel and read-only gates still apply.
 
 - **Advisor scans (actions):** `architecture_scan`, `spring_scan`, `hibernate_scan`, `database_advisor_scan`,
   `memory_scan`, `security_scan`, `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`, and
-  `vulnerabilities_scan`. Each runs the same scan as the panel's action button and returns the report DTO;
+  `vulnerabilities_scan`. Each runs the same scan as the panel's action button and answers with a
+  [compact summary](#compact-answers-from-scans-and-capture-controls) pointing at its cached report tool;
   `vulnerabilities_scan` additionally sends package names/versions to OSV.dev and, when EPSS is enabled, CVE ids to FIRST.
   Run it only with approval. Inspect `scan.status`, `scan.message`, `coverage`, and `scan.packagesSkipped`; partial or
   unknown evidence is not a clean result. `coverage.archivesFirstParty`/`firstPartyArchives` name the application's own
@@ -341,7 +342,8 @@ user; BootUI's own panel and read-only gates still apply.
   `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`,
   `postgresql_read`, `mysql_read`, `analyze_heap_dump`, `trigger_devtools_livereload`, and `start_method_probe`. They never capture or download a heap dump,
   execute an HTTP probe, mutate a database, clear a cache, write GitHub state, restart a dev service, or run an agent
-  command.
+  command. The capture controls and the database reads answer
+  [compactly](#compact-answers-from-scans-and-capture-controls); the matching read tool returns the rows.
 - **Browser only, by design:** HTTP Probe (it sends requests the user composes), Profile resources and its JDK Flight
   Recorder results in Runtime Insights, enabling Hibernate statistics, the WebSockets capture switch, the Java agent's
   sensor switches, changing a logger level, and the other panel controls not listed above have no MCP tool or CLI
@@ -732,6 +734,61 @@ lists the fixed limitations of a sensor's rows only for sensors with listed rows
 `executors`, for its hooks (and, from agent status, its self-test steps). A 1.x CLI, which knows these commands without the newer
 options, keeps working and gets the same first page.
 
+### Compact answers from scans and capture controls
+
+An active scan and a capture control change state; the agent then reads what it needs. So they answer with a compact
+summary or acknowledgement, and the browser's endpoints keep returning the full panel report.
+
+Every active scan (`architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`, `security_scan`,
+`rest_api_scan`, `database_advisor_scan`, `pentest_scan`, `graalvm_scan`, `crac_scan`, `vulnerabilities_scan`)
+answers with the same summary:
+
+| Field | Meaning |
+| --- | --- |
+| `reportTool` | The tool that reads the cached report this scan produced, without scanning again |
+| `detailsTool` | The tool that pages a rule's retained violations; `null` for an advisor without one |
+| `scan`, `evidence` | The scan status and the advisor's coverage, as the report carries them |
+| `findingsFound`, `severityCounts` | The report's whole counts; dismissed findings are excluded |
+| `topFindings` | At most 10 findings, most severe first, then most frequent: `id`, `title`, `severity`, `count` |
+| `moreFindings` | The findings left out of `topFindings`; `0` means every finding is listed |
+| `violationDetails` | The rule advisors' `scanId` and retention, for [paging violations](#reading-retained-advisor-violations) |
+
+A vulnerability finding is a vulnerable dependency: `id` is its coordinates, `title` its most severe advisory, and
+`count` its advisory count; the summary adds the inventory's `dependencies`, `scanningEnabled`, and `coverage`.
+`postgresql_read` and `mysql_read` grade nothing, so they answer with the read's `status`, `message`, `readAt`,
+`truncated`, and each database's status and sections (`id`, `status`, `reason`, `rowCount`, `truncated`); read the
+rows with `get_postgresql_report` or `get_mysql_report`.
+
+The capture controls — `pause_*`, `resume_*` and `clear_*` for SQL Trace, Transactions, and REST Client Trace, plus
+`clear_exceptions` and `clear_traces` — all answer with one acknowledgement:
+
+```json
+{"action":"paused","available":true,"unavailableReason":null,"capturing":false,"retained":200,"capacity":200,"totalCaptured":872}
+```
+
+`action` is `paused`, `resumed`, or `cleared`; `capturing` is the recording state after it; `retained` counts the
+entries still held (exception groups for Exceptions), `0` after a clear; `capacity` is the panel's retention limit.
+
+A clear empties the retained window and nothing else. These counters keep their meaning across a clear, in the
+browser, the MCP tools, and the CLI alike:
+
+| Counter | Panels | Counts | After a clear |
+| --- | --- | --- | --- |
+| `totalCaptured` | SQL Trace, Transactions, REST Client Trace | Entries recorded since startup, shown as "captured since startup" | Kept: it is a lifetime count |
+| `retention.evicted`, `stats.evicted` | SQL Trace, Transactions, REST Client Trace | Entries dropped since startup because the buffer was full | Kept |
+| `stats`, `entries`, `topStatements`, `topCalls` | SQL Trace, Transactions, REST Client Trace | The retained window | Reset |
+| `totalExceptions`, `groups` | Exceptions | Occurrences in the retained groups | Reset |
+| `retained`, `traces` | Traces | The retained traces | Reset |
+
+Exceptions and Traces keep no lifetime count, so their acknowledgement's `totalCaptured` is `null`.
+
+Every tool response, report tools included, obeys `bootui.mcp.max-response-bytes` (4 MiB by default). A response that
+does not fit is refused with JSON-RPC `-32003` rather than truncated, so the agent never mistakes a cut report for a
+complete one. Report tools stay well below it: a rule advisor's report keeps at most 10 (or 20) sample violations per
+rule and pages the rest with its `get_*_rule_violations` tool; `get_vulnerabilities_report` lists `limit` dependencies,
+each with its advisories' full OSV text, so on `-32003` retry with a smaller `limit` or a narrower `query`; the
+PostgreSQL and MySQL reports cap each section's rows and flag the cut with `truncated`.
+
 ### Safety model
 
 The MCP server inherits BootUI's full safety posture, so handing it to an agent stays safe by construction:
@@ -971,8 +1028,9 @@ With the agent connected and the repository open in your editor, ask it:
 
 ### 4. What the agent sees
 
-The agent calls `hibernate_scan` over MCP and gets back the same report the
-[Hibernate panel](features/advisors.md#hibernate) shows. Among the findings is a real
+The agent calls `hibernate_scan` over MCP and gets back a summary of the scan, whose `topFindings` rank the violated
+rules, then reads the same report the [Hibernate panel](features/advisors.md#hibernate) shows with
+`get_hibernate_report`. Among the findings is a real
 [`HIB-FETCH-001`](HIBERNATE-CHECKS.md#hib-fetch-001-eager-fetching-should-stay-explicit-and-bounded) (severity
 `HIGH`, 3 violations), one of whose `sampleViolations` names
 [`SampleOrder.customer`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/src/main/java/io/github/jdubois/bootui/sample/advisor/hibernate/SampleOrder.java):

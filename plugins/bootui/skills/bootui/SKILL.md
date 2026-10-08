@@ -167,8 +167,13 @@ bootui request-profile <id> --json # retained journal profile, or HTTP-exchange 
   application's state, so name it to the user and wait for approval before running it.
 - Prefer the `BOOTUI_TOKEN` environment variable over `--token`, which exposes the token to shell history and process
   listings. Never echo a token or copy it into a report.
-- Scan payloads differ: `pentest scan` names its array `findings`, the rule-based advisors name it `results`. Every scan
-  shares `severityCounts`, so prefer that for thresholds, and check the shape with `--json | jq keys` first.
+- Every scan answers with a compact summary, not its report: `findingsFound`, `severityCounts`, at most ten
+  `topFindings` (`id`, `title`, `severity`, `count`), `moreFindings`, and `reportTool`; read the full cached report
+  (`… report`) for details. Reports differ: `pentest report` names its array `findings`, the rule-based advisors name
+  it `results`. Prefer `severityCounts` for thresholds, and check the shape with `--json | jq keys` first.
+- `clear`, `pause`, and `resume` answer with an acknowledgement: `action`, `capturing`, `retained`, `capacity`, and
+  `totalCaptured`, a since-startup count that a clear does not reset (`null` for exceptions and traces). Read the rows
+  with the panel's read command.
 
 In CI, capture the exit code (`bootui … --json > report.json || status=$?`) so a non-zero exit does not abort the step
 before the application is stopped.
