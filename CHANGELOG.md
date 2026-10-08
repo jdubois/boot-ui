@@ -380,6 +380,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Change impact names its unexercised routes for their scope.** The list is now **Reaches it, but didn't run**
+  (with the BootUI agent, **Reaches it, but didn't run it**), and a line says it holds only routes that reach what you
+  checked, linking to the separate, app-wide **Not exercised in this run** list in **Coverage & limits**. The
+  `notExercised` field is unchanged.
 - **Timed-out architecture scans stop.** An MCP or CLI `architecture_scan` past its execution timeout now stops at the
   next rule instead of running on, and the previous report is kept ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 - **Agent-sized MCP and CLI answers.** Large reads return a short first page without `limit`, take a `query`, and say
