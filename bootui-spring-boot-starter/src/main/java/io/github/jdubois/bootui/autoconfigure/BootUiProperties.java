@@ -2868,8 +2868,14 @@ public class BootUiProperties {
 
         private final Executors executors = new Executors();
 
+        private final SecuritySinks securitySinks = new SecuritySinks();
+
         public boolean isEnabled() {
             return enabled;
+        }
+
+        public SecuritySinks getSecuritySinks() {
+            return securitySinks;
         }
 
         public List<String> getSensors() {
@@ -2914,6 +2920,26 @@ public class BootUiProperties {
                 throw new IllegalArgumentException("bootui.agent.mode must be auto, dev, or test.");
             }
             this.mode = value;
+        }
+
+        /** Settings of the agent's {@code security-sinks} sensor ({@code docs/PLAN-v2.md} §5.16, M5-6b). */
+        public static class SecuritySinks {
+
+            /**
+             * Whether the current request's query and path parameter values of at least 4 characters are held while the
+             * request runs, so a sink it reaches (SQL text, a command, a file path, an outbound URL) can be checked for
+             * one appearing verbatim. Opt-in. The values are compared, never stored, logged, or displayed, and are
+             * forgotten when the response completes. Needs the {@code security-sinks} sensor.
+             */
+            private boolean requestValues;
+
+            public boolean isRequestValues() {
+                return requestValues;
+            }
+
+            public void setRequestValues(boolean requestValues) {
+                this.requestValues = requestValues;
+            }
         }
 
         /** Settings of the agent's {@code executors} sensor ({@code docs/PLAN-v2.md} M5-2). */

@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentRecordDrainer;
+import io.github.jdubois.bootui.engine.javaagent.AgentRequestValues;
 import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.javaagent.SideEffectsSample;
@@ -80,8 +81,9 @@ public final class SideEffectsService implements AutoCloseable {
             + " opens, deletes, moves, and copies, through FileInputStream, FileOutputStream, RandomAccessFile, the Files"
             + " methods, and FileChannel.open, and the environment variables and system properties it reads by name"
             + " through System.getenv and System.getProperty; and, opt-in, the threads it starts and the executors it"
-            + " creates; and, opt-in, the thread locals a request or a job left set on its pooled thread. Resources left"
-            + " open and security sinks are not available in this version.";
+            + " creates; and, opt-in, the thread locals a request or a job left set on its pooled thread, and request"
+            + " input reaching SQL text, a command, a file path, or an outbound URL unchanged (security sinks)."
+            + " Resources left open are not available in this version.";
 
     static final String LIMITATION_THREADS =
             "Thread activity: Thread.start, VirtualThread.start, the ThreadPoolExecutor,"
@@ -221,6 +223,22 @@ public final class SideEffectsService implements AutoCloseable {
     static final String LIMITATION_ROUTES_HIDDEN =
             "The HTTP Exchanges panel is disabled: Side Effects attributes rows to"
                     + " request routes through it, so route rows are merged under one hidden route, without request ids.";
+
+    static final String LIMITATION_SECURITY_SINKS = "Security sinks: request input is matched only while"
+            + " bootui.agent.security-sinks.request-values is on, against the current request's query and path parameter"
+            + " values of 4 to 256 characters, at most 32 of them, never form values, headers, or bodies, and only"
+            + " verbatim: a value encoded, trimmed, or changed in case is not seen. The values are compared, never stored,"
+            + " and forgotten when the response completes. SQL text is checked where SQL Trace captures a statement,"
+            + " never with R2DBC; a command where the processes sensor sees it start; a file path only with the files"
+            + " sensor; an outbound URL where the REST client panel records the call. A task the request hands to a"
+            + " managed executor still matches, until the response completes; a task the agent propagates never does. A"
+            + " row's target is the redacted text, the value replaced by the parameter's name, and SQL literals masked;"
+            + " when a text was scanned only in part or held more matches than could be redacted, no text is kept. A"
+            + " value outside an SQL literal, or made of digits only, is shown once a second request confirms the text"
+            + " varies with it.";
+
+    /** A security-sinks row whose redacted text the holder could not keep. */
+    static final String TEXT_NOT_KEPT = "(text not kept)";
 
     /** A target the agent's table could not keep. */
     static final String UNKNOWN_TARGET = "(unknown)";
@@ -1179,6 +1197,8 @@ public final class SideEffectsService implements AutoCloseable {
     private static boolean matches(SideEffectsRowDto row, String needle) {
         return contains(row.attribution(), needle)
                 || contains(row.target(), needle)
+                || contains(row.parameter(), needle)
+                || contains(row.kind(), needle)
                 || contains(row.callSite(), needle)
                 || contains(row.insideMethod(), needle)
                 || contains(row.sensor(), needle)
@@ -1418,6 +1438,7 @@ public final class SideEffectsService implements AutoCloseable {
                 LIMITATION_BLOCKING,
                 LIMITATION_THREADS,
                 LIMITATION_THREAD_LOCALS,
+                LIMITATION_SECURITY_SINKS,
                 LIMITATION_ATTRIBUTION));
         if (current != null && current.claim.sensors().threadLocals()) {
             if ("inventory".equals(threadLocalsStatus("initializationCheck"))) {
@@ -1491,6 +1512,19 @@ public final class SideEffectsService implements AutoCloseable {
                 if (current.clears > 0) {
                     limitations.add(RECORDING_CLEARED);
                 }
+                String requestValues =
+                        holderLine(AgentRequestValues.enabled() ? AgentRequestValues.status() : Map.of());
+                if (requestValues != null) {
+                    limitations.add(requestValues);
+                }
+                long unconfirmed = current.store.unconfirmed();
+                if (unconfirmed > 0) {
+                    limitations.add(unconfirmed
+                            + (unconfirmed == 1 ? " security-sinks match is" : " security-sinks" + " matches are")
+                            + " not shown yet: a value outside an SQL literal, a number, or one whose place in the text"
+                            + " is not known may be a word the text always holds, until a second request confirms the"
+                            + " text varies with it.");
+                }
                 if (current.stale > 0) {
                     limitations.add(current.stale + " records of an earlier run were dropped.");
                 }
@@ -1503,6 +1537,41 @@ public final class SideEffectsService implements AutoCloseable {
             }
         }
         return limitations;
+    }
+
+    /**
+     * The request value holder's counters as one limitation (M5-6b): how many requests held values and how many sink
+     * checks ran, then what it skipped or could not keep, each only when it happened; {@code null} without the holder.
+     */
+    static String holderLine(Map<String, Object> holder) {
+        if (holder == null || holder.isEmpty()) {
+            return null;
+        }
+        StringBuilder line = new StringBuilder("Request-value matching: ")
+                .append(count(holder, "requests"))
+                .append(" requests held values, ")
+                .append(count(holder, "checks"))
+                .append(" sink checks ran.");
+        append(line, holder, "valuesTooLong", " values longer than 256 characters were not held.");
+        append(line, holder, "valuesOverCount", " values past 32 in a request were not held.");
+        append(line, holder, "tableFull", " requests held nothing: 128 requests held values already.");
+        append(line, holder, "stopped", " requests reached their matching budget: later sinks were not checked.");
+        append(line, holder, "partial", " texts were checked in their first 16 KB only.");
+        append(line, holder, "busy", " checks were skipped while another check of the same request ran.");
+        append(line, holder, "notKept", " targets or names were not kept: too many distinct ones in this run.");
+        append(line, holder, "dropped", " matches were dropped: the agent's ring was full.");
+        return line.toString();
+    }
+
+    private static long count(Map<String, Object> holder, String key) {
+        return holder.get(key) instanceof Number number ? number.longValue() : 0L;
+    }
+
+    private static void append(StringBuilder line, Map<String, Object> holder, String key, String text) {
+        long value = count(holder, key);
+        if (value > 0) {
+            line.append(' ').append(value).append(text);
+        }
     }
 
     /** Whether this application's server handles requests on event loops, as its adapter says. */
@@ -1926,7 +1995,9 @@ public final class SideEffectsService implements AutoCloseable {
                     (record.firstMillis() < store.readyAt() ? unknownStartupTargets : unknownTargets)
                             .merge(sensor.id(), 1L, Long::sum);
                 }
-                if (record.sensor() == SideEffectsCatalog.RECORD_NETWORK) {
+                if (record.sensor() == SideEffectsCatalog.RECORD_SECURITY_SINKS) {
+                    store.add(sink(record, sensor, target, outside, application));
+                } else if (record.sensor() == SideEffectsCatalog.RECORD_NETWORK) {
                     // Ahead of the context below: a network record's bits 32-63 are its client frame, not a context.
                     store.add(network(record, sensor, target, outside, application));
                 } else if (record.sensor() == SideEffectsCatalog.RECORD_PROCESSES) {
@@ -2232,6 +2303,49 @@ public final class SideEffectsService implements AutoCloseable {
                     captureKey,
                     host,
                     port);
+        }
+
+        /**
+         * A security-sinks record's observation (M5-6b): the sink, its redacted target (a file's pattern masked per
+         * segment as the files sensor's), where in an SQL text the value sat, and the parameter's name; never a value.
+         */
+        private SideEffectsStore.Observation sink(
+                SideEffectRecord record,
+                SideEffectsCatalog.Sensor sensor,
+                String target,
+                String outside,
+                String application) {
+            String kind = SideEffectsCatalog.kind(record.sensor(), record.kind());
+            String shown;
+            if (target == null) {
+                shown = TEXT_NOT_KEPT;
+            } else if (record.kind() == SideEffectsCatalog.KIND_SINK_FILE) {
+                shown = SideEffectOrigins.maskPath(normalizer.target(target));
+            } else if (record.kind() == SideEffectsCatalog.KIND_SINK_URL) {
+                // A path segment the secret detector recognizes is masked, as a file path's is.
+                shown = SideEffectOrigins.maskPath(target);
+            } else {
+                shown = target;
+            }
+            String location = null;
+            int position = record.outcome() & 0x3;
+            if (record.kind() == SideEffectsCatalog.KIND_SINK_SQL
+                    && position != SideEffectsCatalog.SINK_POSITION_UNKNOWN) {
+                location = position == SideEffectsCatalog.SINK_OUTSIDE_LITERAL
+                        ? SideEffectsCatalog.OUTSIDE_LITERAL
+                        : SideEffectsCatalog.INSIDE_LITERAL;
+            }
+            String parameter = string(record.exitStatus());
+            return SideEffectsStore.Observation.sink(
+                    record,
+                    sensor.id(),
+                    kind,
+                    shown,
+                    application != null ? application : outside,
+                    insideMethod(record.stamp()),
+                    normalizer.threadFamily(string(record.threadName())),
+                    location,
+                    parameter == null ? "(name not kept)" : parameter);
         }
 
         /** A frame of BootUI's own modules, never an application's, as the sample apps' are. */

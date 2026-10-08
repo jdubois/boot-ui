@@ -794,8 +794,10 @@ Data sources:
 
 - The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a), `network` (M5-5b), and
   `blocking` (M5-5c) sensors record by default, and `files` and `environment` (M5-5d), `thread-activity` (M5-5e), and
-  `thread-locals` (M5-5f) when opted in. The `resources` and `security-sinks` sensors are still listed but report
-  `not-available` with reason `Not available in this version.`
+  `thread-locals` (M5-5f) when opted in. `security-sinks` (M5-6b) records, when opted in with
+  `bootui.agent.security-sinks.request-values=true`, request input reaching SQL text, a command, a file path, or an
+  outbound URL unchanged: the redacted sink, the parameter's name, and a sentence stating the fact. The `resources`
+  sensor is still listed but reports `not-available` with reason `Not available in this version.`
 - Each request's end, which the adapters mark once its response is complete (Spring MVC once an async request's
   context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended), for the
   `thread-activity` sensor to check what the request left running.
