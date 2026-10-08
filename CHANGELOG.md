@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Agent guidance for request input reaching a sink.** MCP guidance, the skill, and the docs word
+  `request-input-in-sink` rows as checks to perform, and say how to opt in to the `security-sinks` sensor ([#1336](https://github.com/jdubois/boot-ui/pull/1336)).
 - **Change impact has its own Runtime Insights tab.** It opens on its search field instead of sitting below the run
   comparison, offers the methods changed since the previous run, and each changed method in **Changes** links to it
   with **See its impact**; `?impact=<symbol>` opens it, and `?tab=` opens any tab.

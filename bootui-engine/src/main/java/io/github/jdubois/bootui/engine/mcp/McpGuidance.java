@@ -13,7 +13,10 @@ public final class McpGuidance {
                 + "smallest relevant read tool. Before relying on a tool or observation that needs the BootUI agent "
                 + "(Code Paths, Code Inventory, Side Effects, method probes), call get_agent_status once to learn "
                 + "whether it is attached and which sensors record; NOT_APPLICABLE because it requires the BootUI "
-                + "agent means not measured, never healthy or nothing to worry about. For why a route is slow or what "
+                + "agent means not measured, never healthy or nothing to worry about. A get_side_effects "
+                + "security-sinks row (request-input-in-sink) says a request's value reached SQL text, a command, a "
+                + "file path, or an outbound URL unchanged: it is a check to perform, never a vulnerability verdict, "
+                + "and no such row proves nothing unless the security-sinks sensor recorded. For why a route is slow or what "
                 + "a change did, start with "
                 + "get_runtime_insights and get_runtime_run_comparison; before editing a bean, class, method "
                 + "(Class#method), repository, or table, call get_runtime_impact with its name to learn which routes "
@@ -61,7 +64,15 @@ public final class McpGuidance {
                                 + "dependency or its affected code was loaded or reached, or that request input "
                                 + "appeared verbatim in SQL, a command, a file path, or an outbound URL, treat it as a "
                                 + "check to perform, never as a vulnerability verdict: verify against source and "
-                                + "effective configuration before calling it actionable. Correlate trace ids, "
+                                + "effective configuration before calling it actionable. A request-input-in-sink row "
+                                + "from get_side_effects with the query security-sinks reads, for instance, \"request "
+                                + "input reached this SQL text unchanged\": check that the value is bound as a "
+                                + "parameter, escaped, or chosen from a fixed list, a command argument or file path "
+                                + "validated, an outbound URL unable to change its host; a row seen in one request "
+                                + "so far is weaker evidence. "
+                                // TODO(#1302): word the security-sinks sensor's JDK checks (deserialization, weak
+                                // algorithm, trust manager) the same way once they ship.
+                                + "Correlate trace ids, "
                                 + "request paths, SQL timings, and log timestamps. Separate observed evidence from "
                                 + "hypotheses, note missing telemetry, and propose the smallest fix plus a verification "
                                 + "step. Do not expose sensitive runtime data."),
@@ -131,6 +142,10 @@ public final class McpGuidance {
                 recording metadata only; read-only policy refuses it). Do not run controls,
                 generate traffic, install integrations, or loosen disabled/read-only policy to improve coverage.
                 Native-image or CRaC readiness is optional unless relevant to the user's goal.
+                The BootUI agent's security-sinks sensor, which reports request input reaching SQL text, a command,
+                a file path, or an outbound URL unchanged (request-input-in-sink), is opt-in: it records only when
+                bootui.agent.sensors lists security-sinks and bootui.agent.security-sinks.request-values=true. Without
+                them, mark it unavailable rather than clean, and suggest enabling them; do not change them yourself.
 
                 Discover and collect
                 Confirm the application URL/API mount, framework, profiles, and instance/start identity when

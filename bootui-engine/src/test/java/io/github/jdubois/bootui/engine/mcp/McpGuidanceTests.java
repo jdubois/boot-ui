@@ -88,6 +88,32 @@ class McpGuidanceTests {
 
     @ParameterizedTest
     @ValueSource(strings = {"Spring Boot", "Quarkus"})
+    void requestInputInSinkIsACheckToPerformAndItsSensorIsOptIn(String framework) {
+        assertThat(McpGuidance.instructions(framework))
+                .contains(
+                        "security-sinks row (request-input-in-sink)",
+                        "check to perform, never a vulnerability verdict");
+        assertThat(McpGuidance.prompts(framework))
+                .filteredOn(prompt -> prompt.name().equals("diagnose_runtime_issue"))
+                .singleElement()
+                .satisfies(prompt -> assertThat(prompt.text())
+                        .contains(
+                                "request-input-in-sink",
+                                "request input reached this SQL text unchanged",
+                                "bound as a parameter",
+                                "seen in one request so far")
+                        .doesNotContain("vulnerable", "injection"));
+        assertThat(assessment(framework))
+                .contains(
+                        "security-sinks sensor",
+                        "is opt-in",
+                        "bootui.agent.sensors lists security-sinks",
+                        "bootui.agent.security-sinks.request-values=true",
+                        "mark it unavailable rather than clean");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Spring Boot", "Quarkus"})
     void diagnosisNamesTheHandlersMethodsOfASlowRouteThroughCodePaths(String framework) {
         assertThat(McpGuidance.prompts(framework))
                 .filteredOn(prompt -> prompt.name().equals("diagnose_runtime_issue"))

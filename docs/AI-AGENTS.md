@@ -411,7 +411,12 @@ configuration comparability and restart timings are independent facts. The `diag
 with `get_runtime_insights`, calls it again with `all` or the route when nothing listed explains the issue, then one
 `get_request_profile`, and for a slow route whose time is in its handler,
 `get_code_paths` when the agent is attached, and it words a dependency reached or request input matched verbatim as a
-check to verify against source and configuration, never as a vulnerability verdict; the
+check to verify against source and configuration, never as a vulnerability verdict. That includes
+`request-input-in-sink` rows of the opt-in `security-sinks` sensor (`get_side_effects` with `query=security-sinks`),
+such as "request input reached this SQL text unchanged": the prompt asks the agent to check that the value is bound,
+escaped, or chosen from a fixed list, and `assess_application` marks the sensor unavailable, never clean, unless
+`bootui.agent.sensors` lists `security-sinks` and `bootui.agent.security-sinks.request-values=true`, suggesting both
+rather than setting them ([the security-sinks sensor](features/java-agent.md#the-security-sinks-sensor)). The
 `verify_after_change` prompt starts with `get_code_inventory` and `changed` (see [Did my change run?](#did-my-change-run)),
 names `start_method_probe` as the next step when the edited method still did not run after the test that should reach
 it, calls `get_runtime_impact` on each changed method it names (`Class#method`), or on the changed symbol when it is

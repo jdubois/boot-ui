@@ -258,8 +258,17 @@ starts (`count` / `requests`), and those its code left running when the request 
 pools apart, never what a thread holds; the opt-in `thread-locals` names the static field of each thread local a
 request or a job left set on its pooled thread, never its value. Pass `--query not-captured` to list the
 outbound calls no panel shows (`capture: not-captured`), or `--query processes`, `network`, `files`, `blocking`,
-`thread-activity`, `thread-locals`, a route, target,
+`thread-activity`, `thread-locals`, `security-sinks`, a route, target,
 client, or call site to narrow it. The other sensor groups are listed as not available in this version.
+
+The opt-in `security-sinks` sensor reports `request-input-in-sink`: a query or path parameter's value that reached SQL
+text, a command, a file path, or an outbound URL unchanged, by parameter name and sink, never the value itself. It
+records only when `bootui.agent.sensors` lists `security-sinks` and `bootui.agent.security-sinks.request-values=true`;
+without both, no row is not evidence of safety, so say the check did not run. A row is a check to perform, never a
+vulnerability verdict: "request input reached this SQL text unchanged" asks you to confirm in source that the value is
+bound as a parameter, escaped, or chosen from a fixed list; a command argument or file path validated and kept in its
+directory; an outbound URL unable to change its host. A row seen in one request so far is weaker evidence. Do not turn
+the sensor on yourself: suggest the two properties to the user.
 
 ### Read MySQL operational evidence
 
