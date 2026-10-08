@@ -644,7 +644,7 @@ describe('Java Agent panel', () => {
       overridden: false,
       state: 'off',
       optInReason:
-        'Off by default until the overhead of its JDK checks is measured on more routes. Its request-value matching, which also needs bootui.agent.security-sinks.request-values=true, added up to about 3 %.',
+        'Off by default: its JDK checks added about 3.9 % on the benchmark. Its request-value matching also needs bootui.agent.security-sinks.request-values=true.',
       available: true,
       unavailableReason: null
     }

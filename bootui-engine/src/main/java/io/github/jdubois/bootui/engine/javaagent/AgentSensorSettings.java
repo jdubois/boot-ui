@@ -174,10 +174,10 @@ public record AgentSensorSettings(
                 "Off by default until its overhead is measured on more routes: it scans the thread-local maps of every"
                         + " pooled request thread; the benchmark's route measured about 0.5 % over the default sensors.";
             case SECURITY_SINKS ->
-                "Off by default until the overhead of its JDK checks is measured on more routes. Its request-value"
-                        + " matching, which also needs bootui.agent.security-sinks.request-values=true and holds each"
-                        + " request's query and path values in memory while it runs, added up to about 3 % on the"
-                        + " benchmark's sinks route.";
+                "Off by default: on the benchmark's checks route, its JDK checks added a median of about 3.9 % over"
+                        + " the default sensors, above the 3 % budget. Its request-value matching, which also needs"
+                        + " bootui.agent.security-sinks.request-values=true and holds each request's query and path"
+                        + " values in memory while it runs, added about 3 % on the benchmark's sinks route.";
             default -> null;
         };
     }

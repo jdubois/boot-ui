@@ -94,7 +94,7 @@ switched at run time: its visit of the application's classes is installed with t
 | `files` | With the default sensors, the agent's overhead on the benchmark's I/O route measured about 10.6 %, over the 10 % budget. |
 | `environment` | It advises `System.getProperty`, which frameworks call often: about 23–28 ns per read instead of 5–6 ns. |
 | `thread-locals` | It scans the thread-local maps of every pooled request thread; it stays opt-in until its overhead is measured on more routes (about 0.5 % over the default sensors on the benchmark's route). |
-| `security-sinks` | Its JDK checks' overhead is not measured on enough routes yet; its request-value matching, which also needs `bootui.agent.security-sinks.request-values=true` and holds each request's query and path values in memory while it runs, added up to about 3 % on the benchmark's sinks route. |
+| `security-sinks` | On the benchmark's checks route, its JDK checks added a median of about 3.9 % over the default sensors, above the 3 % budget ([Overhead](#overhead)); its request-value matching, which also needs `bootui.agent.security-sinks.request-values=true` and holds each request's query and path values in memory while it runs, added about 3 % on the benchmark's sinks route. |
 
 `POST /bootui/api/java-agent/sensors/{id}` with `{"enabled": true}` or `{"enabled": false}` switches one and returns
 the updated report. It is the panel's only action, so `bootui.panels.java-agent.read-only` and `bootui.read-only`
