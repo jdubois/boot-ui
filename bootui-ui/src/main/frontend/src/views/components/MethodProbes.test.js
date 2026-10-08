@@ -180,6 +180,39 @@ describe('Method probes', () => {
     expect(wrapper.text()).toContain('bootui.read-only=true')
   })
 
+  it('renders Probe this method next to the selected method, its messages with it, and Stop’s in the list', async () => {
+    const target = document.createElement('div')
+    document.body.appendChild(target)
+    const fetch = vi.fn((url, init) => {
+      if (String(url).endsWith('/stop')) return Promise.resolve(json({error: 'The agent did not answer.'}, 409))
+      if (init?.method === 'POST') return Promise.resolve(json({error: 'Five probes are running.'}, 409))
+      return Promise.resolve(
+        json(report([probe({method: 'shop.Other#run()V', className: 'shop.Other', methodName: 'run'})]))
+      )
+    })
+    mountProbes(fetch, {method: QUOTE, actionTarget: target})
+    await flushPromises()
+
+    expect(target.querySelector('.code-paths-probe-start')).not.toBeNull()
+    expect(target.querySelector('#code-paths-probe-shapes')).not.toBeNull()
+    expect(target.querySelector('#code-paths-probe-target')?.textContent).toContain(QUOTE)
+    expect(wrapper.find('.code-paths-probe-start').exists()).toBe(false)
+
+    target.querySelector('.code-paths-probe-start').click()
+    settleConfirm(true)
+    await flushPromises()
+    expect(target.textContent).toContain('Five probes are running.')
+
+    await wrapper.get('.code-paths-probe-stop').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('The agent did not answer.')
+    expect(target.textContent).not.toContain('The agent did not answer.')
+
+    wrapper.unmount()
+    wrapper = null
+    target.remove()
+  })
+
   it('does not offer a second probe on a method already probed, and stops a running one', async () => {
     const fetch = vi.fn(() => Promise.resolve(json(report([probe({waitingForClass: true, hits: []})]))))
     mountProbes(fetch, {method: QUOTE})

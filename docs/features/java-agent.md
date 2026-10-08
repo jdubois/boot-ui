@@ -1454,23 +1454,35 @@ the panel is unavailable with the Java Agent panel's reason and a link to it, an
 `available: false` with that reason. The sidebar keeps it in the **Instrumentation** group, dimmed, with that reason. Its reads change nothing on Spring MVC, Spring WebFlux, and Quarkus; its one action
 is a [method probe](#method-probes), which the panel's read-only policy refuses.
 
-- **Routes**, ranked by their warm median: each route's warm requests, first recorded request, median and 95th
-  percentile, and its top methods by self time. A route marked **assembly only** has a handler that ran on an event
+- **Routes**, a list ranked by warm median, the slowest first, with a bar against the slowest: each route's warm
+  requests, first recorded request, median and 95th percentile, and its top method by self time. A filter above it
+  matches a route's path, its HTTP method, or the methods it spends its time in, and a sort ranks the routes by p95,
+  warm requests, first request, or path instead. A route marked **assembly only** has a handler that ran on an event
   loop, returned a reactive or asynchronous result, or BootUI could not tell where its work ran, so its tree times the
-  handler's assembly, not the work that ran later or elsewhere.
-- **The selected route's tree** as an indented table: method, calls per request, total and self time per request, an
-  approximate median (≈) per request that reached it, and its share of the handler's time in application methods (of the request's own time when no handler phase is known,
-  as on WebFlux), with a share bar. Work an executor ran for the request is marked **async** and shown apart under the
-  method that submitted it, never subtracted from it; a parent's methods past the tree's node budget are one **Other**
-  node.
+  handler's assembly, not the work that ran later or elsewhere. The arrow keys move between routes.
+- **Opening a route** shows its tree right under its row, as Runtime Insights opens an observation, so a long list never
+  stands between a route and its tree; the URL keeps the route (`?route=`), and the selected method (`?method=`), so a
+  link or a reload reopens both. While a route is open, auto-refresh updates its tree in place and keeps the rows in
+  their order, the open and closed branches, and the selected method.
+- **The route's tree** is a tree grid, each method under its caller with indent guides: calls per request, total and
+  self time per request, an approximate median (≈) per request that reached it, and its share of the handler's time in
+  application methods (of the request's own time when no handler phase is known, as on WebFlux), with a share bar. The
+  **hot path**, the call that took the most time at each level from the request down, is marked, and **Collapse to the
+  hot path** folds every other branch. Labels name the class without its package, which the method's detail and a
+  tooltip give in full. The arrow keys move through the tree, Right and Left open and close a branch, and Enter selects
+  a method. On a narrow screen the tree keeps each method's total and share, and its detail gives the rest. Work an
+  executor ran for the request is marked **async** and shown apart under the method that submitted it, never subtracted
+  from it; a parent's methods past the tree's node budget are one **Other** node.
 - **Calls under methods**: under each method, its SQL statements, REST client calls, cache accesses, and AI calls per
   request, with their time: the calls recorded while it was the innermost instrumented method open on their thread. A
   statement Hibernate flushes at commit runs after the `@Transactional` method returned, in the transaction interceptor
   around it, so it shows under the method that called the `@Transactional` one. Calls issued while no instrumented
   method was open, as in a filter or while the response is written, and calls recorded on another thread, as a
   streaming AI call's, show under no method; the limitations count each apart and say why.
-- **Selecting a method** shows its callers within the tree, every route whose tree reaches it, and **Probe this
-  method** ([method probes](#method-probes)).
+- **Selecting a method** opens its detail right under its row: its times, its full name, its callers within the tree,
+  every route whose tree reaches it, and **Probe this method** ([method probes](#method-probes)). A method another
+  panel asks to probe (`?probe=`) opens the route whose top method it is, selected, or else shows in the Method probes
+  card.
 - **Beans at runtime**, a tab beside the routes: the calls between beans observed in this run's route trees, with their
   counts, beside the dependencies the beans declare, as the Beans panel lists them. A filter keeps only the declared
   dependencies **not called in this run**, which is all a run can say: never "unused", since a path no request took or

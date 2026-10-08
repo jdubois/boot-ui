@@ -408,6 +408,9 @@ give the details.
 
 ### Changed
 
+- **Code Paths opens a route's tree under its row.** The routes are a searchable, sortable list, and opening one shows
+  its call tree right there, with the hot path marked, collapsible branches, keyboard navigation, and each method's
+  detail and **Probe this method** under its row; `?method=` links to a method ([Java Agent](docs/features/java-agent.md#code-paths)).
 - **The `files` sensor is on by default, and still switched at run time.** `bootui.agent.sensors` now defaults to
   `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `blocking`, and `resources`. The Java Agent panel's
   **Runtime switches** card, renamed from **Opt-in sensors**, and the Side Effects sections switch it off, and back on,
