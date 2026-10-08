@@ -376,6 +376,10 @@ class ReleaseIntegrityTests(unittest.TestCase):
             ("  -Dgpg.skip=true\n", "  -Dgpg.skip=true \\\n  deploy\n", "not run the Maven deploy phase"),
             ('--unsigned "$LOCAL_REPO"', '--unsigned "$HOME/.m2/repository"', "assemble_central_bundle.py"),
             ('check-central-bundle.py" "$OUTPUT" "$VERSION"', 'true" "$OUTPUT"', "check-central-bundle.py"),
+            ('check-central-bundle.py" "$OUTPUT" "$VERSION"', 'check-central-bundle.py" "$OUTPUT" "$VERSION" || true', "check-central-bundle.py"),
+            ('python3 "$REPOSITORY_ROOT/.github/scripts/check-central-bundle.py"', '# python3 "$REPOSITORY_ROOT/.github/scripts/check-central-bundle.py"', "check-central-bundle.py"),
+            ('"$LOCAL_REPO" "$VERSION" "$BUNDLE"\n', '"$LOCAL_REPO" "$VERSION" "$BUNDLE" || true\n', "assemble_central_bundle.py"),
+            ("set -euo pipefail\n", "set -uo pipefail\n", "set -euo pipefail"),
         ):
             with self.subTest(new=new):
                 self.assert_rejected(None, message, stage=self.mutate_file(STAGE, old, new))
@@ -637,7 +641,31 @@ class ReleaseIntegrityTests(unittest.TestCase):
         self.assert_rejected(self.mutate(check, ""), "check of the assembled Central bundle before its upload")
         publish_line = publish + ' target/central-bundle.zip "bootui-$VERSION" "$CENTRAL_AUTO_PUBLISH"\n'
         self.assert_rejected(
-            self.mutate(check + publish_line, publish_line + check), "must be checked before it is uploaded"
+            self.mutate(check + publish_line, publish_line + check), "after the previous bundle command"
+        )
+        unzip = '          unzip -q target/central-bundle.zip -d "$BUNDLE_DIR"\n'
+        for line, message in (
+            (assemble, "Central bundle assembled from the installed release"),
+            (unzip.rstrip("\n"), "unpacked Central bundle"),
+            (check.rstrip("\n"), "check of the assembled Central bundle before its upload"),
+            (publish, "Central Portal bundle upload"),
+        ):
+            for mutated in (line.replace("          ", "          # ", 1), line.replace("          ", "          true || ", 1)):
+                with self.subTest(mutated=mutated):
+                    self.assert_rejected(self.mutate(line, mutated), message)
+        full_check = check.rstrip("\n")
+        self.assert_rejected(self.mutate(full_check + "\n", full_check + " || true\n"), "check of the assembled")
+        self.assert_rejected(
+            self.mutate(publish_line, publish_line.rstrip("\n") + " || true\n"), "Central Portal bundle upload"
+        )
+        errexit = (
+            "          set -euo pipefail\n\n"
+            '          VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"\n'
+            "          LOCAL_REPO="
+        )
+        self.assert_rejected(
+            self.mutate(errexit, errexit.replace("set -euo pipefail", "set -uo pipefail")),
+            "errexit for the Maven Central publication step",
         )
 
     def test_bundle_artifacts_match_the_availability_poll_list(self):

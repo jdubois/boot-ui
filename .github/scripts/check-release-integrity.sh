@@ -144,12 +144,6 @@ fi
 if ! grep -Fxq -- "$CENTRAL_SMOKE" "$WORKFLOW"; then
   report_error "missing Maven Central consumer smoke tests ('${CENTRAL_SMOKE#"${CENTRAL_SMOKE%%[![:space:]]*}"}' on a line of its own)"
 fi
-require_literal 'python3 .github/scripts/assemble_central_bundle.py "$LOCAL_REPO" "$VERSION" target/central-bundle.zip' \
-  'Central bundle assembled from the installed release'
-require_literal 'python3 .github/scripts/check-central-bundle.py "$BUNDLE_DIR" "$VERSION"' \
-  'check of the assembled Central bundle before its upload'
-require_literal 'python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip' \
-  'Central Portal bundle upload'
 
 smoke_test_step="$(
   sed -n '/- name: Smoke test published distributions/,/- name: Decide documentation redeploy/p' "$WORKFLOW"
@@ -200,11 +194,11 @@ fi
 if ! grep -Fq -- "$PUBLICATION_REACTOR" "$STAGE_SCRIPT"; then
   report_error "$STAGE_SCRIPT must stage the publication-only Maven reactor ('$PUBLICATION_REACTOR')"
 fi
-for literal in './mvnw -B -ntp -Prelease clean install \' \
-  'assemble_central_bundle.py" --unsigned "$LOCAL_REPO" "$VERSION" "$BUNDLE"' \
-  'check-central-bundle.py" "$OUTPUT" "$VERSION"'; do
-  if ! grep -Fq -- "$literal" "$STAGE_SCRIPT"; then
-    report_error "$STAGE_SCRIPT must use '$literal'"
+for literal in 'set -euo pipefail' './mvnw -B -ntp -Prelease clean install \' \
+  'python3 "$REPOSITORY_ROOT/.github/scripts/assemble_central_bundle.py" --unsigned "$LOCAL_REPO" "$VERSION" "$BUNDLE"' \
+  'python3 "$REPOSITORY_ROOT/.github/scripts/check-central-bundle.py" "$OUTPUT" "$VERSION"'; do
+  if ! grep -Fxq -- "$literal" "$STAGE_SCRIPT"; then
+    report_error "$STAGE_SCRIPT must use '$literal' on a line of its own"
   fi
 done
 if sed -e ':join' -e '/\\$/N' -e 's/\\\n[[:space:]]*/ /' -e 't join' "$STAGE_SCRIPT" |
@@ -302,6 +296,33 @@ fi
 if grep -Fq -- '--unsigned' <<<"$publish_step"; then
   report_error 'Maven Central publication must bundle the signed release, never with --unsigned'
 fi
+
+# The bundle is assembled, unpacked, checked and uploaded by whole command lines of the publication step, in that
+# order, under set -e: a commented-out command or one suffixed with "|| true" would let a bundle the check refuses
+# reach Central.
+step_line_of() {
+  local match
+  match="$(grep -nFx -- "$1" <<<"$publish_step" | head -n 1 || true)"
+  printf '%s' "${match%%:*}"
+}
+previous_line=0
+for entry in \
+  '          set -euo pipefail|errexit for the Maven Central publication step' \
+  '          python3 .github/scripts/assemble_central_bundle.py "$LOCAL_REPO" "$VERSION" target/central-bundle.zip|Central bundle assembled from the installed release' \
+  '          unzip -q target/central-bundle.zip -d "$BUNDLE_DIR"|unpacked Central bundle for its check' \
+  '          python3 .github/scripts/check-central-bundle.py "$BUNDLE_DIR" "$VERSION"|check of the assembled Central bundle before its upload' \
+  '          python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip "bootui-$VERSION" "$CENTRAL_AUTO_PUBLISH"|Central Portal bundle upload'; do
+  command_line="${entry%|*}"
+  description="${entry##*|}"
+  found_line="$(step_line_of "$command_line")"
+  if [[ -z "$found_line" ]]; then
+    report_error "missing $description ('${command_line#"${command_line%%[![:space:]]*}"}' on a line of its own in the publication step)"
+  elif (( found_line <= previous_line )); then
+    report_error "the publication step must run $description after the previous bundle command: assemble, unpack, check, then upload"
+  else
+    previous_line="$found_line"
+  fi
+done
 
 excluded_artifacts="$(
   sed -n '/<excludeArtifacts>/,/<\/excludeArtifacts>/p' "$ROOT_POM"
@@ -421,10 +442,6 @@ require_order '- name: Resolve immutable release' '- name: Checkout immutable re
   'the signed tag must be resolved before checking out the publication SHA'
 require_order '- name: Checkout immutable release' '- name: Publish to Maven Central' \
   'the immutable release SHA must be checked out before Maven Central publication'
-require_order 'python3 .github/scripts/assemble_central_bundle.py' 'python3 .github/scripts/check-central-bundle.py "$BUNDLE_DIR"' \
-  'the Central bundle must be assembled before it is checked'
-require_order 'python3 .github/scripts/check-central-bundle.py "$BUNDLE_DIR"' 'python3 .github/scripts/publish_central_bundle.py' \
-  'the Central bundle must be checked before it is uploaded'
 require_order '- name: Publish to Maven Central' '- name: Wait for Maven Central availability' \
   'Maven Central availability polling must follow publication'
 require_order '- name: Wait for Maven Central availability' '- name: Smoke test published distributions' \
