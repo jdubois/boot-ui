@@ -1,0 +1,44 @@
+name: Documentation (v2 pull requests)
+
+# pages.yml builds the documentation site for pull requests into `main` only, and it is pinned by the release
+# integrity guard, so the 2.0 documentation on `v2` is checked here instead: the same build and checks, nothing
+# published. It runs no release-line gate, uploads no Pages artifact, and needs no secret.
+on:
+  pull_request:
+    branches: [ v2 ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    name: Build documentation site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build VuePress site
+        run: npm run docs:build
+        env:
+          VUEPRESS_BASE: /boot-ui/
+
+      - name: Check published install scripts
+        run: bash .github/scripts/check-docs-downloads.sh docs/.vuepress/dist
+
+      - name: Check documentation fragment links
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_docs_links.py'

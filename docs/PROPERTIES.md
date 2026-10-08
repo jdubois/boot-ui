@@ -99,7 +99,7 @@ settings" below.
 | `bootui.trusted-proxies`         | _(empty)_                               | Source IP ranges in CIDR notation (e.g. `172.16.0.0/12` for the Linux Docker bridge, or `192.168.65.0/24` for the Docker Desktop gateway) trusted in addition to loopback. A narrow opt-in for local Docker-bridge callers: it relaxes only the source-address check while keeping the `Host` allow-list (DNS-rebinding) and cross-site write (CSRF) protections in force. Prefer this over `bootui.allow-non-localhost`, and pair it with `bootui.allowed-hosts` for the hostname the browser uses. |
 | `bootui.trust-container-gateway` | `OFF`                                   | One-flag opt-in to trust the auto-detected container gateway as a single `/32`, so BootUI can be reached inside a container with a published port (host→container traffic is SNAT'd to the gateway) without knowing the subnet or setting a broad `bootui.trusted-proxies` CIDR. Detection works on both flavors: the bridge default gateway from `/proc/net/route` on Linux Docker Engine (e.g. `172.17.0.1`), and the `gateway.docker.internal` DNS name on Docker Desktop (`192.168.65.1`, which is _not_ the route-table gateway). `OFF` (default, fail closed) never trusts it; `AUTO` auto-detects and trusts the gateway only when running inside a container; `ON` trusts a detected gateway even if container heuristics are inconclusive. Relaxes only the source-address check — the `Host` allow-list (DNS-rebinding) and cross-site write (CSRF) protections stay in force. Note: with the common `-p 8080:8080` bind, LAN clients reaching the published port are also SNAT'd to the gateway; use `-p 127.0.0.1:8080:8080` for strict loopback equivalence. |
 | `bootui.mask-secrets`            | `true`                                  | Enables secret-like value masking helpers.                                                                                      |
-| `bootui.expose-values`           | `MASKED`                                | Configuration value exposure mode: `MASKED`, `METADATA_ONLY`, or `FULL`. It also governs exception, Log Tail, and Dev Services container log text, and the span values of the Traces detail, request profile, and AI Framework chat detail. `FULL` can disclose secrets. |
+| `bootui.expose-values`           | `MASKED`                                | Configuration value exposure mode: `MASKED`, `METADATA_ONLY`, or `FULL`. It also governs exception, Log Tail, and Dev Services container log text, and the span values of the Traces detail, request profile, and AI Framework chat detail. It also governs the text the [runtime journal](#runtime-journal) shows, in Live Activity and in Runtime Insights' sentences and evidence: `MASKED` replaces SQL literals with `?` and masks secret-like assignments in SQL and log text and `;name=value` path parameters, `METADATA_ONLY` omits log text and keeps only a statement's literal-free shape, and `FULL`, or `MASKED` with `bootui.mask-secrets=false`, shows the text as recorded. For [method probes](#code-paths), a string's length and an enum constant's name in argument and return shapes need `FULL`, or `MASKED` with `bootui.mask-secrets=false`, and `METADATA_ONLY` hides shapes. `FULL` can disclose secrets. |
 | `bootui.show-banner`             | `true`                                  | Print the BootUI URL on application startup.                                                                                    |
 | `bootui.startup.enabled`         | `true`                                  | Install a `BufferingApplicationStartup` automatically while BootUI is active so the Startup Timeline panel has data.            |
 | `bootui.startup.capacity`        | `4096`                                  | Maximum startup steps retained by BootUI's auto-installed startup buffer. Values less than or equal to zero disable the buffer. |
@@ -677,7 +677,8 @@ summary only: route templates, statement fingerprints, call sites, exception-gro
 edges, counts, histograms, and, with the BootUI agent, the run's side-effect keys (hosts and ports, masked file
 patterns, process file names, and variable names), never principals, literals, SQL text, values, arguments, or file
 contents. The same keys and defaults apply on
-Spring and Quarkus.
+Spring and Quarkus. What the journal's recorded SQL and log text shows, in Live Activity and Runtime Insights, follows
+[`bootui.expose-values`](#global-settings) and `bootui.mask-secrets` at each read.
 
 | Property                               | Default                                  | Description |
 | -------------------------------------- | ---------------------------------------- | ----------- |
@@ -883,6 +884,10 @@ application is built (augmented); dev mode rebuilds when they change.
 
 The main application package on Spring and the application archive packages on Quarkus are always included.
 `bootui.agent.packages` only adds extra prefixes.
+
+How much of a method probe's argument and return shapes BootUI shows follows
+[`bootui.expose-values`](#global-settings) and `bootui.mask-secrets`, and the memory the agent's evidence may use
+outside the journal is bounded by [`bootui.runtime-journal.agent-evidence-max-bytes`](#runtime-journal).
 
 | Property                  | Default | Description |
 | ------------------------- | ------- | ----------- |

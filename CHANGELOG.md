@@ -7,6 +7,31 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Upgrading from 1.x
+
+BootUI 2.0 changes a few defaults and dependencies. Most applications only need the first point; the entries below
+give the details.
+
+- One Spring Boot starter serves Spring MVC and WebFlux. WebFlux applications replace
+  `bootui-spring-boot-starter-reactive` with `bootui-spring-boot-starter`. The starter no longer brings a web stack, so
+  the application declares its own `spring-boot-starter-web` or `spring-boot-starter-webflux`, as most already do
+  ([Setup](docs/SETUP.md); "Eight Maven Central artifacts" under Changed).
+- A direct `bootui-core` dependency becomes `bootui-engine`, which now contains it. A direct
+  `bootui-spring-autoconfigure` or `bootui-client` dependency becomes `bootui-spring-boot-starter` or `bootui-cli`.
+- The runtime journal is on by default. It keeps the run's events in bounded memory, by default the smaller of 32 MB
+  and 5 % of the heap, and feeds Live Activity and Runtime Insights; `bootui.runtime-journal.enabled=false` turns it off
+  ([Runtime journal](docs/PROPERTIES.md#runtime-journal)).
+- Live Activity reads the journal: `bootui.activity.feed-source` is `journal`, and `buffers`, the 1.x stream, is removed
+  ([Live Activity](docs/PROPERTIES.md#live-activity)).
+- `bootui.activity.persistence.capture-interval` is removed and ignored: durable history is written by the journal
+  ("The Live Activity persistence poller is removed" under Removed). A custom `TraceIdProvider` becomes a
+  `CorrelationContextProvider` (under Removed).
+- Durable Live Activity history no longer keeps principals, exception or log messages, or email subjects; the live
+  panels still show them ([Durable history](docs/features/overview.md#durable-history)).
+- The new BootUI agent is optional. When attached, it turns on its `executors`, `inventory`, `code-paths`, `processes`,
+  `network`, and `blocking` sensors; the others are opt-in, and an unknown id in `bootui.agent.sensors` stops the
+  application's start ([Java Agent](docs/features/java-agent.md#configuration)).
+
 ### Added
 
 - **Change impact has its own Runtime Insights tab.** It opens on its search field instead of sitting below the run

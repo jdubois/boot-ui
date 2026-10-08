@@ -124,11 +124,13 @@ When BootUI is active, the starter should contribute low-precedence Actuator def
 `beans`, `conditions`, `configprops`, `env`, `loggers`, `mappings`, `metrics`, `startup`, and `scheduledtasks`. Host
 applications can override those `management.*` settings explicitly.
 
-BootUI's panels are served by Spring MVC and require a servlet web application. Because the starter ships Spring MVC and
-an embedded servlet container, BootUI also supports non-web (command-line) applications: when BootUI is active and the
-host is configured as non-web (`spring.main.web-application-type=none`), the starter forces a servlet web application so
-the console can be served. This only happens while BootUI is active (development contexts by default), never overrides an
-explicitly reactive application, never runs without an embedded servlet container on the classpath, and never touches
+BootUI's panels are served by the host application's own web stack, Spring MVC on a servlet container or Spring WebFlux.
+The starter declares both stacks `provided`, so it adds neither: the application brings `spring-boot-starter-web` or
+`spring-boot-starter-webflux` itself. A non-web (command-line) application that has Spring MVC and an embedded servlet
+container on its classpath is supported too: when BootUI is active and the host is configured as non-web
+(`spring.main.web-application-type=none`), the starter forces a servlet web application so the console can be served.
+This only happens while BootUI is active (development contexts by default), never overrides an explicitly reactive
+application, never runs without Spring MVC and an embedded servlet container on the classpath, and never touches
 Spring Cloud's transient non-web bootstrap context (detected via its `"bootstrap"` marker property source) so Spring
 Cloud Config apps still start. It can be disabled with `bootui.force-web=false`.
 
@@ -1963,8 +1965,8 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   contains the text, with their kind and class and the total matched: an exact name first, then a name or a route's
   path starting with it, then a class starting with it. It reads only the run's model, and answers `available=false`
   with the reason when the journal is disabled.
-- `GET /bootui/api/runtime-insights/comparison[?run=<runId>]` compares the current run with the newest kept run that
-  served HTTP requests (the newest kept run when none did), or the chosen one ([PLAN-v2.md](PLAN-v2.md) §5.8). Its status is `COMPARED`, `INSUFFICIENT` when no route served 3 requests
+- `GET /bootui/api/runtime-insights/comparison[?run=<runId>]` compares the current run with the newest kept run, even one
+  that served no HTTP request, or the chosen one ([PLAN-v2.md](PLAN-v2.md) §5.8). Its status is `COMPARED`, `INSUFFICIENT` when no route served 3 requests
   in both runs, `NOT_COMPARABLE` with the database, profile, or cache difference first, `NO_PREVIOUS_RUN` with the
   reason, or `UNAVAILABLE`. Behavior rows come first (statements, REST and AI calls, cache misses, and tokens per
   request; new statements, exceptions, and routes; status-class shares; allocation), then the runtime model's added and
