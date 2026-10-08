@@ -223,6 +223,8 @@ watch(selected, async (observation, previous) => {
   } catch (e) {
     if (token !== detailRequest) return
     if (refresh) {
+      // An open Copy for AI preview holds the earlier evidence too: close it rather than let it be copied as current.
+      aiExport.value = null
       detailStale.value = true
       detailError.value = formatLoadError(e, 'Unable to refresh this observation’s evidence')
     } else {

@@ -660,12 +660,16 @@ describe('Runtime Insights panel', () => {
     await openRow(wrapper)
     expect(wrapper.find('.insight-evidence-stale').exists()).toBe(false)
     expect(wrapper.get('.insight-copy-ai').attributes('disabled')).toBeUndefined()
+    await wrapper.get('.insight-copy-ai').trigger('click')
+    expect(wrapper.find('textarea').exists()).toBe(true)
 
     current = {...report, observations: [{...report.observations[0], affected: 5, evidenceRows: 2}]}
     detailFails = true
     await wrapper.findComponent({name: 'PanelHeader'}).vm.$emit('refresh')
     await flushPromises()
 
+    // The open preview held the earlier evidence: it closes, so nothing stale can be copied.
+    expect(wrapper.find('textarea').exists()).toBe(false)
     const stale = wrapper.get('.insight-evidence-stale')
     expect(stale.attributes('role')).toBe('alert')
     expect(stale.text()).toContain('Unable to refresh this observation’s evidence')
