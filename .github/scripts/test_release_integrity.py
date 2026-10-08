@@ -1,4 +1,5 @@
 import hashlib
+import importlib.util
 import os
 import subprocess
 import tempfile
@@ -16,16 +17,11 @@ STAGE = ROOT / ".github/scripts/stage-release-candidate.sh"
 BUNDLE_CHECK = ROOT / ".github/scripts/check-central-bundle.py"
 BUNDLE_ASSEMBLER = ROOT / ".github/scripts/assemble_central_bundle.py"
 STARTER_POM = "bootui-spring-boot-starter/pom.xml"
-PUBLISHED = (
-    "bootui-core",
-    "bootui-engine",
-    "bootui-ui",
-    "bootui-spring-boot-starter",
-    "bootui-quarkus",
-    "bootui-quarkus-deployment",
-    "bootui-cli",
-    "bootui-agent",
-)
+_BUNDLE_CHECK_SPEC = importlib.util.spec_from_file_location("check_central_bundle", BUNDLE_CHECK)
+_bundle_check = importlib.util.module_from_spec(_BUNDLE_CHECK_SPEC)
+_BUNDLE_CHECK_SPEC.loader.exec_module(_bundle_check)
+# The published coordinates, from the one list the assembler and the bundle check read.
+PUBLISHED = _bundle_check.PUBLISHED
 
 NEXT_VERSION_CALL = (
     'bash .github/scripts/release-version-policy.sh next-version "$VERSION" "$CURRENT_VERSION" "$RELEASE_LINE"'
@@ -395,16 +391,17 @@ class ReleaseIntegrityTests(unittest.TestCase):
             "must expect exactly the published coordinates",
             bundle=self.mutate_file(BUNDLE_CHECK, '    "bootui-agent",\n)', ")"),
         )
-        for old, new in (
-            ('    "bootui-agent",\n)', ")"),
-            ('    "bootui-agent",\n)', '    "bootui-agent",\n    "bootui-agent-bridge",\n)'),
-            ('ARTIFACT_IDS = (\n', 'ARTIFACT_IDS = (\n    "bootui-parent",\n'),
+        own_list = "ARTIFACT_IDS = _load_bundle_check().PUBLISHED"
+        for new in (
+            'ARTIFACT_IDS = ("bootui-core", "bootui-agent-bridge")',
+            own_list + ' + ("bootui-parent",)',
+            own_list + '\nARTIFACT_IDS = ("bootui-parent",)',
         ):
             with self.subTest(new=new):
                 self.assert_rejected(
                     None,
-                    "must bundle exactly the published coordinates",
-                    assembler=self.mutate_file(BUNDLE_ASSEMBLER, old, new),
+                    "must bundle check-central-bundle.py's PUBLISHED",
+                    assembler=self.mutate_file(BUNDLE_ASSEMBLER, own_list, new),
                 )
 
     def test_parents_stay_unpublished(self):

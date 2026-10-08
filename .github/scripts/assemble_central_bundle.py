@@ -4,10 +4,10 @@
 Usage: assemble_central_bundle.py [--unsigned] LOCAL_REPOSITORY VERSION OUTPUT_ZIP
 
 The release workflow installs the publication reactor and then bundles only the files each published
-module's version directory holds for that version. The list below is an allow-list: bootui-agent-bridge,
-which bootui-agent shades, and the two parent POMs are installed with the reactor but never bundled, and
-every bundled module carries the flattened, parentless POM flatten-maven-plugin installed.
-check-central-bundle.py then checks the bundle's coordinates and POMs.
+module's version directory holds for that version. The coordinates are check-central-bundle.py's PUBLISHED, an
+allow-list: bootui-agent-bridge, which bootui-agent shades, and the two parent POMs are installed with the
+reactor but never bundled, and every bundled module carries the flattened, parentless POM flatten-maven-plugin
+installed. check-central-bundle.py then checks the bundle's coordinates and POMs.
 
 --unsigned is for stage-release-candidate.sh only, which builds without signing; release.yml never passes it. Resolver bookkeeping (``_remote.repositories``,
 ``maven-metadata-local.xml``, ``*.lastUpdated``) never reaches the bundle: Maven Central rejects any bundle
@@ -20,24 +20,27 @@ Only the md5 and sha1 checksums Central requires are generated; signatures get n
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import sys
 import zipfile
 from pathlib import Path
 
 GROUP_PATH = "com/julien-dubois/bootui"
 
-# Every published artifact. check-release-integrity.sh keeps it equal to the guard's PUBLISHED_ARTIFACTS, which
-# the Maven Central availability poll list, check-central-bundle.py and consumer-smoke-tests.sh also match.
-ARTIFACT_IDS = (
-    "bootui-core",
-    "bootui-engine",
-    "bootui-ui",
-    "bootui-spring-boot-starter",
-    "bootui-quarkus",
-    "bootui-quarkus-deployment",
-    "bootui-cli",
-    "bootui-agent",
-)
+
+
+def _load_bundle_check():
+    path = Path(__file__).resolve().with_name("check-central-bundle.py")
+    spec = importlib.util.spec_from_file_location("check_central_bundle", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# Every published artifact: the bundle checker's list, the one the assembler, the checker and their tests read.
+# check-release-integrity.sh keeps it equal to its PUBLISHED_ARTIFACTS, the availability poll list, and
+# consumer-smoke-tests.sh.
+ARTIFACT_IDS = _load_bundle_check().PUBLISHED
 
 CHECKSUM_SUFFIXES = (".md5", ".sha1", ".sha256", ".sha512")
 RESOLVER_BOOKKEEPING = ("_remote.repositories", "maven-metadata")

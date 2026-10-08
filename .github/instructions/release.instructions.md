@@ -11,8 +11,8 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
   (the auto-configuration and the one Spring starter, for Spring MVC and WebFlux), `bootui-quarkus`,
   `bootui-quarkus-deployment`, `bootui-cli` (the CLI and its dependency-free client package, plus the shaded `all`
   classifier), and the `bootui-agent` `-javaagent` jar. The same list lives in `release.yml`'s availability poll,
-  `assemble_central_bundle.py`, `check-central-bundle.py`, `consumer-smoke-tests.sh`, and
-  `check-release-integrity.sh`; change them together.
+  `check-central-bundle.py` (whose `PUBLISHED` the bundle assembler and the release tests read),
+  `consumer-smoke-tests.sh`, and `check-release-integrity.sh`; change them together.
 - Publication never runs Maven's `deploy` phase: under Maven 3.10, `central-publishing-maven-plugin` stages resolver
   bookkeeping that Central rejects. `release.yml` installs the publication-only reactor, signed, then
   `assemble_central_bundle.py` bundles exactly the published coordinates from the local repository,

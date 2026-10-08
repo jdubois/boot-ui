@@ -215,9 +215,10 @@ bundle_published="$(sed -n '/^PUBLISHED = (/,/^)/p' "$BUNDLE_CHECK" | grep -oE '
 if [[ "$bundle_published" != "$EXPECTED_PUBLISHED" ]]; then
   report_error "$BUNDLE_CHECK must expect exactly the published coordinates"
 fi
-assembled_published="$(sed -n '/^ARTIFACT_IDS = (/,/^)/p' "$BUNDLE_ASSEMBLER" | grep -oE '"bootui-[a-z-]+"' | tr -d '"' | sort)"
-if [[ "$assembled_published" != "$EXPECTED_PUBLISHED" ]]; then
-  report_error "$BUNDLE_ASSEMBLER must bundle exactly the published coordinates"
+# The assembler keeps no list of its own: it bundles the bundle checker's PUBLISHED, checked just above.
+if ! grep -Fxq -- 'ARTIFACT_IDS = _load_bundle_check().PUBLISHED' "$BUNDLE_ASSEMBLER" ||
+  [[ "$(grep -c '^ARTIFACT_IDS' "$BUNDLE_ASSEMBLER" || true)" -ne 1 ]]; then
+  report_error "$BUNDLE_ASSEMBLER must bundle check-central-bundle.py's PUBLISHED ('ARTIFACT_IDS = _load_bundle_check().PUBLISHED')"
 fi
 
 report_smoke_error() {

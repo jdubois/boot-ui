@@ -50,20 +50,11 @@ class AssembleCentralBundleTests(unittest.TestCase):
         for artifact_id in ARTIFACT_IDS + UNPUBLISHED:
             install(self.repository, artifact_id, ("bootui-cli-1.2.3-all.jar",) if artifact_id == "bootui-cli" else ())
 
-    def test_published_coordinates_are_the_eight_of_bootui_2(self):
-        self.assertEqual(
-            set(ARTIFACT_IDS),
-            {
-                "bootui-core",
-                "bootui-engine",
-                "bootui-ui",
-                "bootui-spring-boot-starter",
-                "bootui-quarkus",
-                "bootui-quarkus-deployment",
-                "bootui-cli",
-                "bootui-agent",
-            },
-        )
+    def test_the_coordinates_are_the_bundle_checks_one_list(self):
+        import assemble_central_bundle
+
+        self.assertEqual(ARTIFACT_IDS, assemble_central_bundle._load_bundle_check().PUBLISHED)
+        self.assertTrue(set(UNPUBLISHED).isdisjoint(ARTIFACT_IDS))
 
     def test_the_agent_bridge_and_the_parents_are_never_bundled(self):
         names = assemble(self.repository, VERSION, self.output)
@@ -95,7 +86,7 @@ class AssembleCentralBundleTests(unittest.TestCase):
             [sys.executable, script, "--unsigned", str(unsigned), VERSION, str(self.output)], capture_output=True, text=True
         )
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
-        self.assertIn("for 8 artifacts", accepted.stdout)
+        self.assertIn(f"for {len(ARTIFACT_IDS)} artifacts", accepted.stdout)
 
     def test_bundle_holds_only_signed_artifacts_and_their_checksums(self):
         assemble(self.repository, VERSION, self.output)
