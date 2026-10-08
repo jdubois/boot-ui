@@ -28,6 +28,10 @@ test.describe('MCP Server (Quarkus)', () => {
 
   test('offers the same per-client configuration snippets and bearer-header switch', async ({openView, page}) => {
     await openView('mcp-server', 'MCP Server')
+    const protocols = page.locator('[data-testid="mcp-protocols"]')
+    await expect(protocols).toContainText('2026-07-28')
+    await expect(protocols).toContainText('2025-06-18')
+    await expect(page.locator('[data-testid="mcp-call-stats"]')).toHaveText(/^\d+ · \d+ timed out · \d+ cancelled$/)
 
     await expect(page.getByRole('tablist', {name: 'MCP client'})).toHaveCount(1)
     await expect(page.locator('#mcp-client-vscode-panel .config-block')).toContainText('"servers"')

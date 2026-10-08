@@ -10,6 +10,10 @@ import {expect, test} from './fixtures.js'
 test.describe('MCP Server client configuration', () => {
   test('explains how to assess the application above client configuration', async ({openView}) => {
     const page = await openView('mcp-server', 'MCP Server')
+    const protocols = page.locator('[data-testid="mcp-protocols"]')
+    await expect(protocols).toContainText('2026-07-28')
+    await expect(protocols).toContainText('2025-06-18')
+    await expect(page.locator('[data-testid="mcp-call-stats"]')).toHaveText(/^\d+ · \d+ timed out · \d+ cancelled$/)
 
     const assessment = page.getByRole('region', {name: 'Assess your application'})
     await expect(assessment).toHaveCount(1)

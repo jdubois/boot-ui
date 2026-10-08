@@ -800,19 +800,21 @@ compatibility rules describe:
 
 ### Client compatibility
 
-Checked on 2026-10-07. Clients that speak only the legacy era keep working as before, with single JSON answers and no
-progress stream; they gain progress when they adopt MCP 2026-07-28, with no BootUI change.
+Checked on 2026-10-07 and 2026-10-08. Clients that speak only the legacy era keep working as before, with single JSON
+answers and no progress stream; they gain progress when they adopt MCP 2026-07-28, with no BootUI change.
 
-| Client | Version checked | Era it opens with | Progress from BootUI | How it was checked |
-| ------ | --------------- | ----------------- | -------------------- | ------------------ |
-| Claude Code | 2.1.154 | Legacy: `initialize` asking for `2025-11-25`, then `2025-06-18` | Not yet | Recorded on the wire (`claude mcp list` against a local recorder) |
-| VS Code (GitHub Copilot) | 1.141.0 | Legacy: its MCP client's latest version is `2025-11-25` | Not yet | Read from the installed bundle; not observed on the wire |
-| GitHub Copilot CLI | 1.0.92 | Legacy: its MCP client's latest version is `2025-11-25` | Not yet | Read from the installed bundle; not observed on the wire |
-| Cursor | Not installed | Not verified | Not verified | Not checked locally |
+| Client | Version checked | Date | Era it uses with BootUI | Progress from BootUI | How it was checked |
+| ------ | --------------- | ---- | ----------------------- | -------------------- | ------------------ |
+| GitHub Copilot CLI | 1.0.93-1 | 2026-10-08 | 2026-07-28: sends `server/discover` and `initialize` together and keeps 2026-07-28 when discovery answers within about a second; legacy fallback otherwise | Yes: it sends a `progressToken` on `tools/call` and showed 11 `architecture_scan` events as `tool.execution_progress` | Run against the Spring sample app; its log recorded the exchange |
+| GitHub Copilot CLI | 1.0.92 | 2026-10-07 | Legacy: its MCP client's latest version was `2025-11-25` | No | Read from the installed bundle |
+| Claude Code | 2.1.154 | 2026-10-08 | Legacy: `initialize` asking for `2025-11-25`, then `2025-06-18` | No | Recorded on the wire against a local recorder |
+| VS Code (GitHub Copilot) | 1.141.0 | 2026-10-07 | Legacy: its MCP client's latest version is `2025-11-25` | No | Read from the installed bundle; not observed on the wire |
+| Cursor | Not installed | — | Not verified | Not verified | Not checked locally |
 
 Anthropic states that MCP 2026-07-28 support is
 [rolling out across Claude products](https://claude.com/resources/articles/bringing-mcp-2026-07-28-to-claude). Until a
-client sends per-request `_meta`, BootUI serves it as a legacy client and never streams.
+client sends per-request `_meta`, BootUI serves it as a legacy client and never streams. Cancellation from a real client
+was not observed: none of these runs cancelled a call.
 
 ## Assess an application and approve an action plan
 
