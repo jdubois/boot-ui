@@ -268,7 +268,7 @@ public final class AgentBridge {
      * Whether {@code sensor} can be switched at run time: only the opt-in {@code threads}, {@code files},
      * {@code environment}, {@code thread-activity}, {@code thread-locals}, and {@code security-sinks}, which the agent
      * installs and removes without a new claim ({@code thread-locals} transforms nothing: its scan is enabled or
-     * disabled; {@code security-sinks}' JDK checks ride on the side-effect transformer, and its request-value matching
+     * disabled; {@code security-sinks}' JDK checks have a side-effect transformer of their own, and its request-value matching
      * follows the sensor's bit, {@link RequestValues#active()}). Never a default sensor, nor
      * {@code blocking}, whose call-site visit is installed with the application methods' transformer at the claim (M5-5c),
      * nor {@code caught-exceptions}, whose visit is installed with the claim only.

@@ -141,8 +141,8 @@ public record AgentSensorSettings(
 
     /**
      * The sensors this version ships off by default, which the Java Agent and Side Effects panels switch on and off at
-     * run time ({@code docs/PLAN-v2.md} M5-14). {@code security-sinks}' JDK checks ride on the side-effect transformer,
-     * reinstalled at a switch, and its request-value matching follows the sensor, still only with {@code
+     * run time ({@code docs/PLAN-v2.md} M5-14). {@code security-sinks}' JDK checks have a side-effect transformer of their
+     * own, installed or removed at a switch without pausing the other sensors, and its request-value matching follows the sensor, still only with {@code
      * bootui.agent.security-sinks.request-values} on (D37). {@code caught-exceptions} (M5-6a), also off by default, is
      * not switched at run time: its visit of every application class is installed with the claim only.
      */

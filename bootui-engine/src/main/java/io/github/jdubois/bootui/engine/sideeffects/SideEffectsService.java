@@ -268,9 +268,10 @@ public final class SideEffectsService implements AutoCloseable {
     /**
      * The runtime-switchable sensors whose hooks ride on the side-effect transformer that {@link #COMPARED_SENSORS} share
      * (M5-14): switching one reinstalls that transformer, pausing every sensor on it while its self-test runs again.
+     * Thread-activity and security-sinks have transformers of their own, so switching them pauses no other sensor.
      */
-    static final java.util.Set<String> SHARED_TRANSFORMER_SWITCHES = java.util.Set.of(
-            SideEffectsCatalog.FILES_ID, SideEffectsCatalog.ENVIRONMENT_ID, AgentSensorSettings.SECURITY_SINKS);
+    static final java.util.Set<String> SHARED_TRANSFORMER_SWITCHES =
+            java.util.Set.of(SideEffectsCatalog.FILES_ID, SideEffectsCatalog.ENVIRONMENT_ID);
 
     /** Why a compared sensor's run is not whole after a switch reinstalled the transformer it shares. */
     static final String PAUSED_FOR_A_SWITCH =

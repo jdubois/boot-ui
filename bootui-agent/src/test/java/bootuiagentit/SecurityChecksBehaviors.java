@@ -6,6 +6,10 @@ import io.github.jdubois.bootui.agent.bridge.SecuritySinks;
 import io.github.jdubois.bootui.agent.bridge.SideEffects;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.InputStream;
 import java.io.ObjectInputFilter;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
@@ -17,7 +21,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -34,8 +41,8 @@ import javax.net.ssl.X509TrustManager;
  * behavior, then the bridge's status. Modes: {@code check} claims the sensor alone and reports its self-test; {@code
  * beside} claims it with files, processes, network, and blocking; {@code behaviors} runs every behavior; {@code
  * mockito-first} and {@code bootui-first} run Mockito's {@code mockStatic(MessageDigest.class)} before or after the
- * claim; {@code switch} claims the processes sensor only and switches security-sinks on, off, and on at run time
- * (PLAN-v2 M5-14).
+ * claim; {@code switch} claims the processes, files, and network sensors only and switches security-sinks on, off, and
+ * on at run time (PLAN-v2 M5-14), the files and network sensors recording throughout.
  */
 public final class SecurityChecksBehaviors {
 
@@ -86,7 +93,9 @@ public final class SecurityChecksBehaviors {
                         SideEffects.NETWORK,
                         SideEffects.BLOCKING,
                         SideEffects.SECURITY_SINKS)
-                : mode.equals("switch") ? List.of(SideEffects.PROCESSES) : List.of(SideEffects.SECURITY_SINKS);
+                : mode.equals("switch")
+                        ? List.of(SideEffects.PROCESSES, SideEffects.FILES, SideEffects.NETWORK)
+                        : List.of(SideEffects.SECURITY_SINKS);
         token = claim(sensors);
         for (String sensor : sensors) {
             FilesEnvironmentBehaviors.awaitSelfTest(sensor);
@@ -365,8 +374,79 @@ public final class SecurityChecksBehaviors {
         }
     }
 
-    /** Switches the sensor on, off, and on again for the running claim: MD5 is recorded only while it is on. */
+    /**
+     * Switches the sensor on, off, and on again for the running claim: MD5 is recorded only while it is on, and the
+     * files and network sensors, on another transformer, never stop recording nor are reinstalled.
+     */
     static void switchedAtRunTime() throws Exception {
+        Object filesInstall = SideEffectsBehaviors.sensor(SideEffects.FILES).get("installMillis");
+        int both = SideEffects.MASK_FILES | SideEffects.MASK_NETWORK;
+        AtomicLong paused = new AtomicLong();
+        AtomicLong samples = new AtomicLong();
+        AtomicBoolean sampling = new AtomicBoolean(true);
+        Thread sampler = new Thread(
+                () -> {
+                    while (sampling.get()) {
+                        samples.incrementAndGet();
+                        if ((SideEffects.gate() & both) != both) {
+                            paused.incrementAndGet();
+                        }
+                        Thread.onSpinWait();
+                    }
+                },
+                "switch-sampler");
+        sampler.setDaemon(true);
+        sampler.start();
+        try {
+            switchedOnOffAndOn();
+        } finally {
+            sampling.set(false);
+            sampler.join(5_000L);
+        }
+        boolean read = fileOpenRecorded();
+        Object filesAfter = SideEffectsBehaviors.sensor(SideEffects.FILES).get("installMillis");
+        check(
+                "the files and network sensors record throughout the switches, never reinstalled (" + paused.get()
+                        + " of " + samples.get() + " samples paused, install " + filesInstall + " then " + filesAfter
+                        + ", open recorded " + read + ")",
+                paused.get() == 0
+                        && samples.get() > 0
+                        && read
+                        && "installed"
+                                .equals(SideEffectsBehaviors.sensor(SideEffects.FILES)
+                                        .get("state"))
+                        && "installed"
+                                .equals(SideEffectsBehaviors.sensor(SideEffects.NETWORK)
+                                        .get("state"))
+                        && Objects.equals(filesInstall, filesAfter));
+    }
+
+    /** Whether a file open the application asks for now is recorded by the files sensor. */
+    static boolean fileOpenRecorded() throws Exception {
+        drain();
+        RECORDS.clear();
+        File missing =
+                new File("security-checks-switch-" + ProcessHandle.current().pid());
+        CONTEXT.set(REQUEST);
+        try (InputStream in = new FileInputStream(missing)) {
+            in.read();
+        } catch (FileNotFoundException expected) {
+            // The open is what the sensor records.
+        } finally {
+            CONTEXT.remove();
+        }
+        for (int i = 0; i < 200; i++) {
+            drain();
+            if (RECORDS.stream().anyMatch(record -> record[SideEffects.R_SENSOR] == SideEffects.SENSOR_FILES)) {
+                return true;
+            }
+            Thread.sleep(25);
+        }
+        return false;
+    }
+
+    /** Switches the sensor on, off, and on again for the running claim: MD5 is recorded only while it is on. */
+    static void switchedOnOffAndOn() throws Exception {
         check(
                 "before the switch, an MD5 records nothing and request values are not held (" + RequestValues.active()
                         + ", " + describe() + ")",

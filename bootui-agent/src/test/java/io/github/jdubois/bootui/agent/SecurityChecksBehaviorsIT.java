@@ -127,7 +127,8 @@ class SecurityChecksBehaviorsIT {
 
     /**
      * The sensor switched on, off, and on at run time for a claim that did not ask for it (PLAN-v2 M5-14): its checks
-     * and request-value matching follow the switch, and switching off removes its hooks.
+     * and request-value matching follow the switch, switching off removes its hooks, and the files and network sensors,
+     * on another transformer, record throughout.
      */
     @Test
     void theSensorSwitchesOnOffAndOnAtRunTime() throws Exception {
@@ -143,7 +144,8 @@ class SecurityChecksBehaviorsIT {
                                 + " MD5",
                         "switching security-sinks off stops its recording and request values at once and removes its"
                                 + " hooks, processes recording on",
-                        "switching security-sinks on again records an MD5 again"));
+                        "switching security-sinks on again records an MD5 again",
+                        "the files and network sensors record throughout the switches, never reinstalled"));
     }
 
     /** A JVM-wide filter set through {@code -Djdk.serialFilter} is the stream's own filter: no row. */

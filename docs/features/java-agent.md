@@ -107,11 +107,13 @@ bridge refuses any other, the default sensors, `blocking`, and `caught-exception
 only while this application's claim is armed.
 
 The agent applies a switch to the running claim, keeping its generation: switching `threads` on installs and self-tests
-it, and off restores `java.lang.Thread`. Switching `files`, `environment`, or `security-sinks` stops their recording at
-once, then reinstalls the side-effect transformer that `processes`, `network`, and `blocking` share with them, and runs
-the self-test of every side-effect sensor the claim uses again: those sensors pause for the reinstall, and one whose
-core hook fails that self-test stays off for the JVM's life, as at startup. Runtime Insights' run comparison therefore
-leaves the compared sensors out of a run in which one of these three was switched. After a switch, both panels read the sensors'
+it, and off restores `java.lang.Thread`. Switching `files` or `environment` stops their recording at once, then
+reinstalls the side-effect transformer that `processes`, `network`, and `blocking` share with them, and runs the
+self-test of every side-effect sensor the claim uses again: those sensors pause for the reinstall, and one whose core
+hook fails that self-test stays off for the JVM's life, as at startup. Runtime Insights' run comparison therefore leaves
+the compared sensors out of a run in which one of these two was switched. `thread-activity` and `security-sinks` each
+have a transformer of their own: switching either installs or removes only its hooks and self-tests only them, and
+the other sensors keep recording. After a switch, both panels read the sensors'
 states again. Switching `thread-locals` transforms nothing: it enables or disables its scan, and a scope opened before
 the switch is closed without a report. Switching `security-sinks` switches its [JDK checks](#jdk-checks) and its
 request-value matching together, and never turns matching on by itself: matching still needs

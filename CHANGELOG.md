@@ -40,9 +40,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `environment`, `thread-activity`, and `thread-locals` on or off without a restart, until the JVM ends ([Java Agent](docs/features/java-agent.md#switching-opt-in-sensors-at-run-time), [#1290](https://github.com/jdubois/boot-ui/pull/1290)).
 - **The security-sinks sensor switched at run time.** The Java Agent and Side Effects panels switch `security-sinks`
   on or off like the other opt-in sensors: its JDK checks and its request-value matching together, which still needs
-  `bootui.agent.security-sinks.request-values=true` at startup. A switch of `files`, `environment`, or `security-sinks`
-  pauses the other Side Effects sensors while the agent reinstalls their hooks, so Runtime Insights no longer compares
-  that run for them ([Java Agent](docs/features/java-agent.md#switching-opt-in-sensors-at-run-time)).
+  `bootui.agent.security-sinks.request-values=true` at startup. Its checks have a transformer of their own, so the
+  switch never pauses the other sensors. A switch of `files` or `environment` pauses the other Side Effects sensors
+  while the agent reinstalls their hooks, so Runtime Insights no longer compares that run for them ([Java Agent](docs/features/java-agent.md#switching-opt-in-sensors-at-run-time)).
 - **Side effects in the run comparison.** With the BootUI agent, Runtime Insights' comparison lists the hosts,
   files, processes, and variable names a route, job, or startup newly uses or no longer uses, for sensors that recorded
   both runs whole ([Runtime Insights](docs/features/overview.md#runtime-insights)).
@@ -495,8 +495,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too.
 - **`bootui.agent.sensors` rejects unknown sensor ids.** The default sensor set is now `executors`, `inventory`,
   `code-paths`, `processes`, `network`, and `blocking`. `threads`, `files`, `environment`, `thread-activity`,
-  `thread-locals`, `caught-exceptions`, and `security-sinks` are opt-in; the first five can also be switched at run
-  time, while `caught-exceptions` and `security-sinks` are installed only when the application starts.
+  `thread-locals`, `caught-exceptions`, and `security-sinks` are opt-in; all but `caught-exceptions`, which is
+  installed only when the application starts, can also be switched at run time.
   The `resources` sensor, which this version does not ship, is accepted with a warning and reported not available.
   Any other id now fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with
   an error naming the accepted ids.
