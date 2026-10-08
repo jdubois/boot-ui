@@ -701,6 +701,8 @@ tools list the same rows:
 | `gc-inflated-latency`, `heap-growth-after-gc` | Not listed; reached from the Memory panel |
 
 The observations of the BootUI agent's own panels, such as Side Effects, are shown there rather than in this list.
+When nothing is reported, or no request was recorded yet, the findings say that some checks show their findings in
+other panels, with links to Live Activity, Exceptions, Database Connection Pools, AI Framework, and Memory.
 
 **The default list** shows less than the report holds, so the rows worth reading first are not buried under the others.
 A row it leaves out stays in the report and its JSON, marked `listed: false` with an `unlistedReason`; the toggle **Show
@@ -817,7 +819,9 @@ what each finding needs.
 :::
 
 **Copy for AI** on an open observation previews it as one Markdown document, its sentence, the checks to run, the
-requests to open, and its evidence, built from what the panel already shows; copying sends nothing. Agents read the
+requests to open, and its evidence, built from what the panel already shows; copying sends nothing. When a refresh
+cannot reload the open observation's evidence, the panel says so, keeps the earlier evidence marked as from an earlier
+refresh, and closes an open **Copy for AI** preview and turns **Copy for AI** off until a refresh succeeds. Agents read the
 same facts through the `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
 `get_runtime_run_comparison` MCP tools and the `bootui insights` CLI commands ([AI agents](../AI-AGENTS.md#runtime-insights-for-agents)).
 

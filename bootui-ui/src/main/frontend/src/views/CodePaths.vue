@@ -75,13 +75,20 @@ const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchSummary
   enabled: manifestAvailable
 })
 
+// Only the newest tree read may land: an older route's answer arriving last must not fill the newer route's heading.
+let treeRequest = 0
+
 async function loadTree(name) {
+  const request = ++treeRequest
   treeError.value = null
   try {
-    tree.value = await getJson(
+    const result = await getJson(
       `api/code-paths/route?route=${encodeURIComponent(name)}&depth=${TREE_DEPTH}&limit=${TREE_LIMIT}`
     )
+    if (request !== treeRequest) return
+    tree.value = result
   } catch (e) {
+    if (request !== treeRequest) return
     tree.value = null
     treeError.value = formatLoadError(e, `Unable to load the tree of ${name}`)
   }

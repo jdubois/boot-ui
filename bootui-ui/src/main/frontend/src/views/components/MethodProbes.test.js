@@ -194,6 +194,39 @@ describe('Method probes', () => {
     expect(String(stop[0])).toContain('api/code-paths/probes/7/stop')
   })
 
+  it('offers a probe on another overload of a probed method, but not while the probed overload is unresolved', async () => {
+    const STRING_QUOTE = 'shop.QuoteService#quote(Ljava/lang/String;)J'
+    let probes = [probe()]
+    mountProbes(
+      vi.fn(() => Promise.resolve(json(report(probes)))),
+      {method: STRING_QUOTE}
+    )
+    await flushPromises()
+    expect(wrapper.get('.code-paths-probe-start').attributes('disabled')).toBeUndefined()
+
+    await wrapper.setProps({method: QUOTE})
+    expect(wrapper.get('.code-paths-probe-start').attributes('disabled')).toBeDefined()
+
+    probes = [probe({method: 'shop.QuoteService#quote', descriptor: null, state: 'starting'})]
+    wrapper.unmount()
+    mountProbes(
+      vi.fn(() => Promise.resolve(json(report(probes)))),
+      {method: STRING_QUOTE}
+    )
+    await flushPromises()
+    expect(wrapper.get('.code-paths-probe-start').attributes('disabled')).toBeDefined()
+
+    // Started with its descriptor, a probe not yet resolved still names its overload.
+    probes = [probe({descriptor: null, state: 'starting'})]
+    wrapper.unmount()
+    mountProbes(
+      vi.fn(() => Promise.resolve(json(report(probes)))),
+      {method: STRING_QUOTE}
+    )
+    await flushPromises()
+    expect(wrapper.get('.code-paths-probe-start').attributes('disabled')).toBeUndefined()
+  })
+
   it('polls only while a probe is live', async () => {
     vi.useFakeTimers()
     const fetch = vi
