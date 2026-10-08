@@ -795,7 +795,7 @@ compatibility rules describe:
 - **A client that stops reading.** The writer then blocks and keeps the call's concurrency slot, so
   `bootui.mcp.max-concurrent-calls` also bounds stalled streams; on WebFlux it waits for the subscriber's demand
   instead of buffering. On every stack it gives up 10 seconds after the execution timeout: Spring MVC's async request
-  times out, WebFlux stops waiting for demand, and Quarkus closes the connection, which frees the slot.
+  times out, WebFlux stops waiting for demand, and Quarkus resets the response, which frees the slot.
 
 ### Client compatibility
 
