@@ -821,7 +821,7 @@ what each finding needs.
 **Copy for AI** on an open observation previews it as one Markdown document, its sentence, the checks to run, the
 requests to open, and its evidence, built from what the panel already shows; copying sends nothing. When a refresh
 cannot reload the open observation's evidence, the panel says so, keeps the earlier evidence marked as from an earlier
-refresh, and turns **Copy for AI** off until a refresh succeeds. Agents read the
+refresh, and closes an open **Copy for AI** preview and turns **Copy for AI** off until a refresh succeeds. Agents read the
 same facts through the `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
 `get_runtime_run_comparison` MCP tools and the `bootui insights` CLI commands ([AI agents](../AI-AGENTS.md#runtime-insights-for-agents)).
 
