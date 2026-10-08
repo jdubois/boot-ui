@@ -264,9 +264,12 @@ Quarkus), by operation, loop family, and call site, with how long it blocked, no
 `thread-activity` records the threads the application starts and the executors it creates per route, how many a request
 starts (`count` / `requests`), and those its code left running when the request ended (`leftRunning`), library and JDK
 pools apart, never what a thread holds; the opt-in `thread-locals` names the static field of each thread local a
-request or a job left set on its pooled thread, never its value. Pass `--query not-captured` to list the
-outbound calls no panel shows (`capture: not-captured`), or `--query processes`, `network`, `files`, `blocking`,
-`thread-activity`, `thread-locals`, a route, target,
+request or a job left set on its pooled thread, never its value; `resources`, on by default, records the streams, channels,
+and sockets a request or a job opened (files through `files`, on by default), by resource kind, target, and origin: `failed`
+counts those the garbage collector reclaimed never closed, the leak, while `leftRunning` (still open after the
+request) and `completed` (closed after it) are a pool's or a cache's hand-off, never contents. Pass `--query
+not-captured` to list the outbound calls no panel shows (`capture: not-captured`), or `--query processes`, `network`,
+`files`, `blocking`, `thread-activity`, `thread-locals`, `resources`, a route, target,
 client, or call site to narrow it. The other sensor groups are listed as not available in this version.
 
 ### Read MySQL operational evidence

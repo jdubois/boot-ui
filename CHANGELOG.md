@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Resources sensor in the BootUI agent.** On by default, it shows the sockets and file streams a request
+  left open or never closed, in Side Effects' **Threads and leaks** tab ([Java Agent](docs/features/java-agent.md#the-resources-sensor)).
 - **Change impact has its own Runtime Insights tab.** It opens on its search field instead of sitting below the run
   comparison, offers the methods changed since the previous run, and each changed method in **Changes** links to it
   with **See its impact**; `?impact=<symbol>` opens it, and `?tab=` opens any tab.
@@ -375,7 +377,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - **The `files` sensor is on by default, and still switched at run time.** `bootui.agent.sensors` now defaults to
-  `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, and `blocking`. The Java Agent panel's
+  `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `blocking`, and `resources`. The Java Agent panel's
   **Runtime switches** card, renamed from **Opt-in sensors**, and the Side Effects sections switch it off, and back on,
   without a restart, and say why each sensor is on or off by default. The agent overhead job now fails the build when
   `files`' own increment over the other default sensors is above 3 % (the lower bound of its 15-pair median interval);
@@ -515,10 +517,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   merged into its route, and no longer kept, now amends that route's executed methods instead of opening a second,
   partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too.
 - **`bootui.agent.sensors` rejects unknown sensor ids.** The default sensor set is now `executors`, `inventory`,
-  `code-paths`, `processes`, `network`, `files`, and `blocking`. `threads`, `environment`, `thread-activity`,
-  `thread-locals`, `caught-exceptions`, and `security-sinks` are opt-in; the first four, and `files`, can also be
-  switched at run time, while `caught-exceptions` and `security-sinks` are installed only when the application starts.
-  The `resources` sensor, which this version does not ship, is accepted with a warning and reported not available.
+  `code-paths`, `processes`, `network`, `files`, `blocking`, and `resources`. `threads`, `environment`,
+  `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks` are opt-in; the first four, and `files`,
+  can also be switched at run time, while `caught-exceptions` and `security-sinks` are installed only when the
+  application starts.
   Any other id now fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with
   an error naming the accepted ids.
 

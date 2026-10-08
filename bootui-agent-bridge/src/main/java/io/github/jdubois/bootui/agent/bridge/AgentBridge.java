@@ -273,8 +273,8 @@ public final class AgentBridge {
      * Whether {@code sensor} can be switched at run time: only {@code threads}, {@code files},
      * {@code environment}, {@code thread-activity}, and {@code thread-locals}, which the agent installs and removes
      * without a new claim ({@code thread-locals} transforms nothing: its scan is enabled or disabled), whether on by
-     * default or not. Never {@code executors}, {@code inventory}, {@code code-paths}, {@code processes}, or
-     * {@code network}, nor {@code blocking}, whose call-site visit is installed with the application methods' transformer at the claim (M5-5c),
+     * default or not. Never {@code executors}, {@code inventory}, {@code code-paths}, {@code processes},
+     * {@code network}, or {@code resources}, nor {@code blocking}, whose call-site visit is installed with the application methods' transformer at the claim (M5-5c),
      * nor {@code caught-exceptions}, whose visit is installed with the claim only.
      */
     static boolean switchable(String sensor) {

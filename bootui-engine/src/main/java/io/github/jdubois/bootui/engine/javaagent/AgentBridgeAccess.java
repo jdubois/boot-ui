@@ -632,9 +632,9 @@ public final class AgentBridgeAccess {
     }
 
     /**
-     * Tells the thread-activity sensor that request {@code request} of claim {@code generation} ended, its response
-     * complete (M5-5e): its drain checks what the request left running. Takes no lock; does nothing with a bridge from
-     * before M5-5e.
+     * Tells the thread-activity and resources sensors that request {@code request} of claim {@code generation} ended,
+     * its response complete (M5-5e, M5-5g): the bridge hands the end to each that is on, whose drain checks what the
+     * request left running or open. Takes no lock; does nothing with a bridge from before M5-5e.
      */
     public void threadActivityRequestEnded(long generation, long request) {
         if (!sideEffectsSupported() || sideEffects.requestEnded() == null) {

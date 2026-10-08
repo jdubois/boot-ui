@@ -19,11 +19,11 @@ const MAVEN_REPO = process.env.BOOTUI_MAVEN_REPO_LOCAL
 const REPO_ARG = MAVEN_REPO ? ` -Dmaven.repo.local=${MAVEN_REPO}` : ''
 const WEBSERVER_TIMEOUT = Number(process.env.BOOTUI_WEBSERVER_TIMEOUT || 240_000)
 
-// The default sensors, files among them, the opt-in environment, thread-activity, thread-locals, and security-sinks
-// sensors (with request-value matching), and blocking, named whatever its default, whose Side Effects seeds the
-// side-effects spec asserts (M5-5c, M5-5d, M5-5e, M5-5f, M5-6b), and the opt-in caught-exceptions sensor, whose Exceptions panel seeds the
-// caught-exceptions spec asserts (M5-6a2).
-const JVM_ARGUMENTS = `-javaagent:${agentJar()} -Dspring.devtools.restart.enabled=false -Dserver.port=${PORT} -Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment,blocking,thread-activity,thread-locals,caught-exceptions,security-sinks -Dbootui.agent.security-sinks.request-values=true`
+// The default sensors (files, resources, and blocking named whatever their default), the opt-in environment,
+// thread-activity, thread-locals, and security-sinks sensors (with request-value matching), whose Side Effects seeds the
+// side-effects spec asserts (M5-5c to M5-5g, M5-6b), and the opt-in caught-exceptions sensor, whose Exceptions panel
+// seeds the caught-exceptions spec asserts (M5-6a2).
+const JVM_ARGUMENTS = `-javaagent:${agentJar()} -Dspring.devtools.restart.enabled=false -Dserver.port=${PORT} -Dbootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment,blocking,thread-activity,thread-locals,resources,caught-exceptions,security-sinks -Dbootui.agent.security-sinks.request-values=true`
 
 export default defineConfig({
   testDir: '.',

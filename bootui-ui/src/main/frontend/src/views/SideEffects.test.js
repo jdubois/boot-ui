@@ -534,6 +534,70 @@ describe('Side Effects panel', () => {
     expect(apart.text()).toContain('holder not resolved (java.lang.ThreadLocal)')
   })
 
+  it('shows resources rows with their origin, hand-offs apart from resources reclaimed without close()', async () => {
+    const leaked = row({
+      sensor: 'resources',
+      kind: 'file input stream',
+      target: './reports/report-{n}.csv',
+      callSite: 'demo.ReportService#read',
+      insideMethod: null,
+      origin: 'application',
+      location: 'working-directory',
+      count: 3,
+      requests: 3,
+      leftRunning: 1,
+      failed: 2,
+      completed: 0,
+      exemplarRequestIds: ['00000000000000ee']
+    })
+    const pooled = row({
+      sensor: 'resources',
+      kind: 'socket',
+      target: 'localhost:5432',
+      callSite: 'demo.OwnerRepository#find',
+      insideMethod: null,
+      origin: 'library',
+      count: 1,
+      requests: 1,
+      leftRunning: 1,
+      failed: 0,
+      completed: 1
+    })
+    ;({wrapper} = mountPanel({
+      'api/side-effects/sensor?sensor=resources&offset=0&limit=50': sensorReport('resources', [leaked, pooled]),
+      'api/side-effects': summary({
+        sensors: {resources: {state: 'recording', rows: 2, occurrences: 4}}
+      })
+    }))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Threads and leaks')
+      .trigger('click')
+    await flushPromises()
+
+    const table = wrapper
+      .findAll('.side-effects-table')
+      .find((candidate) => candidate.text().includes('./reports/report-{n}.csv'))
+    const headers = table.findAll('thead th').map((th) => th.text())
+    expect(headers).toEqual(
+      expect.arrayContaining([
+        'Resource',
+        'Resources',
+        'Open after request',
+        'Closed after request',
+        'Reclaimed without close()'
+      ])
+    )
+    const rows = table.findAll('tbody tr')
+    expect(rows[0].findAll('td')).toHaveLength(headers.length)
+    expect(table.text()).toContain('Opened by the application')
+    expect(table.text()).toContain('Opened by a library the application called')
+    expect(table.findAll('.side-effects-reclaimed').map((badge) => badge.text())).toEqual(['2'])
+    expect(table.findAll('.side-effects-left-open').map((badge) => badge.text())).toEqual(['1', '1'])
+    expect(wrapper.get('.side-effects-resources-note').text()).toContain('a leak')
+  })
+
   it('says why blocking is not applicable on a stack without event loops', async () => {
     ;({wrapper} = mountPanel({
       'api/side-effects/sensor?sensor=blocking&offset=0&limit=50': sensorReport('blocking', []),

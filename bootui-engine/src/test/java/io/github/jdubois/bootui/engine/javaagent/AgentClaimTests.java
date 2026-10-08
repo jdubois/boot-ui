@@ -174,7 +174,15 @@ class AgentClaimTests {
 
         Map<String, Object> request = agent.requests.get(0);
         assertThat((List<String>) request.get("sensors"))
-                .containsExactly("executors", "inventory", "code-paths", "processes", "network", "files", "blocking");
+                .containsExactly(
+                        "executors",
+                        "inventory",
+                        "code-paths",
+                        "processes",
+                        "network",
+                        "files",
+                        "blocking",
+                        "resources");
         assertThat(request).containsEntry("ringCapacity", AgentSensorSettings.DEFAULT_RING_CAPACITY);
         assertThat((Map<String, Object>) request.get("executors"))
                 .containsEntry("skipTasks", AgentSensorSettings.DEFAULT_SKIP_TASKS)

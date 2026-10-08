@@ -64,7 +64,14 @@ class SpringAgentExecutableJarIT {
         }
         assertThat(sensors)
                 .containsExactlyInAnyOrder(
-                        "executors", "inventory", "code-paths", "processes", "network", "files", "blocking");
+                        "executors",
+                        "inventory",
+                        "code-paths",
+                        "processes",
+                        "network",
+                        "files",
+                        "blocking",
+                        "resources");
     }
 
     @Test

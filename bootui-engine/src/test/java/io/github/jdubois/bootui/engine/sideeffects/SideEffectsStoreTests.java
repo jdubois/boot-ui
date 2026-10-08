@@ -437,6 +437,98 @@ class SideEffectsStoreTests {
         });
     }
 
+    /**
+     * M5-5g: a resource's reports land on one row: counted once, open after its request and closed after it apart from
+     * reclaimed without close(), the only one a run comparison keys on.
+     */
+    @Test
+    void aResourcesReportsLandOnOneRowCountedOnceAndOnlyAReclaimIsAKey() {
+        SideEffectsStore store = new SideEffectsStore(0L);
+        String request = String.format("%016x", 0x51L);
+        store.resolve(Map.of(request, "GET /reports"), NOW);
+        store.add(resources(SideEffectsCatalog.KIND_RESOURCE_LEFT_OPEN, 0x51L, true, "socket", "localhost:5432"));
+        store.add(resources(SideEffectsCatalog.KIND_RESOURCE_CLOSED_LATE, 0x51L, false, "socket", "localhost:5432"));
+        store.add(resources(
+                SideEffectsCatalog.KIND_RESOURCE_RECLAIMED, 0x51L, true, "file input stream", "./reports/r-{n}.csv"));
+
+        List<SideEffectsRowDto> rows = store.rows("resources", true, true);
+        assertThat(rows).hasSize(2);
+        assertThat(rows)
+                .filteredOn(row -> row.kind().equals("socket"))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.count()).isEqualTo(1L);
+                    assertThat(row.requests()).isEqualTo(1L);
+                    assertThat(row.leftRunning()).isEqualTo(1L);
+                    assertThat(row.completed()).isEqualTo(1L);
+                    assertThat(row.failed()).isZero();
+                    assertThat(row.attribution()).isEqualTo("GET /reports");
+                });
+        assertThat(rows)
+                .filteredOn(row -> row.kind().equals("file input stream"))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.count()).isEqualTo(1L);
+                    assertThat(row.failed()).isEqualTo(1L);
+                });
+        assertThat(store.keys().keys()).singleElement().satisfies(key -> {
+            assertThat(key.kind()).isEqualTo("file input stream");
+            assertThat(key.count()).isEqualTo(1L);
+        });
+    }
+
+    /** M5-5g: a resource's later report lands on its first report's row, as a thread-activity follow-up does. */
+    @Test
+    void aResourcesLaterReportLandsOnItsFirstReportsRowEvenWhenTheRouteWasNamedLater() {
+        SideEffectsStore store = new SideEffectsStore(0L);
+        long request = 0x52L;
+        store.add(resources(SideEffectsCatalog.KIND_RESOURCE_LEFT_OPEN, request, true, "socket", "localhost:5432"));
+        store.resolve(Map.of(), NOW + SideEffectsStore.PENDING_MILLIS);
+        store.resolve(Map.of(String.format("%016x", request), "GET /stream"), NOW + SideEffectsStore.PENDING_MILLIS);
+        store.add(resources(SideEffectsCatalog.KIND_RESOURCE_RECLAIMED, request, false, "socket", "localhost:5432"));
+
+        assertThat(store.rows("resources", true, true)).singleElement().satisfies(row -> {
+            assertThat(row.attribution()).isEqualTo(SideEffectsStore.UNKNOWN_ROUTE);
+            assertThat(row.count()).isEqualTo(1L);
+            assertThat(row.leftRunning()).isEqualTo(1L);
+            assertThat(row.failed()).isEqualTo(1L);
+        });
+    }
+
+    private static SideEffectsStore.Observation resources(
+            int kind, long request, boolean first, String resource, String target) {
+        int detail = SideEffectsCatalog.ORIGIN_APPLICATION | (first ? SideEffectsCatalog.DETAIL_FIRST_REPORT : 0);
+        return new SideEffectsStore.Observation(
+                new SideEffectRecord(
+                        SideEffectsCatalog.RECORD_RESOURCES,
+                        kind,
+                        1L,
+                        NOW,
+                        NOW,
+                        request,
+                        0L,
+                        0L,
+                        1,
+                        SideEffectsCatalog.OUTCOME_DONE,
+                        1,
+                        0,
+                        0,
+                        detail,
+                        1L,
+                        1_000_000L,
+                        1_000_000L,
+                        0,
+                        0),
+                "resources",
+                resource,
+                target,
+                "com.example.Reports#read",
+                null,
+                "http-nio-{n}-exec-{n}",
+                "application",
+                null);
+    }
+
     @Test
     void aThreadLocalResolvedAfterAGiveUpMovesItsRowsAndWaitingObservationsOrDropsThem() {
         SideEffectsStore store = new SideEffectsStore(0L);
