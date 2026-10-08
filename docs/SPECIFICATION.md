@@ -27,14 +27,14 @@ BootUI currently targets:
 Maturity is stated honestly: the **Spring Boot servlet adapter is complete** (all panels). The **Spring Boot WebFlux
 adapter** reuses the same engine and serves the large majority of panels unmodified or over a rebuilt reactive capture
 layer, including **Live Activity** (all nine signal types merge identically to the servlet adapter — see
-`docs/WEBFLUX-SUPPORT.md` §6.4), plus the raw Spring Security panel and the WebFlux-native 26-rule Security advisor; the
-raw Spring Security panel, the WebFlux-native 26-rule Security advisor, and REST Client capture over instrumented
-`WebClient` instances; HTTP Sessions is not applicable to a reactive,
-container-session-free stack — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter
-is being built out**, with panels lighting up as the shared engine grows; see `docs/QUARKUS-SUPPORT.md` for the
-current per-platform status.
+`docs/WEBFLUX-SUPPORT.md` §6.4), the raw Spring Security panel, the WebFlux-native 26-rule Security advisor, and REST
+Client capture over instrumented `WebClient` instances; HTTP Sessions is not applicable to a reactive,
+container-session-free stack — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter**
+serves most panels over the same engine; panels with no Quarkus equivalent (such as Conditions, Startup Timeline, Spring
+Data, Spring Security, Spring DevTools, GraalVM, and CRaC) are reported not applicable and JMS is not yet available — see
+`docs/QUARKUS-SUPPORT.md` for the current per-panel status.
 
-Out of scope for the current 1.x line:
+Out of scope for the current release line:
 
 - Spring Boot 3.x compatibility.
 - Spring Framework 6 / Boot 3 compatibility shims.
@@ -124,11 +124,13 @@ When BootUI is active, the starter should contribute low-precedence Actuator def
 `beans`, `conditions`, `configprops`, `env`, `loggers`, `mappings`, `metrics`, `startup`, and `scheduledtasks`. Host
 applications can override those `management.*` settings explicitly.
 
-BootUI's panels are served by Spring MVC and require a servlet web application. Because the starter ships Spring MVC and
-an embedded servlet container, BootUI also supports non-web (command-line) applications: when BootUI is active and the
-host is configured as non-web (`spring.main.web-application-type=none`), the starter forces a servlet web application so
-the console can be served. This only happens while BootUI is active (development contexts by default), never overrides an
-explicitly reactive application, never runs without an embedded servlet container on the classpath, and never touches
+On Spring, BootUI's panels are served by the application's own Spring MVC or Spring WebFlux stack; the starter brings
+neither. BootUI also supports non-web (command-line) applications that have Spring MVC and an embedded servlet container
+on the classpath: when BootUI is active and the host is configured as non-web
+(`spring.main.web-application-type=none`), the starter forces a servlet web application so the console can be served.
+This only happens while BootUI is active (development contexts by default), never overrides an explicitly reactive
+application, never runs without Spring MVC's `DispatcherServlet` and an embedded servlet container (Tomcat, Jetty, or
+Undertow) on the classpath, and never touches
 Spring Cloud's transient non-web bootstrap context (detected via its `"bootstrap"` marker property source) so Spring
 Cloud Config apps still start. It can be disabled with `bootui.force-web=false`.
 
@@ -231,7 +233,7 @@ BootUI is available at http://localhost:8080/bootui
 On Spring the scheme follows `server.ssl.enabled`: when TLS is enabled the banner uses
 `https://` instead of `http://`. The port and context path are resolved from
 `local.server.port` (falling back to `server.port`, then `8080`) and
-`server.servlet.context-path`.
+`server.servlet.context-path` (`spring.webflux.base-path` on WebFlux), followed by the normalized `bootui.path`.
 
 The Quarkus adapter logs the same line at startup, gated by the same `bootui.show-banner`
 key. Because the console is a local developer tool there, the Quarkus banner always uses
@@ -257,8 +259,9 @@ The first screen should show:
 ### 4.5 Expensive action admission
 
 Explicit expensive scans use one framework-neutral single-flight admission per scanner/service instance. Architecture,
-REST API, Spring/Quarkus application, Hibernate, Memory, Security, Pentesting, GraalVM, CRaC, and Vulnerabilities/OSV
-scans are protected independently; unrelated scanners can still run concurrently. Heap Dump capture, analysis, and
+REST API, Spring/Quarkus application, Database, Hibernate, Memory, Security, Pentesting, GraalVM, CRaC, and
+Vulnerabilities/OSV scans, and the PostgreSQL and MySQL reads, are protected independently; unrelated scanners can still
+run concurrently. Heap Dump capture, analysis, and
 delete share one admission because they operate on the same files, histogram, and status.
 
 A duplicate request never waits or repeats the work. MVC, WebFlux, and Quarkus return `409 Conflict` with the same JSON
@@ -575,17 +578,11 @@ Features:
 - Show configured level and effective level.
 - Set level at runtime.
 - Clear configured level.
-- Preset common packages:
-  - application base package.
-  - `org.springframework`.
-  - `org.springframework.web`.
-  - `org.springframework.security`.
-  - `org.hibernate.SQL`.
 
 Acceptance criteria:
 
 - Runtime level changes work when Actuator supports them.
-- UI clearly states changes are runtime-only and not persisted.
+- Level changes apply at runtime only and are not persisted.
 
 ### 5.7.1 Spring DevTools Controls
 
@@ -1441,7 +1438,8 @@ Purpose: stream recent local application log lines in the browser.
 
 Data sources:
 
-- BootUI Logback appender installed when Logback is on the classpath.
+- BootUI Logback appender installed when Logback is on the classpath (Spring Boot).
+- A `java.util.logging` handler attached to the root JBoss LogManager logger (Quarkus).
 
 Features:
 
@@ -1455,7 +1453,7 @@ Features:
 
 Acceptance criteria:
 
-- The panel is classpath-gated and unavailable when Logback is absent.
+- On Spring Boot, the panel is classpath-gated and unavailable when Logback is absent.
 - Log events are shaped into stable DTOs before reaching the browser.
 - The snapshot, the SSE stream and its replayed backlog, `get_log_tail`, and `bootui logs tail` apply the same rule on
   every stack, and a runtime exposure change applies to the next snapshot and streamed line without a restart.
@@ -1535,6 +1533,10 @@ reverse-chronological activity stream, plus a Symfony-style per-request profiler
 
 Data sources:
 
+- By default (`bootui.activity.feed-source=journal`) the feed renders the runtime journal's retained events, nesting
+  every child under its request or execution by id; when the journal is disabled or not recording, the panel buffers
+  serve the feed instead. `bootui.activity.feed-source=buffers`, or `?source=buffers` on one request, selects the
+  merge of the panels' own buffers described below.
 - Reuses the existing HTTP Exchanges, SQL Trace, REST Client, Exceptions, Security Logs, Email, and Health controllers/DTOs. The panel adds
   no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
   bounds are inherited unchanged from each source panel.
@@ -1566,10 +1568,11 @@ Data sources:
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `SCHEDULED`, `MESSAGING`, `MAIL`, and (Spring
-  servlet/WebFlux only) `CACHE` and `REST_CLIENT` entries normalized to a common shape (timestamp, type, severity,
+- Merged stream of `REQUEST`, `SQL`, `REST_CLIENT`, `EXCEPTION`, `SECURITY`, `SCHEDULED`, `MESSAGING`, `MAIL`,
+  `FAULT_TOLERANCE`, and (Spring servlet/WebFlux only) `CACHE` entries normalized to a common shape (timestamp, type, severity,
   one-line summary, optional duration and correlation id), sorted newest-first and capped by
-  `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
+  `bootui.activity.max-entries`. The journal feed adds the journal's own entry types, such as `TRANSACTION`, `LOG`,
+  `AI`, `ORM`, `WEBSOCKET`, `APP_EVENT`, `MARKER`, and, with the BootUI agent, `ASYNC`. The `since` cursor allows incremental polling. Each entry also carries an optional
   `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
   method/path), so the client can nest correlated SQL, REST, exceptions, security events, cache accesses, and captured
   email chronologically under the request that produced them; the server list stays flat (KPIs, filters, and the
@@ -1741,8 +1744,8 @@ Features:
   `ActivityStore`/`BufferedActivityStore`/`JdbcActivityStore`/`ActivityStoreFactory` engine machinery, every
   `bootui.activity.persistence.*` key, and the wire contract are identical on both adapters, and the `ActivityStore` and
   `ActivityPersistenceSettings` beans are always produced (persistence disabled is just `enabled() == false`, matching
-  the Spring `@ConditionalOnProperty` default). One narrower, pre-existing divergence carries over: Quarkus's baseline
-  (persistence-disabled) feed has no server-side `type`/`severity`/`since` filtering — unlike Spring's separate
+  the Spring `@ConditionalOnProperty` default). One narrower, pre-existing divergence carries over: with the `buffers`
+  feed source, Quarkus's baseline (persistence-disabled) feed has no server-side `type`/`severity`/`since` filtering — unlike Spring's separate
   `LiveActivityService`, the shared engine `LiveActivityAssembler` Quarkus's resource calls has none — so on Quarkus
   those filters take effect only once persistence is enabled and the query is served from the `ActivityStore`; the KPI
   strip stays computed from the full, unfiltered live merge either way on both adapters.
@@ -2062,14 +2065,18 @@ Data sources:
   delegating to the real sender — pass-through by default, so application behaviour is unchanged.
 - An optional, explicitly opt-in `bootui.email.dev-trap=true` mode records messages without ever handing them to the
   real sender (a MailDev/GreenMail-style trap), off by default so BootUI never silently swallows application mail.
+- On Quarkus, a CDI observer of the `SentMail` event `quarkus-mailer` fires after each send feeds the same
+  `EmailCaptureService`. There is no dev trap there; Quarkus's own mock-mail mode decides whether mail is sent.
 
 Acceptance criteria:
 
-- Available only when a `JavaMailSender` bean is present (e.g. `spring-boot-starter-mail`); otherwise the panel reports
-  a clear unavailable reason instead of an empty list.
-- Recipients, subject, and body text are masked by default and only revealed under `bootui.expose-values=FULL`,
-  exactly like every other BootUI panel; attachment metadata (name/type/size, never contents) is never masked since it
-  carries no message content.
+- Available only when a `JavaMailSender` bean is present (e.g. `spring-boot-starter-mail`) on Spring, or when
+  `quarkus-mailer` is present on Quarkus; otherwise the panel reports a clear unavailable reason instead of an empty
+  list.
+- Recipients, subject, and body text are revealed by default, because email content is ordinary application data rather
+  than a credential. With `bootui.email.mask-content=true` they are masked and only revealed under
+  `bootui.expose-values=FULL`; attachment metadata (name/type/size, never contents) is never masked since it carries no
+  message content.
 - Messages are listed newest-first from a bounded ring buffer sized by `bootui.email.max-entries` (default 100, oldest
   evicted first); a message's HTML body renders in a sandboxed iframe (no script execution, no same-origin access) and
   each message can be downloaded as a `.eml` file.
@@ -2118,10 +2125,10 @@ Acceptance criteria:
 - Recent calls surface in Live Activity as `REST_CLIENT` entries. Every stack first matches BootUI's request id; Spring
   MVC then uses trace-id-first/serving-thread-second correlation, and Quarkus and WebFlux use the trace id only because
   neither reactive runtime has a thread-per-request model.
-- The dedicated panel is available on Spring MVC and Quarkus. Quarkus keeps it visible whenever the optional capability
+- The dedicated panel is available on Spring MVC, Spring WebFlux, and Quarkus. Quarkus keeps it visible whenever the optional capability
   is present (proxies are initialized lazily), renders a no-proxy message until instrumentation occurs, and refreshes via
-  its JAX-RS SSE stream. WebFlux captures calls for Live Activity but still has no dedicated panel.
-- On the servlet adapter, `/bootui/api/panels` additionally requires that at least one `RestClient`, `RestTemplate`,
+  its JAX-RS SSE stream. On WebFlux only `WebClient` instances are instrumented.
+- On the Spring adapters, `/bootui/api/panels` additionally requires that at least one `RestClient`, `RestTemplate`,
   or `WebClient` has actually been instrumented (mirroring how Kafka/Email/Cache report against their own beans): an
   application that never builds one of the three reports the panel unavailable rather than available-with-an-empty-
   buffer, since the recorder bean backing the panel is registered unconditionally and so is never itself a useful
@@ -2234,9 +2241,9 @@ Purpose: answer "Which security filter chains and authorization rules apply?"
 
 Data sources:
 
-- Spring Security `FilterChainProxy`.
+- Spring Security `FilterChainProxy` (Spring MVC) or ordered `SecurityWebFilterChain` beans (Spring WebFlux).
 - Authentication provider and user-details-service beans.
-- Spring MVC request mappings when available.
+- Spring MVC or annotated WebFlux request mappings when available.
 
 Features:
 
@@ -2265,8 +2272,8 @@ Data sources:
 
 Features:
 
-- List detected Spring Data repositories, grouped by store module (JPA, JDBC, MongoDB, Redis, R2DBC, Cassandra, Neo4j,
-  generic).
+- List detected Spring Data repositories, grouped by store module (JPA, JDBC, MongoDB, R2DBC, Redis, Cassandra, Neo4j,
+  Elasticsearch, Couchbase, Spring Data Commons, generic).
 - For each repository, show:
   - Repository interface name and package.
   - Domain type and ID type.
@@ -2879,6 +2886,7 @@ Data sources:
 - Spring Boot service connection metadata when available.
 - Spring Boot Docker Compose startup service snapshot when available.
 - Testcontainers beans that are present in the application context.
+- Quarkus Dev Services started for the application (Quarkus).
 
 Features:
 
@@ -2892,6 +2900,7 @@ Features:
   - Kafka.
   - Elasticsearch.
   - Neo4j.
+  - Zipkin.
 - Show source:
   - Docker Compose.
   - Testcontainers.
@@ -3144,6 +3153,10 @@ Initial endpoints:
 | `/bootui/api/log-tail/recent`                    | GET    | Recent log lines                                                                       |
 | `/bootui/api/log-tail/stream`                    | GET    | Log stream over Server-Sent Events                                                     |
 | `/bootui/api/exceptions`                         | GET    | Bounded exception groups with status and occurrence summaries                         |
+| `/bootui/api/exceptions/{id}`                    | GET    | One exception group's detail: stack frames, causes, and retained occurrences          |
+| `/bootui/api/exceptions/{id}/status`             | POST   | Set an exception group's triage status (`{"status": ...}`)                            |
+| `/bootui/api/exceptions`                         | DELETE | Clear retained exception groups when not read-only                                    |
+| `/bootui/api/exceptions/stream`                  | GET    | Exceptions change notifications over Server-Sent Events (re-fetch trigger)            |
 | `/bootui/api/http-exchanges`                     | GET    | Recent application HTTP request/response metadata                                      |
 | `/bootui/api/http-exchanges/routes`              | GET    | Route performance rankings over the retained HTTP exchanges                            |
 | `/bootui/api/traces`                         | GET    | Recent local trace summaries                                                           |
@@ -3191,7 +3204,19 @@ Initial endpoints:
 | `/bootui/api/graalvm`                        | GET    | Latest GraalVM native-image readiness report                                           |
 | `/bootui/api/graalvm/scan`                   | POST   | Run explicit native-image readiness checks                                             |
 | `/bootui/api/graalvm/metadata`               | GET    | Download generated reachability metadata scaffold                                      |
+| `/bootui/api/graalvm/scan/progress`          | GET    | Progress of the running GraalVM readiness scan                                         |
+| `/bootui/api/graalvm/scan/cancel`            | POST   | Cancel the running GraalVM readiness scan                                              |
+| `/bootui/api/graalvm/install`                | POST   | Write the reachability metadata scaffold into the project when running from an exploded build |
+| `/bootui/api/graalvm/dockerfile`             | GET    | Download a tailored native-image `Dockerfile-native`                                   |
+| `/bootui/api/graalvm/dockerfile/install`     | POST   | Write `Dockerfile-native` into the project when running from an exploded build         |
+| `/bootui/api/graalvm/install/all`            | POST   | Write both the metadata scaffold and `Dockerfile-native`                               |
 | `/bootui/api/crac`                            | GET    | Latest CRaC checkpoint/restore readiness report                                        |
+| `/bootui/api/crac/scan`                       | POST   | Run explicit CRaC readiness checks                                                     |
+| `/bootui/api/crac/dockerfile`                 | GET    | Download a tailored `Dockerfile-crac`                                                  |
+| `/bootui/api/crac/entrypoint`                 | GET    | Download the matching `checkpoint-and-run.sh` entrypoint                               |
+| `/bootui/api/crac/dockerfile/install`         | POST   | Write `Dockerfile-crac` into the project when running from an exploded build           |
+| `/bootui/api/crac/entrypoint/install`         | POST   | Write `checkpoint-and-run.sh` into the project when running from an exploded build     |
+| `/bootui/api/crac/install/all`                | POST   | Write both CRaC container assets                                                       |
 | `/bootui/api/flyway/migrations`              | GET    | Flyway migration state and action availability per database                            |
 | `/bootui/api/flyway/migrate`                 | POST   | Run pending Flyway migrations only when confirmed, not read-only, and not Modulith-managed |
 | `/bootui/api/flyway/clean`                   | POST   | Clean Flyway-managed schemas only when confirmed, allowed by Flyway, not read-only, and not Modulith-managed |
@@ -3203,10 +3228,14 @@ Initial endpoints:
 | `/bootui/api/spring-security/explain`        | GET    | Best-effort chain match for a method/path                                              |
 | `/bootui/api/spring-security/endpoints`      | GET    | Best-effort per-endpoint authorization report                                          |
 | `/bootui/api/security-logs`                  | GET    | Recent Spring Boot audit/security events                                               |
+| `/bootui/api/security-logs/stream`           | GET    | Security Logs change notifications over Server-Sent Events (re-fetch trigger)          |
 | `/bootui/api/security`               | GET    | Latest Spring Security Advisor report                                                  |
 | `/bootui/api/security/scan`          | POST   | Run explicit Spring Security hardening checks                                          |
 | `/bootui/api/pentesting`                        | GET    | Latest local OWASP hygiene report                                                      |
 | `/bootui/api/pentesting/scan`                   | POST   | Run explicit bounded loopback OWASP hygiene checks                                    |
+| `/bootui/api/dismissed-rules`                   | GET    | Advisor rules and findings dismissed in `.bootui/boot-ui.yml`                          |
+| `/bootui/api/dismissed-rules/{ruleId}`          | POST   | Dismiss one advisor rule or finding                                                    |
+| `/bootui/api/dismissed-rules/{ruleId}`          | DELETE | Restore one dismissed advisor rule or finding                                          |
 | `/bootui/api/copilot/dashboard`                 | GET    | Sanitized GitHub Copilot CLI activity dashboard                                        |
 | `/bootui/api/copilot/**`                     | GET    | Sanitized GitHub Copilot CLI session dashboard, token usage, explorer, raw reveal, SSE |
 | `/bootui/api/claude-code/dashboard`             | GET    | Sanitized Claude Code activity dashboard                                               |
@@ -3241,6 +3270,7 @@ Initial endpoints:
 | `/bootui/api/transactions`                   | GET    | Current bounded transaction-boundary snapshot and aggregate statistics                 |
 | `/bootui/api/activity`                       | GET    | Merged Live Activity stream and KPI summary (params: `type`, `severity`, `since`, `limit`, plus `q`, `until`, `cursor`, `pageSize` when persistence is enabled; `source` (`buffers` or `journal`) overrides `bootui.activity.feed-source`, and the journal's feed also takes `route`, `run`, `requestId`, and `noRequest`) |
 | `/bootui/api/activity/stream`                | GET    | Live Activity change notifications over Server-Sent Events (re-fetch trigger)           |
+| `/bootui/api/activity/service-map`           | GET    | Live Flow service map of observed and configured dependencies (`ServiceMapReport`)      |
 | `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, auth, REST client calls, cache accesses, and trace for one HTTP exchange |
 | `/bootui/api/activity/request/{id}/journal`  | GET    | One request as the runtime journal recorded it: its work on one timeline, the collections that completed while it ran, its CPU time and allocated bytes, how it compares with its route's p50 and p95, and the tables, transactions, caches, messages, hosts, and log templates it touched |
 | `/bootui/api/activity/use-existing-datasource` | POST | Hot-switch Live Activity from in-memory to the existing `DataSource` (confirmation-gated) |
@@ -3256,9 +3286,15 @@ Initial endpoints:
 | `/bootui/api/runtime-insights/resource-profile` | POST | Start a JFR session bounded by `bootui.resources.jfr.max-duration` |
 | `/bootui/api/runtime-insights/resource-profile/stop` | POST | End the running session now and return its results |
 | `/bootui/api/email`                          | GET    | Captured outgoing email summaries and content-policy status                             |
+| `/bootui/api/email/{id}`                     | GET    | One captured email with its bodies and attachment metadata                              |
+| `/bootui/api/email/{id}/eml`                 | GET    | Download one captured email as a `.eml` file                                            |
+| `/bootui/api/email`                          | DELETE | Clear captured emails when not read-only                                                |
 | `/bootui/api/kafka`                          | GET    | Bounded Kafka producer and consumer activity                                            |
+| `/bootui/api/kafka`                          | DELETE | Clear retained Kafka activity when not read-only                                        |
 | `/bootui/api/rabbitmq`                       | GET    | Bounded RabbitMQ publisher and consumer activity                                        |
+| `/bootui/api/rabbitmq`                       | DELETE | Clear retained RabbitMQ activity when not read-only                                     |
 | `/bootui/api/jms`                            | GET    | Bounded JMS producer and consumer activity                                              |
+| `/bootui/api/jms`                            | DELETE | Clear retained JMS activity when not read-only                                          |
 
 ### 6.5 Configuration properties
 
@@ -3295,6 +3331,8 @@ Initial properties:
 | `bootui.http-exchanges.reserved-share-percent` | `25`                                  | Share of the HTTP exchange buffer reserved for recent `5xx` and slow exchanges; `0` disables it.   |
 | `bootui.email.max-entries`                   | `100`                                   | Maximum outgoing emails retained in memory for the Email panel; oldest evicted first.              |
 | `bootui.email.dev-trap`                      | `false`                                 | Capture outgoing email without handing it to the real mail transport (MailDev/GreenMail-style trap). |
+| `bootui.email.mask-content`                  | `false`                                 | Mask captured recipients, subject, and bodies unless `bootui.expose-values=FULL`.                  |
+| `bootui.email.max-body-length`               | `200000`                                | Maximum characters retained per captured text/HTML body.                                           |
 | `bootui.vulnerabilities.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
 | `bootui.vulnerabilities.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
 | `bootui.vulnerabilities.max-packages`           | `500`                                   | Maximum packages sent in one OSV batch query; the excess is reported as `scan.packagesSkipped`.   |
@@ -3457,10 +3495,12 @@ Design rules:
     `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
     `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
     `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_agent_status`, `get_code_inventory`,
-    `get_code_paths`, `get_method_probe`, `get_devtools_status`,
-    `get_code_paths`, `get_side_effects`, `get_devtools_status`,
+    `get_code_paths`, `get_method_probe`, `get_side_effects`, `get_devtools_status`,
     `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, `get_claude_code_sessions`,
     `get_hibernate_statistics`, and `get_websockets`.
+  - Advisor violation pages: `get_architecture_rule_violations`, `get_spring_rule_violations`,
+    `get_hibernate_rule_violations`, `get_database_advisor_rule_violations`, `get_memory_rule_violations`,
+    `get_security_rule_violations`, and `get_rest_api_rule_violations` (see Advisor violation pages above).
   - Bounded actions: `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
     `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
     `resume_transaction_recording`, `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`,

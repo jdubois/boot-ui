@@ -107,6 +107,26 @@ class CentralBundleTests(unittest.TestCase):
         (artifact_dir / f"bootui-cli-{VERSION}-sources.jar.sha1").unlink()
         self.assert_error("missing bootui-cli-2.0.0-sources.jar.sha1")
 
+    def test_signatures_are_accepted_beside_their_files(self):
+        artifact_dir = self.root / GROUP_PATH / "bootui-agent" / VERSION
+        for name in (f"bootui-agent-{VERSION}.jar.asc", f"bootui-agent-{VERSION}.pom.asc"):
+            (artifact_dir / name).write_text("signature", encoding="utf-8")
+        self.assertEqual(self.errors(), [])
+
+    def test_resolver_bookkeeping_and_foreign_files_are_rejected(self):
+        artifact_dir = self.root / GROUP_PATH / "bootui-core"
+        for path in (
+            artifact_dir / "maven-metadata-local.xml",
+            artifact_dir / VERSION / "_remote.repositories",
+            artifact_dir / VERSION / f"bootui-core-{VERSION}-tests.jar",
+            artifact_dir / VERSION / f"bootui-core-{VERSION}.jar.asc.md5",
+        ):
+            with self.subTest(path=path.name):
+                path.write_text("x", encoding="utf-8")
+                self.assert_error(f"unexpected file in the bundle: {path.relative_to(self.root).as_posix()}")
+                path.unlink()
+        self.assertEqual(self.errors(), [])
+
     def test_a_pom_with_a_parent_is_rejected(self):
         parent = (
             "<parent><groupId>com.julien-dubois.bootui</groupId><artifactId>bootui-parent</artifactId>"

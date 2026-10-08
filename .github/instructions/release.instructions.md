@@ -11,7 +11,13 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
   (the auto-configuration and the one Spring starter, for Spring MVC and WebFlux), `bootui-quarkus`,
   `bootui-quarkus-deployment`, `bootui-cli` (the CLI and its dependency-free client package, plus the shaded `all`
   classifier), and the `bootui-agent` `-javaagent` jar. The same list lives in `release.yml`'s availability poll,
-  `check-central-bundle.py`, `consumer-smoke-tests.sh`, and `check-release-integrity.sh`; change them together.
+  `check-central-bundle.py` (whose `PUBLISHED` the bundle assembler and the release tests read),
+  `consumer-smoke-tests.sh`, and `check-release-integrity.sh`; change them together.
+- Publication never runs Maven's `deploy` phase: under Maven 3.10, `central-publishing-maven-plugin` stages resolver
+  bookkeeping that Central rejects. `release.yml` installs the publication-only reactor, signed, then
+  `assemble_central_bundle.py` bundles exactly the published coordinates from the local repository,
+  `check-central-bundle.py` checks the bundle, and `publish_central_bundle.py` uploads it through the Central Portal
+  API. The assembler's list is an allow-list, so the parents and `bootui-agent-bridge` never reach the bundle.
 - Neither `bootui-parent` nor `bootui-quarkus-parent` is published. Each published module declares
   `flatten-maven-plugin` (configured in the root POM, `ossrh` mode), so its installed and published POM has no
   `<parent>`, resolved dependency versions, scopes, optional flags and exclusions, and the root's Central metadata.
@@ -20,7 +26,7 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
 - Sample apps, integration tests, coverage, and conformance must retain `maven.deploy.skip=true`, remain in the Central
   plugin's `excludeArtifacts` list, and stay outside the publication-only reactor in `release.yml`.
 - The consumer smoke tests live in `.github/scripts/consumer-smoke-tests.sh` and run three times:
-  `stage-release-candidate.sh` stages the exact Central bundle (unsigned, uploaded only to a loopback stand-in) as a file repository
+  `stage-release-candidate.sh` stages the exact Central bundle (assembled the same way, unsigned, never uploaded) as a file repository
   inside the pre-tag verification build and again from the immutable tagged checkout before publication, and the
   script then runs against Maven Central after publication. Every run requires each resolved BootUI file to come from
   the source under test and the consumers to resolve exactly the published coordinates. `build.yml`'s

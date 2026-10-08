@@ -727,6 +727,9 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **Rule catalogs match the advisors again.** The Spring, Quarkus, Database, and Hibernate catalogs use the
+  advisors' current rule titles, and the CRaC, Database, and Hibernate rule indexes render with every severity
+  ([Spring checks](docs/SPRING-CHECKS.md)).
 - **Method probe guidance avoids false "never reached" answers.** Agents and the BootUI skill now wait until a probe
   is `active`, rerun within its window, and treat an empty result from a probe that was not active throughout as
   inconclusive ([AI agents](docs/AI-AGENTS.md#did-this-method-run-and-how)).
@@ -1282,6 +1285,34 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
   masked exactly as before, and `METADATA_ONLY`, `FULL`, and `bootui.mask-secrets=false` are unchanged
   ([Log message exposure](docs/features/diagnostics.md#log-message-exposure), follows
   [#1150](https://github.com/jdubois/boot-ui/pull/1150)).
+
+## [1.21.0] - 2026-10-08
+
+BootUI 1.21.0 makes agent setup easier with a portable plugin for Cursor and other compatible clients, a canonical
+cross-agent skill installer, and refreshed Quarkus LTS support.
+
+### Added
+
+- **Portable agent plugin and Copilot cloud setup.** Cursor and other Agent Plugins clients can install the BootUI skill
+  and local MCP connection together, while repository sessions gain ready-to-use Copilot cloud setup
+  ([#1341](https://github.com/jdubois/boot-ui/pull/1341),
+  [#1293](https://github.com/jdubois/boot-ui/pull/1293)).
+
+### Changed
+
+- **Simpler skill installation and discovery.** The cross-agent installer is now the primary path, GitHub Copilot uses
+  the canonical skill directory, and Agent Finder is documented as the main discovery channel
+  ([#1348](https://github.com/jdubois/boot-ui/pull/1348),
+  [#1338](https://github.com/jdubois/boot-ui/pull/1338),
+  [#1333](https://github.com/jdubois/boot-ui/pull/1333)).
+- **Quarkus 3.40.1 LTS.** The compatibility platform moves to the latest LTS micro release
+  ([#1324](https://github.com/jdubois/boot-ui/pull/1324)).
+
+### Fixed
+
+- **Quarkus LTS compatibility.** The extension accepts Quarkus 3.33 LTS again, and REST client registration stays
+  compatible with it while supporting the newer 3.40 service-provider path
+  ([#1335](https://github.com/jdubois/boot-ui/pull/1335), [#1368](https://github.com/jdubois/boot-ui/pull/1368)).
 
 ## [1.20.0] - 2026-10-05
 
