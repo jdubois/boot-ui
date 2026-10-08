@@ -135,8 +135,9 @@ public final class RuntimeInsightsService {
      * @param routes the application's declared routes, or {@code null}
      * @param panelEnabled whether a panel, by its id, is enabled; {@code null} enables every panel
      * @param stack the stack serving the application, or {@code null} when unknown
-     * @param runs the summaries of the runs kept in this JVM, newest first, such as
-     *     {@code RunHistory.shared()::summaries}, or {@code null}
+     * @param runs the summaries of this application's runs kept in this JVM, newest first, such as
+     *     {@code () -> RunHistory.shared().summaries(aggregates.application())}, so another application sharing the
+     *     JVM is never its previous run, or {@code null}
      */
     public RuntimeInsightsService(
             RuntimeJournal journal,

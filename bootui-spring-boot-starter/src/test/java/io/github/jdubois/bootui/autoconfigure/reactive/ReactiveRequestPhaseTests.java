@@ -31,6 +31,7 @@ import org.springframework.graphql.execution.DefaultExecutionGraphQlService;
 import org.springframework.graphql.execution.GraphQlSource;
 import org.springframework.graphql.observation.GraphQlObservationInstrumentation;
 import org.springframework.graphql.support.DefaultExecutionGraphQlRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.HttpHandler;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
@@ -142,6 +143,8 @@ class ReactiveRequestPhaseTests {
                 (request, response) -> filter.filter(exchange, chain).retry(1));
 
         decorated.handle(exchange.getRequest(), exchange.getResponse()).block(Duration.ofSeconds(10));
+        // The failed attempt is published once the response commits, as WebFlux commits it after the handler.
+        exchange.getResponse().setComplete().block(Duration.ofSeconds(10));
 
         assertThat(attempts).hasValue(2);
         assertThat(published).hasSize(2);
@@ -162,11 +165,17 @@ class ReactiveRequestPhaseTests {
         assertThatThrownBy(() -> filter.filter(exchange, ignored -> Mono.error(new IllegalStateException("boom")))
                         .block(Duration.ofSeconds(10)))
                 .hasMessage("boom");
-
         String requestId =
                 ReactiveRequestCorrelationFilter.correlation(exchange).requestId();
-        assertThat(published).hasSize(1);
         assertThat(phases.markers(requestId).endedAt()).isNotNull();
+        assertThat(published)
+                .as("a failure is published once WebFlux's exception handlers rendered it")
+                .isEmpty();
+
+        rendered(exchange, HttpStatus.INTERNAL_SERVER_ERROR);
+
+        assertThat(published).hasSize(1);
+        assertThat(((HttpPayload) published.get(0).payload()).status()).isEqualTo(500);
     }
 
     @Test
@@ -178,10 +187,13 @@ class ReactiveRequestPhaseTests {
 
         assertThatThrownBy(() -> filter.filter(exchange, chain).block(Duration.ofSeconds(10)))
                 .hasMessage("boom");
+        rendered(exchange, HttpStatus.BAD_REQUEST);
 
         String requestId =
                 ReactiveRequestCorrelationFilter.correlation(exchange).requestId();
-        assertThat(publishedEvent(1)).isNotNull();
+        assertThat(((HttpPayload) publishedEvent(1).payload()).status())
+                .as("the status the application's exception handler rendered")
+                .isEqualTo(400);
         assertThat(phases.markers(requestId).endedAt())
                 .as("a chain that throws as it assembles still ends the request's timeline")
                 .isNotNull();
@@ -205,6 +217,12 @@ class ReactiveRequestPhaseTests {
         assertThat(payload.timing().authenticationNanos())
                 .as("the authentication its chain observed while assembling")
                 .isPositive();
+    }
+
+    /** Renders a failure as WebFlux's exception handlers do once the filters unwound: a status, then the commit. */
+    private static void rendered(MockServerWebExchange exchange, HttpStatus status) {
+        exchange.getResponse().setStatusCode(status);
+        exchange.getResponse().setComplete().block(Duration.ofSeconds(10));
     }
 
     private static void sleep() {

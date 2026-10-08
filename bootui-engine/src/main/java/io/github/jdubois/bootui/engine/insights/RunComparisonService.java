@@ -479,7 +479,8 @@ public final class RunComparisonService {
         boolean historyUnavailable = history == null;
         if (history != null) {
             try {
-                for (RunSummary summary : history.summaries()) {
+                // Only this application's runs: another one sharing the JVM is never its previous run.
+                for (RunSummary summary : history.summaries(aggregates.application())) {
                     if (!summary.header().runId().equals(current)) {
                         kept.add(summary);
                         headers.add(summary.header());
@@ -509,8 +510,9 @@ public final class RunComparisonService {
                 }
             }
             if (previous == null) {
-                reason = "No kept run has the id " + runId + ": it may have been dropped, as only the "
-                        + RunHistory.MAX_RUNS + " most recent runs are kept.";
+                reason = "No kept run of this application has the id " + runId + ": it may have been dropped, as"
+                        + " only the " + RunHistory.MAX_RUNS + " most recent runs are kept, or belong to another"
+                        + " application in this JVM.";
             }
         }
         if (history == null) {

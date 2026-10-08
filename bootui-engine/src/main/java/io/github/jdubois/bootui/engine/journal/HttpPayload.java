@@ -11,9 +11,9 @@ import io.github.jdubois.bootui.engine.resources.ResourceUsage;
  * @param resources the request's measured resources ({@code docs/PLAN-v2.md} §5.11), or {@code null} when the
  *     {@code resources} source is off
  * @param timing its monotonic start and phases ({@code docs/PLAN-v2.md} §5.5), or {@code null} when unknown
- * @param asyncStarted whether the request went asynchronous before this event was published, as a Spring MVC
- *     request whose handler returned a {@code DeferredResult} or a {@code CompletableFuture}: its work outlived the
- *     event
+ * @param asyncStarted whether the request went asynchronous, as a Spring MVC request whose handler returned a
+ *     {@code DeferredResult} or a {@code CompletableFuture}: its event is still published once its response
+ *     completed, with that final status and duration, but its work ran on threads other than the one it arrived on
  */
 public record HttpPayload(
         String method,
