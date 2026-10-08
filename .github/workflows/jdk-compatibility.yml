@@ -22,6 +22,19 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Maven Central sometimes answers 429 or 5xx, or stalls, for a moment: Maven's resolver (2.0.x, Maven 3.10) retries a
+# download five times, waiting 10 s more each time (at most 60 s), on those answers, and gives up on a connection that
+# sends nothing for two minutes, so a short outage does not fail a job. The repository's mvnw passes MAVEN_OPTS to the JVM
+# that runs Maven, whose resolver reads these as system properties (MAVEN_ARGS is not read by it). A 404 is not retried.
+env:
+  MAVEN_OPTS: >-
+    -Daether.transport.http.connectTimeout=30000
+    -Daether.transport.http.requestTimeout=120000
+    -Daether.transport.http.retryHandler.count=5
+    -Daether.transport.http.retryHandler.interval=10000
+    -Daether.transport.http.retryHandler.intervalMax=60000
+    -Daether.transport.http.retryHandler.serviceUnavailable=429,500,502,503,504
+
 permissions:
   contents: read
 
@@ -167,12 +180,31 @@ jobs:
         working-directory: bootui-spring-sample-app/e2e
         run: npm ci --ignore-scripts
 
+      # Playwright's browsers are cached per Playwright version, read from the lock file, so a leg downloads Chromium
+      # only when that version changes.
+      - name: Read the Playwright version
+        id: playwright
+        working-directory: bootui-spring-sample-app/e2e
+        run: |
+          version=$(node -p "require('./package-lock.json').packages['node_modules/playwright-core'].version")
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::package-lock.json has no playwright-core version: '$version'."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright's browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+
       - name: Install Playwright browsers
         # Usually 1 to 8 minutes; apt-get can stall for hours on a runner's package mirror: fail fast, so a rerun gets
-        # another runner.
+        # another runner. apt-get runs only when Chromium's system packages are not all on the runner already.
         timeout-minutes: 20
         working-directory: bootui-spring-sample-app/e2e
-        run: ./node_modules/.bin/playwright install --with-deps chromium
+        run: bash ../../.github/scripts/install-playwright-chromium.sh
 
       - name: Run Playwright end-to-end tests with the agent
         working-directory: bootui-spring-sample-app/e2e
