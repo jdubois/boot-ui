@@ -35,6 +35,13 @@ applyTo: ".github/workflows/**,.github/scripts/**,.github/dependabot.yml,Dockerf
   document support for it. Keep new checks on the baseline workflow unless they are genuinely JDK-specific.
 - Quarkus/Hibernate build-time augmentation is gated to the JDKs the shared Quarkus LTS platform supports. Preserve the
   JDK skip profile and the matrix gating rather than widening a job onto an unsupported JDK.
+- `build.yml`'s `quarkus-lts` job runs the extension, built on the pinned platform, through every Quarkus integration
+  module on the older supported LTS release, then the extension's own tests compiled against it. Its matrix version,
+  `requiresQuarkusCore` in `bootui-quarkus/pom.xml`, and the release `docs/setup/quarkus.md` names change together; a
+  step checks them.
+- `build.yml`'s `published-cli` job runs `.github/scripts/published-cli-smoke.sh`: the newest published `bootui-cli`
+  `all` jar, pinned by SHA-256, against the Spring sample built from the checkout. After a release, bump its version
+  and checksum together.
 - Keep workflow permissions least-privilege and never echo secrets into command arguments or logs.
 - The `Dockerfile*` variants (JVM, AOT, CRaC, native, WebFlux, Quarkus) and their `docker-compose*.yml` files ship the
   sample apps only. They are demonstration surfaces, not published artifacts; keep them building from the same reactor

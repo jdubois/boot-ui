@@ -46,7 +46,9 @@ and `bootui-agent`. Their POMs are flattened by `flatten-maven-plugin`: no `<par
 resolved, and the project metadata inlined, so neither `bootui-parent` nor `bootui-quarkus-parent` is published. Every
 other module is built but never published. `.github/scripts/stage-release-candidate.sh` builds the exact Central bundle
 into a local file repository, and `.github/scripts/consumer-smoke-tests.sh <version> <directory>` runs the release's
-consumer smoke tests against it.
+consumer smoke tests against it. `.github/scripts/published-cli-smoke.sh <spring-sample-jar>` runs the newest published
+`bootui-cli`, pinned by SHA-256, against the Spring sample built from the checkout, so a server change that breaks the
+CLI users already have fails the build.
 
 ## Documentation website
 

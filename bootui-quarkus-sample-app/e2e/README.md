@@ -97,7 +97,9 @@ process so its test-only OSV base URI and limits are guaranteed to apply.
 `playwright.agent.config.js` runs the whole suite plus `tests-agent/` against `quarkus:dev` started with
 `-Djvm.args=-javaagent:...`, the jar `./mvnw install -pl bootui-agent -am` built in `bootui-agent/target`, or
 `BOOTUI_AGENT_JAR`. It sets the `agentAttached` fixture option, so the Java Agent, Code Inventory, and Code Paths specs
-assert the armed claim, the run's inventory, and the seeded route's tree instead of the unavailable state:
+assert the armed claim, the run's inventory, and the seeded route's tree instead of the unavailable state. The
+agent-only specs cover work after the response, caught exceptions, change impact by a method the seeded route's call
+trees ran, and a metadata-only method probe started and stopped:
 
 ```bash
 npm run test:agent

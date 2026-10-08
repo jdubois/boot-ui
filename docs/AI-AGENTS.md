@@ -459,8 +459,12 @@ same gap as `changed-code-not-executed`.
 
 **Verify, then probe.** When a changed method is still `NEVER_EXECUTED` after the test or request that should reach
 it, the next step is a [method probe](#did-this-method-run-and-how): with the user's separate approval, start one on the
-method as Code Inventory names it, rerun the same test or request, then read `get_method_probe`. No invocation is
-evidence that path never reaches the method: the wrong route, the wrong bean, or never wired; `get_code_paths` on the
+method as Code Inventory names it, poll `get_method_probe` until the probe is `active` (it starts `starting`, and the
+method is retransformed afterwards), rerun the same test or request before its `endsAt`, then read `get_method_probe`
+again. `invocations` at 0 is evidence that path never reaches the method (the wrong route, the wrong bean, or never
+wired) only when the probe was active before the rerun and is still active after it, or the rerun finished before its
+`endsAt` and it did not end early; a probe that never became active, failed, or ended before the rerun finished is
+inconclusive; `get_code_paths` on the
 route shows what it did run. The `verify_after_change` prompt and the [agent skill](#install-the-bootui-agent-skill)
 follow this workflow. [Set up the Java agent](setup/java-agent.md) walks through it from a fresh application.
 
@@ -510,8 +514,14 @@ A probe records at most 20 invocations, for at most 60 seconds, five at once, an
 those bounds where the method runs and then removes its instrumentation. It never records an argument or a return value.
 **Ask the user before starting one**, as for `memory_scan` or `pentest_scan`: it changes the running application's code
 for its window, even though read-only policy refuses it. The loop it serves: start a probe on the method an edit
-changed, run the test or send the request that should reach it, then read `get_method_probe`. No invocation after the
-code ran is evidence the path never reaches the method (the wrong route, the wrong bean, never wired). A probe
+changed, poll `get_method_probe` until it is `active`, run the test or send the request that should reach it before the
+probe's `endsAt` (60 seconds from activation; prefer the request to a slow test run), then read `get_method_probe`
+again. `invocations` at 0 is evidence the path never reaches the method (the wrong route, the wrong bean, never wired)
+only when the probe was active before the code ran and is still active after it, or the code finished before its
+`endsAt` and it did not end early: `start_method_probe` returns `starting` and the agent retransforms the method
+afterwards, so a fast rerun can finish before the probe records anything, and a slow one can outlast its window, which
+then ends during the rerun. A probe that never became active, failed, or ended before the rerun finished is
+inconclusive, and `dropped` above 0 counts invocations it could not record. A probe
 `waitingForClass` has not seen this run load its class yet; an `async` method's durations time the assembly of its
 reactive or asynchronous result, not the work that runs later.
 
@@ -758,14 +768,19 @@ compatibility rules describe:
   tool name` on every stack. `MCP-Protocol-Version` is judged after the body is read, so an oversized, unparseable, or
   batch body reports that problem first.
 - **Modern (MCP 2026-07-28).** A request whose `_meta` names a protocol version is validated in this order, each failure
-  being `400`: the version must be a string (`-32602`); `MCP-Protocol-Version` must be sent once and equal it
+  being `400`: first, for any request BootUI 1.x never saw (its `_meta` names a version other than `2025-06-18`, or
+  one that is not a string, or its only `MCP-Protocol-Version` header is `2026-07-28`), the `id` must be a string or an
+  integer (`-32600`, with a `null` id echoed), so `null`, fractional, and other ids are refused, and a request method
+  sent without an id is refused rather than run as a notification (only a `notifications/` method may omit it); the version must be a string (`-32602`);
+  `MCP-Protocol-Version` must be sent once and equal it
   (`-32020`); an unsupported version answers `-32022` with `data.supported` (`["2026-07-28", "2025-06-18"]`) and
   `data.requested`; `io.modelcontextprotocol/clientCapabilities` must be an object (`-32602`); `Mcp-Method` must be sent
   once and equal the method (`-32020`); for `tools/call` and `prompts/get`, `Mcp-Name` must be sent once and equal
-  `params.name`, after decoding the `=?base64?…?=` form (`-32020`); a `progressToken` must be a string or an integer
+  `params.name`, after decoding the `=?base64?…?=` form (`-32020`); a `progressToken` must be an integer or a string of at most 128 characters
   (`-32602`). A request whose `_meta` names `2025-06-18` is served as legacy.
 - **Legacy tokens are never refused.** A legacy request is never rejected or altered because of its
-  `_meta.progressToken`: a string or integer token can start a progress stream (below), and any other value is ignored.
+  `_meta.progressToken`: an integer, or a string of at most 128 characters, can start a progress stream (below), and
+  any other value is ignored.
 - **Modern results.** Every result carries `resultType: "complete"` and `_meta["io.modelcontextprotocol/serverInfo"]`.
   `server/discover`, `tools/list`, and `prompts/list` also carry `ttlMs: 60000` and `cacheScope: "private"`; tools stay
   in catalog order. Modern clients have no `initialize` or `ping`; an unknown method answers `404` with `-32601`.
@@ -780,7 +795,11 @@ compatibility rules describe:
   The stream carries `data:` events, each one JSON-RPC message: `notifications/progress` with the request's token, a
   strictly increasing `progress`, the `total` when known, and a fixed phase `message`, then exactly one final
   response, after which the stream closes. There are no event ids, and `:` comment lines every 2 seconds keep the
-  connection open. Notifications are rate-limited: a burst of 8, then one every 250 ms, coalescing to the newest. Any
+  connection open. Notifications are rate-limited: a burst of 8, then one every 250 ms, coalescing to the newest. Every
+  event obeys `bootui.mcp.max-response-bytes`: a notification that would not fit is dropped (counted as `progressDropped`
+  in the `GET /bootui/api/mcp-server` status and shown in the MCP Server panel), and a final response that
+  would not fit is replaced by the response-too-large error. A string `progressToken` longer than 128 characters is
+  refused on a modern request and ignored on a legacy one, which then answers with one JSON response. Any
   other call, including every refusal and a call without a token, stays a single JSON response, byte-identical to
   BootUI 1.x for a legacy client. A legacy stream's final response is a legacy one: no `resultType` or `_meta`, and the
   `-32000`…`-32003` codes.

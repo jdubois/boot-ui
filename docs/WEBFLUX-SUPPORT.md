@@ -16,15 +16,12 @@ status where they don't.
 
 ## 2. Current status
 
-The WebFlux adapter serves the large majority of the panel surface — the same 64-panel manifest the servlet adapter
-reports, including the view-only **Java Agent** and **Code Inventory** panels and **Code Paths** with its method probes, minus the one panel (**HTTP Sessions**, §6.7) that stays
-unavailable for stack reasons. Every available
 The WebFlux adapter serves the large majority of the panel surface — the same 65-panel manifest the servlet adapter
-reports, including the view-only **Java Agent**, **Code Inventory**, **Code Paths**, and **Side Effects** panels, minus
-the one panel (**HTTP Sessions**, §6.7) that stays unavailable for stack reasons. Every available
+reports, including the view-only **Java Agent**, **Code Inventory**, and **Side Effects** panels and **Code Paths** with
+its method probes, minus the one panel (**HTTP Sessions**, §6.7) that stays unavailable for stack reasons. Every available
 action-capable panel behaves identically to the servlet adapter, behind the same shared `LocalhostGuard` write floor.
 
-**R2DBC statements are not recorded** (D39). BootUI records SQL through a traced JDBC `DataSource`, so an application
+**R2DBC statements are not recorded.** BootUI records SQL through a traced JDBC `DataSource`, so an application
 that reaches its database through R2DBC shows no statements, connections, or SQL timings in the runtime journal: the
 SQL Trace panel stays empty, Runtime Insights names this first among its limitations, and its checks that read SQL
 report `UNAVAILABLE` rather than finding nothing. An application with both a traced JDBC pool and R2DBC sees only its

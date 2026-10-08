@@ -647,7 +647,7 @@ Features:
 Acceptance criteria:
 
 - The panel is always available on Spring MVC, Spring WebFlux, and Quarkus. Its one action switches an opt-in sensor
-  (`threads`, `files`, `environment`, `thread-activity`, `thread-locals`) on or off at run time (`docs/PLAN-v2.md` M5-14): refused by
+  (`threads`, `files`, `environment`, `thread-activity`, `thread-locals`) on or off at run time: refused by
   `bootui.panels.java-agent.read-only` and `bootui.read-only`, offered only while this application's claim is armed.
 - `GET /bootui/api/java-agent`, `get_agent_status`, and `bootui agent status` return the same `JavaAgentReport`.
 - Spring claims from `BootUiAgentClaimEnvironmentPostProcessor` (registered in `META-INF/spring.factories`) once BootUI activation is resolved, refines after context
@@ -754,13 +754,13 @@ Features:
 - `GET /bootui/api/code-paths`, `/code-paths/route?route=` (paged by `depth`, `offset`, and `limit`),
   `/code-paths/requests/{requestId}`, and `/code-paths/beans`; `get_code_paths` and `bootui code paths` take `query` (a
   route, or part of a route or method) and `limit`.
-- **Method probes** (`docs/PLAN-v2.md` M5-8), the panel's only actions: **Probe this method** on a selected tree method,
+- **Method probes**, the panel's only actions: **Probe this method** on a selected tree method,
   or **Probe in Code Paths** from Code Inventory's changed methods, after a confirmation, retransforms that one method
   (`binary.Class#name`, with its descriptor for an overloaded one) and records its next 20 invocations, for at most 60
   seconds, five probes at once: each invocation's duration, thread kind, request id, outcome (returned, or the thrown
   exception's type), and calling frame (the first frame of the application's packages above the method, past proxies
   and interceptors). Metadata only by default: never an argument or a return value. Started with **Record argument and
-  return shapes** (`"recordShapes": true`, D44), a probe also records the shapes of the first nine arguments, at entry,
+  return shapes** (`"recordShapes": true`), a probe also records the shapes of the first nine arguments, at entry,
   and of the return value: runtime types, nullness, and, by exact JDK class, collection, map, and array sizes and
   `Optional` presence, read without calling any application method; a string's length, a `char[]` or `byte[]` length,
   and an enum constant's name are shown under `bootui.expose-values=FULL` only, no shape under `METADATA_ONLY`, and MCP,
@@ -774,7 +774,7 @@ Features:
   `{"method": ..., "recordShapes": true}` starts one (400 for a method that cannot be probed, 409 when refused:
   unavailable, five running, already probed, or shapes unavailable), `GET /code-paths/probes/{id}` reads one (404 when unknown), and `POST /code-paths/probes/{id}/stop`
   or `DELETE /code-paths/probes/{id}` stops one. `start_method_probe` (`bootui probe start <method>`) and
-  `get_method_probe` (`bootui probe show <id>`) are the agent tools, with metadata only in every exposure mode (D24).
+  `get_method_probe` (`bootui probe show <id>`) are the agent tools, with metadata only in every exposure mode.
 
 Acceptance criteria:
 
@@ -795,11 +795,11 @@ Purpose: answer "Which processes, hosts, and other side effects did this route o
 
 Data sources:
 
-- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a), `network` (M5-5b),
-  `blocking` (M5-5c), and `resources` (M5-5g, D47) sensors record by default, and `files` and `environment` (M5-5d),
-  `thread-activity` (M5-5e), and `thread-locals` (M5-5f) when opted in. `security-sinks` (M5-6b) records, when opted in
-  with `bootui.agent.security-sinks.request-values=true`, request input reaching SQL text, a command, a file path, or an
-  outbound URL unchanged: the redacted sink, the parameter's name, and a sentence stating the fact.
+- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes`, `network`, `blocking`, and
+  `resources` sensors record by default, and `files`, `environment`, `thread-activity`, and `thread-locals` when opted
+  in. `security-sinks` records, when opted in with `bootui.agent.security-sinks.request-values=true`, request input
+  reaching SQL text, a command, a file path, or an outbound URL unchanged: the redacted sink, the parameter's name, and a
+  sentence stating the fact.
 - Each request's end, which the adapters mark once its response is complete (Spring MVC once an async request's
   context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended), for the
   `thread-activity` sensor to check what the request left running and the `resources` sensor what it left open, each
@@ -922,7 +922,7 @@ Acceptance criteria:
   route, and, with `environment` opted in, a read of `sample.report.title`; the report's contents and the property's
   value never appear. The counterexamples: `GET /api/side-effects/scratch`'s file is under `$TMPDIR`, and
   `GET /api/side-effects/log`'s JDK logging handler file is grouped apart as logging.
-- The opt-in `thread-activity` sensor (M5-5e) records `Thread.start`, `VirtualThread.start`, the `ThreadPoolExecutor`,
+- The opt-in `thread-activity` sensor records `Thread.start`, `VirtualThread.start`, the `ThreadPoolExecutor`,
   `ForkJoinPool`, and thread-per-task executors' creations and shutdowns, a pool's own workers being its executor's
   row. The **Threads and leaks** tab shows rows by attribution, kind (`thread`, `virtual thread`, `executor`), target
   (the started thread's family or the executor's class), call site, and origin (`application`, `library`, `jdk`, the
@@ -933,7 +933,7 @@ Acceptance criteria:
   the counterexamples `GET /api/thread-activity/joined` (a thread joined before the response) and
   `GET /api/thread-activity/closed-pool` (an executor shut down in `finally`) are never left running, and neither is a
   library's or the server's own pool.
-- The opt-in `thread-locals` sensor (M5-5f) hooks nothing: when a request's or a job's scope on a pooled platform thread
+- The opt-in `thread-locals` sensor hooks nothing: when a request's or a job's scope on a pooled platform thread
   opens and closes (a Spring MVC request on its worker, a request's task on a pool's own worker, Spring WebFlux work
   Reactor's context propagation runs on `boundedElastic`, a Quarkus blocking resource method or managed executor task
   on its worker, a scheduled run), it scans the thread's thread-local maps, and a thread local with a value at the close
@@ -1275,7 +1275,7 @@ Features:
   their provenance (`advisorySymbolSource`): `OSV` from the matching `affected[]` entries' `ecosystem_specific` or
   `database_specific` `imports[].symbols`, `affected_functions`, or `symbols`; else `ADVISORY_TEXT` from fully qualified
   class names in the summary and details; else an explicit `NONE`.
-- Runtime reach (PLAN-v2 §5.15, M5-9a): with the BootUI agent's `inventory` sensor recording this run, both
+- Runtime reach: with the BootUI agent's `inventory` sensor recording this run, both
   `GET {api}/vulnerabilities` and `POST {api}/vulnerabilities/scan`, and so `get_vulnerabilities_report` and
   `vulnerabilities_scan`, carry `runtimeReach` on the report (`available`, `unavailableReason`, `generation`, `note`,
   and `incompleteReason`, said once when no dependency can be shown as not loaded),
@@ -1924,7 +1924,7 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   cached until the journal records more or a panel's enablement changes. Eligibility follows the observation's unit,
   not just its request count: a heap-growth check that examined collections is evaluated even with zero requests,
   whether it observed growth or a stable heap.
-  Each kind's external validation ([PLAN-v2.md](PLAN-v2.md) M4-20, recorded once in the engine's `ExternalValidation`)
+  Each kind's external validation (recorded once in the engine's `ExternalValidation`)
   decides whether its rows are listed by default, and is never exposed: no check, row, limitation, MCP or CLI text
   names it or a plan identifier, which `UserFacingPlanJargonTests` and the UI's `userFacingText.test.js` enforce.
   `PASSED` (`errors-behind-2xx`, `changed-code-not-executed`) and `NOT_VALIDATED` (kinds silent or never exercised on
@@ -1932,9 +1932,9 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   `connections-per-request`, `ai-usage-by-route`, each folded into the panel showing the same evidence, which links to
   its rows), `UNDER_SAMPLED` (`repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`,
   `framework-warnings-by-route`, `anonymous-data-reach`), `NOT_LISTED` (`gc-inflated-latency`, `heap-growth-after-gc`,
-  reached from the Memory panel), and `NOT_JUDGED` (any kind added after M4-20, D36) are not.
+  reached from the Memory panel), and `NOT_JUDGED` (any kind added after the external validation) are not.
   Every observation carries `listed`, whether the panel's and the agents' default list shows it, and, when it does
-  not, `unlistedReason` (M4-19, M4-20): for a kind that is not listed, where its evidence is shown (the panel it is
+  not, `unlistedReason`: for a kind that is not listed, where its evidence is shown (the panel it is
   folded into, the Memory panel, its own panel, or the full list, a search, or a query naming it), or else the kind's own rule. Within the kinds, a `route-time-breakdown` is prominent with a warm median of 20 ms or more, authorization
   taking 20 % of the warm time, or a median of 50 authorization decisions a request; `exception-hotspots` collapses the
   groups seen only behind 4xx responses into one counted row, unless (nearly) every request to their route, at least
@@ -1957,7 +1957,7 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   narrows the answer to that method's mapped routes (`observedFrom=HANDLER_MAPPING`); the class alone still includes
   the whole bean (`observedFrom=STRUCTURE`). With the BootUI agent's `code-paths` sensor, any application method is a
   symbol: `Class#method`, `Class.method(...)`, or `METHOD fq.Class#method`, with Java parameter types or a JVM
-  descriptor naming one overload (M5-7a, [PLAN-v2.md](PLAN-v2.md) §5.17). Its observed routes
+  descriptor naming one overload ([PLAN-v2.md](PLAN-v2.md) §5.17). Its observed routes
   (`observedFrom=ROUTE_TREES`) are those whose requests' own call trees ran it, at any depth, from each route's tree
   amended by late fragments, or Code Inventory's first-request route, never composed from `INVOKES` edges; each carries
   `executedRequests` and `partial`. `methods` lists the method keys it names, `methodStatus` what Code Inventory says,
@@ -1981,12 +1981,12 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   removed edges, the restart cost compared only between two restarts, and the warm latency last, labelled noisy. Each
   list holds at most 200 rows. `codeChanges`, shown first, lists with the BootUI agent the methods Code Inventory found
   changed or added since the previous run, not run yet first, each with its status and the routes whose call trees ran
-  it, with the change counts, removed methods counted only (M5-7a). It is `null` without the agent, and
+  it, with the change counts, removed methods counted only. It is `null` without the agent, and
   `available=false` with the reason while the inventory sensor or the Code Inventory panel cannot answer, or against a
   run other than the previous one. `sideEffects`, next, lists with the agent the side-effect keys (sensor, kind,
   masked target, and route, execution, or startup owner) new, gone, or whose owner this run did not exercise, from the
   `network`, `files`, `processes`, and `environment` sensors, each sensor `COMPARED`, `PARTIAL`, or `NOT_COMPARED`
-  with the reason when it did not record the whole of both runs (M5-7b); `null` without the agent.
+  with the reason when it did not record the whole of both runs; `null` without the agent.
 - `GET /bootui/api/runtime-insights/resource-profile` returns the **Profile resources** session ([PLAN-v2.md](PLAN-v2.md)
   §5.11): `IDLE`, `RUNNING`, `COMPLETED`, `FAILED`, or `UNAVAILABLE` with the reason, such as a runtime without JFR or a
   journal that does not record the `resources` source, and the last session's results. Reading it starts nothing.
@@ -3472,7 +3472,7 @@ Design rules:
     `resume_transaction_recording`, `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`,
     `resume_rest_client_recording`, `postgresql_read`, `mysql_read`, `analyze_heap_dump`, `trigger_devtools_livereload`,
     and `start_method_probe`, which retransforms one application method for at most 20 invocations or 60 seconds and
-    needs the user's separate approval (D24: refused by read-only policy, metadata only in every exposure mode).
+    needs the user's separate approval (refused by read-only policy, metadata only in every exposure mode).
 
   MySQL (§5.17.8) exposes cached read `get_mysql_report` and action `mysql_read`, both
   argument-free, on MVC/WebFlux/Quarkus with a supported JDBC datasource. The generated CLI equivalents are
@@ -3500,7 +3500,9 @@ Design rules:
   `2026-07-28`, or a repeated header, is `400`/`-32600`; `2026-07-28` without the modern `_meta` is a malformed modern
   request, `400`/`-32602` echoing the request id. The header is judged after the body is read, and the envelope fields
   `jsonrpc`, `method`, and `params.name` count only when they are strings, so both stacks answer a `null` or numeric
-  field with the same client error. A modern request is validated (version type, header agreement, supported version,
+  field with the same client error. A modern request is validated (a string or integer id, never `null`, fractional, or another type, and present unless
+  the method is a `notifications/` one, so a modern `tools/call` never runs unanswered; judged for any request with a
+  non-2025-06-18 or non-string `_meta` version, or a lone `2026-07-28` header; version type, header agreement, supported version,
   client capabilities, `Mcp-Method`, `Mcp-Name` with Base64 decoding, progress token type) with `400` and `-32602`,
   `-32020`, or `-32022` carrying `data.supported`. The modern era has `server/discover` but no `initialize` or `ping`,
   answers an unknown method with `404`, adds `resultType`, `_meta` server identity, and cache hints (`ttlMs: 60000`,
@@ -3511,7 +3513,9 @@ Design rules:
   tool whose operation reports measured phases through the engine's `OperationProgress` (`architecture_scan` and `vulnerabilities_scan`),
   from a client whose `Accept` explicitly lists `text/event-stream`, answers on a `text/event-stream` POST response with
   `X-Accel-Buffering: no`: rate-limited `notifications/progress` (burst 8, then one per 250 ms, coalescing to the
-  newest, flushed before the end) and exactly one final response, after which the stream closes. Events are `data:`
+  newest, flushed before the end, each dropped when it would exceed `bootui.mcp.max-response-bytes`) and exactly one
+  final response, after which the stream closes; a string progress token is at most 128 characters (refused when
+  modern, ignored when legacy). Events are `data:`
   lines with no ids; keep-alive comments every 2 seconds, so Spring MVC, which only notices a closed stream when a write
   fails, does so within about 4 seconds; WebFlux and Quarkus notice it at once. Closing a modern stream cancels the call:
   nothing more is written, the tool is interrupted and stops at its next step, and its concurrency permit is released

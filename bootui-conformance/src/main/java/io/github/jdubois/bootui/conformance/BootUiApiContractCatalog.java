@@ -288,6 +288,7 @@ public final class BootUiApiContractCatalog {
                             "supportedProtocolVersions", JsonType.ARRAY,
                             "timeouts", JsonType.INTEGER,
                             "cancellations", JsonType.INTEGER,
+                            "progressDropped", JsonType.INTEGER,
                             "toolCount", JsonType.INTEGER,
                             "tools", JsonType.ARRAY)),
             read(
