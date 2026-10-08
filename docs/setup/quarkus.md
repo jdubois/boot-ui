@@ -24,7 +24,7 @@ Quarkus **3.33.4 LTS** and **3.39.5**. Quarkus 3.39 is the most recently release
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-quarkus</artifactId>
-  <version>1.20.0</version>
+  <version>1.21.0</version>
 </dependency>
 ```
 
@@ -32,12 +32,12 @@ Quarkus **3.33.4 LTS** and **3.39.5**. Quarkus 3.39 is the most recently release
 
 ```groovy
 // Groovy DSL (build.gradle)
-implementation 'com.julien-dubois.bootui:bootui-quarkus:1.20.0'
+implementation 'com.julien-dubois.bootui:bootui-quarkus:1.21.0'
 ```
 
 ```kotlin
 // Kotlin DSL (build.gradle.kts)
-implementation("com.julien-dubois.bootui:bootui-quarkus:1.20.0")
+implementation("com.julien-dubois.bootui:bootui-quarkus:1.21.0")
 ```
 
 :::
