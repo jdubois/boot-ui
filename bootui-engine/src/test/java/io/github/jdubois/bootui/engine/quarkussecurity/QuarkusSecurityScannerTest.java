@@ -1478,6 +1478,7 @@ class QuarkusSecurityScannerTest {
                 "QS-MSG-001",
                 "QS-PROXY-001");
         assertThat(ids).hasSize(QuarkusSecurityChecks.ruleCount()).doesNotHaveDuplicates();
+        assertThat(ids).containsExactlyInAnyOrderElementsOf(QuarkusSecurityChecks.ruleIds());
         // Verified against the pinned Quarkus 3.33 guides and anchors; only the authentication-absence rule uses the
         // overview.
         assertThat(ids)
@@ -1515,14 +1516,23 @@ class QuarkusSecurityScannerTest {
 
     @Test
     void nullOrFailedSnapshotHasValueFreeAnalysisError() {
-        var report = QuarkusSecurityScanner.usingSnapshot(
-                        () -> {
-                            throw new IllegalArgumentException("secret-value");
-                        },
-                        CLOCK)
-                .scan();
+        QuarkusSecurityScanner failing = QuarkusSecurityScanner.usingSnapshot(
+                () -> {
+                    throw new IllegalArgumentException("secret-value");
+                },
+                CLOCK);
+        var report = failing.scan();
         assertThat(report.scan().status()).isEqualTo("ERROR");
         assertThat(report.analysisErrors()).hasSize(1);
+        String analysisId = report.analysisErrors().get(0).id();
+        assertThatThrownBy(() -> failing.ruleViolations(
+                        analysisId, report.violationDetails().scanId(), 0, null))
+                .as("the report lists its analysis entry, so its id is not an unknown rule")
+                .isInstanceOfSatisfying(
+                        io.github.jdubois.bootui.engine.advisor.AdvisorViolationException.class,
+                        failure -> assertThat(failure.getMessage())
+                                .isEqualTo(
+                                        io.github.jdubois.bootui.engine.advisor.AdvisorScanState.NO_FINDINGS_MESSAGE));
         assertThat(report.toString()).doesNotContain("secret-value");
         assertThat(QuarkusSecurityScanner.usingSnapshot(() -> null, CLOCK)
                         .scan()
@@ -1632,5 +1642,32 @@ class QuarkusSecurityScannerTest {
         s.corsOrigins = "/.*/,https://app.example";
         assertThat(find(scan(s), "QS-CORS-002")).isNotNull();
         assertThat(find(scan(s), "QS-CORS-001")).isNull();
+    }
+
+    @Test
+    void everyRuleIdTheChecksEmitIsInTheCatalogueDetailReadsUse() throws java.io.IOException {
+        String source = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/io/github/jdubois/bootui/engine/quarkussecurity/QuarkusSecurityChecks.java"));
+        int learnMore = source.indexOf("static String learnMore(String id)");
+        int catalogue = source.indexOf("RULE_IDS = List.of(");
+        assertThat(learnMore)
+                .as("the learnMore guide map is excluded: it may name rules no check emits")
+                .isPositive();
+        assertThat(catalogue).isPositive();
+        int catalogueEnd = source.indexOf(");", catalogue);
+        int learnMoreEnd = source.indexOf("\n    }\n", learnMore);
+        String checks = source.substring(0, catalogue)
+                + source.substring(catalogueEnd, learnMore)
+                + source.substring(learnMoreEnd);
+        java.util.Set<String> emitted = new java.util.TreeSet<>();
+        java.util.regex.Matcher literal =
+                java.util.regex.Pattern.compile("\"(QS-[A-Z]+-\\d+)\"").matcher(checks);
+        while (literal.find()) {
+            emitted.add(literal.group(1));
+        }
+        assertThat(emitted).isNotEmpty();
+        assertThat(QuarkusSecurityChecks.ruleIds())
+                .as("a rule id a check names but RULE_IDS lacks would answer Unknown advisor rule")
+                .containsAll(emitted);
     }
 }

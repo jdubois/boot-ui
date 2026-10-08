@@ -920,6 +920,9 @@ final class QuarkusSecurityChecks {
             List<String> samples,
             String recommendation,
             List<String> details) {
+        if (!RULE_IDS.contains(id)) {
+            throw new IllegalStateException("Quarkus security rule " + id + " is missing from RULE_IDS.");
+        }
         // Unknown-evidence results are removed from the report and must not consume the detail budget.
         if (collector != null && !unknownRules.contains(id)) {
             collector.record(id, count, details, value -> DetailText.sanitize(CredentialRedaction.redact(value)));
