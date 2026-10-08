@@ -834,9 +834,10 @@ beans, repositories, tables, caches, hosts, and events of the run's model, each 
 checks exactly that node. It resolves the name to exactly one node of the run's model, or lists the candidates when it
 names several, and then lists, eight rows each with totals: the routes that reach that code through the bean graph and
 ran in this run, with their requests, anonymous and failed requests, the tables and caches they read and wrote, and
-requests to open; the mapped routes that reach it and did not run, each with a reminder to exercise it; and the routes
-outside its reach that use a table, cache, or host the routes through it touched. A route is its own impact, listed with
-the routes that share what it touched. A handler method, such as `ProductController#list` or
+requests to open; **Reaches it, but didn't run**, the mapped routes that reach it and did not run, each with a reminder
+to exercise it and a link to the separate, app-wide **Not exercised in this run** list in **Coverage & limits**; and the
+routes outside its reach that use a table, cache, or host the routes through it touched. A route is its own impact,
+listed with the routes that share what it touched. A handler method, such as `ProductController#list` or
 `com.example.ProductController#list`, narrows the impact to the routes mapped to it, so the class's other routes appear
 only when they share what it touched; a method no route is mapped to is reported not found rather than widened to its class, and the
 class name alone still checks the whole bean. With the BootUI agent's `code-paths` sensor, any application method can be
@@ -846,10 +847,11 @@ ran it, read from each route's tree at any depth, the first request, executor wo
 that arrived after their tree settled included, or the route of the first request Code Inventory saw run it; they are
 never composed from the calls observed across requests, and each lists how many of its requests ran the method, marked
 **partial** when its trees folded methods away or a late fragment arrived after its tree was forgotten. The routes that
-reach its bean are then split: those with no traffic are **not exercised**; those that ran without their call trees
-showing it are listed apart, **ran without showing it**, with why that proves nothing (a private, static, or lambda
-method the sensor does not time, a method it excluded, trees still settling, requests without a tree, an assembly-only
-handler); and a route that ran is called not exercised only when Code Inventory saw the method never run in this run.
+reach its bean are then split: those with no traffic are listed as **Reaches it, but didn't run it**; those that ran
+without their call trees showing it are listed apart, **ran without showing it**, with why that proves nothing (a
+private, static, or lambda method the sensor does not time, a method it excluded, trees still settling, requests
+without a tree, an assembly-only handler); and a route that ran joins them only when Code Inventory saw the method never
+run in this run.
 The structural reach is a count, kept apart from what ran, since a route's
 traffic does not prove that a request went through the changed code. Spring MVC and WebFlux read the bean graph and
 Quarkus its ArC injection edges; when the beans cannot be read, the impact says so rather than listing nothing.

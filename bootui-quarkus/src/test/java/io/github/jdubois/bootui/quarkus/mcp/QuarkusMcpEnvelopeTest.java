@@ -485,6 +485,40 @@ class QuarkusMcpEnvelopeTest {
     }
 
     @Test
+    void streamFinalResponsesStayOneLineWithAnIndentingApplicationMapper() throws Exception {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        McpDispatcher dispatcher = new McpDispatcher(
+                List.of(tool(args -> java.util.Map.of("name", "demo"))),
+                List.of(),
+                new AllowAllPolicy(),
+                "1.2.3",
+                "instructions",
+                50,
+                20,
+                diagnostics);
+        ObjectMapper indenting =
+                new ObjectMapper().enable(com.fasterxml.jackson.databind.SerializationFeature.INDENT_OUTPUT);
+        QuarkusMcpEnvelope envelope = new QuarkusMcpEnvelope(dispatcher, indenting, diagnostics);
+
+        String finalResponse = envelope.renderFinal(
+                objectMapper.readTree("7"),
+                io.github.jdubois.bootui.engine.mcp.McpEra.MODERN,
+                new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult(
+                        java.util.Map.of("name", "demo")));
+
+        assertThat(finalResponse).doesNotContain("\n", "\r");
+        // The text content is a JSON string, so the mapper's line breaks inside it are escaped; the envelope is
+        // compact.
+        assertThat(McpProtocol.sseDataFrame(finalResponse))
+                .startsWith("data:{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"resultType\":\"complete\","
+                        + "\"content\":[{\"type\":\"text\",\"text\":\"")
+                .endsWith(
+                        "\"}],\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
+                                + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}\n\n");
+        assertThat(diagnostics.count).hasValue(0);
+    }
+
+    @Test
     void streamFramesAreTheSameBytesOnEveryStack() throws Exception {
         QuarkusMcpEnvelope envelope =
                 envelope(tool(args -> java.util.Map.of("name", "demo")), new RecordingFailureReporter());

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.mcp;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -60,6 +61,32 @@ public final class McpProtocol {
     public static final String SSE_EVENT_END = "\n\n";
     /** An SSE comment: a keep-alive that clients ignore. */
     public static final String SSE_HEARTBEAT = ":\n\n";
+
+    /**
+     * One JSON-RPC message as an SSE event: {@code data:}, the message, and the event terminator. The message must be
+     * compact JSON on one line, because an SSE parser ends the {@code data:} field at the first line break and the
+     * remaining lines would be lost or reassembled differently by each stack; a line break is refused rather than
+     * written.
+     *
+     * @throws IllegalArgumentException if {@code json} contains a carriage return or a line feed
+     */
+    public static String sseDataFrame(String json) {
+        return SSE_DATA_PREFIX + sseData(json) + SSE_EVENT_END;
+    }
+
+    /**
+     * {@code json} itself, after checking that it fits one SSE {@code data:} line, for transports that write the
+     * {@code data:} field themselves.
+     *
+     * @throws IllegalArgumentException if {@code json} contains a carriage return or a line feed
+     */
+    public static String sseData(String json) {
+        Objects.requireNonNull(json, "json");
+        if (json.indexOf('\n') >= 0 || json.indexOf('\r') >= 0) {
+            throw new IllegalArgumentException("An MCP stream event must be one line of compact JSON");
+        }
+        return json;
+    }
     /** JSON-RPC method of a progress notification. */
     public static final String PROGRESS_NOTIFICATION = "notifications/progress";
 

@@ -24,6 +24,9 @@ const props = defineProps({
   changedTotal: {type: Number, default: 0}
 })
 
+// The parent owns the tabs: this asks it to open Coverage & limits on the app-wide list of routes no request reached.
+const emit = defineEmits(['show-coverage'])
+
 const CHANGED_SHOWN = 6
 
 const SUGGEST_DELAY_MS = 150
@@ -303,6 +306,16 @@ const methodStatus = computed(() => methodStatusText(impact.value?.methodStatus)
                 {{ list.title }}
                 <span class="text-muted fw-normal small">· {{ formatNumber(list.total) }}</span>
               </h3>
+              <p v-if="list.id === 'not-exercised'" class="small text-muted mb-1 insight-impact-scope">
+                Only routes that reach what you checked; for the app-wide list of routes no request reached,
+                <button
+                  type="button"
+                  class="btn btn-link btn-sm p-0 align-baseline insight-impact-coverage-link"
+                  @click="emit('show-coverage')"
+                >
+                  see Coverage &amp; limits
+                </button>
+              </p>
               <p v-if="list.rows.length === 0" class="small text-muted mb-0">{{ list.empty }}</p>
               <ul v-else class="list-unstyled mb-0 insight-impact-rows">
                 <li v-for="route in list.rows" :key="route.route" class="insight-impact-row">
