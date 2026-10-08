@@ -191,9 +191,9 @@ on subclasses from the previous claim. The replacement transformer uses the new 
 ## The executors sensor
 
 A claim asks for the sensors in `bootui.agent.sensors`: `executors`, [`inventory`](#the-inventory-sensor),
-[`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), [`network`](#the-network-sensor), and
-[`blocking`](#the-blocking-sensor), the defaults, and the opt-in [`threads`](#the-threads-sensor),
-[`files`](#the-files-sensor), [`environment`](#the-environment-sensor),
+[`code-paths`](#the-code-paths-sensor), [`processes`](#the-processes-sensor), [`network`](#the-network-sensor),
+[`blocking`](#the-blocking-sensor), and [`resources`](#the-resources-sensor), the defaults, and the opt-in
+[`threads`](#the-threads-sensor), [`files`](#the-files-sensor), [`environment`](#the-environment-sensor),
 [`thread-activity`](#the-thread-activity-sensor), [`thread-locals`](#the-thread-locals-sensor), and
 [`caught-exceptions`](#the-caught-exceptions-sensor). The agent
 installs each one once, on its own thread, then
@@ -927,14 +927,14 @@ sensor is not claimed.
 ### JDK checks
 
 With `security-sinks` in `bootui.agent.sensors`, whatever `bootui.agent.security-sinks.request-values` says, the
-sensor also hooks the JDK's security APIs (M5-6b2) and records three kinds of facts as Security sinks rows, each worded
+sensor also hooks the JDK's security APIs and records three kinds of facts as Security sinks rows, each worded
 as what was seen, never as a vulnerability:
 
 | Check | Hooks | Recorded | The row |
 | --- | --- | --- | --- |
-| Deserialization without a filter | `ObjectInputStream.readObject()` (core), `resolveClass` (optional) | The outermost `readObject` on a thread whose stream has no `ObjectInputFilter`: its own, which the JVM's filter factory set from `jdk.serialFilter` when the stream was built | The first class read, the others (at most 16, merged per call site), and the call site: "Deserialization without an ObjectInputFilter at `CacheCodec#decode` (classes read: …)" |
+| Deserialization without a filter | `ObjectInputStream.readObject()` and `readUnshared()` (core), `resolveClass` (optional) | The outermost read of a stream that has no `ObjectInputFilter`: its own, which the JVM's filter factory set from `jdk.serialFilter` when the stream was built | The first class read, the others (at most 16, merged per call site), and the call site: "Deserialization without an ObjectInputFilter at `CacheCodec#decode` (classes read: …)" |
 | Weak algorithms | `MessageDigest.getInstance`, every overload, and `Cipher.getInstance(String)` and `(String, Provider)` (core) | MD5, MD2, SHA-1, DES, DESede, RC4, a block cipher (AES, Blowfish, RC2) in ECB mode, or by its bare name, which defaults to ECB. `RSA/ECB/...` is not | The algorithm and who asked: "Weak algorithm MD5 requested by application code at `UserService#hash`", or "by library code X for application frame Y", grouped apart as a library's |
-| Trust managers and hostname verifiers | `SSLContext.init` (core), `HttpsURLConnection.setDefaultHostnameVerifier` and `setDefaultSSLSocketFactory` (optional) | A trust manager whose class is in the application's packages, nested and anonymous classes included; a default the application, not a library, installed | The class, a lambda's cut before its hidden-class suffix, and the installer's call site |
+| Trust managers and hostname verifiers | `SSLContext.init` (core), `HttpsURLConnection.setDefaultHostnameVerifier` and `setDefaultSSLSocketFactory` (optional) | A trust manager whose class is in the application's packages, nested and anonymous classes included; one of the library trust-alls listed below; a default the application, not a library, installed | The class, a lambda's cut before its hidden-class suffix, and the installer's call site |
 
 Only what passes an allocation-free check takes the slow path: an algorithm's name, a stream's filter, a trust
 manager's package. A bounded `StackWalker` walk then finds the immediate caller past reflection: a caller in the JDK,
@@ -956,12 +956,27 @@ is off). A group whose core hook fails, or whose checks reach their own budget o
 alone, its reason on the sensor's row; request-value matching and the other groups keep running. The sensor's reason lists the
 groups that run, then request-value matching's state.
 
-Not checked: `readUnshared`, classes a subclass resolves itself (the row then says "not named"), `KeyGenerator`,
+Library trust managers that accept every certificate (or, for `TrustSelfSignedStrategy`, every self-signed one) are
+recognized by exact class name only, at `SSLContext.init`:
+Netty's `io.netty.handler.ssl.util.InsecureTrustManagerFactory` (its trust manager, a nested class), Vert.x's
+`io.vertx.core.net.impl.TrustAllTrustManager`, and Apache HttpClient's `TrustAllStrategy` and `TrustSelfSignedStrategy`
+(`org.apache.hc.client5.http.ssl` and `org.apache.http.conn.ssl`). They are found inside Netty's
+`ResumptionController$X509ExtendedWrapTrustManager`, `EnhancingX509ExtendedTrustManager`, and
+`util.X509TrustManagerWrapper` (Netty 4.1 wraps its insecure trust manager in it) and Apache's
+`SSLContextBuilder$TrustManagerDelegate` (`org.apache.hc.core5.ssl`, `org.apache.http.ssl`,
+`org.apache.http.conn.ssl`), whose wrapped object the agent reads from the wrapper's own field on this rare path; an application trust manager or
+trust strategy inside one, as `loadTrustMaterial(null, (chain, type) -> true)` passes, is shown as the application's. Such
+a row is a library's when Netty, Vert.x, or Apache initialized the context, with the application frame above it. Not
+detected: any other library's trust-all, a wrapper in a module that does not open its package to the agent, and Netty's
+OpenSSL provider, which never calls `SSLContext.init`.
+
+A stream's own nested reads, as a `HashMap`'s entries, are recognized by the stream's own nesting depth and cost no
+more than a field read. Not checked: classes a subclass resolves itself (the row then says "not named"), `KeyGenerator`,
 `Signature`, `Mac`, `SecureRandom`, and PBE algorithms, and a library's own default verifier or factory, which is only
-counted. The checks stay opt-in (D37) with the sensor: the `agent-overhead` job measures them on a route with a SHA-256
-digest, an AES/GCM cipher, a filtered read, and one application MD5 per request, and prints whether they would meet
-the default rule, judged by the lower bound of each median's interval as D48 does (own increment at most 3 %, cumulative
-at most 10 %), without failing the build; see [Overhead](#overhead) for the measured numbers.
+counted. The checks stay opt-in with the sensor: the `agent-overhead` job measures them on a route with a SHA-256
+digest, an AES/GCM cipher, a filtered read, and one application MD5 per request, and prints whether they would meet the
+default rule, judged by the lower bound of each median's 95 % interval (own increment at most 3 %, cumulative at most
+10 %), without failing the build; see [Overhead](#overhead) for the measured numbers.
 
 ## The blocking sensor
 
@@ -1182,9 +1197,84 @@ thread local set, removes one, sets one to `null`, and expects exactly the three
 scope; then resolves the plain one to its static field. Its two pseudo-hooks, `ThreadLocalMap.scan` and
 `ThreadLocal.holder`, report the result in the Java Agent panel.
 
+## The resources sensor
+
+The `resources` sensor, on by default (D47), reports the streams, channels, and sockets a request's or a job's work opened and left
+open past its request, or never closed before the garbage collector reclaimed them, for the [Side
+Effects](#side-effects) panel's **Threads and leaks** tab, `get_side_effects`, and `bootui side-effects`. It never
+records a byte read or written: a row's target is the path pattern or the host and port the [`files`](#the-files-sensor)
+and [`network`](#the-network-sensor) rows show.
+
+**Opens.** It has no open hook of its own: the `files` and `network` sensors' hooks hand it the object they opened once
+they recorded it, so it sees files only while `files` is on, and sockets while `network` is on (by default). It tracks a
+`FileInputStream`, `FileOutputStream`, or `RandomAccessFile`, a `FileChannel` (`FileChannel.open`,
+`Files.newByteChannel`, and the channel under `Files.newInputStream`, `newOutputStream`, and `lines`), a `Socket`
+(plain or TLS), and a `SocketChannel`, of the JDK's exact channel and socket classes only, so a custom file system
+provider's channel or a `Socket` subclass, which may release its descriptor elsewhere, is never tracked. Only an open
+that a request or a job owns, with a frame of the application's packages on the stack, is tracked: the row's origin is
+**Opened by the application** when the first frame outside the JDK (for a socket, the first frame outside the socket
+plumbing, so the JDK's `HttpClient` is a library) is the application's, else **Opened by a library the application
+called**. BootUI's and the agent's own work, work no request or job owns, class loading, and the JDK's own files are
+never tracked.
+
+| Hook | What it covers |
+| --- | --- |
+| `FileInputStream.close`, `FileOutputStream.close`, `RandomAccessFile.close` | a stream's close, its subclasses' `super.close()`, and its channel's close |
+| `FileChannelImpl.implCloseChannel` | a file channel's close, and its close by the interruption of a thread blocked on it |
+| `Socket.close` | a plain or TLS socket's close, and its streams' |
+| `AbstractSelectableChannel.implCloseChannel` | a socket channel's close or interruption |
+| `FileChannelImpl.setUninterruptible` | hands the channel a provider's `newInputStream` or `newOutputStream` opened to the files hook |
+
+The close hooks run at the exit of the close, normal or not, and only mark the resource's entry closed: one read of a
+counter for a kind with nothing tracked, else one identity lookup, never a lock. They are the sensor's own transformer,
+so switching `files` or `environment` never removes them while a resource is tracked.
+
+**Not a `Cleaner`** (D46). Each tracked resource is a weak reference with the open's owner, target, and frames, at most
+1,024 at a time (the panel says when one was not tracked), polled by the agent's drain thread through a reference
+queue, as the thread-activity sensor's executors are: a `Cleaner`'s phantom reference cannot be found again by identity
+when the resource is closed, and each `Cleaner` starts a thread. Nothing captures the resource, its class, or its class
+loader; a close never clears the reference, it sets a flag.
+
+**Reports.** Each adapter's request end, the same one the thread-activity sensor hears, whether that sensor is on or
+not, is checked 250 ms later: a resource of that request opened before its end and still open, by its own state read
+through the JDK's final methods, is counted **Open after request**; once it is closed later, **Closed after request**.
+Both are a hand-off, as a connection pool's sockets or a cache's file, and often intended. A resource the collector finds
+unreachable while never closed is counted **Reclaimed without close()**, the leak, whether owned by a request or a job,
+and is the only count a run comparison keys on. A resource closed before its request ended, as in try-with-resources or a
+`finally`, is never reported. Each resource is counted once on its row (`count`, with its distinct `requests`).
+
+**Guarding against false reports.** A resource kind is tracked only while its close hook is installed and passed its
+self-test. Each
+sweep also reads every tracked resource's own state: one closed for 30 seconds while its hook never said so is counted
+as a missed close, and the collector's reclaims of its kind are no longer reported for the run: closes the hooks miss
+systematically are detected and switch reclaims of that kind off, though a resource collected before the check sees
+its missed close can still read as reclaimed. Switching the sensor off
+forgets what it tracked before its close hooks are removed, and an open racing the switch is never kept. A weak
+reference is cleared before finalization, so a reclaim means the resource became unreachable while still open. A TLS
+socket's own state reads its TLS session, not its socket, so one another thread closed while it was still connecting
+may later read as reclaimed without `close()`.
+
+**Self-test**, on the sensor's own thread, never creating a file or touching the network: streams over an invalid file
+descriptor and the channel of one, an unconnected socket, a socket channel opened and closed without I/O, and the JDK's
+own `release` file opened read-only through `RandomAccessFile` and `Files.newInputStream`. A hook that fails leaves its
+kind untracked; the sensor fails when no close hook passed. Forked-JVM tests run its behaviors on JDK 17, 21, and the
+newest verified JDK, alone and beside the OpenTelemetry agent in both orders, with a library pool's socket and the JDK
+`HttpClient`'s pool as counterexamples, never reported reclaimed.
+
+**Cost.** The `agent-overhead-resources` job of `build.yml` measures it on the benchmark's I/O route (one socket
+connected and closed and one file read per request), fifteen same-runner pairs each: its first run measured its own
+median increment at -0.5 % over the default sensors (pairs -12.2 to 12.0 %), 0.3 % beside `files`, and the cumulative
+median at 6.9 % (pairs 2.0 to 18.2 %), within the 3 % and 10 % budgets, so it is on by default (D47, an exception to
+D37's opt-in rule). That job now fails CI when its own increment exceeds 3 %. It still prints the cumulative median,
+for the record only, with its 95 % interval and what D48's rule would say: that figure is mostly the other default
+sensors' overhead (10.7 % and 11.7 % on noisy runners later), which the `agent-overhead` job gates under D48. It tracks
+sockets by default,
+through `network`; file streams and channels need the opt-in `files` sensor, and the panel says so while `files` is off.
+Like the other default sensors, it is not switched at run time: leave it out of `bootui.agent.sensors` to turn it off.
+
 ## The caught-exceptions sensor
 
-`bootui.agent.sensors=executors,inventory,code-paths,processes,network,blocking,caught-exceptions` adds the opt-in `caught-exceptions`
+`bootui.agent.sensors=executors,inventory,code-paths,processes,network,blocking,resources,caught-exceptions` adds the opt-in `caught-exceptions`
 sensor, which reports the exceptions application code catches and which of them are thrown again. It records the
 events in the runtime journal's `agent.caught-exceptions` source, owned by the Exceptions panel, whose
 [**Caught in application code**](diagnostics.md#caught-in-application-code) section reads what became of each one.
@@ -1288,7 +1378,7 @@ median interval's lower bound is above the 10 % budget. The blocking check appli
 cumulative checks below still read the plain median until one of them is proposed for the defaults. A median that stays above 10 % across runs, with intervals
 that still reach below it, is a reason to measure more pairs.
 
-The `security-sinks` sensor's JDK checks are opt-in. On the checks route, in one CI run (#1302, 15 pairs each), their own
+The `security-sinks` sensor's JDK checks are opt-in. On the checks route, in one CI run before they shipped (15 pairs each), their own
 increment over the default sensors, request-value matching off, had a median of 3.9 % with a 95 % interval of
 [0.4, 6.8] % (pairs −3.1 to 11.7 %). That median is above the 3 % default rule; the interval's lower bound is not. The
 cumulative overhead with them had a median of 8.8 % [3.4, 11.7] %. These numbers are not enough to make the checks a
@@ -1354,7 +1444,7 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`, and the opt-in `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks`. The Side Effects sensors this version does not ship (`resources`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, `resources` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, and `resources`, and the opt-in `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks`. Any other id fails the start while the agent is attached. |
 | `bootui.agent.security-sinks.request-values` | `false` | With the `security-sinks` sensor, holds the current request's query and path parameter values while it runs, so a sink it reaches can be checked for one appearing verbatim ([the security-sinks sensor](#the-security-sinks-sensor)). Never stored, logged, or displayed. Read at startup: the sensor's runtime switch never turns it on. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
@@ -1656,7 +1746,7 @@ The Side Effects panel shows what application code starts outside the JVM or tou
 route, background work, startup, or thread family. It needs the [BootUI agent](#attaching-the-agent) attached and armed for the
 application with a bridge that supports Side Effects. Without that, the panel is unavailable with the Java Agent panel's
 reason, starting with "Requires the BootUI agent". It is view-only on Spring MVC, Spring WebFlux, and Quarkus, except
-that an opt-in sensor's section (`files`, `environment`, `thread-activity`) carries its [runtime
+that an opt-in sensor's section (`files`, `environment`, `thread-activity`, `thread-locals`) carries its [runtime
 switch](#switching-opt-in-sensors-at-run-time), an action of the Java Agent panel shown while that panel is enabled,
 with `bootui.agent.sensors` as the other way to turn it on.
 
@@ -1671,7 +1761,7 @@ The panel has one tab per sensor group:
 | Network | `network` | records connects, datagram sends, and name lookups (see [the network sensor](#the-network-sensor)) |
 | Files and processes | `files`, `processes` | Both record; `processes` is on by default and `files` records when `bootui.agent.sensors` opts in or it is switched on. |
 | Environment | `environment` | Records when `bootui.agent.sensors` opts in or it is switched on; otherwise `not-claimed`. |
-| Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `thread-activity` and `thread-locals` record when `bootui.agent.sensors` opts in or they are switched on (see [the thread-activity sensor](#the-thread-activity-sensor) and [the thread-locals sensor](#the-thread-locals-sensor)); `resources` is `not-available`: Not available in this version. |
+| Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `resources` records by default, sockets through `network` and file streams once `files` is on (see [the resources sensor](#the-resources-sensor)); `thread-activity` and `thread-locals` record when `bootui.agent.sensors` opts in or they are switched on (see [the thread-activity sensor](#the-thread-activity-sensor) and [the thread-locals sensor](#the-thread-locals-sensor)). |
 | Blocking | `blocking` | records on Spring WebFlux and Quarkus; `not-applicable` on Spring MVC until a WebClient's event loop is registered. |
 | Security sinks | `security-sinks` | Records deserialization without a filter, weak algorithms, and trust managers and hostname verifiers when `bootui.agent.sensors` opts in or its runtime switch is on, and request input reaching SQL text, a command, a file path, or an outbound URL with `bootui.agent.security-sinks.request-values=true` too (see [the security-sinks sensor](#the-security-sinks-sensor)). |
 

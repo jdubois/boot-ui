@@ -45,7 +45,8 @@ final class SideEffectsAdvice {
 
     /**
      * {@code Socket.connect(SocketAddress,int)}, which every blocking {@code Socket} connect reaches, {@code
-     * SSLSocketImpl.connect} through {@code super}. Reads only the endpoint argument, never calls the socket.
+     * SSLSocketImpl.connect} through {@code super}. Reads only the endpoint argument, never calls the socket, which it
+     * passes as an identity key for the resources sensor.
      */
     static final class SocketConnect {
 
@@ -56,8 +57,11 @@ final class SideEffectsAdvice {
 
         @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
         static void exit(
-                @Advice.Enter long token, @Advice.Argument(0) SocketAddress endpoint, @Advice.Thrown Throwable thrown) {
-            SideEffects.connected(token, SideEffects.HOOK_SOCKET_CONNECT, null, endpoint, true, thrown);
+                @Advice.Enter long token,
+                @Advice.This Object socket,
+                @Advice.Argument(0) SocketAddress endpoint,
+                @Advice.Thrown Throwable thrown) {
+            SideEffects.connected(token, SideEffects.HOOK_SOCKET_CONNECT, null, endpoint, true, socket, thrown);
         }
     }
 
@@ -79,7 +83,7 @@ final class SideEffectsAdvice {
                 @Advice.Argument(0) SocketAddress remote,
                 @Advice.Return boolean finished,
                 @Advice.Thrown Throwable thrown) {
-            SideEffects.connected(token, SideEffects.HOOK_CHANNEL_CONNECT, channel, remote, finished, thrown);
+            SideEffects.connected(token, SideEffects.HOOK_CHANNEL_CONNECT, channel, remote, finished, channel, thrown);
         }
     }
 
@@ -93,8 +97,12 @@ final class SideEffectsAdvice {
 
         @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
         static void exit(
-                @Advice.Enter long token, @Advice.Argument(0) SocketAddress remote, @Advice.Thrown Throwable thrown) {
-            SideEffects.connected(token, SideEffects.HOOK_CHANNEL_BLOCKING_CONNECT, null, remote, true, thrown);
+                @Advice.Enter long token,
+                @Advice.This Object channel,
+                @Advice.Argument(0) SocketAddress remote,
+                @Advice.Thrown Throwable thrown) {
+            SideEffects.connected(
+                    token, SideEffects.HOOK_CHANNEL_BLOCKING_CONNECT, null, remote, true, channel, thrown);
         }
     }
 
@@ -180,10 +188,14 @@ final class SideEffectsAdvice {
         }
 
         @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
-        static void exit(@Advice.Enter long token, @Advice.Argument(0) String name, @Advice.Thrown Throwable thrown) {
+        static void exit(
+                @Advice.Enter long token,
+                @Advice.This Object stream,
+                @Advice.Argument(0) String name,
+                @Advice.Thrown Throwable thrown) {
             if (token != 0L) {
                 SideEffects.fileOpened(
-                        token, SideEffects.HOOK_FILE_INPUT_STREAM, SideEffects.KIND_FILE_READ, name, thrown);
+                        token, SideEffects.HOOK_FILE_INPUT_STREAM, SideEffects.KIND_FILE_READ, name, stream, thrown);
             }
         }
     }
@@ -199,10 +211,14 @@ final class SideEffectsAdvice {
         }
 
         @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
-        static void exit(@Advice.Enter long token, @Advice.Argument(0) String name, @Advice.Thrown Throwable thrown) {
+        static void exit(
+                @Advice.Enter long token,
+                @Advice.This Object stream,
+                @Advice.Argument(0) String name,
+                @Advice.Thrown Throwable thrown) {
             if (token != 0L) {
                 SideEffects.fileOpened(
-                        token, SideEffects.HOOK_FILE_OUTPUT_STREAM, SideEffects.KIND_FILE_WRITE, name, thrown);
+                        token, SideEffects.HOOK_FILE_OUTPUT_STREAM, SideEffects.KIND_FILE_WRITE, name, stream, thrown);
             }
         }
     }
@@ -220,11 +236,12 @@ final class SideEffectsAdvice {
         @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
         static void exit(
                 @Advice.Enter long token,
+                @Advice.This Object file,
                 @Advice.Argument(0) String name,
                 @Advice.Argument(1) int mode,
                 @Advice.Thrown Throwable thrown) {
             if (token != 0L) {
-                SideEffects.randomAccessOpened(token, name, mode, thrown);
+                SideEffects.randomAccessOpened(token, name, mode, file, thrown);
             }
         }
     }
@@ -244,9 +261,10 @@ final class SideEffectsAdvice {
                 @Advice.Enter long token,
                 @Advice.Argument(0) Object path,
                 @Advice.Argument(1) Set<?> options,
+                @Advice.Return Object channel,
                 @Advice.Thrown Throwable thrown) {
             if (token != 0L) {
-                SideEffects.channelOpened(token, SideEffects.HOOK_NEW_BYTE_CHANNEL, path, options, thrown);
+                SideEffects.channelOpened(token, SideEffects.HOOK_NEW_BYTE_CHANNEL, path, options, channel, thrown);
             }
         }
     }
@@ -266,9 +284,10 @@ final class SideEffectsAdvice {
                 @Advice.Enter long token,
                 @Advice.Argument(0) Object path,
                 @Advice.Argument(1) Set<?> options,
+                @Advice.Return Object channel,
                 @Advice.Thrown Throwable thrown) {
             if (token != 0L) {
-                SideEffects.channelOpened(token, SideEffects.HOOK_FILE_CHANNEL, path, options, thrown);
+                SideEffects.channelOpened(token, SideEffects.HOOK_FILE_CHANNEL, path, options, channel, thrown);
             }
         }
     }
@@ -487,12 +506,15 @@ final class SideEffectsAdvice {
         }
     }
 
-    /** {@code ObjectInputStream.readObject()}: the stream at entry, for its filter; the outermost call ends at exit. */
+    /**
+     * {@code ObjectInputStream.readObject()} and {@code readUnshared()}: the stream at entry, for its filter, with its own {@code depth} field, 0 only
+     * at its outermost call (JDK 17 to 26), so a nested element's read returns at once; the outermost call ends at exit.
+     */
     static final class ReadObject {
 
         @Advice.OnMethodEnter(suppress = Throwable.class)
-        static long enter(@Advice.This java.io.ObjectInputStream stream) {
-            return SecuritySinks.reading(stream);
+        static long enter(@Advice.This java.io.ObjectInputStream stream, @Advice.FieldValue("depth") long depth) {
+            return SecuritySinks.reading(stream, depth);
         }
 
         @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)

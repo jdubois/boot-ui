@@ -110,6 +110,8 @@ public final class SecurityChecksBehaviors {
                 jdkOwnUseIsNotRecorded();
                 unfilteredDeserialization();
                 filteredDeserialization();
+                nestedMapsAreOneReadEach();
+                unsharedReadIsRecorded();
                 trustManager();
                 defaultHostnameVerifier();
                 if (mode.equals("behaviors")) {
@@ -321,6 +323,55 @@ public final class SecurityChecksBehaviors {
                 "a read under a JVM-wide jdk.serialFilter records nothing ("
                         + ObjectInputFilter.Config.getSerialFilter() + ", " + describe() + ")",
                 read instanceof Cart && ObjectInputFilter.Config.getSerialFilter() != null && checks().isEmpty());
+    }
+
+    /** A HashMap of HashMaps: each entry's readObject is nested in the stream's own read, so one row, one filtered. */
+    static void nestedMapsAreOneReadEach() throws Exception {
+        drain();
+        RECORDS.clear();
+        java.util.HashMap<String, java.util.HashMap<String, Integer>> nested = new java.util.HashMap<>();
+        for (int i = 0; i < 20; i++) {
+            java.util.HashMap<String, Integer> inner = new java.util.HashMap<>();
+            inner.put("k" + i, i);
+            nested.put("m" + i, inner);
+        }
+        byte[] bytes = serialize(nested);
+        Object status = AgentBridge.status().get(SideEffects.SECURITY_SINKS);
+        long filteredBefore = status instanceof Map<?, ?> map ? (Long) map.get("filteredDeserializations") : -1L;
+        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(bytes))) {
+            in.setObjectInputFilter(info -> ObjectInputFilter.Status.ALLOWED);
+            in.readObject();
+        }
+        status = AgentBridge.status().get(SideEffects.SECURITY_SINKS);
+        long filteredAfter = status instanceof Map<?, ?> map ? (Long) map.get("filteredDeserializations") : -1L;
+        CONTEXT.set(REQUEST);
+        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(bytes))) {
+            in.readObject();
+        }
+        CONTEXT.remove();
+        long[] found = await(seen(SecuritySinks.KIND_DESERIALIZATION, "java.util.HashMap"));
+        Thread.sleep(50);
+        drain();
+        long rows = checks().stream()
+                .filter(record -> record[SideEffects.R_KIND] == SecuritySinks.KIND_DESERIALIZATION)
+                .mapToLong(record -> record[SideEffects.R_COUNT])
+                .sum();
+        check(
+                "a HashMap of twenty HashMaps is one read: one row, and a filtered one counted once ("
+                        + (filteredAfter - filteredBefore) + " filtered, " + rows + " recorded)",
+                found != null && rows == 1 && filteredAfter - filteredBefore >= 1);
+    }
+
+    /** An unfiltered readUnshared is a read as readObject is. */
+    static void unsharedReadIsRecorded() throws Exception {
+        drain();
+        RECORDS.clear();
+        byte[] bytes = serialize(new java.util.TreeMap<>(Map.of("a", 1)));
+        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(bytes))) {
+            in.readUnshared();
+        }
+        long[] found = await(seen(SecuritySinks.KIND_DESERIALIZATION, "java.util.TreeMap"));
+        check("an unfiltered readUnshared is recorded as a read (" + describe() + ")", found != null);
     }
 
     static void trustManager() throws Exception {

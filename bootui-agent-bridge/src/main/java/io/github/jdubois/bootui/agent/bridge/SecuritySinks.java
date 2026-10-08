@@ -68,6 +68,9 @@ public final class SecuritySinks {
     public static final int KIND_HOSTNAME_VERIFIER = 9;
     public static final int KIND_SOCKET_FACTORY = 10;
 
+    /** An {@code SSLContext} initialized with a known library trust manager that accepts every certificate. */
+    public static final int KIND_TRUST_ALL = 11;
+
     /** Outcome bits 0–1: who asked; bit 2: the deserialization threw. */
     public static final int ORIGIN_APPLICATION = 1;
 
@@ -91,10 +94,43 @@ public final class SecuritySinks {
     /** The longest algorithm kept. */
     static final int MAX_ALGORITHM = 64;
 
+    /**
+     * Library trust managers, or Apache HttpClient trust strategies, that accept every certificate, by exact class name
+     * (a name, or a class nested in it): Netty's {@code InsecureTrustManagerFactory}, Vert.x's {@code
+     * TrustAllTrustManager}, and Apache HttpClient's {@code TrustAllStrategy} and {@code TrustSelfSignedStrategy} (4 and
+     * 5). Matched by the instance's class name only, so nothing is loaded.
+     */
+    static final String[] TRUST_ALL = {
+        "io.netty.handler.ssl.util.InsecureTrustManagerFactory",
+        "io.vertx.core.net.impl.TrustAllTrustManager",
+        "org.apache.hc.client5.http.ssl.TrustAllStrategy",
+        "org.apache.hc.client5.http.ssl.TrustSelfSignedStrategy",
+        "org.apache.http.conn.ssl.TrustAllStrategy",
+        "org.apache.http.conn.ssl.TrustSelfSignedStrategy"
+    };
+
+    /**
+     * The library wrappers a trust manager reaches {@code SSLContext.init} in, by exact class name, with the field
+     * holding what they wrap: Netty's resumption, error-message, and {@code X509TrustManager} wrappers (Netty 4.1 wraps
+     * its insecure trust manager in the last), and Apache HttpClient's {@code
+     * SSLContextBuilder} delegate, whose trust strategy decides.
+     */
+    static final String[][] TRUST_WRAPPERS = {
+        {"io.netty.handler.ssl.ResumptionController$X509ExtendedWrapTrustManager", "trustManager"},
+        {"io.netty.handler.ssl.util.X509TrustManagerWrapper", "delegate"},
+        {"io.netty.handler.ssl.EnhancingX509ExtendedTrustManager", "wrapped"},
+        {"org.apache.hc.core5.ssl.SSLContextBuilder$TrustManagerDelegate", "trustStrategy"},
+        {"org.apache.http.ssl.SSLContextBuilder$TrustManagerDelegate", "trustStrategy"},
+        {"org.apache.http.conn.ssl.SSLContextBuilder$TrustManagerDelegate", "trustStrategy"}
+    };
+
+    /** Wrappers unwrapped at most, one inside another. */
+    static final int MAX_UNWRAP = 4;
+
     /** A nested {@code readObject}'s token: never a {@link System#nanoTime()} an outermost one returns. */
     static final long NESTED = 1L;
 
-    /** The memo's verdict of a request the JDK made itself. */
+    /** The memo's verdict of a request the JDK made itself: never an origin, which is 1 or 2. */
     private static final int JDK_INTERNAL = -1;
 
     private static final String AGENT = "io.github.jdubois.bootui.agent.";
@@ -112,6 +148,8 @@ public final class SecuritySinks {
     private static final LongAdder FILTERED = new LongAdder();
     private static final LongAdder NOT_NAMED = new LongAdder();
     private static final LongAdder TRUST_MANAGERS = new LongAdder();
+    private static final LongAdder TRUST_ALL_SEEN = new LongAdder();
+    private static final LongAdder UNWRAP_FAILED = new LongAdder();
     private static final LongAdder DEFAULTS = new LongAdder();
     private static final LongAdder LIBRARY_DEFAULTS = new LongAdder();
     private static final LongAdder WALKS = new LongAdder();
@@ -316,12 +354,12 @@ public final class SecuritySinks {
             }
             opened = true;
             WEAK.increment();
-            String target = algorithmText(algorithm);
-            long[] who = attribute(claim, hook, advised, target.hashCode());
+            // Who asked first, by the algorithm's cached hash: the JDK's own requests stop here, building no text.
+            long[] who = attribute(claim, hook, advised, algorithm.hashCode());
             if (who == null) {
                 return;
             }
-            record(frame, claim, kind, intern(target, claim.generation), (int) who[1], 0, who[0]);
+            record(frame, claim, kind, intern(algorithmText(algorithm), claim.generation), (int) who[1], 0, who[0]);
         } catch (Throwable ex) {
             failed(GROUP_ALGORITHMS, ex);
         } finally {
@@ -334,13 +372,17 @@ public final class SecuritySinks {
     // ---- (b) deserialization without a filter -----------------------------------------------------------------------
 
     /**
-     * {@code ObjectInputStream.readObject()} entry: a token for {@link #read}, 0 when nothing is tracked, {@link #NESTED}
-     * inside an outermost call already tracked on the thread. An outermost call is tracked only when its stream has no
-     * filter: the stream's own, which the JDK's filter factory set from the JVM-wide filter when it was built, is the one
-     * every read checks. Allocates nothing past the thread's first tracked call.
+     * {@code ObjectInputStream.readObject()} entry, with the stream's own nesting depth ({@code ObjectInputStream.depth},
+     * which {@code readObject0} raises while it reads an object, so it is 0 only at the stream's outermost call): a
+     * token for {@link #read}, 0 when nothing is tracked, {@link #NESTED} for another stream read inside an outermost
+     * read already tracked on the thread. A call inside the stream's own read, as {@code HashMap.readObject} reading each
+     * entry, returns at once, touching no thread state; so a filtered stream is counted once per outermost read. An
+     * outermost read is tracked only when its stream has no filter: the stream's own, which the JDK's filter factory set
+     * from the JVM-wide filter when it was built, is the one every read checks. Allocates nothing past the thread's first
+     * tracked read.
      */
-    public static long reading(java.io.ObjectInputStream stream) {
-        if ((SideEffects.gate & SideEffects.MASK_SECURITY_SINKS) == 0) {
+    public static long reading(java.io.ObjectInputStream stream, long streamDepth) {
+        if (streamDepth != 0L || (SideEffects.gate & SideEffects.MASK_SECURITY_SINKS) == 0) {
             return 0L;
         }
         try {
@@ -352,12 +394,13 @@ public final class SecuritySinks {
             Serial serial = existing == null ? null : existing.serial;
             long generation = SideEffects.generation;
             if (serial != null && serial.depth > 0) {
+                // Another stream's outermost read inside a tracked one, as a class's readObject reading embedded
+                // bytes: part of it. Or state an outermost exit never closed, past its age or of another run.
                 if (serial.generation == generation
                         && System.nanoTime() - serial.since < SideEffects.STALE_DEPTH_NANOS) {
                     serial.depth++;
                     return NESTED;
                 }
-                // Left by an outermost exit that never ran, or by an earlier run.
                 clear(serial);
             }
             if (stream == null || stream.getObjectInputFilter() != null) {
@@ -385,6 +428,11 @@ public final class SecuritySinks {
             failed(GROUP_DESERIALIZATION, ex);
             return 0L;
         }
+    }
+
+    /** {@link #reading(java.io.ObjectInputStream, long)} at a stream's outermost call: tests and the self-test only. */
+    static long reading(java.io.ObjectInputStream stream) {
+        return reading(stream, 0L);
     }
 
     /**
@@ -539,17 +587,15 @@ public final class SecuritySinks {
             if (claim == null) {
                 return;
             }
-            String own = null;
+            // A screen by class name first, allocating nothing: the JDK's own trust managers end here.
+            boolean candidate = false;
             for (Object manager : managers) {
-                if (manager != null) {
-                    String name = manager.getClass().getName();
-                    if (ThreadPropagation.inPackages(name, claim)) {
-                        own = name;
-                        break;
-                    }
+                if (manager != null && trustCandidate(manager.getClass().getName(), claim)) {
+                    candidate = true;
+                    break;
                 }
             }
-            if (own == null) {
+            if (!candidate) {
                 return;
             }
             frame = CodePaths.frame();
@@ -557,12 +603,46 @@ public final class SecuritySinks {
                 return;
             }
             opened = true;
+            String own = null;
+            String trustAll = null;
+            String[] innermost = new String[1];
+            for (Object manager : managers) {
+                if (manager == null) {
+                    continue;
+                }
+                String all = trustAll(manager, innermost);
+                if (all != null) {
+                    trustAll = all;
+                    break;
+                }
+                // The application's own trust manager or trust strategy, directly or inside a library's wrapper, as
+                // Apache's SSLContextBuilder.loadTrustMaterial(null, (chain, type) -> true) passes it.
+                String name = innermost[0];
+                if (own == null && name != null && ThreadPropagation.inPackages(name, claim)) {
+                    own = name;
+                }
+            }
+            if (own == null && trustAll == null) {
+                return;
+            }
             long[] who = attribute(claim, -1, "javax.net.ssl.SSLContext", 0);
             if (who == null) {
                 return;
             }
-            TRUST_MANAGERS.increment();
-            record(frame, claim, KIND_TRUST_MANAGER, intern(className(own), claim.generation), (int) who[1], 0, who[0]);
+            if (trustAll != null) {
+                TRUST_ALL_SEEN.increment();
+                record(frame, claim, KIND_TRUST_ALL, intern(trustAll, claim.generation), (int) who[1], 0, who[0]);
+            } else {
+                TRUST_MANAGERS.increment();
+                record(
+                        frame,
+                        claim,
+                        KIND_TRUST_MANAGER,
+                        intern(className(own), claim.generation),
+                        (int) who[1],
+                        0,
+                        who[0]);
+            }
         } catch (Throwable ex) {
             failed(GROUP_TRUST, ex);
         } finally {
@@ -570,6 +650,63 @@ public final class SecuritySinks {
                 frame.sideEffectOpen &= ~SideEffects.MASK_SECURITY_SINKS;
             }
         }
+    }
+
+    /** Whether a trust manager's class may be one to record: the application's, a known trust-all, or a known wrapper. */
+    static boolean trustCandidate(String name, Claim claim) {
+        return ThreadPropagation.inPackages(name, claim) || trustAllName(name) != null || wrapperField(name) != null;
+    }
+
+    /** The known trust-all {@code name} is, or is nested in; {@code null} otherwise. */
+    static String trustAllName(String name) {
+        for (String known : TRUST_ALL) {
+            if (name.equals(known) || name.startsWith(known) && name.charAt(known.length()) == '$') {
+                return known;
+            }
+        }
+        return null;
+    }
+
+    /** The field a known wrapper keeps what it wraps in; {@code null} for any other class. */
+    static String wrapperField(String name) {
+        for (String[] wrapper : TRUST_WRAPPERS) {
+            if (wrapper[0].equals(name)) {
+                return wrapper[1];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The known trust-all a trust manager is, directly or inside at most {@value #MAX_UNWRAP} known wrappers, each read
+     * by reflection from the wrapper's own field, on this rare path only (a wrapper the bridge cannot read, as one in a
+     * module that does not open its package, is counted and not followed); {@code null} when it is none. {@code
+     * innermost[0]} receives the class name of the innermost object reached, so a wrapped application class is seen.
+     */
+    static String trustAll(Object manager, String[] innermost) {
+        Object current = manager;
+        innermost[0] = null;
+        for (int i = 0; i <= MAX_UNWRAP && current != null; i++) {
+            String name = current.getClass().getName();
+            innermost[0] = name;
+            String known = trustAllName(name);
+            if (known != null) {
+                return known;
+            }
+            String field = wrapperField(name);
+            if (field == null) {
+                return null;
+            }
+            try {
+                java.lang.reflect.Field wrapped = current.getClass().getDeclaredField(field);
+                wrapped.setAccessible(true);
+                current = wrapped.get(current);
+            } catch (Throwable ex) {
+                UNWRAP_FAILED.increment();
+                return null;
+            }
+        }
+        return null;
     }
 
     /** {@code HttpsURLConnection.setDefaultHostnameVerifier} entry. */
@@ -732,10 +869,6 @@ public final class SecuritySinks {
                 UNATTRIBUTED.increment();
                 return null;
             }
-            if (jdk(caller)) {
-                JDK_REQUESTS.increment();
-                return null;
-            }
             String callerClass = caller.getClassName();
             long key = 0L;
             long[] found = null;
@@ -746,7 +879,16 @@ public final class SecuritySinks {
                 key = ((long) (hook + 1) << 56) | ((callerHash & 0xFFFFFFFFL) << 24) | folded;
                 found = new long[2];
                 int result = SIGHTINGS.find(SideEffects.generation, key, found);
+                if (result == SideEffects.Sightings.FOUND && found[1] == JDK_INTERNAL && found[0] != check(caller)) {
+                    // Another caller sharing the key: never let the JDK's verdict hide it; asked again below.
+                    result = SideEffects.Sightings.MISSING;
+                }
                 if (result == SideEffects.Sightings.FOUND) {
+                    if (found[1] == JDK_INTERNAL) {
+                        // The JDK's own request from this caller, remembered: no class or module is asked again.
+                        JDK_REQUESTS.increment();
+                        return null;
+                    }
                     if (found[1] == ORIGIN_APPLICATION) {
                         return found;
                     }
@@ -760,6 +902,13 @@ public final class SecuritySinks {
                     key = 0L;
                 }
             }
+            if (jdk(caller)) {
+                if (key != 0L) {
+                    SIGHTINGS.put(SideEffects.generation, key, check(caller), JDK_INTERNAL);
+                }
+                JDK_REQUESTS.increment();
+                return null;
+            }
             int outside = SideEffects.internFrame(callerClass, caller.getMethodName());
             boolean application = ThreadPropagation.inPackages(callerClass, claim);
             int own = application ? outside : applicationFrame(iterator, seen);
@@ -769,6 +918,18 @@ public final class SecuritySinks {
                 SIGHTINGS.put(SideEffects.generation, key, packed, origin);
             }
             return new long[] {packed, origin};
+        }
+
+        /**
+         * A second fingerprint of a caller, kept with a JDK verdict in the memo's frames slot, which a JDK verdict never
+         * uses: a key shared by another caller then reads as not remembered. Allocates nothing.
+         */
+        private static long check(StackWalker.StackFrame caller) {
+            String type = caller.getClassName();
+            String method = caller.getMethodName();
+            return ((long) type.length() << 48)
+                    | ((long) (method.length() & 0xFFFF) << 32)
+                    | ((type.hashCode() * 0x9E3779B9) ^ method.hashCode()) & 0xFFFFFFFFL;
         }
 
         /** The first frame of the claimed packages left in {@code iterator}, interned; 0 when none. */
@@ -871,6 +1032,7 @@ public final class SecuritySinks {
             case KIND_WEAK_CIPHER:
                 return SideEffects.HOOK_CIPHER;
             case KIND_TRUST_MANAGER:
+            case KIND_TRUST_ALL:
                 return SideEffects.HOOK_SSL_INIT;
             case KIND_HOSTNAME_VERIFIER:
                 return SideEffects.HOOK_DEFAULT_VERIFIER;
@@ -962,6 +1124,8 @@ public final class SecuritySinks {
         map.put("filteredDeserializations", Long.valueOf(FILTERED.sum()));
         map.put("classesNotNamed", Long.valueOf(NOT_NAMED.sum()));
         map.put("trustManagers", Long.valueOf(TRUST_MANAGERS.sum()));
+        map.put("trustAllManagers", Long.valueOf(TRUST_ALL_SEEN.sum()));
+        map.put("trustUnwrapFailed", Long.valueOf(UNWRAP_FAILED.sum()));
         map.put("defaultsInstalled", Long.valueOf(DEFAULTS.sum()));
         map.put("libraryDefaults", Long.valueOf(LIBRARY_DEFAULTS.sum()));
         map.put("checkWalks", Long.valueOf(WALKS.sum()));
@@ -989,6 +1153,9 @@ public final class SecuritySinks {
         new Attribution(null, -1, "warm", 0).getClass();
         SIGHTINGS.find(-2L, 1L, new long[2]);
         jdkByName("warm");
+        trustAllName("warm");
+        wrapperField("warm");
+        trustAll(new Object(), new String[1]);
         java.io.ObjectInputStream.class.getName();
         putStatus(new java.util.LinkedHashMap<String, Object>());
     }
@@ -1004,6 +1171,8 @@ public final class SecuritySinks {
             FILTERED,
             NOT_NAMED,
             TRUST_MANAGERS,
+            TRUST_ALL_SEEN,
+            UNWRAP_FAILED,
             DEFAULTS,
             LIBRARY_DEFAULTS,
             WALKS,
