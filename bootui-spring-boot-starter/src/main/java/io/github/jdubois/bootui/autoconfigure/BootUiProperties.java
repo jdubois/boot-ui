@@ -2850,8 +2850,10 @@ public class BootUiProperties {
          * never its arguments or environment. {@code network} records the hosts the application connects to, the
          * datagrams it sends, and the names the JVM resolves, for Side Effects: a host and port, never a byte sent or
          * received. {@code blocking} records {@code Thread.sleep}, {@code Object.wait}, {@code LockSupport.park}, and
-         * the network and files sensors' blocking operations started on an event loop, for Side Effects. An unknown
-         * sensor id fails the application's start.
+         * the network and files sensors' blocking operations started on an event loop, for Side Effects. {@code
+         * resources} reports the sockets, and with {@code files} the file streams and channels, a request or a job left
+         * open past the request or never closed before the collector reclaimed them, never contents. An unknown sensor
+         * id fails the application's start.
          * {@code files}, opt-in, records the files the application opens, deletes, moves, and copies, as path
          * patterns, never contents. {@code threads}, opt-in, also propagates a request's context into threads started from application code and
          * into virtual threads. {@code environment}, opt-in, records the names of the environment variables and system
