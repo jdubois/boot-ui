@@ -24,6 +24,9 @@ import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
+// QuarkusUnitTest is deprecated for removal from Quarkus 3.40 in favor of QuarkusExtensionTest, which the 3.33 LTS the
+// quarkus-lts CI job compiles these tests against does not have yet.
+@SuppressWarnings("removal")
 class SecurityAdditionalMethodsNativeTest {
     @RegisterExtension
     static final QuarkusUnitTest application = new QuarkusUnitTest()

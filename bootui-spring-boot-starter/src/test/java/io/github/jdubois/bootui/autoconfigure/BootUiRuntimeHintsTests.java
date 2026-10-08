@@ -44,7 +44,7 @@ class BootUiRuntimeHintsTests {
             org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler.class,
             org.springframework.core.task.SimpleAsyncTaskExecutor.class
         }) {
-            assertThat(RuntimeHintsPredicates.reflection().onField(pool.getDeclaredField("taskDecorator")))
+            assertThat(RuntimeHintsPredicates.reflection().onFieldAccess(pool.getDeclaredField("taskDecorator")))
                     .as(pool.getName())
                     .accepts(hints);
         }
