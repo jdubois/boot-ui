@@ -5,7 +5,7 @@ import {expect, test} from './fixtures.js'
  * The Side Effects view on Quarkus (docs/PLAN-v2.md §5.16, M5-5a). The default suite runs the sample without the BootUI
  * agent, so the panel is unavailable with the Java Agent panel's reason and links there, and its reads answer the
  * unavailable shape. The agent suite (playwright.agent.config.js) sets the `agentAttached` fixture option and asserts
- * the processes sensor records while the sensors this version does not ship say so, and that a sleep on the Vert.x event
+ * the processes and resources sensors record, and that a sleep on the Vert.x event
  * loop is a blocking row while the same sleep on a worker is not.
  */
 test.describe('Side Effects view (Quarkus)', () => {
@@ -42,8 +42,15 @@ test.describe('Side Effects view (Quarkus)', () => {
         {timeout: 30_000}
       )
       .toBe('recording')
-    const report = await (await page.request.get('/bootui/api/side-effects')).json()
-    expect(report.sensors.find((sensor) => sensor.id === 'resources').reason).toBe('Not available in this version.')
+    await expect
+      .poll(
+        async () =>
+          (await (await page.request.get('/bootui/api/side-effects')).json()).sensors.find(
+            (sensor) => sensor.id === 'resources'
+          ).state,
+        {timeout: 30_000}
+      )
+      .toBe('recording')
 
     expect((await page.request.get(`/api/side-effects/java-version`)).ok()).toBeTruthy()
     expect((await page.request.get(`/api/side-effects/runtime-version`)).ok()).toBeTruthy()
@@ -456,5 +463,57 @@ test.describe('Side Effects view (Quarkus)', () => {
     await expect(
       page.locator('.side-effects-table tbody tr').filter({hasText: 'TenantContext.CURRENT'}).first()
     ).toContainText('set during the request')
+  })
+
+  test('shows a stream a request never closed, never one it closed nor a pooled connection as a leak', async ({
+    openView,
+    page,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, 'the resources sensor needs the BootUI agent')
+    // The resources seeds (M5-5g): a FileInputStream dropped without close(), reclaimed by the collector, with a stream
+    // closed in try-with-resources and the JDK HttpClient's pooled connection, handed off, as counterexamples.
+    for (const path of ['leaked-stream', 'closed-stream', 'pooled-client']) {
+      expect((await page.request.get(`/api/resources/${path}`)).ok()).toBeTruthy()
+    }
+    const rows = async () =>
+      (await (await page.request.get('/bootui/api/side-effects/sensor?sensor=resources&limit=500')).json()).rows ?? []
+    const seeded = (list, path) => list.filter((candidate) => candidate.attribution === `GET /api/resources/${path}`)
+    await expect
+      .poll(
+        async () => {
+          await page.request.get('/api/resources/collect')
+          return seeded(await rows(), 'leaked-stream').find((candidate) => candidate.failed > 0)?.failed ?? 0
+        },
+        {timeout: 60_000}
+      )
+      .toBeGreaterThan(0)
+    const all = await rows()
+    const leaked = seeded(all, 'leaked-stream').find((candidate) => candidate.failed > 0)
+    expect(leaked.kind).toBe('file input stream')
+    expect(leaked.origin).toBe('application')
+    expect(leaked.target).toMatch(/\$TMPDIR\/bootui-resource-/)
+    expect(leaked.callSite).toMatch(/ResourceSeeds#leakStream$/)
+    expect(seeded(all, 'closed-stream')).toEqual([])
+    // The JDK HttpClient connects on the request's thread and pools the connection: tracked, handed off, never a leak.
+    await expect
+      .poll(async () => seeded(await rows(), 'pooled-client').some((candidate) => candidate.leftRunning > 0), {
+        timeout: 30_000
+      })
+      .toBe(true)
+    for (const pooled of seeded(await rows(), 'pooled-client')) {
+      expect(pooled.failed).toBe(0)
+      expect(pooled.origin).toBe('library')
+      expect(pooled.kind).toMatch(/^socket/)
+    }
+
+    await openView('side-effects', 'Side Effects')
+    await page.getByRole('tab', {name: /Threads and leaks/}).click()
+    const row = page
+      .locator('.side-effects-table tbody tr')
+      .filter({hasText: 'GET /api/resources/leaked-stream'})
+      .filter({hasText: 'file input stream'})
+    await expect(row.first()).toContainText('Opened by the application')
+    await expect(row.first().locator('.side-effects-reclaimed')).toBeVisible()
   })
 })

@@ -90,6 +90,8 @@ public final class SideEffects {
 
     /** The thread-locals sensor's id ({@link ThreadLocals}, M5-5f), opt-in (D37). */
     public static final String THREAD_LOCALS = "thread-locals";
+    /** The resources sensor's id ({@link Resources}, M5-5g), on by default (D47). */
+    public static final String RESOURCES = "resources";
 
     /**
      * The security-sinks sensor's id (M5-6b): its request-value matching (M5-6b1, {@link RequestValues}) and its JDK
@@ -112,8 +114,11 @@ public final class SideEffects {
     public static final int SENSOR_THREADS = 6;
     public static final int SENSOR_THREAD_LOCALS = 7;
 
+    /** The resources sensor's id in records ({@link Resources}, M5-5g). */
+    public static final int SENSOR_RESOURCES = 9;
+
     static final String[] SENSOR_NAMES = {
-        "other", PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY, THREAD_LOCALS, SECURITY_SINKS
+        "other", PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY, THREAD_LOCALS, SECURITY_SINKS, RESOURCES
     };
 
     public static final int MASK_PROCESSES = 1 << SENSOR_PROCESSES;
@@ -123,6 +128,7 @@ public final class SideEffects {
     public static final int MASK_BLOCKING = 1 << SENSOR_BLOCKING;
     public static final int MASK_THREADS = 1 << SENSOR_THREADS;
     public static final int MASK_THREAD_LOCALS = 1 << SENSOR_THREAD_LOCALS;
+    public static final int MASK_RESOURCES = 1 << SENSOR_RESOURCES;
 
     /**
      * Set in {@link #mask} with {@link #MASK_BLOCKING} once an adapter registered an event loop for the current claim
@@ -338,6 +344,14 @@ public final class SideEffects {
 
     /** A thread local a request or a job left set on its pooled thread ({@link ThreadLocals}). */
     public static final int KIND_THREAD_LOCAL_LEFT_SET = 27;
+    /**
+     * The resources sensor's kinds ({@link Resources}): a resource still open after its request's response completed, one
+     * reported open then closed (handed off), and one the collector reclaimed without a {@code close()}.
+     */
+    public static final int KIND_RESOURCE_LEFT_OPEN = 40;
+
+    public static final int KIND_RESOURCE_CLOSED_LATE = 41;
+    public static final int KIND_RESOURCE_RECLAIMED = 42;
 
     /** Outcomes. */
     public static final int OUTCOME_STARTED = 1;
@@ -370,6 +384,15 @@ public final class SideEffects {
     public static final int CONTEXT_JDK_LOGGING = 1;
     public static final int CONTEXT_CLASS_LOADING = 2;
     public static final int CONTEXT_JDK_ONLY = 3;
+
+    /**
+     * A file operation's frame summary found a frame of the claimed packages ({@code FOUND_APPLICATION}), and its first
+     * frame outside the JDK is one ({@code FOUND_OUTSIDE_APPLICATION}): bits above the context, read by the resources
+     * sensor, never recorded.
+     */
+    static final int FOUND_APPLICATION = 1 << 8;
+
+    static final int FOUND_OUTSIDE_APPLICATION = 1 << 9;
 
     /** The files sensor's buckets: counted, never recorded, interned, or walked (PLAN-v2 M5-5 design B2). */
     public static final int BUCKET_CLASS_FILES = 0;
@@ -859,6 +882,16 @@ public final class SideEffects {
      */
     public static void connected(
             long token, int hook, Object channel, Object remote, boolean finished, Throwable thrown) {
+        connected(token, hook, channel, remote, finished, null, thrown);
+    }
+
+    /**
+     * As {@link #connected(long, int, Object, Object, boolean, Throwable)}, with the socket or channel that connected,
+     * which the resources sensor tracks once the connect is recorded ({@link Resources}), used as an identity key
+     * only. Never throws.
+     */
+    public static void connected(
+            long token, int hook, Object channel, Object remote, boolean finished, Object resource, Throwable thrown) {
         if (token == 0L) {
             return;
         }
@@ -900,6 +933,11 @@ public final class SideEffects {
                     startMillis);
             if (outcome == OUTCOME_PENDING && channel != null) {
                 pendingConnect(channel, owner, target, client, stamp, walked[0], token, startMillis);
+            }
+            if (thrown == null && resource != null && walked.length > 2) {
+                Resources.opened(
+                        claim, owner, resource, Resources.networkKind(resource), target, stamp, walked[0], (int)
+                                walked[2]);
             }
         } catch (Throwable ex) {
             failed(SENSOR_NETWORK, ex);
@@ -1461,6 +1499,7 @@ public final class SideEffects {
             boolean infrastructureFound = false;
             boolean outsideFound = false;
             boolean applicationFound = false;
+            boolean outsideApplication = false;
             for (int i = 0; i < MAX_NETWORK_FRAMES && iterator.hasNext() && !applicationFound; i++) {
                 StackWalker.StackFrame frame = iterator.next();
                 String className = frame.getClassName();
@@ -1478,8 +1517,12 @@ public final class SideEffects {
                     infrastructureFound = true;
                     infrastructure = frameId(state, className, frame.getMethodName());
                 }
+                boolean inPackages = claim != null && ThreadPropagation.inPackages(className, claim);
                 if (!clientFound && !plumbing) {
                     clientFound = true;
+                    // The resources sensor's origin: the client that connected, the JDK's HttpClient included, is the
+                    // application's only when it is the application's own code.
+                    outsideApplication = inPackages;
                     client = frameId(state, className, frame.getMethodName());
                 }
                 if (jdkOrAgent(className)) {
@@ -1489,13 +1532,15 @@ public final class SideEffects {
                     outsideFound = true;
                     outside = frameId(state, className, frame.getMethodName());
                 }
-                if (claim != null && ThreadPropagation.inPackages(className, claim)) {
+                if (inPackages) {
                     applicationFound = true;
                     application = frameId(state, className, frame.getMethodName());
                 }
             }
             return new long[] {
-                ((long) outside << 32) | (application & 0xFFFFFFFFL), infrastructureFound ? infrastructure : client
+                ((long) outside << 32) | (application & 0xFFFFFFFFL),
+                infrastructureFound ? infrastructure : client,
+                (applicationFound ? FOUND_APPLICATION : 0) | (outsideApplication ? FOUND_OUTSIDE_APPLICATION : 0)
             };
         }
     }
@@ -1737,10 +1782,18 @@ public final class SideEffects {
      * ({@link #KIND_FILE_WRITE}) exit, normal or not: records the file's path pattern, never its contents. Never throws.
      */
     public static void fileOpened(long token, int hook, int kind, String name, Throwable thrown) {
+        fileOpened(token, hook, kind, name, null, thrown);
+    }
+
+    /**
+     * As {@link #fileOpened(long, int, int, String, Throwable)}, with the stream it opened, which the resources sensor
+     * tracks once it is recorded ({@link Resources}). Never throws.
+     */
+    public static void fileOpened(long token, int hook, int kind, String name, Object stream, Throwable thrown) {
         if (token == 0L) {
             return;
         }
-        files(token, hook, kind, name, 0, null, thrown);
+        files(token, hook, kind, name, 0, null, stream, thrown);
     }
 
     /**
@@ -1748,6 +1801,11 @@ public final class SideEffects {
      * {@code "r"} gives, else write ({@code "rw"}, {@code "rws"}, {@code "rwd"}). Never throws.
      */
     public static void randomAccessOpened(long token, String name, int mode, Throwable thrown) {
+        randomAccessOpened(token, name, mode, null, thrown);
+    }
+
+    /** As {@link #randomAccessOpened(long, String, int, Throwable)}, with the file it opened. Never throws. */
+    public static void randomAccessOpened(long token, String name, int mode, Object file, Throwable thrown) {
         if (token == 0L) {
             return;
         }
@@ -1758,6 +1816,7 @@ public final class SideEffects {
                 name,
                 0,
                 null,
+                file,
                 thrown);
     }
 
@@ -1766,6 +1825,12 @@ public final class SideEffects {
      * FileAttribute[])} exit: write when the options hold {@code WRITE} or {@code APPEND}, else read. Never throws.
      */
     public static void channelOpened(long token, int hook, Object path, Set<?> options, Throwable thrown) {
+        channelOpened(token, hook, path, options, null, thrown);
+    }
+
+    /** As {@link #channelOpened(long, int, Object, Set, Throwable)}, with the channel it opened. Never throws. */
+    public static void channelOpened(
+            long token, int hook, Object path, Set<?> options, Object channel, Throwable thrown) {
         if (token == 0L) {
             return;
         }
@@ -1778,7 +1843,7 @@ public final class SideEffects {
         } catch (Throwable ex) {
             // An application's own Set: read, as the JDK would for an option set it cannot read.
         }
-        files(token, hook, kind, path, 0, null, thrown);
+        files(token, hook, kind, path, 0, null, channel, thrown);
     }
 
     /**
@@ -1789,7 +1854,8 @@ public final class SideEffects {
         if (token == 0L) {
             return;
         }
-        files(token, hook, kind, path, 0, null, thrown);
+        // Files.newInputStream and newOutputStream: the channel under the stream, which the provider handed over.
+        files(token, hook, kind, path, 0, null, PENDING_CHANNEL, thrown);
     }
 
     /**
@@ -1809,14 +1875,28 @@ public final class SideEffects {
                 from instanceof Path ? from : null,
                 toKind,
                 to instanceof Path ? to : null,
+                null,
                 thrown);
     }
 
+    /** Stands for the channel a provider's stream opened, handed over through the thread's frame ({@link Resources}). */
+    private static final Object PENDING_CHANNEL = new Object();
+
     private static void files(
-            long token, int hook, int kind, Object target, int secondKind, Object second, Throwable thrown) {
+            long token,
+            int hook,
+            int kind,
+            Object target,
+            int secondKind,
+            Object second,
+            Object resource,
+            Throwable thrown) {
         CodePaths.Frame frame = null;
         try {
             frame = CodePaths.FRAME.get();
+            if (resource == PENDING_CHANNEL) {
+                resource = frame == null ? null : frame.resourcePending;
+            }
             long nanos = System.nanoTime() - token;
             Claim claim = AgentBridge.current();
             if (!recording(claim, MASK_FILES)) {
@@ -1827,10 +1907,10 @@ public final class SideEffects {
                     : thrown instanceof java.io.IOException ? OUTCOME_IO_ERROR : OUTCOME_ERROR;
             long frames = 0L;
             if (target != null) {
-                frames = recordFile(frame, claim, hook, kind, target, outcome, nanos);
+                frames = recordFile(frame, claim, hook, kind, target, outcome, nanos, thrown == null ? resource : null);
             }
             if (second != null) {
-                long more = recordFile(frame, claim, hook, secondKind, second, outcome, nanos);
+                long more = recordFile(frame, claim, hook, secondKind, second, outcome, nanos, null);
                 // A frame summary over none (-1), and either over a bucket (0).
                 frames = frames > 0L ? frames : more > 0L || frames == 0L ? more : frames;
             }
@@ -1844,16 +1924,25 @@ public final class SideEffects {
         } finally {
             if (frame != null) {
                 frame.sideEffectOpen &= ~MASK_FILES;
+                frame.resourcePending = null;
             }
         }
     }
 
     /**
      * One file operation: counted in its bucket, or recorded with its path pattern, owner, and frame summary, which it
-     * returns, -1 when it named no frame; 0 when counted in a bucket.
+     * returns, -1 when it named no frame; 0 when counted in a bucket. A recorded open hands {@code resource}, the stream
+     * or channel it opened, to the resources sensor.
      */
     private static long recordFile(
-            CodePaths.Frame frame, Claim claim, int hook, int kind, Object target, int outcome, long nanos) {
+            CodePaths.Frame frame,
+            Claim claim,
+            int hook,
+            int kind,
+            Object target,
+            int outcome,
+            long nanos,
+            Object resource) {
         Places where = places;
         String text;
         if (target instanceof Path) {
@@ -1887,7 +1976,9 @@ public final class SideEffects {
         long stamp = CodePaths.stamp();
         // The summary first: a file a class loader reads is a bucket, never interned, owned, or recorded (design B2).
         long[] summary = summary(claim, hook, pattern.hashCode(), stamp, false);
-        if (summary[1] == CONTEXT_CLASS_LOADING) {
+        int found = (int) summary[1] & (FOUND_APPLICATION | FOUND_OUTSIDE_APPLICATION);
+        int context = (int) summary[1] & ~(FOUND_APPLICATION | FOUND_OUTSIDE_APPLICATION);
+        if (context == CONTEXT_CLASS_LOADING) {
             BUCKET_COUNTS[BUCKET_CLASS_LOADING].increment();
             return 0L;
         }
@@ -1897,7 +1988,10 @@ public final class SideEffects {
         String redacted = RequestValues.fileUsed(claim, text, where, stamp, summary[0]);
         int id = internQuota(redacted != null ? redacted : pattern, SENSOR_FILES);
         Owner owner = owner(frame, claim);
-        record(frame, owner, SENSOR_FILES, kind, id, outcome, (int) summary[1], stamp, summary[0], nanos);
+        record(frame, owner, SENSOR_FILES, kind, id, outcome, context, stamp, summary[0], nanos);
+        if (resource != null && context == CONTEXT_NONE) {
+            Resources.opened(claim, owner, resource, Resources.fileKind(hook), id, stamp, summary[0], found);
+        }
         return summary[0] != 0L ? summary[0] : -1L;
     }
 
@@ -2503,6 +2597,7 @@ public final class SideEffects {
             // Whether a frame was found, apart from its id, which is 0 when the frames' room is full.
             boolean outsideFound = false;
             boolean applicationFound = false;
+            boolean outsideApplication = false;
             boolean immediate = environment;
             for (int i = 0; i < MAX_FRAMES && iterator.hasNext() && !applicationFound; i++) {
                 StackWalker.StackFrame frame = iterator.next();
@@ -2556,17 +2651,22 @@ public final class SideEffects {
                     // A class loader outside the JDK, as Quarkus' or Spring Boot's, reading a resource: never interned.
                     return new long[] {0L, CONTEXT_CLASS_LOADING};
                 }
+                boolean inPackages = claim != null && ThreadPropagation.inPackages(className, claim);
                 if (!outsideFound) {
                     outsideFound = true;
+                    outsideApplication = inPackages;
                     outside = internFrame(className, frame.getMethodName());
                 }
-                if (claim != null && ThreadPropagation.inPackages(className, claim)) {
+                if (inPackages) {
                     applicationFound = true;
                     application = internFrame(className, frame.getMethodName());
                 }
             }
             long packed = ((long) outside << 32) | (application & 0xFFFFFFFFL);
-            return new long[] {packed, outsideFound ? CONTEXT_NONE : CONTEXT_JDK_ONLY};
+            int found = environment
+                    ? 0
+                    : (applicationFound ? FOUND_APPLICATION : 0) | (outsideApplication ? FOUND_OUTSIDE_APPLICATION : 0);
+            return new long[] {packed, (outsideFound ? CONTEXT_NONE : CONTEXT_JDK_ONLY) | found};
         }
     }
 
@@ -3683,6 +3783,8 @@ public final class SideEffects {
             try {
                 // On the drain thread: what requests left running, unowned starts counted, executors reclaimed.
                 ThreadActivity.sweep(claim);
+                // What requests left open, and resources reclaimed without a close.
+                Resources.sweep(claim);
                 return ring.drain(claim.generation, sink);
             } finally {
                 ring.draining.set(false);
@@ -3852,6 +3954,7 @@ public final class SideEffects {
     /** The agent disables the sensors of {@code bits}: their self-test failed, or their transformer was removed. */
     public static void disable(int bits, String reason) {
         boolean threadsLeave = (bits & enabled & MASK_THREADS) != 0;
+        boolean resourcesLeave = (bits & MASK_RESOURCES) != 0;
         enabled &= ~bits;
         if (threadsLeave) {
             // Only when thread-activity itself stops: another sensor's reinstall keeps its pending checks.
@@ -3871,6 +3974,12 @@ public final class SideEffects {
             }
         }
         refresh();
+        if (resourcesLeave) {
+            // After the mask stops new opens: its close hooks may be removed next, and nothing tracked survives them,
+            // so
+            // no close goes unseen.
+            Resources.disabled();
+        }
         if (reason != null) {
             AgentBridge.message("side-effect sensors disabled: " + reason);
         }
@@ -3995,6 +4104,9 @@ public final class SideEffects {
             status(THREAD_LOCALS);
             SecuritySinks.warm();
             status(SECURITY_SINKS);
+            Resources.warm();
+            Resources.opened(null, owner, null, 0, 0, 0L, 0L, 0);
+            status(RESOURCES);
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
@@ -4103,6 +4215,9 @@ public final class SideEffects {
                     recorded.put(HOOKS[i], Long.valueOf(RECORDED[i].sum()));
                 }
             }
+            if (sensor == SENSOR_RESOURCES) {
+                Resources.putRecorded(recorded);
+            }
             map.put("recorded", recorded);
             map.put("published", Long.valueOf(PUBLISHED[sensor].sum()));
             map.put("dropped", Long.valueOf(DROPPED[sensor].sum()));
@@ -4145,6 +4260,9 @@ public final class SideEffects {
             }
             if (sensor == SENSOR_SECURITY_SINKS) {
                 SecuritySinks.putStatus(map);
+            }
+            if (sensor == SENSOR_RESOURCES) {
+                Resources.putStatus(map);
             }
             if (sensor == SENSOR_ENVIRONMENT) {
                 map.put("jdkReads", Long.valueOf(JDK_READS.sum()));
@@ -4250,6 +4368,7 @@ public final class SideEffects {
         ThreadActivity.reset();
         ThreadLocals.reset();
         SecuritySinks.reset();
+        Resources.reset();
         off = false;
         offReason = null;
         selfTestThread = null;
@@ -4264,6 +4383,7 @@ public final class SideEffects {
             frame.sideEffectThreadGeneration = -1L;
             frame.environmentSeen = null;
             frame.poolStarts = 0;
+            frame.resourcePending = null;
         }
     }
 
