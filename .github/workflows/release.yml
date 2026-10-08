@@ -180,7 +180,10 @@ jobs:
           # Belt-and-braces: fail the release if any other declared dependency/plugin
           # version string still points at the previous release version anywhere in the
           # docs site or README, so a missed replacement can't silently ship stale docs.
-          if grep -RnE "com\.julien-dubois\.bootui:[A-Za-z0-9_-]+:$CURRENT_VERSION" README.md docs/ jbang-catalog.json; then
+          # Skipped when the branch already declares the target version: re-preparing a release
+          # whose earlier tag was withdrawn before anything reached Maven Central.
+          if [[ "$CURRENT_VERSION" != "$VERSION" ]] &&
+            grep -RnE "com\.julien-dubois\.bootui:[A-Za-z0-9_-]+:$CURRENT_VERSION" README.md docs/ jbang-catalog.json; then
             echo "::error::Found leftover references to the previous version ($CURRENT_VERSION) in docs/README after bumping to $VERSION"
             exit 1
           fi
@@ -438,6 +441,13 @@ jobs:
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
         run: |
+          set -euo pipefail
+
+          VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"
+          LOCAL_REPO="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=settings.localRepository | tail -n 1)"
+          # The Maven cache may hold an earlier attempt's install of this version; bundle only this build.
+          rm -rf "$LOCAL_REPO"/com/julien-dubois/bootui/*/"$VERSION"
+
           # No -Dgpg.passphrase here: that user property is deprecated by maven-gpg-plugin
           # ("may leak sensitive information"). The plugin already reads the passphrase from
           # the MAVEN_GPG_PASSPHRASE env var above (its passphraseEnvName default) instead.
@@ -445,12 +455,22 @@ jobs:
           # publication. The complete reactor was already verified before the immutable release
           # commit and tag were created. bootui-agent-bridge is built here only because bootui-agent
           # shades it into the published -javaagent jar, and the two parents only because they parent
-          # the reactor; the root POM's excludeArtifacts keeps all three out of the Central bundle, and
-          # every published module carries a flattened, parentless POM.
-          ./mvnw -B -ntp -Prelease clean deploy \
+          # the reactor; every published module carries a flattened, parentless POM.
+          ./mvnw -B -ntp -Prelease clean install \
             -pl .,bootui-core,bootui-engine,bootui-spring-boot-starter,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-cli,bootui-agent-bridge,bootui-agent \
-            -am \
-            -Dcentral.autoPublish="${CENTRAL_AUTO_PUBLISH}"
+            -am
+
+          # The bundle is assembled from the installed, signed files rather than by
+          # central-publishing-maven-plugin: under Maven 3.10 the plugin stages resolver bookkeeping
+          # (maven-metadata-local.xml) into POM-less directories, and Central rejects that bundle.
+          # The assembler bundles only the published coordinates, so bootui-agent-bridge and both
+          # parents stay out, and check-central-bundle.py refuses any other coordinate, any other
+          # file, and any POM that is not flattened before a coordinate can be consumed.
+          python3 .github/scripts/assemble_central_bundle.py "$LOCAL_REPO" "$VERSION" target/central-bundle.zip
+          BUNDLE_DIR="$(mktemp -d)"
+          unzip -q target/central-bundle.zip -d "$BUNDLE_DIR"
+          python3 .github/scripts/check-central-bundle.py "$BUNDLE_DIR" "$VERSION"
+          python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip "bootui-$VERSION" "$CENTRAL_AUTO_PUBLISH"
 
       - name: Wait for Maven Central availability
         if: env.CENTRAL_AUTO_PUBLISH == 'true'
@@ -461,7 +481,7 @@ jobs:
           BASE="https://repo1.maven.org/maven2/com/julien-dubois/bootui"
 
           # Every published artifact: one JAR per published module. Neither parent POM is published.
-          # This list must stay in sync with the publication reactor, the Central exclusions,
+          # This list must stay in sync with the publication reactor, assemble_central_bundle.py,
           # check-central-bundle.py, and consumer-smoke-tests.sh.
           # Missing any one artifact causes the release to fail with the coordinate in the error.
           ARTIFACTS=(
