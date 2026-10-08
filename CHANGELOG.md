@@ -384,6 +384,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The Java Agent panel opens on its setup when the agent is not attached.** The steps and setup snippets follow the
+  **Not attached** status, then a short explanation of what a Java agent is, how BootUI's works, which features need it,
+  and its cost; the sections that only describe an attached agent wait until it is attached
+  ([Java Agent](docs/features/java-agent.md#java-agent)).
 - **Change impact names its unexercised routes for their scope.** The list is now **Reaches it, but didn't run**
   (with the BootUI agent, **Reaches it, but didn't run it**), and a line says it holds only routes that reach what you
   checked, linking to the separate, app-wide **Not exercised in this run** list in **Coverage & limits**. The

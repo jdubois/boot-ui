@@ -14,6 +14,15 @@ application hands to a raw thread pool or `CompletableFuture` is owned by the re
 local-only, exports nothing, and stays dormant until BootUI claims it. A Spring or Quarkus application that starts
 without `-javaagent` behaves exactly as before and reports `NOT_ATTACHED` with setup snippets.
 
+While the agent is not attached, the panel opens on its setup. Under the **Not attached** status, **Attach the agent**
+lists the steps (download the jar when it is missing, add `-javaagent` where the application starts, and restart) above
+the [snippet tabs](#attaching-the-agent). **What the Java agent adds** follows: what a Java agent is, how BootUI's stays
+idle until the application claims it and records metadata rather than data, which features need it, what works
+without it, and what it costs. The sections that describe an attached agent (versions and runtime facts, the claim,
+opt-in sensors, sensors, class transformation, and counters) are left out until it is attached. In every other state,
+`DORMANT`, `UNAVAILABLE`, and `DISABLED` included, the agent's own diagnosis comes first and the setup snippets close
+the panel: the agent is already on the JVM or cannot be used, and the status reason names the fix.
+
 ## Attaching the agent
 
 Add the published `bootui-agent` jar to the JVM with an explicit `-javaagent:` option. When the agent is already
