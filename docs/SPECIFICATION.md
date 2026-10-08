@@ -1976,8 +1976,8 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   contains the text, with their kind and class and the total matched: an exact name first, then a name or a route's
   path starting with it, then a class starting with it. It reads only the run's model, and answers `available=false`
   with the reason when the journal is disabled.
-- `GET /bootui/api/runtime-insights/comparison[?run=<runId>]` compares the current run with the newest kept run that
-  served HTTP requests (the newest kept run when none did), or the chosen one ([PLAN-v2.md](PLAN-v2.md) §5.8). Its status is `COMPARED`, `INSUFFICIENT` when no route served 3 requests
+- `GET /bootui/api/runtime-insights/comparison[?run=<runId>]` compares the current run with the newest kept run, even one
+  that served no HTTP request, or the chosen one ([PLAN-v2.md](PLAN-v2.md) §5.8). Its status is `COMPARED`, `INSUFFICIENT` when no route served 3 requests
   in both runs, `NOT_COMPARABLE` with the database, profile, or cache difference first, `NO_PREVIOUS_RUN` with the
   reason, or `UNAVAILABLE`. Behavior rows come first (statements, REST and AI calls, cache misses, and tokens per
   request; new statements, exceptions, and routes; status-class shares; allocation), then the runtime model's added and
