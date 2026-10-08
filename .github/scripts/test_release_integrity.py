@@ -304,6 +304,38 @@ class ReleaseIntegrityTests(unittest.TestCase):
             "bootui-agent-bridge is never published",
         )
 
+    def test_publication_uploads_the_assembled_bundle(self):
+        self.assert_rejected(
+            self.mutate("./mvnw -B -ntp -Prelease clean install \\\n", "./mvnw -B -ntp -Prelease clean deploy \\\n"),
+            "not run the Maven deploy phase",
+        )
+        self.assert_rejected(
+            self.mutate("            -am\n\n          # The bundle", "            -am \\\n            deploy\n\n          # The bundle"),
+            "not run the Maven deploy phase",
+        )
+        self.assert_rejected(
+            self.mutate("          python3 .github/scripts/assemble_central_bundle.py", "          true"),
+            "Central bundle assembled from the installed release",
+        )
+        self.assert_rejected(
+            self.mutate("          python3 .github/scripts/publish_central_bundle.py", "          true"),
+            "Central Portal bundle upload",
+        )
+
+    def test_bundle_artifacts_match_the_availability_poll_list(self):
+        import re
+        import sys
+
+        sys.path.insert(0, str(SCRIPT.parent))
+        try:
+            from assemble_central_bundle import ARTIFACT_IDS
+        finally:
+            sys.path.pop(0)
+        content = WORKFLOW.read_text(encoding="utf-8")
+        step = content.split("- name: Wait for Maven Central availability", 1)[1].split("- name: ", 1)[0]
+        polled = set(re.findall(r'"(bootui-[a-z-]+)/\$\{VERSION\}/', step))
+        self.assertEqual(polled, set(ARTIFACT_IDS))
+
     def test_rebase_and_passphrase_arguments_are_refused(self):
         self.assert_rejected(
             self.mutate("          git tag -s", "          git rebase origin/main\n          git tag -s"),
