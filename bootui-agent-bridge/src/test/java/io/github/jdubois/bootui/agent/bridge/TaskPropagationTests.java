@@ -128,6 +128,96 @@ class TaskPropagationTests {
         assertThat(queued).hasSize(TaskSnapshots.MAX_PENDING);
     }
 
+    private static final Runnable SHARED_TASK = () -> {};
+
+    @Test
+    void aWorkerThatFailedToStartNeverReleasesTheEntryOfASubmissionMadeMeanwhile() {
+        List<Object> queued = fillTasks();
+        owner.set(snapshot("a"));
+        int outcome = TaskPropagation.workerOffered(SHARED_TASK);
+        owner.remove();
+        assertThat(outcome).isEqualTo(TaskPropagation.OVERFLOWED);
+        // A queued task runs, and another request submits the same singleton task into the slot it freed.
+        TaskPropagation.exit(TaskPropagation.enter(queued.get(0), TaskPropagation.APPLY_RUN_WORKER), null);
+        owner.set(snapshot("b"));
+        assertThat(TaskPropagation.submitted(SHARED_TASK, TaskPropagation.KEY_THREAD_POOL))
+                .isTrue();
+        owner.remove();
+
+        TaskPropagation.workerAdded(outcome, SHARED_TASK, false);
+
+        TaskPropagation.exit(TaskPropagation.enter(SHARED_TASK, TaskPropagation.APPLY_RUN_WORKER), null);
+        assertThat(reopened).last().asString().startsWith("b ");
+    }
+
+    @Test
+    void aQueueThatRefusedAnOverflowedTaskNeverReleasesTheEntryOfASubmissionMadeMeanwhile() {
+        List<Object> queued = fillTasks();
+        java.util.concurrent.BlockingQueue<Object> full = new java.util.concurrent.ArrayBlockingQueue<Object>(1) {
+            @Override
+            public boolean offer(Object task) {
+                // Between A's keying and its refused offer: a slot frees and B submits the same task.
+                TaskPropagation.exit(TaskPropagation.enter(queued.get(0), TaskPropagation.APPLY_RUN_WORKER), null);
+                Object a = owner.get();
+                owner.set(snapshot("b"));
+                assertThat(TaskPropagation.submitted(task, TaskPropagation.KEY_THREAD_POOL))
+                        .isTrue();
+                owner.set(a);
+                return false;
+            }
+        };
+        owner.set(snapshot("a"));
+
+        assertThat(TaskPropagation.offer(full, SHARED_TASK)).isFalse();
+        owner.remove();
+
+        TaskPropagation.exit(TaskPropagation.enter(SHARED_TASK, TaskPropagation.APPLY_RUN_WORKER), null);
+        assertThat(reopened).last().asString().startsWith("b ");
+    }
+
+    @Test
+    void aNewClaimFreesTheCapFromTheEarlierClaimsBacklog() {
+        List<Object> queued = fillTasks();
+        Runnable task = () -> {};
+        owner.set(snapshot("r1"));
+        assertThat(TaskPropagation.submitted(task, TaskPropagation.KEY_THREAD_POOL))
+                .isFalse();
+        owner.remove();
+
+        // A restart: the same application claims again.
+        claimWith(List.of());
+        owner.set(snapshot("r2"));
+        assertThat(TaskPropagation.submitted(task, TaskPropagation.KEY_THREAD_POOL))
+                .isTrue();
+        owner.remove();
+
+        TaskPropagation.exit(TaskPropagation.enter(task, TaskPropagation.APPLY_RUN_WORKER), null);
+        TaskPropagation.exit(TaskPropagation.enter(queued.get(0), TaskPropagation.APPLY_RUN_WORKER), null);
+        assertThat(reopened).containsExactly("r2 " + task.getClass().getName() + " ThreadPoolExecutor.runWorker");
+        assertThat(counter("stale")).isEqualTo(1L);
+        assertThat(counter("pending")).isEqualTo(TaskSnapshots.MAX_PENDING - 1);
+    }
+
+    @Test
+    void disablingTheThreadsSensorKeepsItsOverflowCount() {
+        TaskSnapshots.THREADS.overflowed();
+
+        ThreadPropagation.disable(AgentBridge.current().generation, false);
+
+        assertThat(ThreadPropagation.status().get("overflow")).isEqualTo(1L);
+    }
+
+    private List<Object> fillTasks() {
+        long generation = AgentBridge.current().generation;
+        List<Object> queued = new ArrayList<>();
+        for (int i = 0; i < TaskSnapshots.MAX_PENDING; i++) {
+            Object delayed = new Object();
+            queued.add(delayed);
+            TaskSnapshots.TASKS.put(delayed, generation, snapshot("delayed"), 0L);
+        }
+        return queued;
+    }
+
     @Test
     void anOwnedTaskCarriesTheSubmittingNodesStampToItsFragment() {
         AgentBridge.reset();

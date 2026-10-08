@@ -12,9 +12,12 @@ import java.util.function.BiFunction;
  * the executor queues, returns from {@code shutdownNow}, or passes to a rejection handler stays the application's own.
  * Each entry counts its pending submissions: a submission by another owner, or an unowned one, while any is pending makes
  * the entry ambiguous until the count drops to zero, so a run never takes another owner's snapshot. Payloads are flat
- * arrays of JDK values stamped with the claim generation, so the map can never pin a class loader and is never cleared.
+ * arrays of JDK values stamped with the claim generation, so the map can never pin a class loader. A new claim stops
+ * counting the entries of earlier claims against the cap ({@link #releaseEarlierClaims}), so a backlog from before a
+ * restart cannot hold it; they stay in the map, which keeps a task submitted across claims ambiguous, until their tasks
+ * run, are released, or are reclaimed.
  *
- * <p>Each registry holds at most {@link #MAX_PENDING} tasks, admitted atomically: past that, a new owned submission is
+ * <p>Each registry holds at most {@link #MAX_PENDING} tasks of the current claim, admitted atomically: past that, a new owned submission is
  * refused, counted by its caller ({@link #overflowed()}), records nothing, and so runs unowned, exactly like an unowned submission of
  * a task with no entry. A submission of a task that already has an entry is never refused, so the ambiguity rules are
  * unchanged. As with an unowned first submission, a refused submission followed by an admitted one of the same task
@@ -159,17 +162,46 @@ final class TaskSnapshots {
     }
 
     /**
-     * Drops every entry and the counters, as when the sensor is disabled. Each removal is counted, so the admission count
-     * stays exact while submissions race with it.
+     * Drops every entry, as when the sensor is disabled, and keeps the counters, like the sensor's other counters. Each
+     * removal is counted, so the admission count stays exact while submissions race with it.
      */
-    void reset() {
+    void clear() {
         for (Object key : snapshots.keySet()) {
-            if (snapshots.remove(key) != null) {
+            Entry removed = snapshots.remove(key);
+            if (removed != null && removed.counted) {
                 entries.decrementAndGet();
             }
         }
+    }
+
+    /** Tests only: the entries counted against the cap, read from the map itself. */
+    int countedEntries() {
+        int counted = 0;
+        for (Entry entry : snapshots.values()) {
+            if (entry.counted) {
+                counted++;
+            }
+        }
+        return counted;
+    }
+
+    /** Tests only: drops every entry and the counters. */
+    void reset() {
+        clear();
         neverAppliedCount.reset();
         overflowCount.reset();
+    }
+
+    /**
+     * Stops counting the entries of claims before {@code generation} against the cap; returns how many. A full scan, run
+     * once per claim, never on submission.
+     */
+    int releaseEarlierClaims(long generation) {
+        Uncount uncount = new Uncount(this, generation);
+        for (Object key : snapshots.keySet()) {
+            snapshots.computeIfPresent(key, uncount);
+        }
+        return uncount.released;
     }
 
     /** Bounded: called on the application thread that released a submission. */
@@ -184,7 +216,9 @@ final class TaskSnapshots {
         for (int i = 0; i < budget && (stale = queue.poll()) != null; i++) {
             Entry entry = snapshots.remove(stale);
             if (entry != null) {
-                entries.decrementAndGet();
+                if (entry.counted) {
+                    entries.decrementAndGet();
+                }
                 removed++;
                 if (entry.pending > 0) {
                     neverAppliedCount.increment();
@@ -215,6 +249,9 @@ final class TaskSnapshots {
 
         /** The code-paths stamp of the submitting node ({@code CodePaths.stamp()}), 0 when unknown. */
         long stamp;
+
+        /** Whether the entry counts against the cap: an earlier claim's entry no longer does once a new claim armed. */
+        boolean counted = true;
 
         Entry(long generation, Object[] payload, long stamp) {
             this.generation = generation;
@@ -283,6 +320,29 @@ final class TaskSnapshots {
         }
     }
 
+    /** Stops counting an earlier claim's entry against the cap, keeping it; runs inside the map's per-bin compute. */
+    static final class Uncount implements BiFunction<Object, Entry, Entry> {
+
+        private final TaskSnapshots owner;
+        private final long generation;
+        int released;
+
+        Uncount(TaskSnapshots owner, long generation) {
+            this.owner = owner;
+            this.generation = generation;
+        }
+
+        @Override
+        public Entry apply(Object key, Entry existing) {
+            if (existing.counted && existing.generation < generation) {
+                existing.counted = false;
+                owner.entries.decrementAndGet();
+                released++;
+            }
+            return existing;
+        }
+    }
+
     static final class Take implements BiFunction<Object, Entry, Entry> {
 
         private final TaskSnapshots owner;
@@ -297,7 +357,9 @@ final class TaskSnapshots {
             result = existing.ambiguous ? AMBIGUOUS : existing;
             existing.pending--;
             if (existing.pending <= 0) {
-                owner.entries.decrementAndGet();
+                if (existing.counted) {
+                    owner.entries.decrementAndGet();
+                }
                 return null;
             }
             return existing;

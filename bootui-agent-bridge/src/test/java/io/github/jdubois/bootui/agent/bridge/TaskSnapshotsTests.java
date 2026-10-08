@@ -141,6 +141,113 @@ class TaskSnapshotsTests {
         assertThat(snapshots.put(new Object(), GENERATION, owner("r5"), 0L)).isEqualTo(TaskSnapshots.OWNED);
     }
 
+    @Test
+    void clearingForADisabledSensorKeepsItsCounters() {
+        TaskSnapshots snapshots = new TaskSnapshots(1);
+        snapshots.put(new Object(), GENERATION, owner("r1"), 0L);
+        snapshots.overflowed();
+
+        snapshots.clear();
+
+        assertThat(snapshots.entries.get()).isZero();
+        assertThat(snapshots.size()).isZero();
+        assertThat(snapshots.overflow()).isEqualTo(1);
+        snapshots.reset();
+        assertThat(snapshots.overflow()).isZero();
+    }
+
+    @Test
+    void aNewClaimStopsCountingEarlierClaimsAgainstTheCapAndKeepsTheirEntries() {
+        TaskSnapshots snapshots = new TaskSnapshots(2);
+        Object old = new Object();
+        Object other = new Object();
+        snapshots.put(old, GENERATION, owner("r1"), 0L);
+        snapshots.put(other, GENERATION, owner("r2"), 0L);
+        assertThat(snapshots.put(new Object(), GENERATION + 1, owner("r3"), 0L)).isEqualTo(TaskSnapshots.REFUSED);
+
+        assertThat(snapshots.releaseEarlierClaims(GENERATION + 1)).isEqualTo(2);
+        assertThat(snapshots.releaseEarlierClaims(GENERATION + 1)).isZero();
+
+        assertThat(snapshots.entries.get()).isZero();
+        assertThat(snapshots.size()).isEqualTo(2);
+        Object fresh = new Object();
+        assertThat(snapshots.put(fresh, GENERATION + 1, owner("r3"), 0L)).isEqualTo(TaskSnapshots.OWNED);
+        // The earlier claim's task, submitted again under the new one, stays ambiguous: it never takes that snapshot.
+        assertThat(snapshots.put(old, GENERATION + 1, owner("r4"), 0L)).isEqualTo(TaskSnapshots.AMBIGUOUS_PUT);
+        assertThat(snapshots.entries.get()).isEqualTo(1);
+        assertThat(snapshots.take(old)).isSameAs(TaskSnapshots.AMBIGUOUS);
+        assertThat(snapshots.take(old)).isSameAs(TaskSnapshots.AMBIGUOUS);
+        assertThat(((TaskSnapshots.Entry) snapshots.take(other)).generation).isEqualTo(GENERATION);
+        assertThat(snapshots.entries.get()).isEqualTo(1);
+        assertThat(snapshots.countedEntries()).isEqualTo(1);
+    }
+
+    @Test
+    void theAdmissionCountMatchesTheMapUnderConcurrentSubmissionsRunsAndCleanUps() throws Exception {
+        int cap = 256;
+        TaskSnapshots snapshots = new TaskSnapshots(cap);
+        int threads = 8;
+        java.util.concurrent.CyclicBarrier start = new java.util.concurrent.CyclicBarrier(threads + 1);
+        java.util.concurrent.atomic.AtomicReference<Throwable> failure =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        List<Thread> workers = new ArrayList<>();
+        // Shared tasks, so threads race on the same entries as well as on the cap.
+        Object[] shared = new Object[cap * 2];
+        for (int i = 0; i < shared.length; i++) {
+            shared[i] = new Object();
+        }
+        for (int t = 0; t < threads; t++) {
+            int seed = t;
+            Thread worker = new Thread(() -> {
+                java.util.Random random = new java.util.Random(seed);
+                try {
+                    start.await();
+                    for (int i = 0; i < 20_000; i++) {
+                        Object task = random.nextInt(4) == 0 ? new Object() : shared[random.nextInt(shared.length)];
+                        long generation = GENERATION + random.nextInt(2);
+                        switch (random.nextInt(8)) {
+                            case 0, 1, 2 -> snapshots.put(task, generation, owner("r" + random.nextInt(3)), 0L);
+                            case 3 -> snapshots.take(task);
+                            case 4 -> snapshots.release(task);
+                            case 5 -> snapshots.putUnowned(task);
+                            case 6 -> snapshots.expungeStale();
+                            default -> {
+                                if (random.nextInt(500) == 0) {
+                                    snapshots.releaseEarlierClaims(GENERATION + 1);
+                                } else if (random.nextInt(2_000) == 0) {
+                                    snapshots.clear();
+                                } else {
+                                    snapshots.putSelfTest(task, generation, owner("self"));
+                                }
+                            }
+                        }
+                    }
+                } catch (Throwable ex) {
+                    failure.compareAndSet(null, ex);
+                }
+            });
+            workers.add(worker);
+            worker.start();
+        }
+        start.await();
+        for (Thread worker : workers) {
+            worker.join(60_000);
+            assertThat(worker.isAlive()).isFalse();
+        }
+        assertThat(failure.get()).isNull();
+        System.gc();
+
+        snapshots.size();
+        assertThat(snapshots.entries.get()).isEqualTo(snapshots.countedEntries());
+        // Drained of everything, the count is exactly zero.
+        for (Object task : shared) {
+            while (snapshots.take(task) != null) {}
+        }
+        snapshots.clear();
+        assertThat(snapshots.entries.get()).isZero();
+        assertThat(snapshots.size()).isZero();
+    }
+
     private static List<WeakReference<Object>> fillWithGarbage(TaskSnapshots snapshots, int count) {
         List<WeakReference<Object>> references = new ArrayList<>();
         for (int i = 0; i < count; i++) {

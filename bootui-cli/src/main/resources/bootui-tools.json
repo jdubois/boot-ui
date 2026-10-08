@@ -28,7 +28,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, sensors, and setup snippets that attach it.",
-      "description": "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, sensors, and setup snippets that attach it. This read never claims, installs, or changes the agent. Sensors are summarized (state, counters, failures); query with a sensor id, such as executors, to list only matching sensors with their hooks and self-test steps. Every sensor is listed: limit does not apply.",
+      "description": "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, sensors, and setup snippets that attach it. This read never claims, installs, or changes the agent. Sensors are summarized (state, counters, failures); query with a sensor id, such as executors, to list only matching sensors with their hooks and self-test steps. Every sensor is listed: limit does not apply. Once the executors sensor has counted overflow, a task object several requests submit may have run with another request's context.",
       "example": "bootui agent status --query executors",
       "queryHelp": "a sensor id, such as executors, for its hooks and self-test steps"
     },

@@ -761,8 +761,10 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
   reloads. They no longer inherit its class loader or thread-locals, and an MCP tool runs with its own application's
   class loader.
 - **The Java agent bounds the tasks it remembers.** It holds at most 32,768 pending executor tasks and 32,768 pending
-  threads; past that, a task runs without its request, counted as **Over the limit** in the Java Agent panel and
-  `get_agent_status` ([Java Agent](docs/features/java-agent.md#counters)).
+  threads of the current run; past that, a task runs without its request, counted as **Over the limit** in the Java
+  Agent panel and `get_agent_status`, which also warn that a shared task object can then run with another request's
+  context. A restart's leftover tasks no longer count against the limit, and disabling a sensor keeps its count
+  ([Java Agent](docs/features/java-agent.md#counters)).
 - **An asynchronous Spring MVC request is recorded when it answers.** A request whose handler returned a
   `DeferredResult`, `Callable`, or `CompletableFuture` reached the runtime journal when that handler returned, as a
   `200` lasting only the handler's own time, so a request that later answered `503` or failed, or timed out, read as a

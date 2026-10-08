@@ -120,6 +120,9 @@ application's own code did. See [Java Agent](features/java-agent.md).
 **Limits of the agent itself:**
 
 - JVM mode only, attached with `-javaagent` or an opt-in self-attach; it is unavailable in a GraalVM native image.
+- It remembers at most 32,768 pending executor tasks, and 32,768 pending threads, of the current run; past that, new
+  tasks run without their request, counted as **Over the limit**, and a task object several requests share can run with
+  another request's context.
 - It appends itself to the bootstrap class path, so class data sharing, AppCDS, and AOT caches stop applying outside
   the boot loader and HotSpot prints a warning. A development tool: never attach it to a production or AOT-cached JVM.
 

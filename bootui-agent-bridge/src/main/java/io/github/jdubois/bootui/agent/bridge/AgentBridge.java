@@ -174,6 +174,9 @@ public final class AgentBridge {
             }
         }
         CLAIMS.increment();
+        // Earlier claims' pending snapshots are never reopened: a backlog from before a restart must not fill the cap.
+        TaskPropagation.claimed(next.generation);
+        ThreadPropagation.claimed(next.generation);
         if (current != null && current.armed && !current.slot.equals(slot)) {
             TAKEOVERS.increment();
         }

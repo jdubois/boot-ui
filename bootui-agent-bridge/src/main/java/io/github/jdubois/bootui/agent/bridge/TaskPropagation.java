@@ -214,7 +214,8 @@ public final class TaskPropagation {
         }
         if (started) {
             confirm(outcome, KEY_THREAD_POOL);
-        } else {
+        } else if (outcome != OVERFLOWED) {
+            // An overflowed submission recorded nothing: a release would take another submission's entry.
             release(firstTask);
         }
     }
@@ -239,7 +240,7 @@ public final class TaskPropagation {
             if (outcome != NONE) {
                 if (queued) {
                     confirm(outcome, KEY_THREAD_POOL_QUEUE);
-                } else {
+                } else if (outcome != OVERFLOWED) {
                     release(task);
                 }
             }
@@ -332,6 +333,18 @@ public final class TaskPropagation {
             return;
         }
         submitted(task, KEY_DELAYED);
+    }
+
+    /**
+     * A new claim armed: earlier claims' pending tasks, which are never reopened, stop counting against the cap, so a
+     * backlog from before a restart cannot fill it. Called once per claim, off the submission path.
+     */
+    static void claimed(long generation) {
+        try {
+            TaskSnapshots.TASKS.releaseEarlierClaims(generation);
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
     }
 
     /** A submission that will not run: the worker did not start, or the task was removed. */

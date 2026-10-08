@@ -264,16 +264,20 @@ report warns that the self-test decides.
 | Ambiguous | Tasks submitted more than once by different owners, left unowned. |
 | Stale | Tasks received under an earlier claim, never reopened after a restart. |
 | Refused | Snapshots the bridge refused because they held more than strings and numbers. |
-| Over the limit | Tasks received from owned work while 32,768 were already pending, left unowned. |
+| Over the limit | Tasks received from owned work while 32,768 of this run were already pending, left unowned. |
 | Virtual threads skipped | Virtual-thread continuations, which keep their own context. |
 | Periodic tasks skipped | Repeating scheduled tasks, which are never propagated. |
 | Wrappers skipped | Tasks already carrying their context (`bootui.agent.executors.skip-tasks`). |
 | Threads skipped | Workers whose executor propagates the context itself (`bootui.agent.executors.skip-threads`). |
 | Failed tasks | Propagated tasks that ended with an exception. |
 
-The bridge holds at most 32,768 pending tasks, and, apart, at most 32,768 pending threads for the threads sensor. Past
-that, a task from owned work is not recorded and runs unowned, counted as over the limit, until queued tasks run or are
-reclaimed. A task already pending is still recorded, so the ambiguity rules below are unchanged. Snapshots of reclaimed
+The bridge holds at most 32,768 pending tasks of the current claim, and, apart, at most 32,768 pending threads for the
+threads sensor. Past that, a task from owned work is not recorded and runs unowned, counted as over the limit, until
+queued tasks run or are reclaimed. Meanwhile, a task object several requests submit, such as a shared lambda, can run
+with another request's context; the counter adds up since the agent started, and the Java Agent panel warns once it is
+above zero. A new claim, after a DevTools
+restart or a Quarkus live reload, stops counting the earlier run's pending tasks against the limit; they are kept until
+they run, are released, or are reclaimed, so a task submitted across the two runs stays ambiguous. A task already pending is still recorded, so the ambiguity rules below are unchanged. Snapshots of reclaimed
 tasks are removed at most 64 at a time by a submission, so the application's threads never do unbounded clean-up; a
 status read removes all of them.
 

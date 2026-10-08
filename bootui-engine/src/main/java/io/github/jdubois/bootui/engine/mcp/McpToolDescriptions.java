@@ -303,7 +303,8 @@ public final class McpToolDescriptions {
                             + "sensors, and setup snippets that attach it. This read never claims, installs, or "
                             + "changes the agent. Sensors are summarized (state, counters, failures); query with a sensor id, such "
                             + "as executors, to list only matching sensors with their hooks and self-test steps. Every sensor is "
-                            + "listed: limit does not apply."),
+                            + "listed: limit does not apply. Once the executors sensor has counted overflow, a task object "
+                            + "several requests submit may have run with another request's context."),
             Map.entry(
                     "get_code_inventory",
                     "Return Code Inventory: did the code that changed since the previous run execute in this run? "

@@ -349,7 +349,7 @@ public final class ThreadPropagation {
      */
     public static void disable(long generation, boolean everyGeneration) {
         disabledGeneration = everyGeneration ? ALL : generation;
-        TaskSnapshots.THREADS.reset();
+        TaskSnapshots.THREADS.clear();
         ADDING_WORKER.clear();
     }
 
@@ -395,6 +395,15 @@ public final class ThreadPropagation {
         map.put("keyed", TaskPropagation.counts(KEY_HOOKS, SELF_TEST_KEYED));
         map.put("applied", TaskPropagation.counts(APPLY_HOOKS, SELF_TEST_APPLIED));
         return map;
+    }
+
+    /** A new claim armed: earlier claims' pending threads stop counting against the cap; see TaskPropagation.claimed. */
+    static void claimed(long generation) {
+        try {
+            TaskSnapshots.THREADS.releaseEarlierClaims(generation);
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
     }
 
     static Map<String, Object> status() {
