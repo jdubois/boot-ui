@@ -40,6 +40,10 @@ jobs:
       CENTRAL_AUTO_PUBLISH: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_publish }}
       REQUESTED_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
       RESUME_AFTER_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && inputs.resume_after_publish }}
+      # The release signing key's primary fingerprint ("Julien Dubois", which signed 1.3.1 to 1.21.0). Change it only
+      # on a deliberate key rotation, after publishing the new key on the keyservers: the imported key, the signatures
+      # of the verification build, and the Central bundle's signatures must all match it.
+      RELEASE_KEY_FINGERPRINT: 7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -64,6 +68,15 @@ jobs:
           server-password-env-var: MAVEN_CENTRAL_PASSWORD
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
           gpg-passphrase-env-var: MAVEN_GPG_PASSPHRASE
+
+      - name: Check the release signing key
+        run: |
+          set -euo pipefail
+          secret_keys="$(gpg --batch --with-colons --list-secret-keys)"
+          [[ "$(grep -c '^sec:' <<<"$secret_keys" || true)" == "1" ]] || { echo "::error::Exactly one secret signing key must be imported"; exit 1; }
+          IMPORTED_KEY_FINGERPRINT="$(awk -F: '$1 == "fpr" { print $10; exit }' <<<"$secret_keys")"
+          [[ "$IMPORTED_KEY_FINGERPRINT" == "$RELEASE_KEY_FINGERPRINT" ]] || { echo "::error::The imported signing key ${IMPORTED_KEY_FINGERPRINT:-(none)} is not the pinned release key $RELEASE_KEY_FINGERPRINT"; exit 1; }
+          echo "The imported signing key is the pinned release key $RELEASE_KEY_FINGERPRINT."
 
       - name: Configure Git author
         if: github.event_name == 'workflow_dispatch' && inputs.version != ''
@@ -201,6 +214,9 @@ jobs:
             # ("may leak sensitive information"). The plugin already reads the passphrase from
             # the MAVEN_GPG_PASSPHRASE env var above (its passphraseEnvName default) instead.
             ./mvnw -B -ntp -Prelease clean verify
+            # Before the tag exists, every signature the build wrote must be valid and by the release key, so a
+            # signing mismatch (the flattened POMs' included) costs no tag and no coordinate.
+            bash .github/scripts/verify-release-signatures.sh build
 
             # Before the release commit and tag exist, so a broken consumer POM costs nothing: stage the exact
             # Central bundle from this tree, check its coordinates and flattened POMs, and run the consumer
@@ -472,24 +488,7 @@ jobs:
           python3 .github/scripts/check-central-bundle.py "$BUNDLE_DIR" "$VERSION"
           # Every signature in the bundle, the flattened POMs' included, must verify and come from the release key
           # before the upload, so a bad one fails here rather than in Central's validation of a consumed coordinate.
-          RELEASE_KEY_FINGERPRINT="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
-          if [[ -z "$RELEASE_KEY_FINGERPRINT" ]]; then
-            echo "::error::No GPG release key is available to verify the Central bundle signatures"
-            exit 1
-          fi
-          signatures=0
-          while IFS= read -r -d '' signature; do
-            verification="$(gpg --batch --status-fd 1 --verify "$signature" "${signature%.asc}")"
-            if ! grep -Eq "^\[GNUPG:\] VALIDSIG .* ${RELEASE_KEY_FINGERPRINT}\$" <<<"$verification"; then
-              echo "::error::${signature#"$BUNDLE_DIR"/} is not a valid signature by the release key"
-              exit 1
-            fi
-            signatures=$((signatures + 1))
-          done < <(find "$BUNDLE_DIR" -type f -name '*.asc' -print0)
-          if (( signatures == 0 )); then
-            echo "::error::The Central bundle holds no signature to verify"
-            exit 1
-          fi
+          bash .github/scripts/verify-release-signatures.sh bundle "$BUNDLE_DIR"
           python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip "bootui-$VERSION" "$CENTRAL_AUTO_PUBLISH"
 
       - name: Wait for Maven Central availability

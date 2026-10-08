@@ -16,7 +16,10 @@ give the details.
   `bootui-spring-boot-starter-reactive` with `bootui-spring-boot-starter`. The starter no longer brings a web stack, so
   the application declares its own `spring-boot-starter-web` or `spring-boot-starter-webflux`, as most already do
   ([Setup](docs/SETUP.md); "Seven Maven Central artifacts" under Changed).
-- `bootui-core` is now part of `bootui-engine`: depend on `bootui-engine` instead. Its packages are unchanged.
+- `bootui-core` is now part of `bootui-engine`: remove `bootui-core` from your dependencies and depend on
+  `bootui-engine` instead; its packages are unchanged. A `bootui-core` 1.x left next to `bootui-engine` 2.0 puts two
+  copies of the same classes on the classpath, with no error. An application that used only the DTOs now also gets
+  `bootui-engine`'s dependencies: `micrometer-core`, `archunit`, and `slf4j-api`.
 - A direct `bootui-spring-autoconfigure` or `bootui-client` dependency becomes `bootui-spring-boot-starter` or
   `bootui-cli`.
 - The runtime journal is on by default. It keeps the run's events in bounded memory, by default the smaller of 32 MB

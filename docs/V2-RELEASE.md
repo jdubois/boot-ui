@@ -171,7 +171,10 @@ The branch points at an existing commit: no merge, no rebase, no new commit.
 7. **Changelog.** Cut `CHANGELOG.md`'s `[Unreleased]` to `## [2.0.0] - YYYY-MM-DD` on `main`, as its own commit, and
    wait for a green build.
 8. **Release.** Run **Release** from `main` with version `2.0.0`. Merge nothing into `main` until the run is green:
-   while Maven Central propagates, a push could find the gate's two artifacts before the others.
+   while Maven Central propagates, a push could find the gate's two artifacts before the others. 2.0.0 is the first
+   release whose POMs are flattened before signing, so the run refuses an imported key other than the pinned
+   `RELEASE_KEY_FINGERPRINT` (7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9), and checks every signature against it twice:
+   after the verification build, before the tag (unless `skip_build`), and on the Central bundle, before the upload.
 9. **After the release.** Confirm that the site shows 2.0 (deployed from the v2.0.0 tag), that
    `jbang bootui@jdubois/boot-ui` and the installers resolve 2.0.0, and that the next daily Docker run publishes 2.x
    images. Narrow the `github-pages` tag rule to `v2.*`. After the first 1.x patch that follows, confirm that

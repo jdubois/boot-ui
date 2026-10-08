@@ -4,7 +4,7 @@ set -euo pipefail
 
 # Usage: check-release-integrity.sh [release.yml] [pages.yml] [docker-publish.yml] [consumer-smoke-tests.sh]
 #                                   [stage-release-candidate.sh] [check-central-bundle.py]
-#                                   [assemble_central_bundle.py]
+#                                   [assemble_central_bundle.py] [verify-release-signatures.sh]
 # RELEASE_INTEGRITY_ROOT is a test seam for the repository checked by the release-line and POM rules;
 # no workflow may set it.
 readonly REPOSITORY_ROOT="${RELEASE_INTEGRITY_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
@@ -17,6 +17,7 @@ readonly SMOKE_SCRIPT="${4:-$SCRIPTS_DIR/consumer-smoke-tests.sh}"
 readonly STAGE_SCRIPT="${5:-$SCRIPTS_DIR/stage-release-candidate.sh}"
 readonly BUNDLE_CHECK="${6:-$SCRIPTS_DIR/check-central-bundle.py}"
 readonly BUNDLE_ASSEMBLER="${7:-$SCRIPTS_DIR/assemble_central_bundle.py}"
+readonly SIGNATURE_CHECK="${8:-$SCRIPTS_DIR/verify-release-signatures.sh}"
 readonly ROOT_POM="$REPOSITORY_ROOT/pom.xml"
 readonly STARTER_POM="$REPOSITORY_ROOT/bootui-spring-boot-starter/pom.xml"
 readonly RELEASE_LINE_FILE="$REPOSITORY_ROOT/.github/release-line"
@@ -32,7 +33,7 @@ if [[ ! -r "$ROOT_POM" ]]; then
   exit 2
 fi
 for required in "$VERSION_POLICY" "$LINE_GATE" "$PAGES_WORKFLOW" "$DOCKER_WORKFLOW" "$SMOKE_SCRIPT" "$STAGE_SCRIPT" \
-  "$BUNDLE_CHECK" "$BUNDLE_ASSEMBLER" "$STARTER_POM"; do
+  "$BUNDLE_CHECK" "$BUNDLE_ASSEMBLER" "$SIGNATURE_CHECK" "$STARTER_POM"; do
   if [[ ! -r "$required" ]]; then
     printf 'Cannot read %s\n' "$required" >&2
     exit 2
@@ -325,11 +326,7 @@ for entry in \
   '          python3 .github/scripts/assemble_central_bundle.py "$LOCAL_REPO" "$VERSION" target/central-bundle.zip|Central bundle assembled from the installed release' \
   '          unzip -q target/central-bundle.zip -d "$BUNDLE_DIR"|unpacked Central bundle for its check' \
   '          python3 .github/scripts/check-central-bundle.py "$BUNDLE_DIR" "$VERSION"|check of the assembled Central bundle before its upload' \
-  "          RELEASE_KEY_FINGERPRINT=\"\$(gpg --batch --with-colons --list-secret-keys | awk -F: '\$1 == \"fpr\" { print \$10; exit }')\"|release key fingerprint for the bundle signature verification" \
-  '            verification="$(gpg --batch --status-fd 1 --verify "$signature" "${signature%.asc}")"|verification of every bundle signature before its upload' \
-  '            if ! grep -Eq "^\[GNUPG:\] VALIDSIG .* ${RELEASE_KEY_FINGERPRINT}\$" <<<"$verification"; then|check that every bundle signature is by the release key' \
-  "          done < <(find \"\$BUNDLE_DIR\" -type f -name '*.asc' -print0)|every .asc file of the unpacked bundle fed to the signature verification" \
-  '          if (( signatures == 0 )); then|refusal of a bundle without signatures' \
+  '          bash .github/scripts/verify-release-signatures.sh bundle "$BUNDLE_DIR"|verification of every bundle signature by the release key before its upload' \
   '          python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip "bootui-$VERSION" "$CENTRAL_AUTO_PUBLISH"|Central Portal bundle upload'; do
   command_line="${entry%|*}"
   description="${entry##*|}"
@@ -338,6 +335,89 @@ for entry in \
     report_error "missing $description ('${command_line#"${command_line%%[![:space:]]*}"}' on a line of its own in the publication step)"
   elif (( found_line <= previous_line )); then
     report_error "the publication step must run $description after the previous bundle command: assemble, unpack, check, verify signatures, then upload"
+  else
+    previous_line="$found_line"
+  fi
+done
+
+# The release key is pinned once for the whole job, and the imported key is checked against it before anything is
+# signed, tagged, or published. A rotation changes PINNED_RELEASE_KEY_FINGERPRINT here and in release.yml together.
+readonly PINNED_RELEASE_KEY_FINGERPRINT='7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9'
+workflow_text="$(cat "$WORKFLOW")"
+if ! grep -Fxq -- "      RELEASE_KEY_FINGERPRINT: $PINNED_RELEASE_KEY_FINGERPRINT" <<<"$workflow_text" ||
+  [[ "$(grep -c 'RELEASE_KEY_FINGERPRINT[:=]' <<<"$workflow_text" || true)" -ne 1 ]]; then
+  # Fails closed: any other definition, or even a `${RELEASE_KEY_FINGERPRINT:=...}` default, is refused.
+  report_error "the job must pin RELEASE_KEY_FINGERPRINT to $PINNED_RELEASE_KEY_FINGERPRINT once, and nothing may redefine it"
+fi
+key_check_step="$(sed -n '/^      - name: Check the release signing key$/,/^      - name: /p' "$WORKFLOW")"
+# The step runs unconditionally and its failure fails the job: no `if:`, no `continue-on-error`.
+if [[ "$(sed -n '2p' <<<"$key_check_step")" != '        run: |' ]]; then
+  report_error "the release signing key check must run unconditionally ('run: |' right after its name)"
+fi
+if grep -Eq '^[[:space:]]*continue-on-error:' "$WORKFLOW"; then
+  report_error 'no release step may set continue-on-error: a failed check must stop the release'
+fi
+previous_line=0
+for literal in \
+  '          set -euo pipefail' \
+  '          secret_keys="$(gpg --batch --with-colons --list-secret-keys)"' \
+  '          [[ "$(grep -c '"'"'^sec:'"'"' <<<"$secret_keys" || true)" == "1" ]] || { echo "::error::Exactly one secret signing key must be imported"; exit 1; }' \
+  '          IMPORTED_KEY_FINGERPRINT="$(awk -F: '"'"'$1 == "fpr" { print $10; exit }'"'"' <<<"$secret_keys")"' \
+  '          [[ "$IMPORTED_KEY_FINGERPRINT" == "$RELEASE_KEY_FINGERPRINT" ]] || { echo "::error::The imported signing key ${IMPORTED_KEY_FINGERPRINT:-(none)} is not the pinned release key $RELEASE_KEY_FINGERPRINT"; exit 1; }'; do
+  found_line="$(line_number_of "$literal" "$key_check_step")"
+  if [[ -z "$found_line" ]]; then
+    report_error "the release signing key check must use '${literal#"${literal%%[![:space:]]*}"}' on a line of its own"
+  elif (( found_line <= previous_line )); then
+    report_error "the release signing key check must run '${literal#"${literal%%[![:space:]]*}"}' after its previous line"
+  else
+    previous_line="$found_line"
+  fi
+done
+require_order '- name: Set up JDK 17' '- name: Check the release signing key' \
+  'the release signing key must be checked after it is imported'
+require_order '- name: Check the release signing key' '- name: Prepare release version' \
+  'the release signing key must be checked before anything is signed or tagged'
+
+# Before the tag exists, the signatures the verification build wrote are checked: a whole line of the preparation,
+# after the build and before the release commit.
+readonly BUILD_SIGNATURE_CHECK='            bash .github/scripts/verify-release-signatures.sh build'
+build_signature_line="$(line_number_of "$BUILD_SIGNATURE_CHECK" "$(cat "$WORKFLOW")")"
+release_verify_line="$(line_of './mvnw -B -ntp -Prelease clean verify')"
+release_commit_line="$(line_of 'git commit -m "Release $TAG"')"
+if [[ -z "$build_signature_line" ]]; then
+  report_error "missing pre-tag verification of the build's signatures ('${BUILD_SIGNATURE_CHECK#"${BUILD_SIGNATURE_CHECK%%[![:space:]]*}"}' on a line of its own)"
+elif [[ -z "$release_verify_line" || -z "$release_commit_line" ]] ||
+  (( build_signature_line <= release_verify_line || build_signature_line >= release_commit_line )); then
+  report_error "the build's signatures must be verified after the verification build and before the release commit"
+fi
+
+# The signature check itself: every failure is one guarded line, in this order, under set -e. It reads the pin from
+# the job and nothing else: no other code line may name RELEASE_KEY_FINGERPRINT, such as one deriving it from the keyring.
+signature_check="$(cat "$SIGNATURE_CHECK")"
+pin_uses="$(grep -v '^[[:space:]]*#' <<<"$signature_check" | grep -F 'RELEASE_KEY_FINGERPRINT' | grep -vFx \
+  -e '[[ "${RELEASE_KEY_FINGERPRINT:-}" =~ ^[0-9A-F]{40}$ ]] || { echo "::error::RELEASE_KEY_FINGERPRINT must be the pinned release key'"'"'s 40-digit fingerprint"; exit 1; }' \
+  -e 'readonly RELEASE_KEY_FINGERPRINT' \
+  -e '  grep -Eq "^\[GNUPG:\] VALIDSIG .* ${RELEASE_KEY_FINGERPRINT}\$" <<<"$verification" || { echo "::error::${signature#"$SEARCH_ROOT"/} is not a valid signature by the release key"; exit 1; }' \
+  -e 'echo "Verified ${signatures} release signatures by ${RELEASE_KEY_FINGERPRINT} under ${SEARCH_ROOT}."' || true)"
+if [[ -n "$pin_uses" ]]; then
+  report_error "$SIGNATURE_CHECK must use RELEASE_KEY_FINGERPRINT only as the job pins it, found: $pin_uses"
+fi
+previous_line=0
+for literal in \
+  'set -euo pipefail' \
+  "    readonly FIND_FILTER=(-mindepth 2 -maxdepth 3 -path '*/target/*.asc')" \
+  "    readonly FIND_FILTER=(-name '*.asc')" \
+  '[[ "${RELEASE_KEY_FINGERPRINT:-}" =~ ^[0-9A-F]{40}$ ]] || { echo "::error::RELEASE_KEY_FINGERPRINT must be the pinned release key'"'"'s 40-digit fingerprint"; exit 1; }' \
+  'readonly RELEASE_KEY_FINGERPRINT' \
+  '  verification="$(gpg --batch --status-fd 1 --verify "$signature" "${signature%.asc}")" || { echo "::error::${signature#"$SEARCH_ROOT"/} does not verify"; exit 1; }' \
+  '  grep -Eq "^\[GNUPG:\] VALIDSIG .* ${RELEASE_KEY_FINGERPRINT}\$" <<<"$verification" || { echo "::error::${signature#"$SEARCH_ROOT"/} is not a valid signature by the release key"; exit 1; }' \
+  'done < <(find "$SEARCH_ROOT" "${FIND_FILTER[@]}" -type f -print0)' \
+  '(( signatures > 0 )) || { echo "::error::Found no release signature to verify under $SEARCH_ROOT"; exit 1; }'; do
+  found_line="$(line_number_of "$literal" "$signature_check")"
+  if [[ -z "$found_line" ]]; then
+    report_error "$SIGNATURE_CHECK must use '$literal' on a line of its own"
+  elif (( found_line <= previous_line )); then
+    report_error "$SIGNATURE_CHECK must run '$literal' after the previous signature check line"
   else
     previous_line="$found_line"
   fi
