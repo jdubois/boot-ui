@@ -52,12 +52,22 @@ class SecurityViolationDetailsTests {
         assertThat(rule.violationCount()).isEqualTo(29);
         assertThat(rule.sampleViolations()).containsExactlyElementsOf(expected.subList(0, 10));
         var page = scanner.ruleViolations(rule.id(), report.violationDetails().scanId(), null, null);
-        for (var result : report.results()) {
-            try {
-                scanner.ruleViolations(result.id(), report.violationDetails().scanId(), 0, 1);
-            } catch (AdvisorViolationException refusal) {
-                assertThat(refusal.getMessage()).isEqualTo(AdvisorScanState.NO_FINDINGS_MESSAGE);
-            }
+        List<String> reported =
+                report.results().stream().map(result -> result.id()).toList();
+        List<String> withoutFindings = SecurityRuleRegistry.activeRules().stream()
+                .map(registered -> registered.definition().id())
+                .filter(id -> !reported.contains(id))
+                .toList();
+        assertThat(withoutFindings)
+                .as("a rule that ran without findings is in the catalogue, not in the report's results")
+                .isNotEmpty();
+        for (String passed : withoutFindings) {
+            assertThatThrownBy(() -> scanner.ruleViolations(
+                            passed, report.violationDetails().scanId(), 0, 1))
+                    .isInstanceOfSatisfying(
+                            AdvisorViolationException.class,
+                            refusal ->
+                                    assertThat(refusal.getMessage()).isEqualTo(AdvisorScanState.NO_FINDINGS_MESSAGE));
         }
         assertThatThrownBy(() -> scanner.ruleViolations(
                         "definitely-unknown", report.violationDetails().scanId(), null, null))

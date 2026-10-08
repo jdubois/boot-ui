@@ -55,7 +55,8 @@ class QuarkusSecurityScannerTest {
         assertThat(report.violationDetails().retained()).isEqualTo(Math.min(4, retentionLimit));
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         String scanId = report.violationDetails().scanId();
-        AdvisorRuleRefusals.assertEveryResultIsAKnownRule(
+        AdvisorRuleRefusals.assertKnownAndUnknownRulesAreToldApart(
+                QuarkusSecurityChecks.ruleIds(),
                 report.results().stream().map(evaluated -> evaluated.id()).toList(),
                 report.violationDetails().scanId(),
                 (asked, scan) -> scanner.ruleViolations(asked, scan, 0, 1));

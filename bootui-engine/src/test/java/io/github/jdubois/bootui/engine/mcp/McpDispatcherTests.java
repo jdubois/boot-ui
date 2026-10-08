@@ -302,6 +302,16 @@ class McpDispatcherTests {
                 .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.PROMPT_ARGUMENTS_OBJECT_MESSAGE));
     }
 
+    @Test
+    void aBoundedPromptArgumentNeverSplitsASurrogatePair() {
+        String emoji = "\uD83D\uDE00";
+        String split = "x".repeat(McpPrompt.MAX_ARGUMENT_LENGTH - 1) + emoji + "tail";
+        assertThat(McpPrompt.bounded(split)).isEqualTo("x".repeat(McpPrompt.MAX_ARGUMENT_LENGTH - 1) + "...");
+        String whole = "x".repeat(McpPrompt.MAX_ARGUMENT_LENGTH - 2) + emoji + "tail";
+        assertThat(McpPrompt.bounded(whole)).isEqualTo(whole.substring(0, McpPrompt.MAX_ARGUMENT_LENGTH) + "...");
+        assertThat(McpPrompt.bounded("short")).isEqualTo("short");
+    }
+
     private static McpRequest prompt(String name, Map<String, String> arguments) {
         return new McpRequest(
                 JSONRPC,

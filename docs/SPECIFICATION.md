@@ -3088,9 +3088,9 @@ Detail reads require the report's nonblank `scanId`; offset defaults to zero and
 Malformed/fractional/overflowing inputs, negative offsets, and nonpositive limits are rejected. Responses contain
 `scanId`, `ruleId`, full `violationCount`, `retainedCount`, `truncated`, `violations`,
 `page: {total, matched, offset, limit, returned, hasMore}`, and `locations`. Page totals count retained entries; a
-terminal page does not prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Unknown rules
-(`Unknown advisor rule: ...`) and rules evaluated without findings (`Advisor rule has no findings in the current scan.`)
-both return 404 with those distinct messages; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
+terminal page does not prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Ids outside the
+advisor's rule catalogue (`Unknown advisor rule: ...`) and catalogue rules without findings, whether passed, skipped, or
+failed (`Advisor rule has no findings in the current scan.`), both return 404 with those distinct messages; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
 retrievable. Reads obey panel availability, enabled and safety policy, but are allowed in read-only mode, and never
 rescan or collect new observations.
 

@@ -486,9 +486,9 @@ class AdvisorScanStateTests {
     }
 
     @Test
-    void anUnknownRuleIdIsRefusedDifferentlyFromAnEvaluatedRuleWithoutFindings() {
+    void anIdOutsideTheCatalogueIsRefusedDifferentlyFromACatalogueRuleWithoutFindings() {
         AdvisorScanState<Report> state =
-                new AdvisorScanState<>(Report::withViolationDetails, report -> List.of("violated", "passed"));
+                new AdvisorScanState<>(Report::withViolationDetails, () -> List.of("violated", "passed"));
         AdvisorViolationCollector collector = state.collector();
         collector.record("violated", 1, List.of("finding"), UnaryOperator.identity());
         String scanId = state.publish(new Report("report", 1, null), collector)
@@ -512,15 +512,15 @@ class AdvisorScanStateTests {
     }
 
     @Test
-    void aStateThatDoesNotKnowTheEvaluatedRulesAnswersNoFindingsForEveryMissingRule() {
-        AdvisorScanState<Report> state = new AdvisorScanState<>(Report::withViolationDetails, report -> null);
+    void aStateThatDoesNotKnowTheCatalogueAnswersNoFindingsForEveryMissingRule() {
+        AdvisorScanState<Report> state = new AdvisorScanState<>(Report::withViolationDetails, () -> null);
         String scanId = publish(state, List.of("finding"), 1).violationDetails().scanId();
 
         assertFailure(state, "definitely-unknown", scanId, null, null, 404, AdvisorScanState.NO_FINDINGS_MESSAGE);
     }
 
     @Test
-    void ruleIdsReadsTheResultIdsAndToleratesAMissingList() {
+    void ruleIdsReadsTheRuleIdsAndToleratesAMissingList() {
         assertThat(AdvisorScanState.ruleIds(List.of("a", "b"), value -> value.toUpperCase(java.util.Locale.ROOT)))
                 .containsExactly("A", "B");
         assertThat(AdvisorScanState.<String>ruleIds(null, value -> value)).isNull();

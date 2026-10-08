@@ -73,9 +73,8 @@ public final class RestApiScanner {
             sourceLocations;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private volatile Supplier<SpringWebStack> springWebStack = () -> SpringWebStack.UNKNOWN;
-    private final AdvisorScanState<RestApiReport> state = new AdvisorScanState<>(
-            RestApiReport::withViolationDetails,
-            report -> AdvisorScanState.ruleIds(report.results(), RestApiRuleResultDto::id));
+    private final AdvisorScanState<RestApiReport> state =
+            new AdvisorScanState<>(RestApiReport::withViolationDetails, this::ruleCatalog);
 
     RestApiScanner(
             Supplier<List<String>> basePackagesSupplier,
@@ -500,5 +499,10 @@ public final class RestApiScanner {
 
     private static boolean isViolation(RestApiRuleResultDto result) {
         return RestApiRuleSupport.VIOLATION.equals(result.status());
+    }
+
+    /** The ids of the rules this scanner runs, the catalogue its detail reads know. */
+    private List<String> ruleCatalog() {
+        return AdvisorScanState.ruleIds(rules, rule -> rule.definition().id());
     }
 }

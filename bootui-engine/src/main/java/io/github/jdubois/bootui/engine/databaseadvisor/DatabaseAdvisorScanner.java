@@ -62,7 +62,9 @@ public final class DatabaseAdvisorScanner {
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private final AdvisorScanState<DatabaseAdvisorReport> state = new AdvisorScanState<>(
             DatabaseAdvisorReport::withViolationDetails,
-            report -> AdvisorScanState.ruleIds(report.results(), DatabaseAdvisorRuleResultDto::id));
+            () -> AdvisorScanState.ruleIds(
+                    DatabaseAdvisorRuleRegistry.activeRules(),
+                    rule -> rule.definition().id()));
 
     public static DatabaseAdvisorScanner using(
             Supplier<List<NamedDataSource>> dataSourceSupplier,

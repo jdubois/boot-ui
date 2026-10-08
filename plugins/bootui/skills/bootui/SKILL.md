@@ -345,9 +345,9 @@ these gaps rather than treating the rule as clean.
 
 Detail reads never rerun checks or query a database and remain permitted in read-only mode. Only the latest
 completed snapshot is kept; dismissal preserves its ID and details. On stale/no-snapshot client error 409,
-**reread the cached report, not the scan tool**, and restart pages using its ID. A rule id not among the scan's
-`results` answers `Unknown advisor rule: ...`, distinct from a rule evaluated without findings (`Advisor rule has no
-findings in the current scan.`); both are REST/MCP client error 404 (CLI facade 400, exit `1`). On MCP rendered-byte
+**reread the cached report, not the scan tool**, and restart pages using its ID. A rule id outside the advisor's
+rule catalogue answers `Unknown advisor rule: ...`, distinct from a catalogue rule that passed, was skipped, or failed
+(`Advisor rule has no findings in the current scan.`); both are REST/MCP client error 404 (CLI facade 400, exit `1`). On MCP rendered-byte
 refusal `-32003`, retry the same scan ID and offset with a smaller limit; never advance after a failure or treat
 it as an empty page. Stop rather than retry indefinitely when one detail cannot fit. Verify every finding against
 source and effective configuration before proposing a fix; do not claim complete coverage when truncated.

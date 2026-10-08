@@ -55,7 +55,8 @@ public final class MemoryScanner {
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private final AdvisorScanState<MemoryReport> state = new AdvisorScanState<>(
             MemoryReport::withViolationDetails,
-            report -> AdvisorScanState.ruleIds(report.results(), MemoryRuleResultDto::id));
+            () -> AdvisorScanState.ruleIds(
+                    MemoryRuleRegistry.activeRules(), rule -> rule.definition().id()));
 
     /**
      * Post-histogram GC counters from the previous scan, used as the lower bound of the recent-GC

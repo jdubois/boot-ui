@@ -220,6 +220,15 @@ class CodePathsServiceTests {
                 .singleElement()
                 .satisfies(node -> assertThat(node.method()).isEqualTo("shop.SlowPricingService#quote()I"));
         assertThat(exact.limitations()).contains(CodePathsService.LIMITATION_PERCENTILES);
+        CodePathsAgentReport miss = service.agentReport("zzz-no-route", null);
+        assertThat(miss.available())
+                .as("a query that matches no route is a search answer, never an unavailable capability")
+                .isTrue();
+        assertThat(miss.matched()).isZero();
+        assertThat(miss.routes()).isEmpty();
+        assertThat(miss.limitations())
+                .anySatisfy(limitation ->
+                        assertThat(limitation).contains("zzz-no-route", "get_code_paths without a query"));
 
         HandlerMethods handler = service.handlerMethods("GET /api/quote");
         assertThat(handler.requests()).isEqualTo(3);

@@ -208,9 +208,9 @@ verify every finding before changing code.
 Such gaps remain explicit in diagnostics; increasing the retention budget does not manufacture missing identities.
 
 Only the latest completed snapshot is kept. A stale ID or no completed snapshot is HTTP 409: reread the
-cached `… report`, obtain its ID, and restart detail paging, **not** `… scan`. A rule id that is not among the
-scan's `results` answers `Unknown advisor rule: ...`, and a rule the scan evaluated without findings answers `Advisor
-rule has no findings in the current scan.`; both are REST/MCP client error 404, and the CLI facade preserves its
+cached `… report`, obtain its ID, and restart detail paging, **not** `… scan`. A rule id outside the advisor's
+rule catalogue answers `Unknown advisor rule: ...`, and a catalogue rule without findings (passed, skipped, or failed)
+answers `Advisor rule has no findings in the current scan.`; both are REST/MCP client error 404, and the CLI facade preserves its
 existing mapping to HTTP 400 so an unknown rule is not mistaken for an unavailable command. Both exit `1` with the
 application's message. A missing scan ID is
 rejected before a detail read. Dismissal leaves the snapshot ID and its details intact.

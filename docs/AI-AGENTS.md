@@ -623,9 +623,10 @@ Always verify each finding against source and effective configuration before edi
 
 These reads never rerun checks, import classes, query the database, or start a scan. A missing or replaced snapshot
 returns a known client failure (REST 409): **reread the cached report, not the scan tool**, then restart paging that
-report's scan ID. A rule id that is not among that scan's `results` (a typo, another advisor's rule, or a rule the scan
-skipped) answers `Unknown advisor rule: ...`, and a rule the scan evaluated without any finding answers `Advisor rule has
-no findings in the current scan.`; both are REST 404. MCP exposes these as in-band `isError: true` failures whose text
+report's scan ID. A rule id outside the advisor's rule catalogue (a typo, a retired rule, or another advisor's rule)
+answers `Unknown advisor rule: ...`. A catalogue rule without a retained finding, whether it passed, was skipped, or
+failed (`results` lists only violating rules; `analysisErrors` lists failed ones), answers `Advisor rule has no findings
+in the current scan.`; both are REST 404. MCP exposes these as in-band `isError: true` failures whose text
 is that message, with no status code, not internal errors. The CLI facade retains its existing tool-error mapping: unknown
 rules are HTTP 400 (HTTP 404 is reserved for an unadvertised tool), and stale snapshots remain HTTP 409.
 
@@ -724,6 +725,9 @@ Every tool that takes an `id` follows one convention, on Spring MVC, WebFlux, an
 - `get_runtime_impact` and `start_method_probe` take a code symbol rather than an id BootUI issued. An impact that
   resolves to nothing answers `status: "NOT_FOUND"` (or `AMBIGUOUS`) with candidates and the calls that resolve it;
   a probe on a method the agent cannot instrument is refused as an action.
+- A `query` is a search, not an id. A query that matches nothing, on `get_code_paths` or any other searchable tool,
+  answers `matched: 0` (with a limitation naming the call that lists everything, on `get_code_paths`), never a tool
+  error; `get_code_paths` answers `available: false` only when its agent evidence is absent.
 
 A panel that is disabled refuses its tools before they run (CLI exit `2`); a tool this application does not advertise
 answers with why its panel is unavailable.

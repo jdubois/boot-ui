@@ -763,7 +763,7 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 ### Fixed
 
 - **Unknown advisor rules are told apart from rules without findings.** `get_*_rule_violations` and the REST detail
-  reads answer `Unknown advisor rule` for an id the scan did not evaluate ([AI agents](docs/AI-AGENTS.md#reading-retained-advisor-violations)).
+  reads answer `Unknown advisor rule` for an id outside the advisor's rule catalogue ([AI agents](docs/AI-AGENTS.md#reading-retained-advisor-violations)).
 - **`analyze_heap_dump` describes what it does.** It analyzes the live heap's class histogram, with or without a
   captured dump; its MCP description no longer claims it reads an existing dump.
 - **An asynchronous Spring MVC request is recorded when it answers.** A request whose handler returned a

@@ -23,15 +23,18 @@ public final class AdvisorScanState<R> {
     private static final int DEFAULT_PAGE_LIMIT = 100;
     private static final int MAX_PAGE_LIMIT = 1_000;
 
-    /** A rule the current scan evaluated, with no recorded finding. */
+    /**
+     * A rule of this advisor's catalogue with no retained finding in the current scan: it passed, was skipped, or could
+     * not be evaluated, which the cached report's results and analysisErrors tell apart.
+     */
     public static final String NO_FINDINGS_MESSAGE = "Advisor rule has no findings in the current scan.";
 
-    /** A rule id the current scan did not evaluate at all: a typo, another advisor's rule, or a skipped rule. */
-    public static final String UNKNOWN_RULE_MESSAGE = "Unknown advisor rule: the current scan evaluated no rule with"
-            + " this id. Use a rule id from the results of the cached report.";
+    /** A rule id outside this advisor's catalogue: a typo, a retired rule, or another advisor's rule. */
+    public static final String UNKNOWN_RULE_MESSAGE =
+            "Unknown advisor rule: this advisor has no rule with this id. Use a rule id from the cached report.";
 
     private final BiFunction<R, AdvisorViolationDetailsDto, R> withMetadata;
-    private final Function<R, ? extends Collection<String>> evaluatedRuleIds;
+    private final Supplier<? extends Collection<String>> ruleCatalog;
     private volatile IntSupplier retentionLimit = () -> DEFAULT_RETENTION_LIMIT;
     private volatile Completed<R> completed;
     private R initialReport;
@@ -41,26 +44,27 @@ public final class AdvisorScanState<R> {
      * #NO_FINDINGS_MESSAGE} for both.
      */
     public AdvisorScanState(BiFunction<R, AdvisorViolationDetailsDto, R> withMetadata) {
-        this(withMetadata, report -> null);
+        this(withMetadata, () -> null);
     }
 
     /**
-     * @param evaluatedRuleIds the ids of the rules a published report evaluated (its results), so that a detail read
-     *     answers an id the scan never evaluated with {@link #UNKNOWN_RULE_MESSAGE} rather than {@link
-     *     #NO_FINDINGS_MESSAGE}; {@code null} from it means unknown
+     * @param ruleCatalog the ids of every rule the advisor runs, read when a scan is published, so that a detail read
+     *     answers an id outside them with {@link #UNKNOWN_RULE_MESSAGE} and any of them without a retained finding with
+     *     {@link #NO_FINDINGS_MESSAGE}. A report's results cannot serve: they list only violating rules. {@code null}
+     *     from it means unknown
      */
     public AdvisorScanState(
             BiFunction<R, AdvisorViolationDetailsDto, R> withMetadata,
-            Function<R, ? extends Collection<String>> evaluatedRuleIds) {
+            Supplier<? extends Collection<String>> ruleCatalog) {
         this.withMetadata = Objects.requireNonNull(withMetadata, "Advisor metadata projection is required.");
-        this.evaluatedRuleIds = Objects.requireNonNull(evaluatedRuleIds, "Advisor rule id projection is required.");
+        this.ruleCatalog = Objects.requireNonNull(ruleCatalog, "Advisor rule catalogue is required.");
     }
 
-    /** The ids of {@code results}, read with {@code id}, for {@link #AdvisorScanState(BiFunction, Function)}. */
-    public static <T> List<String> ruleIds(List<T> results, Function<T, String> id) {
-        return results == null
+    /** The ids of {@code rules}, read with {@code id}, for {@link #AdvisorScanState(BiFunction, Supplier)}. */
+    public static <T> List<String> ruleIds(List<T> rules, Function<T, String> id) {
+        return rules == null
                 ? null
-                : results.stream().map(id).filter(Objects::nonNull).toList();
+                : rules.stream().map(id).filter(Objects::nonNull).toList();
     }
 
     public AdvisorViolationCollector collector() {
@@ -88,8 +92,8 @@ public final class AdvisorScanState<R> {
                 index.locationNotes());
         R published = Objects.requireNonNull(
                 withMetadata.apply(report, metadata), "Advisor metadata projection must return a report.");
-        Collection<String> evaluated = evaluatedRuleIds.apply(published);
-        completed = new Completed<>(published, metadata, index, evaluated == null ? null : Set.copyOf(evaluated));
+        Collection<String> catalog = ruleCatalog.get();
+        completed = new Completed<>(published, metadata, index, catalog == null ? null : Set.copyOf(catalog));
         return published;
     }
 
@@ -136,9 +140,9 @@ public final class AdvisorScanState<R> {
         }
         AdvisorViolationCollector.Rule rule = snapshot.index().rules().get(ruleId);
         if (rule == null) {
-            Set<String> evaluated = snapshot.evaluatedRuleIds();
+            Set<String> catalog = snapshot.ruleCatalog();
             throw new AdvisorViolationException(
-                    404, evaluated == null || evaluated.contains(ruleId) ? NO_FINDINGS_MESSAGE : UNKNOWN_RULE_MESSAGE);
+                    404, catalog == null || catalog.contains(ruleId) ? NO_FINDINGS_MESSAGE : UNKNOWN_RULE_MESSAGE);
         }
 
         int pageLimit = limit == null ? DEFAULT_PAGE_LIMIT : Math.min(limit, MAX_PAGE_LIMIT);
@@ -156,10 +160,10 @@ public final class AdvisorScanState<R> {
                 AdvisorViolation.locations(page.items()));
     }
 
-    /** @param evaluatedRuleIds the rules the report evaluated, or {@code null} when unknown */
+    /** @param ruleCatalog the advisor's rules when the report was published, or {@code null} when unknown */
     private record Completed<R>(
             R report,
             AdvisorViolationDetailsDto metadata,
             AdvisorViolationCollector.Snapshot index,
-            Set<String> evaluatedRuleIds) {}
+            Set<String> ruleCatalog) {}
 }

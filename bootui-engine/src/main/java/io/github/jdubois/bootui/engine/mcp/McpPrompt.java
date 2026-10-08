@@ -65,11 +65,7 @@ public record McpPrompt(String name, String description, String text, List<Argum
             String value = values == null ? null : values.get(argument.name());
             if (value != null && !value.isBlank()) {
                 String stripped = value.strip();
-                supplied.put(
-                        argument.label(),
-                        stripped.length() > MAX_ARGUMENT_LENGTH
-                                ? stripped.substring(0, MAX_ARGUMENT_LENGTH) + "..."
-                                : stripped);
+                supplied.put(argument.label(), bounded(stripped));
             }
         }
         if (supplied.isEmpty()) {
@@ -81,5 +77,16 @@ public record McpPrompt(String name, String description, String text, List<Argum
         supplied.forEach((label, value) ->
                 rendered.append("\n- ").append(label).append(": ").append(value));
         return rendered.toString();
+    }
+
+    /** {@code value} cut at {@link #MAX_ARGUMENT_LENGTH} characters, never between the two halves of a surrogate pair. */
+    static String bounded(String value) {
+        if (value.length() <= MAX_ARGUMENT_LENGTH) {
+            return value;
+        }
+        int end = Character.isHighSurrogate(value.charAt(MAX_ARGUMENT_LENGTH - 1))
+                ? MAX_ARGUMENT_LENGTH - 1
+                : MAX_ARGUMENT_LENGTH;
+        return value.substring(0, end) + "...";
     }
 }

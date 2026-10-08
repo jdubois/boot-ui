@@ -45,11 +45,21 @@ class RestApiScannerTests {
                         return RestApiRuleSupport.fromViolations(context, definition(), details);
                     }
                 };
-        RestApiScanner scanner = fixtureScanner(() -> false, () -> false, List.of(rule));
+        RestApiRule passing =
+                new AbstractRestApiRule(new RestApiRuleDefinition(
+                        "RAPI-TEST-PASSES", "Passes", RestApiCategory.ROUTING, "LOW", "Test", "Review", "")) {
+                    @Override
+                    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+                        context.evidence().markApplicable();
+                        return RestApiRuleSupport.fromViolations(context, definition(), List.of());
+                    }
+                };
+        RestApiScanner scanner = fixtureScanner(() -> false, () -> false, List.of(rule, passing));
         assertThat(scanner.lastReport().violationDetails().scanId()).isNull();
         RestApiReport report = scanner.scan();
         String scanId = report.violationDetails().scanId();
-        AdvisorRuleRefusals.assertEveryResultIsAKnownRule(
+        AdvisorRuleRefusals.assertKnownAndUnknownRulesAreToldApart(
+                List.of(rule.definition().id(), passing.definition().id()),
                 report.results().stream().map(evaluated -> evaluated.id()).toList(),
                 report.violationDetails().scanId(),
                 (asked, scan) -> scanner.ruleViolations(asked, scan, 0, 1));

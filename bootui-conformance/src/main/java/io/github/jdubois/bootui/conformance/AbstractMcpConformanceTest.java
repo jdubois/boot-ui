@@ -846,17 +846,24 @@ public abstract class AbstractMcpConformanceTest {
             assertThat(unknownRule.path("content").get(0).path("text").asText())
                     .as("an unknown rule is told apart from a rule without findings")
                     .isEqualTo(AdvisorScanState.UNKNOWN_RULE_MESSAGE);
-            for (JsonNode result : report.path("results")) {
-                if (result.path("violationCount").asInt() == 0) {
-                    JsonNode passed = callAdvisorTool(
-                            "get_architecture_rule_violations",
-                            Map.of("id", result.path("id").asText(), "scanId", scanId));
-                    assertThat(passed.path("isError").asBoolean()).isTrue();
-                    assertThat(passed.path("content").get(0).path("text").asText())
-                            .isEqualTo(AdvisorScanState.NO_FINDINGS_MESSAGE);
-                    break;
-                }
-            }
+            // Results list only violating rules, so a rule that passed is one of the catalogue's rules absent from
+            // them.
+            java.util.Set<String> reported = new java.util.HashSet<>();
+            report.path("results")
+                    .forEach(result -> reported.add(result.path("id").asText()));
+            report.path("analysisErrors")
+                    .forEach(result -> reported.add(result.path("id").asText()));
+            String passedRule = java.util.stream.Stream.of(
+                            "ARCH-CODE-004", "ARCH-CODE-006", "ARCH-CODE-007", "ARCH-SPRING-014", "ARCH-SPRING-020")
+                    .filter(candidate -> !reported.contains(candidate))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("every candidate rule reported a finding: " + reported));
+            JsonNode passed =
+                    callAdvisorTool("get_architecture_rule_violations", Map.of("id", passedRule, "scanId", scanId));
+            assertThat(passed.path("isError").asBoolean()).isTrue();
+            assertThat(passed.path("content").get(0).path("text").asText())
+                    .as("%s ran without findings, so it is not an unknown rule", passedRule)
+                    .isEqualTo(AdvisorScanState.NO_FINDINGS_MESSAGE);
             JsonNode stale = callAdvisorTool(
                     "get_architecture_rule_violations", Map.of("id", "ARCH-CODE-002", "scanId", "stale-snapshot"));
             assertThat(stale.path("isError").asBoolean()).isTrue();

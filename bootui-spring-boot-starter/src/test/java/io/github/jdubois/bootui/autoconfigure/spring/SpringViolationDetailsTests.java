@@ -49,12 +49,22 @@ class SpringViolationDetailsTests {
         assertThat(finding.violationCount()).isEqualTo(count);
         assertThat(finding.sampleViolations()).containsExactlyElementsOf(details.subList(0, Math.min(10, count)));
         var first = scanner.ruleViolations(RULE, report.violationDetails().scanId(), 0, 10);
-        for (var result : report.results()) {
-            try {
-                scanner.ruleViolations(result.id(), report.violationDetails().scanId(), 0, 1);
-            } catch (AdvisorViolationException refusal) {
-                assertThat(refusal.getMessage()).isEqualTo(AdvisorScanState.NO_FINDINGS_MESSAGE);
-            }
+        List<String> reported =
+                report.results().stream().map(result -> result.id()).toList();
+        List<String> withoutFindings = SpringRuleRegistry.activeRules().stream()
+                .map(registered -> registered.definition().id())
+                .filter(id -> !reported.contains(id))
+                .toList();
+        assertThat(withoutFindings)
+                .as("a rule that ran without findings is in the catalogue, not in the report's results")
+                .isNotEmpty();
+        for (String passed : withoutFindings) {
+            assertThatThrownBy(() -> scanner.ruleViolations(
+                            passed, report.violationDetails().scanId(), 0, 1))
+                    .isInstanceOfSatisfying(
+                            AdvisorViolationException.class,
+                            refusal ->
+                                    assertThat(refusal.getMessage()).isEqualTo(AdvisorScanState.NO_FINDINGS_MESSAGE));
         }
         assertThatThrownBy(() -> scanner.ruleViolations(
                         "definitely-unknown", report.violationDetails().scanId(), null, null))

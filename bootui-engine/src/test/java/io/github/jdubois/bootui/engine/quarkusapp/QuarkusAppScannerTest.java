@@ -775,7 +775,8 @@ class QuarkusAppScannerTest {
         assertThat(first.violationsFound()).isOne();
         assertThat(first.scan().violationsFound()).isOne();
         String scanId = first.violationDetails().scanId();
-        AdvisorRuleRefusals.assertEveryResultIsAKnownRule(
+        AdvisorRuleRefusals.assertKnownAndUnknownRulesAreToldApart(
+                QuarkusAppChecks.ruleIds(),
                 first.results().stream().map(evaluated -> evaluated.id()).toList(),
                 first.violationDetails().scanId(),
                 (asked, scan) -> scanner.ruleViolations(asked, scan, 0, 1));
