@@ -35,7 +35,7 @@ export function agentConfig({companion} = {}) {
   const webServerTimeout = Number(process.env.BOOTUI_WEBSERVER_TIMEOUT || 240_000)
   const suffix = companion ? `agent-${companion}` : 'agent'
 
-  // The default sensors (resources and blocking named whatever their default), the opt-in files, thread-activity,
+  // The default sensors (files, resources, and blocking named whatever their default), the opt-in thread-activity,
   // thread-locals, and security-sinks sensors (with request-value matching), whose Side Effects seeds the side-effects
   // spec asserts (M5-5c to M5-5g, M5-6b), and the opt-in caught-exceptions sensor, whose Exceptions panel seeds the
   // caught-exceptions spec asserts (M5-6a2). The opt-in environment sensor is left out on purpose: the sensor-switch

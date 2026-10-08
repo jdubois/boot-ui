@@ -135,8 +135,8 @@ choose other sensors. The agent is passed through `spring-boot.run.agents`, so y
 own `-Dspring-boot.run.jvmArguments=...` adds JVM options without detaching it.
 
 Open <http://localhost:8080/bootui/#/java-agent>: the panel reports `ARMED` for the `io.github.jdubois.bootui.sample`
-package with the default sensors installed: `executors`, `inventory`, `code-paths`, `processes`, `network`, and
-`blocking` (the others are opt-in; see the agent's [overhead note](../docs/features/java-agent.md#overhead)). Exercise
+package with the default sensors installed: `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`,
+`blocking`, and `resources` (the others are opt-in; see the agent's [overhead note](../docs/features/java-agent.md#overhead)). Exercise
 <http://localhost:8080/api/sample/products>, then open **Code Paths** for the route's bean-method tree and **Code
 Inventory** for the executed methods.
 

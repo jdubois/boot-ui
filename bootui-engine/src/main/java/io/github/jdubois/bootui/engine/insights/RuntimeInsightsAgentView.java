@@ -738,12 +738,23 @@ public final class RuntimeInsightsAgentView {
         return text != null && text.toLowerCase(Locale.ROOT).contains(needle);
     }
 
-    private static List<String> checksNotRun(List<RuntimeInsightCheckDto> checks) {
+    /**
+     * The checks that did not apply or ran partially: every check not {@code EVALUATED}, and every evaluated check whose
+     * reason names evidence it could not see or count, such as a changed method the agent could not track, so an empty
+     * observation list never hides it. What a check judged and does not report is left out ({@link
+     * JudgedWithoutFinding}).
+     */
+    static List<String> checksNotRun(List<RuntimeInsightCheckDto> checks) {
         List<String> notRun = new ArrayList<>();
         for (RuntimeInsightCheckDto check : checks) {
             if (!"EVALUATED".equals(check.status())) {
                 notRun.add(
                         check.kind() + ": " + check.status() + (check.reason() == null ? "" : ", " + check.reason()));
+            } else {
+                String gaps = JudgedWithoutFinding.gaps(check.reason());
+                if (gaps != null) {
+                    notRun.add(check.kind() + ": EVALUATED, partly: " + gaps);
+                }
             }
         }
         return notRun;

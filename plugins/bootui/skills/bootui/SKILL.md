@@ -261,16 +261,16 @@ With the agent attached, run `bootui side-effects --json` (`get_side_effects`): 
 most frequent rows. In this version, `processes` records the sanitized command name only, never its arguments or
 environment: it is cut at whitespace or `=`, reduced to the basename, and unsafe characters become `?`; `network`
 records the hosts and ports the application connects to, datagrams, and names the JVM resolved, with the client
-recognized from the calling frames, never a byte sent or received; the opt-in `files` records path patterns (`./` working
+recognized from the calling frames, never a byte sent or received; `files` records path patterns (`./` working
 directory, `$TMPDIR`, `~`, ids as `{n}`), never contents, with class loading, the JDK, and logging grouped apart; the
-opt-in `environment` records variable and property names, never values; `blocking` records `Thread.sleep`,
+the opt-in `environment` records variable and property names, never values; `blocking` records `Thread.sleep`,
 `Object.wait`, `LockSupport.park`, and blocking network or file operations started on an event loop (Spring WebFlux,
 Quarkus), by operation, loop family, and call site, with how long it blocked, not applicable on Spring MVC; the opt-in
 `thread-activity` records the threads the application starts and the executors it creates per route, how many a request
 starts (`count` / `requests`), and those its code left running when the request ended (`leftRunning`), library and JDK
 pools apart, never what a thread holds; the opt-in `thread-locals` names the static field of each thread local a
 request or a job left set on its pooled thread, never its value; `resources`, on by default, records the streams, channels,
-and sockets a request or a job opened (files only while `files` is on), by resource kind, target, and origin: `failed`
+and sockets a request or a job opened (files through `files`, on by default), by resource kind, target, and origin: `failed`
 counts those the garbage collector reclaimed never closed, the leak, while `leftRunning` (still open after the
 request) and `completed` (closed after it) are a pool's or a cache's hand-off, never contents. Pass `--query
 not-captured` to list the outbound calls no panel shows (`capture: not-captured`), or `--query processes`, `network`,
