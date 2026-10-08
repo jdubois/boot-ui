@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.conformance;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
 import io.github.jdubois.bootui.engine.mcp.McpRuntimeStats;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
@@ -13,6 +14,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -64,10 +66,16 @@ public final class McpStreamDisconnectContract {
 
     /**
      * Opens the stream at {@code path} on {@code localhost:port}, closes it after the first event, and checks that the
-     * call was cancelled.
+     * call was cancelled, that the tool stopped within {@code noticedWithin} of the close, and that every concurrency
+     * permit is free again.
+     *
+     * @param noticedWithin how soon the stack must notice the disconnect: at once (well under one keep-alive) on stacks
+     *     with a close signal, within two keep-alives on a stack that only notices a failed write
      */
-    public void closeAfterFirstEventCancels(int port, String path, Supplier<McpRuntimeStats.Snapshot> stats)
+    public void closeAfterFirstEventCancels(int port, String path, McpDispatcher dispatcher, Duration noticedWithin)
             throws Exception {
+        Supplier<McpRuntimeStats.Snapshot> stats =
+                () -> dispatcher.runtimeStats().snapshot();
         reset();
         McpRuntimeStats.Snapshot before = stats.get();
         long statusBefore = statusCancellations(port);
@@ -81,13 +89,15 @@ public final class McpStreamDisconnectContract {
                 path,
                 "MCP-Protocol-Version: 2026-07-28\r\nMcp-Method: tools/call\r\nMcp-Name: architecture_scan\r\n",
                 payload);
+        long closedAt = System.nanoTime();
 
         assertThat(head).startsWith("HTTP/1.1 200");
         assertThat(head.toLowerCase(Locale.ROOT)).contains("content-type: text/event-stream", "x-accel-buffering: no");
         assertThat(head).contains("\"progressToken\":\"p\"", "\"message\":\"Waiting for cancellation\"");
         assertThat(running.await(5, TimeUnit.SECONDS)).isTrue();
-        assertThat(stopped.await(20, TimeUnit.SECONDS))
-                .as("closing the stream stops the tool, within two keep-alives on blocking stacks")
+        long remaining = noticedWithin.toNanos() - (System.nanoTime() - closedAt);
+        assertThat(stopped.await(Math.max(0, remaining), TimeUnit.NANOSECONDS))
+                .as("closing the stream stops the tool within " + noticedWithin)
                 .isTrue();
         McpRuntimeStats.Snapshot snapshot = awaitCall(stats, before);
         assertThat(snapshot.cancellations() - before.cancellations()).isEqualTo(1);
@@ -95,6 +105,14 @@ public final class McpStreamDisconnectContract {
         assertThat(snapshot.callCount() - before.callCount())
                 .as("the concurrency permit is released once")
                 .isEqualTo(1);
+        long permitDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (dispatcher.availableCallPermits() != dispatcher.maxConcurrentCalls()
+                && System.nanoTime() < permitDeadline) {
+            Thread.sleep(10);
+        }
+        assertThat(dispatcher.availableCallPermits())
+                .as("every concurrency permit is free again, none released twice")
+                .isEqualTo(dispatcher.maxConcurrentCalls());
         BootUiHttpProbe.Response status = new BootUiHttpProbe("http://localhost:" + port).get("/bootui/api/mcp-server");
         assertThat(status.status()).isEqualTo(200);
         assertThat(status.json().path("cancellations").asLong() - statusBefore)

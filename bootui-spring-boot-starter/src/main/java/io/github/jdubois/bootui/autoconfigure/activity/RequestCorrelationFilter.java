@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
+import io.github.jdubois.bootui.engine.javaagent.AgentRequestValues;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RequestTiming;
@@ -111,6 +112,9 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         this.journal = journal == null ? RuntimeEventSink.NONE : journal;
     }
 
+    /** The request attribute marking a request whose values the BootUI agent's request value holder holds. */
+    static final String REQUEST_VALUES_ATTRIBUTE = RequestCorrelationFilter.class.getName() + ".requestValues";
+
     /** The request attribute holding the request's {@link CorrelationContext}, for its async redispatches. */
     public static final String CORRELATION_ATTRIBUTE = RequestCorrelationFilter.class.getName() + ".correlation";
 
@@ -150,6 +154,7 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             } finally {
                 try {
                     markAssemblyOnlyIfAsync(request, correlation);
+                    endRequestValues(request, correlation);
                 } finally {
                     AgentCodePaths.end();
                 }
@@ -171,6 +176,53 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             }
         } catch (RuntimeException ex) {
             // Code paths are diagnostics only; the request's outcome stays its own.
+        }
+    }
+
+    /**
+     * Removes the request's values from the BootUI agent's request value holder where its response really completes
+     * ({@code docs/PLAN-v2.md} §5.16, M5-6b): here for a synchronous request, and when the async cycle completes, fails,
+     * or times out for one that started async processing, so no value outlives the response. Only for a request
+     * whose values were pushed ({@link #REQUEST_VALUES_ATTRIBUTE}), whatever the setting is now. Never throws, so neither the fragment's end nor the chain's own exception is lost.
+     */
+    static void endRequestValues(HttpServletRequest request, CorrelationContext correlation) {
+        String requestId = correlation.requestId();
+        try {
+            if (request.getAttribute(REQUEST_VALUES_ATTRIBUTE) == null) {
+                return;
+            }
+            if (request.isAsyncStarted()) {
+                request.getAsyncContext().addListener(new RequestValuesEnd(requestId));
+                return;
+            }
+        } catch (RuntimeException ex) {
+            // A request the container already recycled, or an async cycle that already ended: end the values now.
+        }
+        AgentRequestValues.end(requestId);
+    }
+
+    /** Ends a request's values once its async cycle is over. */
+    private record RequestValuesEnd(String requestId) implements AsyncListener {
+
+        @Override
+        public void onComplete(AsyncEvent event) {
+            AgentRequestValues.end(requestId);
+        }
+
+        @Override
+        public void onTimeout(AsyncEvent event) {
+            AgentRequestValues.end(requestId);
+        }
+
+        @Override
+        public void onError(AsyncEvent event) {
+            AgentRequestValues.end(requestId);
+        }
+
+        @Override
+        public void onStartAsync(AsyncEvent event) {
+            // A new cycle of the same request: the values stay until it ends, with this listener registered again.
+            event.getAsyncContext().addListener(this);
         }
     }
 

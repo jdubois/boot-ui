@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
 import io.github.jdubois.bootui.engine.progress.OperationProgress;
 import io.github.jdubois.bootui.engine.progress.ProgressEvent;
+import java.io.IOException;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -177,9 +178,10 @@ public final class McpStreamingCall {
         try {
             WRITERS.execute(() -> write(sink));
         } catch (RuntimeException | Error failure) {
+            // Recorded before closing the sink, whose close path may report a disconnect and hide the fault.
+            fail(failure);
             sink.close();
             releasePart();
-            fail(failure);
             return;
         }
         try {
@@ -197,10 +199,12 @@ public final class McpStreamingCall {
      * The client closed the response stream. MCP 2026-07-28 makes that the cancellation of the request ({@link
      * #cancel()}). MCP 2025-06-18 says the opposite: "Disconnection SHOULD NOT be interpreted as the client cancelling
      * its request. To cancel, the client SHOULD explicitly send an MCP {@code CancelledNotification}." So a legacy call
-     * only stops writing and runs on, bounded by the execution timeout. Never blocks.
+     * only stops writing and runs on, bounded by the execution timeout. A legacy call whose stream never started has not
+     * begun processing and has nowhere left to answer, so it is released at once like a modern one rather than held
+     * until the timeout. Never blocks.
      */
     public void clientClosed() {
-        if (era == McpEra.MODERN) {
+        if (era == McpEra.MODERN || !started.get()) {
             cancel();
         } else {
             clientGone = true;
@@ -223,6 +227,15 @@ public final class McpStreamingCall {
     private void fail(Throwable failure) {
         if (end(EndKind.COMPLETED, new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE))) {
             failureReporter.report("dispatching a request", failure);
+        }
+    }
+
+    /** A fault while writing the stream (not a client gone): it ends the call, and is reported even after the end. */
+    private void failWriting(Throwable failure) {
+        if (end(EndKind.COMPLETED, new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE))) {
+            failureReporter.report("dispatching a request", failure);
+        } else {
+            failureReporter.report("writing a stream", failure);
         }
     }
 
@@ -329,9 +342,12 @@ public final class McpStreamingCall {
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             clientClosed();
-        } catch (Exception | Error writeFailure) {
-            // The client is gone or the stream broke.
+        } catch (IOException writeFailure) {
+            // The client is gone or the stream broke: a modern call is cancelled, a legacy one runs on.
             clientClosed();
+        } catch (RuntimeException | Error fault) {
+            // A server fault (a rendering bug, a refused frame) is not the client going away.
+            failWriting(fault);
         } finally {
             sink.close();
             releasePart();

@@ -788,11 +788,12 @@ compatibility rules describe:
   at once; Spring MVC notices it when a write fails, within two keep-alive intervals (about 4 seconds).
   `bootui.mcp.execution-timeout` stays the absolute bound, whatever progress flows: a timed-out stream ends with the
   timeout error as its final response, even when the call timed out before its stream opened. Events are always one
-  line of compact JSON, whatever the application's Jackson configuration (an indenting mapper included). A blocking
-  call that is cancelled rather than timed out (a tool that stops at a cancellation checkpoint) answers the BootUI
-  error `-32800` "MCP request cancelled", the code the Language Server Protocol uses for the same outcome. The `GET
-  /bootui/api/mcp-server` status reports `supportedProtocolVersions` and counts `cancellations` (streams a client
-  closed and cancelled calls) apart from `timeouts`.
+  line of compact JSON, whatever the application's Jackson configuration (an indenting mapper included). Only a
+  streamed call is cancelled by a disconnect: a single JSON response has no stream to close, so a blocking call runs to
+  its end, its timeout, or a legacy `notifications/cancelled` (below). A client that goes away before its stream starts is a cancellation too, not a timeout. The
+  `GET /bootui/api/mcp-server` status reports `supportedProtocolVersions` and counts `cancellations` apart from
+  `timeouts`; `callCount` includes cancelled calls. A server fault while writing a stream is reported as a fault, not
+  counted as a cancellation.
 - **A client that stops reading.** The writer then blocks and keeps the call's concurrency slot, so
   `bootui.mcp.max-concurrent-calls` also bounds stalled streams; on WebFlux it waits for the subscriber's demand
   instead of buffering. On every stack it gives up 10 seconds after the execution timeout: Spring MVC's async request
@@ -800,7 +801,8 @@ compatibility rules describe:
 - **Cancellation by `notifications/cancelled` (legacy).** MCP 2025-06-18 cancels differently: "Disconnection SHOULD NOT
   be interpreted as the client cancelling its request. To cancel, the client SHOULD explicitly send an MCP
   `CancelledNotification`." So closing a legacy stream only stops BootUI writing to it; the tool runs on, still bounded
-  by `bootui.mcp.execution-timeout`, and keeps its concurrency slot until it returns. A `notifications/cancelled`
+  by `bootui.mcp.execution-timeout`, and keeps its concurrency slot until it returns. A client that leaves before its
+  stream even starts releases the call at once: nothing has begun, and there is nowhere left to answer. A `notifications/cancelled`
   notification whose `params.requestId` names an in-flight legacy `tools/call` (matched by value, so `7` and `7.0` are
   the same id) is answered `202` and cancels it: a stream closes without a final response, as the specification asks
   ("Not send a response for the cancelled request"), and a blocking call answers `-32800`, because its HTTP request

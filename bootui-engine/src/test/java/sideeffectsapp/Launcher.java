@@ -22,6 +22,11 @@ public final class Launcher {
         SideEffects.environmentRead(SideEffects.HOOK_GET_PROPERTY, SideEffects.KIND_SYSTEM_PROPERTY, name);
     }
 
+    /** An SQL statement issued here, as SQL Trace's JDBC capture reports it on the issuing thread. */
+    public static void sql(String sql, io.github.jdubois.bootui.spi.CorrelationContext correlation) {
+        io.github.jdubois.bootui.engine.javaagent.RequestInputSinks.sql(sql, correlation);
+    }
+
     /** A start of {@code command} that fails, as a command that cannot be found does. */
     public static void failedStart(String... command) {
         ProcessBuilder builder = new ProcessBuilder(command);

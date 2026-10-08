@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.mcp;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.conformance.McpStreamDisconnectContract;
+import java.time.Duration;
 import java.util.List;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import tools.jackson.databind.ObjectMapper;
@@ -30,11 +31,8 @@ final class McpStreamDisconnectSupport {
         };
     }
 
-    void closeAfterFirstEventCancels(int port, BootUiMcpService service) throws Exception {
-        contract.closeAfterFirstEventCancels(
-                port,
-                "/bootui/api/mcp",
-                () -> service.dispatcher().runtimeStats().snapshot());
+    void closeAfterFirstEventCancels(int port, BootUiMcpService service, Duration noticedWithin) throws Exception {
+        contract.closeAfterFirstEventCancels(port, "/bootui/api/mcp", service.dispatcher(), noticedWithin);
     }
 
     void legacyCloseRunsOnUntilNotificationsCancelled(int port, BootUiMcpService service) throws Exception {

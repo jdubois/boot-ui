@@ -69,10 +69,13 @@ class BootUiQuarkusMcpStreamDisconnectTest {
 
     @Test
     void closingTheStreamCancelsTheCall() throws Exception {
+        // Quarkus notices the close at once (the routing context's end handler), well before a keep-alive.
         CONTRACT.closeAfterFirstEventCancels(
                 baseUrl.getPort(),
                 "/bootui/api/mcp",
-                () -> dispatcher.runtimeStats().snapshot());
+                dispatcher,
+                java.time.Duration.ofMillis(
+                        io.github.jdubois.bootui.engine.mcp.McpStreamingCall.HEARTBEAT_MILLIS * 3 / 4));
     }
 
     @Test

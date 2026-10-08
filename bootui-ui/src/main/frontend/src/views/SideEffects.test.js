@@ -804,6 +804,42 @@ describe('Side Effects panel', () => {
     expect(wrapper.get('.side-effects-state-note').text()).toContain('It is opt-in')
   })
 
+  it('shows security-sinks rows with the parameter name and the fact, never as a vulnerability', async () => {
+    const sink = row({
+      sensor: 'security-sinks',
+      kind: 'SQL text',
+      target: "select * from users where name = '{name}'",
+      location: 'inside a literal',
+      parameter: 'name',
+      detail:
+        'Request input reached this SQL text unchanged: the value of `name` appeared inside a literal. Check that it is bound as a parameter or escaped. Seen in one request so far.',
+      count: 1,
+      failed: 0,
+      completed: 0,
+      nonZeroExits: 0,
+      lastExitStatus: null
+    })
+    ;({wrapper} = mountPanel({
+      'api/side-effects/sensor?sensor=security-sinks&offset=0&limit=50': sensorReport('security-sinks', [sink]),
+      'api/side-effects': summary({sensors: {'security-sinks': {state: 'recording', reason: null}}})
+    }))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Security sinks')
+      .trigger('click')
+    await flushPromises()
+
+    const table = wrapper.get('.side-effects-table')
+    expect(table.text()).toContain('Parameter')
+    expect(wrapper.get('.side-effects-parameter').text()).toBe('name')
+    expect(table.text()).toContain("select * from users where name = '{name}'")
+    expect(wrapper.get('.side-effects-detail').text()).toContain('Check that it is bound as a parameter or escaped.')
+    expect(table.text()).toContain('inside a literal')
+    expect(table.text().toLowerCase()).not.toContain('vulnerab')
+    expect(table.text()).not.toContain('Failed')
+  })
+
   it('explains that the files sensor is opt-in, and not the processes sensor', async () => {
     ;({wrapper} = mountPanel({
       'api/side-effects': summary({

@@ -24,6 +24,11 @@ public final class BootUiCorrelationThreadLocalAccessor implements ThreadLocalAc
         ContextRegistry.getInstance().registerThreadLocalAccessor(new BootUiCorrelationThreadLocalAccessor());
     }
 
+    /** Removes the accessor from the global registry, when the application context that registered it closes. */
+    public static void unregister() {
+        ContextRegistry.getInstance().removeThreadLocalAccessor(ReactiveRequestCorrelationFilter.CONTEXT_KEY);
+    }
+
     @Override
     public Object key() {
         return ReactiveRequestCorrelationFilter.CONTEXT_KEY;

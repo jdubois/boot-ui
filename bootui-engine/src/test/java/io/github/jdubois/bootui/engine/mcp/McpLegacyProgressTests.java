@@ -94,6 +94,30 @@ class McpLegacyProgressTests {
     }
 
     @Test
+    void aLegacyClientThatLeavesBeforeItsStreamStartsReleasesTheCallAtOnce() throws Exception {
+        AtomicReference<String> ran = new AtomicReference<>();
+        McpDispatcher dispatcher = dispatcher(args -> {
+            ran.set("ran");
+            return "done";
+        });
+        McpStreamingCall call = stream(dispatcher.start(call(TOKEN, "7"), true));
+        assertThat(dispatcher.availableCallPermits()).isEqualTo(1);
+
+        call.clientClosed();
+
+        assertThat(dispatcher.availableCallPermits())
+                .as("nothing began, and there is nowhere left to answer")
+                .isEqualTo(2);
+        Sink sink = new Sink();
+        call.start(sink);
+        assertThat(sink.closed.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(ran.get()).isNull();
+        McpRuntimeStats.Snapshot stats = dispatcher.runtimeStats().snapshot();
+        assertThat(stats.timeouts()).isZero();
+        assertThat(stats.cancellations()).isEqualTo(1);
+    }
+
+    @Test
     void notificationsCancelledStopsAStreamingLegacyCallByItsId() throws Exception {
         CountDownLatch running = new CountDownLatch(1);
         McpDispatcher dispatcher = dispatcher(this::runUntilCancelled, running);

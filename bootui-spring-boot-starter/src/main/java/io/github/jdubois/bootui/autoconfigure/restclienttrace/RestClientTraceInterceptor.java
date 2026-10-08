@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.restclienttrace;
 
+import io.github.jdubois.bootui.engine.javaagent.AgentRequestValues;
+import io.github.jdubois.bootui.engine.javaagent.RequestInputSinks;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import java.io.IOException;
 import java.net.URI;
@@ -39,6 +41,7 @@ public class RestClientTraceInterceptor implements ClientHttpRequestInterceptor 
     public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
             throws IOException {
         long start = System.nanoTime();
+        checkRequestInput(request);
         try {
             ClientHttpResponse response = execution.execute(request, body);
             recordSafely(request, elapsedNanos(start), statusOf(response), true, null);
@@ -46,6 +49,20 @@ public class RestClientTraceInterceptor implements ClientHttpRequestInterceptor 
         } catch (IOException | RuntimeException ex) {
             recordSafely(request, elapsedNanos(start), null, false, ex.getMessage());
             throw ex;
+        }
+    }
+
+    /**
+     * Whether request input reached this call's URL unchanged, on the thread that issues it ({@code docs/PLAN-v2.md}
+     * §5.16, M5-6b): only while request-value matching is on. Never fails the call.
+     */
+    private void checkRequestInput(HttpRequest request) {
+        try {
+            if (AgentRequestValues.enabled()) {
+                RequestInputSinks.url(request.getURI(), recorder.currentCorrelation());
+            }
+        } catch (RuntimeException ex) {
+            // Diagnostics only.
         }
     }
 
