@@ -432,24 +432,53 @@ public class BootUiMcpService {
                 serve.progressToken(),
                 // Only a call that can be cancelled, or a cancellation, needs the key.
                 "tools/call".equals(method) ? requestKey(id) : null,
-                "notifications/cancelled".equals(method) ? requestKey(params.get("requestId")) : null);
+                "notifications/cancelled".equals(method) ? requestKey(params.get("requestId")) : null,
+                "notifications/cancelled".equals(method) ? cancelReason(params.get("reason")) : null);
     }
 
     /**
      * The canonical key of a JSON-RPC id, so a cancellation finds its request by value; {@code null} for an id that has
-     * none, such as a non-finite number ({@code 1e400} reads as infinity), which then simply cannot be cancelled.
+     * none, which then simply cannot be cancelled: anything but a string, an integer, or a whole, non-zero double below
+     * 2^53.
      */
-    private static String requestKey(JsonNode id) {
+    static String requestKey(JsonNode id) {
         if (id == null) {
             return null;
         }
         if (id.isString()) {
             return McpRequestKey.text(id.asString());
         }
-        if (!id.isNumber() || (id.isFloatingPointNumber() && !Double.isFinite(id.doubleValue()))) {
+        if (id.isIntegralNumber()) {
+            return McpRequestKey.number(id.decimalValue());
+        }
+        if (!id.isFloatingPointNumber()) {
             return null;
         }
-        return McpRequestKey.number(id.decimalValue());
+        if (id.isBigDecimal()) {
+            // Read exactly (an application mapper may read floats as BigDecimal): a whole value below 2^53 only.
+            java.math.BigDecimal exact = id.decimalValue();
+            if (exact.signum() == 0
+                    || exact.stripTrailingZeros().scale() > 0
+                    || exact.abs().compareTo(java.math.BigDecimal.valueOf(MAX_EXACT_DOUBLE)) >= 0) {
+                return null;
+            }
+            return McpRequestKey.number(exact);
+        }
+        // A fractional id is keyed only when it is exactly a small whole number, so 7.0 finds 7; anything a double
+        // cannot represent exactly (1e-400 reads as 0, 1e400 as infinity) has no key and cannot be cancelled.
+        double value = id.doubleValue();
+        if (!Double.isFinite(value) || value != Math.rint(value) || value == 0 || Math.abs(value) >= MAX_EXACT_DOUBLE) {
+            return null;
+        }
+        return McpRequestKey.number(java.math.BigDecimal.valueOf((long) value));
+    }
+
+    /** The largest magnitude below which every whole double is exact: 2^53. */
+    private static final double MAX_EXACT_DOUBLE = 9_007_199_254_740_992d;
+
+    /** The {@code reason} of a cancellation when it is a string; only ever logged. */
+    private static String cancelReason(JsonNode reason) {
+        return reason != null && reason.isString() ? reason.asString() : null;
     }
 
     private static ParsedArguments parseArguments(JsonNode arguments) {

@@ -3521,7 +3521,11 @@ Design rules:
   `tools/call` id (matched by value) is answered `202` and cancels it; a cancelled stream closes without a final
   response and a cancelled blocking call answers `-32800`. Unknown, finished, or malformed cancellations are ignored.
   With no sessions in MCP 2025-06-18, any local caller that passes the transport checks can cancel a request whose id
-  it knows; the in-flight registry holds at most one entry per concurrency slot. A legacy request is never rejected
+  it knows, including by accident: a late cancellation from one client can cancel another client's in-flight call with
+  the same id, whose stream then ends with no response (an accepted limitation; an `Mcp-Session-Id` would change the
+  legacy bytes). Ids two in-flight calls share are never cancelled, ids that are not a string, an integer, or a whole
+  number below 2^53 are never matched, the `reason` is only logged at debug level, and the in-flight registry holds at
+  most one entry per permit in use, removed before that permit is released. A legacy request is never rejected
   because of its token, and one without a usable token answers byte for byte as before. Everything else and every
   refusal is one JSON response; there is still no `GET` stream, live push, resource, or `subscriptions/listen`.
 - **Agent guidance.** Initialization instructions direct agents to establish overview/health context, prefer the smallest

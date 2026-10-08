@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpFailureReporter;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpRequestHeaders;
+import io.github.jdubois.bootui.engine.mcp.McpRequestKey;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
 import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
@@ -391,6 +392,68 @@ class BootUiMcpServiceTests {
         JsonNode response = service.handle(callRequest("get_overview", 6));
 
         assertThat(response.path("result").path("isError").asBoolean()).isFalse();
+    }
+
+    @Test
+    void aLegacyRequestWithoutAUsableTokenAnswersTheSameBytesAsWithoutMeta() throws Exception {
+        String withoutMeta = "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"tools/call\","
+                + "\"params\":{\"name\":\"architecture_scan\",\"arguments\":{}}}";
+        Object[][] cases = {
+            // a progress tool with a token, from a client that does not accept a stream
+            {"architecture_scan", "\"t\"", false},
+            // an unusable token from a client that accepts a stream
+            {"architecture_scan", "{}", true},
+            {"architecture_scan", "null", true},
+            {"architecture_scan", "1.5", true},
+            // a token for a tool that does not report progress
+            {"get_overview", "7", true},
+        };
+        for (Object[] each : cases) {
+            String base = withoutMeta.replace("architecture_scan", (String) each[0]);
+            String withToken =
+                    base.replace("\"arguments\":{}", "\"arguments\":{},\"_meta\":{\"progressToken\":" + each[1] + "}");
+            BootUiMcpService.Reply expected =
+                    service.exchange(objectMapper.readTree(base), McpRequestHeaders.NONE, true, (boolean) each[2]);
+            BootUiMcpService.Reply actual =
+                    service.exchange(objectMapper.readTree(withToken), McpRequestHeaders.NONE, true, (boolean) each[2]);
+
+            assertThat(actual.stream()).as(withToken).isNull();
+            assertThat(actual.status()).isEqualTo(expected.status());
+            assertThat(actual.body().toString())
+                    .as(withToken)
+                    .isEqualTo(expected.body().toString());
+        }
+    }
+
+    @Test
+    void requestKeysMatchNumericIdsByValueOnlyWhenExact() throws Exception {
+        // Integers by value, whole doubles below 2^53 like their integer, everything else unkeyed (so never cancelled).
+        assertThat(key("7")).isEqualTo(McpRequestKey.number(new java.math.BigDecimal("7")));
+        assertThat(key("7.0")).isEqualTo(key("7"));
+        assertThat(key("1e2")).isEqualTo(key("100"));
+        assertThat(key("123456789012345678901234567890"))
+                .isEqualTo(McpRequestKey.number(new java.math.BigDecimal("123456789012345678901234567890")));
+        assertThat(key("0")).isEqualTo(McpRequestKey.number(java.math.BigDecimal.ZERO));
+        assertThat(key("\"7\"")).isEqualTo(McpRequestKey.text("7"));
+        for (String unkeyed :
+                List.of("1e-400", "0.0", "7.5", "1e400", "-1e400", "9007199254740992.0", "true", "null")) {
+            assertThat(key(unkeyed)).as(unkeyed).isNull();
+        }
+
+        ObjectMapper exact = tools.jackson.databind.json.JsonMapper.builder()
+                .enable(tools.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+                .build();
+        // Read as BigDecimal, values stay exact: 7.0000000000000000001 is not 7, and 1e-400 is not 0.
+        assertThat(BootUiMcpService.requestKey(exact.readTree("7.00"))).isEqualTo(key("7"));
+        for (String unkeyed : List.of("7.0000000000000000001", "1e-400", "1e999999999")) {
+            assertThat(BootUiMcpService.requestKey(exact.readTree(unkeyed)))
+                    .as(unkeyed)
+                    .isNull();
+        }
+    }
+
+    private String key(String json) throws Exception {
+        return BootUiMcpService.requestKey(objectMapper.readTree(json));
     }
 
     @Test

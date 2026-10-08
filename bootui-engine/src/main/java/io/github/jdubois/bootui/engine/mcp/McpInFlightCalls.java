@@ -12,8 +12,15 @@ import java.util.Objects;
  *
  * <p>MCP 2025-06-18 has no sessions at BootUI's endpoint, so ids are not scoped to a client: any local caller that
  * passes the endpoint's loopback, Host, cross-site, and token checks can cancel a call by its id. Two callers can use the
- * same id at the same time; such an id is ambiguous and a cancellation naming it is ignored rather than guessed. The
- * registry is bounded by the concurrency cap: an entry exists only while its call holds a permit.
+ * same id at the same time; such an id is ambiguous and a cancellation naming it is ignored rather than guessed. Clients
+ * number their ids per connection (0, 1, 2…), so a late cancellation from one client can also name, and cancel, another
+ * client's call that happens to use the same id while the first client's call has finished; BootUI accepts that
+ * limitation rather than add a session header that would change MCP 2025-06-18's bytes.
+ *
+ * <p>The registry is bounded by the concurrency cap: a call registers after taking its permit and is removed before
+ * that permit is released, whether it streams or blocks. A blocking call is also removed once it is answered (the
+ * timeout or a cancellation), even while its abandoned tool still holds the permit, so entries never outnumber the
+ * permits in use.
  */
 final class McpInFlightCalls {
 
