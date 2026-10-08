@@ -6,6 +6,13 @@ name: Documentation (v2 pull requests)
 on:
   pull_request:
     branches: [ v2 ]
+    paths:
+      - 'docs/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/docs-v2.yml'
+      - '.github/scripts/check-docs-downloads.sh'
+      - '.github/scripts/test_docs_links.py'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
