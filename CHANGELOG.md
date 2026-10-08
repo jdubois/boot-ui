@@ -42,7 +42,6 @@ give the details.
   `assess_application` accept a symptom, route, change, focus, or goal that focuses them ([AI agents](docs/AI-AGENTS.md#assess-an-application-and-approve-an-action-plan)).
 - **REST-client traces for agents take a query and a limit.** `get_rest_client_traces` (`bootui rest-client traces`)
   answers the 20 newest matching calls by default, like `get_sql_traces` ([AI agents](docs/AI-AGENTS.md#agent-sized-defaults)).
-- **Resources sensor in the BootUI agent.** On by default, it shows the sockets, and with `files` the streams, a request
 - **Resources sensor in the BootUI agent.** On by default, it shows the sockets and file streams a request
   left open or never closed, in Side Effects' **Threads and leaks** tab ([Java Agent](docs/features/java-agent.md#the-resources-sensor)).
 - **Change impact has its own Runtime Insights tab.** It opens on its search field instead of sitting below the run
