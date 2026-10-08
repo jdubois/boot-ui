@@ -87,6 +87,8 @@ public final class McpStreamingCall {
     private final OperationProgress progress;
     private final ScheduledFuture<?> timeoutTask;
     private volatile Future<?> toolFuture;
+    /** Set when the tool must stop: it may be read only after the tool's future is assigned, so neither side misses. */
+    private volatile boolean stopTool;
 
     McpStreamingCall(
             McpTool tool,
@@ -187,7 +189,7 @@ public final class McpStreamingCall {
         try {
             Future<?> future = toolExecutor.submit(this::runTool);
             toolFuture = future;
-            if (endKind() == EndKind.CANCELLED || endKind() == EndKind.TIMED_OUT) {
+            if (stopTool) {
                 future.cancel(true);
             }
         } catch (RuntimeException | Error failure) {
@@ -241,6 +243,12 @@ public final class McpStreamingCall {
             failureReporter.report("writing a stream", failure);
         }
         progress.cancel();
+        interruptTool();
+    }
+
+    /** Interrupts the tool, now or as soon as {@link #start} has submitted it. */
+    private void interruptTool() {
+        stopTool = true;
         Future<?> future = toolFuture;
         if (future != null) {
             future.cancel(true);
@@ -297,10 +305,7 @@ public final class McpStreamingCall {
         if (before == Lifecycle.CREATED) {
             releasePart();
         } else if (kind != EndKind.COMPLETED) {
-            Future<?> future = toolFuture;
-            if (future != null) {
-                future.cancel(true);
-            }
+            interruptTool();
         }
         outbox.signal();
         return true;
