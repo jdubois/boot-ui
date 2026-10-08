@@ -98,8 +98,9 @@ public abstract class AbstractCliConformanceTest {
         assertThat(scan.status()).isEqualTo(200);
         String scanId = scan.json().path("violationDetails").path("scanId").asText();
         assertThat(scanId).isNotBlank();
-        if (!scan.json().path("results").isEmpty()) {
-            JsonNode rule = scan.json().path("results").get(0);
+        assertThat(scan.json().has("results")).isFalse();
+        if (!scan.json().path("topFindings").isEmpty()) {
+            JsonNode rule = scan.json().path("topFindings").get(0);
             Response page = invoke(
                     "get_architecture_rule_violations",
                     "{\"id\":\"" + rule.path("id").asText() + "\",\"scanId\":\"" + scanId
@@ -107,7 +108,7 @@ public abstract class AbstractCliConformanceTest {
             assertThat(page.status()).isEqualTo(200);
             assertThat(page.json().path("scanId").asText()).isEqualTo(scanId);
             assertThat(page.json().path("violationCount").asInt())
-                    .isEqualTo(rule.path("violationCount").asInt());
+                    .isEqualTo(rule.path("count").asInt());
             assertThat(page.json().path("page").path("limit").asInt()).isEqualTo(1);
         }
         assertThat(invoke("get_architecture_rule_violations", "{\"id\":\"ARCH-CODE-002\"}")

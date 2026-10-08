@@ -5,6 +5,8 @@ import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsAgentView;
 import io.github.jdubois.bootui.engine.mcp.McpAgentViews;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
+import io.github.jdubois.bootui.engine.mcp.McpControlAcks;
+import io.github.jdubois.bootui.engine.mcp.McpScanSummaries;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
@@ -65,7 +67,6 @@ import io.github.jdubois.bootui.quarkus.web.WebSocketsResource;
 import jakarta.inject.Singleton;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
@@ -213,7 +214,7 @@ public class QuarkusMcpTools {
                 tool(
                         "architecture_scan",
                         McpToolDescriptions.quarkus("architecture_scan"),
-                        args -> architecture.scan()));
+                        args -> McpScanSummaries.architecture(architecture.scan())));
         addIfAvailable(
                 registry,
                 availability,
@@ -224,7 +225,10 @@ public class QuarkusMcpTools {
         addIfAvailable(
                 registry,
                 availability,
-                tool("spring_scan", McpToolDescriptions.quarkus("spring_scan"), args -> spring.scan()));
+                tool(
+                        "spring_scan",
+                        McpToolDescriptions.quarkus("spring_scan"),
+                        args -> McpScanSummaries.spring(spring.scan())));
         addIfAvailable(
                 registry,
                 availability,
@@ -232,7 +236,10 @@ public class QuarkusMcpTools {
         addIfAvailable(
                 registry,
                 availability,
-                tool("hibernate_scan", McpToolDescriptions.quarkus("hibernate_scan"), args -> hibernate.scan()));
+                tool(
+                        "hibernate_scan",
+                        McpToolDescriptions.quarkus("hibernate_scan"),
+                        args -> McpScanSummaries.hibernate(hibernate.scan())));
         addIfAvailable(
                 registry,
                 availability,
@@ -246,7 +253,7 @@ public class QuarkusMcpTools {
                 tool(
                         "database_advisor_scan",
                         McpToolDescriptions.quarkus("database_advisor_scan"),
-                        args -> databaseAdvisor.scan()));
+                        args -> McpScanSummaries.databaseAdvisor(databaseAdvisor.scan())));
         addIfAvailable(
                 registry,
                 availability,
@@ -257,7 +264,10 @@ public class QuarkusMcpTools {
         addIfAvailable(
                 registry,
                 availability,
-                tool("postgresql_read", McpToolDescriptions.quarkus("postgresql_read"), args -> postgresql.read()));
+                tool(
+                        "postgresql_read",
+                        McpToolDescriptions.quarkus("postgresql_read"),
+                        args -> McpScanSummaries.postgresql(postgresql.read())));
         addIfAvailable(
                 registry,
                 availability,
@@ -268,7 +278,10 @@ public class QuarkusMcpTools {
         addIfAvailable(
                 registry,
                 availability,
-                tool("mysql_read", McpToolDescriptions.quarkus("mysql_read"), args -> mysql.read()));
+                tool(
+                        "mysql_read",
+                        McpToolDescriptions.quarkus("mysql_read"),
+                        args -> McpScanSummaries.mysql(mysql.read())));
         addIfAvailable(
                 registry,
                 availability,
@@ -276,7 +289,10 @@ public class QuarkusMcpTools {
         addIfAvailable(
                 registry,
                 availability,
-                tool("memory_scan", McpToolDescriptions.quarkus("memory_scan"), args -> memory.scan()));
+                tool(
+                        "memory_scan",
+                        McpToolDescriptions.quarkus("memory_scan"),
+                        args -> McpScanSummaries.memory(memory.scan())));
         addIfAvailable(
                 registry,
                 availability,
@@ -284,7 +300,10 @@ public class QuarkusMcpTools {
         addIfAvailable(
                 registry,
                 availability,
-                tool("security_scan", McpToolDescriptions.quarkus("security_scan"), args -> security.scan()));
+                tool(
+                        "security_scan",
+                        McpToolDescriptions.quarkus("security_scan"),
+                        args -> McpScanSummaries.security(security.scan())));
         addIfAvailable(
                 registry,
                 availability,
@@ -295,7 +314,10 @@ public class QuarkusMcpTools {
         addIfAvailable(
                 registry,
                 availability,
-                tool("pentest_scan", McpToolDescriptions.quarkus("pentest_scan"), args -> pentesting.scan()));
+                tool(
+                        "pentest_scan",
+                        McpToolDescriptions.quarkus("pentest_scan"),
+                        args -> McpScanSummaries.pentest(pentesting.scan())));
         addIfAvailable(
                 registry,
                 availability,
@@ -306,7 +328,10 @@ public class QuarkusMcpTools {
         addIfAvailable(
                 registry,
                 availability,
-                tool("rest_api_scan", McpToolDescriptions.quarkus("rest_api_scan"), args -> restApi.scan()));
+                tool(
+                        "rest_api_scan",
+                        McpToolDescriptions.quarkus("rest_api_scan"),
+                        args -> McpScanSummaries.restApi(restApi.scan())));
         addIfAvailable(
                 registry,
                 availability,
@@ -320,7 +345,7 @@ public class QuarkusMcpTools {
                 tool(
                         "vulnerabilities_scan",
                         McpToolDescriptions.quarkus("vulnerabilities_scan"),
-                        args -> vulnerabilities.scan()));
+                        args -> McpScanSummaries.vulnerabilities(vulnerabilities.scan())));
         addIfAvailable(
                 registry,
                 availability,
@@ -454,7 +479,7 @@ public class QuarkusMcpTools {
                 availability,
                 tool("clear_exceptions", McpToolDescriptions.quarkus("clear_exceptions"), args -> {
                     exceptions.clear();
-                    return Map.of("cleared", true);
+                    return McpControlAcks.exceptionsCleared(exceptions.list());
                 }));
         addIfAvailable(
                 registry,
@@ -473,21 +498,26 @@ public class QuarkusMcpTools {
         addIfAvailable(
                 registry,
                 availability,
-                tool("clear_sql_traces", McpToolDescriptions.quarkus("clear_sql_traces"), args -> sqlTrace.clear()));
+                tool(
+                        "clear_sql_traces",
+                        McpToolDescriptions.quarkus("clear_sql_traces"),
+                        args -> McpControlAcks.sqlTrace(McpControlAcks.CLEARED, sqlTrace.clear())));
         addIfAvailable(
                 registry,
                 availability,
                 tool(
                         "pause_sql_trace_recording",
                         McpToolDescriptions.quarkus("pause_sql_trace_recording"),
-                        args -> sqlTrace.recording(new SqlTraceRecordingRequest(false))));
+                        args -> McpControlAcks.sqlTrace(
+                                McpControlAcks.PAUSED, sqlTrace.recording(new SqlTraceRecordingRequest(false)))));
         addIfAvailable(
                 registry,
                 availability,
                 tool(
                         "resume_sql_trace_recording",
                         McpToolDescriptions.quarkus("resume_sql_trace_recording"),
-                        args -> sqlTrace.recording(new SqlTraceRecordingRequest(true))));
+                        args -> McpControlAcks.sqlTrace(
+                                McpControlAcks.RESUMED, sqlTrace.recording(new SqlTraceRecordingRequest(true)))));
         addIfAvailable(
                 registry,
                 availability,
@@ -495,7 +525,7 @@ public class QuarkusMcpTools {
         addIfAvailable(
                 registry, availability, tool("clear_traces", McpToolDescriptions.quarkus("clear_traces"), args -> {
                     traces.clear();
-                    return Map.of("cleared", true);
+                    return McpControlAcks.tracesCleared(traces.list(1));
                 }));
         addIfAvailable(
                 registry,
@@ -660,21 +690,25 @@ public class QuarkusMcpTools {
                 tool(
                         "clear_rest_client_traces",
                         McpToolDescriptions.quarkus("clear_rest_client_traces"),
-                        args -> restClientTrace.clear()));
+                        args -> McpControlAcks.restClientTrace(McpControlAcks.CLEARED, restClientTrace.clear())));
         addIfAvailable(
                 registry,
                 availability,
                 tool(
                         "pause_rest_client_recording",
                         McpToolDescriptions.quarkus("pause_rest_client_recording"),
-                        args -> restClientTrace.recording(new RestClientTraceRecordingRequest(false))));
+                        args -> McpControlAcks.restClientTrace(
+                                McpControlAcks.PAUSED,
+                                restClientTrace.recording(new RestClientTraceRecordingRequest(false)))));
         addIfAvailable(
                 registry,
                 availability,
                 tool(
                         "resume_rest_client_recording",
                         McpToolDescriptions.quarkus("resume_rest_client_recording"),
-                        args -> restClientTrace.recording(new RestClientTraceRecordingRequest(true))));
+                        args -> McpControlAcks.restClientTrace(
+                                McpControlAcks.RESUMED,
+                                restClientTrace.recording(new RestClientTraceRecordingRequest(true)))));
         addIfAvailable(
                 registry,
                 availability,

@@ -827,8 +827,10 @@ public abstract class AbstractMcpConformanceTest {
             assertThat(scanId).isNotBlank();
             assertThat(probe().get("/bootui/api/architecture").json().path("violationDetails"))
                     .isEqualTo(report.path("violationDetails"));
-            if (!report.path("results").isEmpty()) {
-                JsonNode rule = report.path("results").get(0);
+            // The scan answers with a summary: its top findings name the rules to page, with their counts.
+            assertThat(report.has("results")).isFalse();
+            if (!report.path("topFindings").isEmpty()) {
+                JsonNode rule = report.path("topFindings").get(0);
                 JsonNode detailEnvelope = callAdvisorTool(
                         "get_architecture_rule_violations",
                         Map.of("id", rule.path("id").asText(), "scanId", scanId, "offset", 0, "limit", 1));
@@ -837,7 +839,7 @@ public abstract class AbstractMcpConformanceTest {
                         detailEnvelope.path("content").get(0).path("text").asText());
                 assertThat(detail.path("scanId").asText()).isEqualTo(scanId);
                 assertThat(detail.path("violationCount").asInt())
-                        .isEqualTo(rule.path("violationCount").asInt());
+                        .isEqualTo(rule.path("count").asInt());
                 assertThat(detail.path("page").path("limit").asInt()).isEqualTo(1);
             }
             JsonNode unknownRule = callAdvisorTool(
@@ -846,13 +848,21 @@ public abstract class AbstractMcpConformanceTest {
             assertThat(unknownRule.path("content").get(0).path("text").asText())
                     .as("an unknown rule is told apart from a rule without findings")
                     .isEqualTo(AdvisorScanState.UNKNOWN_RULE_MESSAGE);
-            // Results list only violating rules, so a rule that passed is one of the catalogue's rules absent from
-            // them.
+            // The scan answers with a summary, so the full report names the rules with findings or errors; its results
+            // list only violating rules, so a rule that passed is one of the catalogue's rules absent from them.
+            JsonNode fullReport = probe().get("/bootui/api/architecture").json();
+            assertThat(fullReport.path("violationDetails").path("scanId").asText())
+                    .isEqualTo(scanId);
             java.util.Set<String> reported = new java.util.HashSet<>();
-            report.path("results")
+            fullReport
+                    .path("results")
                     .forEach(result -> reported.add(result.path("id").asText()));
-            report.path("analysisErrors")
+            fullReport
+                    .path("analysisErrors")
                     .forEach(result -> reported.add(result.path("id").asText()));
+            assertThat(reported)
+                    .as("the full report lists every rule with a finding, as the scan summary counts them")
+                    .hasSizeGreaterThanOrEqualTo(report.path("topFindings").size());
             String passedRule = java.util.stream.Stream.of(
                             "ARCH-CODE-004", "ARCH-CODE-006", "ARCH-CODE-007", "ARCH-SPRING-014", "ARCH-SPRING-020")
                     .filter(candidate -> !reported.contains(candidate))

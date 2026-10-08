@@ -139,9 +139,10 @@ class BootUiQuarkusMySqlLiveTest {
         JsonNode actionTool = rpc(probe, "\"method\":\"tools/call\",\"params\":{\"name\":\"mysql_read\"}")
                 .path("result");
         assertThat(actionTool.path("isError").asBoolean()).isFalse();
-        assertThat(new ObjectMapper()
-                        .readTree(actionTool.path("content").get(0).path("text").asText()))
-                .isEqualTo(probe.get(API + "/mysql").json());
+        MySqlReportContract.assertReadSummary(
+                new ObjectMapper()
+                        .readTree(actionTool.path("content").get(0).path("text").asText()),
+                probe.get(API + "/mysql").json());
 
         try (var connection = mysql.getConnection()) {
             assertThat(connection.getAutoCommit()).isTrue();

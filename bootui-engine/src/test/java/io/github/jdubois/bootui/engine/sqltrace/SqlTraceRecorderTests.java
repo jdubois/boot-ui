@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
+import io.github.jdubois.bootui.engine.mcp.McpControlAcks;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
 import io.github.jdubois.bootui.spi.CorrelationContext;
@@ -619,6 +620,16 @@ class SqlTraceRecorderTests {
         recorder.clear();
         assertThat(recorder.recent()).isEmpty();
         assertThat(recorder.totalCaptured()).isEqualTo(1);
+
+        // totalCaptured is the lifetime count; the stats and entries cover the retained window, which clear empties.
+        SqlTraceReport report = recorder.report(false);
+        assertThat(report.totalCaptured()).isEqualTo(1);
+        assertThat(report.entries()).isEmpty();
+        assertThat(report.stats().totalQueries()).isZero();
+        assertThat(McpControlAcks.sqlTrace(McpControlAcks.CLEARED, report))
+                .containsEntry("action", "cleared")
+                .containsEntry("retained", 0)
+                .containsEntry("totalCaptured", 1L);
     }
 
     @Test

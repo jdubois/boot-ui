@@ -56,7 +56,9 @@ input subset keep those existing count/observation bounds; detail paging does no
 
 #### REST, MCP, and CLI retrieval
 
-Read the cached report first, then pass its `violationDetails.scanId` with every page request:
+Read the cached report first, then pass its `violationDetails.scanId` with every page request. An MCP or CLI scan
+answers with a [compact summary](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls) that carries the same
+`violationDetails` and at most ten `topFindings`, not the report; the REST scan still returns the report the panel renders.
 
 ```text
 GET <api>/<advisor>/rules/<encoded-rule-id>/violations?scanId=<encoded-scan-id>&offset=0&limit=100
@@ -817,6 +819,12 @@ The [Vulnerabilities checks catalogue](../VULNERABILITIES-CHECKS.md) documents t
 sources/version caveats, full audit disposition, and deferred inventory limitations. A completed lookup is not proof
 of application safety or complete runtime discovery. Panel and Scorecard use the same
 [evidence-based eligibility](#score-eligibility), including qualification after dismissal and GET-only cached refresh.
+
+An agent's `vulnerabilities_scan` answers with a
+[summary](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls): at most ten vulnerable dependencies, each
+with its most severe advisory, rather than every advisory's full OSV text. `get_vulnerabilities_report` then lists
+`limit` dependencies (10 by default) with their advisories; narrow it with `query` or lower `limit` when a page is
+refused for exceeding `bootui.mcp.max-response-bytes`.
 
 ### Severity scoring
 

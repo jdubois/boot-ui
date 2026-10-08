@@ -103,7 +103,8 @@ public final class McpToolDescriptions {
                             + "frames, causes, and individual occurrences. With the BootUI agent's caught-exceptions "
                             + "sensor, caughtInCode summarizes exceptions application code caught: a finding was not "
                             + "seen rethrown or logged at WARN or above while the evidence was complete; unknown "
-                            + "means incomplete evidence, never swallowed."),
+                            + "means incomplete evidence, never swallowed. totalExceptions counts the occurrences in the "
+                            + "retained groups, so clear_exceptions resets it."),
             Map.entry(
                     "get_exception_detail",
                     "Return stack frames, causes, and occurrences for one exact exception-group id obtained from "
@@ -120,12 +121,15 @@ public final class McpToolDescriptions {
                             + "The retention object reports capacity and retained, reserved, and evicted counts: "
                             + "failed and slow statements are kept longer, so the window is not complete. At most limit (20) "
                             + "newest entries matching query (SQL text, category, call site, error, or request, trace, "
-                            + "or execution id); page.hasMore means narrow the query or raise limit."),
+                            + "or execution id); page.hasMore means narrow the query or raise limit. totalCaptured counts the "
+                            + "statements recorded since startup, which clear_sql_traces does not reset; stats and "
+                            + "entries cover the retained window only."),
             Map.entry(
                     "get_transactions",
                     "Return the current bounded transaction-boundary snapshot with outcomes, timings, nesting, and "
                             + "correlated SQL counts. Use it to verify which local operations actually ran in a "
-                            + "transaction."),
+                            + "transaction. totalCaptured counts the transactions recorded since startup, which "
+                            + "clear_transactions does not reset; stats and entries cover the retained window only."),
             Map.entry(
                     "get_traces",
                     "Return a bounded, newest-first snapshot of distributed and local traces captured by BootUI. Use "
@@ -211,7 +215,7 @@ public final class McpToolDescriptions {
             Map.entry(
                     "postgresql_read",
                     "Actively read PostgreSQL's own pg_stat_* and pg_catalog views for the application datasources "
-                            + "and return what the server currently reports: the live session snapshot, cache hit and "
+                            + "and record what the server currently reports: the live session snapshot, cache hit and "
                             + "rollback ratios, connection usage, transaction-ID age, the top normalized statements, "
                             + "index and relation activity, autovacuum state, replication and notable settings. This "
                             + "is a runtime view, not an advisor: it grades nothing and emits no findings. The read is "
@@ -282,7 +286,9 @@ public final class McpToolDescriptions {
                             + "names, loaded in this JVM: a prioritization hint that never changes severity, and "
                             + "NOT_LOADED means not loaded yet, not unreachable. At most limit (10) dependencies, vulnerable "
                             + "first, matching query (coordinates, severity, or an advisory id or alias); totals stay "
-                            + "whole-report counts and page.matched counts the query hits."),
+                            + "whole-report counts and page.matched counts the query hits. Advisories carry their full "
+                            + "text, so on an MCP -32003 byte-budget refusal retry with a smaller limit or a narrower "
+                            + "query; a refusal is not an empty report."),
             Map.entry(
                     "get_metrics",
                     "Search the current application metrics inventory and return a bounded page of local meter values. "
@@ -431,10 +437,11 @@ public final class McpToolDescriptions {
                     "Return the current bounded REST-client trace snapshot with masked headers and bodies according to "
                             + "BootUI exposure policy. This does not send requests or change recording state. The "
                             + "retention object reports capacity and retained, reserved, and evicted counts: failed, "
-                            + "error, and slow calls are kept longer, so the window is not complete. At most limit (20) "
-                            + "newest entries matching query (method, URI, host, path, status, client type, error, call "
-                            + "site, or request, trace, or execution id); page.hasMore means narrow the query or raise "
-                            + "limit."),
+                            + "error, and slow calls are kept longer, so the window is not complete. totalCaptured counts the calls "
+                            + "recorded since startup, which clear_rest_client_traces does not reset; stats and "
+                            + "entries cover the retained window only. At most limit (20) newest entries matching "
+                            + "query (method, URI, host, path, status, client type, error, call site, or request, "
+                            + "trace, or execution id); page.hasMore means narrow the query or raise limit."),
             Map.entry(
                     "get_ai_overview",
                     "Return the local AI-framework telemetry overview derived from already-captured OTLP spans. This "
@@ -494,32 +501,31 @@ public final class McpToolDescriptions {
                             + "later reads answer from the cache a directory watcher keeps current."),
             Map.entry(
                     "clear_sql_traces",
-                    "Clear the bounded in-memory SQL trace buffer and return the resulting report. This does not execute "
-                            + "SQL or change whether trace recording is enabled."),
+                    "Clear the bounded in-memory SQL trace buffer. This does not execute SQL or change whether trace "
+                            + "recording is enabled."),
             Map.entry(
                     "pause_sql_trace_recording",
-                    "Pause SQL trace recording and return the resulting report. Existing buffered traces remain available "
-                            + "until explicitly cleared."),
+                    "Pause SQL trace recording. Existing buffered traces remain available until explicitly cleared."),
             Map.entry(
                     "resume_sql_trace_recording",
-                    "Resume SQL trace recording and return the resulting report. This only affects BootUI's bounded local "
-                            + "capture and does not execute SQL."),
+                    "Resume SQL trace recording. This only affects BootUI's bounded local capture and does not execute "
+                            + "SQL."),
             Map.entry(
                     "clear_traces",
                     "Clear BootUI's bounded in-memory trace buffer. This does not contact a telemetry backend or alter "
                             + "application tracing configuration."),
             Map.entry(
                     "clear_rest_client_traces",
-                    "Clear the bounded in-memory REST-client trace buffer and return the resulting report. This does not "
-                            + "send an HTTP request or change recording state."),
+                    "Clear the bounded in-memory REST-client trace buffer. This does not send an HTTP request or change "
+                            + "recording state."),
             Map.entry(
                     "pause_rest_client_recording",
-                    "Pause REST-client trace recording and return the resulting report. Existing buffered calls remain "
-                            + "available until explicitly cleared."),
+                    "Pause REST-client trace recording. Existing buffered calls remain available until explicitly "
+                            + "cleared."),
             Map.entry(
                     "resume_rest_client_recording",
-                    "Resume REST-client trace recording and return the resulting report. This only affects BootUI's "
-                            + "bounded local capture and sends no HTTP request."),
+                    "Resume REST-client trace recording. This only affects BootUI's bounded local capture and sends no "
+                            + "HTTP request."),
             Map.entry(
                     "clear_exceptions",
                     "Clear BootUI's bounded in-memory exception groups and occurrences. This does not suppress, handle, or "
@@ -539,7 +545,7 @@ public final class McpToolDescriptions {
     private McpToolDescriptions() {}
 
     public static String spring(String name) {
-        return springDescription(name) + advisorGuidance(name, false);
+        return springDescription(name) + advisorGuidance(name, false) + compactAnswer(name);
     }
 
     private static String springDescription(String name) {
@@ -603,14 +609,13 @@ public final class McpToolDescriptions {
                         + "breaker state, plus a bounded metadata-only event history. This read never opens, closes, "
                         + "resets, or otherwise mutates a policy.";
             case "clear_transactions" ->
-                "Clear the bounded in-memory Spring transaction trace buffer and return the resulting report. This does "
-                        + "not begin, commit, or roll back an application transaction.";
+                "Clear the bounded in-memory Spring transaction trace buffer. This does not begin, commit, or roll "
+                        + "back an application transaction.";
             case "pause_transaction_recording" ->
-                "Pause Spring transaction-boundary recording and return the resulting report. Existing buffered "
-                        + "transactions remain available until explicitly cleared.";
+                "Pause Spring transaction-boundary recording. Existing buffered transactions remain available until "
+                        + "explicitly cleared.";
             case "resume_transaction_recording" ->
-                "Resume Spring transaction-boundary recording and return the resulting report. This only affects "
-                        + "BootUI's bounded local capture.";
+                "Resume Spring transaction-boundary recording. This only affects BootUI's bounded local capture.";
             case "trigger_devtools_livereload" ->
                 "Trigger the existing local Spring Boot DevTools LiveReload notification and return its action result. "
                         + "This does not restart the application or modify watched files. available=false with "
@@ -621,7 +626,7 @@ public final class McpToolDescriptions {
     }
 
     public static String quarkus(String name) {
-        return quarkusDescription(name) + advisorGuidance(name, true);
+        return quarkusDescription(name) + advisorGuidance(name, true) + compactAnswer(name);
     }
 
     private static String quarkusDescription(String name) {
@@ -675,6 +680,57 @@ public final class McpToolDescriptions {
         return description;
     }
 
+    /** What every active advisor scan answers with instead of its report (see {@link McpScanSummaries}). */
+    private static final String SCAN_SUMMARY = " It answers with a compact summary, not the report: scan, "
+            + "findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, "
+            + "moreFindings counting the findings left out, evidence";
+
+    /**
+     * The compact answer of a capture-control tool or of an active scan that is not a rule advisor, or the empty
+     * string for any other tool.
+     */
+    private static String compactAnswer(String name) {
+        return switch (name) {
+            case "clear_sql_traces", "pause_sql_trace_recording", "resume_sql_trace_recording" ->
+                controlAck("get_sql_traces", "");
+            case "clear_transactions", "pause_transaction_recording", "resume_transaction_recording" ->
+                controlAck("get_transactions", "");
+            case "clear_rest_client_traces", "pause_rest_client_recording", "resume_rest_client_recording" ->
+                controlAck("get_rest_client_traces", "");
+            case "clear_exceptions" ->
+                controlAck(
+                        "get_exceptions",
+                        " Here retained counts exception groups, and totalCaptured is null: the panel keeps no "
+                                + "lifetime count.");
+            case "clear_traces" ->
+                controlAck("get_traces", " Here totalCaptured is null: the panel keeps no lifetime count.");
+            case "pentest_scan", "graalvm_scan", "crac_scan" ->
+                SCAN_SUMMARY + ". Read the cached report with get_" + name.replace("_scan", "_report")
+                        + " without scanning again.";
+            case "vulnerabilities_scan" ->
+                SCAN_SUMMARY + ", plus dependencies, scanningEnabled and coverage. A finding is a vulnerable "
+                        + "dependency: its coordinates, its most severe advisory, its highest severity, and its "
+                        + "advisory count. Read every advisory with get_vulnerabilities_report without scanning again.";
+            case "postgresql_read" ->
+                " It answers with a summary, not the rows: status, message, readAt, truncated, and each database's "
+                        + "status, message and sections (id, status, reason, rowCount, truncated). Read the rows, "
+                        + "hints and replication details with get_postgresql_report, which returns this read "
+                        + "without querying again.";
+            case "mysql_read" ->
+                " It answers with a summary, not the rows: status, message, readAt, truncated, and each "
+                        + "datasource's status, message and sections (id, status, reason, rowCount, truncated). Read "
+                        + "the rows, scopes and hints with get_mysql_report, which returns this read without querying "
+                        + "again.";
+            default -> "";
+        };
+    }
+
+    private static String controlAck(String readTool, String note) {
+        return " Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, "
+                + "capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded "
+                + "since startup, which a clear does not reset." + note + " Read the entries with " + readTool + ".";
+    }
+
     private static String advisorGuidance(String name, boolean quarkus) {
         String advisor =
                 switch (name) {
@@ -691,10 +747,10 @@ public final class McpToolDescriptions {
             return "";
         }
         if (name.endsWith("_scan")) {
-            // The scan answers with the report get_<advisor>_report returns; its guidance is written once, there.
-            return " It answers with the report get_" + advisor + "_report returns: read that tool's description"
-                    + " for sampleViolations, truncated, and paging retained violationDetails with get_" + advisor
-                    + "_rule_violations without scanning again.";
+            // The scan answers with a summary; the report's guidance is written once, on get_<advisor>_report.
+            return SCAN_SUMMARY + " and violationDetails.scanId. Read the cached report with get_" + advisor
+                    + "_report and page a rule's retained violations with get_" + advisor
+                    + "_rule_violations, without scanning again.";
         }
         int sampleLimit = quarkus && (advisor.equals("spring") || advisor.equals("security")) ? 20 : 10;
         return " sampleViolations are bounded previews (up to " + sampleLimit + "), not the full violationCount. "
