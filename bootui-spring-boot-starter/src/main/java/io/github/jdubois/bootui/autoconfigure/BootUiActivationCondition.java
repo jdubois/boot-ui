@@ -50,7 +50,8 @@ public class BootUiActivationCondition implements Condition {
                     return new BootUiActivation(
                             true,
                             "Explicitly enabled (bootui.enabled=ON) despite disabled profile '" + profile + "'",
-                            warnings);
+                            warnings,
+                            profile);
                 }
                 return new BootUiActivation(
                         false,

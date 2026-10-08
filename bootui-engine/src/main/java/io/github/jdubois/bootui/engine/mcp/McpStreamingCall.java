@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
 import io.github.jdubois.bootui.engine.progress.OperationProgress;
 import io.github.jdubois.bootui.engine.progress.ProgressEvent;
+import io.github.jdubois.bootui.engine.support.BootUiThreads;
 import java.io.IOException;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
@@ -12,7 +13,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -29,6 +29,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * task</em> only changes the call's state. A slow or vanished client therefore never stalls a tool, the timeout
  * scheduler, or another call.
  *
+ * <p>The writer and timeout threads are JVM-wide and outlive a DevTools restart or a Quarkus live reload, so they are
+ * created with {@link BootUiThreads}: they keep nothing of the application that first used them. The tool and the
+ * writer run with the application class loader of their dispatcher as context class loader only while they work.
+ *
  * <p>The call ends exactly once, through one atomic transition: the tool completes (with a result or a failure), the
  * absolute {@code bootui.mcp.execution-timeout} expires (final {@code -32002}, which modern rendering moves to {@code
  * -31002}), or the client disconnects ({@link #cancel()}, after which nothing more is written). Progress never extends
@@ -43,8 +47,12 @@ public final class McpStreamingCall {
     /** Spacing of SSE keep-alive comments; also bounds how late a closed socket is noticed on a quiet stream. */
     public static final long HEARTBEAT_MILLIS = 2_000;
 
+    private static final ExecutorService WRITERS = Executors.newCachedThreadPool(
+            BootUiThreads.daemonFactory("bootui-mcp-stream-", BootUiThreads.ENGINE_LOADER));
+    /** How long an idle timeout thread waits for the next call before it ends. */
+    private static final long TIMEOUT_THREAD_KEEP_ALIVE_SECONDS = 60;
+
     private static final ScheduledThreadPoolExecutor TIMEOUTS = timeouts();
-    private static final ExecutorService WRITERS = Executors.newCachedThreadPool(daemon("bootui-mcp-stream-"));
 
     private enum Lifecycle {
         CREATED,
@@ -70,6 +78,9 @@ public final class McpStreamingCall {
     private final McpRuntimeStats stats;
     private final McpFailureReporter failureReporter;
     private final ExecutorService toolExecutor;
+    /** The application's context class loader, set on the tool and writer threads only while they run this call. */
+    private final ClassLoader applicationLoader;
+
     private final long createdAt = System.nanoTime();
 
     private final AtomicReference<Lifecycle> lifecycle = new AtomicReference<>(Lifecycle.CREATED);
@@ -109,7 +120,8 @@ public final class McpStreamingCall {
                 permits,
                 stats,
                 failureReporter,
-                toolExecutor);
+                toolExecutor,
+                Thread.currentThread().getContextClassLoader());
     }
 
     McpStreamingCall(
@@ -122,7 +134,8 @@ public final class McpStreamingCall {
             Semaphore permits,
             McpRuntimeStats stats,
             McpFailureReporter failureReporter,
-            ExecutorService toolExecutor) {
+            ExecutorService toolExecutor,
+            ClassLoader applicationLoader) {
         this.tool = Objects.requireNonNull(tool, "tool");
         this.arguments = Objects.requireNonNull(arguments, "arguments");
         this.progressToken = Objects.requireNonNull(progressToken, "progressToken");
@@ -132,6 +145,7 @@ public final class McpStreamingCall {
         this.stats = Objects.requireNonNull(stats, "stats");
         this.failureReporter = Objects.requireNonNull(failureReporter, "failureReporter");
         this.toolExecutor = Objects.requireNonNull(toolExecutor, "toolExecutor");
+        this.applicationLoader = applicationLoader;
         this.progress = new OperationProgress(outbox::offer);
         // Scheduled before the adapter can fail to start the call, so the permit is released in every case.
         this.timeoutTask = TIMEOUTS.schedule(this::timeOut, Math.max(1, timeoutMillis), TimeUnit.MILLISECONDS);
@@ -171,14 +185,15 @@ public final class McpStreamingCall {
                 return;
             }
             try {
-                WRITERS.execute(() -> writeFinalOnly(sink, ended.outcome()));
+                WRITERS.execute(() -> BootUiThreads.runWithContextLoader(
+                        applicationLoader, () -> writeFinalOnly(sink, ended.outcome())));
             } catch (RuntimeException | Error rejected) {
                 sink.close();
             }
             return;
         }
         try {
-            WRITERS.execute(() -> write(sink));
+            WRITERS.execute(() -> BootUiThreads.runWithContextLoader(applicationLoader, () -> write(sink)));
         } catch (RuntimeException | Error failure) {
             // Recorded before closing the sink, whose close path may report a disconnect and hide the fault.
             fail(failure);
@@ -187,7 +202,8 @@ public final class McpStreamingCall {
             return;
         }
         try {
-            Future<?> future = toolExecutor.submit(this::runTool);
+            Future<?> future =
+                    toolExecutor.submit(() -> BootUiThreads.runWithContextLoader(applicationLoader, this::runTool));
             toolFuture = future;
             if (stopTool) {
                 future.cancel(true);
@@ -394,17 +410,12 @@ public final class McpStreamingCall {
     }
 
     private static ScheduledThreadPoolExecutor timeouts() {
-        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, daemon("bootui-mcp-timeout-"));
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(
+                1, BootUiThreads.daemonFactory("bootui-mcp-timeout-", BootUiThreads.ENGINE_LOADER));
         executor.setRemoveOnCancelPolicy(true);
+        // The idle thread ends; the last one stays while a timeout is pending.
+        executor.setKeepAliveTime(TIMEOUT_THREAD_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS);
+        executor.allowCoreThreadTimeOut(true);
         return executor;
-    }
-
-    private static ThreadFactory daemon(String prefix) {
-        AtomicInteger sequence = new AtomicInteger();
-        return task -> {
-            Thread thread = new Thread(task, prefix + sequence.incrementAndGet());
-            thread.setDaemon(true);
-            return thread;
-        };
     }
 }

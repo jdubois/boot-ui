@@ -28,6 +28,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URI;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.MDC;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.HandlerMapping;
@@ -46,7 +47,8 @@ import org.springframework.web.util.UrlPathHelper;
  * application behaviour.
  * BootUI's own endpoints are skipped (their requests are hidden from the activity feed anyway), and
  * async/error re-dispatches are skipped so each logical request is recorded exactly once on its main
- * dispatch.</p>
+ * dispatch. A request whose handler went asynchronous publishes its journal event only once its async context
+ * completes, with the status it answered and its whole duration.</p>
  *
  * <p>It also gives each request BootUI's own request id ({@code docs/PLAN-v2.md} §5.1) and makes its
  * {@link CorrelationContext} current on the serving thread while the chain runs, so every event recorded for the
@@ -106,7 +108,7 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
 
     /**
      * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives one {@code HTTP} event per request
-     * when the request completes. {@code null} restores the default, which publishes nothing.
+     * when its response completes, after its last async cycle for a request that went asynchronous. {@code null} restores the default, which publishes nothing.
      */
     public void setRuntimeEventSink(RuntimeEventSink journal) {
         this.journal = journal == null ? RuntimeEventSink.NONE : journal;
@@ -118,12 +120,22 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
     /** The request attribute holding the request's {@link CorrelationContext}, for its async redispatches. */
     public static final String CORRELATION_ATTRIBUTE = RequestCorrelationFilter.class.getName() + ".correlation";
 
+    /** The request attribute marking a request one of whose async redispatches threw. */
+    static final String ASYNC_DISPATCH_FAILED_ATTRIBUTE = RequestCorrelationFilter.class.getName() + ".asyncFailed";
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         if (isAsyncDispatch(request) || request.getDispatcherType() == DispatcherType.ERROR) {
+            boolean threw = true;
             try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(asyncContext(request))) {
                 chain.doFilter(request, response);
+                threw = false;
+            } finally {
+                if (threw && isAsyncDispatch(request)) {
+                    // The request's HTTP event, published once its async cycle completes, is a 500 like Actuator's.
+                    request.setAttribute(ASYNC_DISPATCH_FAILED_ATTRIBUTE, Boolean.TRUE);
+                }
             }
             return;
         }
@@ -227,41 +239,78 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Ends the request's timeline now, or, when its handler started async processing, once its async context completes
-     * and its response was written ({@code AsyncListener.onComplete}, which also follows a timeout or an error), so a
-     * {@code Callable}, {@code DeferredResult}, or streaming request ends too. Never throws.
+     * Runs {@code completion} now, or, when {@code async}, once the request's async context completes and its response
+     * was written ({@code AsyncListener.onComplete}, which also follows a timeout or an error), so a {@code Callable},
+     * {@code DeferredResult}, or streaming request completes with its final status. It runs exactly once, however many
+     * async cycles the request goes through. Never throws.
      */
-    static void endWhenComplete(HttpServletRequest request, RequestPhases phases, String requestId) {
-        try {
-            if (!request.isAsyncStarted()) {
-                phases.end(requestId);
+    static void whenComplete(HttpServletRequest request, boolean async, Runnable completion) {
+        if (async) {
+            try {
+                request.getAsyncContext().addListener(new AsyncCompletion(completion));
                 return;
+            } catch (RuntimeException ex) {
+                // A request the container already completed or recycled: its completion is now, as best effort.
             }
-            request.getAsyncContext().addListener(new AsyncListener() {
-                @Override
-                public void onComplete(AsyncEvent event) {
-                    phases.end(requestId);
-                }
+        }
+        completion.run();
+    }
 
-                @Override
-                public void onTimeout(AsyncEvent event) {
-                    // onComplete follows, once the timeout's response was written.
-                }
+    /** Runs a request's completion once, when its last async cycle completes. */
+    private static final class AsyncCompletion implements AsyncListener {
 
-                @Override
-                public void onError(AsyncEvent event) {
-                    // onComplete follows, once the error's response was written.
-                }
+        private final AtomicBoolean done = new AtomicBoolean();
+        private final Runnable completion;
 
-                @Override
-                public void onStartAsync(AsyncEvent event) {
-                    // A new async cycle of the same request: this listener is not carried over by the container.
-                    event.getAsyncContext().addListener(this);
-                }
-            });
+        AsyncCompletion(Runnable completion) {
+            this.completion = completion;
+        }
+
+        @Override
+        public void onComplete(AsyncEvent event) {
+            if (done.compareAndSet(false, true)) {
+                completion.run();
+            }
+        }
+
+        @Override
+        public void onTimeout(AsyncEvent event) {
+            // onComplete follows, once the timeout's response was written.
+        }
+
+        @Override
+        public void onError(AsyncEvent event) {
+            // onComplete follows, once the error's response was written.
+        }
+
+        @Override
+        public void onStartAsync(AsyncEvent event) {
+            // A new async cycle of the same request: this listener is not carried over by the container.
+            event.getAsyncContext().addListener(this);
+        }
+    }
+
+    /** Whether the handler started async processing, so the response completes on a later dispatch. Never throws. */
+    private static boolean asyncStarted(HttpServletRequest request) {
+        try {
+            return request.isAsyncStarted();
         } catch (RuntimeException ex) {
-            // A request the container already completed or recycled: its end is the timeline's best effort.
-            phases.end(requestId);
+            return false;
+        }
+    }
+
+    /**
+     * The status an async request answered once its async cycle completed: {@code 500} when one of its redispatches
+     * threw, as Actuator classifies a throwing chain, else the response's. Never throws.
+     */
+    private static int completedStatus(HttpServletRequest request, HttpServletResponse response) {
+        try {
+            if (Boolean.TRUE.equals(request.getAttribute(ASYNC_DISPATCH_FAILED_ATTRIBUTE))) {
+                return 500;
+            }
+            return response.getStatus();
+        } catch (RuntimeException ex) {
+            return 0;
         }
     }
 
@@ -289,43 +338,72 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             String routeTemplate = routeTemplate(request);
             registry.record(new RequestCorrelation(start, end, thread, method, path, routeTemplate, traceId));
             // Classified exactly as Actuator's servlet HttpExchangesFilter records the exchange: 500 whenever the
-            // chain throws, so the trace record and the exchange agree on whether it is reserved.
+            // chain throws, so the trace record and the exchange agree on whether it is reserved. Actuator records an
+            // async request's exchange here too, on its first dispatch, so its trace record is kept now.
             int status = threw ? 500 : response.getStatus();
             boolean failedOrSlow = RequestSlowThreshold.isFailedOrSlow(status, end - start, requestSlowThresholdMs);
             String decodedPath = decodedPath(path);
-            // Ends the request's measurement (docs/PLAN-v2.md §5.11): an async request's later dispatches are not
-            // counted, as its HTTP event, published here, does not time them either.
+            // Ends the request's measurement (docs/PLAN-v2.md §5.11): an async request's later dispatches run on other
+            // threads and are not measured.
             ResourceUsage resources = SegmentMeter.shared().take(requestId);
             traceRegistry.record(
                     new HttpExchangeTrace(start, end, method, decodedPath, traceId, routeTemplate, requestId),
                     failedOrSlow);
-            // An async request answers on a later dispatch, so its handler is still running: work it handed over and
-            // that ends before that dispatch writes the response did not run after it.
-            if (phases != null) {
-                endWhenComplete(request, phases, requestId);
-            }
-            try {
-                journal.offer(RuntimeEvent.of(
-                        JournalSource.HTTP,
-                        start,
-                        System.nanoTime() - startNanos,
+            // An async request answers on a later dispatch, so its handler is still running: its timeline ends, and its
+            // HTTP event is published with the status it answered and its whole duration, only once its async context
+            // completes. Work it handed over and that ends before then did not run after the response.
+            boolean async = !threw && asyncStarted(request);
+            whenComplete(request, async, () -> {
+                if (phases != null) {
+                    phases.end(requestId);
+                }
+                long durationNanos = System.nanoTime() - startNanos;
+                int completedStatus = async ? completedStatus(request, response) : status;
+                publish(
                         correlation,
+                        start,
+                        durationNanos,
                         traceId,
                         thread,
-                        null,
-                        failedOrSlow,
+                        async
+                                ? RequestSlowThreshold.isFailedOrSlow(
+                                        completedStatus, durationNanos / 1_000_000L, requestSlowThresholdMs)
+                                : failedOrSlow,
                         new HttpPayload(
                                 method,
                                 decodedPath,
                                 routeTemplate,
                                 phases == null ? null : phases.operationOf(requestId),
-                                status,
+                                completedStatus,
                                 resources,
                                 RequestTiming.of(startNanos, phases == null ? null : phases.markers(requestId)),
-                                !threw && request.isAsyncStarted())));
-            } catch (RuntimeException ex) {
-                // Publishing never disturbs the request it observes.
-            }
+                                async));
+            });
+        }
+    }
+
+    /** Publishes a request's HTTP event under its own correlation, on whichever thread completed it. Never throws. */
+    private void publish(
+            CorrelationContext correlation,
+            long start,
+            long durationNanos,
+            String traceId,
+            String thread,
+            boolean failedOrSlow,
+            HttpPayload payload) {
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    start,
+                    durationNanos,
+                    correlation,
+                    traceId,
+                    thread,
+                    null,
+                    failedOrSlow,
+                    payload));
+        } catch (RuntimeException ex) {
+            // Publishing never disturbs the request it observes.
         }
     }
 

@@ -74,7 +74,7 @@ the panel. The report includes `state`, `reason`, `agentVersion`, `bootUiVersion
 | `DISARMED` | This run ended its claim. |
 | `UNAVAILABLE` | The bridge is present but the agent did not start, the protocol differs, or the runtime cannot use it. |
 | `FAILED` | The agent rejected or failed this application's claim. |
-| `DISABLED` | Agent support is disabled, including Quarkus production mode. |
+| `DISABLED` | Agent support is disabled, including Quarkus production mode and a Spring application forced on in a disabled profile such as `prod`. |
 
 A different agent version on the same protocol is shown as a warning. Protocol mismatches are unavailable rather than
 best-effort.
@@ -133,6 +133,11 @@ A `SpringApplication` run inside another one's, as Spring Cloud's bootstrap cont
 `bootstrap` property source), neither claims nor releases: it would otherwise claim with its own sources' packages, or,
 resolving BootUI to disabled without the application's configuration, release the claim the application makes or keeps
 armed across DevTools restarts.
+
+When `bootui.enabled=ON` forces BootUI on despite an active `bootui.disabled-profiles` entry, such as `prod`, Spring
+releases the agent instead of claiming it, logs why at `INFO`, and the panel reports `DISABLED` with that reason, as
+Quarkus production mode does: the agent must never be attached to a production JVM. Only
+`bootui.agent.allow-in-disabled-profiles=true` claims it there anyway.
 
 Quarkus claims from a `STATIC_INIT` recorder in dev and test launch modes, refines on startup, and disarms on shutdown.
 Production launch mode never claims the agent and reports `DISABLED` with reason `Quarkus production mode`. The
@@ -262,11 +267,18 @@ report warns that the self-test decides.
 | Ambiguous | Tasks submitted more than once by different owners, left unowned. |
 | Stale | Tasks received under an earlier claim, never reopened after a restart. |
 | Refused | Snapshots the bridge refused because they held more than strings and numbers. |
+| Over the limit | Tasks received from owned work while 32,768 were already pending, left unowned. |
 | Virtual threads skipped | Virtual-thread continuations, which keep their own context. |
 | Periodic tasks skipped | Repeating scheduled tasks, which are never propagated. |
 | Wrappers skipped | Tasks already carrying their context (`bootui.agent.executors.skip-tasks`). |
 | Threads skipped | Workers whose executor propagates the context itself (`bootui.agent.executors.skip-threads`). |
 | Failed tasks | Propagated tasks that ended with an exception. |
+
+The bridge holds at most 32,768 pending tasks, and, apart, at most 32,768 pending threads for the threads sensor. Past
+that, a task from owned work is not recorded and runs unowned, counted as over the limit, until queued tasks run or are
+reclaimed. A task already pending is still recorded, so the ambiguity rules below are unchanged. Snapshots of reclaimed
+tasks are removed at most 64 at a time by a submission, so the application's threads never do unbounded clean-up; a
+status read removes all of them.
 
 New submissions and skip counters are recorded only while the current armed claim asks for `executors` and that
 sensor has not been disabled by its self-test. Pending entries are still drained while recording is off, without
@@ -284,6 +296,9 @@ reopening their snapshots. A handoff already opened before recording stopped is 
   with neither late I/O nor a failure, is badged only from 50 ms past the response.
 - A task handed over by a draining or serializing executor carries the context of the thread that handed it over.
 - Pools whose workers started before the first claim never apply their tasks; they are counted as never applied.
+- A task submitted while the bridge already held 32,768 pending tasks runs unowned. If the same task object is
+  submitted again once there is room, by another request, the first run takes that request's snapshot, as it does
+  after an unowned first submission.
 - A task submitted before a DevTools restart or a Quarkus live reload that ends after it is never reopened, and a task
   from the previous run that is still running when it ends is lost.
 - If the same task object has pending submissions across claim generations, all overlapping submissions stay
@@ -1417,6 +1432,7 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | Property | Default | Purpose |
 | --- | --- | --- |
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
+| `bootui.agent.allow-in-disabled-profiles` | `false` | Spring only: claim the agent even when `bootui.enabled=ON` forces BootUI on in a disabled profile such as `prod`. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
 | `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `blocking`, `resources` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `blocking`, and `resources`, and the opt-in `threads`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks`. Any other id fails the start while the agent is attached. |

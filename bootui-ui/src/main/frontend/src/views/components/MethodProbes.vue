@@ -54,12 +54,23 @@ const canStart = computed(
     liveCount.value < (report.value?.maxActive ?? 5)
 )
 
-/** A probe started without a descriptor matches the method key it resolved to. */
+/** The descriptor a method key names, or null for a bare {@code class#name}. */
+function descriptorOf(key) {
+  const paren = key?.indexOf('(', key.indexOf('#')) ?? -1
+  return paren < 0 ? null : key.slice(paren)
+}
+
+/**
+ * Whether a probe may be on the method a key names, as the agent decides: the same class and name, and the same
+ * descriptor once both are known (the probe's resolved one, else the one it was started with). While either is
+ * unknown, any method of that name in the class may be the same one.
+ */
 function matches(probe, key) {
-  const hash = key.indexOf('#')
-  const paren = key.indexOf('(', hash)
-  const bare = paren < 0 ? key : key.slice(0, paren)
-  return probe.className + '#' + probe.methodName === bare
+  const wanted = descriptorOf(key)
+  const bare = wanted === null ? key : key.slice(0, key.length - wanted.length)
+  if (probe.className + '#' + probe.methodName !== bare) return false
+  const known = probe.descriptor ?? descriptorOf(probe.method)
+  return known === null || wanted === null || known === wanted
 }
 
 async function load() {

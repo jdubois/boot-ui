@@ -167,8 +167,13 @@ bootui request-profile <id> --json # retained journal profile, or HTTP-exchange 
   application's state, so name it to the user and wait for approval before running it.
 - Prefer the `BOOTUI_TOKEN` environment variable over `--token`, which exposes the token to shell history and process
   listings. Never echo a token or copy it into a report.
-- Scan payloads differ: `pentest scan` names its array `findings`, the rule-based advisors name it `results`. Every scan
-  shares `severityCounts`, so prefer that for thresholds, and check the shape with `--json | jq keys` first.
+- Every scan answers with a compact summary, not its report: `findingsFound`, `severityCounts`, at most ten
+  `topFindings` (`id`, `title`, `severity`, `count`), `moreFindings`, and `reportTool`; read the full cached report
+  (`… report`) for details. Reports differ: `pentest report` names its array `findings`, the rule-based advisors name
+  it `results`. Prefer `severityCounts` for thresholds, and check the shape with `--json | jq keys` first.
+- `clear`, `pause`, and `resume` answer with an acknowledgement: `action`, `capturing`, `retained`, `capacity`, and
+  `totalCaptured`, a since-startup count that a clear does not reset (`null` for exceptions and traces). Read the rows
+  with the panel's read command.
 
 In CI, capture the exit code (`bootui … --json > report.json || status=$?`) so a non-zero exit does not abort the step
 before the application is stopped.
@@ -615,7 +620,9 @@ When BootUI MCP tools are available:
 Read tools honor panel enablement. Scan tools also honor panel and global read-only settings. Results are masked and
 paginated reads are capped by `bootui.mcp.max-results`. Large reads (SQL traces, startup, log tail, sessions, the
 vulnerabilities report, activity, exchanges, configuration, beans, metrics, conditions, threads) return a short first page without `limit`;
-when `page.hasMore` is true, narrow `--query` or raise `--limit` instead of assuming you saw everything. Agent status
+when `page.hasMore` is true, narrow `--query` or raise `--limit` instead of assuming you saw everything. The
+vulnerabilities report lists at most 5 advisories per dependency, without details: query an exact `group:artifact` for
+all of one dependency's advisories, or an exact advisory id or alias to read it whole. Agent status
 and Side Effects summarize each sensor; pass `--query <sensor id>` for its hooks. Log and exception messages have secret-like assignments and
 authorization credentials masked, and are omitted under `bootui.expose-values=METADATA_ONLY`; a `get_log_tail` line
 with `messageOmitted: true` had its message withheld, not an empty one.

@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.core.dto.RestClientTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.RestClientTraceStatsDto;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.mcp.McpControlAcks;
 import io.github.jdubois.bootui.engine.support.DetailText;
 import java.util.List;
 import java.util.Map;
@@ -530,6 +531,16 @@ class RestClientTraceRecorderTests {
         recorder.clear();
         assertThat(recorder.recent()).isEmpty();
         assertThat(recorder.totalCaptured()).isEqualTo(1);
+
+        // totalCaptured is the lifetime count; the stats and entries cover the retained window, which clear empties.
+        RestClientTraceReport report = recorder.report(true, ValueExposure.MASKED);
+        assertThat(report.totalCaptured()).isEqualTo(1);
+        assertThat(report.entries()).isEmpty();
+        assertThat(report.stats().totalCalls()).isZero();
+        assertThat(McpControlAcks.restClientTrace(McpControlAcks.CLEARED, report))
+                .containsEntry("action", "cleared")
+                .containsEntry("retained", 0)
+                .containsEntry("totalCaptured", 1L);
     }
 
     @Test

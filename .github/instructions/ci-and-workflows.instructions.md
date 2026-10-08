@@ -25,7 +25,9 @@ applyTo: ".github/workflows/**,.github/scripts/**,.github/dependabot.yml,Dockerf
   including the agent-attached ones and the companion legs that attach the OpenTelemetry Java agent (both orders) or
   JaCoCo's agent beside BootUI's, is its own matrix leg. Companion agent jars come from Maven Central through the
   sample's build (`target/agent-companions`), never from a download in a workflow step. The `agent-overhead` job records the BootUI agent's
-  overhead benchmark, warns above its 10 % budget, and fails only above 30 %. The agent-attached legs, `agent-overhead`,
+  overhead benchmark, warns above its 10 % budget, and fails only above 30 %. The `journal-overhead` job records the
+  runtime journal's on-versus-off throughput A/B, BootUI on in both arms, for the 2.0 sign-off; it is report-only and
+  never fails the build. The agent-attached legs, `agent-overhead`,
   and the JDK lanes run on every push to `main` and `v2`, every pull request into `main`, and the nightly schedule; a
   pull request into `v2` runs them only when it changes a path listed in `.github/scripts/agent-changes.sh` or carries
   the `agent` label (otherwise the agent legs pass without starting anything). Keep that path list in step with new
