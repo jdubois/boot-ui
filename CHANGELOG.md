@@ -9,6 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Optional arguments for the MCP prompts.** `diagnose_runtime_issue`, `verify_after_change`, `review_application`, and
+  `assess_application` accept a symptom, route, change, focus, or goal that focuses them ([AI agents](docs/AI-AGENTS.md#assess-an-application-and-approve-an-action-plan)).
+- **REST-client traces for agents take a query and a limit.** `get_rest_client_traces` (`bootui rest-client traces`)
+  answers the 20 newest matching calls by default, like `get_sql_traces` ([AI agents](docs/AI-AGENTS.md#agent-sized-defaults)).
 - **Resources sensor in the BootUI agent.** On by default, it shows the sockets, and with `files` the streams, a request
   left open or never closed, in Side Effects' **Threads and leaks** tab ([Java Agent](docs/features/java-agent.md#the-resources-sensor)).
 - **Change impact has its own Runtime Insights tab.** It opens on its search field instead of sitting below the run
@@ -375,6 +379,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **An unknown id is a tool error on every id-based tool.** `get_request_profile`, `get_runtime_insight`, and
+  `get_runtime_run_comparison` refuse an unknown or evicted id, so the CLI exits `1` ([AI agents](docs/AI-AGENTS.md#unknown-ids-and-unavailable-capabilities)).
+- **DevTools LiveReload says when it is unavailable.** `trigger_devtools_livereload` reports `available: false` with
+  the reason, in the shape other tools use, instead of only `status: unavailable`.
 - **The Java Agent panel opens on its setup when the agent is not attached.** The steps and setup snippets follow the
   **Not attached** status, then a short explanation of what a Java agent is, how BootUI's works, which features need it,
   and its cost; the sections that only describe an attached agent wait until it is attached
@@ -721,6 +729,10 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **Unknown advisor rules are told apart from rules without findings.** `get_*_rule_violations` and the REST detail
+  reads answer `Unknown advisor rule` for an id the scan did not evaluate ([AI agents](docs/AI-AGENTS.md#reading-retained-advisor-violations)).
+- **`analyze_heap_dump` describes what it does.** It analyzes the live heap's class histogram, with or without a
+  captured dump; its MCP description no longer claims it reads an existing dump.
 - **Rule catalogs match the advisors again.** The Spring, Quarkus, Database, and Hibernate catalogs use the
   advisors' current rule titles, and the CRaC, Database, and Hibernate rule indexes render with every severity
   ([Spring checks](docs/SPRING-CHECKS.md)).

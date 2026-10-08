@@ -63,8 +63,9 @@ public final class ArchitectureScanner {
     private final BiFunction<JavaClasses, Collection<AdvisorViolationLocationDto>, AdvisorLocations.Resolution>
             sourceLocations;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
-    private final AdvisorScanState<ArchitectureReport> violationState =
-            new AdvisorScanState<>(ArchitectureReport::withViolationDetails);
+    private final AdvisorScanState<ArchitectureReport> violationState = new AdvisorScanState<>(
+            ArchitectureReport::withViolationDetails,
+            report -> AdvisorScanState.ruleIds(report.results(), ArchitectureRuleResultDto::id));
 
     ArchitectureScanner(
             Supplier<List<String>> basePackagesSupplier,

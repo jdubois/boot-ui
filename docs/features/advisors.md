@@ -111,8 +111,9 @@ retry the **same scan ID and offset with a smaller limit**. See [MCP](../AI-AGEN
 
 A missing/replaced snapshot returns **409**. Samples or the last accepted page remain visible; choose **Refresh cached
 report**, then **View violations** again. Refresh only reads the cached report; it never starts a scan. Other failures
-offer a local **Retry** without discarding the current view. Unknown/non-finding rules return REST **404**, an MCP
-in-band client error, or CLI-facade **400** (CLI 404 is reserved for an unadvertised tool). Stale snapshots remain
+offer a local **Retry** without discarding the current view. A rule id the scan did not evaluate answers
+`Unknown advisor rule`, distinct from a rule evaluated without findings; both return REST **404**, an MCP in-band
+client error, or CLI-facade **400** (CLI 404 is reserved for an unadvertised tool). Stale snapshots remain
 **409** through the CLI facade. Dismissed findings remain retrievable by ID, while the panel keeps its compact
 dismissed-rule summary.
 

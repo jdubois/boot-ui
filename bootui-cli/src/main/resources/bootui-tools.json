@@ -89,7 +89,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Read one page of retained violations for the exact rule id from get_architecture_report and that cached report's violationDetails.scanId.",
-      "description": "Read one page of retained violations for the exact rule id from get_architecture_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the cached report, not a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one.",
+      "description": "Read one page of retained violations for the exact rule id from get_architecture_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. A refusal is a tool error whose text says why: an unknown rule (no result of that scan has the id), a rule with no findings in that scan, or a stale or missing scanId, for which reread the cached report rather than start a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one.",
       "example": "bootui architecture violations <ruleId> --scan-id <scanId> --limit 100",
       "idHelp": "A rule id and the violationDetails.scanId from 'bootui architecture report'."
     },
@@ -359,7 +359,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Read one page of retained violations for the exact rule id from get_database_advisor_report and that cached report's violationDetails.scanId.",
-      "description": "Read one page of retained violations for the exact rule id from get_database_advisor_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the cached report, not a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one.",
+      "description": "Read one page of retained violations for the exact rule id from get_database_advisor_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. A refusal is a tool error whose text says why: an unknown rule (no result of that scan has the id), a rule with no findings in that scan, or a stale or missing scanId, for which reread the cached report rather than start a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one.",
       "example": "bootui db violations <ruleId> --scan-id <scanId> --limit 100",
       "idHelp": "A rule id and the violationDetails.scanId from 'bootui db report'."
     },
@@ -389,7 +389,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Trigger the existing local Spring Boot DevTools LiveReload notification and return its action result.",
-      "description": "Trigger the existing local Spring Boot DevTools LiveReload notification and return its action result. This does not restart the application or modify watched files.",
+      "description": "Trigger the existing local Spring Boot DevTools LiveReload notification and return its action result. This does not restart the application or modify watched files. available=false with unavailableReason means LiveReload is not running here; status no_clients means the command was sent but no browser is connected.",
       "example": "bootui devtools livereload"
     },
     {
@@ -448,7 +448,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return stack frames, causes, and occurrences for one exact exception-group id obtained from get_exceptions, or an EXCEPTION entry's exceptionGroupId in get_live_activity.",
-      "description": "Return stack frames, causes, and occurrences for one exact exception-group id obtained from get_exceptions, or an EXCEPTION entry's exceptionGroupId in get_live_activity.",
+      "description": "Return stack frames, causes, and occurrences for one exact exception-group id obtained from get_exceptions, or an EXCEPTION entry's exceptionGroupId in get_live_activity. An unknown or cleared id is a tool error.",
       "example": "bootui exceptions show <id>",
       "idHelp": "An exception group id from 'bootui exceptions list' or 'bootui activity'."
     },
@@ -582,7 +582,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Read one page of retained violations for the exact rule id from get_hibernate_report and that cached report's violationDetails.scanId.",
-      "description": "Read one page of retained violations for the exact rule id from get_hibernate_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the cached report, not a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one.",
+      "description": "Read one page of retained violations for the exact rule id from get_hibernate_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. A refusal is a tool error whose text says why: an unknown rule (no result of that scan has the id), a rule with no findings in that scan, or a stale or missing scanId, for which reread the cached report rather than start a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one.",
       "example": "bootui hibernate violations <ruleId> --scan-id <scanId> --limit 100",
       "idHelp": "A rule id and the violationDetails.scanId from 'bootui hibernate report'."
     },
@@ -641,7 +641,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Compare this run with a kept one: id is optional, previous or a run id.",
-      "description": "Compare this run with a kept one: id is optional, previous or a run id. Omitted or previous selects the newest kept run including runs without HTTP traffic; runs lists the others. Comparability first, then codeChanges (with the BootUI agent: changed and added methods, executed or not, and the routes that ran them), then sideEffects (with the agent: hosts, file patterns, processes, and variable names a route, job, or startup uses new or no longer, per sensor COMPARED only when it recorded both runs whole, else NOT_COMPARED with the reason), then at most 8 behavior rows and edges; latency is left out. INSUFFICIENT and NOT_COMPARABLE never mean no change. Call after tests to verify a change. next names the follow-up calls, or the run ids to use after an unknown one.",
+      "description": "Compare this run with a kept one: id is optional, previous or a run id. Omitted or previous selects the newest kept run including runs without HTTP traffic; runs lists the others. Comparability first, then codeChanges (with the BootUI agent: changed and added methods, executed or not, and the routes that ran them), then sideEffects (with the agent: hosts, file patterns, processes, and variable names a route, job, or startup uses new or no longer, per sensor COMPARED only when it recorded both runs whole, else NOT_COMPARED with the reason), then at most 8 behavior rows and edges; latency is left out. INSUFFICIENT and NOT_COMPARABLE never mean no change. Call after tests to verify a change. next names the follow-up calls. A run id no kept run has is a tool error naming previous and the kept run ids.",
       "example": "bootui insights compare previous",
       "idHelp": "Previous (the default), or a run id from the runs it answers with."
     },
@@ -689,7 +689,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return one Runtime Insights observation by its id from get_runtime_insights, with every check to verify and at most 20 evidence rows.",
-      "description": "Return one Runtime Insights observation by its id from get_runtime_insights, with every check to verify and at most 20 evidence rows. Drill down with get_request_profile on its exemplar request. An unknown or evicted id returns available=false with a reason, and next names the call that lists the current ids.",
+      "description": "Return one Runtime Insights observation by its id from get_runtime_insights, with every check to verify and at most 20 evidence rows. Drill down with get_request_profile on its exemplar request. An unknown or evicted id is a tool error naming get_runtime_insights, which lists the current ids; available=false with a reason means Runtime Insights is unavailable.",
       "example": "bootui insights show <id>",
       "idHelp": "An observation id from 'bootui insights list'."
     },
@@ -809,8 +809,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Analyze the existing BootUI heap dump and return the resulting report.",
-      "description": "Analyze the existing BootUI heap dump and return the resulting report. This never captures, downloads, or deletes a heap dump.",
+      "summary": "Analyze the live JVM heap with a value-free class histogram (HotSpot GC.class_histogram, which requests a garbage collection) and return the Heap Dump report: top classes by instance count and shallow size, never object values.",
+      "description": "Analyze the live JVM heap with a value-free class histogram (HotSpot GC.class_histogram, which requests a garbage collection) and return the Heap Dump report: top classes by instance count and shallow size, never object values. It reads the running heap, not a dump file, so it works with no captured dump (dumpCount 0) and reports capture.status ANALYZED. It never writes, captures, downloads, or deletes a heap dump.",
       "example": "bootui memory heap analyze"
     },
     {
@@ -885,7 +885,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Read one page of retained violations for the exact rule id from get_memory_report and that cached report's violationDetails.scanId.",
-      "description": "Read one page of retained violations for the exact rule id from get_memory_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the cached report, not a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one.",
+      "description": "Read one page of retained violations for the exact rule id from get_memory_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. A refusal is a tool error whose text says why: an unknown rule (no result of that scan has the id), a rule with no findings in that scan, or a stale or missing scanId, for which reread the cached report rather than start a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one.",
       "example": "bootui memory violations <ruleId> --scan-id <scanId> --limit 100",
       "idHelp": "A rule id and the violationDetails.scanId from 'bootui memory report'."
     },
@@ -961,7 +961,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return a method probe by the id start_method_probe returned: its state (starting, active, ending, ended, failed), why it ended or failed, and each recorded invocation's duration, thread kind, request id, outcome or exception type, and calling frame.",
-      "description": "Return a method probe by the id start_method_probe returned: its state (starting, active, ending, ended, failed), why it ended or failed, and each recorded invocation's duration, thread kind, request id, outcome or exception type, and calling frame. Metadata only, never argument or return values. Poll it until active before running the code: invocations at 0 is evidence the path never reached the method only when the probe was active before the code ran and is still active, or the code finished before its endsAt and it did not end early; a probe that never became active, failed, or ended before the code finished is inconclusive. An active probe waitingForClass has not seen its class load in this run yet, and an async method's durations time the assembly of its result only.",
+      "description": "Return a method probe by the id start_method_probe returned: its state (starting, active, ending, ended, failed), why it ended or failed, and each recorded invocation's duration, thread kind, request id, outcome or exception type, and calling frame. Metadata only, never argument or return values. Poll it until active before running the code: invocations at 0 is evidence the path never reached the method only when the probe was active before the code ran and is still active, or the code finished before its endsAt and it did not end early; a probe that never became active, failed, or ended before the code finished is inconclusive. An active probe waitingForClass has not seen its class load in this run yet, and an async method's durations time the assembly of its result only. An unknown or expired probe id is a tool error.",
       "example": "bootui probe show <id>",
       "idHelp": "A probe id from 'bootui probe start'."
     },
@@ -1037,7 +1037,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Open a profileable request or scheduled/message execution id from get_live_activity or a get_runtime_insights exemplar.",
-      "description": "Open a profileable request or scheduled/message execution id from get_live_activity or a get_runtime_insights exemplar. Returns source=journal with the recorded timeline, route or execution label, resources and touched metadata when retained, plus HTTP-exchange details when available; otherwise source=buffers with the HTTP-exchange profile (SQL N+1 groups, exceptionGroupId, and correlation tiers). Source=none and available=false explain when neither retains the id. Journal events follow panel visibility and exposure policy; do not infer absent work from a missing event.",
+      "description": "Open a profileable request or scheduled/message execution id from get_live_activity or a get_runtime_insights exemplar. Returns source=journal with the recorded timeline, route or execution label, resources and touched metadata when retained, plus HTTP-exchange details when available; otherwise source=buffers with the HTTP-exchange profile (SQL N+1 groups, exceptionGroupId, and correlation tiers). An id neither retains is a tool error; available=false with source=none means the journal is off or the id cannot be profiled, and says why. Journal events follow panel visibility and exposure policy; do not infer absent work from a missing event.",
       "example": "bootui request-profile <id>",
       "idHelp": "A profileable request or execution id (an entry id or an observation's exemplarRequestId) from 'bootui activity' or 'bootui insights list'."
     },
@@ -1083,7 +1083,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Read one page of retained violations for the exact rule id from get_rest_api_report and that cached report's violationDetails.scanId.",
-      "description": "Read one page of retained violations for the exact rule id from get_rest_api_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the cached report, not a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one.",
+      "description": "Read one page of retained violations for the exact rule id from get_rest_api_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. A refusal is a tool error whose text says why: an unknown rule (no result of that scan has the id), a rule with no findings in that scan, or a stale or missing scanId, for which reread the cached report rather than start a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one.",
       "example": "bootui rest-api violations <ruleId> --scan-id <scanId> --limit 100",
       "idHelp": "A rule id and the violationDetails.scanId from 'bootui rest-api report'."
     },
@@ -1135,7 +1135,7 @@
     {
       "name": "get_rest_client_traces",
       "command": "rest-client traces",
-      "schema": "NONE",
+      "schema": "QUERY_LIMIT",
       "panel": "rest-client-trace",
       "action": false,
       "stacks": [
@@ -1144,8 +1144,9 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the current bounded REST-client trace snapshot with masked headers and bodies according to BootUI exposure policy.",
-      "description": "Return the current bounded REST-client trace snapshot with masked headers and bodies according to BootUI exposure policy. This does not send requests or change recording state. The retention object reports capacity and retained, reserved, and evicted counts: failed, error, and slow calls are kept longer, so the window is not complete.",
-      "example": "bootui rest-client traces"
+      "description": "Return the current bounded REST-client trace snapshot with masked headers and bodies according to BootUI exposure policy. This does not send requests or change recording state. The retention object reports capacity and retained, reserved, and evicted counts: failed, error, and slow calls are kept longer, so the window is not complete. At most limit (20) newest entries matching query (method, URI, host, path, status, client type, error, call site, or request, trace, or execution id); page.hasMore means narrow the query or raise limit.",
+      "example": "bootui rest-client traces --query 503",
+      "queryHelp": "a method, URI, host, path, status, client type, call site, or error, or a request, trace, or execution id"
     },
     {
       "name": "get_scheduled_tasks",
@@ -1233,7 +1234,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Read one page of retained violations for the exact rule id from get_security_report and that cached report's violationDetails.scanId.",
-      "description": "Read one page of retained violations for the exact rule id from get_security_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the cached report, not a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one.",
+      "description": "Read one page of retained violations for the exact rule id from get_security_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. A refusal is a tool error whose text says why: an unknown rule (no result of that scan has the id), a rule with no findings in that scan, or a stale or missing scanId, for which reread the cached report rather than start a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one.",
       "example": "bootui security violations <ruleId> --scan-id <scanId> --limit 100",
       "idHelp": "A rule id and the violationDetails.scanId from 'bootui security report'."
     },
@@ -1248,8 +1249,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the bounded, sanitized Claude Code session inventory already parsed from local session files.",
-      "description": "Return the bounded, sanitized Claude Code session inventory already parsed from local session files. Raw prompts, tool arguments, command output, diffs, and network calls are excluded. At most limit (10) sessions matching query (id, model, working directory, status, or last activity).",
+      "summary": "Return the bounded, sanitized Claude Code session inventory parsed from local session files.",
+      "description": "Return the bounded, sanitized Claude Code session inventory parsed from local session files. Raw prompts, tool arguments, command output, diffs, and network calls are excluded. At most limit (10) sessions matching query (id, model, working directory, status, or last activity). The first read after startup parses the newest session files (bootui.claude-code.max-parsed-sessions) and can take seconds on a large session directory; later reads answer from the cache a directory watcher keeps current.",
       "example": "bootui sessions claude --limit 5",
       "queryHelp": "a session id, model, working directory, status, or last activity"
     },
@@ -1264,8 +1265,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return the bounded, sanitized Copilot CLI session inventory already parsed from local session files.",
-      "description": "Return the bounded, sanitized Copilot CLI session inventory already parsed from local session files. Raw prompts, tool arguments, command output, diffs, and network calls are excluded. At most limit (10) sessions matching query (id, model, working directory, status, or last activity).",
+      "summary": "Return the bounded, sanitized Copilot CLI session inventory parsed from local session files.",
+      "description": "Return the bounded, sanitized Copilot CLI session inventory parsed from local session files. Raw prompts, tool arguments, command output, diffs, and network calls are excluded. At most limit (10) sessions matching query (id, model, working directory, status, or last activity). The first read after startup parses the newest session files (bootui.copilot.max-parsed-sessions) and can take seconds on a large session directory; later reads answer from the cache a directory watcher keeps current.",
       "example": "bootui sessions copilot --limit 5",
       "queryHelp": "a session id, model, working directory, status, or last activity"
     },
@@ -1327,7 +1328,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Read one page of retained violations for the exact rule id from get_spring_report and that cached report's violationDetails.scanId.",
-      "description": "Read one page of retained violations for the exact rule id from get_spring_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the cached report, not a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one.",
+      "description": "Read one page of retained violations for the exact rule id from get_spring_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. A refusal is a tool error whose text says why: an unknown rule (no result of that scan has the id), a rule with no findings in that scan, or a stale or missing scanId, for which reread the cached report rather than start a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one.",
       "example": "bootui spring violations <ruleId> --scan-id <scanId> --limit 100",
       "idHelp": "A rule id and the violationDetails.scanId from 'bootui spring report'."
     },

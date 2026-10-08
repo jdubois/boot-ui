@@ -51,7 +51,9 @@ public final class ReactiveSecurityScanner {
     private final Supplier<ReactiveSecurityObservation> observationSupplier;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
-    private final AdvisorScanState<SecurityReport> state = new AdvisorScanState<>(SecurityReport::withViolationDetails);
+    private final AdvisorScanState<SecurityReport> state = new AdvisorScanState<>(
+            SecurityReport::withViolationDetails,
+            report -> AdvisorScanState.ruleIds(report.results(), SecurityRuleResultDto::id));
 
     private ReactiveSecurityScanner(Supplier<ReactiveSecurityObservation> observationSupplier, Clock clock) {
         this.observationSupplier = observationSupplier;

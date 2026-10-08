@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleRefusals;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -50,6 +51,10 @@ class ReactiveSecurityScannerTests {
         SecurityReport report = scanner.scan();
         String id = "SEC-RXF-CORS-001";
         String scanId = report.violationDetails().scanId();
+        AdvisorRuleRefusals.assertEveryResultIsAKnownRule(
+                report.results().stream().map(evaluated -> evaluated.id()).toList(),
+                report.violationDetails().scanId(),
+                (asked, scan) -> scanner.ruleViolations(asked, scan, 0, 1));
         var finding = new ReactiveCorsWildcardOriginRule().evaluate(context);
         assertThat(report.results()).contains(finding);
         assertThat(finding.violationCount()).isEqualTo(16);

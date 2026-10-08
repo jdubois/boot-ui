@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -839,6 +840,23 @@ public abstract class AbstractMcpConformanceTest {
                         .isEqualTo(rule.path("violationCount").asInt());
                 assertThat(detail.path("page").path("limit").asInt()).isEqualTo(1);
             }
+            JsonNode unknownRule = callAdvisorTool(
+                    "get_architecture_rule_violations", Map.of("id", "definitely-unknown", "scanId", scanId));
+            assertThat(unknownRule.path("isError").asBoolean()).isTrue();
+            assertThat(unknownRule.path("content").get(0).path("text").asText())
+                    .as("an unknown rule is told apart from a rule without findings")
+                    .isEqualTo(AdvisorScanState.UNKNOWN_RULE_MESSAGE);
+            for (JsonNode result : report.path("results")) {
+                if (result.path("violationCount").asInt() == 0) {
+                    JsonNode passed = callAdvisorTool(
+                            "get_architecture_rule_violations",
+                            Map.of("id", result.path("id").asText(), "scanId", scanId));
+                    assertThat(passed.path("isError").asBoolean()).isTrue();
+                    assertThat(passed.path("content").get(0).path("text").asText())
+                            .isEqualTo(AdvisorScanState.NO_FINDINGS_MESSAGE);
+                    break;
+                }
+            }
             JsonNode stale = callAdvisorTool(
                     "get_architecture_rule_violations", Map.of("id", "ARCH-CODE-002", "scanId", "stale-snapshot"));
             assertThat(stale.path("isError").asBoolean()).isTrue();
@@ -1143,13 +1161,13 @@ public abstract class AbstractMcpConformanceTest {
 
             assertThat(list.path("next").isArray()).isTrue();
 
-            JsonNode unknown = callTool("get_runtime_insight", "{\"id\":\"conformance-unknown-observation\"}");
-            assertThat(unknown.path("available").asBoolean(true)).isFalse();
-            assertThat(unknown.path("unavailableReason").asText()).isNotBlank();
-            assertThat(unknown.path("next").path(0).path("tool").asText())
-                    .as("an unknown observation id names the call that lists the current ids")
-                    .isEqualTo("get_runtime_insights");
-            assertThat(unknown.path("next").path(0).path("command").asText()).isEqualTo("bootui insights list");
+            JsonNode unknown = callToolResult("get_runtime_insight", "{\"id\":\"conformance-unknown-observation\"}");
+            assertThat(unknown.path("isError").asBoolean())
+                    .as("an unknown observation id is a tool error: " + unknown)
+                    .isTrue();
+            assertThat(unknown.path("content").get(0).path("text").asText())
+                    .as("it names the id and the call that lists the current ids")
+                    .contains("conformance-unknown-observation", "get_runtime_insights");
 
             JsonNode impact = callTool("get_runtime_impact", "{\"id\":\"conformanceUnknownSymbol\"}");
             assertThat(impact.path("status").asText()).isIn("NOT_FOUND", "UNAVAILABLE");
@@ -1169,16 +1187,27 @@ public abstract class AbstractMcpConformanceTest {
                     .as("latency is left out for agents")
                     .isFalse();
             assertThat(comparison.path("next").isArray()).isTrue();
-            JsonNode unknownRun = callTool("get_runtime_run_comparison", "{\"id\":\"conformance-unknown-run\"}");
-            if (!"UNAVAILABLE".equals(unknownRun.path("status").asText())) {
-                assertThat(unknownRun.path("next").path(0).path("command").asText())
-                        .as("an unknown run id names the default comparison instead")
-                        .isEqualTo("bootui insights compare previous");
+            JsonNode unknownRun = callToolResult("get_runtime_run_comparison", "{\"id\":\"conformance-unknown-run\"}");
+            if (!"UNAVAILABLE".equals(comparison.path("status").asText())) {
+                assertThat(unknownRun.path("isError").asBoolean())
+                        .as("an unknown run id is a tool error: " + unknownRun)
+                        .isTrue();
+                assertThat(unknownRun.path("content").get(0).path("text").asText())
+                        .as("it names the id and the default comparison instead")
+                        .contains("conformance-unknown-run", "previous");
             }
         }
     }
 
     private JsonNode callTool(String name, String arguments) throws Exception {
+        JsonNode result = callToolResult(name, arguments);
+        assertThat(result.path("isError").asBoolean()).as(name + ": " + result).isFalse();
+        return new ObjectMapper()
+                .readTree(result.path("content").get(0).path("text").asText());
+    }
+
+    /** The {@code tools/call} result envelope, a tool error included. */
+    private JsonNode callToolResult(String name, String arguments) {
         Response response = probe().request(
                         "POST",
                         "/bootui/api/mcp",
@@ -1186,10 +1215,7 @@ public abstract class AbstractMcpConformanceTest {
                         "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\",\"params\":{\"name\":\"" + name
                                 + "\",\"arguments\":" + arguments + "}}");
         assertThat(response.status()).isEqualTo(200);
-        JsonNode result = response.json().path("result");
-        assertThat(result.path("isError").asBoolean()).as(name + ": " + result).isFalse();
-        return new ObjectMapper()
-                .readTree(result.path("content").get(0).path("text").asText());
+        return response.json().path("result");
     }
 
     @Test
@@ -1258,7 +1284,15 @@ public abstract class AbstractMcpConformanceTest {
             for (JsonNode prompt : prompts) {
                 String name = prompt.path("name").asText();
                 assertThat(prompt.path("arguments").isArray()).isTrue();
-                assertThat(prompt.path("arguments")).isEmpty();
+                assertThat(prompt.path("arguments"))
+                        .as("every prompt argument is optional, so a client that sends none keeps working")
+                        .isNotEmpty()
+                        .allSatisfy(argument -> {
+                            assertThat(argument.path("name").asText()).isNotBlank();
+                            assertThat(argument.path("description").asText()).isNotBlank();
+                            assertThat(argument.path("required").asBoolean(true))
+                                    .isFalse();
+                        });
                 Response get = probe().request(
                                 "POST",
                                 "/bootui/api/mcp",
@@ -1283,6 +1317,22 @@ public abstract class AbstractMcpConformanceTest {
                                     "rule AND affected target");
                 }
             }
+
+            Response focused = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"prompts/get\",\"params\":{\"name\":"
+                                    + "\"diagnose_runtime_issue\",\"arguments\":{\"route\":\"GET /conformance\"}}}");
+            assertThat(focused.json()
+                            .path("result")
+                            .path("messages")
+                            .get(0)
+                            .path("content")
+                            .path("text")
+                            .asText())
+                    .as("a prompt argument reaches the rendered prompt on every stack")
+                    .endsWith("- The route, job, or listener involved: GET /conformance");
         } finally {
             disableMcp();
         }

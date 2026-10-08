@@ -8,11 +8,15 @@ import io.github.jdubois.bootui.core.dto.CopilotSessionSummary;
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.DependencyVulnerabilityDto;
+import io.github.jdubois.bootui.core.dto.DevToolsActionResult;
 import io.github.jdubois.bootui.core.dto.JavaAgentReport;
 import io.github.jdubois.bootui.core.dto.JavaAgentSensorDto;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.LogLineDto;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
+import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
+import io.github.jdubois.bootui.core.dto.RestClientTraceGroupDto;
+import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
@@ -42,6 +46,9 @@ public final class McpAgentViews {
 
     /** The statements {@code get_sql_traces} lists when the call asks for no limit. */
     public static final int SQL_TRACES_DEFAULT_LIMIT = 20;
+
+    /** The calls {@code get_rest_client_traces} lists when the call asks for no limit. */
+    public static final int REST_CLIENT_TRACES_DEFAULT_LIMIT = 20;
 
     /** The steps {@code get_startup_timeline} lists when the call asks for no limit. */
     public static final int STARTUP_DEFAULT_LIMIT = 25;
@@ -262,6 +269,52 @@ public final class McpAgentViews {
     }
 
     /**
+     * The newest {@code limit} REST-client calls matching {@code query} (in their method, URI, host, path, status,
+     * client type, error, call site, or request, trace, or execution id), and the top calls matching it, with every
+     * other field of the report.
+     */
+    public static Map<String, Object> restClientTraces(RestClientTraceReport report, String query, int limit) {
+        String needle = PagedList.normalize(query);
+        List<RestClientTraceEntryDto> matched = report.entries().stream()
+                .filter(entry -> PagedList.contains(entry.method(), needle)
+                        || PagedList.contains(entry.uri(), needle)
+                        || PagedList.contains(entry.host(), needle)
+                        || PagedList.contains(entry.path(), needle)
+                        || PagedList.contains(
+                                entry.status() == null ? null : entry.status().toString(), needle)
+                        || PagedList.contains(entry.clientType(), needle)
+                        || PagedList.contains(entry.errorMessage(), needle)
+                        || PagedList.contains(entry.callSite(), needle)
+                        || PagedList.contains(entry.requestId(), needle)
+                        || PagedList.contains(entry.traceId(), needle)
+                        || PagedList.contains(entry.executionId(), needle))
+                .toList();
+        List<RestClientTraceEntryDto> listed = newest(matched, RestClientTraceEntryDto::timestamp, limit);
+        List<RestClientTraceGroupDto> top = report.topCalls().stream()
+                .filter(group -> PagedList.contains(group.method(), needle)
+                        || PagedList.contains(group.host(), needle)
+                        || PagedList.contains(group.path(), needle)
+                        || group.callSites().stream().anyMatch(site -> PagedList.contains(site, needle)))
+                .toList();
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("available", report.available());
+        view.put("unavailableReason", report.unavailableReason());
+        view.put("capturing", report.capturing());
+        view.put("captureHeaders", report.captureHeaders());
+        view.put("bufferSize", report.bufferSize());
+        view.put("totalCaptured", report.totalCaptured());
+        view.put("slowCallThresholdMillis", report.slowCallThresholdMillis());
+        view.put("clientTypes", report.clientTypes());
+        view.put("stats", report.stats());
+        view.put("entries", listed);
+        view.put("topCalls", top);
+        view.put("warnings", report.warnings());
+        view.put("retention", report.retention());
+        view.put("page", page(report.entries().size(), matched.size(), limit, listed.size()));
+        return view;
+    }
+
+    /**
      * The {@code limit} slowest startup steps matching {@code query} (in their name or a tag's key or value), slowest
      * first. A parent step's duration includes its children's.
      */
@@ -439,6 +492,21 @@ public final class McpAgentViews {
             }
         }
         return false;
+    }
+
+    /**
+     * A DevTools action result in the availability shape other tools use: {@code available=false} with the reason when
+     * the action's capability is absent (status {@code unavailable}), and the action, status, and message unchanged.
+     */
+    public static Map<String, Object> devToolsAction(DevToolsActionResult result) {
+        boolean available = !"unavailable".equals(result.status());
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("available", available);
+        view.put("unavailableReason", available ? null : result.message());
+        view.put("action", result.action());
+        view.put("status", result.status());
+        view.put("message", result.message());
+        return view;
     }
 
     /** The {@code limit} newest of {@code rows}, kept in their original order. */

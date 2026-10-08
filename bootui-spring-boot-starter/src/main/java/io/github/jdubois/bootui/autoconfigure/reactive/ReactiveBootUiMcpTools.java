@@ -634,7 +634,7 @@ public class ReactiveBootUiMcpTools {
             registry.add(tool(
                     "get_rest_client_traces",
                     McpToolDescriptions.spring("get_rest_client_traces"),
-                    args -> restClientTraceBean.trace()));
+                    args -> McpAgentViews.restClientTraces(restClientTraceBean.trace(), args.query(), args.limit())));
             registry.add(tool(
                     "clear_rest_client_traces",
                     McpToolDescriptions.spring("clear_rest_client_traces"),
@@ -683,7 +683,8 @@ public class ReactiveBootUiMcpTools {
             registry.add(tool(
                     "trigger_devtools_livereload",
                     McpToolDescriptions.spring("trigger_devtools_livereload"),
-                    args -> devToolsBean.triggerLiveReload().getBody()));
+                    args -> McpAgentViews.devToolsAction(
+                            devToolsBean.triggerLiveReload().getBody())));
         }
         DevServicesController devServicesBean = devServices.getIfAvailable();
         if (devServicesBean != null) {

@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.hibernate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.HibernateReport;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleRefusals;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Version;
@@ -34,6 +35,10 @@ class HibernateViolationRetrievalTests {
             assertThat(result.sampleViolations()).hasSize(10);
         });
         String scanId = report.violationDetails().scanId();
+        AdvisorRuleRefusals.assertEveryResultIsAKnownRule(
+                report.results().stream().map(evaluated -> evaluated.id()).toList(),
+                report.violationDetails().scanId(),
+                (asked, scan) -> scanner.ruleViolations(asked, scan, 0, 1));
         List<String> all = new ArrayList<>();
         for (int offset = 0; offset < 22; offset += 5) {
             var page = scanner.ruleViolations("HIB-QUERY-008", scanId, offset, 5);

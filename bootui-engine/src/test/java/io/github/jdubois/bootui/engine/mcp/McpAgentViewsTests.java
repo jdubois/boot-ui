@@ -11,12 +11,16 @@ import io.github.jdubois.bootui.core.dto.CopilotSessionSummary;
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.DependencyVulnerabilityDto;
+import io.github.jdubois.bootui.core.dto.DevToolsActionResult;
 import io.github.jdubois.bootui.core.dto.JavaAgentHookDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentReport;
 import io.github.jdubois.bootui.core.dto.JavaAgentSensorDto;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.LogLineDto;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
+import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
+import io.github.jdubois.bootui.core.dto.RestClientTraceGroupDto;
+import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
@@ -82,6 +86,63 @@ class McpAgentViewsTests {
         assertThat(ids(orders.get("entries"))).hasSize(15).allMatch(id -> id % 2 == 0);
         assertThat((List<?>) orders.get("topStatements")).hasSize(1);
         assertThat(orders.get("page")).isEqualTo(new PageMetadata(30, 15, 0, 100, 15, false));
+    }
+
+    @Test
+    void restClientTracesListTheNewestMatchingCallsInTheirOrderWithAPage() {
+        List<RestClientTraceEntryDto> entries = new ArrayList<>();
+        for (int i = 1; i <= 30; i++) {
+            entries.add(restCall(i, i % 2 == 0 ? "api.payments.test" : "api.catalog.test", i % 3 == 0 ? 503 : 200));
+        }
+        RestClientTraceReport report = new RestClientTraceReport(
+                true,
+                null,
+                true,
+                false,
+                200,
+                30,
+                1000,
+                List.of("RestClient"),
+                null,
+                entries,
+                List.of(
+                        new RestClientTraceGroupDto("GET", "api.payments.test", "/v1", 15, 15, 1, false, List.of()),
+                        new RestClientTraceGroupDto("GET", "api.catalog.test", "/v1", 15, 15, 1, false, List.of())),
+                List.of());
+
+        Map<String, Object> all = McpAgentViews.restClientTraces(report, null, 5);
+        assertThat(restIds(all.get("entries"))).containsExactly(26L, 27L, 28L, 29L, 30L);
+        assertThat(all.get("page")).isEqualTo(new PageMetadata(30, 30, 0, 5, 5, true));
+        assertThat(all.get("totalCaptured")).isEqualTo(30L);
+
+        Map<String, Object> payments = McpAgentViews.restClientTraces(report, "PAYMENTS", 100);
+        assertThat(restIds(payments.get("entries"))).hasSize(15).allMatch(id -> id % 2 == 0);
+        assertThat((List<?>) payments.get("topCalls")).hasSize(1);
+        assertThat(payments.get("page")).isEqualTo(new PageMetadata(30, 15, 0, 100, 15, false));
+
+        assertThat(restIds(McpAgentViews.restClientTraces(report, "503", 100).get("entries")))
+                .as("a status is matched as text")
+                .hasSize(10)
+                .allMatch(id -> id % 3 == 0);
+        assertThat(restIds(
+                        McpAgentViews.restClientTraces(report, "request-7", 100).get("entries")))
+                .containsExactly(7L);
+    }
+
+    @Test
+    void aDevToolsActionSaysWhetherItsCapabilityIsAvailableInTheSharedShape() {
+        Map<String, Object> unavailable = McpAgentViews.devToolsAction(
+                new DevToolsActionResult("livereload", "unavailable", "LiveReload is disabled."));
+        assertThat(unavailable)
+                .containsEntry("available", false)
+                .containsEntry("unavailableReason", "LiveReload is disabled.")
+                .containsEntry("action", "livereload")
+                .containsEntry("status", "unavailable")
+                .containsEntry("message", "LiveReload is disabled.");
+        Map<String, Object> sent = McpAgentViews.devToolsAction(
+                new DevToolsActionResult("livereload", "no_clients", "No browser is connected."));
+        assertThat(sent).containsEntry("available", true).containsEntry("unavailableReason", null);
+        assertThat(sent.keySet()).containsExactly("available", "unavailableReason", "action", "status", "message");
     }
 
     @Test
@@ -296,6 +357,38 @@ class McpAgentViewsTests {
 
         assertThat(McpAgentViews.startup(new StartupReport(List.of()), null, 1).keySet())
                 .containsExactlyElementsOf(withPage(StartupReport.class));
+
+        RestClientTraceReport rest = new RestClientTraceReport(
+                true, null, true, false, 1, 0, 1, List.of(), null, List.of(), List.of(), List.of());
+        assertThat(McpAgentViews.restClientTraces(rest, null, 1).keySet())
+                .containsExactlyElementsOf(withPage(RestClientTraceReport.class));
+    }
+
+    private static List<Long> restIds(Object entries) {
+        return ((List<?>) entries)
+                .stream().map(entry -> ((RestClientTraceEntryDto) entry).id()).toList();
+    }
+
+    private static RestClientTraceEntryDto restCall(long id, String host, int status) {
+        return new RestClientTraceEntryDto(
+                id,
+                id * 1000,
+                "GET",
+                "https://" + host + "/v1",
+                host,
+                "/v1",
+                status,
+                5,
+                status < 400,
+                null,
+                false,
+                "RestClient",
+                Map.of(),
+                "trace-" + id,
+                "main",
+                "com.example.Client#call",
+                "request-" + id,
+                null);
     }
 
     private static List<String> withPage(Class<? extends Record> type) {

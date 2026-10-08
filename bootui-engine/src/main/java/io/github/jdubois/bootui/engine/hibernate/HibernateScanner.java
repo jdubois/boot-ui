@@ -66,8 +66,9 @@ public final class HibernateScanner {
                     HibernateAdvisorObservation, Collection<AdvisorViolationLocationDto>, AdvisorLocations.Resolution>
             sourceLocations = HibernateSourceLocations::resolve;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
-    private final AdvisorScanState<HibernateReport> violationState =
-            new AdvisorScanState<>(HibernateReport::withViolationDetails);
+    private final AdvisorScanState<HibernateReport> violationState = new AdvisorScanState<>(
+            HibernateReport::withViolationDetails,
+            report -> AdvisorScanState.ruleIds(report.results(), HibernateRuleResultDto::id));
 
     /**
      * Compatibility factory for declaration-only discovery. The property callback is retained for

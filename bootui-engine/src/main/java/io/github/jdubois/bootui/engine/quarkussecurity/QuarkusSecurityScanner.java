@@ -42,7 +42,9 @@ public final class QuarkusSecurityScanner {
     private final Supplier<QuarkusSecuritySnapshot> snapshotSupplier;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
-    private final AdvisorScanState<SecurityReport> state = new AdvisorScanState<>(SecurityReport::withViolationDetails);
+    private final AdvisorScanState<SecurityReport> state = new AdvisorScanState<>(
+            SecurityReport::withViolationDetails,
+            report -> AdvisorScanState.ruleIds(report.results(), SecurityRuleResultDto::id));
 
     private QuarkusSecurityScanner(Supplier<QuarkusSecuritySnapshot> snapshotSupplier, Clock clock) {
         this.snapshotSupplier = snapshotSupplier;

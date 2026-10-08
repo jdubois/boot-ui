@@ -226,15 +226,15 @@ public abstract class AbstractCliConformanceTest {
     }
 
     @Test
-    void testCliRequestProfileNamesBothMissingRetentionWindows() {
+    void testCliRequestProfileRefusesAnIdNeitherRetentionWindowHas() {
         String id = "conformance-unknown-request";
         assertThat(catalogEntry("get_request_profile").path("panel").asText()).isEqualTo("activity");
 
         Response cli = invoke("get_request_profile", "{\"id\":\"" + id + "\"}");
-        assertThat(cli.status()).isEqualTo(200);
-        assertThat(cli.json().path("available").asBoolean(true)).isFalse();
-        assertThat(cli.json().path("source").asText()).isEqualTo("none");
-        assertThat(cli.json().path("unavailableReason").asText()).contains(id, "journal", "buffer");
+        assertThat(cli.status())
+                .as("an unknown id is the caller's mistake, so the CLI exits with an error")
+                .isEqualTo(400);
+        assertThat(cli.json().path("error").asText()).contains(id, "journal", "buffer", "get_live_activity");
     }
 
     @Test
@@ -266,7 +266,9 @@ public abstract class AbstractCliConformanceTest {
                 .as("a missing id names the command that lists the ids")
                 .contains("get_runtime_insights");
         Response unknown = invoke("get_runtime_insight", "{\"id\":\"conformance-unknown-observation\"}");
-        assertThat(unknown.json().path("next").path(0).path("command").asText()).isEqualTo("bootui insights list");
+        assertThat(unknown.status()).isEqualTo(400);
+        assertThat(unknown.json().path("error").asText())
+                .contains("conformance-unknown-observation", "get_runtime_insights");
     }
 
     @Test

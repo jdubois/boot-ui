@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.SpringReport;
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SpringSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionBusyException;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleRefusals;
 import io.github.jdubois.bootui.spi.QuarkusAppEvidenceProblem;
 import io.github.jdubois.bootui.spi.QuarkusAppMetadata;
 import io.github.jdubois.bootui.spi.QuarkusAppMetadata.SharedField;
@@ -774,6 +775,10 @@ class QuarkusAppScannerTest {
         assertThat(first.violationsFound()).isOne();
         assertThat(first.scan().violationsFound()).isOne();
         String scanId = first.violationDetails().scanId();
+        AdvisorRuleRefusals.assertEveryResultIsAKnownRule(
+                first.results().stream().map(evaluated -> evaluated.id()).toList(),
+                first.violationDetails().scanId(),
+                (asked, scan) -> scanner.ruleViolations(asked, scan, 0, 1));
         List<String> expected = fields.stream()
                 .map(field -> field.className() + "." + field.fieldName())
                 .toList();

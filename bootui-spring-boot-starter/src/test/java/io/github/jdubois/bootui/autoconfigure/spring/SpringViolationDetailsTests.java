@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.spring;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import java.time.Clock;
 import java.time.Instant;
@@ -48,6 +49,19 @@ class SpringViolationDetailsTests {
         assertThat(finding.violationCount()).isEqualTo(count);
         assertThat(finding.sampleViolations()).containsExactlyElementsOf(details.subList(0, Math.min(10, count)));
         var first = scanner.ruleViolations(RULE, report.violationDetails().scanId(), 0, 10);
+        for (var result : report.results()) {
+            try {
+                scanner.ruleViolations(result.id(), report.violationDetails().scanId(), 0, 1);
+            } catch (AdvisorViolationException refusal) {
+                assertThat(refusal.getMessage()).isEqualTo(AdvisorScanState.NO_FINDINGS_MESSAGE);
+            }
+        }
+        assertThatThrownBy(() -> scanner.ruleViolations(
+                        "definitely-unknown", report.violationDetails().scanId(), null, null))
+                .isInstanceOfSatisfying(AdvisorViolationException.class, refusal -> {
+                    assertThat(refusal.status()).isEqualTo(404);
+                    assertThat(refusal.getMessage()).isEqualTo(AdvisorScanState.UNKNOWN_RULE_MESSAGE);
+                });
         var second = scanner.ruleViolations(RULE, report.violationDetails().scanId(), 10, 100);
         assertThat(java.util.stream.Stream.concat(first.violations().stream(), second.violations().stream())
                         .toList())

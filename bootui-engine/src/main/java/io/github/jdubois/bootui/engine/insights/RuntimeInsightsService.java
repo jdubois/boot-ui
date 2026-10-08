@@ -466,6 +466,23 @@ public final class RuntimeInsightsService {
         return current().report();
     }
 
+    private static final String UNKNOWN_OBSERVATION_PREFIX = "No observation ";
+    private static final String UNKNOWN_OBSERVATION_SUFFIX =
+            " in this run's retained events: it may have been evicted or cleared.";
+
+    /**
+     * Whether {@code detail} answers an observation id this run does not have, as opposed to Runtime Insights being
+     * unavailable.
+     */
+    public static boolean unknownObservation(RuntimeObservationDetailDto detail) {
+        String reason = detail.unavailableReason();
+        return !detail.available()
+                && detail.observation() == null
+                && reason != null
+                && reason.startsWith(UNKNOWN_OBSERVATION_PREFIX)
+                && reason.endsWith(UNKNOWN_OBSERVATION_SUFFIX);
+    }
+
     /** One observation by its stable id, with its evidence. */
     public synchronized RuntimeObservationDetailDto insight(String id) {
         Cached current = current();
@@ -476,12 +493,7 @@ public final class RuntimeInsightsService {
         Detail detail = current.details().get(id);
         if (detail == null) {
             return new RuntimeObservationDetailDto(
-                    false,
-                    "No observation " + id + " in this run's retained events: it may have been evicted or cleared.",
-                    null,
-                    List.of(),
-                    List.of(),
-                    0);
+                    false, UNKNOWN_OBSERVATION_PREFIX + id + UNKNOWN_OBSERVATION_SUFFIX, null, List.of(), List.of(), 0);
         }
         List<List<String>> rows = detail.finding().rows();
         return new RuntimeObservationDetailDto(

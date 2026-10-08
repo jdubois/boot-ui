@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleRefusals;
 import io.github.jdubois.bootui.spi.QuarkusSecurityEndpoint;
 import io.github.jdubois.bootui.spi.QuarkusSecurityEvidence;
 import io.github.jdubois.bootui.spi.QuarkusSecurityPermission;
@@ -54,6 +55,10 @@ class QuarkusSecurityScannerTest {
         assertThat(report.violationDetails().retained()).isEqualTo(Math.min(4, retentionLimit));
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         String scanId = report.violationDetails().scanId();
+        AdvisorRuleRefusals.assertEveryResultIsAKnownRule(
+                report.results().stream().map(evaluated -> evaluated.id()).toList(),
+                report.violationDetails().scanId(),
+                (asked, scan) -> scanner.ruleViolations(asked, scan, 0, 1));
         for (String unknown : snap.evidence.unknownRules()) {
             assertThatThrownBy(() -> scanner.ruleViolations(unknown, scanId, 0, null))
                     .isInstanceOfSatisfying(

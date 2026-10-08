@@ -680,11 +680,24 @@ public final class McpDispatcher {
         if (name == null || name.isEmpty()) {
             return new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_PROMPT_NAME_MESSAGE);
         }
-        return prompts.stream()
-                .filter(prompt -> prompt.name().equals(name))
+        McpPrompt prompt = prompts.stream()
+                .filter(candidate -> candidate.name().equals(name))
                 .findFirst()
-                .<McpDispatchOutcome>map(PromptGetResult::new)
-                .orElseGet(() -> new ProtocolError(McpProtocol.INVALID_PARAMS, "Unknown prompt: " + name));
+                .orElse(null);
+        if (prompt == null) {
+            return new ProtocolError(McpProtocol.INVALID_PARAMS, "Unknown prompt: " + name);
+        }
+        if (request.argumentsError() != null) {
+            return new ProtocolError(McpProtocol.INVALID_PARAMS, request.argumentsError());
+        }
+        TreeSet<String> unexpected = new TreeSet<>(request.promptArguments().keySet());
+        unexpected.removeAll(prompt.argumentNames());
+        if (!unexpected.isEmpty()) {
+            return new ProtocolError(
+                    McpProtocol.INVALID_PARAMS,
+                    McpProtocol.unknownPromptArgumentMessage(name, unexpected.first(), prompt.argumentNames()));
+        }
+        return new PromptGetResult(prompt, prompt.render(request.promptArguments()));
     }
 
     /**

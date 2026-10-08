@@ -252,6 +252,79 @@ class McpDispatcherTests {
     }
 
     @Test
+    void promptsGetRendersDeclaredArgumentsAndRefusesUndeclaredOnes() {
+        McpPrompt focused = new McpPrompt(
+                "focus",
+                "Focus an investigation.",
+                "Inspect runtime evidence.",
+                List.of(
+                        new McpPrompt.Argument("symptom", "What failed.", "The symptom"),
+                        new McpPrompt.Argument("route", "Where.", "The route")));
+        McpDispatcher dispatcher = new McpDispatcher(
+                List.of(overview), List.of(focused), policy, "1.2.3", "instructions text", 50, 20, diagnostics);
+
+        assertThat(dispatcher.dispatch(prompt("focus", Map.of())))
+                .as("every argument is optional")
+                .isEqualTo(new PromptGetResult(focused, "Inspect runtime evidence."));
+        PromptGetResult rendered = (PromptGetResult)
+                dispatcher.dispatch(prompt("focus", Map.of("route", " GET /orders ", "symptom", "500s")));
+        assertThat(rendered.text())
+                .startsWith("Inspect runtime evidence.\n\n")
+                .endsWith("\n- The symptom: 500s\n- The route: GET /orders");
+        assertThat(((PromptGetResult) dispatcher.dispatch(prompt("focus", Map.of("route", "  ")))).text())
+                .as("a blank value adds no context")
+                .isEqualTo("Inspect runtime evidence.");
+        assertThat(((PromptGetResult) dispatcher.dispatch(prompt("focus", Map.of("symptom", "x".repeat(600))))).text())
+                .as("a value is bounded")
+                .endsWith("x".repeat(McpPrompt.MAX_ARGUMENT_LENGTH) + "...");
+        assertThat(dispatcher.dispatch(prompt("focus", Map.of("sympton", "typo"))))
+                .isEqualTo(new ProtocolError(
+                        McpProtocol.INVALID_PARAMS,
+                        "Unknown argument for prompt focus: sympton. It takes route, symptom."));
+        assertThat(dispatcher().dispatch(prompt("diagnose", Map.of("symptom", "x"))))
+                .isEqualTo(new ProtocolError(
+                        McpProtocol.INVALID_PARAMS,
+                        "Unknown argument for prompt diagnose: symptom. It takes no arguments."));
+        McpRequest malformed = new McpRequest(
+                JSONRPC,
+                "prompts/get",
+                false,
+                null,
+                "focus",
+                null,
+                null,
+                null,
+                Set.of(),
+                McpProtocol.PROMPT_ARGUMENTS_OBJECT_MESSAGE,
+                null,
+                null);
+        assertThat(dispatcher.dispatch(malformed))
+                .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.PROMPT_ARGUMENTS_OBJECT_MESSAGE));
+    }
+
+    private static McpRequest prompt(String name, Map<String, String> arguments) {
+        return new McpRequest(
+                JSONRPC,
+                "prompts/get",
+                false,
+                null,
+                name,
+                null,
+                null,
+                null,
+                Set.of(),
+                null,
+                null,
+                null,
+                McpEra.LEGACY,
+                null,
+                null,
+                null,
+                null,
+                arguments);
+    }
+
+    @Test
     void toolsCallReturnsPayload() {
         McpDispatchOutcome outcome = dispatcher().dispatch(call("get_overview"));
 

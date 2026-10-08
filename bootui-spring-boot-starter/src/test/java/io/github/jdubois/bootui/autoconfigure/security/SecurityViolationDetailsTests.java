@@ -1,8 +1,11 @@
 package io.github.jdubois.bootui.autoconfigure.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.PasswordEncoderModel;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -49,6 +52,19 @@ class SecurityViolationDetailsTests {
         assertThat(rule.violationCount()).isEqualTo(29);
         assertThat(rule.sampleViolations()).containsExactlyElementsOf(expected.subList(0, 10));
         var page = scanner.ruleViolations(rule.id(), report.violationDetails().scanId(), null, null);
+        for (var result : report.results()) {
+            try {
+                scanner.ruleViolations(result.id(), report.violationDetails().scanId(), 0, 1);
+            } catch (AdvisorViolationException refusal) {
+                assertThat(refusal.getMessage()).isEqualTo(AdvisorScanState.NO_FINDINGS_MESSAGE);
+            }
+        }
+        assertThatThrownBy(() -> scanner.ruleViolations(
+                        "definitely-unknown", report.violationDetails().scanId(), null, null))
+                .isInstanceOfSatisfying(AdvisorViolationException.class, refusal -> {
+                    assertThat(refusal.status()).isEqualTo(404);
+                    assertThat(refusal.getMessage()).isEqualTo(AdvisorScanState.UNKNOWN_RULE_MESSAGE);
+                });
         assertThat(page.violations()).containsExactlyElementsOf(expected);
         assertThat(page.retainedCount()).isEqualTo(29);
         assertThat(page.truncated()).isFalse();

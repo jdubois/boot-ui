@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mockStatic;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorDataSourceDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleRefusals;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.HibernateAttributeModel;
 import io.github.jdubois.bootui.engine.hibernate.HibernateEntityModel;
@@ -93,6 +94,10 @@ class DatabaseAdvisorScannerTests {
             DatabaseAdvisorReport report = scanner.scan();
             String scanId = report.violationDetails().scanId();
             String id = "DB-SCHEMA-001";
+            AdvisorRuleRefusals.assertEveryResultIsAKnownRule(
+                    report.results().stream().map(evaluated -> evaluated.id()).toList(),
+                    report.violationDetails().scanId(),
+                    (asked, scan) -> scanner.ruleViolations(asked, scan, 0, 1));
             assertThat(report.results())
                     .filteredOn(result -> result.id().equals(id))
                     .singleElement()

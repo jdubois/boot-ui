@@ -73,7 +73,9 @@ public final class RestApiScanner {
             sourceLocations;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private volatile Supplier<SpringWebStack> springWebStack = () -> SpringWebStack.UNKNOWN;
-    private final AdvisorScanState<RestApiReport> state = new AdvisorScanState<>(RestApiReport::withViolationDetails);
+    private final AdvisorScanState<RestApiReport> state = new AdvisorScanState<>(
+            RestApiReport::withViolationDetails,
+            report -> AdvisorScanState.ruleIds(report.results(), RestApiRuleResultDto::id));
 
     RestApiScanner(
             Supplier<List<String>> basePackagesSupplier,

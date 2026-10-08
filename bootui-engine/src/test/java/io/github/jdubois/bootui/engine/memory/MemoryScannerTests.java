@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.core.dto.MemorySeverityCountDto;
 import io.github.jdubois.bootui.core.dto.ThreadInfoDto;
 import io.github.jdubois.bootui.core.dto.ThreadStateCountDto;
 import io.github.jdubois.bootui.engine.action.ActionBusyException;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleRefusals;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.ClassLoadingData;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.HeapContentData;
 import io.github.jdubois.bootui.engine.memory.MemoryContext.MemoryData;
@@ -64,6 +65,10 @@ class MemoryScannerTests {
         assertThat(report.violationDetails().total()).isEqualTo(total);
         assertThat(report.violationDetails().retained()).isEqualTo(Math.min(total, retentionLimit));
         var page = scanner.ruleViolations(ruleId, scanId, 0, 11);
+        AdvisorRuleRefusals.assertEveryResultIsAKnownRule(
+                report.results().stream().map(evaluated -> evaluated.id()).toList(),
+                report.violationDetails().scanId(),
+                (asked, scan) -> scanner.ruleViolations(asked, scan, 0, 1));
         assertThat(page.violationCount()).isEqualTo(16);
         if (retentionLimit > total) {
             assertThat(page.violations()).containsExactlyElementsOf(expected.subList(0, 11));
