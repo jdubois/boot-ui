@@ -409,7 +409,15 @@ class JavaAgentServiceTests {
         assertThat(stub.requests.get(0))
                 .as("the default claim asks for the inventory sensor and the ring's capacity")
                 .containsEntry(
-                        "sensors", List.of("executors", "inventory", "code-paths", "processes", "network", "blocking"))
+                        "sensors",
+                        List.of(
+                                "executors",
+                                "inventory",
+                                "code-paths",
+                                "processes",
+                                "network",
+                                "blocking",
+                                "resources"))
                 .containsEntry("ringCapacity", AgentSensorSettings.DEFAULT_RING_CAPACITY);
         assertThat(report.sensors()).singleElement().satisfies(row -> {
             assertThat(row.id()).isEqualTo("inventory");
