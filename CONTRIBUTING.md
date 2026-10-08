@@ -388,7 +388,7 @@ The Spring fixture's ASM 9.8 dependency must remain older than the reader so it 
 
 MySQL diagnostics require **real Oracle MySQL 8.4** evidence, not the existing MariaDB advisor tests or mocked JDBC
 rows. The tested fixture image is `mysql:8.4.6`. Spring uses Connector/J 9.7.0 with HikariCP 7.0.2; Quarkus uses
-Connector/J 9.6.0 with Agroal 3.0.1.
+Connector/J 9.7.0 with Agroal 3.2.1.
 MariaDB reached through MySQL Connector/J has no automated live coverage by design: the panel labels it unsupported, and
 it was checked manually on MariaDB 11.4 and 11.8. When a change touches collector SQL or session guards, recheck MariaDB
 manually against a disposable `mariadb` container started with `--performance-schema=ON`.
