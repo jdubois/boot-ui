@@ -31,6 +31,10 @@ give the details.
 - The new BootUI agent is optional. When attached, it turns on its default sensors; the others are opt-in, and an
   unknown id in `bootui.agent.sensors` stops the application's start
   ([Java Agent](docs/features/java-agent.md#configuration)).
+- MCP and CLI scans answer with a summary, and pause, resume, and clear with an acknowledgement. A script that reads
+  `.results` or `.findings` from `bootui … scan --json`, or expects `{"cleared":true}`, reads the `… report` command
+  or `topFindings` and the acknowledgement's `action` instead
+  ([Compact answers](docs/AI-AGENTS.md#compact-answers-from-scans-and-capture-controls)).
 
 ### Added
 
@@ -413,6 +417,8 @@ give the details.
   the reason, in the shape other tools use, instead of only `status: unavailable`.
 - **Compact MCP and CLI answers from scans and capture controls.** Scans answer with their counts and top ten findings,
   and pause, resume, and clear with a short acknowledgement ([AI agents](docs/AI-AGENTS.md#compact-answers-from-scans-and-capture-controls)).
+- **The vulnerabilities report bounds its advisories for agents.** `get_vulnerabilities_report` lists at most five
+  advisories per dependency without their full text, and an exact advisory id returns one whole ([AI agents](docs/AI-AGENTS.md#compact-answers-from-scans-and-capture-controls)).
 - **The Java Agent panel opens on its setup when the agent is not attached.** The steps and setup snippets follow the
   **Not attached** status, then a short explanation of what a Java agent is, how BootUI's works, which features need it,
   and its cost; the sections that only describe an attached agent wait until it is attached

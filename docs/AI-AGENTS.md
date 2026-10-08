@@ -747,7 +747,7 @@ An agent pays for every byte it reads, so the reads below answer with a short fi
 | `get_startup_timeline` (`bootui startup`) | 25 slowest steps; a parent includes its children | Step name or tag value, such as a bean name |
 | `get_log_tail` (`bootui logs tail`) | 50 newest lines | Level, logger, thread, or message |
 | `get_copilot_sessions`, `get_claude_code_sessions` | 10 sessions; the first read after startup parses the newest session files and can take seconds on a large session directory | Id, model, working directory, status, or last activity |
-| `get_vulnerabilities_report` (`bootui vulnerabilities report`) | 10 dependencies, vulnerable first | Coordinates, severity, or an advisory id or alias |
+| `get_vulnerabilities_report` (`bootui vulnerabilities report`) | 10 dependencies, vulnerable first, each with at most 5 advisories without details | Coordinates, severity, or an advisory id or alias; an exact `group:artifact` lists all its advisories, an exact advisory id or alias returns it whole |
 | `get_live_activity` (`bootui activity`) | 25 newest entries | An entry type (`SQL`, `EXCEPTION`, ...), a severity (`SLOW`, `WARN`, `ERROR`), or text such as a route |
 | `get_config`, `get_beans`, `get_metrics`, `get_conditions`, `get_threads`, `get_http_exchanges` | 25 rows | As before; `get_conditions` pages positive then negative matches and also narrows `unconditionalClasses` and `exclusions` |
 
@@ -777,12 +777,14 @@ answers with the same summary:
 | `detailsTool` | The tool that pages a rule's retained violations; `null` for an advisor without one |
 | `scan`, `evidence` | The scan status and the advisor's coverage, as the report carries them |
 | `findingsFound`, `severityCounts` | The report's whole counts; dismissed findings are excluded |
-| `topFindings` | At most 10 findings, most severe first, then most frequent: `id`, `title`, `severity`, `count` |
-| `moreFindings` | The findings left out of `topFindings`; `0` means every finding is listed |
+| `topFindings` | At most 10 rows, most severe first, then most frequent: `id`, `title`, `severity`, `count`. A row is a rule or a check, and `count` its violations or findings |
+| `moreFindings` | The rows left out of `topFindings`; `0` means every rule or check with a finding is listed |
 | `violationDetails` | The rule advisors' `scanId` and retention, for [paging violations](#reading-retained-advisor-violations) |
 
-A vulnerability finding is a vulnerable dependency: `id` is its coordinates, `title` its most severe advisory, and
-`count` its advisory count; the summary adds the inventory's `dependencies`, `scanningEnabled`, and `coverage`.
+A vulnerability row is a vulnerable dependency: `id` is its coordinates, `title` its most severe advisory, and `count`
+its advisory count. So for `vulnerabilities_scan`, `findingsFound` counts vulnerable dependencies while
+`severityCounts` counts advisories, as the Vulnerabilities report does. The summary adds the inventory's
+`dependencies`, `scanningEnabled`, and `coverage`.
 `postgresql_read` and `mysql_read` grade nothing, so they answer with the read's `status`, `message`, `readAt`,
 `truncated`, and each database's status and sections (`id`, `status`, `reason`, `rowCount`, `truncated`); read the
 rows with `get_postgresql_report` or `get_mysql_report`.
@@ -814,8 +816,10 @@ Every tool response, report tools included, obeys `bootui.mcp.max-response-bytes
 does not fit is refused with JSON-RPC `-32003` rather than truncated, so the agent never mistakes a cut report for a
 complete one. Report tools stay well below it: a rule advisor's report keeps at most 10 (or 20) sample violations per
 rule and pages the rest with its `get_*_rule_violations` tool; `get_vulnerabilities_report` lists `limit` dependencies,
-each with its advisories' full OSV text, so on `-32003` retry with a smaller `limit` or a narrower `query`; the
-PostgreSQL and MySQL reports cap each section's rows and flag the cut with `truncated`.
+each with at most 5 advisories (active and most severe first) without their OSV `details` and with at most 3
+references and symbols, so `limit` bounds the whole answer; its `advisories` object counts what was left out, an exact
+`group:artifact` query lists all of one dependency's advisories, and an exact advisory id or alias returns that
+advisory whole. The PostgreSQL and MySQL reports cap each section's rows and flag the cut with `truncated`.
 
 ### Safety model
 

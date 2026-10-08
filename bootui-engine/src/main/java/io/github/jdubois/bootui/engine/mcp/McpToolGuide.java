@@ -125,7 +125,8 @@ public final class McpToolGuide {
             Map.entry("get_claude_code_sessions", "a session id, model, working directory, status, or last activity"),
             Map.entry(
                     "get_vulnerabilities_report",
-                    "group:artifact coordinates, a severity, or an advisory id or alias such as a CVE"),
+                    "group:artifact coordinates, a severity, or an advisory id or alias such as a CVE; an exact"
+                            + " group:artifact lists all its advisories, an exact advisory id or alias returns it whole"),
             Map.entry(
                     "get_runtime_insights",
                     "empty (the default list), all (every observation), new, security, diff, latency, an observation"
