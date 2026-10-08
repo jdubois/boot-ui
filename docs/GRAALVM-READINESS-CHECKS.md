@@ -764,6 +764,7 @@ definitions, but the annotation alone is not a high-confidence readiness problem
 ### GRAAL-MH-001 - Non-constant MethodHandle lookups may need reflection metadata
 
 - **Severity**: MEDIUM
+- **Category**: Reflection
 - **Inspects**: calls to `MethodHandles.Lookup` lookup methods: `findClass`, `findVirtual`, `findStatic`, `findConstructor`,
   `findSpecial`, `findGetter`/`findSetter` variants, `unreflect` and `unreflect*` variants, and `findVarHandle` /
   `findStaticVarHandle`.
