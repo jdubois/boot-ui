@@ -52,6 +52,7 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
 
     private SideEffectsSensor sideEffects;
     private ThreadLocalsSensor threadLocals;
+    private ResourcesSensor resources;
     /** Whether the current claim asked for the inventory or code-paths sensor: refines reach them only then. */
     private boolean applicationMethodsClaimed;
 
@@ -149,6 +150,12 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 } else if (threadLocals != null) {
                     threadLocals.release();
                 }
+                // The resources sensor's close hooks are a transformer of their own (M5-5g).
+                if (claimedSensors.contains(SideEffects.RESOURCES)) {
+                    resources().claimed();
+                } else if (resources != null) {
+                    resources.release();
+                }
                 return answer("ok", null);
             case "refine":
                 if (requested == generation) {
@@ -198,6 +205,9 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 if (threadLocals != null) {
                     threadLocals.release();
                 }
+                if (resources != null) {
+                    resources.release();
+                }
                 return answer("ok", null);
             case "method-probe":
                 if (requested != generation || !armed) {
@@ -222,8 +232,9 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
 
     /**
      * A runtime switch of the current claim's sensors (PLAN-v2 M5-14): installs or removes the {@code threads} sensor,
-     * reinstalls the side-effect sensors' transformer for their new mask, or removes it, and enables or disables the
-     * {@code thread-locals} scan, which transforms nothing. Applied to the current claim's
+     * reinstalls the side-effect sensors' transformer for their new mask, or removes it, enables or disables the
+     * {@code thread-locals} scan, which transforms nothing, and installs or removes the {@code resources} sensor's close
+     * hooks. Applied to the current claim's
      * generation even once it is disarmed, so a sensor switched off just before the run ended is still removed; ignored
      * for another generation or after a later switch, since calls can arrive out of order.
      */
@@ -268,6 +279,13 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
             } else if (sideEffects != null) {
                 sideEffects.release();
             }
+        }
+        boolean hadResources = previous.contains(SideEffects.RESOURCES);
+        boolean wantsResources = next.contains(SideEffects.RESOURCES);
+        if (wantsResources && !hadResources) {
+            resources().claimed();
+        } else if (!wantsResources && hadResources && resources != null) {
+            resources.release();
         }
         return answer("ok", null);
     }
@@ -331,15 +349,16 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
     }
 
     /**
-     * The mask bits of the side-effect sensors among {@code sensors} whose hooks the side-effect transformer carries:
-     * every one but {@code thread-locals}, which hooks nothing ({@link ThreadLocalsSensor}).
+     * The mask bits of the side-effect sensors among {@code sensors} whose hooks the side-effect transformers carry:
+     * every one but {@code thread-locals}, which hooks nothing ({@link ThreadLocalsSensor}), and {@code resources},
+     * whose close hooks are its own transformer's ({@link ResourcesSensor}).
      */
     static int sideEffectsMask(List<String> sensors) {
         int bits = 0;
         for (String sensor : sensors) {
             bits |= SideEffects.bit(sensor);
         }
-        return bits & ~SideEffects.MASK_THREAD_LOCALS;
+        return bits & ~(SideEffects.MASK_THREAD_LOCALS | SideEffects.MASK_RESOURCES);
     }
 
     private ThreadLocalsSensor threadLocals() {
@@ -347,6 +366,13 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
             threadLocals = new ThreadLocalsSensor(instrumentation, hook.privilegedInstall(), hook.omittedHooks());
         }
         return threadLocals;
+    }
+
+    private ResourcesSensor resources() {
+        if (resources == null) {
+            resources = new ResourcesSensor(instrumentation, hook.privilegedInstall(), hook.omittedHooks());
+        }
+        return resources;
     }
 
     private SideEffectsSensor sideEffects() {
@@ -407,6 +433,10 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         Map<String, Object> threadLocalsRow = threadLocals == null ? null : threadLocals.status();
         if (threadLocalsRow != null) {
             sensors.add(active(threadLocalsRow));
+        }
+        Map<String, Object> resourcesRow = resources == null ? null : resources.status();
+        if (resourcesRow != null) {
+            sensors.add(active(resourcesRow));
         }
         map.put("sensors", sensors);
         map.put("installer", installer == null ? null : installer.status());
