@@ -683,8 +683,9 @@ jobs:
       # the default sensors with and without security-sinks (request-value matching off), and the cumulative overhead
       # with them against no agent, fifteen pairs each. They fail only above 30 %; the check below prints PASS or FAIL
       # against 3 % and 10 % and fails only once the sensor becomes a default.
+      # They run even when an earlier step failed, so their numbers are always measured.
       - name: Measure the security-sinks JDK checks' share on the checks route
-        if: needs.changes.outputs.extras == 'true'
+        if: ${{ !cancelled() && needs.changes.outputs.extras == 'true' }}
         run: >
           ./mvnw -B -ntp -pl bootui-spring-sample-app verify
           -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
@@ -696,7 +697,7 @@ jobs:
           -Dit.test=AgentOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 
       - name: Measure the agent's overhead with the security-sinks JDK checks on the checks route
-        if: needs.changes.outputs.extras == 'true'
+        if: ${{ !cancelled() && needs.changes.outputs.extras == 'true' }}
         run: >
           ./mvnw -B -ntp -pl bootui-spring-sample-app verify
           -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
