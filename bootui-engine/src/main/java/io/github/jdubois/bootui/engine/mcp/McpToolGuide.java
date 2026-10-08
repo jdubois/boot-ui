@@ -132,8 +132,8 @@ public final class McpToolGuide {
             Map.entry("get_code_paths", "empty (the slowest routes), or a route or method name"),
             Map.entry(
                     "get_side_effects",
-                    "a sensor id such as processes, network, files, environment, blocking, thread-activity, or"
-                            + " thread-locals, which also lists its hooks, not captured (outbound calls no panel"
+                    "a sensor id such as processes, network, files, environment, blocking, thread-activity,"
+                            + " thread-locals, or resources, which also lists its hooks, not captured (outbound calls no panel"
                             + " captured), or part of a route, target, client, or call site"));
 
     private McpToolGuide() {}

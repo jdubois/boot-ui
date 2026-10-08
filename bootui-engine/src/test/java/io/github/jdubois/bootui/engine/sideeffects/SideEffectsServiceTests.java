@@ -208,6 +208,7 @@ class SideEffectsServiceTests {
                                 "blocking",
                                 "thread-activity",
                                 "thread-locals",
+                                "resources",
                                 "security-sinks")
                         .contains(sensor.id()))
                 .allSatisfy(sensor -> {
@@ -381,15 +382,14 @@ class SideEffectsServiceTests {
     }
 
     @Test
-    void anUnknownSensorIdInTheSettingsIsRejectedAndOneThisVersionDoesNotShipAccepted() {
+    void anUnknownSensorIdInTheSettingsIsRejectedAndEverySensorThisVersionListsIsShipped() {
         assertThatThrownBy(() -> new AgentSensorSettings(List.of("executors", "proceses"), null, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("proceses")
                 .hasMessageContaining("processes")
-                .hasMessageContaining("not available in this version");
-        AgentSensorSettings planned = new AgentSensorSettings(List.of("executors", "resources"), null, null, null);
-        assertThat(planned.notAvailable()).containsExactly("resources");
-        assertThat(planned.notAvailableWarning()).contains("resources").contains("not available");
+                .hasMessageContaining("resources")
+                .hasMessageContaining("security-sinks");
+        assertThat(AgentSensorSettings.NOT_AVAILABLE_SENSORS).isEmpty();
         assertThat(AgentSensorSettings.defaults().notAvailableWarning()).isNull();
         assertThat(AgentSensorSettings.NOT_AVAILABLE_SENSORS)
                 .as("the catalog's sensors this version does not ship")

@@ -322,7 +322,7 @@ the benchmark only reports. `bootui.benchmark.route=io` drives `/api/side-effect
 plus one outbound connect to a stub server the benchmark runs and one file read per request, so the side-effect sensors
 that hook connects and files are measured on a route that exercises them; `bootui.benchmark.route=threads` drives
 `/api/thread-activity/benchmark`, the same search plus one thread started and joined and one executor created and shut
-down per request, for the `thread-activity` sensor's A/B; `bootui.benchmark.agent.baseline-sensors`
+down per request, for the `thread-activity` sensor's A/B (the `resources` sensor's A/B uses the I/O route); `bootui.benchmark.agent.baseline-sensors`
 runs the other arm with the agent and those sensors instead of without the agent, an A/B of the sensors it leaves out;
 and `bootui.benchmark.report` names the report (`spring-mvc-agent` by default):
 
