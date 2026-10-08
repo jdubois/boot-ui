@@ -720,6 +720,15 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **An asynchronous Spring MVC request is recorded when it answers.** A request whose handler returned a
+  `DeferredResult`, `Callable`, or `CompletableFuture` reached the runtime journal when that handler returned, as a
+  `200` lasting only the handler's own time, so a request that later answered `503` or failed, or timed out, read as a
+  fast success in Live Activity, Runtime Insights, and run comparison. It is now recorded once, when its response
+  completes, with the status it answered and its whole duration, however many asynchronous steps it went through.
+- **A failed Spring WebFlux request is recorded with the status it answered.** The runtime journal recorded a failed
+  request as `500`, unless the error declared its own status, before WebFlux's exception handlers ran, so a custom
+  handler's `400` or `404`, or a successful fallback, read as a server error. It now records the status that handler
+  rendered, when the response commits, as Actuator records the exchange.
 - **Method probe guidance avoids false "never reached" answers.** Agents and the BootUI skill now wait until a probe
   is `active`, rerun within its window, and treat an empty result from a probe that was not active throughout as
   inconclusive ([AI agents](docs/AI-AGENTS.md#did-this-method-run-and-how)).
