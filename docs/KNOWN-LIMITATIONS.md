@@ -114,7 +114,7 @@ application's own code did. See [Java Agent](features/java-agent.md).
 
 - the `resources` sensor: resources a request opened and left open, such as leaked streams (`resource-not-closed`);
 - caught exceptions as evidence of `errors-behind-2xx`;
-- the rest of security sinks: form values in `request-input-in-sink`, outbound URLs opened through `HttpClient` or
+- the rest of security sinks: form values in `request-input-in-sink`, and outbound URLs opened through `HttpClient` or
   `URL.openConnection`;
 - side effects in change impact, and methods no longer executed on routes exercised in both runs;
 - dynamic access recording.
