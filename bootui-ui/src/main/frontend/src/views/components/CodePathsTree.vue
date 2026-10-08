@@ -69,16 +69,16 @@ const rows = computed(() => {
     const key = keys.value.get(node.id)
     const open = !collapsed.value.has(key)
     list.push({type: 'node', key, node, level: node.depth + 1, expandable: expandable(node), open})
-    if (!open) {
-      hiddenBelow = node.depth
-      continue
+    if (open) {
+      for (const call of node.calls ?? []) {
+        list.push({type: 'call', key: `${key}>${call.kind}`, node, call, level: node.depth + 2})
+      }
     }
-    for (const call of node.calls ?? []) {
-      list.push({type: 'call', key: `${key}>${call.kind}`, node, call, level: node.depth + 2})
-    }
+    // A selected method shows its detail whether or not its branch is open.
     if (key === props.selected && node.kind === 'METHOD') {
       list.push({type: 'detail', key: `${key}>detail`, node, level: node.depth + 2})
     }
+    if (!open) hiddenBelow = node.depth
   }
   return list
 })

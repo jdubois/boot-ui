@@ -7,13 +7,25 @@ const router = vi.hoisted(() => ({state: null, replace: null}))
 
 vi.mock('vue-router', async (original) => {
   const {reactive: makeReactive} = await import('vue')
-  router.state = makeReactive({query: {}})
+  router.state = makeReactive({path: '/code-paths', query: {}})
   router.replace = vi.fn(({query}) => {
     router.state.query = query
     return Promise.resolve()
   })
-  return {...(await original()), useRoute: () => router.state, useRouter: () => ({replace: router.replace})}
+  const resolve = ({path, query}) => {
+    const search = new URLSearchParams(query).toString()
+    const fullPath = search ? `${path}?${search}` : path
+    return {fullPath, href: `#${fullPath}`}
+  }
+  return {...(await original()), useRoute: () => router.state, useRouter: () => ({replace: router.replace, resolve})}
 })
+
+/** The query the panel last wrote into the URL. */
+function urlQuery() {
+  const hash = window.location.hash
+  const question = hash.indexOf('?')
+  return question < 0 ? {} : Object.fromEntries(new URLSearchParams(hash.slice(question + 1)))
+}
 
 const RouterLinkStub = {
   props: ['to'],
@@ -166,6 +178,7 @@ describe('Code Paths panel', () => {
     vi.unstubAllGlobals()
     router.state.query = {}
     router.replace.mockClear()
+    window.history.replaceState(null, '', '#/')
   })
 
   function routeRows() {
@@ -231,7 +244,7 @@ describe('Code Paths panel', () => {
       row.get('.code-paths-route-detail').attributes('id')
     )
     expect(wrapper.get('#code-paths-tree-heading').text()).toBe('GET /api/quote')
-    expect(router.replace).toHaveBeenLastCalledWith({query: {route: 'GET /api/quote'}})
+    expect(urlQuery()).toEqual({route: 'GET /api/quote'})
 
     const grid = wrapper.get('.code-paths-tree')
     expect(grid.attributes('role')).toBe('treegrid')
@@ -262,7 +275,9 @@ describe('Code Paths panel', () => {
 
     await routeRows()[0].get('.code-paths-route').trigger('click')
     expect(wrapper.find('.code-paths-tree').exists()).toBe(false)
-    expect(router.replace).toHaveBeenLastCalledWith({query: {}})
+    expect(urlQuery()).toEqual({})
+    // The URL is replaced in place: a router navigation would remount the panel, as panels are keyed on the full path.
+    expect(router.replace).not.toHaveBeenCalled()
   })
 
   it('filters the routes by path, HTTP method, or Java method, and sorts them', async () => {
@@ -431,7 +446,8 @@ describe('Code Paths panel', () => {
     await methodRow.trigger('click')
     await flushPromises()
     expect(methodRow.attributes('aria-selected')).toBe('true')
-    expect(router.replace).toHaveBeenLastCalledWith({query: {route: 'GET /api/quote', method: QUOTE}})
+    expect(urlQuery()).toEqual({route: 'GET /api/quote', method: QUOTE})
+    expect(window.location.hash.startsWith('#/code-paths?')).toBe(true)
     const rows = treeRows()
     const detailRow = rows[rows.findIndex((row) => row.element === methodRow.element) + 1]
     expect(detailRow.classes()).toContain('code-paths-detail-row')

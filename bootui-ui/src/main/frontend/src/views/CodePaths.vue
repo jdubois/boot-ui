@@ -75,16 +75,19 @@ function queryString(name) {
   return typeof value === 'string' && value ? value : null
 }
 
-// The open route and method live in the URL, so a reload or a shared link reopens them. Without a router, as in
-// isolated component tests, nothing is written.
+// The open route and method live in the URL, so a reload or a shared link reopens them. The URL is replaced in place,
+// not through router.replace: panels are keyed on the route's full path, so a router navigation would remount this one
+// and lose its search, order, open branches, and focus. Vue Router's own history state is kept in step.
 function syncQuery() {
-  if (!router?.replace) return
+  if (!router?.resolve || typeof window === 'undefined') return
   const query = {...(route?.query ?? {})}
   delete query.route
   delete query.method
   if (selectedRoute.value) query.route = selectedRoute.value
   if (selectedRoute.value && selectedMethod.value) query.method = selectedMethod.value
-  router.replace({query})
+  const target = router.resolve({path: route?.path ?? '/code-paths', query})
+  const state = window.history.state
+  window.history.replaceState(state ? {...state, current: target.fullPath} : state, '', target.href)
 }
 
 async function fetchSummary() {

@@ -143,6 +143,18 @@ describe('CodePathsTree', () => {
     expect(wrapper.emitted('select').at(-1)).toEqual([null])
   })
 
+  it('shows a selected method’s detail even while its branch is collapsed', async () => {
+    mountTree()
+    await rows()[2].trigger('keydown', {key: 'ArrowLeft'})
+    expect(rows()[2].attributes('aria-expanded')).toBe('false')
+    await rows()[2].trigger('keydown', {key: 'Enter'})
+    await wrapper.setProps({selected: wrapper.emitted('select').at(-1)[0].key})
+
+    expect(rows()[3].classes()).toContain('code-paths-detail-row')
+    expect(rows()[3].get('.code-paths-method-key').text()).toBe(SERVICE)
+    expect(rows()[4].text()).toContain('AuditService.record')
+  })
+
   it('keeps a node’s collapse state when the tree is read again', async () => {
     mountTree()
     await rows()[2].trigger('click')
