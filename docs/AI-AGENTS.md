@@ -764,8 +764,8 @@ compatibility rules describe:
   once and equal the method (`-32020`); for `tools/call` and `prompts/get`, `Mcp-Name` must be sent once and equal
   `params.name`, after decoding the `=?base64?…?=` form (`-32020`); a `progressToken` must be a string or an integer
   (`-32602`). A request whose `_meta` names `2025-06-18` is served as legacy.
-- **Progress is modern-only.** A legacy request's `progressToken` is ignored, never rejected, and legacy answers stay
-  single JSON objects.
+- **Legacy tokens are never refused.** A legacy request is never rejected or altered because of its
+  `_meta.progressToken`: a string or integer token can start a progress stream (below), and any other value is ignored.
 - **Modern results.** Every result carries `resultType: "complete"` and `_meta["io.modelcontextprotocol/serverInfo"]`.
   `server/discover`, `tools/list`, and `prompts/list` also carry `ttlMs: 60000` and `cacheScope: "private"`; tools stay
   in catalog order. Modern clients have no `initialize` or `ping`; an unknown method answers `404` with `-32601`.
@@ -774,30 +774,70 @@ compatibility rules describe:
 - **Unchanged in both eras.** Loopback, Host, cross-site write, token, panel enable and read-only, masking,
   payload/response limits, concurrency, and `bootui.mcp.execution-timeout` apply exactly the same way. Notifications
   answer `202`.
-- **Progress on a request-scoped stream (modern only).** A modern `tools/call` with `_meta.progressToken` (a string or
-  an integer), to a tool that reports measured phases (today `architecture_scan`), from a client whose `Accept` lists
+- **Progress on a request-scoped stream (both eras).** A `tools/call` with `_meta.progressToken` (a string or an
+  integer), to a tool that reports measured phases (`architecture_scan` and `vulnerabilities_scan`), from a client whose `Accept` lists
   `text/event-stream` explicitly, answers `200` with `Content-Type: text/event-stream` and `X-Accel-Buffering: no`.
   The stream carries `data:` events, each one JSON-RPC message: `notifications/progress` with the request's token, a
   strictly increasing `progress`, the `total` when known, and a fixed phase `message`, then exactly one final
   response, after which the stream closes. There are no event ids, and `:` comment lines every 2 seconds keep the
   connection open. Notifications are rate-limited: a burst of 8, then one every 250 ms, coalescing to the newest. Any
-  other call, including every refusal and a call without a token, stays a single JSON response, and a legacy request's
-  `progressToken` is ignored.
-- **Cancellation by closing the stream.** Closing the response stream cancels the call, as MCP 2026-07-28 requires:
+  other call, including every refusal and a call without a token, stays a single JSON response, byte-identical to
+  BootUI 1.x for a legacy client. A legacy stream's final response is a legacy one: no `resultType` or `_meta`, and the
+  `-32000`…`-32003` codes.
+- **Cancellation by closing the stream (modern).** Closing the response stream cancels the call, as MCP 2026-07-28 requires:
   BootUI writes nothing more, interrupts the tool, which stops at its next step and keeps its previous report, and frees
   the concurrency slot once the tool has returned and the stream is written. WebFlux and Quarkus notice the disconnect
   at once; Spring MVC notices it when a write fails, within two keep-alive intervals (about 4 seconds).
   `bootui.mcp.execution-timeout` stays the absolute bound, whatever progress flows: a timed-out stream ends with the
   timeout error as its final response, even when the call timed out before its stream opened. Events are always one
-  line of compact JSON, whatever the application's Jackson configuration (an indenting mapper included). A blocking
-  call that is cancelled rather than timed out (a tool that stops at a cancellation checkpoint) answers the BootUI
-  error `-32800` "MCP request cancelled", the code the Language Server Protocol uses for the same outcome. The `GET
-  /bootui/api/mcp-server` status reports `supportedProtocolVersions` and counts `cancellations` (streams a client
-  closed and cancelled calls) apart from `timeouts`.
+  line of compact JSON, whatever the application's Jackson configuration (an indenting mapper included). Only a
+  streamed call is cancelled by a disconnect: a single JSON response has no stream to close, so a blocking call runs to
+  its end, its timeout, or a legacy `notifications/cancelled` (below). A client that goes away before its stream starts is a cancellation too, not a timeout. The
+  `GET /bootui/api/mcp-server` status reports `supportedProtocolVersions` and counts `cancellations` apart from
+  `timeouts`; `callCount` includes cancelled calls. A server fault while writing a stream is reported as a fault, not
+  counted as a cancellation.
 - **A client that stops reading.** The writer then blocks and keeps the call's concurrency slot, so
   `bootui.mcp.max-concurrent-calls` also bounds stalled streams; on WebFlux it waits for the subscriber's demand
   instead of buffering. On every stack it gives up 10 seconds after the execution timeout: Spring MVC's async request
   times out, WebFlux stops waiting for demand, and Quarkus resets the response, which frees the slot.
+- **Cancellation by `notifications/cancelled` (legacy).** MCP 2025-06-18 cancels differently: "Disconnection SHOULD NOT
+  be interpreted as the client cancelling its request. To cancel, the client SHOULD explicitly send an MCP
+  `CancelledNotification`." So closing a legacy stream only stops BootUI writing to it; the tool runs on, still bounded
+  by `bootui.mcp.execution-timeout`, and keeps its concurrency slot until it returns. A client that leaves before its
+  stream even starts releases the call at once: nothing has begun, and there is nowhere left to answer. A `notifications/cancelled`
+  notification whose `params.requestId` names an in-flight legacy `tools/call` is answered `202` and cancels it.
+  Numeric ids match by value: an integer exactly, and a fractional id by its double value, so `7.0`, or an id within
+  double rounding of `7`, finds `7`. A fractional id whose double value is not whole, is zero, or reaches 2^53 (`7.5`,
+  `1e-400`, `1e400`) is never matched, so its call cannot be cancelled. A cancelled **stream ends with no
+  response**: the cancellation rule ("Not send a response for the cancelled request") takes precedence over the
+  transport's one-response-per-stream rule. A cancelled **blocking call answers `-32800`**, because its HTTP request
+  still needs an answer, which the client ignores ("The sender of the cancellation notification SHOULD ignore any
+  response to the request that arrives afterward"). Unknown, finished, ambiguous, or malformed cancellations are
+  ignored, still with `202`, and `initialize` is never cancelled; the `reason` is only logged, at debug level,
+  sanitized and truncated. MCP 2025-06-18 over HTTP has no sessions, so any local caller that passes BootUI's checks
+  (loopback, Host, cross-site write, token) and knows a request id can cancel that request, and BootUI tracks at most
+  one entry per concurrency slot. Because clients number their ids from 0 per connection, this can also happen by
+  accident: a late `notifications/cancelled` from one client for id 5, sent after its own call 5 finished, cancels
+  another client's call 5 if one is in flight, whose stream then ends with no response. Two calls in flight with the
+  same id are never cancelled. BootUI accepts this rather than add an `Mcp-Session-Id`, which would change MCP
+  2025-06-18's bytes ([known limitations](KNOWN-LIMITATIONS.md#mcp)).
+
+### Client compatibility
+
+Clients that speak only the legacy era keep working as before; those that send a `progressToken` get progress in either
+era.
+
+| Client | Version checked | Date | Era it uses with BootUI | Progress from BootUI | How it was checked |
+| ------ | --------------- | ---- | ----------------------- | -------------------- | ------------------ |
+| GitHub Copilot CLI | 1.0.93-1 | 2026-10-08 | Modern: sends `server/discover` (2026-07-28) and `initialize` together, keeps 2026-07-28 when discovery answers within about a second, and falls back to legacy otherwise | Yes, in both eras: it sends an integer `progressToken` on `tools/call`, and showed 11 `architecture_scan` progress events as tool progress | Run against the Spring sample app; its log and a logging proxy recorded the exchange, including the legacy fallback |
+| GitHub Copilot CLI | 1.0.92 | 2026-10-07 | Legacy: its MCP client's latest version was `2025-11-25` | Not checked | Read from the installed bundle |
+| Claude Code | 2.1.154 | 2026-10-08 | Legacy: `initialize` asking for `2025-11-25`, then `2025-06-18` | Not verified: no tool call could run without a signed-in account, so whether it sends a `progressToken` is unknown | Recorded on the wire against a local recorder |
+| VS Code (GitHub Copilot) | 1.141.0 | 2026-10-07 | Legacy: its MCP client's latest version is `2025-11-25` | Not verified | Read from the installed bundle; not observed on the wire |
+| Cursor | Not installed | — | Not verified | Not verified | Not checked locally |
+
+Cancellation from a real client was not observed: none of these runs cancelled a call. Anthropic states that MCP
+2026-07-28 support is
+[rolling out across Claude products](https://claude.com/resources/articles/bringing-mcp-2026-07-28-to-claude).
 
 ## Assess an application and approve an action plan
 

@@ -29,7 +29,12 @@ import java.util.Set;
  * @param rawScanId the completed advisor snapshot identifier, or {@code null}
  * @param rawOffset the zero-based retained detail offset, or {@code null}
  * @param era the protocol era {@link McpEraResolver} chose ({@code null} → {@link McpEra#LEGACY})
- * @param progressToken the modern request's {@code _meta.progressToken}, or {@code null}
+ * @param progressToken the request's {@code _meta.progressToken} when it is a string or an integer, or {@code null}
+ * @param requestKey this request's id as an {@link McpRequestKey}, or {@code null} for a notification
+ * @param cancelledRequestKey for a legacy {@code notifications/cancelled}, the {@link McpRequestKey} of its {@code
+ *     params.requestId}, or {@code null}
+ * @param cancelReason for a legacy {@code notifications/cancelled}, its {@code params.reason} when it is a string, or
+ *     {@code null}; it is only logged, sanitized and truncated
  */
 public record McpRequest(
         String jsonrpc,
@@ -45,11 +50,52 @@ public record McpRequest(
         String rawScanId,
         Integer rawOffset,
         McpEra era,
-        McpProgressToken progressToken) {
+        McpProgressToken progressToken,
+        String requestKey,
+        String cancelledRequestKey,
+        String cancelReason) {
 
     public McpRequest {
         argumentNames = argumentNames == null ? Set.of() : Set.copyOf(argumentNames);
         era = era == null ? McpEra.LEGACY : era;
+    }
+
+    /** A request without a cancellation reason. */
+    public McpRequest(
+            String jsonrpc,
+            String method,
+            boolean notification,
+            String requestedProtocolVersion,
+            String toolName,
+            String rawQuery,
+            Integer rawLimit,
+            String rawId,
+            Set<String> argumentNames,
+            String argumentsError,
+            String rawScanId,
+            Integer rawOffset,
+            McpEra era,
+            McpProgressToken progressToken,
+            String requestKey,
+            String cancelledRequestKey) {
+        this(
+                jsonrpc,
+                method,
+                notification,
+                requestedProtocolVersion,
+                toolName,
+                rawQuery,
+                rawLimit,
+                rawId,
+                argumentNames,
+                argumentsError,
+                rawScanId,
+                rawOffset,
+                era,
+                progressToken,
+                requestKey,
+                cancelledRequestKey,
+                null);
     }
 
     /** Legacy-era constructor used by codecs and engine callers that predate era selection. */
@@ -80,6 +126,45 @@ public record McpRequest(
                 rawScanId,
                 rawOffset,
                 McpEra.LEGACY,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    /** A request without the id keys that legacy cancellation uses. */
+    public McpRequest(
+            String jsonrpc,
+            String method,
+            boolean notification,
+            String requestedProtocolVersion,
+            String toolName,
+            String rawQuery,
+            Integer rawLimit,
+            String rawId,
+            Set<String> argumentNames,
+            String argumentsError,
+            String rawScanId,
+            Integer rawOffset,
+            McpEra era,
+            McpProgressToken progressToken) {
+        this(
+                jsonrpc,
+                method,
+                notification,
+                requestedProtocolVersion,
+                toolName,
+                rawQuery,
+                rawLimit,
+                rawId,
+                argumentNames,
+                argumentsError,
+                rawScanId,
+                rawOffset,
+                era,
+                progressToken,
+                null,
+                null,
                 null);
     }
 

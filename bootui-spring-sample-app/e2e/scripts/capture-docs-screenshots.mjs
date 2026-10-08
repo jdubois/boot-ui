@@ -1092,7 +1092,14 @@ const mcpServer = {
   transport: 'http',
   endpoint: '/bootui/api/mcp',
   protocolVersion: '2025-06-18',
+  supportedProtocolVersions: ['2026-07-28', '2025-06-18'],
   maxResults: 200,
+  callCount: 42,
+  totalLatencyMillis: 9180,
+  capacityRefusals: 0,
+  timeouts: 0,
+  responseLimitRefusals: 0,
+  cancellations: 1,
   toolCount: mcpServerTools.length,
   tools: mcpServerTools
 }

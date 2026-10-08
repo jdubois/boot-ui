@@ -236,6 +236,47 @@ class McpStreamingCallTests {
     }
 
     @Test
+    void aServerFaultWhileWritingIsReportedAsAFaultNotCountedAsACancellation() throws Exception {
+        CountDownLatch release = new CountDownLatch(1);
+        McpDispatcher dispatcher = dispatcher(
+                args -> {
+                    OperationProgress.current().report(PHASE, 1, 0);
+                    try {
+                        release.await(30, TimeUnit.SECONDS);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return "done";
+                },
+                1,
+                60_000);
+        RecordingSink sink = new RecordingSink() {
+            @Override
+            public void progress(McpProgressToken token, ProgressEvent event) {
+                throw new IllegalArgumentException("An MCP stream event must be one line of compact JSON");
+            }
+        };
+        stream(dispatcher.start(request(TOKEN), true)).start(sink);
+
+        assertThat(sink.closed.await(5, TimeUnit.SECONDS)).isTrue();
+        assertAllPermitsFree(dispatcher, 1);
+        assertThat(release.getCount())
+                .as("the tool was stopped, not left running until it chose to return")
+                .isEqualTo(1);
+        McpRuntimeStats.Snapshot stats = dispatcher.runtimeStats().snapshot();
+        assertThat(stats.cancellations())
+                .as("a rendering fault is not the client's cancellation")
+                .isZero();
+        assertThat(stats.timeouts()).isZero();
+        assertThat(reported).as("the fault is reported").hasValue(1);
+        assertThat(sink.messages)
+                .as("the stream still ends with the fault's -32603")
+                .containsExactly(
+                        "complete " + new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE),
+                        "close");
+    }
+
+    @Test
     void aCallThatTimedOutBeforeItsStreamStartedStillAnswersWithItsFinalResponse() throws Exception {
         AtomicInteger invocations = new AtomicInteger();
         McpDispatcher dispatcher = dispatcher(

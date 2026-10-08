@@ -56,7 +56,7 @@ public final class McpEraResolver {
             return legacy(versionHeader, false);
         }
         if (meta.protocolVersion() == Field.ABSENT) {
-            return legacy(versionHeader, true);
+            return withLegacyToken(legacy(versionHeader, true), meta);
         }
         if (meta.protocolVersion() == Field.INVALID) {
             return modern(McpProtocol.INVALID_PARAMS, McpProtocol.META_PROTOCOL_VERSION_TYPE_MESSAGE);
@@ -66,7 +66,7 @@ public final class McpEraResolver {
             return modern(McpProtocol.HEADER_MISMATCH, McpProtocol.PROTOCOL_VERSION_HEADER_MISMATCH_MESSAGE);
         }
         if (McpProtocol.KNOWN_VERSIONS.contains(version)) {
-            return new Serve(McpEra.LEGACY, version, null);
+            return withLegacyToken(new Serve(McpEra.LEGACY, version, null), meta);
         }
         if (!McpProtocol.MODERN_VERSIONS.contains(version)) {
             return new Rejected(
@@ -106,6 +106,17 @@ public final class McpEraResolver {
         }
         String decoded = McpHeaderValues.decode(nameHeader.get(0));
         return decoded != null && decoded.equals(bodyName);
+    }
+
+    /**
+     * MCP 2025-06-18 also lets a request ask for progress with {@code _meta.progressToken}. A valid token is kept so the
+     * call may stream progress; an invalid one is ignored, because a legacy request is never refused or changed for it.
+     */
+    private static McpEraDecision withLegacyToken(McpEraDecision decision, McpRequestMeta meta) {
+        if (decision instanceof Serve serve && serve.era() == McpEra.LEGACY && meta.progressToken() == Field.VALID) {
+            return new Serve(McpEra.LEGACY, serve.protocolVersion(), meta.progressTokenValue());
+        }
+        return decision;
     }
 
     private static McpEraDecision legacy(List<String> versionHeader, boolean modernHeaderNeedsMeta) {

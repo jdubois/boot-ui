@@ -263,6 +263,10 @@ class McpToolCatalogTests {
     @Test
     void onlyToolsWithMeasuredPhasesReportProgress() {
         assertThat(McpToolCatalog.reportsProgress("architecture_scan")).isTrue();
+        assertThat(McpToolCatalog.reportsProgress("vulnerabilities_scan")).isTrue();
+        assertThat(McpToolCatalog.reportsProgress("memory_scan"))
+                .as("a GC and a histogram are not measured units")
+                .isFalse();
         assertThat(McpToolCatalog.reportsProgress("get_overview")).isFalse();
         assertThat(McpToolCatalog.reportsProgress("unknown_tool")).isFalse();
         assertThat(McpToolCatalog.names()).contains("architecture_scan");
