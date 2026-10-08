@@ -65,8 +65,8 @@ class SpringAgentScenarioIT {
                 "--bootui.show-banner=false",
                 "--bootui.overrides-file=" + directory.resolve("overrides.properties"),
                 "--bootui.activity.feed-source=journal",
-                // The default sensors, the opt-in files and environment sensors, and blocking, for the Side Effects
-                // seeds, and the opt-in caught-exceptions sensor, for the Exceptions panel's caught-in-code seeds.
+                // The default sensors, files, environment, and blocking among them, for the Side Effects seeds, and
+                // the opt-in caught-exceptions sensor, for the Exceptions panel's caught-in-code seeds.
                 "--bootui.agent.sensors=executors,inventory,code-paths,processes,network,files,environment,blocking,"
                         + "caught-exceptions",
                 "--management.tracing.export.enabled=false"));

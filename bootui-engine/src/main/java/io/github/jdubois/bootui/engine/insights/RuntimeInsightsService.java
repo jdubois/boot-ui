@@ -1250,9 +1250,7 @@ public final class RuntimeInsightsService {
         }
         evaluated.set(repeated, new Evaluated(done.observation(), kept, done.partial(), done.unseen()));
         RuntimeInsightCheckDto check = checks.get(repeatedAt);
-        String leftOut = InsightText.counted(left, "statement") + " that SQL after the handler returned reports on the"
-                + " same route, from the same call site, " + (left == 1 ? "is" : "are")
-                + " left to it, which names the cause.";
+        String leftOut = JudgedWithoutFinding.leftToLazySql(left);
         checks.set(
                 repeatedAt,
                 new RuntimeInsightCheckDto(

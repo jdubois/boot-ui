@@ -305,7 +305,7 @@ class SideEffectsServiceTests {
     void agentsGetEverySensorsCoverageAndOnlyTheNamedSensorsHooks() {
         SideEffectsHookDto hook = new SideEffectsHookDto("connect", "java.net.Socket", true, true, "passed", 3);
         JavaAgentSensorToggleDto toggle =
-                new JavaAgentSensorToggleDto("files", false, false, false, "off", "Opt-in", true, null, null);
+                new JavaAgentSensorToggleDto("files", true, false, true, "off", "On by default", true, null, null);
         List<SideEffectsSensorDto> sensors = List.of(
                 new SideEffectsSensorDto(
                         "network", "Network", "Connects", SideEffectsSensorDto.RECORDING, null, 4, 9, 1, List.of(hook)),

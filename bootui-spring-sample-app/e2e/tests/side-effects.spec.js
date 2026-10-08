@@ -40,7 +40,7 @@ test.describe('Side Effects view', () => {
     }
 
     expect(panel.available).toBe(true)
-    // The opt-in environment sensor, switched on at run time when the suite does not configure it (M5-14), and put
+    // The environment sensor, on by default, switched on at run time when the suite does not configure it (M5-14), and put
     // back afterwards.
     const environmentWasOn = await switchAgentSensor(page.request, 'environment', true)
     try {

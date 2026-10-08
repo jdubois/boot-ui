@@ -126,7 +126,7 @@ describe('Java Agent panel', () => {
     expect(about.text()).toContain('overhead budget of 10%')
 
     const text = wrapper.text()
-    for (const absent of ['Versions & runtime facts', 'No active claim', 'Opt-in sensors', 'No sensor installed']) {
+    for (const absent of ['Versions & runtime facts', 'No active claim', 'Runtime switches', 'No sensor installed']) {
       expect(text).not.toContain(absent)
     }
     expect(wrapper.findAll('[role="tablist"]')).toHaveLength(1)
@@ -602,7 +602,7 @@ describe('Java Agent panel', () => {
         enabled: true,
         overridden: true,
         state: 'installed',
-        optInReason: 'Off by default: it advises System.getProperty.',
+        optInReason: 'On by default: it advises System.getProperty.',
         available: true,
         unavailableReason: null
       }
@@ -621,7 +621,7 @@ describe('Java Agent panel', () => {
     wrapper = mount(JavaAgent, {global: {provide: {panels}}})
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Opt-in sensors')
+    expect(wrapper.text()).toContain('Runtime switches')
     expect(wrapper.get('[data-testid="agent-sensor-toggle-threads"]').text()).toContain('retransforms java.lang.Thread')
     const environment = wrapper.get('[data-testid="agent-sensor-toggle-environment"]')
     expect(environment.get('input').element.checked).toBe(true)

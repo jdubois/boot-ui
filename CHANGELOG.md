@@ -209,7 +209,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([Java Agent](docs/features/java-agent.md#the-processes-sensor), PLAN-v2 M5-5a). The executors sensor's default
   `bootui.agent.executors.skip-tasks` now includes `java.lang.ProcessHandleImpl`, the JDK's process reaper, so a request
   that starts a process is no longer reported as doing work after its response.
-- **Files and environment sensors in the BootUI agent.** The opt-in `files` and `environment` agent sensors record
+- **Files and environment sensors in the BootUI agent.** The `files` and `environment` agent sensors, on by default, record
   the files application code opens, deletes, moves, and copies, as path patterns (`./`, `$TMPDIR`, `~`, ids as `{n}`),
   and the environment variables and system properties it reads, by name; never contents or values, with class loading,
   the JDK, and logging appenders grouped apart ([Java Agent](docs/features/java-agent.md#the-files-sensor), M5-5d).
@@ -386,6 +386,31 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The `files` and `environment` sensors are on by default, and still switched at run time.** `bootui.agent.sensors`
+  now defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `environment`, and
+  `blocking`. The Java Agent panel's **Runtime switches** card, renamed from **Opt-in sensors**, and the Side Effects
+  sections switch either off, and back on, without a restart, and say why each is on by default. `environment` makes a
+  `System.getProperty` read about 23–28 ns instead of 5–6 ns; the agent overhead job now fails the build when either
+  sensor's own increment over the other default sensors is above 3 % (the lower bound of its 15-pair median interval)
+  ([Java Agent](docs/features/java-agent.md#switching-sensors-at-run-time)).
+- **The agent overhead job's cumulative check measures 15 pairs and is documented as an alarm.** It fails when the lower
+  bound of the default sensors' cumulative median interval is above 10 %, which a true 14 % trips about four runs in
+  five and a true 12 % about one in four; with the 9 pairs it used, a true 12 % passed about four runs in five. A sensor
+  whose overhead is enforced once it is on by default now reads its cumulative check the same way
+  (`bootui.benchmark.agent.gate=interval`), so promoting one no longer fails a build on runner noise
+  ([Java Agent](docs/features/java-agent.md#overhead)).
+- **Runtime Insights' agent answer keeps what an evaluated check could not see.** `get_runtime_insights` and
+  `bootui insights list` now list, in `checksNotRun`, a check that ran but left evidence out, such as a changed method the
+  agent could not track next to one it saw run, as `<kind>: EVALUATED, partly: <reason>`; before, such a check vanished
+  from the answer, even with `query=all`. What a check judged and does not report, such as fast calls, stays out
+  ([AI agents](docs/AI-AGENTS.md)).
+- **Work after the response and Live Activity's badge use one rule.** Runtime Insights' `work-after-response` now
+  reads the same predicate as Live Activity's **after response** badge, and a task failure the agent timed after the
+  response marks the badge even without a confirmed body return
+  ([Java Agent](docs/features/java-agent.md#the-executors-sensor)).
+- **Caught in application code says when handlers went uninstrumented.** Past the agent's 16,384 exception handlers per
+  JVM, the section's limitations count the handlers left out, whose catches are not seen
+  ([Java Agent](docs/features/java-agent.md#the-caught-exceptions-sensor)).
 - **The Java Agent panel opens on its setup when the agent is not attached.** The steps and setup snippets follow the
   **Not attached** status, then a short explanation of what a Java agent is, how BootUI's works, which features need it,
   and its cost; the sections that only describe an attached agent wait until it is attached
@@ -765,8 +790,6 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 - **The `caught-exceptions` sensor stays opt-in.** On the caught benchmark route its own share measured 2.9 % then
   5.0 % (15 pairs each), over its 3 % budget once; the cumulative overhead with it was 5.9 %
   ([Java Agent](docs/features/java-agent.md#the-caught-exceptions-sensor)).
-- **The `files` sensor stays opt-in.** On the I/O benchmark route its own share is a 2.3 % median (15 pairs), but the
-  default sensors plus `files` reach 10.6 % (9 pairs), over the 10 % budget ([Java Agent](docs/features/java-agent.md#the-files-sensor)).
 - **Code Paths keeps recording on a thread after a deep stack overflow.** An application's runaway recursion through
   timed methods could overflow the stack a second time while the agent bridge was resetting the thread after the first
   overflow. The thread then stayed counted inside a call that had already returned. On a pooled thread that could stop

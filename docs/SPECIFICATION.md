@@ -861,7 +861,7 @@ Features:
   `write`, `delete`, `move from`, `move to`, `copy from`, `copy to`), a location (`working-directory`,
   `temporary-directory`, `home`, `system`, `elsewhere`), and an origin (`application`, `library`, `class-path`, `jdk`,
   `logging`, `unknown`); class path, JDK, and logging rows are grouped apart. Never contents.
-- The opt-in `environment` sensor hooks `System.getenv` and `System.getProperty` at entry, records a name the first time
+- The `environment` sensor, on by default, hooks `System.getenv` and `System.getProperty` at entry, records a name the first time
   a thread reads it for a request or execution, drops reads whose immediate caller is the JDK, and never records a
   value or a default.
 - The runtime model also gains `FILE_PATTERN` and `ENVIRONMENT_VARIABLE` nodes, with `OPENS` and `READS` edges from
@@ -950,8 +950,8 @@ Acceptance criteria:
   `GET /api/thread-locals/cache`'s `withInitial` date format is `left set (with initial value)`. The Quarkus sample's
   `ScheduledTenant`, on when `side-effects-seed.scheduled-every` sets its period, leaves `TenantContext.JOB` set from a
   scheduled run: a row of scope `execution` with no request.
-- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`;
-  `threads`, `files`, `environment`, `thread-activity`, and `thread-locals` remain opt-in.
+- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`,
+  `environment`, and `blocking`; `threads`, `thread-activity`, and `thread-locals` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
   the accepted ids.

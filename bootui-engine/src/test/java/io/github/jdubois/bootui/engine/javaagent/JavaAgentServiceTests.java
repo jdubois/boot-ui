@@ -402,7 +402,16 @@ class JavaAgentServiceTests {
         assertThat(stub.requests.get(0))
                 .as("the default claim asks for the inventory sensor and the ring's capacity")
                 .containsEntry(
-                        "sensors", List.of("executors", "inventory", "code-paths", "processes", "network", "blocking"))
+                        "sensors",
+                        List.of(
+                                "executors",
+                                "inventory",
+                                "code-paths",
+                                "processes",
+                                "network",
+                                "files",
+                                "environment",
+                                "blocking"))
                 .containsEntry("ringCapacity", AgentSensorSettings.DEFAULT_RING_CAPACITY);
         assertThat(report.sensors()).singleElement().satisfies(row -> {
             assertThat(row.id()).isEqualTo("inventory");
@@ -700,7 +709,11 @@ class JavaAgentServiceTests {
                         org.assertj.core.api.Assertions.tuple("thread-activity", false, false, false, "off", true),
                         org.assertj.core.api.Assertions.tuple("thread-locals", false, false, false, "off", true));
         assertThat(service.report().toggles())
-                .allSatisfy(toggle -> assertThat(toggle.optInReason()).startsWith("Off by default"));
+                .allSatisfy(toggle -> assertThat(toggle.optInReason())
+                        .startsWith(
+                                AgentSensorSettings.DEFAULT_SENSORS.contains(toggle.id())
+                                        ? "On by default"
+                                        : "Off by default"));
 
         Map<String, Object> environment = new LinkedHashMap<>();
         environment.put("id", "environment");
@@ -738,6 +751,52 @@ class JavaAgentServiceTests {
         claim.get().disarm();
         assertThat(service.report().toggles()).isEmpty();
         assertThatThrownBy(() -> service.switchSensor("environment", false)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void theDefaultFilesAndEnvironmentSensorsShowOnAndAreSwitchedOffAndBackOnAtRunTime() {
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        claim.set(AgentClaim.claim(
+                Bridges.access(),
+                "petclinic",
+                "petclinic@1",
+                "dev",
+                List.of("com.example"),
+                AgentSensorSettings.defaults()));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+
+        assertThat(service.report().toggles())
+                .filteredOn(toggle -> List.of("files", "environment").contains(toggle.id()))
+                .hasSize(2)
+                .allSatisfy(toggle -> {
+                    assertThat(toggle.configured()).isTrue();
+                    assertThat(toggle.enabled()).isTrue();
+                    assertThat(toggle.overridden()).isFalse();
+                    assertThat(toggle.optInReason()).startsWith("On by default");
+                });
+
+        for (String sensor : List.of("files", "environment")) {
+            JavaAgentSensorToggleDto off = service.switchSensor(sensor, false).toggles().stream()
+                    .filter(toggle -> toggle.id().equals(sensor))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(off.enabled()).isFalse();
+            assertThat(off.overridden()).isTrue();
+            assertThat(off.state()).isEqualTo("off");
+            assertThat(claim.get().activeSensors()).doesNotContain(sensor);
+            assertThat(service.sideEffectsCoverage(sensor).reason()).startsWith("Switched off at run time");
+
+            JavaAgentSensorToggleDto on = service.switchSensor(sensor, true).toggles().stream()
+                    .filter(toggle -> toggle.id().equals(sensor))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(on.enabled()).isTrue();
+            assertThat(on.overridden())
+                    .as("switched back to its configured default, the override is dropped")
+                    .isFalse();
+            assertThat(claim.get().activeSensors()).contains(sensor);
+        }
+        assertThat(stub.ops()).contains("sensors");
     }
 
     @Test

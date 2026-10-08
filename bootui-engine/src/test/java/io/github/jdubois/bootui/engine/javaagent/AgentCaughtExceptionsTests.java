@@ -215,6 +215,18 @@ class AgentCaughtExceptionsTests {
                 .isNull();
     }
 
+    @Test
+    void handlersPastTheSiteLimitAreCountedForTheExceptionsPanel() {
+        start(List.of(AgentSensorSettings.CAUGHT_EXCEPTIONS));
+        assertThat(caught.sitesOverLimit()).isZero();
+
+        for (int i = 0; i <= CaughtExceptions.MAX_SITES; i++) {
+            CaughtExceptions.site("com/example/Shop#buy()V#" + i + "#java/io/IOException", "java/io/IOException");
+        }
+
+        assertThat(caught.sitesOverLimit()).isEqualTo(1);
+    }
+
     private void start(List<String> sensors) {
         start(sensors, System::currentTimeMillis);
     }

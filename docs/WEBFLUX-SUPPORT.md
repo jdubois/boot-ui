@@ -213,7 +213,7 @@ were already framework-neutral in practice, not just in the engine underneath th
     request scope's owner slot is not yet filled on the schedulers Reactor restores the context on (pending for the
     hot sensors of later slices); otherwise the row is attributed under its thread family. The `network` sensor
     (M5-5b) records connects, datagrams, and lookups the same way; a WebClient's connect on a Reactor Netty event loop
-    is unowned and captured by a REST client call at the same time. The opt-in `files` and `environment` sensors
+    is unowned and captured by a REST client call at the same time. The `files` and `environment` sensors
     (M5-5d) capture the owner when no slot names one, too. The `blocking` sensor (M5-5c) records too: the WebFlux
     adapter registers Reactor Netty's event loops with it from the first request each serves, and, for a WebClient built
     from Spring Boot's `WebClient.Builder` with REST client tracing on, from the first response each delivers; Reactor's `parallel` and `boundedElastic` threads are never event loops. The opt-in

@@ -77,7 +77,7 @@ public final class SideEffectsService implements AutoCloseable {
     static final String LIMITATION_SCOPE = "Side Effects records only what the BootUI agent's side-effect sensors hook:"
             + " this version records the processes the application starts, through ProcessBuilder.start, which"
             + " Runtime.exec and ProcessBuilder.startPipeline also reach; its network: connects, datagram sends, and"
-            + " the host names the JVM resolves; the blocking calls started on an event loop; and, opt-in, the files it"
+            + " the host names the JVM resolves; the blocking calls started on an event loop; the files it"
             + " opens, deletes, moves, and copies, through FileInputStream, FileOutputStream, RandomAccessFile, the Files"
             + " methods, and FileChannel.open, and the environment variables and system properties it reads by name"
             + " through System.getenv and System.getProperty; and, opt-in, the threads it starts and the executors it"

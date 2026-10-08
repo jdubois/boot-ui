@@ -110,9 +110,8 @@ public final class WorkAfterResponse implements Observation {
                                     requestEndMillis(request), event.epochMillis(), maxHandoffMillis)) {
                         continue;
                     }
-                    if (!Boolean.TRUE.equals(handoff.bodyAfterResponse())
-                            && !Boolean.TRUE.equals(handoff.failureAfterResponse())
-                            && !afterResponse(request, event, handoff)) {
+                    long lastWorkEnd = lastWorkEnd(request, event, handoff);
+                    if (!workedAfterResponse(request, event, handoff, lastWorkEnd)) {
                         continue;
                     }
                     Work work = work(request, event, handoff);
@@ -135,12 +134,7 @@ public final class WorkAfterResponse implements Observation {
                                     ? (failedAfterResponse ? "failed: " : "failed before response: ")
                                             + InsightText.simpleName(handoff.exceptionClass())
                                     : handoff.capped() ? "still running at the handoff deadline" : "completed",
-                            millis(
-                                            Boolean.TRUE.equals(handoff.bodyAfterResponse())
-                                                            && handoff.bodyAfterResponseMicros() != null
-                                                    ? handoff.bodyAfterResponseMicros()
-                                                    : afterResponseMicros(request, event, handoff))
-                                    + " ms"));
+                            millis(afterResponseMicros(request, event, handoff, lastWorkEnd)) + " ms"));
                 }
                 if (affected) {
                     exemplars.add(request.requestId());
@@ -178,19 +172,44 @@ public final class WorkAfterResponse implements Observation {
                         + " run by other workers are not."));
     }
 
-    /** Whether the handoff still ran once the response started, or, when that is unknown, after the request ended. */
-    private static boolean afterResponse(ProjectedRequest request, RuntimeEvent event, AsyncHandoffPayload handoff) {
-        if (handoff.afterResponse() != null) {
-            return handoff.afterResponse();
-        }
-        return endMicros(event) > requestEndMicros(request);
+    /**
+     * Whether the handoff worked once the response started, by the rule Live Activity's badge and the request profile
+     * use ({@link AsyncHandoffPayload#workedAfterResponse(long)}), or, when the agent did not know the response's start,
+     * whether it ran past the request's end. The check then still needs recorded I/O or a failure after the response.
+     */
+    private static boolean workedAfterResponse(
+            ProjectedRequest request, RuntimeEvent event, AsyncHandoffPayload handoff, long lastWorkEnd) {
+        Boolean worked = handoff.workedAfterResponse(lastWorkEnd);
+        return worked != null ? worked : endMicros(event) > requestEndMicros(request);
     }
 
-    private static long afterResponseMicros(ProjectedRequest request, RuntimeEvent event, AsyncHandoffPayload handoff) {
-        if (handoff.afterResponse() != null && handoff.afterResponseMicros() != null) {
-            return handoff.afterResponseMicros();
+    private static long afterResponseMicros(
+            ProjectedRequest request, RuntimeEvent event, AsyncHandoffPayload handoff, long lastWorkEnd) {
+        Long worked = handoff.workedAfterResponseMicros(lastWorkEnd);
+        if (worked != null) {
+            return worked;
         }
         return Math.max(0, endMicros(event) - Math.max(event.epochMillis() * 1_000L, requestEndMicros(request)));
+    }
+
+    /**
+     * When the last SQL statement, REST call, or message recorded under the handoff's execution ended, or
+     * {@link Long#MIN_VALUE} when none was: what Live Activity passes to the same rule.
+     */
+    private long lastWorkEnd(ProjectedRequest request, RuntimeEvent event, AsyncHandoffPayload handoff) {
+        long last = Long.MIN_VALUE;
+        for (RuntimeEvent child : request.children()) {
+            if (child != event
+                    && handoff.executionId() != null
+                    && handoff.executionId().equals(child.executionId())
+                    && HandoffWindow.attributed(event.epochMillis(), child.epochMillis(), maxHandoffMillis)
+                    && (child.payload() instanceof SqlPayload
+                            || child.payload() instanceof RestClientPayload
+                            || child.payload() instanceof MessagingPayload)) {
+                last = Math.max(last, endMicros(child));
+            }
+        }
+        return last;
     }
 
     /**

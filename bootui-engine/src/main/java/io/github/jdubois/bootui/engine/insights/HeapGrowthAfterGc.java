@@ -134,12 +134,7 @@ public final class HeapGrowthAfterGc implements Observation {
         }
         long growth = last - first;
         if (growth < MIN_GROWTH_MIB * MIB || growth * 100 < first * MIN_GROWTH_PERCENT || rises * 3 < steps * 2) {
-            return new Evaluation(
-                    0,
-                    List.of(),
-                    "Examined " + reclaiming.size() + " collections that reclaimed old-generation space; their"
-                            + " retained occupancy did not meet this check's growth threshold.",
-                    true);
+            return new Evaluation(0, List.of(), JudgedWithoutFinding.heapUnderThreshold(reclaiming.size()), true);
         }
         String sentence = "Old-generation occupancy after the " + reclaiming.size()
                 + " collections that reclaimed it rose from " + mebibytes(first) + " MiB to " + mebibytes(last)

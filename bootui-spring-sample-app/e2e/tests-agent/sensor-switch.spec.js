@@ -2,12 +2,12 @@
 import {expect, test} from '../tests/fixtures.js'
 
 /**
- * Switching an opt-in agent sensor at run time (docs/PLAN-v2.md M5-14), in the Spring MVC sample with the BootUI agent
- * attached and `environment` left out of `bootui.agent.sensors`: the Side Effects panel switches it on without a
+ * Switching an agent sensor at run time (docs/PLAN-v2.md M5-14), in the Spring MVC sample with the BootUI agent
+ * attached and `environment`, on by default, left out of `bootui.agent.sensors`: the Side Effects panel switches it on without a
  * restart, a request's property read then shows as a row, the Java Agent panel marks the switch overridden against the
  * configured default, and switching it off from there stops it again.
  */
-test.describe('Opt-in sensor switch, attached', () => {
+test.describe('Sensor switch, attached', () => {
   test('switches the environment sensor on from Side Effects, records a read, and switches it off', async ({
     openView,
     page

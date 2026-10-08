@@ -86,7 +86,7 @@ application's own code did. See [Java Agent](features/java-agent.md).
 - change impact by method, and a run comparison led by code changes;
 - metadata-only method probes: invocations, durations, outcomes, and request ids, never arguments or return values;
 - runtime reach in the Vulnerabilities panel;
-- the **Side Effects** panel with its `processes` sensor and the opt-in `files` and `environment` sensors;
+- the **Side Effects** panel with its `processes`, `files`, and `environment` sensors, on by default;
 - the Exceptions panel's **Caught in application code** section, with the agent's opt-in `caught-exceptions` sensor.
 - `request-input-in-sink` as opt-in Security sinks rows: request input reaching SQL text, a command, a file path, or
   an outbound URL unchanged, with query and path parameters, not yet form values.
