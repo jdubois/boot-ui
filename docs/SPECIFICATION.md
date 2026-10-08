@@ -792,15 +792,15 @@ Purpose: answer "Which processes, hosts, and other side effects did this route o
 
 Data sources:
 
-- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes`, `network`, and
-  `blocking` sensors record by default, and `files`, `environment`, `thread-activity`, and
-  `thread-locals` when opted in. `security-sinks` records, when opted in with
-  `bootui.agent.security-sinks.request-values=true`, request input reaching SQL text, a command, a file path, or an
-  outbound URL unchanged: the redacted sink, the parameter's name, and a sentence stating the fact. The `resources`
-  sensor is still listed but reports `not-available` with reason `Not available in this version.`
+- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes`, `network`, `blocking`, and
+  `resources` sensors record by default, and `files`, `environment`, `thread-activity`, and `thread-locals` when opted
+  in. `security-sinks` records, when opted in with `bootui.agent.security-sinks.request-values=true`, request input
+  reaching SQL text, a command, a file path, or an outbound URL unchanged: the redacted sink, the parameter's name, and a
+  sentence stating the fact.
 - Each request's end, which the adapters mark once its response is complete (Spring MVC once an async request's
   context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended), for the
-  `thread-activity` sensor to check what the request left running.
+  `thread-activity` sensor to check what the request left running and the `resources` sensor what it left open, each
+  whether or not the other is on.
 - The runtime journal's REST client events, and the SQL Trace, messaging, and Email panels' availability, decide
   whether a panel captured a network connection's work.
 - The event loops each adapter registers with the agent's `blocking` sensor: Reactor Netty's on Spring WebFlux and for a
@@ -947,8 +947,18 @@ Acceptance criteria:
   `GET /api/thread-locals/cache`'s `withInitial` date format is `left set (with initial value)`. The Quarkus sample's
   `ScheduledTenant`, on when `side-effects-seed.scheduled-every` sets its period, leaves `TenantContext.JOB` set from a
   scheduled run: a row of scope `execution` with no request.
-- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`;
-  `threads`, `files`, `environment`, `thread-activity`, and `thread-locals` remain opt-in.
+- The `resources` sensor (M5-5g, D46), on by default (D47), tracks the streams, channels, and sockets the `files` and
+  `network` sensors record opening (sockets by default, file streams only while the opt-in `files` is on) for a request or a job with an application frame on the
+  stack, and the JDK's close methods. The **Threads and leaks** tab shows rows by attribution, resource kind (`file input
+  stream`, `file output stream`, `random access file`, `file channel`, `socket`, `socket channel`), target (the masked
+  path pattern or host and port), call site, and origin (`Opened by the application`, or `Opened by a library the
+  application called`), with how many were still open 250 ms after their request's response completed and closed after
+  it (a hand-off, as a pool's connection), and how many the collector reclaimed without `close()`, the leak. With the
+  agent and `files` opted in, the three samples' `GET /api/resources/leaked-stream` shows a `file input
+  stream` reclaimed without `close()`; the counterexamples `GET /api/resources/closed-stream` (try-with-resources) shows
+  nothing, and `GET /api/resources/pooled-client` (the JDK `HttpClient`'s pool) never a reclaim.
+- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, and
+  `resources`; `threads`, `files`, `environment`, `thread-activity`, and `thread-locals` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
   the accepted ids.
