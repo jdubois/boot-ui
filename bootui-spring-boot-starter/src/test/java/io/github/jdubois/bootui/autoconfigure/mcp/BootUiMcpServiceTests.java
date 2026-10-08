@@ -716,6 +716,71 @@ class BootUiMcpServiceTests {
                         "{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-32602,\"message\":\"Missing tool name\"}}");
     }
 
+    @Test
+    void streamFinalResponsesStayOneLineWithAnIndentingApplicationMapper() {
+        ObjectMapper indenting = tools.jackson.databind.json.JsonMapper.builder()
+                .enable(tools.jackson.databind.SerializationFeature.INDENT_OUTPUT)
+                .build();
+        BootUiMcpService indented = new BootUiMcpService(
+                new BootUiMcpTools(List.of(new McpTool(
+                        "get_overview",
+                        "Read the application overview.",
+                        schema(),
+                        BootUiPanels.OVERVIEW,
+                        false,
+                        args -> java.util.Map.of("name", "demo")))),
+                properties,
+                indenting,
+                "1.2.3");
+
+        String finalResponse = indented.renderFinal(
+                objectMapper.readTree("7"),
+                io.github.jdubois.bootui.engine.mcp.McpEra.MODERN,
+                new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult(
+                        java.util.Map.of("name", "demo")));
+
+        assertThat(finalResponse).doesNotContain("\n", "\r");
+        // The text content is a JSON string, so the mapper's line breaks inside it are escaped; the envelope is
+        // compact.
+        assertThat(McpProtocol.sseDataFrame(finalResponse))
+                .startsWith("data:{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"resultType\":\"complete\","
+                        + "\"content\":[{\"type\":\"text\",\"text\":\"")
+                .endsWith(
+                        "\"}],\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
+                                + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}\n\n");
+    }
+
+    @Test
+    void streamFramesAreTheSameBytesOnEveryStack() throws Exception {
+        assertThat(service.renderProgress(
+                        io.github.jdubois.bootui.engine.mcp.McpProgressToken.of("tok"),
+                        new io.github.jdubois.bootui.engine.progress.ProgressEvent(
+                                3, 43.0, "Evaluating architecture rules")))
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":"
+                        + "{\"progressToken\":\"tok\",\"progress\":3,\"total\":43,"
+                        + "\"message\":\"Evaluating architecture rules\"}}");
+        assertThat(service.renderProgress(
+                        io.github.jdubois.bootui.engine.mcp.McpProgressToken.of(9),
+                        new io.github.jdubois.bootui.engine.progress.ProgressEvent(1.5, null, "Working")))
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":"
+                        + "{\"progressToken\":9,\"progress\":1.5,\"message\":\"Working\"}}");
+        assertThat(service.renderFinal(
+                        objectMapper.readTree("7"),
+                        new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError(
+                                McpProtocol.TOOL_TIMEOUT, McpProtocol.TOOL_TIMEOUT_MESSAGE)))
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":7,\"error\":{\"code\":-31002,"
+                        + "\"message\":\"MCP tool execution timed out\"}}");
+        assertThat(service.renderFinal(
+                        objectMapper.readTree("7"),
+                        new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult(
+                                java.util.Map.of("name", "demo"))))
+                .isEqualTo(
+                        "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"resultType\":\"complete\","
+                                + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
+                                + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
+                                + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}");
+    }
+
     private BootUiMcpService.Reply modern(String method, int id, String name, boolean enabled) {
         return service.exchange(
                 modernRequest(method, id, name, "2026-07-28"),

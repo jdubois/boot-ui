@@ -156,7 +156,8 @@ explicitly enabled, which requires authentication.
 The endpoint speaks both MCP eras. A client that opens with `initialize` gets MCP 2025-06-18 exactly as before; a client
 that sends MCP 2026-07-28 per-request `_meta` (with the matching `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name`
 headers) can call `server/discover` and gets `resultType`, the server's identity, and cache hints on every result. Both
-eras see the same tools, prompts, policies, and limits, and every response is a single JSON object. There is no `GET`
+eras see the same tools, prompts, policies, and limits. A modern call that asks for progress on a tool with real phases
+answers on a request-scoped `text/event-stream`; every other response is a single JSON object. There is no `GET`
 stream in either era (`405`). See [Protocol eras](#protocol-eras) for the details a client implementer needs.
 
 1. **Run your app locally with BootUI active** (the `dev` / `local` profiles, or `spring-boot-devtools` on the
@@ -770,8 +771,28 @@ compatibility rules describe:
   (at capacity), `-31002` (timeout), and `-31003` (response too large), with the same messages.
 - **Unchanged in both eras.** Loopback, Host, cross-site write, token, panel enable and read-only, masking,
   payload/response limits, concurrency, and `bootui.mcp.execution-timeout` apply exactly the same way. Notifications
-  answer `202`. Responses are single JSON objects; request-scoped progress over `text/event-stream` is planned
-  ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+  answer `202`.
+- **Progress on a request-scoped stream (modern only).** A modern `tools/call` with `_meta.progressToken` (a string or
+  an integer), to a tool that reports measured phases (today `architecture_scan`), from a client whose `Accept` lists
+  `text/event-stream` explicitly, answers `200` with `Content-Type: text/event-stream` and `X-Accel-Buffering: no`.
+  The stream carries `data:` events, each one JSON-RPC message: `notifications/progress` with the request's token, a
+  strictly increasing `progress`, the `total` when known, and a fixed phase `message`, then exactly one final
+  response, after which the stream closes. There are no event ids, and `:` comment lines every 2 seconds keep the
+  connection open. Notifications are rate-limited: a burst of 8, then one every 250 ms, coalescing to the newest. Any
+  other call, including every refusal and a call without a token, stays a single JSON response, and a legacy request's
+  `progressToken` is ignored.
+- **Cancellation by closing the stream.** Closing the response stream cancels the call, as MCP 2026-07-28 requires:
+  BootUI writes nothing more, interrupts the tool, which stops at its next step and keeps its previous report, and frees
+  the concurrency slot once the tool has returned and the stream is written. WebFlux notices the disconnect at once;
+  Spring MVC and Quarkus notice it when a write fails, within two keep-alive intervals (about 4 seconds).
+  `bootui.mcp.execution-timeout` stays the absolute bound, whatever progress flows: a timed-out stream ends with the
+  timeout error as its final response, even when the call timed out before its stream opened. Events are always one
+  line of compact JSON, whatever the application's Jackson configuration (an indenting mapper included).
+- **A client that stops reading.** The writer then blocks and keeps the call's concurrency slot, so
+  `bootui.mcp.max-concurrent-calls` also bounds stalled streams; on WebFlux it waits for the subscriber's demand
+  instead of buffering. On every stack it gives up 10 seconds after the execution timeout: Spring MVC's async request
+  times out, WebFlux stops waiting for demand, and Quarkus resets the response, which frees the slot.
+
 ## Assess an application and approve an action plan
 
 When you do not know which panel to investigate first, ask your coding agent for an application assessment:

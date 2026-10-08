@@ -49,6 +49,14 @@ public record McpTool(
     }
 
     /**
+     * {@code true} when this tool's operation reports measured phases (see {@link McpToolCatalog#reportsProgress}), so
+     * a modern call with a progress token may answer on a request-scoped event stream.
+     */
+    public boolean reportsProgress() {
+        return McpToolCatalog.reportsProgress(name);
+    }
+
+    /**
      * The advertised descriptor for this tool ({@code tools/list}).
      *
      * @param maxResults the transport's {@code max-results} cap, which bounds the advertised default page sizes
