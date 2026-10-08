@@ -15,7 +15,7 @@ The connections each request held at once, from the runtime journal, are in [Run
 (`connections-per-request`), which does not list them by default; this panel links to them, and the link opens Runtime Insights with
 every row shown.
 
-For each pool it shows the pool identity, the masked JDBC URL and username, the driver, the minimum and maximum
+For each pool it shows the pool identity and library, the masked JDBC URL and username, the driver, the minimum and maximum
 sizing, and the timeout and lifetime settings. Closed and uninitialized pools carry a clear unavailable reason. A live
 chart polls bounded snapshots of active, idle, total, and pending connections every two seconds, so you can watch
 saturation trends without leaving the console.
@@ -25,9 +25,10 @@ saturation trends without leaving the console.
 The panel is served over **Agroal** (Quarkus' pool library) instead of HikariCP. A Quarkus provider maps the live Agroal
 pool configuration and `AgroalDataSourceMetrics` (active/available/awaiting counts) into the same DTO shape, so the panel
 looks and behaves identically. Pool metrics require `quarkus.datasource.jdbc.metrics.enabled=true`; with metrics disabled
-the pool configuration still renders but the live snapshot is marked unavailable. A few Hikari-specific fields have no
-faithful Agroal equivalent and are reported as neutral defaults (per-call validation timeout, keepalive interval, and
-read-only flag).
+the pool configuration still renders but the live snapshot is marked unavailable. Each pool's **Pool library** reads
+`Agroal` (`implementation` in the JSON, `HikariCP` on Spring). Settings Agroal does not expose, the per-call validation
+timeout, the keepalive interval and the read-only flag, are `null` and render as "—"; a maximum lifetime of `0` is
+Agroal's default and means no limit.
 
 :::
 

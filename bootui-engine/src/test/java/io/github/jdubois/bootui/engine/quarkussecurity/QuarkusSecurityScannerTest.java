@@ -343,12 +343,35 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
+    void permissionLabelsIdentifyEachPermissionAndCollapseOnlyIdenticalOnes() {
+        Snap s = new Snap();
+        s.permissions = List.of(
+                new QuarkusSecurityPermission("admin", "/admin,/admin/*", "admin-role", null, false, "all", true),
+                new QuarkusSecurityPermission("secure", "/api/secure", "admin-role", "GET,POST", true, "jaxrs", true),
+                new QuarkusSecurityPermission("odd", "/odd", "custom-check", null, false, "all", false),
+                new QuarkusSecurityPermission(
+                        "\"quoted secret\"", "/x", "s3cr3t policy=value", null, false, "all", true),
+                new QuarkusSecurityPermission(
+                        "\"other secret\"", "/x", "s3cr3t policy=value", null, false, "all", true));
+        SecurityReport r = scan(s);
+        assertThat(r.filterChains())
+                .containsExactly(
+                        "admin: /admin, /admin/* → policy admin-role (all methods)",
+                        "secure: /api/secure → policy admin-role (GET, POST, JAX-RS only, shared)",
+                        "odd: /odd → policy custom-check (all methods, custom policy not analysed)",
+                        "unnamed permission: /x → policy (name omitted) (all methods)");
+        assertThat(r.filterChainsAnalyzed()).isEqualTo(4);
+        assertThat(r.toString()).doesNotContain("quoted secret", "other secret", "s3cr3t");
+    }
+
+    @Test
     void hardenedBaselineHasNoFindings() {
         Snap s = new Snap();
         s.permissions = List.of(new QuarkusSecurityPermission("api", "/api/*", "authenticated", null));
         SecurityReport r = scan(s);
         assertThat(r.violationsFound()).isZero();
         assertThat(r.filterChainsAnalyzed()).isEqualTo(1);
+        assertThat(r.filterChains()).containsExactly("api: /api/* → policy authenticated (all methods)");
         assertThat(r.scan().status()).isEqualTo("PARTIAL");
         assertThat(r.evidence().usable()).isTrue();
         assertThat(r.evidence().coverageComplete()).isFalse();

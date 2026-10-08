@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import java.net.URL;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -47,7 +48,7 @@ class BootUiQuarkusConnectionPoolsCaptureTest {
                 .isTrue();
 
         JsonNode root = report.json();
-        assertThat(root.path("hikariPresent").asBoolean(false))
+        assertThat(root.path("poolLibraryPresent").asBoolean(false))
                 .as("the report is present when a JDBC datasource is configured")
                 .isTrue();
         assertThat(root.path("total").asInt(-1))
@@ -59,20 +60,26 @@ class BootUiQuarkusConnectionPoolsCaptureTest {
                 .as("the default datasource renders as 'default'")
                 .isEqualTo("default");
         assertThat(pool.path("beanName").asText(null)).isEqualTo("default");
+        assertThat(pool.path("implementation").asText(null)).isEqualTo("Agroal");
 
-        // Agroal→Hikari config mapping.
+        // Agroal configuration mapping.
         assertThat(pool.path("minimumIdle").asInt(-1))
                 .as("min-size→minimumIdle")
                 .isEqualTo(2);
         assertThat(pool.path("maximumPoolSize").asInt(-1))
                 .as("max-size→maximumPoolSize")
                 .isEqualTo(8);
-        assertThat(pool.path("validationTimeoutMs").asLong(0))
-                .as("Agroal has no per-call validation timeout → -1")
-                .isEqualTo(-1L);
-        assertThat(pool.path("keepaliveTimeMs").asLong(0))
-                .as("Agroal has no keepalive interval → -1")
-                .isEqualTo(-1L);
+        for (String unexposed : List.of("validationTimeoutMs", "keepaliveTimeMs", "readOnly")) {
+            assertThat(pool.path(unexposed).isNull())
+                    .as("Agroal does not expose %s, so it is null rather than a HikariCP sentinel", unexposed)
+                    .isTrue();
+        }
+        assertThat(pool.path("maxLifetimeMs").isIntegralNumber())
+                .as("Agroal exposes its maximum lifetime")
+                .isTrue();
+        assertThat(pool.path("autoCommit").isBoolean())
+                .as("Agroal exposes auto-commit")
+                .isTrue();
 
         // Credential masking (default exposure MASKED + maskSecrets true).
         assertThat(pool.path("jdbcUrl").asText(""))

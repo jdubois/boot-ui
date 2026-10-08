@@ -354,8 +354,8 @@ public final class McpAgentViews {
 
     /**
      * The agent's status, summary first: every sensor's state and counters without its hooks and self-test steps.
-     * A {@code query} keeps only the sensors whose id contains it, with their hooks and self-test steps. Every sensor
-     * is listed, so the tool's {@code limit} does not apply: the list is short, and trimming it would hide a state.
+     * A {@code query} keeps only the sensors whose id contains it, with their hooks and self-test steps. Every matching
+     * sensor is listed, so the tool takes no {@code limit}: the list is short, and trimming it would hide a state.
      */
     public static JavaAgentReport agentStatus(JavaAgentReport report, String query) {
         String needle = PagedList.normalize(query);

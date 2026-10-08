@@ -66,4 +66,43 @@ describe('Database connection pools panel', () => {
     expect(wrapper.text()).toContain('No database connection pool beans were detected')
     expect(wrapper.findComponent(PanelHeader).props('refreshable')).toBe(true)
   })
+
+  it('names the pool library and renders settings it does not expose as a dash', async () => {
+    const pool = {
+      beanName: 'default',
+      poolName: 'default',
+      implementation: 'Agroal',
+      jdbcUrl: 'jdbc:postgresql://localhost/app',
+      username: '******',
+      driverClassName: null,
+      minimumIdle: 2,
+      maximumPoolSize: 8,
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 300000,
+      maxLifetimeMs: 0,
+      validationTimeoutMs: null,
+      keepaliveTimeMs: null,
+      readOnly: null,
+      autoCommit: true,
+      available: false,
+      unavailableReason: 'Pool metrics are disabled',
+      snapshot: null
+    }
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({poolLibraryPresent: true, total: 1, pools: [pool]}))
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mount(DatabaseConnectionPools, {
+      props: {panel: {id: 'database-connection-pools', enabled: true, available: true, unavailableReason: null}}
+    })
+    await flushPromises()
+
+    const libraryRow = wrapper.findAll('tr').find((row) => row.find('th').text() === 'Pool library')
+    expect(libraryRow.find('td').text()).toBe('Agroal')
+    expect(wrapper.find('.list-group-item .small').text()).toBe('Agroal')
+    const text = wrapper.text().replace(/\s+/g, ' ')
+    expect(text).toContain('validation —')
+    expect(text).toContain('max lifetime disabled · keepalive —')
+    expect(text).toContain('read-only — · auto-commit yes')
+    expect(wrapper.find('.badge.text-bg-info').exists()).toBe(false)
+  })
 })

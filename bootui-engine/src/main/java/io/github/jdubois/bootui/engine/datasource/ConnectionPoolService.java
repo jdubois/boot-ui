@@ -29,9 +29,9 @@ import java.util.List;
  * honored exactly as before (so a Spring user running {@code expose-values=MASKED} with
  * {@code mask-secrets=false} still sees raw values), keeping the Spring panel's wire contract unchanged.</p>
  *
- * <p>The DTO type names are HikariCP-flavored for historical reasons; their fields are generic pool metrics
- * and the shared Vue UI is framework-neutral, so the Quarkus adapter maps Agroal pools into the same shape
- * (a deliberate kept-contract decision, mirroring the Cache panel sharing the {@code cache} id).</p>
+ * <p>The DTO type names are HikariCP-flavored for historical reasons; their fields are generic pool metrics, each
+ * pool names its {@code implementation}, and a setting the library does not expose is {@code null}, so the
+ * Quarkus adapter maps Agroal pools into the same shape without HikariCP sentinels.</p>
  */
 public final class ConnectionPoolService {
 
@@ -73,6 +73,7 @@ public final class ConnectionPoolService {
         return new HikariPoolDto(
                 pool.beanName(),
                 pool.poolName(),
+                pool.implementation(),
                 maskUrl(pool.jdbcUrl()),
                 maskUsername(pool.username()),
                 pool.driverClassName(),

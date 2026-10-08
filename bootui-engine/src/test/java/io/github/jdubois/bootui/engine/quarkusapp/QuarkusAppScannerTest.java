@@ -107,6 +107,72 @@ class QuarkusAppScannerTest {
         return QuarkusAppScanner.usingSnapshot(snap::build, CLOCK).scan();
     }
 
+    /**
+     * The development-mode shape the Quarkus sample reports: request draining is absent from the loaded declarations
+     * and production coverage is unobserved. The rule has one outcome, the finding, which carries the coverage note.
+     */
+    @Test
+    void absentRequestDrainingWithUnobservedProductionIsOneFindingNotAlsoAnError() {
+        Snap snap = new Snap().setting("QA-WEB-002", "absent").setting("QA-WEB-004", "absent");
+        snap.profiles = List.of("dev");
+        for (String id : List.of("QA-WEB-002", "QA-WEB-004")) {
+            snap.problems.add(new QuarkusAppEvidenceProblem(
+                    id,
+                    "Only loaded production declarations were inspected; effective production configuration, "
+                            + "external overrides and unloaded profile-aware files are unavailable."));
+        }
+        SpringReport report = scan(snap);
+        assertThat(report.results()).extracting(SpringRuleResultDto::id).containsExactly("QA-WEB-004");
+        assertThat(find(report, "QA-WEB-004").description())
+                .contains("Coverage is incomplete: Only loaded production declarations were inspected");
+        assertThat(report.analysisErrors()).extracting(SpringRuleResultDto::id).containsExactly("QA-WEB-002");
+        assertThat(report.evidence().limitations())
+                .extracting(limitation -> limitation.substring(0, limitation.indexOf(':')))
+                .containsExactly("QA-WEB-002", "QA-WEB-004");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+    }
+
+    @Test
+    void noRuleIsEverBothAFindingAndAnAnalysisError() {
+        List<Snap> snaps = new ArrayList<>();
+        for (String id : QuarkusAppChecks.ruleIds()) {
+            Snap failing = new Snap()
+                    .setting("QA-CFG-002", "true")
+                    .setting("QA-PROD-002", "drop")
+                    .setting("QA-WEB-001", "default-disabled")
+                    .setting("QA-WEB-004", "absent")
+                    .setting("QA-WEB-003", "read-zero")
+                    .fields(new SharedField("Bean", "state", "APPLICATION", false))
+                    .metadataProblem(id);
+            failing.problems.add(
+                    new QuarkusAppEvidenceProblem(id, "Production source discovery reached its inspection limit."));
+            snaps.add(failing);
+            Snap unevaluated = new Snap().setting(id.startsWith("QA-CDI") ? "QA-CFG-002" : id, "true");
+            unevaluated.evaluated.remove(id);
+            snaps.add(unevaluated);
+        }
+        Snap unavailable = new Snap().setting("QA-CFG-002", "true");
+        unavailable.metadata = QuarkusAppMetadata.unavailable();
+        unavailable.evaluated.clear();
+        snaps.add(unavailable);
+        for (Snap snap : snaps) {
+            SpringReport report = scan(snap);
+            Set<String> findings = new HashSet<>();
+            report.results().forEach(result -> findings.add(result.id()));
+            assertThat(report.analysisErrors())
+                    .extracting(SpringRuleResultDto::id)
+                    .doesNotHaveDuplicates()
+                    .allSatisfy(id -> assertThat(findings).doesNotContain(id));
+            assertThat(report.results()).allMatch(result -> "VIOLATION".equals(result.status()));
+            assertThat(report.analysisErrors()).allMatch(result -> "ERROR".equals(result.status()));
+            assertThat(findings.size() + report.analysisErrors().size())
+                    .isLessThanOrEqualTo(QuarkusAppChecks.ruleCount());
+            if (!report.evidence().coverageComplete()) {
+                assertThat(report.scan().status()).isIn("PARTIAL", "ERROR");
+            }
+        }
+    }
+
     @Test
     void inspectedMetadataAndInapplicableInventoriesDoNotCompleteChecks() {
         Snap snap = new Snap();
@@ -505,7 +571,10 @@ class QuarkusAppScannerTest {
         snap.metadataProblem(id);
         SpringReport report = scan(snap);
         assertThat(find(report, id)).isNotNull();
-        assertThat(report.analysisErrors()).extracting(SpringRuleResultDto::id).containsExactly(id);
+        assertThat(find(report, id).description()).contains("Coverage is incomplete:");
+        assertThat(report.analysisErrors()).isEmpty();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().limitations()).singleElement().asString().startsWith(id + ": ");
         assertThat(report.rulesEvaluated()).isEqualTo(13);
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.toString()).doesNotContain("password", "must-not-be-rendered");
@@ -539,12 +608,11 @@ class QuarkusAppScannerTest {
         snap.problems.add(new QuarkusAppEvidenceProblem("QA-PROD-002", "jdbc:secret-url password=secret"));
         SpringReport report = scan(snap);
         assertThat(find(report, "QA-PROD-002").severity()).isEqualTo("CRITICAL");
-        assertThat(report.analysisErrors()).singleElement().satisfies(error -> {
-            assertThat(error.id()).isEqualTo("QA-PROD-002");
-            assertThat(error.status()).isEqualTo("ERROR");
-            assertThat(error.violationCount()).isZero();
-            assertThat(error.sampleViolations()).isEmpty();
-        });
+        assertThat(find(report, "QA-PROD-002").description())
+                .contains("Coverage is incomplete: Required evidence could not be completely inspected");
+        assertThat(report.analysisErrors()).isEmpty();
+        assertThat(report.evidence().limitations()).singleElement().asString().startsWith("QA-PROD-002: ");
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.rulesEvaluated()).isEqualTo(13);
         assertThat(report.toString()).doesNotContain("jdbc:secret-url", "password=secret");
         assertThat(report.severityCounts()).contains(new SpringSeverityCountDto("CRITICAL", 1));
@@ -677,13 +745,17 @@ class QuarkusAppScannerTest {
                 .usingRecursiveComparison()
                 .ignoringFields("violationDetails.scanId")
                 .isEqualTo(report);
-        assertThat(find(report, "QA-PROD-002")).isNotNull();
-        assertThat(report.analysisErrors())
+        assertThat(report.analysisErrors()).isEmpty();
+        assertThat(find(report, "QA-PROD-002").description())
+                .contains(
+                        "Only loaded production declarations were inspected",
+                        "Configuration discovery reached an inspection limit");
+        assertThat(report.evidence().limitations())
                 .singleElement()
-                .satisfies(error -> assertThat(error.description())
-                        .contains(
-                                "Only loaded production declarations were inspected",
-                                "Configuration discovery reached an inspection limit"));
+                .asString()
+                .contains(
+                        "Only loaded production declarations were inspected",
+                        "Configuration discovery reached an inspection limit");
         assertThat(report.rulesEvaluated()).isEqualTo(13);
     }
 
@@ -694,8 +766,9 @@ class QuarkusAppScannerTest {
         snap.evaluated.clear();
         SpringReport report = scan(snap);
         assertThat(report.rulesEvaluated()).isZero();
-        assertThat(report.analysisErrors()).hasSize(14);
+        assertThat(report.analysisErrors()).hasSize(13);
         assertThat(report.results()).hasSize(1);
+        assertThat(report.evidence().limitations()).hasSize(14);
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
     }
 
@@ -882,6 +955,8 @@ class QuarkusAppScannerTest {
         assertThat(dismissed.scan().status()).isEqualTo("PARTIAL");
         assertThat(dismissed.rulesEvaluated()).isEqualTo(13);
         assertThat(dismissed.analysisErrors()).isEqualTo(scanned.analysisErrors());
+        assertThat(dismissed.evidence()).isEqualTo(scanned.evidence());
+        assertThat(dismissed.evidence().coverageComplete()).isFalse();
         assertThat(dismissed.violationsFound()).isZero();
         assertThat(dismissed.scan().violationsFound()).isZero();
         assertThat(dismissed.results()).singleElement().satisfies(result -> {

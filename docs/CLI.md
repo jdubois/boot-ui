@@ -434,7 +434,7 @@ exposes a tool is still what `bootui tools` says.
 | Command | MCP tool | Arguments | Kind | Stacks |
 | --- | --- | --- | --- | --- |
 | `bootui activity` | `get_live_activity` | `--query`, `--limit` | read | all |
-| `bootui agent status` | `get_agent_status` | `--query`, `--limit` | read | all |
+| `bootui agent status` | `get_agent_status` | `--query` | read | all |
 | `bootui ai overview` | `get_ai_overview` | — | read | all |
 | `bootui architecture report` | `get_architecture_report` | — | read | all |
 | `bootui architecture violations` | `get_architecture_rule_violations` | `<id> --scan-id <scanId> [--offset N] [--limit N]` | read | all |

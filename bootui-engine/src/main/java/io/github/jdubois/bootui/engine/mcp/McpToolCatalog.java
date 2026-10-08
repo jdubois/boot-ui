@@ -294,7 +294,7 @@ public final class McpToolCatalog {
             entry("get_github_dashboard", McpToolSchema.NONE, BootUiPanels.GITHUB, false, ALL_STACKS),
             entry("get_copilot_sessions", McpToolSchema.QUERY_LIMIT, BootUiPanels.COPILOT, false, ALL_STACKS),
             entry("get_claude_code_sessions", McpToolSchema.QUERY_LIMIT, BootUiPanels.CLAUDE_CODE, false, ALL_STACKS),
-            entry("get_agent_status", McpToolSchema.QUERY_LIMIT, BootUiPanels.JAVA_AGENT, false, ALL_STACKS),
+            entry("get_agent_status", McpToolSchema.QUERY, BootUiPanels.JAVA_AGENT, false, ALL_STACKS),
             entry("get_code_inventory", McpToolSchema.QUERY_LIMIT, BootUiPanels.CODE_INVENTORY, false, ALL_STACKS),
             entry("get_code_paths", McpToolSchema.QUERY_LIMIT, BootUiPanels.CODE_PATHS, false, ALL_STACKS),
             entry("start_method_probe", McpToolSchema.ID, BootUiPanels.CODE_PATHS, true, ALL_STACKS),

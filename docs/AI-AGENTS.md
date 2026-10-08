@@ -279,6 +279,10 @@ user; BootUI's own panel and read-only gates still apply.
   unknown evidence is not a clean result. `coverage.archivesFirstParty`/`firstPartyArchives` name the application's own
   module JARs, which are not a coverage gap. Fix candidates need compatibility checks, and EPSS is the highest available
   per-CVE probability, not a combined probability or severity. See [Vulnerabilities checks](VULNERABILITIES-CHECKS.md).
+  On Quarkus, `spring_scan`, `get_spring_report`, and `get_spring_rule_violations` run and read the Quarkus application
+  advisor (QA-* rules); they keep their Spring names, shared with Spring Boot, so published CLI binaries and agent
+  configurations keep working. A rule appears once per scan: in `results` when it found something, with any coverage
+  gap stated on the finding and in `evidence.limitations`, or in `analysisErrors` when it could not be evaluated.
 - **Cached advisor reports:** `get_architecture_report`, `get_spring_report`, `get_hibernate_report`,
   `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`,
   `get_rest_api_report`, `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report` return the last
@@ -727,7 +731,8 @@ matched. A filtered read searches the newest entries the feed returns (up to 5,0
 `bootui.activity.max-entries` from Spring's panel buffers); when older retained entries were not searched, `hasMore` is
 true and a warning names the window, so no match there does not mean the route never ran. `get_config` leaves
 out `propertySuggestions`, the browser's completion list of every known property. `get_agent_status` and
-`get_side_effects` summarize each sensor (state, reason, counters, runtime switch) without its hooks, and Side Effects
+`get_side_effects` summarize each sensor (state, reason, counters, runtime switch) without its hooks; `get_agent_status`
+lists every matching sensor and takes no `limit`, ignoring one sent by an older CLI. Side Effects
 lists the fixed limitations of a sensor's rows only for sensors with listed rows; query a sensor id, such as
 `executors`, for its hooks (and, from agent status, its self-test steps). A 1.x CLI, which knows these commands without the newer
 options, keeps working and gets the same first page.

@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
+import io.github.jdubois.bootui.engine.support.DetailText;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import io.github.jdubois.bootui.spi.QuarkusSecurityPermission;
 import io.github.jdubois.bootui.spi.QuarkusSecuritySnapshot;
@@ -102,6 +103,7 @@ public final class QuarkusSecurityScanner {
         List<SecurityRuleResultDto> violations = evaluation.findings();
         List<String> policyLabels = snap.permissions().stream()
                 .map(QuarkusSecurityScanner::policyLabel)
+                .distinct()
                 .toList();
         List<SecurityRuleResultDto> errors = snap.evidence().failures().stream()
                 .map(QuarkusSecurityScanner::error)
@@ -119,8 +121,41 @@ public final class QuarkusSecurityScanner {
                 evaluation.evidence());
     }
 
-    private static String policyLabel(QuarkusSecurityPermission p) {
-        return "HTTP permission declaration → " + (p.knownPolicy() ? "supported policy" : "custom policy");
+    /**
+     * One HTTP permission, identified by its name, paths, methods and policy, for example
+     * {@code admin: /admin, /admin/* → policy admin-role (all methods)}. Names and policy names that are not plain
+     * identifiers are replaced with a placeholder, and paths and methods are flattened and bounded, so configuration
+     * text is never echoed unchecked.
+     */
+    static String policyLabel(QuarkusSecurityPermission p) {
+        String paths = p.paths() == null || p.paths().isBlank()
+                ? "/*"
+                : DetailText.sanitize(String.join(", ", p.paths().split("\\s*,\\s*")), 160);
+        String methods = p.methods() == null || p.methods().isBlank()
+                ? "all methods"
+                : DetailText.sanitize(String.join(", ", p.methods().split("\\s*,\\s*")), 80);
+        StringBuilder label = new StringBuilder()
+                .append(identifier(p.name(), "unnamed permission"))
+                .append(": ")
+                .append(paths)
+                .append(" → policy ")
+                .append(identifier(p.policy(), "(name omitted)"))
+                .append(" (")
+                .append(methods);
+        if (!p.knownPolicy()) {
+            label.append(", custom policy not analysed");
+        }
+        if ("jaxrs".equals(p.appliesTo())) {
+            label.append(", JAX-RS only");
+        }
+        if (p.shared()) {
+            label.append(", shared");
+        }
+        return label.append(')').toString();
+    }
+
+    private static String identifier(String value, String placeholder) {
+        return value != null && value.length() <= 64 && value.matches("[A-Za-z0-9_-]+") ? value : placeholder;
     }
 
     private SecurityReport report(

@@ -82,7 +82,7 @@ public abstract class AbstractCliConformanceTest {
         assertThat(tool.path("name").asText()).isNotBlank();
         assertThat(tool.path("description").asText()).isNotBlank();
         assertThat(tool.path("panel").asText()).isNotBlank();
-        assertThat(tool.path("schema").asText()).isIn("NONE", "LIMIT", "QUERY_LIMIT", "ID", "RULE_VIOLATIONS");
+        assertThat(tool.path("schema").asText()).isIn("NONE", "LIMIT", "QUERY_LIMIT", "QUERY", "ID", "RULE_VIOLATIONS");
         assertThat(tool.path("arguments").isArray()).isTrue();
         assertThat(tool.path("action").isBoolean()).isTrue();
         assertThat(tool.path("panelEnabled").isBoolean()).isTrue();
