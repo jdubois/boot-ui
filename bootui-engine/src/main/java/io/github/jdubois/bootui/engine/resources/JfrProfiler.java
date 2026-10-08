@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.resources;
 
+import io.github.jdubois.bootui.engine.support.BootUiThreads;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -136,8 +137,9 @@ public final class JfrProfiler {
             reason = null;
             stopRequested = false;
             state = State.RUNNING;
-            finisher = new Thread(this::finishWhenDue, "bootui-profile-resources");
-            finisher.setDaemon(true);
+            // The shared profiler outlives a restart; its finisher keeps nothing of the run that started it.
+            finisher = BootUiThreads.newDaemonThread(
+                    "bootui-profile-resources", this::finishWhenDue, BootUiThreads.ENGINE_LOADER);
             finisher.start();
         } catch (IOException | RuntimeException | LinkageError ex) {
             JfrSegments.activate(false);

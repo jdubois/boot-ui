@@ -280,6 +280,7 @@ describe('Java Agent panel', () => {
             ambiguous: 0,
             stale: 0,
             refused: 0,
+            overflow: 4,
             virtualSkipped: 0,
             periodicSkipped: 2,
             skippedTasks: 5,
@@ -305,6 +306,8 @@ describe('Java Agent panel', () => {
     expect(text).toContain('Never applied 3')
     expect(text).toContain('pools whose workers started before the claim')
     expect(text).toContain('Periodic tasks skipped 2')
+    expect(text).toContain('Over the limit 4')
+    expect(text).toContain('while 32,768 were already pending')
     expect(text).not.toContain('No sensor installed')
     expect(wrapper.find('[aria-labelledby="java-agent-hooks-executors"]').exists()).toBe(true)
   })
@@ -343,6 +346,7 @@ describe('Java Agent panel', () => {
             ambiguous: 0,
             stale: 0,
             refused: 0,
+            overflow: 1,
             virtualSkipped: 0,
             periodicSkipped: 0,
             skippedTasks: 0,
@@ -364,6 +368,8 @@ describe('Java Agent panel', () => {
     expect(text).toContain('inactive')
     expect(text).toContain('Library threads skipped 6')
     expect(text).toContain('Pool workers skipped 2')
+    expect(text).toContain('Over the limit 1')
+    expect(text).toContain('threads started from owned work while 32,768 were already pending')
     expect(text).not.toContain('Periodic tasks skipped')
     expect(wrapper.find('[aria-labelledby="java-agent-hooks-threads"]').exists()).toBe(true)
   })
