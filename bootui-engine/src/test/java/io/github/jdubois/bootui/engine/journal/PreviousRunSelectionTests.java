@@ -48,6 +48,79 @@ class PreviousRunSelectionTests {
         }
     }
 
+    /**
+     * Applications A and B share the JVM, as two Spring test contexts or two applications started from one launcher do,
+     * and run A1, B1, then A2: A2's previous run is A1, never B1, by default and when chosen by id.
+     */
+    @Test
+    void anInterleavedApplicationsRunIsNeverAnotherApplicationsPreviousRun() {
+        RunHistory history = new RunHistory(5, RunHistory.MAX_SUMMARY_BYTES, null);
+        RunIdentity a1 = RunIdentity.start();
+        history.record(RunSummary.of(a1, "dev:a", served(3), null, null, 1));
+        RunIdentity b1 = RunIdentity.start();
+        history.record(RunSummary.of(b1, "dev:b", served(1), null, null, 2));
+        RuntimeJournal journal = new RuntimeJournal(SETTINGS, RunIdentity.start());
+        try {
+            JournalAggregates a2 = new JournalAggregates();
+            a2.recordRunIn(history, journal.run(), null, "dev:a");
+            RunComparisonService service = new RunComparisonService(journal, a2, history);
+
+            RuntimeRunComparisonDto previous = service.compare(null);
+            assertThat(previous.previous().runId()).isEqualTo(a1.id());
+            assertThat(previous.runs()).extracting(run -> run.runId()).containsExactly(a1.id());
+            RuntimeRunComparisonDto other = service.compare(b1.id());
+            assertThat(other.previous()).isNull();
+            assertThat(other.reason()).contains("No kept run of this application has the id " + b1.id());
+            assertThat(history.summaries("dev:b"))
+                    .extracting(summary -> summary.header().runId())
+                    .containsExactly(b1.id());
+            assertThat(history.summaries(null)).hasSize(2);
+        } finally {
+            journal.close();
+        }
+    }
+
+    @Test
+    void eachApplicationKeepsItsLastRunWhileTheHistoryStaysBounded() {
+        RunHistory history = new RunHistory(3, RunHistory.MAX_SUMMARY_BYTES, null);
+        RunIdentity a = RunIdentity.start();
+        history.record(RunSummary.of(a, "dev:a", served(1), null, null, 1));
+        for (int i = 0; i < 4; i++) {
+            history.record(RunSummary.of(RunIdentity.start(), "dev:b", served(1), null, null, 2 + i));
+        }
+        RunIdentity c = RunIdentity.start();
+        history.record(RunSummary.of(c, "dev:c", served(1), null, null, 9));
+
+        assertThat(history.headers()).hasSize(3);
+        assertThat(history.headers("dev:a"))
+                .as("a busy application never evicts another one's last run")
+                .extracting(RunSummary.Header::runId)
+                .containsExactly(a.id());
+        assertThat(history.headers("dev:b")).hasSize(1);
+        assertThat(history.headers("dev:c")).extracting(RunSummary.Header::runId).containsExactly(c.id());
+
+        history.record(RunSummary.of(RunIdentity.start(), "dev:d", served(1), null, null, 10));
+        assertThat(history.headers())
+                .as("with more applications than kept runs, the oldest run goes")
+                .hasSize(3)
+                .noneMatch(header -> header.runId().equals(a.id()));
+    }
+
+    @Test
+    void aBaselineIsReadForAnApplicationWithNoKeptRunEvenWhenAnotherOneHasSome(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        RunBaselineFile file = new RunBaselineFile(directory.resolve("baseline.bin"), "a");
+        RunIdentity a1 = RunIdentity.start();
+        file.write(RunSummary.of(a1, "dev:a", served(2), null, null, 1));
+        RunHistory history = new RunHistory(5, RunHistory.MAX_SUMMARY_BYTES, null);
+        history.record(RunSummary.of(RunIdentity.start(), "dev:b", served(1), null, null, 2));
+
+        history.loadBaseline(file, "dev:a");
+
+        assertThat(history.headers("dev:a")).extracting(RunSummary.Header::runId).containsExactly(a1.id());
+        assertThat(history.baselineRunId()).isEqualTo(a1.id());
+    }
+
     @Test
     void aReloadableHolderIsUnavailableInsteadOfSuggestingAnotherRestartWillKeepHistory() {
         RuntimeJournal journal = new RuntimeJournal(SETTINGS, RunIdentity.start());

@@ -74,7 +74,7 @@ the panel. The report includes `state`, `reason`, `agentVersion`, `bootUiVersion
 | `DISARMED` | This run ended its claim. |
 | `UNAVAILABLE` | The bridge is present but the agent did not start, the protocol differs, or the runtime cannot use it. |
 | `FAILED` | The agent rejected or failed this application's claim. |
-| `DISABLED` | Agent support is disabled, including Quarkus production mode. |
+| `DISABLED` | Agent support is disabled, including Quarkus production mode and a Spring application forced on in a disabled profile such as `prod`. |
 
 A different agent version on the same protocol is shown as a warning. Protocol mismatches are unavailable rather than
 best-effort.
@@ -130,6 +130,11 @@ A `SpringApplication` run inside another one's, as Spring Cloud's bootstrap cont
 `bootstrap` property source), neither claims nor releases: it would otherwise claim with its own sources' packages, or,
 resolving BootUI to disabled without the application's configuration, release the claim the application makes or keeps
 armed across DevTools restarts.
+
+When `bootui.enabled=ON` forces BootUI on despite an active `bootui.disabled-profiles` entry, such as `prod`, Spring
+releases the agent instead of claiming it, logs why at `INFO`, and the panel reports `DISABLED` with that reason, as
+Quarkus production mode does: the agent must never be attached to a production JVM. Only
+`bootui.agent.allow-in-disabled-profiles=true` claims it there anyway.
 
 Quarkus claims from a `STATIC_INIT` recorder in dev and test launch modes, refines on startup, and disarms on shutdown.
 Production launch mode never claims the agent and reports `DISABLED` with reason `Quarkus production mode`. The
@@ -1299,6 +1304,7 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | Property | Default | Purpose |
 | --- | --- | --- |
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
+| `bootui.agent.allow-in-disabled-profiles` | `false` | Spring only: claim the agent even when `bootui.enabled=ON` forces BootUI on in a disabled profile such as `prod`. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
 | `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`, and the opt-in `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks`. The Side Effects sensors this version does not ship (`resources`) are accepted with a warning and reported not available; any other id fails the start while the agent is attached. |

@@ -2829,6 +2829,13 @@ public class BootUiProperties {
         private boolean enabled = true;
 
         /**
+         * Whether this application claims the BootUI agent when {@code bootui.enabled=ON} forces BootUI on despite an
+         * active {@code bootui.disabled-profiles} entry, such as {@code prod}. Off by default: the agent must never be
+         * attached to a production JVM.
+         */
+        private boolean allowInDisabledProfiles;
+
+        /**
          * Application package prefixes the agent may instrument, in addition to the main application class's package
          * and the auto-configuration packages.
          */
@@ -2872,6 +2879,14 @@ public class BootUiProperties {
 
         public boolean isEnabled() {
             return enabled;
+        }
+
+        public boolean isAllowInDisabledProfiles() {
+            return allowInDisabledProfiles;
+        }
+
+        public void setAllowInDisabledProfiles(boolean allowInDisabledProfiles) {
+            this.allowInDisabledProfiles = allowInDisabledProfiles;
         }
 
         public SecuritySinks getSecuritySinks() {

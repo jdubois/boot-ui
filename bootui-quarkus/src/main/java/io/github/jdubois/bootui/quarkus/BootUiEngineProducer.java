@@ -56,6 +56,7 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RunBaselineFile;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RunningHandoffs;
+import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
@@ -563,8 +564,29 @@ public class BootUiEngineProducer {
                         config.getOptionalValue("bootui.runtime-journal.baseline-file", String.class)
                                 .orElse(null),
                         config.getOptionalValue("quarkus.application.name", String.class)
-                                .orElse("application")));
+                                .orElse("application")),
+                runApplicationKey(config, LaunchMode.current()));
         return aggregates;
+    }
+
+    /**
+     * The key of this application's runs ({@code RunSummary.applicationKey}), so run comparison never compares a run
+     * with one of another application sharing the JVM: its mode, as the BootUI agent's claim slot names it
+     * ({@code bootui.agent.mode}, else {@code test} in test launch mode and {@code dev} otherwise), then
+     * {@code quarkus.application.name}.
+     */
+    static String runApplicationKey(Config config, LaunchMode launchMode) {
+        String configured = config.getOptionalValue("bootui.agent.mode", String.class)
+                .orElse("auto")
+                .strip()
+                .toLowerCase(java.util.Locale.ROOT);
+        String mode = AgentClaim.DEV.equals(configured) || AgentClaim.TEST.equals(configured)
+                ? configured
+                : launchMode == LaunchMode.TEST ? AgentClaim.TEST : AgentClaim.DEV;
+        return RunSummary.applicationKey(
+                mode,
+                config.getOptionalValue("quarkus.application.name", String.class)
+                        .orElse("application"));
     }
 
     /**

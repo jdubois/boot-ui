@@ -725,6 +725,15 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
   `200` lasting only the handler's own time, so a request that later answered `503` or failed, or timed out, read as a
   fast success in Live Activity, Runtime Insights, and run comparison. It is now recorded once, when its response
   completes, with the status it answered and its whole duration, however many asynchronous steps it went through.
+- **Run comparison never compares two applications sharing a JVM.** Run history is kept per JVM, so with two
+  applications in one JVM, such as two Spring test contexts, a run of one could be compared with the other's last run.
+  Each kept run now carries its application, and the previous run, the runs to choose from, and a baseline file read
+  are this application's own. Each application keeps its last run while the history stays at five runs.
+- **Spring no longer claims the Java agent when BootUI is forced on in production.** With `bootui.enabled=ON`
+  overriding a disabled profile such as `prod`, the application claimed the BootUI Java agent, which must never be
+  attached to a production JVM. It now releases it, logs why, and the Java Agent panel says so, as Quarkus production
+  mode does; `bootui.agent.allow-in-disabled-profiles=true` claims it anyway
+  ([Java Agent](docs/features/java-agent.md#claims-and-lifecycle)).
 - **A failed Spring WebFlux request is recorded with the status it answered.** The runtime journal recorded a failed
   request as `500`, unless the error declared its own status, before WebFlux's exception handlers ran, so a custom
   handler's `400` or `404`, or a successful fallback, read as a server error. It now records the status that handler

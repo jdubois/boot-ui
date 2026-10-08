@@ -441,8 +441,10 @@ against `bootui.runtime-journal.agent-evidence-max-bytes`, and Clear recording, 
 evidence too: Code Paths' request and route trees, Code Inventory's first requests and routes, and Side Effects rows.
 The status counts Side Effects as `sideEffectRows` and `sideEffectsWaiting`. When the application restarts in the
 same JVM, as after a DevTools restart or a Quarkus live reload, BootUI keeps a summary of the run that ended, at most
-256 KB each, for the 5 most recent runs. **Previous runs** lists them with their requests, failures, and events, or says
-why none can be kept when BootUI itself is reloaded with the application. A summary keeps the run's counts and
+256 KB each, for the 5 most recent runs. Each run carries its application (its name and whether it runs as a test),
+so when several applications share the JVM, as Spring test contexts do, a run is only compared with its own
+application's runs, and each application keeps its last run. **Previous runs** lists them with their requests,
+failures, and events, or says why none can be kept when BootUI itself is reloaded with the application. A summary keeps the run's counts and
 histograms per route, statement fingerprint, and exception group, and the edges its requests, jobs, and listeners
 observed, such as a route reading a table or calling a host, and what the run recorded when it started: its time to
 ready and slowest bean instantiations (Spring), its active profiles, data source URL shapes, cache, and whether
