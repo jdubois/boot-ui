@@ -77,6 +77,12 @@ jobs:
       - name: Test MySQL live-evidence gate
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_mysql_live_tests.py'
 
+      # Concurrent pull requests have twice left [Unreleased] with repeated subsections and entries.
+      - name: Check the CHANGELOG's [Unreleased] section
+        run: |
+          python3 .github/scripts/check-changelog.py CHANGELOG.md
+          python3 -B -m unittest discover -s .github/scripts -p 'test_changelog.py'
+
       # The validation harness is not built or published; its scorer and scripts are checked so the registered
       # protocol stays computable (docs/V2-VALIDATION-REPORT.md, "Protocol for the rerun").
       - name: Test the validation harness
