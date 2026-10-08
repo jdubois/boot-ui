@@ -70,6 +70,16 @@ See [Quarkus design notes](QUARKUS-SUPPORT.md) for the panel-by-panel detail.
 - **CPU on virtual threads** is not read by the per-request scope readings; use the opt-in JFR attribution (**Profile
   resources**) for it.
 
+## MCP
+
+- **A legacy cancellation can reach another client's call.** MCP 2025-06-18 over HTTP has no sessions, and clients
+  number their request ids from 0 per connection. A late `notifications/cancelled` from one client, sent after its own
+  call finished, cancels another local client's in-flight `tools/call` that uses the same id; that call's progress
+  stream then ends with no response. Two calls in flight with the same id are never cancelled. BootUI does not add an
+  `Mcp-Session-Id`, which would change MCP 2025-06-18's bytes. See [AI agents](AI-AGENTS.md#protocol-eras).
+- **Only `architecture_scan` and `vulnerabilities_scan` report progress**; every other tool finishes in about a second
+  and answers with one JSON response.
+
 ## The BootUI Java agent
 
 The agent is optional: without it, every 2.0 feature that does not name it works. With it, BootUI records what the

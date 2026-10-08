@@ -78,7 +78,8 @@ public final class McpStreamDisconnectContract {
                 () -> dispatcher.runtimeStats().snapshot();
         reset();
         McpRuntimeStats.Snapshot before = stats.get();
-        long statusBefore = statusCancellations(port);
+        long statusBefore = statusCount(port, "cancellations");
+        long statusTimeoutsBefore = statusCount(port, "timeouts");
         String body =
                 "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"architecture_scan\","
                         + "\"arguments\":{},\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
@@ -118,6 +119,9 @@ public final class McpStreamDisconnectContract {
         assertThat(status.json().path("cancellations").asLong() - statusBefore)
                 .as("the MCP Server status reports the cancellation")
                 .isEqualTo(1);
+        assertThat(status.json().path("timeouts").asLong() - statusTimeoutsBefore)
+                .as("a cancellation is not a timeout")
+                .isZero();
         assertThat(status.json().path("supportedProtocolVersions").toString())
                 .isEqualTo("[\"2026-07-28\",\"2025-06-18\"]");
     }
@@ -207,11 +211,11 @@ public final class McpStreamDisconnectContract {
         return stats.get();
     }
 
-    private static long statusCancellations(int port) {
+    private static long statusCount(int port, String field) {
         return new BootUiHttpProbe("http://localhost:" + port)
                 .get("/bootui/api/mcp-server")
                 .json()
-                .path("cancellations")
+                .path(field)
                 .asLong();
     }
 

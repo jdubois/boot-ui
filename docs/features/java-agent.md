@@ -903,9 +903,13 @@ request input)`, never the text, as it does for a path or executable longer than
 empty between requests, is not evidence.
 
 **Overhead.** On the agent overhead job's sinks route (two query parameters, one SQL statement, and one file read per
-request), matching added 2.6 %, −0.2 %, 2.9 %, and 1.1 % to the same sensors without it over four runs (median of 15
-pairs each), and the run with every sensor, `files` included, measured 10.9 %, 8.4 %, 10.8 %, and 9.7 % against no
-agent, at the edge of the 10 % budget; matching stays opt-in.
+request), matching added 2.6 %, −0.2 %, 2.9 %, 1.1 %, 0.5 %, and 2.2 % to the same sensors without it over six runs
+(median of 15 pairs each), and the run with every sensor, `files` included, measured 10.9 %, 8.4 %, 10.8 %, 9.7 %, 13.8 %,
+and 11.9 % against no agent, at the edge of the 10 % budget; matching stays opt-in. Two later runs on branches that
+changed nothing matching runs measured 3.9 % [2.0, 6.5] and 4.9 % [1.3, 8.0], and their `files` A/Bs were elevated as
+well: a median above 3 % fails about one clean run in six, so the build fails only when the median interval's lower
+bound is above 3 % (D48). That rule still flags a regression whose interval sits above the budget; one near it, as
+the 3.4 % [1.1, 4.2] a shared lock counter caused before #1296 merged, shows as FAIL in the report, not in the build.
 
 **False positives.** A value that sits outside an SQL literal, inside a number or `true`/`false`, or that is itself a
 number (digits, with an optional sign and decimal point, as `-33.8688`), may be a word the text always holds, as a
@@ -1235,7 +1239,10 @@ above 10 %. These checks fail a build:
 - the blocking sensor's default, when its own increment's median is above 3 % or the lower bound of the default
   route's cumulative median interval (15 pairs) is above 10 % (M5-5c, D48);
 - the `files` and `environment` sensors' own increments over the other default sensors, `files` on the I/O route and
-  `environment` on a route that adds fifty `System.getProperty` reads per request, 15 pairs each, when the lower bound of their median interval is above 3 % (D49);
+  `environment` on a route that adds fifty `System.getProperty` reads per request, 15 pairs each, when the lower bound
+  of their median interval is above 3 % (D49);
+- request-value matching's own increment on the sinks route, when the lower bound of its median's interval (15 pairs)
+  is above 3 % (M5-6b1, D48);
 - a sensor whose A/B is enforced while it is on by default, as `caught-exceptions`, `thread-activity`, and
   `thread-locals` would be: its own increment's median above 3 %, or its cumulative median interval's lower bound
   above 10 %.

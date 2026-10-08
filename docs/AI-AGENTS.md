@@ -805,14 +805,22 @@ compatibility rules describe:
   `CancelledNotification`." So closing a legacy stream only stops BootUI writing to it; the tool runs on, still bounded
   by `bootui.mcp.execution-timeout`, and keeps its concurrency slot until it returns. A client that leaves before its
   stream even starts releases the call at once: nothing has begun, and there is nowhere left to answer. A `notifications/cancelled`
-  notification whose `params.requestId` names an in-flight legacy `tools/call` (matched by value, so `7` and `7.0` are
-  the same id) is answered `202` and cancels it: a stream closes without a final response, as the specification asks
-  ("Not send a response for the cancelled request"), and a blocking call answers `-32800`, because its HTTP request
+  notification whose `params.requestId` names an in-flight legacy `tools/call` is answered `202` and cancels it.
+  Numeric ids match by value: an integer exactly, and a fractional id by its double value, so `7.0`, or an id within
+  double rounding of `7`, finds `7`. A fractional id whose double value is not whole, is zero, or reaches 2^53 (`7.5`,
+  `1e-400`, `1e400`) is never matched, so its call cannot be cancelled. A cancelled **stream ends with no
+  response**: the cancellation rule ("Not send a response for the cancelled request") takes precedence over the
+  transport's one-response-per-stream rule. A cancelled **blocking call answers `-32800`**, because its HTTP request
   still needs an answer, which the client ignores ("The sender of the cancellation notification SHOULD ignore any
   response to the request that arrives afterward"). Unknown, finished, ambiguous, or malformed cancellations are
-  ignored, still with `202`, and `initialize` is never cancelled. MCP 2025-06-18 over HTTP has no sessions, so any
-  local caller that passes BootUI's checks (loopback, Host, cross-site write, token) and knows a request id can cancel
-  that request; BootUI tracks at most one entry per concurrency slot.
+  ignored, still with `202`, and `initialize` is never cancelled; the `reason` is only logged, at debug level,
+  sanitized and truncated. MCP 2025-06-18 over HTTP has no sessions, so any local caller that passes BootUI's checks
+  (loopback, Host, cross-site write, token) and knows a request id can cancel that request, and BootUI tracks at most
+  one entry per concurrency slot. Because clients number their ids from 0 per connection, this can also happen by
+  accident: a late `notifications/cancelled` from one client for id 5, sent after its own call 5 finished, cancels
+  another client's call 5 if one is in flight, whose stream then ends with no response. Two calls in flight with the
+  same id are never cancelled. BootUI accepts this rather than add an `Mcp-Session-Id`, which would change MCP
+  2025-06-18's bytes ([known limitations](KNOWN-LIMITATIONS.md#mcp)).
 
 ### Client compatibility
 
