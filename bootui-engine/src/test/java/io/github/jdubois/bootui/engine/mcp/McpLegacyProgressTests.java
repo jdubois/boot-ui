@@ -51,6 +51,8 @@ class McpLegacyProgressTests {
 
         assertThat(sink.closed.await(5, TimeUnit.SECONDS)).isTrue();
         assertThat(sink.messages).containsExactly("progress 1.0", "complete " + new ToolCallResult("done"), "close");
+        // The tool's part may still be finishing after the writer closed the stream; it unregisters before its permit.
+        awaitPermits(dispatcher, 2);
         assertThat(dispatcher.inFlightCalls())
                 .as("the registration ends with the call")
                 .isZero();

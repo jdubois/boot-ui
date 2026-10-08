@@ -313,9 +313,13 @@ public final class McpStreamingCall {
 
     private void releasePart() {
         if (permitHolders.decrementAndGet() == 0 && permitReleased.compareAndSet(false, true)) {
-            permits.release();
-            stats.recordCall(System.nanoTime() - createdAt);
-            onFinished.run();
+            // Unregistered and counted before the permit is free, so whoever sees the permit sees the call finished.
+            try {
+                onFinished.run();
+            } finally {
+                stats.recordCall(System.nanoTime() - createdAt);
+                permits.release();
+            }
         }
     }
 
