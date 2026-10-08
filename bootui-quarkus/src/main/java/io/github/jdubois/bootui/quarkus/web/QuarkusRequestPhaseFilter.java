@@ -3,19 +3,26 @@ package io.github.jdubois.bootui.quarkus.web;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
+import io.github.jdubois.bootui.engine.javaagent.AgentRequestValues;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import io.github.jdubois.bootui.quarkus.exceptions.QuarkusResourceHandlers;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.vertx.core.Context;
+import io.vertx.core.http.HttpServerResponse;
+import io.vertx.ext.web.RoutingContext;
 import jakarta.annotation.Priority;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.container.ContainerResponseContext;
 import jakarta.ws.rs.container.ContainerResponseFilter;
+import jakarta.ws.rs.core.UriInfo;
 import jakarta.ws.rs.ext.Provider;
 import java.lang.reflect.Method;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import org.jboss.resteasy.reactive.server.core.ResteasyReactiveRequestContext;
+import org.jboss.resteasy.reactive.server.spi.ResteasyReactiveContainerRequestContext;
 
 /**
  * Marks when a Quarkus REST request enters its resource method, and when the method has returned and the response
@@ -45,6 +52,51 @@ public class QuarkusRequestPhaseFilter implements ContainerRequestFilter, Contai
         mark(RequestPhase.HANDLER);
         QuarkusRequestSegments.enter(request);
         assemblyOnlyUnlessBlocking();
+        pushRequestValues(request);
+    }
+
+    /**
+     * Hands the request's query and path parameter values to the BootUI agent's request value holder
+     * ({@code docs/PLAN-v2.md} §5.16, M5-6b), only while request-value matching is on: the query parameters decoded from
+     * the URI and the path parameters RESTEasy Reactive matched, never a body. The values are removed when the
+     * response ends, or the connection closes, on Vert.x's end handler, whichever thread pushed them, so none
+     * outlives the response. Observes only, and never fails the request.
+     */
+    static void pushRequestValues(ContainerRequestContext request) {
+        try {
+            if (!AgentRequestValues.active()
+                    || !(request instanceof ResteasyReactiveContainerRequestContext resteasy)) {
+                return;
+            }
+            CorrelationContext correlation = QuarkusRequestCorrelation.current();
+            String requestId = correlation.requestId();
+            if (correlation.bootUi() || requestId == null) {
+                return;
+            }
+            RoutingContext routing =
+                    resteasy.getServerRequestContext() instanceof ResteasyReactiveRequestContext context
+                            ? context.serverRequest().unwrap(RoutingContext.class)
+                            : null;
+            if (routing == null) {
+                return;
+            }
+            UriInfo uri = request.getUriInfo();
+            AgentRequestValues.Values values = new AgentRequestValues.Values()
+                    .addAll(uri.getPathParameters())
+                    .addAll(uri.getQueryParameters());
+            if (values.isEmpty()) {
+                return;
+            }
+            routing.addEndHandler(ended -> AgentRequestValues.end(requestId));
+            AgentRequestValues.begin(requestId, values);
+            HttpServerResponse response = routing.response();
+            if (response != null && (response.ended() || response.closed())) {
+                // The connection closed, or the response ended, before the end handler was added: it never runs.
+                AgentRequestValues.end(requestId);
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            // Request-value matching is diagnostics only; the request continues untouched.
+        }
     }
 
     /**

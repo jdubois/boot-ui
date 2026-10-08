@@ -296,6 +296,9 @@ class AgentHandoffsTests {
         assertThat(payload.bodyAfterResponseMicros()).isZero();
         assertThat(payload.responseAtMicros()).isEqualTo(phases.markers("r1").responseAt());
         assertThat(sink.single().durationNanos()).isEqualTo(505_000_000);
+        // The waiting handler answered before the close; however the close compares, the task's work was before.
+        assertThat(payload.workedAfterResponse(Long.MIN_VALUE)).isFalse();
+        assertThat(payload.workedAfterResponseMicros(Long.MIN_VALUE)).isZero();
     }
 
     @Test

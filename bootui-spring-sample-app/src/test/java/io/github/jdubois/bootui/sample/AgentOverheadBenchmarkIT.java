@@ -47,6 +47,11 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
  * it is one of {@link AgentSensorSettings#DEFAULT_SENSORS}, a {@code FAIL} fails the run, so a sensor that ships on by
  * default can never exceed its budget unnoticed; while it is opt-in, only {@code fail-above-percent} fails it.
  *
+ * <p>{@code bootui.benchmark.route=sinks} drives {@value #SINKS_ROUTE}: two query parameters, the search's SQL
+ * statement, and one file read, for the security-sinks sensor's request-value matching (M5-6b). {@code
+ * bootui.benchmark.agent.extra} and {@code bootui.benchmark.agent.baseline-extra} add comma-separated application
+ * arguments to the agent arm and to the other arm, so an A/B can claim the same sensors with matching on and off.
+ *
  * <p>The budget is 10 %. Timings depend on the machine, so this is opt-in. It fails only when
  * {@code bootui.benchmark.agent.fail-above-percent} is set and the median paired overhead exceeds it. CI sets it to 30,
  * well above the run-to-run noise on a shared runner, so only a clear regression fails a build (see CONTRIBUTING.md):</p>
@@ -72,6 +77,9 @@ class AgentOverheadBenchmarkIT {
 
     /** The caught-exceptions variant's route: the search and one caught exception. */
     static final String CAUGHT_ROUTE = "/api/caught/benchmark?term=console";
+
+    /** The security-sinks variant's route (M5-6b): two query parameters, one SQL statement, and one file read. */
+    static final String SINKS_ROUTE = "/api/side-effects/benchmark-sinks?term=console&tag=sample-tag";
 
     private static final Duration WARM_UP = Duration.ofSeconds(10);
 
@@ -100,7 +108,11 @@ class AgentOverheadBenchmarkIT {
                 ? IO_ROUTE
                 : "caught".equals(routeName)
                         ? CAUGHT_ROUTE
-                        : "threads".equals(routeName) ? THREADS_ROUTE : CaptureOverheadBenchmarkTest.ROUTE;
+                        : "threads".equals(routeName)
+                                ? THREADS_ROUTE
+                                : "sinks".equals(routeName) ? SINKS_ROUTE : CaptureOverheadBenchmarkTest.ROUTE;
+        List<String> agentExtra = arguments(System.getProperty("bootui.benchmark.agent.extra", ""));
+        List<String> baselineExtra = arguments(System.getProperty("bootui.benchmark.agent.baseline-extra", ""));
         double budget = Double.parseDouble(
                 System.getProperty("bootui.benchmark.agent.budget-percent", String.valueOf(BUDGET_PERCENT)));
         String enforced = System.getProperty("bootui.benchmark.agent.enforce-when-default", "");
@@ -119,6 +131,8 @@ class AgentOverheadBenchmarkIT {
                     baselineLabel,
                     reportName,
                     extra,
+                    agentExtra,
+                    baselineExtra,
                     budget,
                     enforced);
         }
@@ -134,9 +148,15 @@ class AgentOverheadBenchmarkIT {
             String baselineLabel,
             String reportName,
             List<String> extra,
+            List<String> agentExtra,
+            List<String> baselineExtra,
             double budget,
             String enforced)
             throws Exception {
+        List<String> agentArguments = new ArrayList<>(extra);
+        agentArguments.addAll(agentExtra);
+        List<String> baselineArguments = new ArrayList<>(extra);
+        baselineArguments.addAll(baselineExtra);
         // The load generator in this JVM pays for JIT-compiling its HTTP client in its first run, which is discarded.
         run("JVM warm-up, discarded", null, sensors, 0, route, extra);
         List<Result> results = new ArrayList<>();
@@ -149,10 +169,22 @@ class AgentOverheadBenchmarkIT {
             Result withoutAgent = null;
             for (boolean attached : agentFirst ? new boolean[] {true, false} : new boolean[] {false, true}) {
                 Result result = attached
-                        ? run("Agent, " + describe(sensors) + ", pass " + pass, agent, sensors, pass, route, extra)
+                        ? run(
+                                "Agent, " + describe(sensors) + ", pass " + pass,
+                                agent,
+                                sensors,
+                                pass,
+                                route,
+                                agentArguments)
                         : baseline.isBlank()
-                                ? run(baselineLabel + ", pass " + pass, null, sensors, pass, route, extra)
-                                : run(baselineLabel + ", pass " + pass, agent, baseline, pass, route, extra);
+                                ? run(baselineLabel + ", pass " + pass, null, sensors, pass, route, baselineArguments)
+                                : run(
+                                        baselineLabel + ", pass " + pass,
+                                        agent,
+                                        baseline,
+                                        pass,
+                                        route,
+                                        baselineArguments);
                 results.add(result);
                 if (attached) {
                     withAgent = result;
@@ -166,6 +198,10 @@ class AgentOverheadBenchmarkIT {
         }
         double medianRatio = median(ratios);
         double overheadPercent = (1 - medianRatio) * 100;
+        double[] interval = medianInterval(ratios);
+        // Ratios run opposite to overhead: the interval's high ratio is its low overhead.
+        double lowOverheadPercent = (1 - interval[1]) * 100;
+        double highOverheadPercent = (1 - interval[0]) * 100;
         String verdict = overheadPercent <= budget ? "PASS" : "FAIL";
         boolean enforcing = !enforced.isBlank() && AgentSensorSettings.DEFAULT_SENSORS.contains(enforced);
 
@@ -213,14 +249,26 @@ class AgentOverheadBenchmarkIT {
                 .append(String.format(
                         Locale.ROOT,
                         "%n**Median paired throughput with the agent is %.1f %% of the other run's: %.1f %%"
-                                + " overhead, against a %.0f %% budget: %s.** Median p99 latency: %.2f ms with the"
-                                + " agent, %.2f ms in the other run.%n",
+                                + " overhead, against a %.0f %% budget: %s.** The median overhead is between %.1f %% and"
+                                + " %.1f %% with %.0f %% confidence (distribution-free, from the pairs' order statistics)."
+                                + " Median p99 latency: %.2f ms with the agent, %.2f ms in the other run.%n",
                         medianRatio * 100,
                         overheadPercent,
                         budget,
                         verdict,
+                        lowOverheadPercent,
+                        highOverheadPercent,
+                        interval[2] * 100,
                         CaptureOverheadBenchmarkTest.median(with, result -> result.percentileMillis(99)),
                         CaptureOverheadBenchmarkTest.median(without, result -> result.percentileMillis(99))));
+
+        if (!agentExtra.isEmpty() || !baselineExtra.isEmpty()) {
+            report.append(String.format(
+                    Locale.ROOT,
+                    "%nThe agent run also passes %s; the other run %s.%n",
+                    agentExtra.isEmpty() ? "nothing more" : String.join(" ", agentExtra),
+                    baselineExtra.isEmpty() ? "nothing more" : "passes " + String.join(" ", baselineExtra)));
+        }
 
         Path directory = Path.of("target", "agent-overhead");
         Files.createDirectories(directory);
@@ -231,7 +279,8 @@ class AgentOverheadBenchmarkIT {
                 String.format(
                         Locale.ROOT,
                         "overheadPercent=%.1f%nbudgetPercent=%.0f%nmedianRatio=%.4f%npasses=%d%n"
-                                + "minOverheadPercent=%.1f%nmaxOverheadPercent=%.1f%nverdict=%s%nenforced=%s%n",
+                                + "minOverheadPercent=%.1f%nmaxOverheadPercent=%.1f%nverdict=%s%nenforced=%s%n"
+                                + "lowOverheadPercent=%.1f%nhighOverheadPercent=%.1f%nintervalConfidence=%.3f%n",
                         overheadPercent,
                         budget,
                         medianRatio,
@@ -239,7 +288,10 @@ class AgentOverheadBenchmarkIT {
                         (1 - Arrays.stream(ratios).max().orElse(1)) * 100,
                         (1 - Arrays.stream(ratios).min().orElse(1)) * 100,
                         verdict,
-                        enforcing),
+                        enforcing,
+                        lowOverheadPercent,
+                        highOverheadPercent,
+                        interval[2]),
                 StandardCharsets.UTF_8);
         System.out.println(report);
         System.out.printf(
@@ -297,6 +349,9 @@ class AgentOverheadBenchmarkIT {
                 assertSensorsRecorded(
                         sample.probe().get("/bootui/api/java-agent").json(), sensors);
             }
+            if (extra.contains(REQUEST_VALUES_ON) || extra.contains(REQUEST_VALUES_OFF)) {
+                assertRequestValues(sample, extra.contains(REQUEST_VALUES_ON));
+            }
             long[] all = samples.stream().flatMapToLong(Arrays::stream).sorted().toArray();
             return new Result(label, all.length, seconds, all);
         }
@@ -319,6 +374,47 @@ class AgentOverheadBenchmarkIT {
         throw new IllegalStateException("The Code Inventory scan did not end in 60 s: " + sample.tail());
     }
 
+    static final String REQUEST_VALUES_ON = "--bootui.agent.security-sinks.request-values=true";
+    static final String REQUEST_VALUES_OFF = "--bootui.agent.security-sinks.request-values=false";
+
+    /**
+     * The run measured what its arm claims (M5-6b): with matching on, the holder held requests' values and checked
+     * sinks; with it off, it held none. Read from the security-sinks sensor's limitations, which carry the holder's
+     * counters while matching is on.
+     */
+    private static void assertRequestValues(SampleExecutableJar sample, boolean on) {
+        JsonNode report = sample.probe()
+                .get("/bootui/api/side-effects/sensor?sensor=security-sinks")
+                .json();
+        String counters = null;
+        for (JsonNode line : report.path("limitations")) {
+            if (line.asText().startsWith("Request-value matching: ")) {
+                counters = line.asText();
+            }
+        }
+        if (!on) {
+            assertThat(counters).as(report.toString()).isNull();
+            return;
+        }
+        assertThat(counters).as(report.toString()).isNotNull();
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(
+                        "^Request-value matching: (\\d+) requests held values, (\\d+) sink checks ran\\.")
+                .matcher(counters);
+        assertThat(matcher.find()).as(counters).isTrue();
+        assertThat(Long.parseLong(matcher.group(1))).as(counters).isPositive();
+        assertThat(Long.parseLong(matcher.group(2))).as(counters).isPositive();
+    }
+
+    /** Application arguments from a comma-separated property, such as {@code --a=b,--c=d}. */
+    private static List<String> arguments(String property) {
+        return property.isBlank()
+                ? List.of()
+                : Arrays.stream(property.split(","))
+                        .map(String::trim)
+                        .filter(text -> !text.isEmpty())
+                        .toList();
+    }
+
     private static String describe(String sensors) {
         return sensors.isBlank()
                 ? "the default sensors (" + String.join(", ", AgentSensorSettings.DEFAULT_SENSORS) + ")"
@@ -329,7 +425,12 @@ class AgentOverheadBenchmarkIT {
     private static void assertSensorsRecorded(JsonNode report, String sensors) {
         List<String> expected = sensors.isBlank()
                 ? AgentSensorSettings.DEFAULT_SENSORS
-                : Arrays.stream(sensors.split(",")).map(String::trim).toList();
+                : Arrays.stream(sensors.split(","))
+                        .map(String::trim)
+                        // Its request-value matching rides on other sensors' hooks: the agent reports no hook of its
+                        // own.
+                        .filter(sensor -> !sensor.equals(AgentSensorSettings.SECURITY_SINKS))
+                        .toList();
         List<String> active = new ArrayList<>();
         for (JsonNode sensor : report.path("sensors")) {
             if ("installed".equals(sensor.path("state").asText())
@@ -375,6 +476,34 @@ class AgentOverheadBenchmarkIT {
         public void close() throws java.io.IOException {
             server.close();
         }
+    }
+
+    /**
+     * A distribution-free confidence interval of the median of {@code values}: the {@code k}-th lowest and {@code k}-th
+     * highest values, with the largest {@code k} whose coverage, {@code 1 - 2 P(X < k)} for {@code X ~ Binomial(n, 1/2)},
+     * is still at least 95 %. Returns {@code {low, high, coverage}}; with fewer than six values, the range and its
+     * coverage. It assumes only that the pairs are independent, not that they are normal.
+     */
+    static double[] medianInterval(double[] values) {
+        double[] sorted = values.clone();
+        Arrays.sort(sorted);
+        int n = sorted.length;
+        if (n == 0) {
+            return new double[] {Double.NaN, Double.NaN, 0};
+        }
+        // below[i] = P(X < i): the interval between the k-th lowest and k-th highest values covers the median with
+        // probability 1 - 2 below[k].
+        double[] below = new double[n + 1];
+        double probability = Math.pow(0.5, n);
+        for (int i = 1; i <= n; i++) {
+            below[i] = below[i - 1] + probability;
+            probability = probability * (n - i + 1) / i;
+        }
+        int k = 1;
+        while (k + 1 <= (n + 1) / 2 && 1 - 2 * below[k + 1] >= 0.95) {
+            k++;
+        }
+        return new double[] {sorted[k - 1], sorted[n - k], 1 - 2 * below[k]};
     }
 
     private static double median(double[] values) {

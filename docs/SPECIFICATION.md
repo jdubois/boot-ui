@@ -797,8 +797,10 @@ Data sources:
 
 - The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a), `network` (M5-5b), and
   `blocking` (M5-5c) sensors record by default, and `files` and `environment` (M5-5d), `thread-activity` (M5-5e), and
-  `thread-locals` (M5-5f) when opted in. The `resources` and `security-sinks` sensors are still listed but report
-  `not-available` with reason `Not available in this version.`
+  `thread-locals` (M5-5f) when opted in. `security-sinks` (M5-6b) records, when opted in with
+  `bootui.agent.security-sinks.request-values=true`, request input reaching SQL text, a command, a file path, or an
+  outbound URL unchanged: the redacted sink, the parameter's name, and a sentence stating the fact. The `resources`
+  sensor is still listed but reports `not-available` with reason `Not available in this version.`
 - Each request's end, which the adapters mark once its response is complete (Spring MVC once an async request's
   context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended), for the
   `thread-activity` sensor to check what the request left running.
@@ -3494,8 +3496,24 @@ Design rules:
   answers an unknown method with `404`, adds `resultType`, `_meta` server identity, and cache hints (`ttlMs: 60000`,
   `cacheScope: "private"`) on discovery and list results, and moves BootUI's server errors to `-31000`..`-31003` because
   MCP 2026-07-28 reserves `-32000`..`-32099`. Era selection precedes the disabled short-circuit, so a malformed modern
-  request is a `400` even while the server is off. The CLI facade and the engine keep the legacy codes. Responses are
-  single JSON objects in both eras.
+  request is a `400` even while the server is off. The CLI facade and the engine keep the legacy codes.
+- **Request-scoped progress (modern only).** A modern `tools/call` with a string or integer `_meta.progressToken`, to a
+  tool whose operation reports measured phases through the engine's `OperationProgress` (today `architecture_scan`),
+  from a client whose `Accept` explicitly lists `text/event-stream`, answers on a `text/event-stream` POST response with
+  `X-Accel-Buffering: no`: rate-limited `notifications/progress` (burst 8, then one per 250 ms, coalescing to the
+  newest, flushed before the end) and exactly one final response, after which the stream closes. Events are `data:`
+  lines with no ids; keep-alive comments every 2 seconds, so Spring MVC, which only notices a closed stream when a write
+  fails, does so within about 4 seconds; WebFlux and Quarkus notice it at once. Closing the stream cancels the call:
+  nothing more is written, the tool is interrupted and stops at its next step, and its concurrency permit is released
+  exactly once, when the tool has returned and the stream is written. A cancelled call is counted in the `/mcp-server`
+  status's `cancellations`, apart from `timeouts`, and a cancelled blocking call answers `-32800` ("MCP request
+  cancelled"); the status also lists `supportedProtocolVersions`. The execution timeout stays absolute, and a call
+  that timed out before its stream opened still ends with the timeout response. Each event is one line of compact JSON
+  regardless of the application's mapper configuration, built through one engine helper that refuses a line break. A
+  writer blocked on a client that stops reading keeps the permit (WebFlux emits only on subscriber demand) and gives up
+  10 seconds after the execution timeout on every stack; Quarkus then resets the response. Spring MVC falls back to
+  one JSON response when the request cannot go async. Everything else, every refusal, and every legacy request is one
+  JSON response; there is still no `GET` stream, live push, resource, or `subscriptions/listen`.
 - **Agent guidance.** Initialization instructions direct agents to establish overview/health context, prefer the smallest
   relevant read, correlate exception and trace identifiers, verify advisor findings before changing code, and account for
   active scan costs (`memory_scan` may trigger a full GC; `pentest_scan` sends bounded loopback probes). Tool descriptions

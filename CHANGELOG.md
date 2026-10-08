@@ -14,6 +14,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with **See its impact**; `?impact=<symbol>` opens it, and `?tab=` opens any tab.
 - **MCP 2026-07-28 beside MCP 2025-06-18.** The MCP endpoint also serves modern clients, with `server/discover`, result
   envelopes, and header checks, while existing clients answer as before ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
+- **Live MCP progress for architecture scans.** A modern MCP client that asks for progress sees `architecture_scan`'s
+  phases as they happen, and closing the call stops the scan ([AI agents](docs/AI-AGENTS.md#protocol-eras)).
+- **MCP cancellations counted.** The MCP Server status reports the protocol versions served and counts calls a client
+  cancelled by closing their stream apart from timeouts ([#1340](https://github.com/jdubois/boot-ui/issues/1340)).
 
 - **Hibernate Statistics and WebSockets for agents.** `get_hibernate_statistics` (`bootui hibernate statistics`) and
   `get_websockets` (`bootui websockets`) are passive reads on Spring MVC, Spring WebFlux, and Quarkus; enabling
@@ -36,6 +40,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   both runs whole ([Runtime Insights](docs/features/overview.md#runtime-insights)).
 - **Agent guidance for the BootUI agent (M5-10a).** MCP instructions check `get_agent_status` first and read an
   agent-gated `NOT_APPLICABLE` as not measured; `verify_after_change` and the skill add verify-then-probe.
+- **Request input reaching a sink (M5-6b1).** Opt-in Security sinks rows show a request parameter reaching SQL, a
+  command, a file path, or a URL unchanged, its value redacted. ([#1296](https://github.com/jdubois/boot-ui/pull/1296))
 - **Caught exceptions, recorded by the BootUI agent (M5-6a, first part).** The agent's new opt-in `caught-exceptions`
   sensor (`bootui.agent.sensors=...,caught-exceptions`) reports each exception application code catches, at a handler
   that names a type, and which of them are thrown again: by the method itself, by a library helper it calls, or wrapped
@@ -729,6 +735,13 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **A task its handler waited for is no longer badged "after response".** With the BootUI agent, Live Activity's
+  **after response** badge and the request profile's **Handoffs** compared the task's run end with the response, and
+  the JDK releases a waiting handler before that run returns, so on virtual threads about one waited-for `FutureTask`
+  in twenty under load read as finishing after its response. Both now use the task body's own completion, as Runtime
+  Insights does, plus I/O, a failure, or 50 ms of work its result-publication tail had after the response. A handler
+  released from inside the task's body, as by `DeferredResult.setResult`, can still race it
+  ([Java Agent](docs/features/java-agent.md#accepted-limits)).
 - **Malformed MCP envelopes answer the same on every stack.** A `null`, numeric, or object `method` or tool name, a
   repeated `MCP-Protocol-Version`, and a version header sent with an oversized or batch body now get the same
   documented client error on Spring and Quarkus; `MCP-Protocol-Version: 2026-07-28` without `_meta` is now `-32602`

@@ -285,6 +285,9 @@ public final class BootUiApiContractCatalog {
                             "configuredMode", JsonType.STRING,
                             "overridden", JsonType.BOOLEAN,
                             "endpoint", JsonType.STRING,
+                            "supportedProtocolVersions", JsonType.ARRAY,
+                            "timeouts", JsonType.INTEGER,
+                            "cancellations", JsonType.INTEGER,
                             "toolCount", JsonType.INTEGER,
                             "tools", JsonType.ARRAY)),
             read(

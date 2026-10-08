@@ -64,6 +64,12 @@ import java.util.List;
  *     request and still running when it ended, its response complete; 0 otherwise
  * @param requests for thread activity, how many distinct requests started or created them, so {@code count / requests}
  *     is how many a request does; for thread locals, how many distinct requests left it set; 0 otherwise
+ * @param parameter for security sinks, the name of the request parameter whose value reached the sink, as
+ *     {@code @RequestParam}, a path variable, or the query names it, or {@code param#} and four hexadecimal digits when
+ *     its name is not safe to show; never its value; {@code null} for other sensors
+ * @param detail for security sinks, the fact the row states, worded as a fact and never as a vulnerability, such as
+ *     "Request input reached this SQL text unchanged: the value of `name` appeared inside a literal. Check that it is
+ *     bound as a parameter or escaped."; {@code null} for other sensors
  */
 public record SideEffectsRowDto(
         String scope,
@@ -89,7 +95,64 @@ public record SideEffectsRowDto(
         String capture,
         String capturedBy,
         long leftRunning,
-        long requests) {
+        long requests,
+        String parameter,
+        String detail) {
+
+    /** A row of a sensor other than security sinks: no parameter and no detail. */
+    public SideEffectsRowDto(
+            String scope,
+            String attribution,
+            String sensor,
+            String kind,
+            String target,
+            String callSite,
+            String insideMethod,
+            String origin,
+            String location,
+            long count,
+            long failed,
+            long completed,
+            long nonZeroExits,
+            Integer lastExitStatus,
+            long totalMillis,
+            long maxMillis,
+            long firstSeen,
+            long lastSeen,
+            List<String> exemplarRequestIds,
+            String client,
+            String capture,
+            String capturedBy,
+            long leftRunning,
+            long requests) {
+        this(
+                scope,
+                attribution,
+                sensor,
+                kind,
+                target,
+                callSite,
+                insideMethod,
+                origin,
+                location,
+                count,
+                failed,
+                completed,
+                nonZeroExits,
+                lastExitStatus,
+                totalMillis,
+                maxMillis,
+                firstSeen,
+                lastSeen,
+                exemplarRequestIds,
+                client,
+                capture,
+                capturedBy,
+                leftRunning,
+                requests,
+                null,
+                null);
+    }
 
     /** Done while an HTTP request was handled, or by work it handed off. */
     public static final String ROUTE = "route";

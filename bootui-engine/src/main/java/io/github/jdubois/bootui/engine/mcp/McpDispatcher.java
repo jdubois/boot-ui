@@ -238,6 +238,11 @@ public final class McpDispatcher {
         return serverVersion;
     }
 
+    /** Concurrency permits not held by a running or pending tool call. */
+    int availableCallPermits() {
+        return toolCallSemaphore.availablePermits();
+    }
+
     /** Operational counters exposed by the MCP Server panel. */
     public McpRuntimeStats runtimeStats() {
         return runtimeStats;
@@ -316,6 +321,65 @@ public final class McpDispatcher {
                 ? McpProtocol.DEFAULT_PROTOCOL_VERSION
                 : McpProtocol.KNOWN_VERSIONS.contains(requested) ? requested : McpProtocol.DEFAULT_PROTOCOL_VERSION;
         return new InitializeResult(negotiated, McpProtocol.SERVER_NAME, serverVersion, instructions);
+    }
+
+    /**
+     * Starts a {@code tools/call} that may answer on a request-scoped event stream. Only a modern call with a progress
+     * token, to a tool that {@linkplain McpTool#reportsProgress() reports progress}, from a client that accepts
+     * {@code text/event-stream}, and that passes every validation and policy gate and gets a concurrency permit, is
+     * {@link McpCallStart.Stream streamed}. Everything else, including every refusal, is the same {@link
+     * McpCallStart.Immediate immediate} outcome {@link #dispatch(McpRequest)} returns.
+     *
+     * <p>A returned stream holds a permit and has its absolute execution timeout already scheduled: the adapter must
+     * {@link McpStreamingCall#start start} it or {@link McpStreamingCall#cancel cancel} it, and the timeout still
+     * releases the permit if it does neither.
+     */
+    public McpCallStart start(McpRequest request, boolean acceptsEventStream) {
+        return start(request, acceptsEventStream, new McpCancellation());
+    }
+
+    /**
+     * Like {@link #start(McpRequest, boolean)}, with a handle through which another thread can cancel an immediate
+     * {@code tools/call} while it runs (a stream is cancelled through {@link McpStreamingCall#cancel()}).
+     */
+    public McpCallStart start(McpRequest request, boolean acceptsEventStream, McpCancellation cancellation) {
+        if (request == null
+                || request.era() != McpEra.MODERN
+                || request.progressToken() == null
+                || request.notification()
+                || !acceptsEventStream
+                || !"tools/call".equals(request.method())) {
+            return new McpCallStart.Immediate(dispatch(request, cancellation));
+        }
+        try {
+            McpTool tool = request.toolName() == null ? null : findTool(request.toolName());
+            if (tool == null || !tool.reportsProgress()) {
+                return new McpCallStart.Immediate(dispatch(request, cancellation));
+            }
+            Object prepared = prepareCall(request);
+            if (prepared instanceof McpDispatchOutcome refusal) {
+                return new McpCallStart.Immediate(refusal);
+            }
+            PreparedCall call = (PreparedCall) prepared;
+            if (!toolCallSemaphore.tryAcquire()) {
+                runtimeStats.recordCapacityRefusal();
+                return new McpCallStart.Immediate(
+                        new ProtocolError(McpProtocol.SERVER_AT_CAPACITY, McpProtocol.RATE_LIMITED_MESSAGE));
+            }
+            return new McpCallStart.Stream(new McpStreamingCall(
+                    call.tool(),
+                    call.arguments(),
+                    request.progressToken(),
+                    executionTimeoutMillis,
+                    toolCallSemaphore,
+                    runtimeStats,
+                    failureReporter,
+                    TOOL_EXECUTOR));
+        } catch (RuntimeException | Error failure) {
+            failureReporter.report("dispatching a request", failure);
+            return new McpCallStart.Immediate(
+                    new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE));
+        }
     }
 
     /** A validated tool call that may run. */

@@ -385,28 +385,154 @@ public final class BlockingBehaviors {
 
     /**
      * Parks off event loops with event loops registered, with the permit given so each park returns at once: the
-     * advised {@code LockSupport.park} costs, per call, against a run before the sensor records.
+     * advised {@code LockSupport.park} costs, per call, against the JDK's unadvised park primitive in the same JVM.
+     *
+     * <p>Both arms run in the same claimed state, alternating in short rounds, so the hook's cost is the median of many
+     * paired differences: a shared runner's load, its JIT compiling the methods a retransformation deoptimized, or a
+     * preempted round shifts one pair, never the median. The control is {@code jdk.internal.misc.Unsafe.park}, which
+     * {@code LockSupport.park} calls; a released arm, measured after the agent restored {@code LockSupport}, checks that
+     * the two cost alike unadvised and is held only to a loose bound, since its retransformation is exactly what the
+     * paired arms avoid.</p>
      */
     static void bench() throws Exception {
-        // The two arms alternate, three pairs, and each keeps its best round, so both see the same machine load: a
-        // shared CI runner's load drifts over the minutes one arm would otherwise run before the other.
-        double hooked = Double.MAX_VALUE;
-        double plain = Double.MAX_VALUE;
-        for (int pair = 0; pair < 3; pair++) {
-            if (pair > 0) {
-                token = claim();
-                awaitSelfTest();
-            }
-            on("it-loop-bench", () -> null);
-            requireParkHooked(true);
-            hooked = Math.min(hooked, parks());
-            AgentBridge.release("blocking-behaviors", "dev");
-            awaitState("released");
-            requireParkHooked(false);
-            plain = Math.min(plain, parks());
+        // An event loop that stays registered and alive while the parks are timed, so the hook's loops branch is on.
+        CountDownLatch registered = new CountDownLatch(1);
+        CountDownLatch benched = new CountDownLatch(1);
+        Thread loop = new Thread(
+                () -> {
+                    Blocking.registerEventLoop();
+                    registered.countDown();
+                    try {
+                        benched.await();
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                    }
+                },
+                "it-loop-bench");
+        loop.setDaemon(true);
+        loop.start();
+        registered.await();
+        requireLoopRegistered();
+        requireParkHooked(true);
+        Pairs hooked = pairs();
+        requireLoopRegistered();
+        benched.countDown();
+        loop.join(10_000L);
+        System.out.println("PARK_NANOS_HOOKED=" + hooked.lockSupport());
+        System.out.println("PARK_NANOS_PLAIN=" + hooked.unsafe());
+        System.out.println("PARK_NANOS_ADDED=" + hooked.added());
+        System.out.println("PARK_NANOS_ADDED_PAIRS=" + hooked.differences());
+        AgentBridge.release("blocking-behaviors", "dev");
+        awaitState("released");
+        requireParkHooked(false);
+        Pairs released = pairs();
+        System.out.println("PARK_NANOS_RELEASED_GAP=" + released.added());
+        System.out.println("PARK_NANOS_RELEASED_GAP_PAIRS=" + released.differences());
+    }
+
+    static final int BENCH_PAIRS = 41;
+    static final int BENCH_WARMUP_PAIRS = 6;
+    static final int BENCH_CALLS = 200_000;
+
+    /**
+     * Medians per call over the paired rounds: {@code LockSupport.park}, the unadvised primitive, and their per-pair
+     * difference, with every difference listed.
+     */
+    record Pairs(double lockSupport, double unsafe, double added, String differences) {}
+
+    /** {@link #BENCH_PAIRS} rounds of each arm, alternating which goes first, after warm-up rounds. */
+    private static Pairs pairs() {
+        for (int pair = 0; pair < BENCH_WARMUP_PAIRS; pair++) {
+            lockSupportParks();
+            unsafeParks();
         }
-        System.out.println("PARK_NANOS_HOOKED=" + hooked);
-        System.out.println("PARK_NANOS_PLAIN=" + plain);
+        double[] lockSupport = new double[BENCH_PAIRS];
+        double[] unsafe = new double[BENCH_PAIRS];
+        double[] differences = new double[BENCH_PAIRS];
+        StringBuilder listed = new StringBuilder();
+        for (int pair = 0; pair < BENCH_PAIRS; pair++) {
+            if ((pair & 1) == 0) {
+                lockSupport[pair] = lockSupportParks();
+                unsafe[pair] = unsafeParks();
+            } else {
+                unsafe[pair] = unsafeParks();
+                lockSupport[pair] = lockSupportParks();
+            }
+            differences[pair] = lockSupport[pair] - unsafe[pair];
+            listed.append(pair == 0 ? "" : ",").append(String.format(java.util.Locale.ROOT, "%.1f", differences[pair]));
+        }
+        return new Pairs(median(lockSupport), median(unsafe), median(differences), listed.toString());
+    }
+
+    private static double median(double[] values) {
+        double[] sorted = values.clone();
+        java.util.Arrays.sort(sorted);
+        return sorted[sorted.length / 2];
+    }
+
+    private static double lockSupportParks() {
+        Thread self = Thread.currentThread();
+        long started = System.nanoTime();
+        for (int i = 0; i < BENCH_CALLS; i++) {
+            LockSupport.unpark(self);
+            LockSupport.park();
+        }
+        return (double) (System.nanoTime() - started) / BENCH_CALLS;
+    }
+
+    private static double unsafeParks() {
+        Thread self = Thread.currentThread();
+        long started = System.nanoTime();
+        for (int i = 0; i < BENCH_CALLS; i++) {
+            LockSupport.unpark(self);
+            UnsafePark.park();
+        }
+        return (double) (System.nanoTime() - started) / BENCH_CALLS;
+    }
+
+    /**
+     * The JDK's park primitive, {@code jdk.internal.misc.Unsafe.park}, which {@code LockSupport.park} calls and the
+     * agent never advises: the bench's control. Its JVM exports {@code jdk.internal.misc} to the class path.
+     */
+    static final class UnsafePark {
+
+        private static final java.lang.invoke.MethodHandle PARK = primitive();
+
+        private UnsafePark() {}
+
+        static void park() {
+            try {
+                PARK.invokeExact(false, 0L);
+            } catch (Throwable ex) {
+                throw new IllegalStateException(ex);
+            }
+        }
+
+        private static java.lang.invoke.MethodHandle primitive() {
+            try {
+                Class<?> type = Class.forName("jdk.internal.misc.Unsafe");
+                Object unsafe = type.getMethod("getUnsafe").invoke(null);
+                return java.lang.invoke.MethodHandles.lookup()
+                        .unreflect(type.getMethod("park", boolean.class, long.class))
+                        .bindTo(unsafe);
+            } catch (ReflectiveOperationException ex) {
+                throw new IllegalStateException("run with --add-exports java.base/jdk.internal.misc=ALL-UNNAMED", ex);
+            }
+        }
+    }
+
+    /**
+     * Fails the run unless an event loop of this run is registered, so the timed parks take the gate's loops branch
+     * rather than a single volatile read.
+     */
+    @SuppressWarnings("unchecked")
+    private static void requireLoopRegistered() {
+        Map<String, Object> blocking =
+                (Map<String, Object>) AgentBridge.status().get(SideEffects.BLOCKING);
+        Object loops = blocking == null ? null : blocking.get("eventLoops");
+        if (!(loops instanceof Number number) || number.intValue() < 1) {
+            throw new IllegalStateException("no event loop registered for the bench: " + blocking);
+        }
     }
 
     /** Fails the run unless {@code LockSupport.park} is advised exactly when the arm says, so no arm is vacuous. */
@@ -420,21 +546,6 @@ public final class BlockingBehaviors {
             throw new IllegalStateException(
                     "LockSupport.park hooked=" + hooked + ", expected " + expected + ": " + hits);
         }
-    }
-
-    private static double parks() {
-        Thread self = Thread.currentThread();
-        int calls = 2_000_000;
-        long best = Long.MAX_VALUE;
-        for (int round = 0; round < 6; round++) {
-            long started = System.nanoTime();
-            for (int i = 0; i < calls; i++) {
-                LockSupport.unpark(self);
-                LockSupport.park();
-            }
-            best = Math.min(best, System.nanoTime() - started);
-        }
-        return (double) best / calls;
     }
 
     /** BlockHound, linked only in its modes, whose class path holds it. */

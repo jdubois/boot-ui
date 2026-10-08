@@ -254,6 +254,45 @@ public final class JavaAgentService {
     }
 
     /**
+     * The {@code security-sinks} sensor while the agent reports no hooks of its own for it (M5-6b1): its request-value
+     * matching rides on the SQL and REST client recorders and on the processes and files sensors' hooks, so it records
+     * once the claim asks for it and {@code bootui.agent.security-sinks.request-values} is on. While recording, its
+     * reason names the sinks it checks, and those it cannot because their sensor is not claimed; its drops are the
+     * holder's records the ring could not take.
+     */
+    static SideEffectsCoverage securitySinksCoverage(
+            Map<String, Object> status, List<SideEffectsHookDto> hooks, List<String> claimed) {
+        Map<String, Object> holder = AgentBridgeAccess.map(status, "requestValues");
+        long dropped = longValue(holder, "dropped");
+        if (!AgentRequestValues.enabled()) {
+            return new SideEffectsCoverage(
+                    SideEffectsSensorDto.DISABLED,
+                    "Request-value matching is off: set bootui.agent.security-sinks.request-values=true to check"
+                            + " whether request input reaches SQL text, a command, a file path, or an outbound URL.",
+                    hooks,
+                    dropped);
+        }
+        if (!AgentBridgeAccess.flag(holder, "active")) {
+            return new SideEffectsCoverage(
+                    SideEffectsSensorDto.INSTALLING,
+                    "The attached BootUI agent has not turned request-value matching on for this claim.",
+                    hooks,
+                    dropped);
+        }
+        StringBuilder reason = new StringBuilder("Checks SQL text where SQL Trace captures it and outbound URLs where"
+                + " REST Client Trace records the call");
+        reason.append(
+                claimed.contains(AgentSensorSettings.PROCESSES)
+                        ? "; commands through the processes sensor"
+                        : "; not commands: the processes sensor is not claimed");
+        reason.append(
+                claimed.contains(AgentSensorSettings.FILES)
+                        ? "; file paths through the files sensor."
+                        : "; not file paths: the files sensor is not claimed.");
+        return new SideEffectsCoverage(SideEffectsSensorDto.RECORDING, reason.toString(), hooks, dropped);
+    }
+
+    /**
      * One Side Effects sensor's coverage for this application: whether it records, and why not, with its hooks as the
      * agent reports them and the records the bridge dropped for it ({@code docs/PLAN-v2.md} §5.16). Never throws.
      */
@@ -287,6 +326,10 @@ public final class JavaAgentService {
                         dropped,
                         Map.of(),
                         toggle);
+            }
+            if (sensor == null && AgentSensorSettings.SECURITY_SINKS.equals(id)) {
+                return securitySinksCoverage(
+                        status, hooks, ours == null ? List.of() : ours.sensors().sensors());
             }
             if (sensor == null) {
                 return new SideEffectsCoverage(

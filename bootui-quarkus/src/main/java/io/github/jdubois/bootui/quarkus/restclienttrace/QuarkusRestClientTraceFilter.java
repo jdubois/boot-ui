@@ -2,6 +2,8 @@ package io.github.jdubois.bootui.quarkus.restclienttrace;
 
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
+import io.github.jdubois.bootui.engine.javaagent.AgentRequestValues;
+import io.github.jdubois.bootui.engine.javaagent.RequestInputSinks;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.support.CredentialRedaction;
 import io.github.jdubois.bootui.engine.support.SensitiveNames;
@@ -41,6 +43,11 @@ public final class QuarkusRestClientTraceFilter implements ClientRequestFilter, 
     @Override
     public void filter(ClientRequestContext requestContext) {
         try {
+            // Whether request input reached this call's URL unchanged, where it is issued (docs/PLAN-v2.md §5.16,
+            // M5-6b): only while request-value matching is on.
+            if (AgentRequestValues.enabled()) {
+                RequestInputSinks.url(requestContext.getUri(), recorder.currentCorrelation());
+            }
             requestContext.setProperty(
                     CAPTURE_PROPERTY,
                     new RequestCapture(

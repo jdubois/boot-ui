@@ -682,6 +682,12 @@ class McpDispatcherTests {
         assertThat(stats.timeouts()).isZero();
         assertThat(stats.callCount()).isEqualTo(1);
         assertThat(diagnostics.count()).isZero();
+        // The tool thread releases the permit after its finally block has run, so wait for it rather than racing it.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (dispatcher.availableCallPermits() == 0 && System.nanoTime() < deadline) {
+            Thread.sleep(5);
+        }
+        assertThat(dispatcher.availableCallPermits()).isEqualTo(1);
         assertThat(dispatcher.dispatch(call("slow"), cancelledBeforeStart()))
                 .as("the single permit is free again, and a handle cancelled first stops the call at once")
                 .isEqualTo(new McpDispatchOutcome.Cancelled());

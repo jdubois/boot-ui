@@ -602,7 +602,8 @@ public final class ThreadLocals {
                 || key == Reentrancy.STATE
                 || key == TaskPropagation.ACTIVE
                 || key == CaughtExceptions.COUNTS
-                || key == CaughtExceptions.SCRATCH) {
+                || key == CaughtExceptions.SCRATCH
+                || key == RequestValues.THREAD_TOKEN) {
             BRIDGE_KEYS.increment();
             return true;
         }
