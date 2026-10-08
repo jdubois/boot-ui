@@ -16,7 +16,6 @@ import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.engine.resources.SegmentMeter;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.spi.CorrelationContext;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.reactivestreams.Publisher;
 import org.springframework.core.Ordered;
@@ -66,7 +65,8 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
 
     /**
      * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives one {@code HTTP} event per request
-     * when its filter chain completes, with the matched route and the status WebFlux will render.
+     * when its filter chain completes, with the matched route and its status, or, for a failed chain, once WebFlux's
+     * exception handlers rendered the failure and the response commits, with the status they rendered.
      *
      * @param requestSlowThresholdMs {@code bootui.activity.request-slow-threshold-ms}, which marks a request slow
      * @param phases the phase markers of recent requests, which this filter begins and ends for each request so the
@@ -198,7 +198,6 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
         if (sink.records(JournalSource.RESOURCES)) {
             SegmentMeter.shared().begin(correlation.requestId());
         }
-        AtomicReference<Throwable> failure = new AtomicReference<>();
         Mono<Void> filtered;
         try {
             filtered = chain.filter(exchange);
@@ -206,7 +205,7 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
             // A chain that fails while it assembles still has a timeline to end and a request to publish.
             filtered = Mono.error(ex);
         }
-        return filtered.doOnError(failure::set).doFinally(signal -> {
+        return filtered.doFinally(signal -> {
             try {
                 if (requestPhases != null) {
                     // The request's chain terminated: WebFlux renders a failure after it unwinds, so a failed
@@ -216,46 +215,69 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
                 if (sink == RuntimeEventSink.NONE) {
                     return;
                 }
-                long durationNanos = System.nanoTime() - startNanos;
-                int status = ReactiveHttpExchangeTraceFilter.status(exchange, signal, failure.get());
-                if (status == 0 && signal == SignalType.ON_COMPLETE) {
-                    // A handler that completes without setting a status renders 200 when the response commits; a
-                    // cancelled request keeps 0, as it has no status.
-                    status = 200;
-                }
-                ServerHttpRequest request = exchange.getRequest();
-                String requestId = correlation.requestId();
-                ResourceUsage resources = SegmentMeter.shared().take(requestId);
-                sink.offer(RuntimeEvent.of(
-                        JournalSource.HTTP,
-                        start,
-                        durationNanos,
-                        correlation,
-                        traceId(exchange, correlation),
-                        // The thread the request completed on, whose kind the journal records: a reactive request
-                        // has no single serving thread.
-                        Thread.currentThread().getName(),
-                        null,
-                        RequestSlowThreshold.isFailedOrSlow(status, durationNanos / 1_000_000, requestSlowThresholdMs),
-                        new HttpPayload(
-                                request.getMethod() == null
-                                        ? null
-                                        : request.getMethod().name(),
-                                request.getURI() == null
-                                        ? null
-                                        : request.getURI().getPath(),
-                                ReactiveHttpExchangeTraceFilter.routeTemplate(exchange),
-                                requestPhases == null ? null : requestPhases.operationOf(requestId),
-                                status,
+                // Ends the request's measurement (docs/PLAN-v2.md §5.11) with its chain, as its timeline ends.
+                ResourceUsage resources = SegmentMeter.shared().take(correlation.requestId());
+                // A failure is published once WebFlux's exception handlers rendered it, with the status they chose.
+                ReactiveHttpExchangeTraceFilter.whenRendered(
+                        exchange,
+                        signal,
+                        rendered -> publish(
+                                exchange,
+                                correlation,
+                                sink,
+                                requestPhases,
+                                signal,
+                                rendered,
                                 resources,
-                                // WebFlux marks no handler or response phase, so only the request's start and the
-                                // authentication time Spring Security observed are known.
-                                RequestTiming.of(
-                                        startNanos, requestPhases == null ? null : requestPhases.markers(requestId)))));
+                                startNanos,
+                                start));
             } catch (RuntimeException ex) {
                 // Publishing never disturbs the response.
             }
         });
+    }
+
+    private void publish(
+            ServerWebExchange exchange,
+            CorrelationContext correlation,
+            RuntimeEventSink sink,
+            RequestPhases requestPhases,
+            SignalType signal,
+            int rendered,
+            ResourceUsage resources,
+            long startNanos,
+            long start) {
+        long durationNanos = System.nanoTime() - startNanos;
+        int status = rendered;
+        if (status == 0 && signal == SignalType.ON_COMPLETE) {
+            // A handler that completes without setting a status renders 200 when the response commits; a cancelled
+            // request keeps 0, as it has no status.
+            status = 200;
+        }
+        ServerHttpRequest request = exchange.getRequest();
+        String requestId = correlation.requestId();
+        sink.offer(RuntimeEvent.of(
+                JournalSource.HTTP,
+                start,
+                durationNanos,
+                correlation,
+                traceId(exchange, correlation),
+                // The thread the request completed on, whose kind the journal records: a reactive request has no
+                // single serving thread.
+                Thread.currentThread().getName(),
+                null,
+                RequestSlowThreshold.isFailedOrSlow(status, durationNanos / 1_000_000, requestSlowThresholdMs),
+                new HttpPayload(
+                        request.getMethod() == null ? null : request.getMethod().name(),
+                        request.getURI() == null ? null : request.getURI().getPath(),
+                        ReactiveHttpExchangeTraceFilter.routeTemplate(exchange),
+                        requestPhases == null ? null : requestPhases.operationOf(requestId),
+                        status,
+                        resources,
+                        // WebFlux marks no handler or response phase, so only the request's start and the
+                        // authentication time Spring Security observed are known.
+                        RequestTiming.of(
+                                startNanos, requestPhases == null ? null : requestPhases.markers(requestId)))));
     }
 
     /**

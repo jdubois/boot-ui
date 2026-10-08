@@ -137,14 +137,15 @@ class ReactiveHttpExchangeTraceFilterTests {
                     return Mono.empty();
                 })
                 .block(Duration.ofSeconds(5));
-        filter.filter(exchange("GET", "/api/failing"), serverExchange -> Mono.error(new IllegalStateException("boom")))
-                .onErrorResume(IllegalStateException.class, ex -> Mono.empty())
+        // A failure is recorded once WebFlux's exception handlers rendered it, with the status they chose: a 500 for an
+        // unhandled one, its own status for a ResponseStatusException, so a 404 is routine.
+        MockServerWebExchange failing = exchange("GET", "/api/failing");
+        filter.filter(failing, serverExchange -> Mono.error(new IllegalStateException("boom")))
+                .onErrorResume(IllegalStateException.class, ex -> rendered(failing, HttpStatus.INTERNAL_SERVER_ERROR))
                 .block(Duration.ofSeconds(5));
-        // A ResponseStatusException is rendered with its own status after the filters unwind: a 404 is routine.
-        filter.filter(
-                        exchange("GET", "/api/missing"),
-                        serverExchange -> Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
-                .onErrorResume(ResponseStatusException.class, ex -> Mono.empty())
+        MockServerWebExchange missing = exchange("GET", "/api/missing");
+        filter.filter(missing, serverExchange -> Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .onErrorResume(ResponseStatusException.class, ex -> rendered(missing, HttpStatus.NOT_FOUND))
                 .block(Duration.ofSeconds(5));
         for (int i = 0; i < 5; i++) {
             filter.filter(exchange("GET", "/api/ok-" + i), OK_CHAIN).block(Duration.ofSeconds(5));
@@ -153,6 +154,12 @@ class ReactiveHttpExchangeTraceFilterTests {
         assertThat(registry.recent())
                 .extracting(HttpExchangeTrace::path)
                 .containsExactly("/api/server-error", "/api/failing", "/api/ok-4");
+    }
+
+    /** Renders a failure as WebFlux's exception handlers do once the filters unwound: a status, then the commit. */
+    private static Mono<Void> rendered(MockServerWebExchange exchange, HttpStatus status) {
+        exchange.getResponse().setStatusCode(status);
+        return exchange.getResponse().setComplete();
     }
 
     private static MockServerWebExchange exchange(String method, String uri) {

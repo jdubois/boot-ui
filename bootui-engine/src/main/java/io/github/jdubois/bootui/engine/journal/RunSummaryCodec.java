@@ -39,7 +39,9 @@ import java.util.function.ToLongFunction;
  * buckets. When the summary exceeds the bound, the least-used entries of each aggregate and the least-observed edges are
  * left out, halving how many are kept until it fits, and the header counts what was left out, and how many edges.</p>
  *
- * <p>Version 12 adds what the run did outside the JVM ({@link RunSideEffects}, M5-7b) after the executions, within its
+ * <p>Version 13 adds the run's application to its header, so runs of different applications sharing a JVM are never
+ * compared; an earlier summary reads with none, and is compared with any application, as before. Version 12 adds what
+ * the run did outside the JVM ({@link RunSideEffects}, M5-7b) after the executions, within its
  * own byte budget of {@value #SIDE_EFFECTS_MAX_BYTES} bytes, trimmed per sensor before anything else; an earlier
  * summary reads with none, never with an empty set. Version 11 distinguishes DML targets from read-side tables in observed edges. Earlier summaries keep their
  * original edges, but table edges from them cannot be compared with version 11's meaning. Version 10 keeps only
@@ -49,7 +51,7 @@ final class RunSummaryCodec {
 
     private static final int MAGIC = 0x42555253;
 
-    private static final int VERSION = 12;
+    private static final int VERSION = 13;
 
     /** The most bytes a summary's side effects take, so they never crowd out the aggregates. */
     static final int SIDE_EFFECTS_MAX_BYTES = 48 * 1024;
@@ -244,6 +246,7 @@ final class RunSummaryCodec {
         out.number(omitted);
         out.number(omittedEdges);
         out.runStart(header.runStart());
+        out.optionalText(header.application());
         out.number(body.table.size());
         body.table.keySet().forEach(out::text);
         out.bytes.writeBytes(body.bytes.toByteArray());
@@ -731,7 +734,8 @@ final class RunSummaryCodec {
                     (int) number(),
                     (int) number(),
                     bytes.length,
-                    runStart());
+                    runStart(),
+                    version >= 13 ? optionalText() : null);
         }
 
         RunStart runStart() {

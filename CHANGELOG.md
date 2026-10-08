@@ -743,9 +743,32 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
   remove `bootui.activity.persistence.capture-interval`, which is now ignored, and keep the runtime journal enabled
   (the default): with `bootui.runtime-journal.enabled=false`, persistence logs a warning and writes nothing
   ([Runtime journal](docs/PROPERTIES.md#runtime-journal)).
+- **`bootui.activity.feed-source=buffers` is removed.** Live Activity reads the runtime journal on Spring MVC,
+  Spring WebFlux, and Quarkus, and an application that still sets `buffers` fails to start with a message naming the
+  replacement. **Migration:** remove the property, or set it to `journal`. With `bootui.runtime-journal.enabled=false`,
+  the panel buffers still serve the feed on their own, and the panel's **Panel buffers** choice
+  (`?source=buffers`) still shows them on request ([Live Activity](docs/PROPERTIES.md#live-activity)).
 
 ### Fixed
 
+- **An asynchronous Spring MVC request is recorded when it answers.** A request whose handler returned a
+  `DeferredResult`, `Callable`, or `CompletableFuture` reached the runtime journal when that handler returned, as a
+  `200` lasting only the handler's own time, so a request that later answered `503` or failed, or timed out, read as a
+  fast success in Live Activity, Runtime Insights, and run comparison. It is now recorded once, when its response
+  completes, with the status it answered and its whole duration, however many asynchronous steps it went through.
+- **Run comparison never compares two applications sharing a JVM.** Run history is kept per JVM, so with two
+  applications in one JVM, such as two Spring test contexts, a run of one could be compared with the other's last run.
+  Each kept run now carries its application, and the previous run, the runs to choose from, and a baseline file read
+  are this application's own. Each application keeps its last run while the history stays at five runs.
+- **Spring no longer claims the Java agent when BootUI is forced on in production.** With `bootui.enabled=ON`
+  overriding a disabled profile such as `prod`, the application claimed the BootUI Java agent, which must never be
+  attached to a production JVM. It now releases it, logs why, and the Java Agent panel says so, as Quarkus production
+  mode does; `bootui.agent.allow-in-disabled-profiles=true` claims it anyway
+  ([Java Agent](docs/features/java-agent.md#claims-and-lifecycle)).
+- **A failed Spring WebFlux request is recorded with the status it answered.** The runtime journal recorded a failed
+  request as `500`, unless the error declared its own status, before WebFlux's exception handlers ran, so a custom
+  handler's `400` or `404`, or a successful fallback, read as a server error. It now records the status that handler
+  rendered, when the response commits, as Actuator records the exchange.
 - **Rule catalogs match the advisors again.** The Spring, Quarkus, Database, and Hibernate catalogs use the
   advisors' current rule titles, and the CRaC, Database, and Hibernate rule indexes render with every severity
   ([Spring checks](docs/SPRING-CHECKS.md)).

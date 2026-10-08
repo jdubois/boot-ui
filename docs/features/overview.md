@@ -441,8 +441,10 @@ against `bootui.runtime-journal.agent-evidence-max-bytes`, and Clear recording, 
 evidence too: Code Paths' request and route trees, Code Inventory's first requests and routes, and Side Effects rows.
 The status counts Side Effects as `sideEffectRows` and `sideEffectsWaiting`. When the application restarts in the
 same JVM, as after a DevTools restart or a Quarkus live reload, BootUI keeps a summary of the run that ended, at most
-256 KB each, for the 5 most recent runs. **Previous runs** lists them with their requests, failures, and events, or says
-why none can be kept when BootUI itself is reloaded with the application. A summary keeps the run's counts and
+256 KB each, for the 5 most recent runs. Each run carries its application (its name and whether it runs as a test),
+so when several applications share the JVM, as Spring test contexts do, a run is only compared with its own
+application's runs, and each application keeps its last run. **Previous runs** lists them with their requests,
+failures, and events, or says why none can be kept when BootUI itself is reloaded with the application. A summary keeps the run's counts and
 histograms per route, statement fingerprint, and exception group, and the edges its requests, jobs, and listeners
 observed, such as a route reading a table or calling a host, and what the run recorded when it started: its time to
 ready and slowest bean instantiations (Spring), its active profiles, data source URL shapes, cache, and whether
@@ -452,7 +454,7 @@ when the run ends, and read back at the next start when the JVM keeps no previou
 scoped by the `bootui.runtime-journal.*` [properties](../PROPERTIES.md#runtime-journal).
 
 **Recorded by** chooses where the feed comes from. **Default** follows `bootui.activity.feed-source`, which is the
-runtime journal unless set to `buffers`. **Runtime journal** renders the feed from the journal: every child nests under
+runtime journal; the panel buffers serve it only while the journal does not record. **Runtime journal** renders the feed from the journal: every child nests under
 its request, scheduled run, or consumed message by id, transactions and log events appear as rows, an AI call appears as
 an **AI** row with its model, provider, tokens, and finish reason, nested under the request that started it (an error
 when it failed, a warning when the model stopped at its length limit), and four more filters apply on the server (not while durable activity storage serves the feed, which keeps no run or request grouping, so the panel hides them then): a
