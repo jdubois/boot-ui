@@ -183,9 +183,13 @@ public class TelemetryStore implements RuntimeEventPublisher, MemoryOffloadable 
             if (context.bootUi() || (context.requestId() == null && context.executionId() == null)) {
                 return;
             }
+            // One allocation, not NONE.withRequestId(…).withExecutionId(…)'s two: every span start pays this, so it
+            // is a request-thread cost worth trimming for the runtime journal's throughput overhead budget
+            // (docs/PLAN-v2.md §2.2 and §8), without changing what a later read sees.
             spanOwners.put(
                     spanKey(traceId, spanId),
-                    CorrelationContext.NONE.withRequestId(context.requestId()).withExecutionId(context.executionId()));
+                    new CorrelationContext(
+                            context.requestId(), context.executionId(), null, null, null, null, null, null));
         } catch (RuntimeException ex) {
             // Remembering an owner never disturbs the span it observes.
         }

@@ -74,8 +74,11 @@ public final class SegmentMeter {
             if (meters.size() >= MAX_OPEN_REQUESTS && !purgeStale()) {
                 return false;
             }
-            meters.putIfAbsent(requestId, new Meter(System.nanoTime()));
-            switchTo(requestId);
+            // Keeps the meter this call just found or created, so opening its first segment below looks it up once,
+            // not once here and again in switchTo(String): a request-thread cost of the runtime journal's throughput
+            // overhead budget (docs/PLAN-v2.md §2.2 and §8).
+            Meter meter = meters.computeIfAbsent(requestId, id -> new Meter(System.nanoTime()));
+            openOn(requestId, meter);
             return true;
         } catch (RuntimeException | LinkageError ex) {
             return false;
@@ -88,22 +91,47 @@ public final class SegmentMeter {
      */
     public void switchTo(String requestId) {
         try {
+            if (requestId != null) {
+                Segment current = segments.get();
+                if (current != null && current.meter != null && requestId.equals(current.requestId)) {
+                    return;
+                }
+                if (meters.isEmpty()) {
+                    closeCurrentSegment();
+                    return;
+                }
+                Meter meter = meters.get(requestId);
+                if (meter != null) {
+                    openOn(requestId, meter);
+                    return;
+                }
+            }
+            closeCurrentSegment();
+        } catch (RuntimeException | LinkageError ex) {
+            // Measuring never disturbs the application's work.
+        }
+    }
+
+    /** Closes the calling thread's open segment, for no request measured any more. */
+    private void closeCurrentSegment() {
+        Segment segment = segments.get();
+        if (segment != null && segment.meter != null) {
+            segment.closeOnOwnThread(segment.meter, readings);
+        }
+    }
+
+    /** Closes the calling thread's open segment, when it measures a different request, and opens one for {@code meter}. */
+    private void openOn(String requestId, Meter meter) {
+        try {
             Segment segment = segments.get();
             if (segment != null) {
                 Meter current = segment.meter;
                 if (current != null) {
-                    if (requestId != null && requestId.equals(segment.requestId)) {
+                    if (requestId.equals(segment.requestId)) {
                         return;
                     }
                     segment.closeOnOwnThread(current, readings);
                 }
-            }
-            if (requestId == null || meters.isEmpty()) {
-                return;
-            }
-            Meter meter = meters.get(requestId);
-            if (meter == null) {
-                return;
             }
             if (segment == null) {
                 segment = new Segment(Thread.currentThread(), readings.collectors());
