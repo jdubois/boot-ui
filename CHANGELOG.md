@@ -768,6 +768,13 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
   reads answer `Unknown advisor rule` for an id outside the advisor's rule catalogue ([AI agents](docs/AI-AGENTS.md#reading-retained-advisor-violations)).
 - **`analyze_heap_dump` describes what it does.** It analyzes the live heap's class histogram, with or without a
   captured dump; its MCP description no longer claims it reads an existing dump.
+- **MCP calls no longer keep a restarted application in memory.** BootUI's shared MCP, HTTP-client, and profiler
+  threads used to keep the application that first used them reachable across DevTools restarts and Quarkus live
+  reloads. They no longer inherit its class loader or thread-locals, and an MCP tool runs with its own application's
+  class loader.
+- **The Java agent bounds the tasks it remembers.** It holds at most 32,768 pending executor tasks and 32,768 pending
+  threads; past that, a task runs without its request, counted as **Over the limit** in the Java Agent panel and
+  `get_agent_status` ([Java Agent](docs/features/java-agent.md#counters)).
 - **An asynchronous Spring MVC request is recorded when it answers.** A request whose handler returned a
   `DeferredResult`, `Callable`, or `CompletableFuture` reached the runtime journal when that handler returned, as a
   `200` lasting only the handler's own time, so a request that later answered `503` or failed, or timed out, read as a

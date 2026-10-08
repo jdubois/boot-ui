@@ -131,7 +131,7 @@ public final class ThreadPropagation {
             }
             if (selfTest) {
                 SELF_TEST_KEYED[hook].increment();
-                TaskSnapshots.THREADS.put(thread, generation, TaskPropagation.SELF_TEST);
+                TaskSnapshots.THREADS.putSelfTest(thread, generation, TaskPropagation.SELF_TEST);
                 return true;
             }
             if (bootUi(started)) {
@@ -151,8 +151,15 @@ public final class ThreadPropagation {
                 LIBRARY_THREADS.increment();
                 return false;
             }
+            int put =
+                    TaskSnapshots.THREADS.put(thread, generation, (Object[]) payload, Math.max(0L, CodePaths.stamp()));
+            if (put == TaskSnapshots.REFUSED) {
+                // The registry is full: the thread is not keyed and runs unowned.
+                TaskSnapshots.THREADS.overflowed();
+                return false;
+            }
             KEYED[hook].increment();
-            if (!TaskSnapshots.THREADS.put(thread, generation, (Object[]) payload, Math.max(0L, CodePaths.stamp()))) {
+            if (put == TaskSnapshots.AMBIGUOUS_PUT) {
                 AMBIGUOUS.increment();
             }
             return true;
@@ -399,6 +406,7 @@ public final class ThreadPropagation {
         map.put("ambiguous", Long.valueOf(AMBIGUOUS.sum()));
         map.put("stale", Long.valueOf(STALE.sum()));
         map.put("refused", Long.valueOf(REFUSED.sum()));
+        map.put("overflow", Long.valueOf(TaskSnapshots.THREADS.overflow()));
         map.put("skippedTasks", Long.valueOf(SKIPPED_TASKS.sum()));
         map.put("skippedThreads", Long.valueOf(SKIPPED_THREADS.sum()));
         map.put("libraryThreadsSkipped", Long.valueOf(LIBRARY_THREADS.sum()));
