@@ -558,8 +558,8 @@ jobs:
         working-directory: bootui-spring-sample-app/e2e
         run: npm run format:check
 
-      # Playwright's browsers are cached per Playwright version, read from the lock file, so a leg downloads Chromium
-      # only when that version changes.
+      # Playwright's browsers, and the .deb files of the few system packages the runner image lacks, are cached per
+      # Playwright version, read from the lock file, so a leg downloads them only when that version changes.
       - name: Read the Playwright version
         id: playwright
         if: env.SKIP_LEG != 'true'
@@ -576,13 +576,15 @@ jobs:
         if: env.SKIP_LEG != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cache/ms-playwright
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/playwright-apt
           key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
 
       - name: Install Playwright browsers
         if: env.SKIP_LEG != 'true'
         # Usually 1 to 8 minutes; apt-get can stall for hours on a runner's package mirror: fail fast, so a rerun gets
-        # another runner. apt-get runs only when Chromium's system packages are not all on the runner already.
+        # another runner. apt-get update and the mirror are needed only when the cached .deb files cannot complete them.
         timeout-minutes: 20
         working-directory: bootui-spring-sample-app/e2e
         run: bash ../../.github/scripts/install-playwright-chromium.sh
@@ -1276,8 +1278,8 @@ jobs:
         working-directory: bootui-quarkus-sample-app/e2e
         run: npm run format:check
 
-      # Playwright's browsers are cached per Playwright version, read from the lock file, so a leg downloads Chromium
-      # only when that version changes.
+      # Playwright's browsers, and the .deb files of the few system packages the runner image lacks, are cached per
+      # Playwright version, read from the lock file, so a leg downloads them only when that version changes.
       - name: Read the Playwright version
         id: playwright
         if: env.SKIP_LEG != 'true'
@@ -1294,13 +1296,15 @@ jobs:
         if: env.SKIP_LEG != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cache/ms-playwright
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/playwright-apt
           key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
 
       - name: Install Playwright browsers
         if: env.SKIP_LEG != 'true'
         # Usually 1 to 8 minutes; apt-get can stall for hours on a runner's package mirror: fail fast, so a rerun gets
-        # another runner. apt-get runs only when Chromium's system packages are not all on the runner already.
+        # another runner. apt-get update and the mirror are needed only when the cached .deb files cannot complete them.
         timeout-minutes: 20
         working-directory: bootui-quarkus-sample-app/e2e
         run: bash ../../.github/scripts/install-playwright-chromium.sh
