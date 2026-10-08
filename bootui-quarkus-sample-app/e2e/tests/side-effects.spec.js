@@ -1,5 +1,5 @@
 // @ts-check
-import {expect, test} from './fixtures.js'
+import {assertSecuritySinksSwitch, expect, test} from './fixtures.js'
 
 /**
  * The Side Effects view on Quarkus (docs/PLAN-v2.md §5.16, M5-5a). The default suite runs the sample without the BootUI
@@ -275,6 +275,15 @@ test.describe('Side Effects view (Quarkus)', () => {
     await page.goto('/bootui/#/side-effects')
     await page.getByRole('tab', {name: /Security sinks/}).click()
     await expect(page.locator('main')).toContainText('Deserialization without an ObjectInputFilter')
+  })
+
+  test('switches the security-sinks sensor off and on at run time, recording only while it is on (M5-14)', async ({
+    page,
+    openView,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, 'The security-sinks switch needs the BootUI agent')
+    await assertSecuritySinksSwitch(page, openView)
   })
 
   test('reports a sleep on the Vert.x event loop and never the same sleep on a worker', async ({

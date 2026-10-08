@@ -892,7 +892,8 @@ uses now and did not before, such as "`GET /orders` now connects to `api.example
 the [Side Effects](java-agent.md#side-effects) sensors `network`, `files`, `processes`, and `environment`. Each run keeps
 at most 250 such keys per sensor in its summary, names and masked patterns only, never a value, an argument, or a
 file's contents. A sensor is compared only when it recorded the whole of both runs: one that was off, not claimed in
-`bootui.agent.sensors`, switched, cleared by **Clear recording**, or lost records (a full ring, its quota of distinct
+`bootui.agent.sensors`, switched, paused while the agent reinstalled its hooks for a runtime switch of `files`,
+`environment`, or `security-sinks`, cleared by **Clear recording**, or lost records (a full ring, its quota of distinct
 targets) in either run reads **not compared**, with the reason, and lists nothing; startup's keys also need the sensor
 to have been recording when the application started, which a JVM's first run, whose hooks the agent installs while it
 starts, may not have, and come from the thread that finished starting only. A key is **new** only when the previous

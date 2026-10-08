@@ -141,11 +141,13 @@ public record AgentSensorSettings(
 
     /**
      * The sensors this version ships off by default, which the Java Agent and Side Effects panels switch on and off at
-     * run time ({@code docs/PLAN-v2.md} M5-14). {@code caught-exceptions} (M5-6a), also off by default, is not switched at
-     * run time: its visit of every application class is installed with the claim only.
+     * run time ({@code docs/PLAN-v2.md} M5-14). {@code security-sinks}' JDK checks ride on the side-effect transformer,
+     * reinstalled at a switch, and its request-value matching follows the sensor, still only with {@code
+     * bootui.agent.security-sinks.request-values} on (D37). {@code caught-exceptions} (M5-6a), also off by default, is
+     * not switched at run time: its visit of every application class is installed with the claim only.
      */
     public static final List<String> OPT_IN_SENSORS =
-            List.of(THREADS, FILES, ENVIRONMENT, THREAD_ACTIVITY, THREAD_LOCALS);
+            List.of(THREADS, FILES, ENVIRONMENT, THREAD_ACTIVITY, THREAD_LOCALS, SECURITY_SINKS);
 
     /**
      * Why {@code id}, one of {@link #OPT_IN_SENSORS}, is off by default, as the panels show it beside its switch; or
@@ -171,6 +173,11 @@ public record AgentSensorSettings(
             case THREAD_LOCALS ->
                 "Off by default until its overhead is measured on more routes: it scans the thread-local maps of every"
                         + " pooled request thread; the benchmark's route measured about 0.5 % over the default sensors.";
+            case SECURITY_SINKS ->
+                "Off by default until the overhead of its JDK checks is measured on more routes. Its request-value"
+                        + " matching, which also needs bootui.agent.security-sinks.request-values=true and holds each"
+                        + " request's query and path values in memory while it runs, added up to about 3 % on the"
+                        + " benchmark's sinks route.";
             default -> null;
         };
     }

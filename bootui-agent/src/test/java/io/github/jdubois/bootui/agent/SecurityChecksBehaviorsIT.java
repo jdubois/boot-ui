@@ -125,6 +125,27 @@ class SecurityChecksBehaviorsIT {
                         "with the deserialization group off, an unfiltered read records nothing"));
     }
 
+    /**
+     * The sensor switched on, off, and on at run time for a claim that did not ask for it (PLAN-v2 M5-14): its checks
+     * and request-value matching follow the switch, and switching off removes its hooks.
+     */
+    @Test
+    void theSensorSwitchesOnOffAndOnAtRunTime() throws Exception {
+        ChildJvm.Output output =
+                ChildJvm.run(List.of(ChildJvm.javaAgent(ChildJvm.AGENT)), "security-checks-behaviors", "switch");
+
+        assertThat(output.exitCode()).as(output.toString()).isZero();
+        assertAllPassLines(
+                output,
+                List.of(
+                        "before the switch, an MD5 records nothing and request values are not held",
+                        "switching security-sinks on installs and self-tests its checks in this run, which record an"
+                                + " MD5",
+                        "switching security-sinks off stops its recording and request values at once and removes its"
+                                + " hooks, processes recording on",
+                        "switching security-sinks on again records an MD5 again"));
+    }
+
     /** A JVM-wide filter set through {@code -Djdk.serialFilter} is the stream's own filter: no row. */
     @Test
     void aJvmWideSerialFilterCountsAsAFilter() throws Exception {

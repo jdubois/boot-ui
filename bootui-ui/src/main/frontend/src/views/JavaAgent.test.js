@@ -636,6 +636,52 @@ describe('Java Agent panel', () => {
     expect(after.text()).not.toContain('Overridden')
   })
 
+  it('switches the security-sinks sensor like the other opt-in sensors', async () => {
+    const securitySinks = {
+      id: 'security-sinks',
+      configured: false,
+      enabled: false,
+      overridden: false,
+      state: 'off',
+      optInReason:
+        'Off by default until the overhead of its JDK checks is measured on more routes. Its request-value matching, which also needs bootui.agent.security-sinks.request-values=true, added up to about 3 %.',
+      available: true,
+      unavailableReason: null
+    }
+    const armed = {...baseReport, state: 'ARMED', toggles: [securitySinks]}
+    const switched = {
+      ...armed,
+      toggles: [{...securitySinks, enabled: true, overridden: true, state: 'installing'}]
+    }
+    const fetchMock = vi.fn((url, init) =>
+      Promise.resolve(
+        String(url).includes('sensors/security-sinks') && init?.method === 'POST'
+          ? new Response(JSON.stringify(switched), {status: 200, headers: {'content-type': 'application/json'}})
+          : jsonResponse(armed)
+      )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const panels = ref({panels: [{id: 'java-agent', enabled: true, available: true, readOnly: false}]})
+    wrapper = mount(JavaAgent, {global: {provide: {panels}}})
+    await flushPromises()
+
+    const control = wrapper.get('[data-testid="agent-sensor-toggle-security-sinks"]')
+    expect(control.text()).toContain('bootui.agent.security-sinks.request-values=true')
+    expect(control.get('input').element.checked).toBe(false)
+
+    await control.get('input').setValue(true)
+    await flushPromises()
+
+    const post = fetchMock.mock.calls.find(
+      ([url, init]) => String(url).includes('api/java-agent/sensors/security-sinks') && init?.method === 'POST'
+    )
+    expect(JSON.parse(post[1].body)).toEqual({enabled: true})
+    const after = wrapper.get('[data-testid="agent-sensor-toggle-security-sinks"]')
+    expect(after.get('input').element.checked).toBe(true)
+    expect(after.text()).toContain('Overridden')
+    expect(after.text()).toContain('Installing')
+  })
+
   it('does not call the API when manifest availability says the panel is unavailable', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

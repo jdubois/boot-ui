@@ -265,6 +265,17 @@ public final class SideEffectsService implements AutoCloseable {
             SideEffectsCatalog.PROCESSES_ID,
             SideEffectsCatalog.ENVIRONMENT_ID);
 
+    /**
+     * The runtime-switchable sensors whose hooks ride on the side-effect transformer that {@link #COMPARED_SENSORS} share
+     * (M5-14): switching one reinstalls that transformer, pausing every sensor on it while its self-test runs again.
+     */
+    static final java.util.Set<String> SHARED_TRANSFORMER_SWITCHES = java.util.Set.of(
+            SideEffectsCatalog.FILES_ID, SideEffectsCatalog.ENVIRONMENT_ID, AgentSensorSettings.SECURITY_SINKS);
+
+    /** Why a compared sensor's run is not whole after a switch reinstalled the transformer it shares. */
+    static final String PAUSED_FOR_A_SWITCH =
+            "its hooks paused while the agent reinstalled them for a runtime switch of another sensor";
+
     /** A files row's target past the agent's quota of distinct path patterns. */
     static final String TOO_MANY_PATHS = "(path not kept: too many distinct paths or strings)";
 
@@ -624,12 +635,17 @@ public final class SideEffectsService implements AutoCloseable {
 
     /**
      * Marks sensor {@code id} as switched during this run, so the run is not compared for it: for a runtime sensor
-     * switch (M5-14), which changes what a sensor records without a new claim.
+     * switch (M5-14), which changes what a sensor records without a new claim. A switch of a sensor on the shared
+     * side-effect transformer ({@link #SHARED_TRANSFORMER_SWITCHES}) also leaves every compared sensor out, since the
+     * agent pauses them while it reinstalls that transformer.
      */
     public void sensorSwitched(String id) {
         synchronized (lock) {
             if (run != null && id != null && ended == null) {
                 run.switched.add(id);
+                if (SHARED_TRANSFORMER_SWITCHES.contains(id)) {
+                    run.reinstalled = true;
+                }
             }
         }
     }
@@ -755,6 +771,9 @@ public final class SideEffectsService implements AutoCloseable {
         if (dropped > 0) {
             return "BootUI dropped " + dropped + (dropped == 1 ? " operation" : " operations")
                     + ": its waiting queue or its rows were full";
+        }
+        if (current.reinstalled) {
+            return PAUSED_FOR_A_SWITCH;
         }
         return null;
     }
@@ -1906,6 +1925,9 @@ public final class SideEffectsService implements AutoCloseable {
 
         /** The sensors a runtime switch changed during this run (M5-14). */
         final java.util.Set<String> switched = new java.util.HashSet<>();
+
+        /** Whether a runtime switch reinstalled the side-effect transformer the compared sensors share. */
+        boolean reinstalled;
 
         long drainResolvedAt = Long.MIN_VALUE / 2;
 

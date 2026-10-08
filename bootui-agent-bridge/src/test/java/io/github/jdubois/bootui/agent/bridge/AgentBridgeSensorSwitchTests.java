@@ -100,7 +100,7 @@ class AgentBridgeSensorSwitchTests {
     }
 
     @Test
-    void onlyTheOptInThreadsFilesAndEnvironmentSensorsCanBeSwitched() {
+    void onlyTheOptInSensorsCanBeSwitched() {
         long token = token(claim("shop", "dev", "processes"));
         calls.clear();
 
@@ -116,7 +116,42 @@ class AgentBridgeSensorSwitchTests {
         assertThat(AgentBridge.switchable("environment")).isTrue();
         assertThat(AgentBridge.switchable("thread-activity")).isTrue();
         assertThat(AgentBridge.switchable("thread-locals")).isTrue();
+        assertThat(AgentBridge.switchable("security-sinks")).isTrue();
         assertThat(claimNow().get("sensorOverrides")).isEqualTo(Map.of());
+    }
+
+    @Test
+    void switchingSecuritySinksTurnsItsChecksAndRequestValueMatchingOnAndOff() {
+        long token = token(claim("shop", "dev", "processes"));
+        // The agent enables a sensor's bit once its hooks passed their self-test.
+        SideEffects.enable(SideEffects.MASK_PROCESSES | SideEffects.MASK_SECURITY_SINKS);
+        assertThat(RequestValues.active()).as("not claimed").isFalse();
+        assertThat(SideEffects.gate() & SideEffects.MASK_SECURITY_SINKS).isZero();
+
+        Map<String, Object> on = AgentBridge.switchSensor(token, "security-sinks", true);
+
+        assertThat(on.get("status")).isEqualTo(AgentBridge.ARMED);
+        assertThat(claim(on).get("sensors")).isEqualTo(List.of("processes", "security-sinks"));
+        assertThat(SideEffects.gate() & SideEffects.MASK_SECURITY_SINKS).isNotZero();
+        assertThat(RequestValues.active()).isTrue();
+        assertThat(RequestValues.begin("00000000000000ab", new String[] {"name"}, new String[] {"alice"}, null, null))
+                .isEqualTo(1);
+        assertThat(RequestValues.live()).isEqualTo(1);
+
+        Map<String, Object> off = AgentBridge.switchSensor(token, "security-sinks", false);
+
+        assertThat(off.get("status")).isEqualTo(AgentBridge.ARMED);
+        assertThat(SideEffects.gate() & SideEffects.MASK_SECURITY_SINKS)
+                .as("its hooks stop recording at once")
+                .isZero();
+        assertThat(SideEffects.gate() & SideEffects.MASK_PROCESSES).isNotZero();
+        assertThat(RequestValues.active()).isFalse();
+        assertThat(RequestValues.live()).as("the held values are wiped").isZero();
+
+        AgentBridge.switchSensor(token, "security-sinks", true);
+
+        assertThat(RequestValues.active()).isTrue();
+        assertThat(SideEffects.gate() & SideEffects.MASK_SECURITY_SINKS).isNotZero();
     }
 
     @Test

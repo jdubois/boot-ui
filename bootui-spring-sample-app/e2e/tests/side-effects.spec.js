@@ -1,5 +1,5 @@
 // @ts-check
-import {expect, switchAgentSensor, test} from './fixtures.js'
+import {assertSecuritySinksSwitch, expect, switchAgentSensor, test} from './fixtures.js'
 
 /**
  * The Side Effects view (docs/PLAN-v2.md §5.16, M5-5a). The default suites run the sample without the agent, so the
@@ -155,6 +155,15 @@ test.describe('Side Effects view', () => {
     await page.goto('/bootui/#/side-effects')
     await page.getByRole('tab', {name: /Security sinks/}).click()
     await expect(page.locator('main')).toContainText('Deserialization without an ObjectInputFilter')
+  })
+
+  test('switches the security-sinks sensor off and on at run time, recording only while it is on (M5-14)', async ({
+    page,
+    openView,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, 'The security-sinks switch needs the BootUI agent')
+    await assertSecuritySinksSwitch(page, openView)
   })
 
   test('says the blocking sensor is not applicable on Spring MVC, which runs no event loop', async ({

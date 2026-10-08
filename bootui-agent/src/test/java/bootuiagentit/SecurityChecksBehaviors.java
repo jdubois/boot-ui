@@ -1,6 +1,7 @@
 package bootuiagentit;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
+import io.github.jdubois.bootui.agent.bridge.RequestValues;
 import io.github.jdubois.bootui.agent.bridge.SecuritySinks;
 import io.github.jdubois.bootui.agent.bridge.SideEffects;
 import java.io.ByteArrayInputStream;
@@ -33,7 +34,8 @@ import javax.net.ssl.X509TrustManager;
  * behavior, then the bridge's status. Modes: {@code check} claims the sensor alone and reports its self-test; {@code
  * beside} claims it with files, processes, network, and blocking; {@code behaviors} runs every behavior; {@code
  * mockito-first} and {@code bootui-first} run Mockito's {@code mockStatic(MessageDigest.class)} before or after the
- * claim.
+ * claim; {@code switch} claims the processes sensor only and switches security-sinks on, off, and on at run time
+ * (PLAN-v2 M5-14).
  */
 public final class SecurityChecksBehaviors {
 
@@ -84,7 +86,7 @@ public final class SecurityChecksBehaviors {
                         SideEffects.NETWORK,
                         SideEffects.BLOCKING,
                         SideEffects.SECURITY_SINKS)
-                : List.of(SideEffects.SECURITY_SINKS);
+                : mode.equals("switch") ? List.of(SideEffects.PROCESSES) : List.of(SideEffects.SECURITY_SINKS);
         token = claim(sensors);
         for (String sensor : sensors) {
             FilesEnvironmentBehaviors.awaitSelfTest(sensor);
@@ -113,6 +115,7 @@ public final class SecurityChecksBehaviors {
                 System.out.println("REQUEST_VALUES=" + io.github.jdubois.bootui.agent.bridge.RequestValues.active());
             }
             case "jvm-filter" -> jvmWideFilter();
+            case "switch" -> switchedAtRunTime();
             case "mockito-first", "bootui-first" -> {
                 if (mode.equals("bootui-first")) {
                     SecurityChecksMockito.mockStatic(mode);
@@ -360,6 +363,75 @@ public final class SecurityChecksBehaviors {
                             && Long.valueOf(0L).equals(hits.get("MessageDigest.getInstance"))
                             && Long.valueOf(0L).equals(hits.get("SSLContext.init")));
         }
+    }
+
+    /** Switches the sensor on, off, and on again for the running claim: MD5 is recorded only while it is on. */
+    static void switchedAtRunTime() throws Exception {
+        check(
+                "before the switch, an MD5 records nothing and request values are not held (" + RequestValues.active()
+                        + ", " + describe() + ")",
+                !md5Recorded() && !RequestValues.active());
+
+        Map<String, Object> on = AgentBridge.switchSensor(token, SideEffects.SECURITY_SINKS, true);
+        Object state = SideEffectsBehaviors.awaitState(SideEffects.SECURITY_SINKS, "installed");
+        check(
+                "switching security-sinks on installs and self-tests its checks in this run, which record an MD5 (" + on
+                        + ", " + state + ", " + describe() + ")",
+                AgentBridge.ARMED.equals(on.get("status"))
+                        && "installed".equals(state)
+                        && md5Recorded()
+                        && RequestValues.active()
+                        && Boolean.TRUE.equals(SideEffectsBehaviors.sensor(SideEffects.PROCESSES)
+                                .get("active")));
+
+        Map<String, Object> off = AgentBridge.switchSensor(token, SideEffects.SECURITY_SINKS, false);
+        boolean stoppedAtOnce = !md5Recorded() && !RequestValues.active();
+        Object processes = SideEffectsBehaviors.awaitState(SideEffects.PROCESSES, "installed");
+        Map<String, Object> hits;
+        SideEffects.beginSelfTest();
+        try {
+            try {
+                MessageDigest.getInstance((String) null);
+            } catch (NullPointerException expected) {
+                // The point is whether the hook still runs.
+            }
+        } finally {
+            hits = SideEffects.endSelfTest();
+        }
+        check(
+                "switching security-sinks off stops its recording and request values at once and removes its hooks,"
+                        + " processes recording on (" + off + ", " + processes + ", " + hits + ")",
+                AgentBridge.ARMED.equals(off.get("status"))
+                        && stoppedAtOnce
+                        && "installed".equals(processes)
+                        && Long.valueOf(0L).equals(hits.get("MessageDigest.getInstance"))
+                        && !Boolean.TRUE.equals(SideEffectsBehaviors.sensor(SideEffects.SECURITY_SINKS)
+                                .get("active")));
+
+        Map<String, Object> again = AgentBridge.switchSensor(token, SideEffects.SECURITY_SINKS, true);
+        state = SideEffectsBehaviors.awaitState(SideEffects.SECURITY_SINKS, "installed");
+        check(
+                "switching security-sinks on again records an MD5 again (" + again + ", " + state + ", " + describe()
+                        + ")",
+                AgentBridge.ARMED.equals(again.get("status"))
+                        && "installed".equals(state)
+                        && md5Recorded()
+                        && RequestValues.active());
+    }
+
+    /** Whether an application MD5 asked for now is recorded, waiting for it only while the sensor records. */
+    static boolean md5Recorded() throws Exception {
+        drain();
+        RECORDS.clear();
+        CONTEXT.set(REQUEST);
+        MessageDigest.getInstance("MD5");
+        CONTEXT.remove();
+        if ((SideEffects.gate() & SideEffects.MASK_SECURITY_SINKS) != 0) {
+            return await(seen(SecuritySinks.KIND_WEAK_DIGEST, "MD5")) != null;
+        }
+        Thread.sleep(50);
+        drain();
+        return !checks().isEmpty();
     }
 
     // ---- helpers ---------------------------------------------------------------------------------------------------
