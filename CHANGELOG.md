@@ -7,12 +7,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Fixed
-
-- **The Quarkus extension accepts Quarkus 3.33 LTS again.** Built on the Quarkus 3.40 platform, the extension declared
-  that it requires Quarkus 3.40 or later, so Quarkus refused it on the supported 3.33 LTS line; it now declares 3.33 or
-  later.
-
 ## [1.21.0] - 2026-10-08
 
 BootUI 1.21.0 makes agent setup easier with a portable plugin for Cursor and other compatible clients, a canonical
@@ -37,8 +31,9 @@ cross-agent skill installer, and refreshed Quarkus LTS support.
 
 ### Fixed
 
-- **Quarkus LTS compatibility.** REST client registration remains compatible with Quarkus 3.33 while supporting the
-  newer 3.40 service-provider path ([#1335](https://github.com/jdubois/boot-ui/pull/1335)).
+- **Quarkus LTS compatibility.** The extension accepts Quarkus 3.33 LTS again, and REST client registration stays
+  compatible with it while supporting the newer 3.40 service-provider path
+  ([#1335](https://github.com/jdubois/boot-ui/pull/1335), [#1368](https://github.com/jdubois/boot-ui/pull/1368)).
 
 ## [1.20.0] - 2026-10-05
 
