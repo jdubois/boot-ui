@@ -36,7 +36,8 @@ class RuntimeInsightsReadPurityArchitectureTests {
             .belongToAnyOf(RequestJournalProfiles.class, RequestProfileSelection.class, ExecutionProfileAssembler.class)
             .should()
             .dependOnClassesThat(resideInAnyPackage(
-                            "java.net.http..",
+                            "java.net..",
+                            "java.io..",
                             "java.sql..",
                             "javax.sql..",
                             "java.nio.file..",
