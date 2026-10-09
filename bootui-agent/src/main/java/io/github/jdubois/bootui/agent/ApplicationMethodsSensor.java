@@ -204,6 +204,8 @@ final class ApplicationMethodsSensor {
     private volatile List<String> matching = Collections.emptyList();
     /** Every bean class named since the transformer was installed, cleared once a release restored. */
     private volatile Set<String> beanClasses = Collections.emptySet();
+    /** The current claim's beans, replayed when an older release finishes clearing the transformer's matching. */
+    private Set<String> claimedBeanClasses = Collections.emptySet();
     /** Bean classes named since the last retransformation for them. */
     private final List<String> addedBeans = new ArrayList<String>();
     /** The packages whose loaded, never-instrumented classes were retransformed for the current claim generation. */
@@ -327,11 +329,12 @@ final class ApplicationMethodsSensor {
         }
         packages = Collections.unmodifiableList(new ArrayList<String>(claimedPackages));
         retransformedPackages = Collections.emptyList();
+        claimedBeanClasses = mergeBeans(Collections.<String>emptySet(), claimedBeans);
         if (stuck) {
             return;
         }
         widen(packages);
-        boolean newBeans = addBeans(claimedBeans);
+        boolean newBeans = addBeans(claimedBeanClasses);
         boolean switched =
                 inventory != inventoryOn || codePaths != codePathsOn || caught != caughtOn || blocking != blockingOn;
         inventoryOn = inventory;
@@ -354,7 +357,7 @@ final class ApplicationMethodsSensor {
         if (!caught) {
             caughtFailure = null;
         }
-        if (transformer != null && (jobs & RELEASE) == 0) {
+        if (transformer != null && !releasing && (jobs & RELEASE) == 0) {
             schedule(jobs | REFINE | (switched ? SWITCH : 0) | (newBeans ? BEANS : 0) | (selfTested() ? 0 : INSTALL));
             return;
         }
@@ -376,13 +379,14 @@ final class ApplicationMethodsSensor {
      */
     synchronized void refined(List<String> claimedPackages, Collection<String> claimedBeans) {
         packages = Collections.unmodifiableList(new ArrayList<String>(claimedPackages));
-        if (stuck || (jobs & RELEASE) != 0) {
-            // The install that follows the release widens the matching to these packages itself.
-            addBeans(claimedBeans);
+        claimedBeanClasses = mergeBeans(claimedBeanClasses, claimedBeans);
+        if (stuck || releasing || (jobs & RELEASE) != 0) {
+            // The install following the release replays these packages and beans.
+            addBeans(claimedBeanClasses);
             return;
         }
         widen(packages);
-        boolean newBeans = addBeans(claimedBeans);
+        boolean newBeans = addBeans(claimedBeanClasses);
         if (transformer != null || jobs != 0 || worker != null) {
             schedule(jobs | REFINE | (newBeans ? BEANS : 0));
         }
@@ -407,10 +411,24 @@ final class ApplicationMethodsSensor {
 
     /** Adds {@code more} to the bean classes; whether any was new. Only a release's reset clears them. */
     private synchronized boolean addBeans(Collection<String> more) {
-        if (more == null || more.isEmpty()) {
+        Set<String> current = beanClasses;
+        Set<String> widened = mergeBeans(current, more);
+        if (widened == current) {
             return false;
         }
-        Set<String> current = beanClasses;
+        for (String name : widened) {
+            if (!current.contains(name)) {
+                addedBeans.add(name);
+            }
+        }
+        beanClasses = widened;
+        return true;
+    }
+
+    private static Set<String> mergeBeans(Set<String> current, Collection<String> more) {
+        if (more == null || more.isEmpty()) {
+            return current;
+        }
         Set<String> widened = null;
         for (String name : more) {
             if (name != null && !current.contains(name)) {
@@ -420,21 +438,19 @@ final class ApplicationMethodsSensor {
                 if (widened.size() >= MAX_BEAN_CLASSES) {
                     break;
                 }
-                if (widened.add(name)) {
-                    addedBeans.add(name);
-                }
+                widened.add(name);
             }
         }
         if (widened == null) {
-            return false;
+            return current;
         }
-        beanClasses = Collections.unmodifiableSet(widened);
-        return true;
+        return Collections.unmodifiableSet(widened);
     }
 
     /** Removes both transformers and restores every instrumented class, off the caller's thread. */
     synchronized void release() {
         releasing = true;
+        claimedBeanClasses = Collections.emptySet();
         schedule(RELEASE);
     }
 
@@ -451,8 +467,6 @@ final class ApplicationMethodsSensor {
         jobs = 0;
         if (job == 0) {
             worker = null;
-        } else if ((job & INSTALL) != 0) {
-            releasing = false;
         }
         return job;
     }
@@ -630,8 +644,13 @@ final class ApplicationMethodsSensor {
                         reset();
                     }
                     if ((job & INSTALL) != 0 && transformer == null) {
-                        if (!inventoryOn && !codePathsOn && !caughtOn && !blockingOn) {
-                            continue;
+                        synchronized (ApplicationMethodsSensor.this) {
+                            if (stuck
+                                    || (jobs & RELEASE) != 0
+                                    || (!inventoryOn && !codePathsOn && !caughtOn && !blockingOn)) {
+                                continue;
+                            }
+                            releasing = false;
                         }
                         install();
                     }
@@ -673,6 +692,7 @@ final class ApplicationMethodsSensor {
             startRecorder();
         }
         synchronized (this) {
+            addBeans(claimedBeanClasses);
             appliedInventory = inventoryOn;
             appliedCodePaths = codePathsOn;
             appliedCaught = caughtOn;
@@ -1056,6 +1076,9 @@ final class ApplicationMethodsSensor {
         }
         if (installed == null) {
             clearMatching();
+            if (releasing && !stuck) {
+                clearVisitFailures();
+            }
             state = stuck ? "release-failed" : "released";
             return;
         }
@@ -1069,6 +1092,10 @@ final class ApplicationMethodsSensor {
                     new AgentBuilder.RedefinitionStrategy.Listener.Compound(
                             AgentBuilder.RedefinitionStrategy.Listener.BatchReallocator.splitting(),
                             stats.redefinitionFailures()));
+        } catch (Throwable ex) {
+            restored = false;
+            stats.failure("application methods release: " + ex);
+            AgentBridge.message("the BootUI agent could not restore its application-methods classes: " + ex);
         } finally {
             restoring = false;
         }
@@ -1082,14 +1109,28 @@ final class ApplicationMethodsSensor {
         if (restored) {
             // Only now: the reset found the classes to restore through the matchers, so they had to stay this wide.
             clearMatching();
+            if (releasing && !stuck) {
+                clearVisitFailures();
+            }
         }
         if (!restored) {
             stuck = true;
+            releasing = true;
             CodeInventory.disable(generation, true, "its classes could not be restored");
             CodePaths.disable(generation, true, "its classes could not be restored");
             CaughtExceptions.disable(generation, true, "its classes could not be restored");
         }
-        state = restored ? "released" : "release-failed";
+        state = stuck ? "release-failed" : "released";
+    }
+
+    private void clearVisitFailures() {
+        inventoryFailure = null;
+        codePathsFailure = null;
+        caughtFailure = null;
+        selfTestError = null;
+        codePathsSelfTestError = null;
+        caughtSelfTestError = null;
+        blockingSelfTestError = null;
     }
 
     private void clearMatching() {

@@ -204,6 +204,11 @@ ignored.
 
 Sensor removal runs off the caller's thread. A new claim supersedes a queued release; if removal has already begun,
 the sensor is installed and self-tested again afterward. This applies to both `executors` and `threads`.
+The shared application-method transformer likewise reinstalls for a reclaim during release, retaining the latest
+claim's packages and bean classes, including startup refinements. A later release still wins. Successful removal
+reports `released` without stale current self-test errors; earlier diagnostics remain in the agent's messages.
+If restoring the application classes fails, the affected sensors stay disabled and the transformer is not reinstalled
+in that JVM, even when another claim was already queued.
 A transformer stays installed across claims, so the sensor row's **This claim** column says whether this application's
 armed claim uses it: a sensor missing from the claim's `bootui.agent.sensors` reads `inactive`, and an inactive
 `executors` sensor propagates nothing. Each threads
