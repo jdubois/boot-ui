@@ -1,7 +1,7 @@
 <script setup>
 import {computed, defineAsyncComponent, inject, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {useRoute} from 'vue-router'
-import {apiFetch, getJson} from '../api.js'
+import {ApiError, apiFetch, getJson} from '../api.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import UnavailableState from './components/UnavailableState.vue'
@@ -21,6 +21,11 @@ import {useConfirm} from '../utils/useConfirm.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
+import {
+  diagnosticActionError,
+  getDiagnosticAcknowledgement,
+  isDatasourceSwitchAcknowledgement
+} from '../utils/diagnosticAcknowledgement.js'
 import {
   cacheAccessSummary,
   childTierLabel,
@@ -134,6 +139,26 @@ const aiExport = ref(null)
 const olderEntries = ref([])
 const olderPageInfo = ref(null)
 const loadingOlder = ref(false)
+const activityGeneration = ref(0)
+const headGeneration = ref(-1)
+let headLoadToken = 0
+let disposed = false
+
+function resetOlderPages() {
+  activityGeneration.value++
+  olderEntries.value = []
+  olderPageInfo.value = null
+  loadingOlder.value = false
+}
+
+function invalidateAfterMutation() {
+  activityGeneration.value++
+  loadingOlder.value = false
+}
+
+function backingFeed(report) {
+  return `${report?.pageInfo?.persistent === true}:${(report?.sources ?? []).includes(JOURNAL_SOURCE_LABEL)}`
+}
 
 const {copiedKey, copyToClipboard} = useCopyToClipboard(2000)
 
@@ -180,19 +205,28 @@ function activityUrl(extra = {}) {
   return qs ? `api/activity?${qs}` : 'api/activity'
 }
 
-async function loadActivity() {
+async function loadActivity({propagateError = true} = {}) {
+  if (disposed) return
+  const generation = activityGeneration.value
+  const token = ++headLoadToken
+  const isCurrent = () => !disposed && generation === activityGeneration.value && token === headLoadToken
   try {
     const response = await apiFetch(activityUrl())
     if (!response.ok) {
       throw new Error(`Request failed with status ${response.status}`)
     }
-    report.value = await response.json()
+    const loaded = await response.json()
+    if (!isCurrent()) return
+    if (backingFeed(loaded) !== backingFeed(report.value)) resetOlderPages()
+    report.value = loaded
+    headGeneration.value = activityGeneration.value
     error.value = null
     lastFetched.value = Date.now()
     flowRefreshTick.value += 1
   } catch (err) {
+    if (!isCurrent()) return
     error.value = err.message || 'Could not load activity'
-    throw err
+    if (propagateError) throw err
   }
 }
 
@@ -211,12 +245,18 @@ const {
 // its pageInfo takes over from the live head's, so repeated clicks keep paging further back.
 const effectivePageInfo = computed(() => olderPageInfo.value ?? report.value?.pageInfo ?? null)
 const canLoadOlder = computed(
-  () => persistent.value && !!effectivePageInfo.value?.hasMore && !!effectivePageInfo.value?.nextCursor
+  () =>
+    persistent.value &&
+    headGeneration.value === activityGeneration.value &&
+    !!effectivePageInfo.value?.hasMore &&
+    !!effectivePageInfo.value?.nextCursor
 )
 
 async function loadOlder() {
   const info = effectivePageInfo.value
-  if (!info?.hasMore || !info.nextCursor || loadingOlder.value) return
+  if (!canLoadOlder.value || !info?.hasMore || !info.nextCursor || loadingOlder.value) return
+  const generation = activityGeneration.value
+  const isCurrent = () => !disposed && generation === activityGeneration.value
   loadingOlder.value = true
   try {
     const response = await apiFetch(activityUrl({cursor: info.nextCursor}))
@@ -224,13 +264,15 @@ async function loadOlder() {
       throw new Error(`Request failed with status ${response.status}`)
     }
     const page = await response.json()
+    if (!isCurrent()) return
     olderEntries.value = appendOlderPage(report.value?.entries, olderEntries.value, page.entries)
     olderPageInfo.value = page.pageInfo ?? null
     error.value = null
   } catch (err) {
+    if (!isCurrent()) return
     error.value = err.message || 'Could not load older activity'
   } finally {
-    loadingOlder.value = false
+    if (isCurrent()) loadingOlder.value = false
   }
 }
 
@@ -260,21 +302,28 @@ async function useExistingDatasource() {
   switchingToDatabase.value = true
   clearBanner()
   try {
-    const res = await apiFetch('api/activity/use-existing-datasource', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({confirm: true})
-    })
-    const result = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      flash(result.message || `HTTP ${res.status}`, 'warning')
-      return
-    }
-    flash(result.message || 'Live Activity is now saving to a database.', 'success')
+    const result = await getDiagnosticAcknowledgement(
+      'api/activity/use-existing-datasource',
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({confirm: true})
+      },
+      isDatasourceSwitchAcknowledgement
+    )
+    flash(result.message, 'success')
     showDatabaseInfo.value = false
-    await loadActivity()
+    invalidateAfterMutation()
+    await loadActivity({propagateError: false})
   } catch (err) {
-    flash(formatLoadError(err, 'Could not switch Live Activity to a database'), 'danger')
+    flash(
+      diagnosticActionError(err, 'Could not switch Live Activity to a database'),
+      err instanceof ApiError ? 'warning' : 'danger'
+    )
+    if (!(err instanceof ApiError) || err.status >= 500) {
+      invalidateAfterMutation()
+      await loadActivity({propagateError: false})
+    }
   } finally {
     switchingToDatabase.value = false
   }
@@ -702,8 +751,7 @@ let filterReloadTimer = null
 watch([typeFilter, severityFilter, textFilter, errorsOnly], () => {
   persistFilters()
   if (!persistent.value) return
-  olderEntries.value = []
-  olderPageInfo.value = null
+  resetOlderPages()
   if (filterReloadTimer) clearTimeout(filterReloadTimer)
   filterReloadTimer = setTimeout(refreshNow, 300)
 })
@@ -711,8 +759,7 @@ watch([typeFilter, severityFilter, textFilter, errorsOnly], () => {
 // The journal's filters run on the server, so changing one reloads the feed.
 watch([feedSource, routeFilter, requestIdFilter, runFilter, noRequestOnly], () => {
   persistFilters()
-  olderEntries.value = []
-  olderPageInfo.value = null
+  resetOlderPages()
   if (filterReloadTimer) clearTimeout(filterReloadTimer)
   filterReloadTimer = setTimeout(refreshNow, 300)
 })
@@ -733,6 +780,8 @@ onMounted(() => {
   }
 })
 onBeforeUnmount(() => {
+  disposed = true
+  resetOlderPages()
   window.removeEventListener('keydown', onKeydown)
   if (filterReloadTimer) clearTimeout(filterReloadTimer)
 })

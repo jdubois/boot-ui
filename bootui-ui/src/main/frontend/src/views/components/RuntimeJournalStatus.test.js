@@ -34,6 +34,7 @@ function respond(body, ok = true, statusCode = 200) {
 
 describe('RuntimeJournalStatus', () => {
   beforeEach(() => {
+    document.cookie = 'XSRF-TOKEN=test-token'
     vi.stubGlobal(
       'fetch',
       vi.fn((url) => (url === 'api/activity/journal' ? respond(status()) : respond({})))
@@ -210,7 +211,11 @@ describe('RuntimeJournalStatus', () => {
     await flushPromises()
     fetch.mockImplementation((url) =>
       url === 'api/activity/journal/clear'
-        ? respond({status: 'cleared', message: 'Cleared 1234 recorded events and the aggregates of this run.'})
+        ? respond({
+            status: 'cleared',
+            message: 'Cleared 1234 recorded events and the aggregates of this run.',
+            clearedEvents: 1234
+          })
         : respond(status({retainedEvents: 0}))
     )
 
@@ -248,6 +253,107 @@ describe('RuntimeJournalStatus', () => {
     settleConfirm(false)
     await flushPromises()
     expect(fetch.mock.calls.some(([url]) => url === 'api/activity/journal/clear')).toBe(false)
+  })
+
+  it.each(['', '{', 'null', '{}', '{"status":"cleared","message":"Cleared","clearedEvents":-1}'])(
+    'does not acknowledge an invalid 2xx clear response %j and re-reads without retrying the POST',
+    async (body) => {
+      const wrapper = mount(RuntimeJournalStatus)
+      await flushPromises()
+      fetch.mockImplementation((url) => {
+        if (url === 'api/activity/journal/clear') return Promise.resolve(new Response(body, {status: 200}))
+        return Promise.reject(new Error('Status read unavailable'))
+      })
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text().includes('Clear recording'))
+        .trigger('click')
+      settleConfirm(true)
+      await flushPromises()
+
+      expect(wrapper.emitted('flash').some(([, tone]) => tone === 'success')).toBe(false)
+      expect(wrapper.emitted('flash')[0][0]).toContain('outcome is unknown')
+      expect(fetch.mock.calls.filter(([url]) => url === 'api/activity/journal/clear')).toHaveLength(1)
+      expect(fetch.mock.calls.filter(([url]) => url === 'api/activity/journal')).toHaveLength(2)
+      expect(wrapper.text()).toContain('Status read unavailable')
+      expect(wrapper.findAll('button').find((button) => button.text().includes('Clear recording'))).toBeTruthy()
+      wrapper.unmount()
+    }
+  )
+
+  it.each([403, 503])('preserves a bodyless HTTP %s clear rejection', async (code) => {
+    const wrapper = mount(RuntimeJournalStatus)
+    await flushPromises()
+    fetch.mockImplementation((url) =>
+      url === 'api/activity/journal/clear' ? Promise.resolve(new Response('', {status: code})) : respond(status())
+    )
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('Clear recording'))
+      .trigger('click')
+    settleConfirm(true)
+    await flushPromises()
+    expect(wrapper.emitted('flash')[0][0]).toContain(`HTTP ${code}`)
+    expect(wrapper.emitted('flash').some(([, tone]) => tone === 'success')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('accepts repeated clears with zero events and forward-compatible fields', async () => {
+    const wrapper = mount(RuntimeJournalStatus)
+    await flushPromises()
+    fetch.mockImplementation((url) =>
+      url === 'api/activity/journal/clear'
+        ? respond({status: 'cleared', message: 'Cleared zero events.', clearedEvents: 0, futureField: true})
+        : respond(status({retainedEvents: 0}))
+    )
+    for (let i = 0; i < 2; i++) {
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text().includes('Clear recording'))
+        .trigger('click')
+      settleConfirm(true)
+      await flushPromises()
+    }
+    expect(wrapper.emitted('flash')).toEqual([
+      ['Cleared zero events.', 'success'],
+      ['Cleared zero events.', 'success']
+    ])
+    wrapper.unmount()
+  })
+
+  it('re-reads a possibly committed clear without letting an older status read overwrite it', async () => {
+    const wrapper = mount(RuntimeJournalStatus)
+    await flushPromises()
+    let finishOld
+    const pending = new Promise((resolve) => {
+      finishOld = resolve
+    })
+    let rereading = false
+    fetch.mockImplementation((url) => {
+      if (url === 'api/activity/journal/clear') {
+        rereading = true
+        return Promise.resolve(new Response('{}', {status: 200}))
+      }
+      return rereading ? respond(status({retainedEvents: 0})) : pending
+    })
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Refresh')
+      .trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Clear recording')
+      .trigger('click')
+    settleConfirm(true)
+    await flushPromises()
+    expect(wrapper.emitted('flash')[0][0]).toContain('outcome is unknown')
+    expect(wrapper.text()).toContain(`0 of ${(50000).toLocaleString()} events`)
+    finishOld({ok: true, status: 200, json: () => Promise.resolve(status())})
+    await flushPromises()
+    expect(wrapper.text()).toContain(`0 of ${(50000).toLocaleString()} events`)
+    expect(wrapper.emitted('flash').some(([, tone]) => tone === 'success')).toBe(false)
+    expect(fetch.mock.calls.filter(([url]) => url === 'api/activity/journal/clear')).toHaveLength(1)
+    wrapper.unmount()
   })
 
   it('reports a status it cannot load', async () => {

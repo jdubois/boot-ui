@@ -144,4 +144,51 @@ describe('useAutoRefresh', () => {
 
     wrapper.unmount()
   })
+
+  it('coalesces explicit post-action reads after a slow read even with auto-refresh off', async () => {
+    let finishRead
+    const callback = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishRead = resolve
+          })
+      )
+      .mockResolvedValue()
+    const {api, wrapper} = harness(callback, {defaultEnabled: false})
+    await flushPromises()
+    api.loadAfterCurrent()
+    api.loadAfterCurrent()
+    await vi.advanceTimersByTimeAsync(2_500)
+    expect(callback).toHaveBeenCalledTimes(1)
+    finishRead()
+    await flushPromises()
+    expect(callback).toHaveBeenCalledTimes(2)
+    expect(api.loading.value).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('still drops ordinary overlapping reads and does not start queued work after unmount', async () => {
+    let finishRead
+    const callback = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          finishRead = resolve
+        })
+    )
+    const {api, wrapper} = harness(callback, {defaultEnabled: false})
+    await flushPromises()
+    await api.load()
+    finishRead()
+    await flushPromises()
+    expect(callback).toHaveBeenCalledTimes(1)
+    const next = api.load()
+    api.loadAfterCurrent()
+    wrapper.unmount()
+    finishRead()
+    await next
+    await flushPromises()
+    expect(callback).toHaveBeenCalledTimes(2)
+  })
 })
