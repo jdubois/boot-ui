@@ -928,8 +928,9 @@ compatibility rules describe. Protocol fields belong in `params._meta`, not at t
   or a notification-shaped `202`. Budget refusals, including this admission refusal, count once as
   `responseLimitRefusals`. A string `progressToken` longer than 128 characters is
   refused on a modern request and ignored on a legacy one, which then answers with one JSON response. Any
-  other call, including every refusal and a call without a token, stays a single JSON response, byte-identical to
-  BootUI 1.x for a legacy client. A legacy stream's final response is a legacy one: no `resultType` or `_meta`, and the
+  other call, apart from an unanswerable byte-budget transport refusal, stays a single JSON response, including other
+  refusals and a call without a token; ordinary legacy replies keep BootUI 1.x's bytes.
+  A legacy stream's final response is a legacy one: no `resultType` or `_meta`, and the
   `-32000`…`-32003` codes.
 - **Cancellation by closing the stream (modern).** Closing the response stream cancels the call, as MCP 2026-07-28 requires:
   BootUI writes nothing more, interrupts the tool, which stops at its next step and keeps its previous report, and frees
