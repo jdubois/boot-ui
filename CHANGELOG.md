@@ -823,6 +823,8 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **WebSocket execution profiles open from retained handlers.** Visible inbound anchors now show their recorded work by
+  execution id, while hidden, missing, and outbound anchors stay unavailable ([Profiles](docs/features/overview.md#the-per-request-profiler)).
 - **Diagnostic state stays current.** Late reads cannot undo sensor switches or repopulate old activity queries,
   and invalid action replies report an unknown outcome ([Live Activity](docs/features/overview.md#live-activity)).
 - **CLI failures are not successful answers or policy skips.** Empty tool replies, wrong targets, and outages now
