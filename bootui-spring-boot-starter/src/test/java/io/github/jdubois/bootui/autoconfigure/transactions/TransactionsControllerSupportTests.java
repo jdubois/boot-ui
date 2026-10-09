@@ -39,8 +39,7 @@ class TransactionsControllerSupportTests {
         TransactionReport report = TransactionsControllerSupport.trace(provider(recorder), provider(null));
 
         assertThat(report.available()).isFalse();
-        assertThat(report.unavailableReason())
-                .isEqualTo("No configurable PlatformTransactionManager bean is available");
+        assertThat(report.unavailableReason()).isEqualTo("No configurable transaction manager bean is available");
     }
 
     @Test

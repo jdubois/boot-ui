@@ -77,6 +77,7 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
     private final AtomicLong evicted = new AtomicLong();
     private final AtomicBoolean recording;
     private volatile boolean idleSuspended = false;
+    private volatile boolean reactiveSeen;
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 
     private final Map<Long, ActiveTransaction> active = new ConcurrentHashMap<>();
@@ -189,6 +190,9 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
         boolean panel = capturesForPanel();
         if (!panel && !journal.records(JournalSource.TRANSACTION)) {
             return -1;
+        }
+        if (!threadBound) {
+            reactiveSeen = true;
         }
         long id = sequence.incrementAndGet();
         Deque<Long> stack = threadBound ? threadStack.get() : null;
@@ -498,6 +502,11 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
 
     private List<String> warnings() {
         List<String> warnings = new ArrayList<>();
+        if (reactiveSeen) {
+            warnings.add("Reactive capture records physical begin/commit/rollback callbacks, not a complete parent"
+                    + " or savepoint hierarchy. SQL and connection counts cover JDBC work on the begin thread only;"
+                    + " R2DBC statements and work moved to another thread are not counted.");
+        }
         if (!isRecording()) {
             warnings.add("Recording is paused. Resume it to capture new transactions.");
         }

@@ -674,6 +674,10 @@ unobserved. On WebFlux this observes both the blocking transaction managers a re
 may begin and complete on different threads and are recorded without a thread-bound parent or isolation
 ([WebFlux support](../WEBFLUX-SUPPORT.md)).
 
+Reactive capture records physical begin/commit/rollback callbacks, not a full reactive parent or savepoint hierarchy.
+SQL and connection counts describe JDBC work on the begin thread within its time window: R2DBC statements and JDBC
+work moved to another thread are not counted, so zero counts are not evidence that no database work occurred.
+
 Transactions are retained in a bounded ring buffer, most recently completed first, with aggregate stats: total,
 average, and maximum duration, slow and connection-held counts, commit, rollback, and unknown outcome counts, and a
 nested-transaction count.

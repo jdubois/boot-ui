@@ -286,6 +286,8 @@ class BootUiTransactionExecutionListenerTests {
                 .extracting(TransactionEntryDto::status, TransactionEntryDto::parentId)
                 .containsExactly(tuple("ROLLED_BACK", null), tuple("COMMITTED", null));
         assertThat(manager.completedOn).allMatch(thread -> thread.startsWith("bootui-test-other"));
+        assertThat(recorder.report().warnings())
+                .anyMatch(warning -> warning.contains("not a complete parent") && warning.contains("R2DBC statements"));
     }
 
     /** A reactive transaction manager with no resource, recording the threads its transactions complete on. */

@@ -129,7 +129,10 @@ public final class McpToolDescriptions {
                     "Return the current bounded transaction-boundary snapshot with outcomes, timings, nesting, and "
                             + "correlated SQL counts. Use it to verify which local operations actually ran in a "
                             + "transaction. totalCaptured counts the transactions recorded since startup, which "
-                            + "clear_transactions does not reset; stats and entries cover the retained window only."),
+                            + "clear_transactions does not reset; stats and entries cover the retained window only. "
+                            + "Reactive capture records physical begin/commit/rollback callbacks, not a complete "
+                            + "parent or savepoint hierarchy. SQL and connection counts cover JDBC work on the begin "
+                            + "thread only, not R2DBC statements or JDBC work moved to another thread."),
             Map.entry(
                     "get_traces",
                     "Return a bounded, newest-first snapshot of distributed and local traces captured by BootUI. Use "

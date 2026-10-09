@@ -377,9 +377,13 @@ WebFlux application still uses, such as `@Transactional` JDBC work run on a Reac
 transaction by the execution Spring passes to every callback of one boundary, so a reactive transaction that begins on
 one thread and commits on another is recorded once, with the right outcome. A reactive transaction has no thread-bound
 parent or JDBC isolation, so it is recorded as a new transaction with an `UNKNOWN` isolation. An application with no
-configurable transaction manager reports "No configurable PlatformTransactionManager bean is available" rather than
+configurable transaction manager reports "No configurable transaction manager bean is available" rather than
 silently showing an empty table. The sample's `GET /api/sample/transaction-samples` runs a commit, a slow commit, and a
 rollback, which `WebFluxTransactionsIntegrationTest` and `tests-webflux/transactions.spec.js` check.
+Reactive support covers physical transaction begin/commit/rollback callbacks, not a complete reactive transaction
+hierarchy: parent relationships and nested/savepoint boundaries are not inferred. SQL and connection counts remain
+JDBC-only, matched by the begin thread and time window; they do not capture R2DBC statements or JDBC work moved to
+another thread. Zero counts therefore do not prove that a reactive transaction performed no database work.
 
 **Exceptions.** *Known fidelity gap, accepted, documented in code (`ReactiveBootUiExceptionHandler`'s Javadoc):* a
 `@RestController`'s own local `@ExceptionHandler` method consumes an exception *inside* the WebFlux dispatch pipeline,

@@ -531,10 +531,12 @@ public class BootUiEngineConfiguration {
             ObjectProvider<JournalAggregates> aggregates,
             ObjectProvider<RuntimeJournal> journal,
             AgentEvidence evidence) {
-        DependencyProvider declared = DependencyCatalog.forApplication(() -> {
-            BasePackageProvider provider = basePackages.getIfAvailable();
-            return provider == null ? List.of() : provider.basePackages();
-        });
+        DependencyProvider declared = DependencyCatalog.forApplication(
+                () -> {
+                    BasePackageProvider provider = basePackages.getIfAvailable();
+                    return provider == null ? List.of() : provider.basePackages();
+                },
+                context.getClassLoader());
         CodeInventoryService service = new CodeInventoryService(
                 AgentBridgeAccess.locate(),
                 () -> {
