@@ -88,15 +88,15 @@ describe('Java Agent panel', () => {
     expect(fetch).toHaveBeenCalledWith('api/java-agent', {})
   })
 
-  it('opens on the setup and what the agent adds while it is not attached, without the attached-only sections', async () => {
+  it('shows what the agent adds before setup while it is not attached, without the attached-only sections', async () => {
     wrapper = mountPanel({...baseReport, warnings: ['A stale agent jar is on the class path']})
     await flushPromises()
 
     const sections = wrapper.findAll('section').map((section) => section.attributes('aria-labelledby'))
     expect(sections).toEqual([
       'java-agent-state-title',
-      'java-agent-setup-title',
       'java-agent-about-title',
+      'java-agent-setup-title',
       'java-agent-warnings-title'
     ])
     expect(wrapper.get('#java-agent-setup-title').text()).toBe('Attach the agent')
@@ -146,7 +146,7 @@ describe('Java Agent panel', () => {
     expect(steps[0].text()).toContain('-javaagent')
   })
 
-  it.each(['DORMANT', 'UNAVAILABLE', 'DISABLED'])(
+  it.each(['DORMANT', 'ARMED', 'HELD', 'DISARMED', 'UNAVAILABLE', 'FAILED', 'DISABLED'])(
     'keeps the diagnosis first and the setup snippets last when the state is %s',
     async (state) => {
       wrapper = mountPanel({...baseReport, state, reason: 'Some reason.'})
