@@ -3,6 +3,9 @@
 BootUI's one Spring Boot starter serves Spring WebFlux applications too. It serves the same console and the same JSON
 contract as on Spring MVC, backed by the same framework-neutral engine. Only the request binding differs.
 
+Before publication, use the [locally built v2 artifacts](../V2-EARLY-ADOPTERS.md): the branch still uses the
+released line's `1.21.0` version, so Maven Central alone does not provide this unified starter.
+
 ## Prerequisites
 
 - Java 17 or later
@@ -92,7 +95,7 @@ bootui.allow-non-localhost=false
 # Extra Host header values to accept.
 bootui.allowed-hosts=localhost
 # Extra source ranges, for example a Docker gateway.
-bootui.trusted-proxies=172.16.0.0/12
+bootui.trusted-proxies=172.17.0.1/32
 # Auto-trust the container gateway in dev containers.
 bootui.trust-container-gateway=AUTO
 ```

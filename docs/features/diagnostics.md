@@ -149,11 +149,11 @@ both handled and logged is de-duplicated by throwable identity.
 
 Each group carries a Sentry-style triage status, shown as a badge and changed inline with a button group:
 
-| Status | Meaning | On a new occurrence |
-| ------ | ------- | ------------------- |
-| **Open** | Default for every new group | Keeps accumulating |
+| Status           | Meaning                        | On a new occurrence                        |
+| ---------------- | ------------------------------ | ------------------------------------------ |
+| **Open**         | Default for every new group    | Keeps accumulating                         |
 | **Acknowledged** | Seen, still being investigated | Keeps accumulating; never auto-transitions |
-| **Resolved** | Believed fixed | Regresses: auto-reopens to **Open** |
+| **Resolved**     | Believed fixed                 | Regresses: auto-reopens to **Open**        |
 
 When a **Resolved** group throws again, BootUI treats it as a regression. The group reopens to **Open** and a lifetime
 "Reopened ×N" counter appears next to the badge, so a failure you thought was fixed is immediately visible. Only a
@@ -170,18 +170,18 @@ With the BootUI agent's opt-in [`caught-exceptions` sensor](java-agent.md#the-ca
 and MCP `get_exceptions`). It groups the exceptions application handlers caught by route, handler, and caught class,
 and counts each occurrence under one outcome:
 
-| Outcome | What BootUI saw |
-| --- | --- |
-| **Rethrown** | The exception left the method by a throw, as is or as a cause, or was caught again |
-| **Replaced** | The handler's straight-line code throws another exception without it |
-| **Reported** | The exception, or a wrapper of it, reached the framework's error handling |
-| **Logged** | It was logged at `WARN` or above, or a `WARN` was logged on the catching thread right after, before it caught anything else |
-| **Handed on** | The handler passed it on as an error value: a failed future, an error signal, a deferred error result |
-| **Re-interrupted** | The handler restored the thread's interrupt |
-| **Retried** | A later attempt at the same handler in the same request was rethrown, reported, or logged |
-| **Not seen rethrown or logged at WARN or above** | None of these, while the evidence was complete |
-| **Unknown** | The evidence was incomplete; the row names the most frequent reason |
-| **Settling** | Its request ended less than five seconds ago, or work it handed over still runs |
+| Outcome                                          | What BootUI saw                                                                                                             |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| **Rethrown**                                     | The exception left the method by a throw, as is or as a cause, or was caught again                                          |
+| **Replaced**                                     | The handler's straight-line code throws another exception without it                                                        |
+| **Reported**                                     | The exception, or a wrapper of it, reached the framework's error handling                                                   |
+| **Logged**                                       | It was logged at `WARN` or above, or a `WARN` was logged on the catching thread right after, before it caught anything else |
+| **Handed on**                                    | The handler passed it on as an error value: a failed future, an error signal, a deferred error result                       |
+| **Re-interrupted**                               | The handler restored the thread's interrupt                                                                                 |
+| **Retried**                                      | A later attempt at the same handler in the same request was rethrown, reported, or logged                                   |
+| **Not seen rethrown or logged at WARN or above** | None of these, while the evidence was complete                                                                              |
+| **Unknown**                                      | The evidence was incomplete; the row names the most frequent reason                                                         |
+| **Settling**                                     | Its request ended less than five seconds ago, or work it handed over still runs                                             |
 
 A row is a finding when occurrences not seen rethrown or logged came from at least three requests, or from one for an
 SQL, I/O, or data-access exception. A finding states a fact, never a verdict: BootUI never calls an exception
@@ -212,11 +212,11 @@ The in-memory store resets on restart and through the panel's clear action, whic
 The occurrence total counts the retained groups, so a clear resets it too; the panel keeps no lifetime count.
 It is bounded by three properties:
 
-| Property | Default | Bounds |
-| -------- | ------- | ------ |
-| `bootui.exceptions.max-groups` | `100` | Groups retained, evicting the least recently seen |
-| `bootui.exceptions.max-occurrences-per-group` | `25` | Occurrences kept per group |
-| `bootui.exceptions.max-stack-frames` | `50` | Frames kept per stack trace |
+| Property                                      | Default | Bounds                                            |
+| --------------------------------------------- | ------- | ------------------------------------------------- |
+| `bootui.exceptions.max-groups`                | `100`   | Groups retained, evicting the least recently seen |
+| `bootui.exceptions.max-occurrences-per-group` | `25`    | Occurrences kept per group                        |
+| `bootui.exceptions.max-stack-frames`          | `50`    | Frames kept per stack trace                       |
 
 Triage and regression detection are engine-level, so they behave identically on all three stacks. Only the capture
 sources differ.
@@ -279,10 +279,10 @@ A burst of successful requests would otherwise evict the one failure you came to
 capture buffer — HTTP Exchanges on all three stacks, [SQL Trace](database.md#sql-trace), and
 [REST Client](services.md#rest-client) — therefore reserves a share of its capacity for failed and slow records:
 
-| Buffer         | Reserved for                                                                              | Slow threshold                                        |
-| -------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| HTTP Exchanges | `5xx` responses and requests at or above the slow threshold                               | `bootui.activity.request-slow-threshold-ms` (`1000`)   |
-| SQL Trace      | Failed statements and statements at or above the slow threshold                           | `bootui.sql-trace.slow-query-threshold-millis` (`100`) |
+| Buffer         | Reserved for                                                                               | Slow threshold                                                 |
+| -------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| HTTP Exchanges | `5xx` responses and requests at or above the slow threshold                                | `bootui.activity.request-slow-threshold-ms` (`1000`)           |
+| SQL Trace      | Failed statements and statements at or above the slow threshold                            | `bootui.sql-trace.slow-query-threshold-millis` (`100`)         |
 | REST Client    | Calls that failed, received a `4xx` or `5xx` response, or took at least the slow threshold | `bootui.rest-client-trace.slow-call-threshold-millis` (`1000`) |
 
 Routine records are evicted first. The reserved share evicts its own oldest record only once it is full, so under a
@@ -314,8 +314,8 @@ evicted first, and BootUI's own requests are hidden at read time instead. In bot
 managed by the application.
 
 Every exchange carries the route it belongs to, shown under its path when the two differ, and a **Profile** link that
-opens the request's profile in [Live Activity](overview.md#the-per-request-profiler). Stacks that correlate a profile
-by trace id alone explain in the profile when a request carried none.
+opens the request's profile in [Live Activity](overview.md#the-per-request-profiler). WebFlux and Quarkus require an
+exact request id or an unambiguous trace id for a buffer-backed profile and explain when neither is available.
 
 Every exchange also carries BootUI's own `requestId`, generated when the request starts, whether or not OpenTelemetry
 is present. On Spring MVC it covers the servlet thread and any asynchronous redispatch of the same request. On Spring
@@ -334,10 +334,10 @@ errors. **Exchanges** filters the list below to exactly that route's exchanges, 
 A route is resolved exactly as [SQL Trace](database.md#rankings) attributes database time, and each row says which of
 three sources it came from:
 
-| Source        | Meaning                                                                                         |
-| ------------- | ----------------------------------------------------------------------------------------------- |
-| `template`    | The handler pattern Spring MVC or Spring WebFlux matched, such as `/api/orders/{id}`.            |
-| `declared`    | The single best route the application declares in its mappings. Ties resolve to no template.    |
+| Source        | Meaning                                                                                        |
+| ------------- | ---------------------------------------------------------------------------------------------- |
+| `template`    | The handler pattern Spring MVC or Spring WebFlux matched, such as `/api/orders/{id}`.          |
+| `declared`    | The single best route the application declares in its mappings. Ties resolve to no template.   |
 | `masked path` | No template matched, so every path segment that reads like a value is replaced with `{value}`. |
 
 A template is shown the same way whichever source produced it, so `{id:[0-9]+}` reads `{id}` and a route never splits
@@ -387,7 +387,7 @@ it.
 
 ### Copy as cURL
 
-Row details offer **Copy as cURL**, which turns the retained metadata into a command *template*. It is not a
+Row details offer **Copy as cURL**, which turns the retained metadata into a command _template_. It is not a
 byte-for-byte replay, and the action shows every difference before you copy.
 
 ::: details What the command changes, and why
@@ -430,12 +430,12 @@ host, and as a state-changing action it is gated by the same localhost-only safe
 Probe input is bounded. The method, path, request body, header count, and header name and value sizes each have a
 ceiling, measured in UTF-8 bytes and checked before anything is sent:
 
-| Input | Ceiling |
-| ----- | ------- |
-| Request body | 64 KiB |
-| Path | 2 KiB |
-| Headers | 50 entries, 256 bytes per name, 8 KiB per value, 32 KiB combined |
-| Method | 32 bytes |
+| Input        | Ceiling                                                          |
+| ------------ | ---------------------------------------------------------------- |
+| Request body | 64 KiB                                                           |
+| Path         | 2 KiB                                                            |
+| Headers      | 50 entries, 256 bytes per name, 8 KiB per value, 32 KiB combined |
+| Method       | 32 bytes                                                         |
 
 Exceeding a ceiling is invalid input, so it is rejected with the canonical `400` and `{"error": ...}` body on all three
 stacks, and the panel shows that message instead of a result. A probe that runs and fails, through a refused connection

@@ -1,7 +1,10 @@
 # BootUI on Quarkus
 
-BootUI ships as a Quarkus extension. It serves the same console and the same JSON contract as the Spring starters,
+BootUI ships as a Quarkus extension. It serves the same console and the same JSON contract as the Spring starter,
 backed by the Quarkus build of the framework-neutral engine.
+
+Before publication, use the [locally built v2 artifacts](../V2-EARLY-ADOPTERS.md): the branch still uses the
+released line's `1.21.0` version, so keep that build in an isolated repository.
 
 ## Prerequisites
 
@@ -76,9 +79,9 @@ in dev and test mode and compose with `quarkus.http.root-path`.
 
 The Quarkus launch mode decides activation. There is no Spring-style profile and no `bootui.enabled` flag:
 
-| Launch mode | Behavior |
-| ----------- | -------- |
-| `dev` (`quarkus:dev`) and `test` (`@QuarkusTest`) | The console, its `/bootui/api/**` endpoints, the CDI beans, and the safety filter are wired. |
+| Launch mode                                               | Behavior                                                                                                                                                                                                                                                                                       |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dev` (`quarkus:dev`) and `test` (`@QuarkusTest`)         | The console, its `/bootui/api/**` endpoints, the CDI beans, and the safety filter are wired.                                                                                                                                                                                                   |
 | `NORMAL` (a packaged `quarkus-run.jar` or a native image) | The console, its endpoints, and its CDI beans are not wired. One guard filter is registered in every launch mode and decides at runtime: in `NORMAL` it answers a plain 404 for `/bootui` and every `/bootui/**` path, including the packaged UI shell, and in dev and test it passes through. |
 
 This is fail-closed by design: no flag turns BootUI on in a production build.
@@ -94,7 +97,7 @@ bootui.allow-non-localhost=false
 # Extra Host header values to accept.
 bootui.allowed-hosts=localhost
 # Extra source ranges, for example a Docker gateway.
-bootui.trusted-proxies=172.16.0.0/12
+bootui.trusted-proxies=172.17.0.1/32
 # Auto-trust the container gateway in dev containers.
 bootui.trust-container-gateway=AUTO
 # Optional stable token; otherwise generated at startup.
@@ -109,7 +112,7 @@ Runtime configuration overrides are Spring-only today, so the Configuration pane
 
 ## Panel availability
 
-Most panels are live. Nine target Spring-specific runtime concepts and are permanently marked *not applicable*, and
+Most panels are live. Nine target Spring-specific runtime concepts and are permanently marked _not applicable_, and
 JMS is not available yet. See [what is not on Quarkus](../FRAMEWORK-SUPPORT.md#what-is-not-on-quarkus) for the list and
 the reason for each. To try a fully wired application, see
 [Try the sample app](../TRY-SAMPLE-APP.md#quarkus-image).

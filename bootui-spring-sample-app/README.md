@@ -1,12 +1,12 @@
 # BootUI sample application
 
-This module is a small Spring Boot 4 application that demonstrates the
+This module is a small Spring Boot application that demonstrates the
 [BootUI](../README.md) developer console end to end. It is the same app that
 the Playwright suite under `e2e/` exercises.
 
 ## What it shows
 
-- The `bootui-spring-boot-starter` dependency on a real Spring Boot 4 app.
+- The `bootui-spring-boot-starter` dependency on a real Spring Boot app.
 - BootUI auto-activating in local development (the `dev`/`docker` profiles, or via `spring-boot-devtools`).
 - A relational Spring Data repository so the Spring Data panel has data to show
   (in-memory H2 by default, PostgreSQL with `docker` or `docker-postgresql`, MySQL with `docker-mysql`).
@@ -34,15 +34,21 @@ Ollama for an in-memory H2 database, a simple in-memory cache, and disabled Spri
 download is needed:
 
 ```bash
-./mvnw -pl bootui-spring-sample-app spring-boot:run
+./bootui-spring-sample-app/run-local.sh
 ```
 
 `dev` is the default Spring profile ([`application-dev.properties`](src/main/resources/application-dev.properties)), so
 it applies whenever no other profile is active (a bare run, the Playwright e2e suite, etc.); pass
 `-Dspring-boot.run.profiles=dev` explicitly for the same result. Most panels work normally, including Configuration,
-Database, Spring Data, Flyway, Liquibase, and Cache. The Chat and AI Framework panels report that AI is unavailable,
-and Dev Services lists no containers. The published [`jdubois/bootui-sample-app`](../docs/TRY-SAMPLE-APP.md) Docker image
+Database, Spring Data, Flyway, Liquibase, and Cache. The welcome page's Chat section reports that no model is available;
+the AI Framework panel remains available because Spring AI is on the classpath, but has no conversations yet.
+Dev Services lists no containers. The published [`jdubois/bootui-sample-app`](../docs/TRY-SAMPLE-APP.md) Docker image
 runs this same Docker-free `dev` profile.
+
+The launcher installs the required reactor modules into the isolated `.m2` repository before starting the app.
+To run Maven directly, first install those modules with
+`./mvnw -Dmaven.repo.local=.m2 -pl bootui-spring-sample-app -am -DskipTests install`, then use the same repository with
+`./mvnw -Dmaven.repo.local=.m2 -pl bootui-spring-sample-app spring-boot:run`.
 
 ## Run it with Docker
 
@@ -167,7 +173,7 @@ To try every feature at once, use the all-in-one launcher:
 ./bootui-spring-sample-app/run-local-all.sh
 ```
 
-It attaches the BootUI Java agent as [above](#run-it-with-the-bootui-java-agent-and-postgresql) (including
+It attaches the BootUI Java agent as [above](#run-it-with-the-bootui-java-agent) (including
 `BOOTUI_AGENT_JAR`) with every sensor it ships, every opt-in sensor included, through `BOOTUI_AGENT_SENSORS`, the
 environment variable Spring binds to `bootui.agent.sensors` (set it to choose others). The `security-sinks` sensor
 still matches no request input unless you also set `bootui.agent.security-sinks.request-values=true`. It runs the full
@@ -297,7 +303,7 @@ and AI Framework steps note where the `docker` profile adds Postgres/Redis/Ollam
 7. **Health, HTTP Sessions, Metrics, Memory, JVM Tuning, Heap Dump, Threads, Startup Timeline, GraalVM** —
    sanity-check the live runtime values, inspect session/thread activity, calculate JVM/container sizing, run native-image
    readiness checks, and use Heap Dump to analyze a value-free class histogram.
-8. **Spring Data and Hibernate** — open `BootUiSampleRepository` to inspect its query methods and domain type,
+8. **Spring Data and Hibernate** — open `ProductRepository` to inspect its query methods and domain type,
    then run the Hibernate panel to review the sample JPA mappings.
 9. **Database Connection Pools** — inspect datasource pool metadata and live
    active / idle / total connection chart without borrowing a connection.
@@ -307,7 +313,7 @@ and AI Framework steps note where the `docker` profile adds Postgres/Redis/Ollam
 11. **Liquibase** — inspect the two applied and two pending `inventory_*` change sets
     tracked in `DATABASECHANGELOG`, on a table set fully separate from Flyway's, then
     apply the pending change sets after browser confirmation.
-12. **Cache** — verify the in-memory (`ConcurrentHashMap`) `sample-products`
+12. **Cache** — verify the in-memory Caffeine `sample-products`
     and `sample-greetings` caches are listed (Redis-backed with the `docker`
     profile), inspect cache annotations, and clear a cache after confirming the action.
 13. **Kafka** — unavailable in the default Docker-free mode (no `KafkaTemplate` bean); with the `docker` profile,
@@ -322,8 +328,8 @@ and AI Framework steps note where the `docker` profile adds Postgres/Redis/Ollam
     inbound requests, and run explicit local scans as development hygiene prompts.
 17. **HTTP Probe** — send a request to `/api/echo`, then try to send one to an
     external host and confirm it is rejected as non-loopback.
-18. **AI Framework** — the Chat and AI Framework panels report AI is unavailable in the
-    default mode; with the `docker` profile, exercise the sample AI endpoints and
+18. **AI Framework** — the welcome page's Chat section reports no model in the default mode, while the AI Framework
+    panel shows no captured conversations; with the `docker` profile, exercise the sample AI endpoints and
     local AI helper paths, then inspect the retained in-memory spans and token summaries.
 19. **DevTools, Dev Services, Copilot, Claude Code** — confirm the developer-tool panels show local status, bounded service
     metadata/logs, and sanitized local agent activity.
@@ -393,24 +399,23 @@ this app's own "Secure SQL request as admin" button exercises locally.
 Run both apps from source, in separate terminals:
 
 ```bash
-./mvnw -pl bootui-spring-sample-app spring-boot:run                                            # :8080
-JAVA_HOME=/path/to/jdk-17 ./mvnw -pl bootui-quarkus-sample-app -am quarkus:dev                  # :8082
+./bootui-spring-sample-app/run-local.sh   # :8080
+./bootui-quarkus-sample-app/run-local.sh  # :8082; use a supported JDK and a running Docker engine
 ```
 
 Then open this app's console at <http://localhost:8080/bootui>, click **"Call the Quarkus sample app"**, and open
 the **Traces** panel. W3C trace-context propagation is on by default on both adapters, so the single browser click
 starts one trace that crosses both JVMs; it renders as **one merged waterfall** spanning the Spring request and
 the Quarkus request it triggers — including the Quarkus-side SQL query and authentication event — with
-`bootui-sample` and `bootui-quarkus-sample` badges on the same trace (the `bootui.service` span attribute this
-PR's enrichment adds). This works because the Quarkus sample's `application.properties` exports its
+`bootui-sample` and `bootui-quarkus-sample` badges on the same trace (the `bootui.service` span attribute).
+This works because the Quarkus sample's `application.properties` exports its
 OpenTelemetry spans over OTLP/HTTP to this app's `POST /bootui/api/otlp/v1/traces` receiver by default when run
-from source — the Traces panel's "aggregator topology" (`docs/SPECIFICATION.md` §5.14.3). It has no effect on
+from source — the [Traces panel's aggregator topology](../docs/features/diagnostics.md#traces). It has no effect on
 the Quarkus app's own Traces panel, which keeps recording its own spans in-process independently, and it is
 disabled in the published Quarkus Docker image, which has no Spring app nearby.
 
-> **Why not the Live Activity panel?** Live Activity (`docs/SPECIFICATION.md` §5.14.2) intentionally only ever
-> merges one JVM's own local HTTP Exchanges/SQL Trace/Exceptions/Security Logs buffers, reusing their existing
-> controllers/DTOs with no new instrumentation. There is no API for one BootUI instance to pull or receive
+> **Why not the Live Activity panel?** [Live Activity](../docs/features/overview.md#live-activity) reads one JVM's
+> runtime journal by default and supplements its rows with retained local panel details. There is no API for one BootUI instance to pull or receive
 > another instance's Live Activity stream, and BootUI never forwards that raw data off-process (a stated
 > non-goal). The Traces panel's OTLP aggregator topology above is the supported mechanism for seeing
 > cross-service activity from one BootUI instance.
@@ -465,17 +470,18 @@ docker run --rm -p 127.0.0.1:8080:8080 \
 
 ### Benchmark results
 
-Numbers collected on the BootUI sample app (Spring Boot 4, `dev`/H2 profile, Flyway/Liquibase disabled)
-on a GitHub Actions `ubuntu-latest` runner:
+Historical numbers collected on the BootUI sample app (Spring Boot 4, `dev`/H2 profile, Flyway/Liquibase disabled)
+on a GitHub Actions `ubuntu-latest` runner. They have not been rerun for the current v2 code:
 
-| Image variant           | Spring-reported startup       | Wall-clock to `/actuator/health` | Image size |
-| ----------------------- | ----------------------------- | ------------------------------------- | ---------- |
-| JVM (`Dockerfile`)      | `Started … in ~9.7 s`         | ~12 s                                 | ~170 MB    |
-| JVM + AOT (`Dockerfile-aot`) | `Started … in ~5–6 s`    | ~7–9 s                                | ~240–270 MB |
-| CRaC restore (`Dockerfile-crac`) | `Restored … in ~0.11 s` | ~1–2 s (container start)           | ~170 MB + 270 MB volume |
-| GraalVM native (`Dockerfile-native`) | `Started … in ~0.3 s` | ~1–2 s (container start)        | ~45 MB     |
+| Image variant                        | Spring-reported startup | Wall-clock to `/actuator/health` | Image size              |
+| ------------------------------------ | ----------------------- | -------------------------------- | ----------------------- |
+| JVM (`Dockerfile`)                   | `Started … in ~9.7 s`   | ~12 s                            | ~170 MB                 |
+| JVM + AOT (`Dockerfile-aot`)         | `Started … in ~5–6 s`   | ~7–9 s                           | ~240–270 MB             |
+| CRaC restore (`Dockerfile-crac`)     | `Restored … in ~0.11 s` | ~1–2 s (container start)         | ~170 MB + 270 MB volume |
+| GraalVM native (`Dockerfile-native`) | `Started … in ~0.3 s`   | ~1–2 s (container start)         | ~45 MB                  |
 
 Key takeaways:
+
 - The AOT image starts **~40–45 %** faster than plain JVM (Spring-reported: 9.7 s → 5–6 s).
 - The AOT cache file adds **~70–100 MB** to the image (the largest single cost).
 - For workloads where container start time matters (scale-to-zero, frequent rolling restarts),
@@ -555,7 +561,7 @@ are baked into the executable. Those hints register the classpath resources and
 reflective calls that BootUI performs at runtime (Maven `pom.properties`,
 configuration metadata, the BootUI version file, the HotSpot diagnostic MXBean
 used for heap dumps, and the Spring Security types it inspects) so the
-Dependencies, Config, Heap Dump, and Security panels keep working under native.
+Vulnerabilities, Configuration, Heap Dump, and Security panels keep working under native.
 
 Applications that embed BootUI through the starter inherit these hints
 automatically; they only need to ensure BootUI is active during their own AOT
@@ -633,13 +639,13 @@ host loopback (`127.0.0.1`) so BootUI stays local-only while the browser can
 still reach the containerized app. The BootUI **CRaC** panel's runtime status
 reports runtime observations, not proof that a checkpoint or restore will succeed.
 
-On this sample app (Spring Boot 4, `dev`/H2 profile) the restore is dramatically
-faster than a cold JVM start:
+Historical measurements of this sample app (Spring Boot 4, `dev`/H2 profile) showed a restore much faster than a
+cold JVM start. They have not been rerun for the current v2 code:
 
-| Start              | Spring-reported            | Wall-clock to `/actuator/health` 200 |
-| ------------------ | -------------------------- | ------------------------------------ |
-| Normal JVM         | `Started … in ~9.7 s`      | ~12 s                                |
-| CRaC restore       | `Restored … in ~0.11 s`    | ~1–2 s (mostly container start)      |
+| Start        | Spring-reported         | Wall-clock to `/actuator/health` 200 |
+| ------------ | ----------------------- | ------------------------------------ |
+| Normal JVM   | `Started … in ~9.7 s`   | ~12 s                                |
+| CRaC restore | `Restored … in ~0.11 s` | ~1–2 s (mostly container start)      |
 
 That is roughly an **80×** improvement on the Spring-reported figure (and a 7×+
 wall-clock win even including container startup). The checkpoint itself is about

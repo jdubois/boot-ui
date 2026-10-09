@@ -5,10 +5,14 @@ adjustment.
 
 ## Command-line (non-web) applications
 
-The starter brings Spring MVC and an embedded servlet container. When BootUI is active, it therefore starts a servlet
+The starter brings no web stack. To serve BootUI from a command-line application, add
+`spring-boot-starter-webmvc` (or `spring-boot-starter-web`) as well, providing Spring MVC and an embedded servlet
+container. When BootUI is active and both are on the classpath, it starts a servlet
 web server even if your application declares `spring.main.web-application-type=none`, or calls
 `SpringApplication#setWebApplicationType(NONE)`. Your `CommandLineRunner` and `ApplicationRunner` beans still run as
 usual, and the application then keeps running so the console stays reachable.
+
+Without Spring MVC and a supported embedded container, BootUI leaves the application non-web and exposes no console.
 
 Set `bootui.force-web=false` to opt out and keep your declared web-application type. Applications that are already
 servlet web applications, or that are explicitly reactive, are left untouched, and because BootUI activates only in
@@ -25,7 +29,7 @@ forces the servlet web type on your main application as usual.
 When you publish a port and browse to `http://localhost:8080/bootui`, the request reaches the application from the
 Docker gateway, which is not a loopback address. BootUI fails closed and rejects it. Two settings fix that:
 
-1. **Activate BootUI inside the container.** A repackaged jar strips DevTools, and activation reads the *active*
+1. **Activate BootUI inside the container.** A repackaged jar strips DevTools, and activation reads the _active_
    profiles rather than `spring.profiles.default`. Set `SPRING_PROFILES_ACTIVE=dev` or `BOOTUI_ENABLED=ON`. Without
    this you get a 404 on `/bootui`, not a rejection.
 2. **Trust the container gateway.** Set `bootui.trust-container-gateway=AUTO`. BootUI then detects the gateway
@@ -33,7 +37,7 @@ Docker gateway, which is not a loopback address. BootUI fails closed and rejects
    loopback-equivalent, on any Docker flavor.
 
 ```bash
-docker run -p 8080:8080 \
+docker run -p 127.0.0.1:8080:8080 \
   -e SPRING_PROFILES_ACTIVE=dev \
   -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
   your-image
@@ -53,8 +57,8 @@ Detection relaxes only the source-address check. The `Host` allow-list and cross
 and sibling containers are not trusted, because their traffic carries their own address rather than the gateway's.
 
 It also fails closed. On Linux Docker Engine and on bare metal, `gateway.docker.internal` does not resolve, which
-means no extra gateway. If that name is unavailable on Docker Desktop, set `bootui.trusted-proxies=192.168.65.0/24`
-instead.
+means no extra gateway. If that name is unavailable on Docker Desktop, verify the observed gateway and trust that
+single address through `bootui.trusted-proxies`, for example `192.168.65.1/32`.
 
 :::
 
@@ -72,10 +76,10 @@ source other than the detected gateway, use `bootui.trusted-proxies`. It trusts 
 notation while keeping the same Host and cross-site-write defenses. Pick the range that matches your Docker flavor:
 
 ```properties
-# Linux Docker Engine: the default bridge gateway 172.17.x lives inside 172.16.0.0/12
-bootui.trusted-proxies=172.16.0.0/12
-# Docker Desktop (macOS/Windows): the gateway is 192.168.65.1, so trust 192.168.65.0/24 instead
-#bootui.trusted-proxies=192.168.65.0/24
+# Linux Docker Engine: verify the actual gateway before trusting this one host
+bootui.trusted-proxies=172.17.0.1/32
+# Docker Desktop (macOS/Windows): if the observed gateway is 192.168.65.1
+#bootui.trusted-proxies=192.168.65.1/32
 # Accept the hostname you browse with (localhost is already a built-in loopback name)
 bootui.allowed-hosts=localhost
 ```
@@ -83,16 +87,16 @@ bootui.allowed-hosts=localhost
 Or as environment variables on the container:
 
 ```bash
-docker run -p 8080:8080 \
+docker run -p 127.0.0.1:8080:8080 \
   -e SPRING_PROFILES_ACTIVE=dev \
-  -e BOOTUI_TRUSTED_PROXIES=172.16.0.0/12 \
+  -e BOOTUI_TRUSTED_PROXIES=172.17.0.1/32 \
   your-image
 ```
 
-On Docker Desktop, use `-e BOOTUI_TRUSTED_PROXIES=192.168.65.0/24` instead.
+On Docker Desktop, use `-e BOOTUI_TRUSTED_PROXIES=192.168.65.1/32` instead when that is the observed gateway.
 
-Scope `bootui.trusted-proxies` as narrowly as you can. For a user-defined Docker network, prefer that network's own
-subnet over the broad `172.16.0.0/12`, and keep it limited to trusted local networks. Check your own setup with
+Scope `bootui.trusted-proxies` as narrowly as you can. Prefer the observed gateway's `/32` or `/128` over a whole
+network, and keep it limited to trusted local sources. Check your own setup with
 `docker network inspect bridge`, under `IPAM.Config.Gateway`, or read the source address from the BootUI rejection log
 line. Reserve `bootui.allow-non-localhost=true` as a last resort.
 
@@ -100,10 +104,10 @@ line. Reserve `bootui.allow-non-localhost=true` as a last resort.
 
 BootUI keeps two developer-local files under `.bootui/` in the application's working directory:
 
-| File                            | Holds                                                                                    |
-| ------------------------------- | ---------------------------------------------------------------------------------------- |
-| `application-bootui.properties` | Runtime overrides created from the Configuration panel. |
-| `boot-ui.yml`                   | Advisor findings you dismissed, under a `dismissedRules:` node.                          |
+| File                            | Holds                                                           |
+| ------------------------------- | --------------------------------------------------------------- |
+| `application-bootui.properties` | Runtime overrides created from the Configuration panel.         |
+| `boot-ui.yml`                   | Advisor findings you dismissed, under a `dismissedRules:` node. |
 
 Inside a container that directory belongs to the image, so a rebuild starts from a clean slate: toggles return to
 their configured value and dismissed findings reappear. `bootui.overrides-file` fixes both at once, because BootUI
@@ -129,7 +133,7 @@ BootUI creates the directory if it does not exist. Both files now survive `docke
 ::: warning Set it from the environment, not from `application.properties`
 An `EnvironmentPostProcessor` reads the overrides file before your configuration files are loaded, while the console's
 writes resolve the path later, from the bound properties. A `bootui.overrides-file` declared in
-`application.properties` therefore moves where overrides are *written* but not where they are *read at startup*, so
+`application.properties` therefore moves where overrides are _written_ but not where they are _read at startup_, so
 the values you saved are silently not applied. Use the environment variable or a `-D` system property, as shown above,
 so both ends agree on one directory.
 :::
@@ -155,7 +159,7 @@ dismissedRules:
 COPY .bootui/boot-ui.yml /var/bootui/boot-ui.yml
 ```
 
-Two things to know. Dismissing from the console rewrites the whole file, so a read-only mount makes the *Dismiss*
+Two things to know. Dismissing from the console rewrites the whole file, so a read-only mount makes the _Dismiss_
 button fail. Either keep the directory writable, since a rebuild still restores the committed baseline, or set the
 advisor panels read-only with `bootui.panels.<id>.read-only=true`, which disables the dismiss and restore controls.
 Vulnerability dismissals are also keyed `<vulnerability id>::<group:artifact>` rather than by a bare rule id. See
