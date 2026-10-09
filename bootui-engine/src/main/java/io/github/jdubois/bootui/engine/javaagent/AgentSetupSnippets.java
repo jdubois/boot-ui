@@ -44,21 +44,29 @@ public final class AgentSetupSnippets {
      */
     public static JavaAgentSetupDto setup(
             String version, String attachedJar, Path repository, String stack, String buildTool) {
+        Path effectiveRepository =
+                repository == null ? null : repository.toAbsolutePath().normalize();
         Path jar = attachedJar != null ? path(attachedJar) : null;
         if (jar == null) {
-            jar = repositoryJar(repository, version);
+            jar = repositoryJar(effectiveRepository, version);
         }
         boolean found = jar != null && isFile(jar);
         String jarPath = jar == null ? repositoryJarPlaceholder(version) : jar.toString();
-        return new JavaAgentSetupDto(jarPath, found, buildTool, snippets(version, jarPath, found, stack, buildTool));
+        return new JavaAgentSetupDto(
+                jarPath, found, buildTool, snippets(version, jarPath, found, stack, buildTool, effectiveRepository));
     }
 
     /**
      * The snippets for one stack, the detected build tool's first. A missing jar adds a {@code dependency:get} line
-     * first, which downloads it to the path the other snippets use.
+     * first, using Maven's default local repository when the repository is unknown.
      */
     public static List<JavaAgentSnippetDto> snippets(
             String version, String jarPath, boolean jarFound, String stack, String buildTool) {
+        return snippets(version, jarPath, jarFound, stack, buildTool, null);
+    }
+
+    private static List<JavaAgentSnippetDto> snippets(
+            String version, String jarPath, boolean jarFound, String stack, String buildTool, Path repository) {
         String option = jarPath.contains(" ") ? "\"-javaagent:" + jarPath + "\"" : "-javaagent:" + jarPath;
         String bare = "-javaagent:" + jarPath;
         String portable = "-javaagent:" + jarPath.replace('\\', '/');
@@ -68,7 +76,8 @@ public final class AgentSetupSnippets {
                     "maven-download",
                     "Download the agent",
                     "shell",
-                    "mvn dependency:get -Dartifact=" + COORDINATES + ":" + version));
+                    "mvn dependency:get -Dartifact=" + COORDINATES + ":" + version
+                            + (repository == null ? "" : " -Dmaven.repo.local=" + shellQuoted(repository.toString()))));
         }
         if (QUARKUS.equals(stack)) {
             snippets.add(new JavaAgentSnippetDto(

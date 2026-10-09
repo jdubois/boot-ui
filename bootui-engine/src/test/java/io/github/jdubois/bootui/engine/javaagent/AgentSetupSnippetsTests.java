@@ -17,6 +17,9 @@ import java.util.jar.Manifest;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class AgentSetupSnippetsTests {
 
@@ -119,6 +122,134 @@ class AgentSetupSnippetsTests {
         assertThat(snippets.get(0).id()).isEqualTo("maven-download");
         assertThat(snippets.get(0).text())
                 .isEqualTo("mvn dependency:get -Dartifact=com.julien-dubois.bootui:bootui-agent:1.19.0");
+    }
+
+    @ParameterizedTest
+    @CsvSource(
+            value = {
+                "spring,MAVEN",
+                "spring,GRADLE",
+                "spring,UNKNOWN",
+                "spring,null",
+                "quarkus,MAVEN",
+                "quarkus,GRADLE",
+                "quarkus,UNKNOWN",
+                "quarkus,null"
+            },
+            nullValues = "null")
+    void aMissingRepositoryJarIsDownloadedToTheRepositoryUsedByTheAttachment(String stack, String buildTool) {
+        Path repository = directory.resolve("custom-repository");
+        Path jar = AgentSetupSnippets.repositoryJar(repository, "1.19.0");
+
+        var setup = AgentSetupSnippets.setup("1.19.0", null, repository, stack, buildTool);
+        Map<String, JavaAgentSnippetDto> snippets = byId(setup.snippets());
+
+        assertThat(setup.jarFound()).isFalse();
+        assertThat(setup.jarPath()).isEqualTo(jar.toString());
+        assertThat(setup.buildTool()).isEqualTo(buildTool);
+        assertThat(setup.snippets().get(0).id()).isEqualTo("maven-download");
+        assertThat(snippets.get("maven-download").text())
+                .isEqualTo("mvn dependency:get -Dartifact=com.julien-dubois.bootui:bootui-agent:1.19.0"
+                        + " -Dmaven.repo.local=" + AgentSetupSnippets.shellQuoted(repository.toString()));
+        assertThat(snippets.get("intellij").text()).isEqualTo("-javaagent:" + jar);
+        assertThat(snippets.get("java-tool-options").text())
+                .contains(AgentSetupSnippets.shellQuoted(AgentSetupSnippets.jvmOption("-javaagent:" + jar)));
+        assertThat(snippets.get("quarkus".equals(stack) ? "quarkus-dev" : "maven-plugin")
+                        .text())
+                .contains(jar.toString());
+        assertThat(Files.exists(repository)).isFalse();
+    }
+
+    @Test
+    void theDefaultRepositoryIsExplicitInTheDownloadToo() {
+        Path repository = AgentSetupSnippets.localRepository(null, directory.toString());
+
+        var setup = AgentSetupSnippets.setup(
+                "1.19.0", null, repository, AgentSetupSnippets.SPRING, AgentSetupSnippets.MAVEN);
+
+        assertThat(setup.jarPath())
+                .isEqualTo(
+                        AgentSetupSnippets.repositoryJar(repository, "1.19.0").toString());
+        assertThat(setup.snippets().get(0).text())
+                .endsWith(" -Dmaven.repo.local=" + AgentSetupSnippets.shellQuoted(repository.toString()));
+    }
+
+    @Test
+    void aRelativeRepositoryUsesTheSameNormalizedAbsolutePathForDownloadAndAttachment() {
+        Path relative = Path.of("relative cache", "unused", "..", "repository");
+        Path repository = relative.toAbsolutePath().normalize();
+        assertThat(AgentSetupSnippets.localRepository(relative.toString(), directory.toString()))
+                .isEqualTo(repository);
+
+        var setup = AgentSetupSnippets.setup(
+                "1.19.0", null, relative, AgentSetupSnippets.SPRING, AgentSetupSnippets.UNKNOWN);
+
+        assertThat(setup.jarPath())
+                .isEqualTo(
+                        AgentSetupSnippets.repositoryJar(repository, "1.19.0").toString());
+        assertThat(setup.snippets().get(0).text())
+                .endsWith(" -Dmaven.repo.local=" + AgentSetupSnippets.shellQuoted(repository.toString()));
+        assertThat(byId(setup.snippets()).get("intellij").text()).isEqualTo("\"-javaagent:" + setup.jarPath() + "\"");
+    }
+
+    @Test
+    void theDownloadKeepsWhitespaceQuotesAndShellMetacharactersInOneLiteralArgument() throws Exception {
+        assumeTrue(Files.isExecutable(Path.of("/bin/sh")), "needs a POSIX shell");
+        Path repository = directory.resolve("my cache\t/it's a \"quoted\" $HOME `pwd`; & | > * # repo");
+        var setup = AgentSetupSnippets.setup(
+                "1.19.0", null, repository, AgentSetupSnippets.QUARKUS, AgentSetupSnippets.GRADLE);
+        String download = setup.snippets().get(0).text();
+
+        Process process = new ProcessBuilder("/bin/sh", "-c", "mvn() { printf '%s\\n' \"$@\"; }; " + download)
+                .directory(directory.toFile())
+                .redirectErrorStream(true)
+                .start();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+
+        assertThat(process.waitFor()).as(output).isZero();
+        assertThat(output)
+                .isEqualTo("dependency:get\n-Dartifact=com.julien-dubois.bootui:bootui-agent:1.19.0\n"
+                        + "-Dmaven.repo.local=" + repository + "\n");
+        assertThat(setup.jarPath())
+                .isEqualTo(
+                        AgentSetupSnippets.repositoryJar(repository, "1.19.0").toString());
+        assertThat(byId(setup.snippets()).get("java-tool-options").text())
+                .isEqualTo(AgentSetupSnippets.javaToolOptions(setup.jarPath(), "./gradlew quarkusDev"));
+        assertThat(Files.exists(repository)).isFalse();
+    }
+
+    @Test
+    void anUnknownRepositoryKeepsTheDefaultDownloadAndPlaceholder() {
+        var setup =
+                AgentSetupSnippets.setup("1.19.0", null, null, AgentSetupSnippets.SPRING, AgentSetupSnippets.UNKNOWN);
+
+        assertThat(setup.jarFound()).isFalse();
+        assertThat(setup.jarPath())
+                .isEqualTo("~/.m2/repository/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar");
+        assertThat(setup.snippets().get(0).text())
+                .isEqualTo("mvn dependency:get -Dartifact=com.julien-dubois.bootui:bootui-agent:1.19.0");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aPresentRepositoryOrAttachedJarNeedsNoDownload(boolean attached) throws Exception {
+        Path repository = directory.resolve("repository");
+        Path jar = attached
+                ? directory.resolve("attached-agent.jar")
+                : AgentSetupSnippets.repositoryJar(repository, "1.19.0");
+        Files.createDirectories(jar.getParent());
+        Files.writeString(jar, "");
+
+        var setup = AgentSetupSnippets.setup(
+                "1.19.0",
+                attached ? jar.toString() : null,
+                repository,
+                AgentSetupSnippets.SPRING,
+                AgentSetupSnippets.MAVEN);
+
+        assertThat(setup.jarFound()).isTrue();
+        assertThat(setup.jarPath()).isEqualTo(jar.toString());
+        assertThat(ids(setup.snippets())).doesNotContain("maven-download");
     }
 
     @Test
