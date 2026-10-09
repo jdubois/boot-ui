@@ -667,9 +667,14 @@ to check; **JFR profile** holds the resource profiler, and **Coverage & limits**
 checks that did not fully run, and the routes not exercised. Nothing opens on its own: a deep link opens the row, the
 theme, the tab (`?tab=changes`, `impact`, `profile`, or `coverage`), or the change impact (`?impact=<symbol>`) it names.
 
-Opening a `route-time-breakdown` observation adds **Performance deep dives** links to the JFR profile tab and that
-route's Code Paths tree. The Code Paths link is route-level, not an exact request replay. Opening the profiler tab is
-read-only; a JFR recording starts only when **Profile resources** is explicitly selected.
+Opening a `route-time-breakdown` observation adds **Performance deep dives** actions. **Open the JFR profile tab**
+opens the profiler without starting a recording; a JFR recording starts only when **Profile resources** is explicitly
+selected. When Code Paths is available and enabled, its action opens the observed route's retained method timings
+and calls, preserving the route's HTTP method and path. This is route-level evidence, not an exact request replay;
+an available sensor does not guarantee a retained tree for that route. Without the agent or its `code-paths` sensor,
+a tip explains how the Java agent adds deeper insights, shows the runtime's actual reason, and links to agent setup
+when that panel is usable. Disabled, missing, or otherwise unavailable Code Paths panels show their reason instead
+of an unusable action; an observation without a known route offers only the JFR action.
 
 Twenty-two observations run over the completed requests and garbage collections the journal retains:
 

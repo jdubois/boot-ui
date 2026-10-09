@@ -1,12 +1,17 @@
 // @ts-check
-import {expect, test} from '@playwright/test'
+import {expect, test} from '../tests/fixtures.js'
 
 /**
  * Runtime Insights on WebFlux (docs/PLAN-v2.md §5.5). WebFlux marks no request phases, so a route's breakdown names its
  * time around the calls as unattributed, and the observations needing a phase or a servlet say why they do not apply.
  */
 test.describe('Runtime Insights on Spring WebFlux', () => {
-  test('lists a route time breakdown and the checks that do not apply on WebFlux', async ({page, request, baseURL}) => {
+  test('lists a route time breakdown and the checks that do not apply on WebFlux', async ({
+    page,
+    request,
+    baseURL,
+    agentAttached
+  }) => {
     for (let i = 0; i < 7; i += 1) {
       const greeting = await request.get(`${baseURL}/api/greetings/Ada`)
       expect(greeting.ok()).toBeTruthy()
@@ -24,15 +29,34 @@ test.describe('Runtime Insights on Spring WebFlux', () => {
 
     const deepDives = page.locator('.insight-performance-deep-dives')
     await expect(deepDives.getByRole('heading', {name: 'Performance deep dives'})).toBeVisible()
-    await expect(deepDives.getByRole('link', {name: /Open GET .* in Code Paths/})).toHaveAttribute(
-      'href',
-      /#\/code-paths\?route=/
-    )
-    await deepDives.getByRole('button', {name: 'Open the JFR profile tab'}).click()
+    const codePathsLink = deepDives.getByRole('link', {name: /Open GET .* in Code Paths/})
+    if (agentAttached) {
+      await expect(codePathsLink).toHaveAttribute('href', /#\/code-paths\?route=GET\+\/api\/greetings\/%7Bname%7D$/)
+    } else {
+      await expect(codePathsLink).toHaveCount(0)
+      await expect(deepDives.locator('.insight-agent-tip')).toContainText('method-level timing')
+      await expect(deepDives.getByRole('link', {name: 'Set up the Java agent'})).toHaveAttribute(
+        'href',
+        /#\/java-agent$/
+      )
+    }
+    await deepDives.getByRole('button', {name: 'Open the JFR profile tab'}).focus()
+    await page.keyboard.press('Enter')
     await expect(page.getByRole('tab', {name: 'JFR profile'})).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tab', {name: 'JFR profile'})).toBeFocused()
     await expect(page.locator('.insight-profile-running')).toHaveCount(0)
     await expect(page.locator('.insight-profile').getByRole('button', {name: /Profile resources/})).toBeVisible()
     await page.getByRole('tab', {name: /^Findings/}).click()
+    if (agentAttached) {
+      await codePathsLink.click()
+      await expect(page).toHaveURL(/#\/code-paths\?route=GET\+\/api\/greetings\/%7Bname%7D$/)
+      await expect(page.locator('.code-paths-route', {hasText: 'GET /api/greetings/{name}'})).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      )
+      await expect(page.locator('.code-paths-route-detail')).toBeVisible()
+      await page.goBack()
+    }
 
     await page.getByRole('tab', {name: /^Coverage & limits/}).click()
     await expect(page.locator('.insight-unrun')).toContainText('SQL after the handler returned')

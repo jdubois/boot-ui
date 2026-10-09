@@ -7,7 +7,11 @@ import {expect, test} from './fixtures.js'
  * observation to open, whatever ran before; a short route is reached with **Show all routes** (M4-19).
  */
 test.describe('Runtime Insights view', () => {
-  test('lists a route time breakdown with its window, coverage, checks, and evidence', async ({openView, page}) => {
+  test('lists a route time breakdown with its window, coverage, checks, and evidence', async ({
+    openView,
+    page,
+    agentAttached
+  }) => {
     for (let i = 0; i < 7; i += 1) {
       const search = await page.request.get('/api/sample/product-search')
       expect(search.ok()).toBeTruthy()
@@ -35,15 +39,34 @@ test.describe('Runtime Insights view', () => {
 
     const deepDives = detail.locator('.insight-performance-deep-dives')
     await expect(deepDives.getByRole('heading', {name: 'Performance deep dives'})).toBeVisible()
-    await expect(deepDives.getByRole('link', {name: /Open GET .* in Code Paths/})).toHaveAttribute(
-      'href',
-      /#\/code-paths\?route=/
-    )
-    await deepDives.getByRole('button', {name: 'Open the JFR profile tab'}).click()
+    const codePathsLink = deepDives.getByRole('link', {name: /Open GET .* in Code Paths/})
+    if (agentAttached) {
+      await expect(codePathsLink).toHaveAttribute('href', /#\/code-paths\?route=GET\+\/api\/sample\/product-search$/)
+    } else {
+      await expect(codePathsLink).toHaveCount(0)
+      await expect(deepDives.locator('.insight-agent-tip')).toContainText('method-level timing')
+      await expect(deepDives.getByRole('link', {name: 'Set up the Java agent'})).toHaveAttribute(
+        'href',
+        /#\/java-agent$/
+      )
+    }
+    await deepDives.getByRole('button', {name: 'Open the JFR profile tab'}).focus()
+    await page.keyboard.press('Enter')
     await expect(page.getByRole('tab', {name: 'JFR profile'})).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tab', {name: 'JFR profile'})).toBeFocused()
     await expect(page.locator('.insight-profile-running')).toHaveCount(0)
     await expect(page.locator('.insight-profile').getByRole('button', {name: /Profile resources/})).toBeVisible()
     await page.getByRole('tab', {name: /^Findings/}).click()
+    if (agentAttached) {
+      await codePathsLink.click()
+      await expect(page).toHaveURL(/#\/code-paths\?route=GET\+\/api\/sample\/product-search$/)
+      await expect(page.locator('.code-paths-route', {hasText: 'GET /api/sample/product-search'})).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      )
+      await expect(page.locator('.code-paths-route-detail')).toBeVisible()
+      await page.goBack()
+    }
 
     await expect(page.getByRole('button', {name: 'Export JSON'})).toBeVisible()
 
