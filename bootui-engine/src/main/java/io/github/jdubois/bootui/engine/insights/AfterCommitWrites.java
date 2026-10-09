@@ -17,8 +17,9 @@ import java.util.Set;
 /**
  * {@code after-commit-writes} ({@code docs/PLAN-v2.md} §5.18, M4-8): INSERT, UPDATE, or DELETE statements run by a
  * listener of an {@code AFTER_COMMIT}, {@code AFTER_ROLLBACK}, or {@code AFTER_COMPLETION} phase, outside every
- * transaction that began within the listener. Spring runs such a listener while the finished transaction's resources
- * are still bound, so its writes still join that transaction, and no commit follows anymore. One request is enough.
+ * transaction that began within the listener. Thread-bound Spring transactions can leave the finished transaction's
+ * resources bound during such a listener, so its writes can join a transaction with no later commit. The timing
+ * evidence does not prove whether the database committed a write. One request is enough.
  */
 public final class AfterCommitWrites implements Observation {
 
@@ -132,15 +133,16 @@ public final class AfterCommitWrites implements Observation {
                 eligible,
                 writes.requests.size(),
                 List.of(
-                        "Spring runs this listener while the finished transaction's resources are still bound: its"
-                                + " writes join that transaction, and no commit follows. Check that they reach the"
-                                + " database.",
-                        "To commit them, run the write in its own transaction, such as"
+                        "With thread-bound Spring transactions, the finished transaction's resources can still be"
+                                + " bound: a write that joins it has no later commit. Check whether these writes"
+                                + " committed; timing alone does not prove that.",
+                        "If a write needs its own commit, run it in its own transaction, such as"
                                 + " `@Transactional(propagation = REQUIRES_NEW)` on the method it calls."),
                 writes.requests.stream().limit(3).toList(),
                 List.of("Request", "Statement", "Time (ms)"),
                 writes.rows,
-                List.of("Counts timed JDBC statements on the listener's thread while it ran."));
+                List.of("Counts timed JDBC statements on the listener's thread while it ran, not their database"
+                        + " commit outcome."));
     }
 
     private static final class Writes {
