@@ -309,8 +309,12 @@ Each correlated exception carries its `exceptionGroupId`, the id of its group in
 [Exceptions panel](diagnostics.md#exceptions). Agents use `get_request_profile` or `bootui request-profile <id>`:
 these return a selection with `journal` and `buffers` evidence when retained, preferring the journal in `source`
 (`"journal"`, `"buffers"`, or `"none"`), rather than returning this REST DTO unchanged. A request's profile, journal or
-buffers, is unavailable while the HTTP Exchanges panel is disabled, because it opens with that request's exchange. Scheduled runs and consumed messages
-can also be opened by execution id when retained; see
+buffers, is unavailable while the HTTP Exchanges panel is disabled, because it opens with that request's exchange.
+Scheduled runs, consumed messages, and inbound WebSocket handlers can also be opened by execution id when their
+completed anchor is retained and its source panel is enabled. WebSocket journal profiles use the captured destination
+template, or the endpoint when no destination is recorded, and include only retained, enabled-panel work correlated to
+that execution; outbound messages and session open/close events never open an execution profile. These executions have no
+HTTP status, route comparison, or measured CPU, allocation, and GC pauses; see
 [Investigate one request](../AI-AGENTS.md#investigate-one-request).
 
 #### Copy profile and Copy for AI
@@ -330,7 +334,8 @@ not show, and identical evidence produces identical text on every stack. Capture
 or fenced, so Markdown inside them cannot break the document's structure.
 
 Scheduled-task runs are not child events in an HTTP request's buffer-backed profile or its exports. A retained
-scheduled run or consumed message can instead be opened by its own execution id in a journal-backed profile.
+scheduled run, consumed message, or inbound WebSocket handler can instead be opened by its own execution id in a
+journal-backed profile.
 The REST Client panel keeps its own "chatty" badge for now.
 
 ### Messaging capture
