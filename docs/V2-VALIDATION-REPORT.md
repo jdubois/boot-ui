@@ -34,6 +34,10 @@ other evidence. The final candidate, release decision, and maintainer signature 
 Done is not passed: a measure that
 was run but missed its target is recorded as **Not met**, with its exception, never left out or rounded up. 2.0.0 is
 not released while any cell is still pending.
+The machine-readable decision is `PENDING` until the maintainer decides; `HOLD` is an explicit refusal, and only
+`APPROVE_RELEASE_2_0_0` is positive authorization. The [release runbook](V2-RELEASE.md#release-sign-off-format)
+defines the required candidate, rationale, name, and date format. Rehearsal checks these recorded fields; it does not
+make the decision or supply the maintainer's signature.
 
 | Field | Value |
 | --- | --- |
@@ -43,7 +47,8 @@ not released while any cell is still pending.
 | Applications | Tuned: Spring PetClinic `500158f`, JHipster sample `6b000b5d`, Quarkus Super Heroes `d472e71d6`, WebFlux gateway `73b700b`, Kafka saga `a76daeb`. Holdouts: bookstore `2933f5f`, Timeless `0a90516` (pins and patches in [`validation/apps/`](https://github.com/jdubois/boot-ui/tree/v2/validation/apps)) |
 | Reviewers and adjudicator | r1 on claude-opus-5.5 and r2 on gpt-6-sol, independent and one after the other; Julien Dubois, the maintainer, adjudicated the 26 disputed rows, advised by three blind models; his coordinator agent set the recall marks under his rule, and he approved them (see [Adjudication](#adjudication)) |
 | Known limitations | [Known limitations](KNOWN-LIMITATIONS.md) audited against delivered v2 source in [#1407](https://github.com/jdubois/boot-ui/pull/1407), reviewed head `312ddf2b7572c391b2d3a728b3b78cd32888bab9`, merged as `7d72176e1e5045bf345435e4bbe4c498bd29cef0`: shipped/deferred agent scope, all-generation snapshot bounds and ownership caveat, unavailable measurements, stack-specific gaps, and workload-specific overhead remain explicit |
-| Decision | TODO: release 2.0.0, or not, and why |
+| Decision | PENDING |
+| Decision rationale | TODO: maintainer decision on releasing 2.0.0, or holding it, and why |
 
 ### Success measures
 

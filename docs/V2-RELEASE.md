@@ -84,13 +84,15 @@ commit of `main` and `v2` with `git merge-tree` and `git commit-tree`, so no bra
   publishes nothing, its artifacts publish the 2.x site, and the `1.x` branch then publishes no site, releases its next
   patch without redeploying the site, and can never release 2.0.0;
 - whether `main` is ready to become `1.x`, with its own integrity guard and release tests passing, whether the release
-  sign-off has no `TODO` left, and whether the GitHub environments are set as above (read only, with `gh`).
+  sign-off explicitly approves 2.0.0 with complete candidate and maintainer metadata, and whether the GitHub
+  environments are set as above (read only, with `gh`).
 
 ```bash
 # Any day: a local, read-only rehearsal against origin/main and the current v2 commit
 python3 .github/scripts/rehearse_v2_merge.py --v2 origin/v2
 
-# Release day: also run the gated workflows on GitHub, and fail on any pending prerequisite
+# Release day, only after the approved 1.x cut and administrator settings:
+# also run the gated workflows on GitHub, and fail on any pending prerequisite
 python3 .github/scripts/rehearse_v2_merge.py --v2 origin/v2 --live --release-day
 ```
 
@@ -99,9 +101,31 @@ python3 .github/scripts/rehearse_v2_merge.py --v2 origin/v2 --live --release-day
 runs on that branch, and the `github-pages` and `maven-central` environments refuse it, so a broken gate fails rather
 than publishes; `docker-hub` refuses it too, so the Docker image jobs could not push even past a broken gate. As a
 second line, the rehearsal cancels a run as soon as any job past its gate is queued.
+It never pushes the temporary branch or dispatches either workflow while any prerequisite check is `FAIL` or
+`PENDING`, including incomplete or non-approved release sign-off.
 
 A merge conflict fails the rehearsal: merge `main` into `v2` first. Prerequisites that are not done yet are reported as
 `PENDING`; `--release-day` turns them into failures.
+
+### Release sign-off format
+
+The maintainer records the decision in the single `Release sign-off` section of
+[the validation report](V2-VALIDATION-REPORT.md#release-sign-off). Each required table row appears exactly once:
+
+| Field | Required format |
+| --- | --- |
+| Release candidate | A full lowercase 40-character commit SHA and its BootUI version: `` `<SHA>` (version `<major.minor.patch>`) ``. Identify the final validated source, not a historical rerun build. |
+| Decision | Exactly `PENDING`, `HOLD`, or `APPROVE_RELEASE_2_0_0`, with no prose or qualifiers in the cell. Only `APPROVE_RELEASE_2_0_0` authorizes release. |
+| Decision rationale | The maintainer's nonempty rationale, including accepted exceptions or reasons for holding release. |
+| Maintainer | In the `Role`, `Name`, `Date` table: a nonempty, non-placeholder name and a valid, non-future calendar date in `YYYY-MM-DD` format. |
+
+Empty or missing fields, duplicate rows, placeholders, invalid dates, and unresolved `TODO`s never authorize release.
+Free-form decisions such as "Do not release", a question, or a conditional approval also never authorize it; record
+the exact decision token and put its explanation in `Decision rationale`. Ordinary read-only rehearsal reports
+incomplete or non-approved sign-off as `PENDING`, not `PASS`; `--release-day` reports it as `FAIL`.
+This is validation of the recorded human sign-off, not cryptographic authentication or a substitute for maintainer
+review of the source and evidence. Agents must never fill in an approval, candidate, name, or date on the maintainer's
+behalf.
 
 ## The `1.x` maintenance branch
 
@@ -141,7 +165,10 @@ blockers, not waived checks.
 
 ### Cutting the branch
 
-On release day, after the last 1.x release from `main` and the final rehearsal, with nothing else merging into `main`:
+On release day, after the last 1.x release from `main`, the sync into `v2`, and the read-only preflight, and only with
+explicit maintainer approval, freeze `main` and cut the branch. The administrator applies the settings above before
+the strict live rehearsal; that rehearsal requires `maven-central` to accept `1.x`, so it cannot precede the cut and
+settings. Keep `main` frozen from preflight through the cut, strict rehearsal, and `v2` merge:
 
 ```bash
 git fetch origin
@@ -149,7 +176,9 @@ git show origin/main:.github/release-line   # must declare 1
 git push origin origin/main:refs/heads/1.x
 ```
 
-The branch points at an existing commit: no merge, no rebase, no new commit.
+The branch points at the frozen, preflighted `main` commit: no merge, no rebase, no new commit. Stop if `main` advances;
+do not move an already-cut maintenance branch to repair the sequence. Reconcile the source and repeat preflight
+before proceeding.
 
 ### Releasing a 1.x patch
 
@@ -165,18 +194,27 @@ The branch points at an existing commit: no merge, no rebase, no new commit.
 
 ## Release day
 
-1. **Sign-off.** The [release sign-off](V2-VALIDATION-REPORT.md#release-sign-off) has no `TODO` left, and
-   [Known limitations](KNOWN-LIMITATIONS.md) matches the shipped scope.
+1. **Review.** [Known limitations](KNOWN-LIMITATIONS.md) matches the shipped scope. Review the
+   [release sign-off](V2-VALIDATION-REPORT.md#release-sign-off) evidence and accepted exceptions; a pending or hold
+   decision is not release approval.
 2. **Last 1.x release.** Release any unreleased 1.x change from `main` as usual, and verify the prepared `main` above.
 3. **Sync.** Merge `main` into `v2` with a merge commit, never a rebase; `.github/release-line` stays `2`.
-4. **Rehearse.** `python3 .github/scripts/rehearse_v2_merge.py --v2 origin/v2 --live --release-day` reports no
-   failure and nothing pending.
-5. **Cut `1.x`** from `origin/main`, as above.
-6. **Merge `v2` into `main`** with a merge commit. Check that the Pages run of the merge push skipped its upload and
+4. **Read-only preflight.** Freeze `main`, then run
+   `python3 .github/scripts/rehearse_v2_merge.py --v2 origin/v2` without `--live` or `--release-day`.
+   Resolve every failure. Missing `1.x` permission and unsigned sign-off may still be `PENDING` at this stage;
+   record them as blockers, not waived checks. The maintainer identifies the final validated candidate and records
+   its explicit approval, rationale, name, and date in the supported format before authorizing the next step.
+5. **Cut `1.x` and apply its settings.** With explicit maintainer approval, cut from the frozen, preflighted
+   `origin/main`, as above. A repository administrator applies the `1.x` ruleset and `maven-central` branch
+   permission. Do not waive either protection to make the rehearsal pass; `main` remains frozen.
+6. **Strict live rehearsal.** Only after the cut and settings, with explicit maintainer authorization, run
+   `python3 .github/scripts/rehearse_v2_merge.py --v2 origin/v2 --live --release-day`. It must report no failure and
+   nothing pending before the merge. If it fails, stop and fix the prerequisite; do not advance `main`.
+7. **Merge `v2` into `main`** with a merge commit. Check that the Pages run of the merge push skipped its upload and
    deploy with "release line 2 has no release tag yet", and that the next Docker run skipped every job but prune.
-7. **Changelog.** Cut `CHANGELOG.md`'s `[Unreleased]` to `## [2.0.0] - YYYY-MM-DD` on `main`, as its own commit, and
+8. **Changelog.** Cut `CHANGELOG.md`'s `[Unreleased]` to `## [2.0.0] - YYYY-MM-DD` on `main`, as its own commit, and
    wait for a green build.
-8. **Release.** With maintainer approval, run **Release** from `main` with version `2.0.0`. Merge nothing into `main` until the run is green:
+9. **Release.** With maintainer approval, run **Release** from `main` with version `2.0.0`. Merge nothing into `main` until the run is green:
    while Maven Central propagates, a push could find the gate's two artifacts before the others. The run refuses an
    imported key other than the pinned
    `RELEASE_KEY_FINGERPRINT` (7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9), and checks every signature against it twice:
@@ -185,7 +223,7 @@ The branch points at an existing commit: no merge, no rebase, no new commit.
    Tag-entry and `skip_build` runs do that from the immutable tagged checkout before uploading instead; a successful
    pre-tag smoke is not repeated after the tag. Publication, availability checks, published-consumer smoke and the site
    deployment all use the commit peeled from the verified signed tag.
-9. **After the release.** Confirm that the site shows 2.0 (deployed from the v2.0.0 tag), that
+10. **After the release.** Confirm that the site shows 2.0 (deployed from the v2.0.0 tag), that
    `jbang bootui@jdubois/boot-ui` and the installers resolve 2.0.0, and that the next daily Docker run publishes 2.x
    images. Narrow the `github-pages` tag rule to `v2.*`. After the first 1.x patch that follows, confirm that
    Maven Central's `maven-metadata.xml` for `bootui-cli` still lists a 2.x `<release>`, which the installers and the
