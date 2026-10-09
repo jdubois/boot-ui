@@ -20,9 +20,9 @@ import org.springframework.beans.factory.ObjectProvider;
  * {@code com.zaxxer.hikari.HikariDataSource} beans (directly, and through proxied/wrapped {@code DataSource}
  * beans) and reads each pool's configuration getters plus the live {@link HikariPoolMXBean} counters.
  *
- * <p>This is the byte-identical extraction of the former {@code DatabaseConnectionPoolsController} discovery
- * and reads: the pool sizing/timeout getters, the {@code safeXxx} swallow-and-default helpers, the
- * {@code snapshotOf} MXBean read, and the {@code unavailableReason} text are reproduced verbatim. It returns
+ * <p>It reads the pool sizing/timeout getters through {@code safeXxx} helpers that report an unreadable setting as
+ * {@code null} (or {@code -1} for a pool size), the {@code snapshotOf} MXBean read, and the
+ * {@code unavailableReason} text. It returns
  * the <em>raw</em>, unmasked JDBC URL and username; the engine {@code ConnectionPoolService} masks them
  * through the exposure policy, so the Spring panel's wire output is unchanged.</p>
  *
@@ -57,13 +57,13 @@ public final class SpringConnectionPoolProvider implements ConnectionPoolProvide
         String driverClassName = safeString(dataSource::getDriverClassName);
         int minimumIdle = safeInt(dataSource::getMinimumIdle);
         int maximumPoolSize = safeInt(dataSource::getMaximumPoolSize);
-        long connectionTimeout = safeLong(dataSource::getConnectionTimeout);
-        long idleTimeout = safeLong(dataSource::getIdleTimeout);
-        long maxLifetime = safeLong(dataSource::getMaxLifetime);
-        long validationTimeout = safeLong(dataSource::getValidationTimeout);
-        long keepaliveTime = safeLong(dataSource::getKeepaliveTime);
-        boolean readOnly = safeBoolean(dataSource::isReadOnly);
-        boolean autoCommit = safeBoolean(dataSource::isAutoCommit);
+        Long connectionTimeout = safeLong(dataSource::getConnectionTimeout);
+        Long idleTimeout = safeLong(dataSource::getIdleTimeout);
+        Long maxLifetime = safeLong(dataSource::getMaxLifetime);
+        Long validationTimeout = safeLong(dataSource::getValidationTimeout);
+        Long keepaliveTime = safeLong(dataSource::getKeepaliveTime);
+        Boolean readOnly = safeBoolean(dataSource::isReadOnly);
+        Boolean autoCommit = safeBoolean(dataSource::isAutoCommit);
 
         ConnectionPoolSnapshot snapshot = snapshotOf(dataSource);
         boolean available = snapshot != null;
@@ -72,6 +72,7 @@ public final class SpringConnectionPoolProvider implements ConnectionPoolProvide
         return new ConnectionPoolInfo(
                 entry.beanName(),
                 poolName,
+                ConnectionPoolInfo.HIKARI,
                 jdbcUrl,
                 username,
                 driverClassName,
@@ -140,19 +141,21 @@ public final class SpringConnectionPoolProvider implements ConnectionPoolProvide
         }
     }
 
-    private long safeLong(LongSupplier getter) {
+    @Nullable
+    private Long safeLong(LongSupplier getter) {
         try {
             return getter.getAsLong();
         } catch (Exception ex) {
-            return -1;
+            return null;
         }
     }
 
-    private boolean safeBoolean(BooleanSupplier getter) {
+    @Nullable
+    private Boolean safeBoolean(BooleanSupplier getter) {
         try {
             return getter.getAsBoolean();
         } catch (Exception ex) {
-            return false;
+            return null;
         }
     }
 }

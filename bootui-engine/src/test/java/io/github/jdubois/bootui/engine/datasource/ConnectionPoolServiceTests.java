@@ -28,6 +28,7 @@ class ConnectionPoolServiceTests {
         return new ConnectionPoolInfo(
                 beanName,
                 poolName,
+                ConnectionPoolInfo.AGROAL,
                 RAW_URL,
                 "app",
                 "org.postgresql.Driver",
@@ -35,10 +36,10 @@ class ConnectionPoolServiceTests {
                 10,
                 30000L,
                 600000L,
-                1800000L,
-                -1L,
-                -1L,
-                false,
+                0L,
+                null,
+                null,
+                null,
                 true,
                 available,
                 available ? null : "Pool metrics are disabled",
@@ -58,13 +59,18 @@ class ConnectionPoolServiceTests {
 
         HikariPoolsReport report = service.report();
 
-        assertThat(report.hikariPresent()).isTrue();
+        assertThat(report.poolLibraryPresent()).isTrue();
         assertThat(report.total()).isEqualTo(1);
         HikariPoolDto pool = report.pools().get(0);
+        assertThat(pool.implementation()).isEqualTo("Agroal");
         assertThat(pool.jdbcUrl()).isEqualTo("jdbc:postgresql://******@localhost:5432/demo");
         assertThat(pool.username()).isEqualTo("******");
-        assertThat(pool.validationTimeoutMs()).isEqualTo(-1L);
-        assertThat(pool.keepaliveTimeMs()).isEqualTo(-1L);
+        // Settings the library does not expose stay null rather than HikariCP sentinels.
+        assertThat(pool.validationTimeoutMs()).isNull();
+        assertThat(pool.keepaliveTimeMs()).isNull();
+        assertThat(pool.readOnly()).isNull();
+        assertThat(pool.maxLifetimeMs()).isZero();
+        assertThat(pool.autoCommit()).isTrue();
         assertThat(pool.available()).isTrue();
         assertThat(pool.snapshot().active()).isEqualTo(3);
         assertThat(pool.snapshot().idle()).isEqualTo(2);
@@ -138,7 +144,7 @@ class ConnectionPoolServiceTests {
 
         HikariPoolsReport report = service.report();
 
-        assertThat(report.hikariPresent()).isFalse();
+        assertThat(report.poolLibraryPresent()).isFalse();
         assertThat(report.total()).isZero();
         assertThat(report.pools()).isEmpty();
     }

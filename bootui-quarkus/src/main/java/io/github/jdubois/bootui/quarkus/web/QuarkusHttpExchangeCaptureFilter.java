@@ -177,7 +177,7 @@ public class QuarkusHttpExchangeCaptureFilter {
             return CorrelationContext.BOOTUI;
         }
         CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
-        QuarkusRequestCorrelation.attach(correlation);
+        QuarkusRequestCorrelation.attach(correlation, rc.request().method().name(), path);
         return correlation;
     }
 

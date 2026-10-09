@@ -97,12 +97,13 @@ public final class QuarkusAppScanner {
         }
         QuarkusAppChecks.Evaluation evaluation = QuarkusAppChecks.evaluate(snap, collector);
         String status =
-                evaluation.errors().isEmpty() ? "SCANNED" : evaluation.evidenceInspected() ? "PARTIAL" : "ERROR";
+                evaluation.coverageComplete() ? "SCANNED" : evaluation.evidenceInspected() ? "PARTIAL" : "ERROR";
         String message =
                 switch (status) {
                     case "SCANNED" -> "Quarkus application evidence analysed.";
                     case "PARTIAL" ->
-                        "Quarkus checks are incomplete. Available findings are retained; review evidence errors.";
+                        "Quarkus checks are incomplete. Available findings are retained; review analysis errors and"
+                                + " evidence limitations.";
                     default -> "Could not inspect Quarkus application evidence.";
                 };
         return report(
@@ -121,12 +122,7 @@ public final class QuarkusAppScanner {
         if (snapshot == null) {
             return AdvisorEvidenceDto.unknown();
         }
-        return new AdvisorEvidenceDto(
-                evaluation.usable(),
-                evaluation.errors().isEmpty(),
-                evaluation.errors().stream()
-                        .map(error -> error.id() + ": " + error.description())
-                        .toList());
+        return new AdvisorEvidenceDto(evaluation.usable(), evaluation.coverageComplete(), evaluation.limitations());
     }
 
     private static List<String> inspected(QuarkusAppSnapshot s) {

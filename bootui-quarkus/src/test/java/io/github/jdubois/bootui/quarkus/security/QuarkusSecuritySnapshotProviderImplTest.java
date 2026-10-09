@@ -22,6 +22,16 @@ import org.junit.jupiter.api.parallel.Resources;
 class QuarkusSecuritySnapshotProviderImplTest {
 
     @Test
+    void permissionsKeepTheirPlainConfigurationNameAndNeverEchoAQuotedOne() {
+        assertThat(QuarkusSecuritySnapshotProviderImpl.permissionLabel("insights-payroll"))
+                .isEqualTo("insights-payroll");
+        assertThat(QuarkusSecuritySnapshotProviderImpl.permissionLabel("\"token=s3cr3t\""))
+                .isEqualTo("unnamed permission");
+        assertThat(QuarkusSecuritySnapshotProviderImpl.permissionLabel("a".repeat(65)))
+                .isEqualTo("unnamed permission");
+    }
+
+    @Test
     void detectsPlainHttpOidcAndJwtEndpointsWithoutRetainingTheirValues() {
         QuarkusSecuritySnapshot snapshot = snapshot(Map.of(
                 "quarkus.oidc.auth-server-url", "http://identity.internal/realms/app",

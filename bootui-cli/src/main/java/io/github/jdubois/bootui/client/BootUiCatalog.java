@@ -56,7 +56,7 @@ public record BootUiCatalog(
      * @param description the human-readable description
      * @param panel the panel backing it
      * @param action whether it changes state
-     * @param schema the argument schema name: {@code NONE}, {@code LIMIT}, {@code QUERY_LIMIT}, or {@code ID}
+     * @param schema the argument schema name: {@code NONE}, {@code LIMIT}, {@code QUERY_LIMIT}, {@code QUERY}, or {@code ID}
      * @param arguments the accepted argument names, in the order the schema declares them
      * @param panelEnabled whether the backing panel is currently enabled
      * @param panelReadOnly whether the backing panel is currently read-only

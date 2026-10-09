@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test;
  * build step when {@code Capability.AGROAL} is absent, so no {@code ConnectionPoolProvider} bean exists and the
  * panel is reported <em>unavailable</em> in the manifest with an honest hint — while the Agroal-API-free engine
  * {@code ConnectionPoolService} is still wired, so {@code GET /bootui/api/database-connection-pools/pools}
- * answers with valid JSON reporting {@code hikariPresent:false} (no {@code NoClassDefFoundError} from the absent
+ * answers with valid JSON reporting {@code poolLibraryPresent:false} (no {@code NoClassDefFoundError} from the absent
  * backend).</p>
  */
 @QuarkusTest
@@ -66,7 +66,7 @@ class BootUiQuarkusConnectionPoolsResourceWithoutDatasourceTest {
                 .as("GET /bootui/api/database-connection-pools/pools content-type (%s)", report.contentType())
                 .isTrue();
         JsonNode root = report.json();
-        assertThat(root.path("hikariPresent").asBoolean(true))
+        assertThat(root.path("poolLibraryPresent").asBoolean(true))
                 .as("the report is absent when no ConnectionPoolProvider bean is wired")
                 .isFalse();
         assertThat(root.path("total").asInt(-1)).as("no pools are listed").isZero();

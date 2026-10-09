@@ -82,7 +82,7 @@ public final class ToolManifest {
      *
      * @param name the MCP tool name it invokes
      * @param command the space-separated command path, e.g. {@code memory heap analyze}
-     * @param schema the argument schema: {@code NONE}, {@code LIMIT}, {@code QUERY_LIMIT}, {@code ID},
+     * @param schema the argument schema: {@code NONE}, {@code LIMIT}, {@code QUERY_LIMIT}, {@code QUERY}, {@code ID},
      *     or {@code RULE_VIOLATIONS}
      * @param panel the panel backing it
      * @param action whether it changes state, and is therefore refused on a read-only panel
@@ -172,7 +172,12 @@ public final class ToolManifest {
 
         /** Whether this tool takes a {@code query} filter. */
         public boolean takesQuery() {
-            return "QUERY_LIMIT".equals(schema);
+            return "QUERY_LIMIT".equals(schema) || "QUERY".equals(schema);
+        }
+
+        /** Whether this tool lists every match, so a {@code --limit} from an older script is accepted and ignored. */
+        public boolean ignoresLimit() {
+            return "QUERY".equals(schema);
         }
 
         /** Whether this tool takes a {@code limit}. */

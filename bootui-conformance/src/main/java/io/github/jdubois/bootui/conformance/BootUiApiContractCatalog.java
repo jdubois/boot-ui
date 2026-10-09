@@ -112,7 +112,7 @@ public final class BootUiApiContractCatalog {
             inventory("data", "/data/repositories", "springDataPresent", "repositories"),
             inventory("flyway", "/flyway/migrations", "flywayPresent", "databases"),
             inventory("liquibase", "/liquibase/changesets", "liquibasePresent", "databases"),
-            inventory("database-connection-pools", "/database-connection-pools/pools", "hikariPresent", "pools"),
+            inventory("database-connection-pools", "/database-connection-pools/pools", "poolLibraryPresent", "pools"),
             locatedAdvisor("hibernate", "/hibernate", "results"),
             advisor("database-advisor", "/database-advisor", "results"),
             // A runtime view, not an advisor: no severities, no findings, no score. The contract is the
@@ -193,6 +193,9 @@ public final class BootUiApiContractCatalog {
                     "/ai/overview",
                     fields(
                             "enabled", JsonType.BOOLEAN,
+                            "springAiDetected", JsonType.BOOLEAN,
+                            "langChain4jDetected", JsonType.BOOLEAN,
+                            "aiFrameworkDetected", JsonType.BOOLEAN,
                             "totalChats", JsonType.INTEGER,
                             "tokensByModel", JsonType.OBJECT,
                             "callsByModel", JsonType.OBJECT,

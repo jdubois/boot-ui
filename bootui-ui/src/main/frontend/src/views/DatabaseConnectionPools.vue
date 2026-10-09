@@ -129,6 +129,16 @@ async function loadSnapshot() {
   }
 }
 
+function poolSubtitle(pool) {
+  const parts = [pool.implementation, pool.driverClassName ? shortName(pool.driverClassName) : null].filter(Boolean)
+  return parts.length ? parts.join(' · ') : shortName(pool.driverClassName)
+}
+
+function formatFlag(value) {
+  if (value === null || value === undefined) return '—'
+  return value ? 'yes' : 'no'
+}
+
 function formatMillis(value) {
   if (value === null || value === undefined || value < 0) return '—'
   if (value === 0) return 'disabled'
@@ -220,7 +230,7 @@ watch(
                   <span v-if="pool.available" class="badge text-bg-success">live</span>
                   <span v-else class="badge text-bg-secondary">unavailable</span>
                 </div>
-                <div class="small text-muted">{{ shortName(pool.driverClassName) }}</div>
+                <div class="small text-muted">{{ poolSubtitle(pool) }}</div>
               </button>
             </div>
           </div>
@@ -298,6 +308,10 @@ watch(
                       </td>
                     </tr>
                     <tr>
+                      <th class="text-muted">Pool library</th>
+                      <td>{{ selectedPool.implementation || '—' }}</td>
+                    </tr>
+                    <tr>
                       <th class="text-muted">Driver</th>
                       <td>
                         <code>{{ selectedPool.driverClassName || '—' }}</code>
@@ -325,8 +339,8 @@ watch(
                     <tr>
                       <th class="text-muted">Flags</th>
                       <td>
-                        read-only {{ selectedPool.readOnly ? 'yes' : 'no' }} · auto-commit
-                        {{ selectedPool.autoCommit ? 'yes' : 'no' }}
+                        read-only {{ formatFlag(selectedPool.readOnly) }} · auto-commit
+                        {{ formatFlag(selectedPool.autoCommit) }}
                       </td>
                     </tr>
                   </tbody>

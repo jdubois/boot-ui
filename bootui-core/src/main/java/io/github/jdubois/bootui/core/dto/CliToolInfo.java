@@ -16,7 +16,7 @@ import java.util.List;
  * @param description human-readable description
  * @param panel the {@code BootUiPanels} id backing this tool
  * @param action {@code true} when the tool changes state and is refused on a read-only panel
- * @param schema the argument-schema name ({@code NONE}, {@code LIMIT}, {@code QUERY_LIMIT}, or {@code ID})
+ * @param schema the argument-schema name ({@code NONE}, {@code LIMIT}, {@code QUERY_LIMIT}, {@code QUERY}, or {@code ID})
  * @param arguments the accepted argument names, which the CLI projects onto flags and positionals
  * @param panelEnabled whether the backing panel is currently enabled
  * @param panelReadOnly whether the backing panel is currently read-only

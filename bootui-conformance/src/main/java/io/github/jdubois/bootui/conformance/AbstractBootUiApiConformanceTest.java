@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -882,6 +883,7 @@ public abstract class AbstractBootUiApiConformanceTest {
             Response scanned = probe.request("POST", api("/" + panel + "/scan"), stateChangingHeaders(probe), "");
             assertThat(scanned.status()).as(panel + " scan").isEqualTo(200);
             JsonNode report = scanned.json();
+            assertOneOutcomePerRule(panel, report);
             JsonNode metadata = report.path("violationDetails");
             String scanId = metadata.path("scanId").asText();
             assertThat(scanId).as(panel + " snapshot identifier").isNotBlank();
@@ -933,6 +935,24 @@ public abstract class AbstractBootUiApiConformanceTest {
             assertThat(probe.get(api("/" + panel)).json().path("violationDetails"))
                     .isEqualTo(metadata);
         }
+    }
+
+    /**
+     * A rule has exactly one outcome per scan: an id listed in {@code results} is never also listed in
+     * {@code analysisErrors}, whichever advisor and stack produced the report. Incomplete coverage of a rule that did
+     * find something belongs in the finding and the evidence limitations, not in a second, contradictory entry.
+     */
+    private static void assertOneOutcomePerRule(String panel, JsonNode report) {
+        Set<String> findings = new HashSet<>();
+        report.path("results").forEach(result -> findings.add(result.path("id").asText()));
+        List<String> errors = new ArrayList<>();
+        report.path("analysisErrors")
+                .forEach(error -> errors.add(error.path("id").asText()));
+        assertThat(errors)
+                .as(panel + " analysisErrors must not repeat a rule listed in results")
+                .allSatisfy(id -> assertThat(findings)
+                        .as(panel + " rule " + id + " is both a result and an analysis error")
+                        .doesNotContain(id));
     }
 
     /**

@@ -96,6 +96,21 @@ class McpToolDescriptionsTests {
     }
 
     @Test
+    void springNamedAdvisorToolsSayTheyRunTheQuarkusApplicationAdvisorOnQuarkus() {
+        for (String name : List.of("spring_scan", "get_spring_report", "get_spring_rule_violations")) {
+            assertThat(McpToolDescriptions.quarkus(name))
+                    .as(name)
+                    .contains("Quarkus application advisor", "keeps its Spring name");
+            // The CLI manifest is generated from the Spring descriptions and serves every stack.
+            assertThat(McpToolDescriptions.spring(name))
+                    .as(name)
+                    .contains("On Quarkus, the same tool runs the Quarkus application advisor");
+        }
+        assertThat(McpToolDescriptions.quarkus("get_ai_overview"))
+                .contains("aiFrameworkDetected", "springAiDetected is Spring AI only");
+    }
+
+    @Test
     void idBasedToolsDescribeAnUnknownIdAsAToolErrorAndAnAbsentCapabilityAsUnavailable() {
         for (Function<String, String> provider :
                 List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {

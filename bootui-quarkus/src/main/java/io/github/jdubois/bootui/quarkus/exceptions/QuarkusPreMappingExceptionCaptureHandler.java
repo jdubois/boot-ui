@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus.exceptions;
 import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.quarkus.QuarkusBootUiPaths;
+import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.ArcContainer;
 import io.quarkus.arc.InstanceHandle;
@@ -67,7 +68,14 @@ public final class QuarkusPreMappingExceptionCaptureHandler implements ServerRes
                 return;
             }
             RoutingContext rc = currentRoutingContext(container);
-            String path = rc == null ? null : rc.normalizedPath();
+            if (rc == null) {
+                rc = routingContextOf(requestContext);
+            }
+            // Before routing reaches a resource on the event loop, such as a 406 from content negotiation, no
+            // request scope is active yet: the request line attached to the request's duplicated context still is.
+            QuarkusRequestCorrelation.RequestLine line =
+                    rc == null ? QuarkusRequestCorrelation.currentRequestLine() : null;
+            String path = rc != null ? rc.normalizedPath() : line == null ? null : line.path();
             if (QuarkusBootUiPaths.isBootUiRequest(currentConfig(), path)) {
                 return; // never capture BootUI's own traffic
             }
@@ -75,7 +83,7 @@ public final class QuarkusPreMappingExceptionCaptureHandler implements ServerRes
             if (!storeHandle.isAvailable()) {
                 return;
             }
-            String method = rc == null ? null : rc.request().method().name();
+            String method = rc != null ? rc.request().method().name() : line == null ? null : line.method();
             String handler = QuarkusResourceHandlers.describe(requestContext.getResteasyReactiveResourceInfo());
             storeHandle
                     .get()
@@ -100,6 +108,18 @@ public final class QuarkusPreMappingExceptionCaptureHandler implements ServerRes
         try {
             InstanceHandle<CurrentVertxRequest> handle = container.instance(CurrentVertxRequest.class);
             return handle.isAvailable() ? handle.get().getCurrent() : null;
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * The routing context the RESTEasy Reactive request runs on, read from the request itself: on the event loop, a
+     * failure raised before a resource is matched has no active request scope for {@code CurrentVertxRequest}.
+     */
+    private static RoutingContext routingContextOf(ResteasyReactiveRequestContext requestContext) {
+        try {
+            return requestContext.serverRequest().unwrap(RoutingContext.class);
         } catch (RuntimeException ex) {
             return null;
         }

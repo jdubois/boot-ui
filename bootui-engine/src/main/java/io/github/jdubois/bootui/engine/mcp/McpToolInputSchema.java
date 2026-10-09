@@ -82,6 +82,7 @@ public record McpToolInputSchema(List<Property> properties) {
                 properties.add(query(tool));
                 properties.add(limit(tool, cap));
             }
+            case QUERY -> properties.add(query(tool));
             case ID -> properties.add(id(tool, true));
             case OPTIONAL_ID -> properties.add(id(tool, false));
             case RULE_VIOLATIONS -> {

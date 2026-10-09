@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.quarkus.QuarkusBootUiPaths;
+import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import io.quarkus.vertx.http.runtime.CurrentVertxRequest;
 import io.vertx.ext.web.RoutingContext;
 import java.util.logging.Handler;
@@ -86,11 +87,15 @@ public final class QuarkusExceptionLogHandler extends Handler {
         capturing.set(Boolean.TRUE);
         try {
             RoutingContext rc = currentRoutingContext();
-            String path = rc == null ? null : rc.normalizedPath();
+            // Off the request scope, such as on the event loop before routing, the request's duplicated context still
+            // carries its request line.
+            QuarkusRequestCorrelation.RequestLine line =
+                    rc == null ? QuarkusRequestCorrelation.currentRequestLine() : null;
+            String path = rc != null ? rc.normalizedPath() : line == null ? null : line.path();
             if (QuarkusBootUiPaths.isBootUiRequest(config, path)) {
                 return; // never capture BootUI's own traffic
             }
-            String method = rc == null ? null : rc.request().method().name();
+            String method = rc != null ? rc.request().method().name() : line == null ? null : line.method();
             String handler = QuarkusResourceHandlers.currentHandler();
             store.record(thrown, Thread.currentThread().getName(), method, path, handler, "log", currentTraceId());
         } catch (RuntimeException ignored) {

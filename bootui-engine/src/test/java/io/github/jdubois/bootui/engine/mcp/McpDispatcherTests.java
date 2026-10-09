@@ -424,6 +424,36 @@ class McpDispatcherTests {
     }
 
     @Test
+    void aQueryOnlyToolIgnoresTheLimitAnOlderCliStillSendsButRejectsOtherArguments() {
+        McpTool agent = new McpTool(
+                "get_agent_status",
+                "Agent status.",
+                McpToolSchema.QUERY,
+                "java-agent",
+                false,
+                args -> Map.of("query", String.valueOf(args.query())));
+        McpDispatcher dispatcher =
+                new McpDispatcher(List.of(agent), List.of(), policy, "1.2.3", "instructions text", 50, 20, diagnostics);
+
+        McpRequest withLimit = new McpRequest(
+                JSONRPC,
+                "tools/call",
+                false,
+                null,
+                "get_agent_status",
+                "exec",
+                1,
+                null,
+                Set.of("query", "limit"),
+                null);
+        assertThat(((ToolCallResult) dispatcher.dispatch(withLimit)).payload()).isEqualTo(Map.of("query", "exec"));
+        McpRequest withId = new McpRequest(
+                JSONRPC, "tools/call", false, null, "get_agent_status", null, null, "x", Set.of("id"), null);
+        assertThat(dispatcher.dispatch(withId))
+                .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, "Unexpected tool argument: id"));
+    }
+
+    @Test
     void toolsCallRejectsAdapterDetectedArgumentTypeError() {
         McpRequest request = new McpRequest(
                 JSONRPC,

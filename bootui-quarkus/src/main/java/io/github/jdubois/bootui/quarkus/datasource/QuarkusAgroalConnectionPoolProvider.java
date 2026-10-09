@@ -26,14 +26,13 @@ import java.util.Optional;
  * from bean discovery unless the {@code AGROAL} capability is present (R2) — so the {@code io.agroal} types are
  * never linked in a datasource-absent application.</p>
  *
- * <p>The shared DTO contract is HikariCP-named for historical reasons; its fields are generic pool metrics, so
- * the Agroal pool maps cleanly into the same wire shape (a deliberate kept-contract decision, mirroring the
- * Cache panel sharing the {@code cache} id). The Agroal→Hikari mapping: active←{@code activeCount},
- * idle←{@code availableCount}, total←active+idle, pending←{@code awaitingCount}; acquisition←connection
- * timeout, reap←idle timeout, plus max-lifetime/min-size/max-size. Agroal has no faithful analogue of
- * HikariCP's per-call validation timeout or keepalive interval, so both are reported as {@code -1} (the UI
- * renders "—"); the JDBC driver class is often unknown at runtime and Agroal exposes no read-only flag, so
- * those are reported as {@code null}/{@code false} (reduced fidelity).</p>
+ * <p>The shared DTO types are HikariCP-named for historical reasons; their fields are generic pool metrics and each
+ * pool reports {@code implementation=Agroal}. The mapping: active←{@code activeCount}, idle←{@code availableCount},
+ * total←active+idle, pending←{@code awaitingCount}; connection timeout←acquisition timeout, idle timeout←reap
+ * timeout, plus max-lifetime (zero, Agroal's default, means no limit), min-size and max-size. Agroal has no
+ * faithful analogue of HikariCP's per-call validation timeout, keepalive interval, or read-only flag, so those
+ * are {@code null} (the UI renders "—"); the JDBC driver class is often unknown at runtime and is then
+ * {@code null}.</p>
  *
  * <p>Live counts are only available when {@code quarkus.datasource.jdbc.metrics.enabled=true}: when metrics are
  * disabled the configuration still renders, but the snapshot is {@code null}, the pool is marked unavailable,
@@ -76,9 +75,9 @@ public final class QuarkusAgroalConnectionPoolProvider implements ConnectionPool
                 : factoryConfig.connectionProviderClass().getName();
         int minimumIdle = poolConfig.minSize();
         int maximumPoolSize = poolConfig.maxSize();
-        long connectionTimeout = millis(poolConfig.acquisitionTimeout());
-        long idleTimeout = millis(poolConfig.reapTimeout());
-        long maxLifetime = millis(poolConfig.maxLifetime());
+        Long connectionTimeout = millis(poolConfig.acquisitionTimeout());
+        Long idleTimeout = millis(poolConfig.reapTimeout());
+        Long maxLifetime = millis(poolConfig.maxLifetime());
         boolean autoCommit = factoryConfig.autoCommit();
 
         ConnectionPoolSnapshot snapshot = snapshotOf(config, dataSource);
@@ -88,6 +87,7 @@ public final class QuarkusAgroalConnectionPoolProvider implements ConnectionPool
         return new ConnectionPoolInfo(
                 displayName,
                 displayName,
+                ConnectionPoolInfo.AGROAL,
                 jdbcUrl,
                 username,
                 driverClassName,
@@ -96,11 +96,9 @@ public final class QuarkusAgroalConnectionPoolProvider implements ConnectionPool
                 connectionTimeout,
                 idleTimeout,
                 maxLifetime,
-                -1L,
-                -1L,
-                // Agroal's connection-factory configuration exposes no read-only flag, so report the
-                // HikariCP-style default (false); reduced fidelity relative to the Spring adapter.
-                false,
+                null,
+                null,
+                null,
                 autoCommit,
                 available,
                 unavailableReason,
@@ -130,7 +128,7 @@ public final class QuarkusAgroalConnectionPoolProvider implements ConnectionPool
         return principal == null ? null : principal.getName();
     }
 
-    private long millis(Duration duration) {
-        return duration == null ? -1L : duration.toMillis();
+    private Long millis(Duration duration) {
+        return duration == null ? null : duration.toMillis();
     }
 }

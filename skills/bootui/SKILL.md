@@ -618,7 +618,9 @@ When BootUI MCP tools are available:
    For what a run did across requests, use `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
    `get_runtime_run_comparison`, as described in the two Runtime Insights workflows above.
 3. Run only the advisor relevant to the task, such as `architecture_scan`, `spring_scan`, `hibernate_scan`,
-   `memory_scan`, `security_scan`, `pentest_scan`, or `rest_api_scan`.
+   `memory_scan`, `security_scan`, `pentest_scan`, or `rest_api_scan`. On Quarkus, `spring_scan`,
+   `get_spring_report`, and `get_spring_rule_violations` keep their Spring names but run the Quarkus application
+   advisor (QA-* rules).
 4. Use identifiers returned by summary tools to request detail rather than repeatedly fetching broad result sets.
 5. After making and testing a fix, rerun the same tool and compare results.
 
