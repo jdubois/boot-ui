@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.engine.hibernate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.HibernateReport;
+import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleRefusals;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Version;
@@ -15,6 +17,21 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 
 class HibernateViolationRetrievalTests {
+    @Test
+    void aCatalogueRuleWithoutFindingsIsToldApartFromAnUnknownRule() {
+        List<HibernatePersistenceUnitObservation> units = List.of(unit("orders", 0));
+        HibernateScanner scanner = new HibernateScanner(
+                () -> new HibernateAdvisorObservation(units, HibernateApplicationFacts.unknown(List.of()), List.of()),
+                Clock.systemUTC(),
+                List.of(new BulkUpdateVersionRule(), new SingleUnitPassingRule()));
+        HibernateReport report = scanner.scan();
+        AdvisorRuleRefusals.assertKnownAndUnknownRulesAreToldApart(
+                List.of("HIB-QUERY-008", SingleUnitPassingRule.ID),
+                report.results().stream().map(evaluated -> evaluated.id()).toList(),
+                report.violationDetails().scanId(),
+                (asked, scan) -> scanner.ruleViolations(asked, scan, 0, 1));
+    }
+
     @Test
     void allTwentyTwoBulkUpdatesSurvivePerUnitAndAggregateSampling() {
         List<HibernatePersistenceUnitObservation> units = List.of(unit("orders", 0), unit("archive", 11));
@@ -115,5 +132,20 @@ class HibernateViolationRetrievalTests {
         Long version;
 
         int amount;
+    }
+
+    /** A rule that always passes, so a scan has a catalogue rule without findings. */
+    private static final class SingleUnitPassingRule extends AbstractHibernateRule {
+        static final String ID = "HIB-TEST-PASS";
+
+        SingleUnitPassingRule() {
+            super(new HibernateRuleDefinition(
+                    ID, "Always passes", HibernateCategory.QUERY, "LOW", "Test rule.", "Nothing to do.", ""));
+        }
+
+        @Override
+        HibernateRuleResultDto evaluateRule(HibernateContext context) {
+            return HibernateRuleSupport.pass(definition());
+        }
     }
 }

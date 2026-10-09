@@ -351,8 +351,9 @@ these gaps rather than treating the rule as clean.
 
 Detail reads never rerun checks or query a database and remain permitted in read-only mode. Only the latest
 completed snapshot is kept; dismissal preserves its ID and details. On stale/no-snapshot client error 409,
-**reread the cached report, not the scan tool**, and restart pages using its ID. An unknown/non-finding rule
-is REST/MCP client error 404 (CLI facade 400 by its existing unavailable-tool distinction). On MCP rendered-byte
+**reread the cached report, not the scan tool**, and restart pages using its ID. A rule id outside the advisor's
+rule catalogue answers `Unknown advisor rule: ...`, distinct from a catalogue rule that passed, was skipped, or failed
+(`Advisor rule has no findings in the current scan.`); both are REST/MCP client error 404 (CLI facade 400, exit `1`). On MCP rendered-byte
 refusal `-32003`, retry the same scan ID and offset with a smaller limit; never advance after a failure or treat
 it as an empty page. Stop rather than retry indefinitely when one detail cannot fit. Verify every finding against
 source and effective configuration before proposing a fix; do not claim complete coverage when truncated.
@@ -403,8 +404,10 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
    verify any row against the code before acting on it. `--query all` lists every row, each with `listed`, and `--query repeated-selects` returns the
    repeats. Past the limit, listed rows come first and every kind appears once before any kind twice; list one
    kind with `--query <kind>` such as `--query proxy-bypass`. `notExercised` lists routes no request reached.
-3. Follow `next`: every insights answer, an unknown id included, names at most three follow-up calls, each with the
+3. Follow `next`: every insights answer names at most three follow-up calls, each with the
    `command` to run and the MCP `tool` and `arguments`, restricted to tools this application advertises.
+   An unknown or evicted observation id, or a run id no kept run has, is a tool error (CLI exit `1`) whose message
+   names where current ids come from.
    Open one observation with `bootui insights show <id> --json` for its evidence rows, then its exemplar with
    `bootui request-profile <exemplarRequestId> --json`. Check `source`: `journal` holds the timeline and touched
    resources (including scheduled/message executions), `buffers` holds the HTTP-exchange details (also included
@@ -440,8 +443,9 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
    returns `source: journal` with a recorded timeline, resources and touched metadata when retained. When that is
    unavailable, `source: buffers` returns the older HTTP-exchange profile; when both are retained, it accompanies
    `source: journal`: SQL groups with N+1 flags and call sites,
-   exceptions, security events, REST calls, cache accesses, timing, and correlation notes. `source: none` with
-   `available: false` means neither retains the id; it is an answer, not an error to retry.
+   exceptions, security events, REST calls, cache accesses, timing, and correlation notes. An id neither retains is a
+   tool error (CLI exit `1`): pick a current id instead of retrying. `source: none` with `available: false` means the
+   journal is off or the id cannot be profiled, and says why.
 3. For each exception in a present `buffers` profile, read its stack trace and cause chain with
    `bootui exceptions show <exceptionGroupId> --json` (`get_exception_detail`). With the Java agent's opt-in
    `caught-exceptions` sensor, `bootui exceptions list --json` (`get_exceptions`) also returns `caughtInCode`: the
@@ -458,7 +462,7 @@ conversation instead.
 
 Use this workflow for a whole-application assessment or "scan everything and tell me what to do" request. A focused
 runtime question should still use the smallest relevant tools. MCP clients that support prompts can select
-`assess_application`; otherwise follow this procedure through the existing MCP tools, CLI, or plain HTTP endpoint.
+`assess_application`, with its optional `goal` argument; otherwise follow this procedure through the existing MCP tools, CLI, or plain HTTP endpoint.
 This is an agent workflow, not a new scan tool, server-side assessment job, or code-execution endpoint.
 
 ### Establish scope and collect evidence

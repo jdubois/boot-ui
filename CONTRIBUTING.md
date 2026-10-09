@@ -324,8 +324,9 @@ number of pairs (3 by default):
   -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-CI runs it with fifteen pairs in `build.yml`'s `journal-overhead` job, on pushes, manual runs, and pull requests
-labelled `agent`, and publishes the report to the job summary without ever failing the build.
+CI runs it with fifteen pairs as the runtime journal leg of `build.yml`'s `agent-overhead-extra-legs` matrix, on
+pushes, manual runs, and pull requests labelled `agent`; the `agent-overhead` job publishes the report to its summary,
+and the leg never fails the build.
 
 The agent overhead benchmark (`AgentOverheadBenchmarkIT`) measures the BootUI agent's cumulative cost against
 [PLAN-v2.md](docs/PLAN-v2.md) §8's budget: the Spring sample's executable jar, BootUI on in both configurations, without
@@ -348,12 +349,15 @@ and `bootui.benchmark.report` names the report (`spring-mvc-agent` by default):
   -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-CI runs it in `build.yml`'s `agent-overhead` job with fifteen pairs on a four-processor runner, then on the I/O route
-with nine pairs: every default sensor against no agent (`spring-mvc-agent-io`) on every agent run, and, on pushes,
-manual runs, and pull requests labelled `agent` only, each default side-effect sensor's own share against the same
-agent without it: `network` (`spring-mvc-network-ab`), `blocking` (`spring-mvc-blocking-ab`), `files` on the I/O route
-(`spring-mvc-files-ab`), fifteen pairs each but `network`'s nine, and the opt-in `environment`'s against the default
-sensors, on a route adding fifty `System.getProperty` reads per request (`spring-mvc-environment-ab`), fifteen pairs. The load generator
+CI runs each measurement as its own leg of `build.yml`'s `agent-overhead-legs` matrix (or `agent-overhead-extra-legs`
+for the measurements below that run only with the `agent` label), all at the same time on separate runners (each A/B
+alternates its arms on one runner), then gathers their reports and runs the checks in the `agent-overhead` job. It
+runs fifteen pairs on a four-processor runner, then on the I/O route with nine pairs: every default sensor against no
+agent (`spring-mvc-agent-io`) on every agent run, and, on pushes, manual runs, and pull requests labelled `agent`
+only, each default side-effect sensor's own share against the same agent without it: `network`
+(`spring-mvc-network-ab`), `blocking` (`spring-mvc-blocking-ab`), `files` on the I/O route (`spring-mvc-files-ab`),
+fifteen pairs each but `network`'s nine, and the opt-in `environment`'s against the default sensors, on a route adding
+fifty `System.getProperty` reads per request (`spring-mvc-environment-ab`), fifteen pairs. The load generator
 shares the processors with the sample and single pairs vary by more than ten points. That job records the report in its
 summary, warns above the 10 % budget, and fails only above 30 %: a clear regression, not noise. The first CI runs measured
 a median of about 17 % (pairs from 9 to 22 %), above the budget, so a gate at the budget, or at twice it, would fail

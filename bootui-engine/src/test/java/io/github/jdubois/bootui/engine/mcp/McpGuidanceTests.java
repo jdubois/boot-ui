@@ -24,6 +24,34 @@ class McpGuidanceTests {
 
     @ParameterizedTest
     @ValueSource(strings = {"Spring Boot", "Quarkus"})
+    void everyPromptDeclaresOnlyOptionalArgumentsThatFocusItAndRendersWithoutThem(String framework) {
+        assertThat(McpGuidance.prompts(framework))
+                .extracting(prompt -> prompt.arguments().stream()
+                        .map(McpPrompt.Argument::name)
+                        .toList())
+                .containsExactly(
+                        java.util.List.of("symptom", "route"),
+                        java.util.List.of("change", "route"),
+                        java.util.List.of("focus"),
+                        java.util.List.of("goal"));
+        assertThat(McpGuidance.prompts(framework)).allSatisfy(prompt -> {
+            assertThat(prompt.render(java.util.Map.of()))
+                    .as("a client that sends no argument gets the prompt unchanged")
+                    .isEqualTo(prompt.text());
+            assertThat(prompt.arguments()).allSatisfy(argument -> {
+                assertThat(argument.description()).isNotBlank();
+                assertThat(argument.label()).isNotBlank();
+            });
+        });
+        McpPrompt diagnose = McpGuidance.prompts(framework).get(0);
+        assertThat(diagnose.render(java.util.Map.of("symptom", "checkout answers 500")))
+                .startsWith(diagnose.text())
+                .endsWith("- The symptom the user reports: checkout answers 500")
+                .contains("verify it against BootUI evidence");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Spring Boot", "Quarkus"})
     void verificationStartsFromTheChangedMethodsOfCodeInventory(String framework) {
         assertThat(McpGuidance.instructions(framework)).contains("get_code_inventory", "get_agent_status");
         assertThat(McpGuidance.prompts(framework))

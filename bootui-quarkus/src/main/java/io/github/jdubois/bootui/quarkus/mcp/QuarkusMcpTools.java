@@ -686,7 +686,7 @@ public class QuarkusMcpTools {
                 tool(
                         "get_rest_client_traces",
                         McpToolDescriptions.quarkus("get_rest_client_traces"),
-                        args -> restClientTrace.trace()));
+                        args -> McpAgentViews.restClientTraces(restClientTrace.trace(), args.query(), args.limit())));
         addIfAvailable(
                 registry,
                 availability,
