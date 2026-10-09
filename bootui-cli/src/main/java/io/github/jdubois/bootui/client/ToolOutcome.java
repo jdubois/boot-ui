@@ -28,7 +28,7 @@ public enum ToolOutcome {
     /** The tool exceeded the execution budget. */
     TIMED_OUT,
 
-    /** The command-line endpoint is disabled on this instance. */
+    /** The command-line endpoint is disabled on this instance, confirmed by its catalog. */
     ENDPOINT_DISABLED,
 
     /** BootUI rejected the caller: no token, a wrong token, or a non-local caller. */
@@ -37,7 +37,7 @@ public enum ToolOutcome {
     /** The tool failed inside the application, or the server answered something unexpected. */
     SERVER_ERROR;
 
-    /** The outcome an HTTP status maps to. */
+    /** The outcome an HTTP status maps to; HTTP 503 alone cannot establish endpoint disablement. */
     public static ToolOutcome fromStatus(int status) {
         if (status >= 200 && status < 300) {
             return SUCCESS;
@@ -50,7 +50,6 @@ public enum ToolOutcome {
             case 403 -> REFUSED_BY_POLICY;
             case 404 -> UNKNOWN_TOOL;
             case 409, 429 -> BUSY;
-            case 503 -> ENDPOINT_DISABLED;
             case 504 -> TIMED_OUT;
             default -> SERVER_ERROR;
         };

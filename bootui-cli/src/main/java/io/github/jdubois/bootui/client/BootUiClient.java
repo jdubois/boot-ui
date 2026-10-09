@@ -145,6 +145,10 @@ public final class BootUiClient implements AutoCloseable {
         int status = response.statusCode();
         ToolOutcome outcome = ToolOutcome.fromStatus(status);
         String body = response.body() == null ? "" : response.body();
+        if (outcome.successful() && body.isBlank()) {
+            throw new BootUiClientException(
+                    "Response from " + options.toolEndpoint(toolName) + " does not contain JSON (HTTP " + status + ")");
+        }
         JsonValue payload;
         try {
             payload = body.isBlank() ? JsonValue.MISSING : JsonValue.parse(body);
