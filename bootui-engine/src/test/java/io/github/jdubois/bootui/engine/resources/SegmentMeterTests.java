@@ -9,6 +9,9 @@ import io.github.jdubois.bootui.engine.resources.ResourceUsage.Availability;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage.Unmeasured;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.lang.reflect.Method;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
@@ -74,6 +77,130 @@ class SegmentMeterTests {
 
         assertThat(usage.segments()).isEqualTo(1);
         assertThat(usage.cpuNanos()).isEqualTo(10);
+    }
+
+    /**
+     * The race a code review flagged on #1394's {@code SegmentMeter.begin} refactor: thread A resolves its request's
+     * meter (M1) through {@code computeIfAbsent}, then, before it opens a segment against M1, another thread takes M1
+     * (marking it done) and begins the same request id again, installing a replacement (M2). A's {@code begin} must
+     * not silently measure nothing while M2 is live for its request id: it retries once against whatever meter is
+     * live now, and only reports {@code true} when that retry actually opens a segment.
+     *
+     * <p>A package-private constructor hook pauses thread A deterministically between its meter lookup and its open
+     * (mirroring {@code RuntimeJournalTests}' {@code stampingAndOfferingAreAtomicWithClearingTheQueue}), so the race
+     * is driven by latches, not timing.</p>
+     */
+    @Test
+    void beginRetriesAgainstTheLiveMeterWhenTheOneItResolvedWasTakenAndReplacedUnderTheSameId() throws Exception {
+        CountDownLatch resolved = new CountDownLatch(1);
+        CountDownLatch releaseA = new CountDownLatch(1);
+        AtomicBoolean pausedOnce = new AtomicBoolean();
+        SegmentMeter racy = new SegmentMeter(readings, () -> {
+            if (!pausedOnce.compareAndSet(false, true)) {
+                // Only thread A's begin() (the first one) pauses; the main thread's own begin() below, which
+                // installs the replacement meter, must not block on the same latch.
+                return;
+            }
+            resolved.countDown();
+            try {
+                assertThat(releaseA.await(5, TimeUnit.SECONDS))
+                        .as("released before the 5 s test timeout")
+                        .isTrue();
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        AtomicReference<Boolean> began = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread threadA = new Thread(() -> {
+            try {
+                readings.set(Thread.currentThread(), 100, 1_000);
+                began.set(racy.begin("r1"));
+                readings.set(Thread.currentThread(), 400, 4_000);
+                racy.switchTo(null);
+            } catch (Throwable ex) {
+                failure.set(ex);
+            }
+        });
+        threadA.start();
+        assertThat(resolved.await(5, TimeUnit.SECONDS))
+                .as("A reached the pause before opening its segment")
+                .isTrue();
+
+        // Stands in for a second thread: takes A's now-stale meter, then begins the same request id again, installing
+        // a replacement A has not seen yet.
+        racy.take("r1");
+        readings.set(Thread.currentThread(), 0, 0);
+        assertThat(racy.begin("r1")).as("the replacement meter opens normally").isTrue();
+        readings.set(Thread.currentThread(), 50, 500);
+        racy.switchTo(null);
+
+        releaseA.countDown();
+        threadA.join(5_000);
+        assertThat(failure.get()).isNull();
+
+        assertThat(began.get())
+                .as("A's begin() is backed by the live replacement meter, not the taken one")
+                .isTrue();
+        ResourceUsage usage = racy.take("r1");
+        assertThat(usage.availability()).isEqualTo(Availability.AVAILABLE);
+        assertThat(usage.segments())
+                .as("the replacement's own segment, plus A's retried one")
+                .isEqualTo(2);
+        assertThat(usage.cpuNanos())
+                .as("50 before A's open, 300 (400 - 100) from A's retried segment")
+                .isEqualTo(350);
+        assertThat(usage.allocatedBytes()).isEqualTo(3_500);
+    }
+
+    @Test
+    void beginReportsFalseWhenTheMeterItResolvedWasTakenAndNeverReplaced() throws Exception {
+        CountDownLatch resolved = new CountDownLatch(1);
+        CountDownLatch releaseA = new CountDownLatch(1);
+        SegmentMeter racy = new SegmentMeter(readings, () -> {
+            resolved.countDown();
+            try {
+                assertThat(releaseA.await(5, TimeUnit.SECONDS))
+                        .as("released before the 5 s test timeout")
+                        .isTrue();
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        AtomicReference<Boolean> began = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread threadA = new Thread(() -> {
+            try {
+                readings.set(Thread.currentThread(), 100, 1_000);
+                began.set(racy.begin("r1"));
+                assertThat(racy.currentRequestId())
+                        .as("nothing is silently measured once the retry finds no live meter")
+                        .isNull();
+            } catch (Throwable ex) {
+                failure.set(ex);
+            }
+        });
+        threadA.start();
+        assertThat(resolved.await(5, TimeUnit.SECONDS))
+                .as("A reached the pause before opening its segment")
+                .isTrue();
+
+        assertThat(racy.take("r1"))
+                .as("takes A's now-stale meter, installing no replacement")
+                .isNotNull();
+
+        releaseA.countDown();
+        threadA.join(5_000);
+        assertThat(failure.get()).isNull();
+
+        assertThat(began.get())
+                .as("begin() reports false rather than claim an unmeasured request")
+                .isFalse();
+        assertThat(racy.take("r1"))
+                .as("no meter is left open under the request id")
+                .isNull();
     }
 
     @Test

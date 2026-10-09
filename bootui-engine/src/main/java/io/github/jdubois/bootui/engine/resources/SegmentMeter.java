@@ -50,9 +50,20 @@ public final class SegmentMeter {
     private final ConcurrentHashMap<String, Meter> meters = new ConcurrentHashMap<>();
     private final ThreadLocal<Segment> segments = new BootUiThreadLocal<>();
     private final ConcurrentHashMap<Long, Segment> platformThreads = new ConcurrentHashMap<>();
+    private final Runnable afterMeterResolved;
 
     SegmentMeter(Readings readings) {
+        this(readings, null);
+    }
+
+    /**
+     * @param afterMeterResolved run, once, right after {@link #begin} resolves or creates a request's meter and
+     *     before it opens a segment against it; {@code null} outside tests. Lets a test pause a {@code begin()} call
+     *     deterministically between its lookup and its open, to drive the race {@link #openOn} resolves.
+     */
+    SegmentMeter(Readings readings, Runnable afterMeterResolved) {
         this.readings = readings;
+        this.afterMeterResolved = afterMeterResolved;
     }
 
     /** The meter {@code BootUiCorrelation} reports to. */
@@ -76,10 +87,15 @@ public final class SegmentMeter {
             }
             // Keeps the meter this call just found or created, so opening its first segment below looks it up once,
             // not once here and again in switchTo(String): a request-thread cost of the runtime journal's throughput
-            // overhead budget (docs/PLAN-v2.md §2.2 and §8).
+            // overhead budget (docs/PLAN-v2.md §2.2 and §8). A concurrent take() (and, under the same request id, a
+            // concurrent re-begin installing a replacement) can make this meter done by the time openOn runs below;
+            // openOn resolves that by re-reading the live mapping once, rather than leaving the request silently
+            // unmeasured while a live meter for it exists.
             Meter meter = meters.computeIfAbsent(requestId, id -> new Meter(System.nanoTime()));
-            openOn(requestId, meter);
-            return true;
+            if (afterMeterResolved != null) {
+                afterMeterResolved.run();
+            }
+            return openOn(requestId, meter);
         } catch (RuntimeException | LinkageError ex) {
             return false;
         }
@@ -120,15 +136,23 @@ public final class SegmentMeter {
         }
     }
 
-    /** Closes the calling thread's open segment, when it measures a different request, and opens one for {@code meter}. */
-    private void openOn(String requestId, Meter meter) {
+    /**
+     * Closes the calling thread's open segment, when it measures a different request, and opens one for {@code meter}.
+     * {@code meter} may already be done (taken, and possibly replaced under the same request id) by the time this
+     * runs: when {@link Segment#open} refuses it for that reason, re-resolves whichever meter is live now for
+     * {@code requestId} and retries once, rather than leaving the request silently unmeasured while a live meter for
+     * it exists.
+     *
+     * @return whether the calling thread's segment now measures {@code requestId}
+     */
+    private boolean openOn(String requestId, Meter meter) {
         try {
             Segment segment = segments.get();
             if (segment != null) {
                 Meter current = segment.meter;
                 if (current != null) {
                     if (requestId.equals(segment.requestId)) {
-                        return;
+                        return true;
                     }
                     segment.closeOnOwnThread(current, readings);
                 }
@@ -140,9 +164,14 @@ public final class SegmentMeter {
                     register(segment);
                 }
             }
-            segment.open(meter, requestId, readings);
+            if (segment.open(meter, requestId, readings)) {
+                return true;
+            }
+            Meter live = meters.get(requestId);
+            return live != null && live != meter && segment.open(live, requestId, readings);
         } catch (RuntimeException | LinkageError ex) {
             // Measuring never disturbs the application's work.
+            return false;
         }
     }
 
@@ -323,15 +352,23 @@ public final class SegmentMeter {
             this.endCollections = new long[collectors];
         }
 
-        void open(Meter meter, String requestId, Readings readings) {
+        /**
+         * @return whether {@code meter} accepted the segment; {@code false} when it was already done (taken), in
+         *     which case no JFR event is started and {@link #meter} stays whatever it was before this call
+         */
+        boolean open(Meter meter, String requestId, Readings readings) {
             readings.readCollections(startCollections);
             startAllocatedBytes = readings.currentAllocatedBytes();
             startCpuNanos = readings.currentCpuNanos();
             this.requestId = requestId;
-            jfrEvent.set(JfrSegments.begin(requestId));
-            if (meter.opened(this)) {
-                this.meter = meter;
+            if (!meter.opened(this)) {
+                return false;
             }
+            this.meter = meter;
+            // Started only once the meter accepts, so a refused open (the meter was already done) never leaves a JFR
+            // event uncommitted for a segment that measures nothing.
+            jfrEvent.set(JfrSegments.begin(requestId));
+            return true;
         }
 
         void closeOnOwnThread(Meter meter, Readings readings) {
