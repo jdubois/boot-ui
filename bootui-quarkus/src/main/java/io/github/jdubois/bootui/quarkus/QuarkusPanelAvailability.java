@@ -145,8 +145,8 @@ import org.eclipse.microprofile.config.Config;
  * therefore report an honest, panel-specific reason so
  * the shared Vue unavailable-alert never implies a port is forthcoming. <strong>HTTP Sessions</strong>,
  * <strong>Spring Data</strong> and <strong>Spring Security</strong> are likewise permanent exceptions: HTTP
- * Sessions inventories servlet sessions via Spring Session's enumerable registry (Quarkus is reactive/stateless
- * and has no equivalent registry, even when servlet sessions are added via quarkus-undertow); Spring Data
+ * Sessions inventories servlet sessions through embedded Tomcat's session managers in Spring MVC applications
+ * (Quarkus is reactive/stateless and has no equivalent registry, even when servlet sessions are added via quarkus-undertow); Spring Data
  * enumerates Spring Data repository beans (Quarkus uses Panache/Hibernate instead — the Hibernate advisor covers
  * mapping insight); and Spring Security reads Spring Security's filter chain and user store (Quarkus security is
  * covered by the Quarkus-native Security advisor). The <strong>Security</strong> advisor,
@@ -397,8 +397,9 @@ public class QuarkusPanelAvailability {
                     + " runtime per-step buffer (Spring's BufferingApplicationStartup) to record a timeline; only"
                     + " coarse boot totals exist, so this fine-grained step timeline is not used here.",
             BootUiPanels.HTTP_SESSIONS,
-            "Not applicable on Quarkus: this panel inventories servlet HTTP sessions via Spring Session's"
-                    + " enumerable registry, but Quarkus is reactive/stateless by default and exposes no equivalent"
+            "Not applicable on Quarkus: this panel inventories servlet HTTP sessions through embedded Tomcat's"
+                    + " session managers in Spring MVC applications, but Quarkus is reactive/stateless by default and"
+                    + " exposes no equivalent"
                     + " active-session registry to list (servlet sessions added via quarkus-undertow are not"
                     + " tracked), so it is not used here.",
             BootUiPanels.DATA,

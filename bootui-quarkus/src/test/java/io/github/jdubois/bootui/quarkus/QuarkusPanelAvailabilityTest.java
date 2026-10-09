@@ -62,6 +62,9 @@ class QuarkusPanelAvailabilityTest {
                     .doesNotContain("Not yet available")
                     .containsIgnoringCase("Not applicable on Quarkus");
         }
+        assertThat(panels.get(BootUiPanels.HTTP_SESSIONS).unavailableReason())
+                .contains("embedded Tomcat's session managers", "Spring MVC")
+                .doesNotContain("Spring Session");
     }
 
     @Test

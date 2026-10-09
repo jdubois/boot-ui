@@ -11,7 +11,8 @@ project version on `main` cannot tell 2.0 contents from 1.x contents. The releas
 ## The release line
 
 Every branch declares its release line, the major version its contents belong to, in `.github/release-line`: one
-number, with `#` comments. `v2` declares `2`; `main` and `1.x` declare `1` once the backport below lands. The line must
+number, with `#` comments. `v2` declares `2`; the prepared `main` declares `1`, and `1.x` will inherit `1` when it is cut.
+The line must
 be the project version's major, or that major plus one while a branch prepares the next major, and a missing or
 malformed file fails every check that reads it. A branch containing `bootui-agent`, which exists only from 2.0, must
 declare at least `2`, so a `main`-to-`v2` sync that resolves a conflict on this file to `1` fails the integrity guard,
@@ -65,8 +66,8 @@ control over them:
   policy at 3.0.
 
 Re-running a workflow run replays the workflow file of that run, and GitHub allows it for 30 days. Never re-run a
-Pages or Docker run that predates the gate on `main`; landing the `main` preparation below well before release day
-lets those runs age out.
+Pages or Docker run that predates the gate on `main`; the preparation below has landed, but old runs remain a concern
+until they age out.
 
 ## The rehearsal
 
@@ -107,23 +108,28 @@ A merge conflict fails the rehearsal: merge `main` into `v2` first. Prerequisite
 `1.x` is cut from `main`'s last 1.x commit right before `v2` merges. Until then `main` is the 1.x line and keeps
 receiving fixes; do not cut the branch early.
 
-### Before the cut: prepare `main`
+### Before the cut: verify the prepared `main`
 
-`main` does not have M4-16's per-major release machinery yet: its `release.yml` still takes the newest tag overall, so a
-`1.x` branch cut from it today would reject every 1.x patch once v2.0.0 exists, and would redeploy 1.x documentation
-over the 2.0 site. One pull request into `main`, well before the cut:
+The per-major release machinery and release-line gates **have landed on `main`**. The following is the preparation
+record, not an outstanding instruction to backport them again. Before release day, verify that subsequent changes have
+kept these invariants; the read-only rehearsal checks them:
 
-1. Copies byte for byte from `v2`: `release-version-policy.sh`, `release-line-gate.sh`, `pages.yml`, and
-   `docker-publish.yml`. Identical files merge cleanly on every later `main`-to-`v2` sync; the rehearsal checks it.
-   Copy them again whenever they change on `v2`: when 2.0 stopped publishing `bootui-core`, the gate's sentinel moved
-   to `bootui-engine`, and a `1.x` branch cut with the old gate would never see 2.0 on Maven Central.
-2. Ports to `main`'s `release.yml` the release-line arguments, the tagged-contents and release-branch checks, the
+1. `release-version-policy.sh`, `release-line-gate.sh`, `pages.yml`, and `docker-publish.yml` are byte-identical on
+   `main` and `v2`. Preserve that equality through reviewed changes whenever a shared gate changes. The gate's
+   sentinel is `bootui-engine`, not the retired 2.0 `bootui-core` coordinate, so the prepared 1.x line recognizes 2.0
+   on Maven Central.
+2. `main`'s `release.yml` has the release-line arguments, the tagged-contents and release-branch checks, the
    deploy confirmation, and the newest-major documentation decision, keeping `main`'s own publication reactor and availability list, which have no agent
-   modules; ports `check-release-integrity.sh` and the `test_release_*.py` tests the same way.
-3. Adds `.github/release-line` with `1`. The next `main`-to-`v2` sync then conflicts on that file once: keep `2`
-   (the guard rejects `1` on `v2`, which contains `bootui-agent`).
-4. Adds `1.x` to the push and pull-request branches of `build.yml` and `jdk-compatibility.yml`, so `1.x` gets the green
+   modules; its integrity guard and release tests enforce that 1.x-specific machinery.
+3. `main`'s `.github/release-line` is `1`. When syncing it into `v2`, keep `2` on `v2`
+   (the guard rejects `1` on a branch containing `bootui-agent`).
+4. `1.x` is listed in the push and pull-request branches of `build.yml` and `jdk-compatibility.yml`, so it gets the green
    build a release requires.
+
+This preparation and a read-only rehearsal are not release authorization. Cutting `1.x`, merging the release,
+dispatching live rehearsals or Release, signing, and publishing still require the maintainer's release-day decision;
+environment/ruleset changes require a repository administrator. Pending sign-off or environment permissions remain
+blockers, not waived checks.
 
 ### Settings, by a repository administrator
 
@@ -161,7 +167,7 @@ The branch points at an existing commit: no merge, no rebase, no new commit.
 
 1. **Sign-off.** The [release sign-off](V2-VALIDATION-REPORT.md#release-sign-off) has no `TODO` left, and
    [Known limitations](KNOWN-LIMITATIONS.md) matches the shipped scope.
-2. **Last 1.x release.** Release any unreleased 1.x change from `main` as usual, and land the `main` preparation above.
+2. **Last 1.x release.** Release any unreleased 1.x change from `main` as usual, and verify the prepared `main` above.
 3. **Sync.** Merge `main` into `v2` with a merge commit, never a rebase; `.github/release-line` stays `2`.
 4. **Rehearse.** `python3 .github/scripts/rehearse_v2_merge.py --v2 origin/v2 --live --release-day` reports no
    failure and nothing pending.
@@ -170,11 +176,15 @@ The branch points at an existing commit: no merge, no rebase, no new commit.
    deploy with "release line 2 has no release tag yet", and that the next Docker run skipped every job but prune.
 7. **Changelog.** Cut `CHANGELOG.md`'s `[Unreleased]` to `## [2.0.0] - YYYY-MM-DD` on `main`, as its own commit, and
    wait for a green build.
-8. **Release.** Run **Release** from `main` with version `2.0.0`. Merge nothing into `main` until the run is green:
-   while Maven Central propagates, a push could find the gate's two artifacts before the others. 2.0.0 is the first
-   release whose POMs are flattened before signing, so the run refuses an imported key other than the pinned
+8. **Release.** With maintainer approval, run **Release** from `main` with version `2.0.0`. Merge nothing into `main` until the run is green:
+   while Maven Central propagates, a push could find the gate's two artifacts before the others. The run refuses an
+   imported key other than the pinned
    `RELEASE_KEY_FINGERPRINT` (7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9), and checks every signature against it twice:
    after the verification build, before the tag (unless `skip_build`), and on the Central bundle, before the upload.
+   Normal preparation also stages the exact candidate bundle and smoke-tests its consumers before committing/tagging.
+   Tag-entry and `skip_build` runs do that from the immutable tagged checkout before uploading instead; a successful
+   pre-tag smoke is not repeated after the tag. Publication, availability checks, published-consumer smoke and the site
+   deployment all use the commit peeled from the verified signed tag.
 9. **After the release.** Confirm that the site shows 2.0 (deployed from the v2.0.0 tag), that
    `jbang bootui@jdubois/boot-ui` and the installers resolve 2.0.0, and that the next daily Docker run publishes 2.x
    images. Narrow the `github-pages` tag rule to `v2.*`. After the first 1.x patch that follows, confirm that
