@@ -666,6 +666,134 @@ class QuarkusMcpEnvelopeTest {
     }
 
     @Test
+    void anUnanswerableCorrelationIdIsRefusedBeforeDispatchOrStreamAdmission() throws Exception {
+        AtomicInteger invoked = new AtomicInteger();
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        McpDispatcher dispatcher = new McpDispatcher(
+                List.of(new McpTool(
+                        "architecture_scan",
+                        "Scan.",
+                        McpToolSchema.NONE,
+                        BootUiPanels.ARCHITECTURE,
+                        true,
+                        args -> invoked.incrementAndGet())),
+                List.of(),
+                new AllowAllPolicy(),
+                "test",
+                "test",
+                50,
+                1,
+                diagnostics);
+        QuarkusMcpEnvelope small = new QuarkusMcpEnvelope(dispatcher, objectMapper, diagnostics, 512);
+        for (boolean modern : List.of(false, true)) {
+            for (boolean streaming : List.of(false, true)) {
+                String meta = modern
+                        ? "\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
+                                + "\"io.modelcontextprotocol/clientCapabilities\":{},"
+                        : "";
+                JsonNode request = objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":\"" + "x".repeat(2048)
+                        + "\",\"method\":\"tools/call\",\"params\":{\"name\":\"architecture_scan\","
+                        + "\"_meta\":{" + meta + "\"progressToken\":\"p\"}}}");
+                QuarkusMcpEnvelope.Reply reply = small.exchange(
+                        request,
+                        modern
+                                ? new McpRequestHeaders(
+                                        List.of("2026-07-28"), List.of("tools/call"), List.of("architecture_scan"))
+                                : McpRequestHeaders.NONE,
+                        true,
+                        streaming);
+                try {
+                    if (reply.body() != null) {
+                        assertThat(objectMapper.writeValueAsBytes(reply.body()).length)
+                                .as("even the response-too-large fallback must fit")
+                                .isLessThanOrEqualTo(512);
+                    }
+                    assertThat(reply.status()).isEqualTo(413);
+                    assertThat(reply.body()).isNull();
+                    assertThat(reply.stream()).isNull();
+                    assertThat(invoked).hasValue(0);
+                } finally {
+                    if (reply.stream() != null) {
+                        reply.stream().call().cancel();
+                    }
+                }
+            }
+        }
+        assertThat(dispatcher.runtimeStats().snapshot().responseLimitRefusals()).isEqualTo(4);
+        assertThat(dispatcher.runtimeStats().snapshot().callCount()).isZero();
+        assertThat(dispatcher.availableCallPermits()).isEqualTo(1);
+        assertThat(
+                        small.handle(
+                                objectMapper.readTree(
+                                        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"architecture_scan\"}}")))
+                .isNotNull();
+        assertThat(invoked).hasValue(1);
+        assertThat(dispatcher.runtimeStats().snapshot().capacityRefusals()).isZero();
+    }
+
+    @Test
+    void tinyBudgetsBoundCanonicalErrorsWithoutTurningRefusalsIntoNotifications() throws Exception {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        McpDispatcher dispatcher =
+                new McpDispatcher(List.of(), List.of(), new AllowAllPolicy(), "test", "test", 50, 1, diagnostics);
+        QuarkusMcpEnvelope small = new QuarkusMcpEnvelope(dispatcher, objectMapper, diagnostics, 1);
+        for (boolean modern : List.of(false, true)) {
+            String meta = modern
+                    ? "\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
+                            + "\"io.modelcontextprotocol/clientCapabilities\":{}"
+                    : "\"io.modelcontextprotocol/protocolVersion\":\"2025-06-18\"";
+            ObjectNode request = (ObjectNode) objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":\"id\","
+                    + "\"method\":\"tools/call\",\"params\":{\"name\":\"architecture_scan\",\"_meta\":{" + meta
+                    + "}}}");
+            McpRequestHeaders headers = modern
+                    ? new McpRequestHeaders(List.of("2026-07-28"), List.of("tools/call"), List.of("architecture_scan"))
+                    : McpRequestHeaders.NONE;
+            for (boolean enabled : List.of(false, true)) {
+                assertThat(small.exchange(request, headers, enabled))
+                        .isEqualTo(new QuarkusMcpEnvelope.Reply(413, null));
+            }
+            request.put("jsonrpc", "bad");
+            assertThat(small.exchange(request, headers, true)).isEqualTo(new QuarkusMcpEnvelope.Reply(413, null));
+        }
+        assertThat(small.exchange(
+                        objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"),
+                        McpRequestHeaders.NONE,
+                        true))
+                .isEqualTo(new QuarkusMcpEnvelope.Reply(202, null));
+        assertThat(dispatcher.runtimeStats().snapshot().responseLimitRefusals()).isEqualTo(6);
+    }
+
+    @Test
+    void selectedValidationErrorsKeepTheirIdEchoAndAreBoundedBeforeDispatch() throws Exception {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        McpDispatcher dispatcher =
+                new McpDispatcher(List.of(), List.of(), new AllowAllPolicy(), "test", "test", 50, 1, diagnostics);
+        QuarkusMcpEnvelope small = new QuarkusMcpEnvelope(dispatcher, objectMapper, diagnostics, 128);
+        ObjectNode request = (ObjectNode) objectMapper.readTree(
+                "{\"jsonrpc\":\"2.0\",\"id\":true,\"method\":\"tools/call\",\"params\":{\"name\":\"architecture_scan\","
+                        + "\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
+                        + "\"io.modelcontextprotocol/clientCapabilities\":{}}}}");
+        assertThat(small.exchange(request, McpRequestHeaders.NONE, true).body().toString())
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,"
+                        + "\"message\":\"Request id must be a string or an integer\"}}");
+        request.put("id", "x".repeat(2048));
+        request.put("jsonrpc", "bad");
+        assertThat(small.exchange(request, McpRequestHeaders.NONE, true))
+                .isEqualTo(new QuarkusMcpEnvelope.Reply(413, null));
+        for (io.github.jdubois.bootui.engine.mcp.McpEra era : io.github.jdubois.bootui.engine.mcp.McpEra.values()) {
+            String result = small.renderFinal(
+                    objectMapper.readTree("7"),
+                    era,
+                    new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError(
+                            McpProtocol.INTERNAL_ERROR, "x".repeat(2048)));
+            assertThat(result.getBytes(java.nio.charset.StandardCharsets.UTF_8).length)
+                    .isLessThanOrEqualTo(128);
+            assertThat(objectMapper.readTree(result).path("error").path("code").asInt())
+                    .isEqualTo(era == io.github.jdubois.bootui.engine.mcp.McpEra.LEGACY ? -32003 : -31003);
+        }
+    }
+
+    @Test
     void streamFinalResponsesStayOneLineWithAnIndentingApplicationMapper() throws Exception {
         RecordingFailureReporter diagnostics = new RecordingFailureReporter();
         McpDispatcher dispatcher = new McpDispatcher(

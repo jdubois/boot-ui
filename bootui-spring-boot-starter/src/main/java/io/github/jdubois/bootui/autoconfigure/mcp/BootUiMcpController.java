@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.mcp;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome;
+import io.github.jdubois.bootui.engine.mcp.McpEra;
 import io.github.jdubois.bootui.engine.mcp.McpPayloadReader;
 import io.github.jdubois.bootui.engine.mcp.McpPayloadReader.PayloadTooLargeException;
 import io.github.jdubois.bootui.engine.mcp.McpProgressToken;
@@ -98,8 +99,7 @@ public class BootUiMcpController {
             return null;
         }
         if (reply.body() == null) {
-            // Notification (no id) — acknowledge with 202 and no body.
-            return ResponseEntity.accepted().build();
+            return ResponseEntity.status(reply.status()).build();
         }
         return json(reply.status(), reply.body());
     }
@@ -207,9 +207,13 @@ public class BootUiMcpController {
         return response;
     }
 
-    private static ResponseEntity<String> json(int status, JsonNode body) {
-        return ResponseEntity.status(status)
+    private ResponseEntity<String> json(int status, JsonNode body) {
+        BootUiMcpService.Reply reply = service.limitResponse(status, body, McpEra.LEGACY);
+        if (reply.body() == null) {
+            return ResponseEntity.status(reply.status()).build();
+        }
+        return ResponseEntity.status(reply.status())
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(body.toString());
+                .body(reply.body().toString());
     }
 }

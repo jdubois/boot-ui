@@ -919,6 +919,125 @@ class BootUiMcpServiceTests {
     }
 
     @Test
+    void anUnanswerableCorrelationIdIsRefusedBeforeDispatchOrStreamAdmission() {
+        AtomicInteger invoked = new AtomicInteger();
+        BootUiProperties bounded = new BootUiProperties();
+        bounded.getMcp().setMaxResponseBytes(512);
+        bounded.getMcp().setMaxConcurrentCalls(1);
+        BootUiMcpService small = new BootUiMcpService(
+                List.of(new McpTool(
+                        "architecture_scan",
+                        "Scan.",
+                        McpToolSchema.NONE,
+                        BootUiPanels.ARCHITECTURE,
+                        true,
+                        args -> invoked.incrementAndGet())),
+                bounded,
+                objectMapper,
+                "test",
+                (operation, failure) -> {
+                    throw new AssertionError(failure);
+                });
+        for (boolean modern : List.of(false, true)) {
+            for (boolean streaming : List.of(false, true)) {
+                ObjectNode request = modernRequest(
+                        "tools/call", "x".repeat(2048), "architecture_scan", modern ? "2026-07-28" : "2025-06-18");
+                if (!modern) {
+                    ((ObjectNode) request.path("params").path("_meta"))
+                            .remove(List.of(McpProtocol.META_PROTOCOL_VERSION, McpProtocol.META_CLIENT_CAPABILITIES));
+                }
+                ((ObjectNode) request.path("params").path("_meta")).put("progressToken", "p");
+                BootUiMcpService.Reply reply = small.exchange(
+                        request,
+                        modern
+                                ? new McpRequestHeaders(
+                                        List.of("2026-07-28"), List.of("tools/call"), List.of("architecture_scan"))
+                                : McpRequestHeaders.NONE,
+                        true,
+                        streaming);
+                try {
+                    if (reply.body() != null) {
+                        assertThat(reply.body().toString().getBytes(java.nio.charset.StandardCharsets.UTF_8).length)
+                                .as("even the response-too-large fallback must fit")
+                                .isLessThanOrEqualTo(512);
+                    }
+                    assertThat(reply.status()).isEqualTo(413);
+                    assertThat(reply.body()).isNull();
+                    assertThat(reply.stream()).isNull();
+                    assertThat(invoked).hasValue(0);
+                } finally {
+                    if (reply.stream() != null) {
+                        reply.stream().call().cancel();
+                    }
+                }
+            }
+        }
+        assertThat(small.dispatcher().runtimeStats().snapshot().responseLimitRefusals())
+                .isEqualTo(4);
+        assertThat(small.dispatcher().runtimeStats().snapshot().callCount()).isZero();
+        assertThat(small.dispatcher().availableCallPermits()).isEqualTo(1);
+        assertThat(small.handle(callRequest("architecture_scan", 1))).isNotNull();
+        assertThat(invoked).hasValue(1);
+        assertThat(small.dispatcher().runtimeStats().snapshot().capacityRefusals())
+                .isZero();
+    }
+
+    @Test
+    void tinyBudgetsBoundCanonicalErrorsWithoutTurningRefusalsIntoNotifications() {
+        BootUiProperties tiny = new BootUiProperties();
+        tiny.getMcp().setMaxResponseBytes(1);
+        BootUiMcpService small = new BootUiMcpService(List.of(), tiny, objectMapper, "test", (operation, failure) -> {
+            throw new AssertionError(failure);
+        });
+        for (boolean modern : List.of(false, true)) {
+            ObjectNode call =
+                    modernRequest("tools/call", "id", "architecture_scan", modern ? "2026-07-28" : "2025-06-18");
+            McpRequestHeaders headers = modern
+                    ? new McpRequestHeaders(List.of("2026-07-28"), List.of("tools/call"), List.of("architecture_scan"))
+                    : McpRequestHeaders.NONE;
+            for (boolean enabled : List.of(false, true)) {
+                assertThat(small.exchange(call, headers, enabled)).isEqualTo(new BootUiMcpService.Reply(413, null));
+            }
+            call.put("jsonrpc", "bad");
+            assertThat(small.exchange(call, headers, true)).isEqualTo(new BootUiMcpService.Reply(413, null));
+        }
+        assertThat(small.exchange(request("notifications/initialized", null, null), McpRequestHeaders.NONE, true))
+                .isEqualTo(new BootUiMcpService.Reply(202, null));
+        assertThat(small.dispatcher().runtimeStats().snapshot().responseLimitRefusals())
+                .isEqualTo(6);
+    }
+
+    @Test
+    void selectedValidationErrorsKeepTheirIdEchoAndAreBoundedBeforeDispatch() {
+        BootUiProperties bounded = new BootUiProperties();
+        bounded.getMcp().setMaxResponseBytes(128);
+        BootUiMcpService small =
+                new BootUiMcpService(List.of(), bounded, objectMapper, "test", (operation, failure) -> {
+                    throw new AssertionError(failure);
+                });
+        ObjectNode request = modernRequest("tools/call", "x".repeat(2048), "architecture_scan", "2026-07-28");
+        request.put("id", true);
+        assertThat(small.exchange(request, McpRequestHeaders.NONE, true).body().toString())
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,"
+                        + "\"message\":\"Request id must be a string or an integer\"}}");
+        request.put("id", "x".repeat(2048));
+        request.put("jsonrpc", "bad");
+        assertThat(small.exchange(request, McpRequestHeaders.NONE, true))
+                .isEqualTo(new BootUiMcpService.Reply(413, null));
+        for (io.github.jdubois.bootui.engine.mcp.McpEra era : io.github.jdubois.bootui.engine.mcp.McpEra.values()) {
+            String result = small.renderFinal(
+                    objectMapper.readTree("7"),
+                    era,
+                    new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError(
+                            McpProtocol.INTERNAL_ERROR, "x".repeat(2048)));
+            assertThat(result.getBytes(java.nio.charset.StandardCharsets.UTF_8).length)
+                    .isLessThanOrEqualTo(128);
+            assertThat(objectMapper.readTree(result).path("error").path("code").asInt())
+                    .isEqualTo(era == io.github.jdubois.bootui.engine.mcp.McpEra.LEGACY ? -32003 : -31003);
+        }
+    }
+
+    @Test
     void streamFinalResponsesStayOneLineWithAnIndentingApplicationMapper() {
         ObjectMapper indenting = tools.jackson.databind.json.JsonMapper.builder()
                 .enable(tools.jackson.databind.SerializationFeature.INDENT_OUTPUT)

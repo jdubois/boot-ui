@@ -37,6 +37,7 @@ import io.github.jdubois.bootui.engine.mcp.McpToolInputSchema;
 import io.github.jdubois.bootui.engine.progress.ProgressEvent;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -85,7 +86,7 @@ public class QuarkusMcpEnvelope {
      * The HTTP outcome of one MCP {@code POST}.
      *
      * @param status the HTTP status
-     * @param body the JSON-RPC response, or {@code null} for {@code 202 Accepted} with no body
+     * @param body the JSON-RPC response, or {@code null} for a notification or a bodyless transport refusal
      */
     public record Reply(int status, JsonNode body, Stream stream) {
 
@@ -122,17 +123,16 @@ public class QuarkusMcpEnvelope {
 
     private Reply answer(JsonNode request, McpExchange.Plan plan, boolean acceptsEventStream) {
         if (plan instanceof McpExchange.Plan.Reject reject) {
-            return new Reply(reject.httpStatus(), rejection(request, reject));
+            return limitResponse(reject.httpStatus(), rejection(request, reject), reject.era());
         }
         if (plan instanceof McpExchange.Plan.Accept) {
             return new Reply(202, null);
         }
         if (plan instanceof McpExchange.Plan.Disabled disabled) {
             JsonNode id = request != null && request.isObject() ? request.get("id") : null;
-            return new Reply(200, error(id, disabled.code(), McpProtocol.SERVER_DISABLED_MESSAGE));
+            return limitResponse(200, error(id, disabled.code(), McpProtocol.SERVER_DISABLED_MESSAGE), disabled.era());
         }
-        Reply reply = respond(request, ((McpExchange.Plan.Dispatch) plan).serve(), acceptsEventStream);
-        return reply.body() == null && reply.stream() == null ? new Reply(202, null) : reply;
+        return respond(request, ((McpExchange.Plan.Dispatch) plan).serve(), acceptsEventStream);
     }
 
     /** The JSON type of a request id, which the engine judges per era. */
@@ -271,20 +271,58 @@ public class QuarkusMcpEnvelope {
      * exactly like a JSON response, so a stream never carries more than {@code bootui.mcp.max-response-bytes}.
      */
     public String renderFinal(JsonNode id, McpEra era, McpDispatchOutcome outcome) {
+        JsonNode response;
         try {
-            String compact = render(outcome, id, era).toString();
-            McpExchange.Plan.Reject tooLarge = McpExchange.checkResponseSize(
-                    era, compact.getBytes(java.nio.charset.StandardCharsets.UTF_8).length, maxResponseBytes);
-            if (tooLarge != null) {
-                dispatcher.runtimeStats().recordResponseLimitRefusal();
-                return error(id, tooLarge.code(), tooLarge.message()).toString();
-            }
-            return compact;
+            response = render(outcome, id, era);
         } catch (RuntimeException | Error failure) {
             failureReporter.report("rendering a response", failure);
-            return error(id, era, McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE)
-                    .toString();
+            response = error(id, era, McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE);
         }
+        JsonNode fallback = responseTooLarge(id, era);
+        McpExchange.ResponseBudget budget =
+                McpExchange.responseBudget(compactBytes(response), compactBytes(fallback), maxResponseBytes);
+        if (budget == McpExchange.ResponseBudget.FITS) {
+            return response.toString();
+        }
+        dispatcher.runtimeStats().recordResponseLimitRefusal();
+        if (budget == McpExchange.ResponseBudget.REFUSE) {
+            throw new IllegalStateException("MCP stream fallback exceeds its admitted response budget");
+        }
+        return fallback.toString();
+    }
+
+    /** Bound every JSON reply using the application's mapper, as Quarkus REST does for its JsonNode entity. */
+    public Reply limitResponse(int status, JsonNode response, McpEra era) {
+        if (response == null) {
+            return new Reply(status, null);
+        }
+        JsonNode fallback = responseTooLarge(response.get("id"), era);
+        McpExchange.ResponseBudget budget =
+                McpExchange.responseBudget(jsonBytes(response), jsonBytes(fallback), maxResponseBytes);
+        if (budget == McpExchange.ResponseBudget.FITS) {
+            return new Reply(status, response);
+        }
+        dispatcher.runtimeStats().recordResponseLimitRefusal();
+        return budget == McpExchange.ResponseBudget.REPLACE
+                ? new Reply(200, fallback)
+                : new Reply(McpExchange.RESPONSE_BUDGET_REFUSAL_STATUS, null);
+    }
+
+    private long jsonBytes(JsonNode response) {
+        try {
+            return objectMapper.writeValueAsBytes(response).length;
+        } catch (JsonProcessingException failure) {
+            throw new IllegalStateException("Could not measure the MCP response", failure);
+        }
+    }
+
+    private static long compactBytes(JsonNode response) {
+        return response.toString().getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    private static JsonNode responseTooLarge(JsonNode id, McpEra era) {
+        McpExchange.Plan.Reject fallback = McpExchange.responseTooLarge(era);
+        return error(id, fallback.code(), fallback.message());
     }
 
     /** Parse raw request bytes into a Jackson node. */
@@ -310,25 +348,27 @@ public class QuarkusMcpEnvelope {
         McpEra era = serve.era();
         JsonNode id = request.get("id");
         try {
-            McpCallStart start = dispatcher.start(parse(request, serve), acceptsEventStream);
+            McpRequest parsed = parse(request, serve);
+            JsonNode fallback = responseTooLarge(id, era);
+            if (!parsed.notification()
+                    && !McpExchange.canAnswer(
+                            Math.max(jsonBytes(fallback), acceptsEventStream ? compactBytes(fallback) : 0),
+                            maxResponseBytes)) {
+                dispatcher.runtimeStats().recordResponseLimitRefusal();
+                return new Reply(McpExchange.RESPONSE_BUDGET_REFUSAL_STATUS, null);
+            }
+            McpCallStart start = dispatcher.start(parsed, acceptsEventStream);
             if (start instanceof McpCallStart.Stream stream) {
                 return new Reply(200, null, new Stream(stream.call(), id));
             }
             McpDispatchOutcome outcome = ((McpCallStart.Immediate) start).outcome();
-            int status = McpProtocol.httpStatus(era, outcome);
+            int status = outcome instanceof NoResponse ? 202 : McpProtocol.httpStatus(era, outcome);
             JsonNode response = render(outcome, id, era);
-            McpExchange.Plan.Reject tooLarge = response == null
-                    ? null
-                    : McpExchange.checkResponseSize(
-                            era, objectMapper.writeValueAsBytes(response).length, maxResponseBytes);
-            if (tooLarge != null) {
-                dispatcher.runtimeStats().recordResponseLimitRefusal();
-                return new Reply(tooLarge.httpStatus(), error(id, tooLarge.code(), tooLarge.message()));
-            }
-            return new Reply(status, response);
-        } catch (JsonProcessingException | RuntimeException | Error failure) {
+            return limitResponse(status, response, era);
+        } catch (RuntimeException | Error failure) {
             failureReporter.report("rendering a response", failure);
-            return new Reply(200, error(id, era, McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE));
+            return limitResponse(
+                    200, error(id, era, McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE), era);
         }
     }
 
