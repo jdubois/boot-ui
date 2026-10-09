@@ -1,10 +1,15 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue'
-import {apiFetch} from '../../api.js'
+import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import {ApiError, apiFetch} from '../../api.js'
 import SpinnerButton from './SpinnerButton.vue'
 import {formatBytes, formatClockTime, formatNumber} from '../../utils/format.js'
 import {formatLoadError} from '../../utils/loadError.js'
 import {useConfirm} from '../../utils/useConfirm.js'
+import {
+  diagnosticActionError,
+  getDiagnosticAcknowledgement,
+  isJournalClearAcknowledgement
+} from '../../utils/diagnosticAcknowledgement.js'
 
 // The runtime journal's status block and its Clear recording action (docs/PLAN-v2.md §5.2). Mounted only when the
 // developer opens it, so opening Live Activity makes no extra request.
@@ -19,6 +24,9 @@ const status = ref(null)
 const loading = ref(false)
 const clearing = ref(false)
 const error = ref('')
+let loadToken = 0
+
+onBeforeUnmount(() => loadToken++)
 
 const recorded = computed(() => Object.entries(status.value?.recorded ?? {}))
 const dropped = computed(() => Object.entries(status.value?.dropped ?? {}))
@@ -61,16 +69,19 @@ const boundLabel = computed(() => {
 })
 
 async function load() {
+  const token = ++loadToken
+  const isCurrent = () => token === loadToken
   loading.value = true
   error.value = ''
   try {
     const res = await apiFetch('api/activity/journal')
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    status.value = await res.json()
+    const loaded = await res.json()
+    if (isCurrent()) status.value = loaded
   } catch (err) {
-    error.value = formatLoadError(err, 'Could not load the runtime journal status')
+    if (isCurrent()) error.value = formatLoadError(err, 'Could not load the runtime journal status')
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
@@ -96,20 +107,24 @@ async function clearRecording() {
 
   clearing.value = true
   try {
-    const res = await apiFetch('api/activity/journal/clear', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({confirm: true})
-    })
-    const result = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      emit('flash', result.message || `HTTP ${res.status}`, 'warning')
-      return
-    }
-    emit('flash', result.message || 'Recording cleared.', 'success')
+    const result = await getDiagnosticAcknowledgement(
+      'api/activity/journal/clear',
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({confirm: true})
+      },
+      isJournalClearAcknowledgement
+    )
+    emit('flash', result.message, 'success')
     await load()
   } catch (err) {
-    emit('flash', formatLoadError(err, 'Could not clear the recording'), 'danger')
+    emit(
+      'flash',
+      diagnosticActionError(err, 'Could not clear the recording'),
+      err instanceof ApiError ? 'warning' : 'danger'
+    )
+    if (!(err instanceof ApiError) || err.status >= 500) await load()
   } finally {
     clearing.value = false
   }
