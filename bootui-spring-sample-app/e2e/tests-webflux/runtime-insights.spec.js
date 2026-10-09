@@ -22,6 +22,18 @@ test.describe('Runtime Insights on Spring WebFlux', () => {
     await expect(page.locator('#insight-sentence')).toContainText('warm median')
     await expect(page.locator('.insight-detail')).toContainText('WebFlux marks no phases')
 
+    const deepDives = page.locator('.insight-performance-deep-dives')
+    await expect(deepDives.getByRole('heading', {name: 'Performance deep dives'})).toBeVisible()
+    await expect(deepDives.getByRole('link', {name: /Open GET .* in Code Paths/})).toHaveAttribute(
+      'href',
+      /#\/code-paths\?route=/
+    )
+    await deepDives.getByRole('button', {name: 'Open the JFR profile tab'}).click()
+    await expect(page.getByRole('tab', {name: 'JFR profile'})).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('.insight-profile-running')).toHaveCount(0)
+    await expect(page.locator('.insight-profile').getByRole('button', {name: /Profile resources/})).toBeVisible()
+    await page.getByRole('tab', {name: /^Findings/}).click()
+
     await page.getByRole('tab', {name: /^Coverage & limits/}).click()
     await expect(page.locator('.insight-unrun')).toContainText('SQL after the handler returned')
 
@@ -45,7 +57,7 @@ test.describe('Runtime Insights on Spring WebFlux', () => {
     await expect(symbol).toHaveValue('GET /api/greetings/{name}')
     await expect(impact.locator('[data-list="observed"]')).toContainText('GET /api/greetings/{name}')
 
-    await page.getByRole('tab', {name: /^Profile/}).click()
+    await page.getByRole('tab', {name: /^JFR profile/}).click()
     const profile = page.locator('.insight-profile')
     await expect(profile.getByRole('heading', {name: 'Profile resources'})).toBeVisible()
     await expect(profile.getByRole('button', {name: /Profile (resources|again)/})).toBeEnabled()

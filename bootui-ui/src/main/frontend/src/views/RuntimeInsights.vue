@@ -170,7 +170,7 @@ const tabs = computed(() => [
   {id: 'findings', label: 'Findings', icon: 'bi-search', count: listed.value.length},
   {id: 'changes', label: 'Changes', icon: 'bi-arrow-left-right', count: null},
   {id: 'impact', label: 'Change impact', icon: 'bi-diagram-3', count: null},
-  {id: 'profile', label: 'Profile', icon: 'bi-cpu', count: null},
+  {id: 'profile', label: 'JFR profile', icon: 'bi-cpu', count: null},
   {id: 'coverage', label: 'Coverage & limits', icon: 'bi-bullseye', count: null}
 ])
 
@@ -332,6 +332,7 @@ provide(
     shares,
     numeric,
     windowText,
+    showTab,
     openAiExport,
     statusLabel,
     checkStatusLabel,
@@ -602,6 +603,7 @@ provide(
         <div
           v-show="tab === 'profile'"
           id="insights-panel-profile"
+          tabindex="-1"
           role="tabpanel"
           aria-labelledby="insights-tab-profile"
         >

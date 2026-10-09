@@ -75,8 +75,14 @@ test.describe('Live Activity view', () => {
     await expect(journal).toContainText('GET /api/sample/product-search')
     await expect(journal.locator('.request-journal__source', {hasText: /^sql$/}).first()).toBeVisible()
 
-    await drawer.getByRole('button', {name: 'Close'}).click()
-    await expect(drawer).toHaveCount(0)
+    const deepDives = drawer.locator('.request-code-path')
+    await expect(deepDives.getByRole('link', {name: 'Open the JFR profile in Runtime Insights'})).toBeVisible()
+    await expect(deepDives).toContainText(/Code Paths unavailable|Open GET \/api\/sample\/product-search in Code Paths/)
+    await deepDives.getByRole('link', {name: 'Open the JFR profile in Runtime Insights'}).click()
+    await expect(page).toHaveURL(/#\/runtime-insights\?tab=profile/)
+    await expect(page.getByRole('tab', {name: 'JFR profile'})).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('.insight-profile').getByRole('button', {name: /Profile resources/})).toBeVisible()
+    await expect(page.locator('.insight-profile-running')).toHaveCount(0)
   })
 
   test('opens a journal exemplar after HTTP-exchange detail is unavailable', async ({page}) => {

@@ -72,7 +72,17 @@ function jsonResponse(body) {
 }
 
 function mountPanel(props = {}) {
-  return mount(RuntimeInsights, {props, global: {stubs: {'router-link': {template: '<a><slot /></a>'}}}})
+  return mount(RuntimeInsights, {
+    props,
+    global: {
+      stubs: {
+        'router-link': {
+          props: ['to'],
+          template: '<a :data-to="JSON.stringify(to)"><slot /></a>'
+        }
+      }
+    }
+  })
 }
 
 // v-show hides a tab panel that is not selected.
@@ -108,6 +118,41 @@ describe('Runtime Insights panel', () => {
 
     expect(fetchMock).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('journal disabled')
+  })
+
+  it('opens the JFR profile tab from a route breakdown without starting a recording', async () => {
+    const breakdown = {
+      ...report.observations[0],
+      id: 'route-time-breakdown:orders',
+      kind: 'route-time-breakdown',
+      subject: 'GET /api/orders/{id}',
+      listed: true
+    }
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(
+        jsonResponse(
+          String(url).includes('/insights/')
+            ? {...detail, observation: breakdown}
+            : {...report, observations: [breakdown]}
+        )
+      )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPanel()
+    await flushPromises()
+    await openRow(wrapper, 'GET /api/orders/{id}')
+
+    const section = wrapper.get('.insight-performance-deep-dives')
+    expect(section.text()).toContain('Open the JFR profile tab')
+    expect(section.text()).toContain('recording starts only when you choose Profile resources')
+    expect(JSON.parse(section.get('a').attributes('data-to'))).toEqual({
+      path: '/code-paths',
+      query: {route: 'GET /api/orders/{id}'}
+    })
+    await section.get('button').trigger('click')
+    expect(shown(wrapper.get('#insights-panel-profile'))).toBe(true)
+    expect(wrapper.get('#insights-tab-profile').text()).toContain('JFR profile')
+    expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
   })
 
   it('shows the window, the coverage, the selected observation with its evidence, and checks that did not run', async () => {

@@ -1,5 +1,6 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it, vi} from 'vitest'
+import {ref} from 'vue'
 
 import {safeLocalStorage} from '../utils/safeStorage.js'
 import LiveActivity from './LiveActivity.vue'
@@ -758,6 +759,52 @@ describe('LiveActivity', () => {
     const drawer = wrapper.get('.activity-drawer')
     expect(drawer.text()).toContain('N+1 · 6 identical')
     expect(drawer.text()).toContain('at com.example.TodoRepository.findById(TodoRepository.java:42)')
+  })
+
+  it('shows the performance deep dives in the request profile drawer', async () => {
+    const journalProfile = {
+      available: true,
+      requestId: 'req-1',
+      route: 'GET /api/todos',
+      status: 200,
+      durationMicros: 120_000
+    }
+    const codePath = {
+      available: true,
+      found: true,
+      route: 'GET /api/todos',
+      assemblyOnly: false,
+      topMethods: [],
+      limitations: []
+    }
+    const fetchMock = vi.fn((url) => {
+      if (String(url).endsWith('/journal')) return Promise.resolve(jsonResponse(journalProfile))
+      if (String(url).startsWith('api/activity/request/')) return Promise.resolve(jsonResponse(requestProfile()))
+      if (String(url).startsWith('api/code-paths/requests/')) return Promise.resolve(jsonResponse(codePath))
+      return Promise.resolve(jsonResponse(activityReport()))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mountLiveActivity({
+      global: {
+        provide: {
+          panels: ref({
+            panels: [
+              {id: 'runtime-insights', enabled: true, available: true},
+              {id: 'code-paths', enabled: true, available: true}
+            ]
+          })
+        }
+      }
+    })
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+
+    const section = wrapper.get('.activity-drawer .request-code-path')
+    expect(section.text()).toContain('Performance deep dives')
+    expect(section.text()).toContain('Open the JFR profile in Runtime Insights')
+    expect(section.text()).toContain('Open GET /api/todos in Code Paths')
   })
 
   it('restores focus to the drawer opener after close button, Escape, and backdrop closes', async () => {

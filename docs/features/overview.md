@@ -291,6 +291,12 @@ reads evidence BootUI already captured: it captures nothing new, calls no networ
 Opening Live Activity with `?request=<exchange id>`, as each HTTP Exchanges row's **Profile** link does, opens that
 request's profile directly.
 
+The drawer's **Performance deep dives** links to the **JFR profile** tab in Runtime Insights and, when the route is
+known, to that route in **Code Paths**. Opening the JFR tab does not start a recording; you must explicitly choose
+**Profile resources**. Code Paths opens the route-level aggregate tree, not an exact replay of the selected request.
+When Code Paths is disabled, unavailable, or has no retained tree for the request, the drawer says why rather than
+silently hiding the section.
+
 Each correlated exception carries its `exceptionGroupId`, the id of its group in the
 [Exceptions panel](diagnostics.md#exceptions). Agents use `get_request_profile` or `bootui request-profile <id>`:
 these return the retained journal profile first (`source: "journal"`), with the HTTP-exchange profile
@@ -657,9 +663,13 @@ tabs follow. **Findings** is one list in the report's check order, searchable an
 its rows; a row opens in place on its sentence, what to check, the requests to open, its evidence, and its limits.
 **Changes** holds the comparison with the previous run, where each changed or added method offers **See its impact**;
 **Change impact** opens on its search field, offering the methods changed since the previous run as the first things
-to check; **Profile** holds the resource profiler, and **Coverage & limits** how the run's events were linked, the
+to check; **JFR profile** holds the resource profiler, and **Coverage & limits** how the run's events were linked, the
 checks that did not fully run, and the routes not exercised. Nothing opens on its own: a deep link opens the row, the
 theme, the tab (`?tab=changes`, `impact`, `profile`, or `coverage`), or the change impact (`?impact=<symbol>`) it names.
+
+Opening a `route-time-breakdown` observation adds **Performance deep dives** links to the JFR profile tab and that
+route's Code Paths tree. The Code Paths link is route-level, not an exact request replay. Opening the profiler tab is
+read-only; a JFR recording starts only when **Profile resources** is explicitly selected.
 
 Twenty-two observations run over the completed requests and garbage collections the journal retains:
 

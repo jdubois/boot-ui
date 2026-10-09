@@ -33,6 +33,18 @@ test.describe('Runtime Insights view', () => {
     await expect(detail.getByRole('heading', {name: 'What to check'})).toBeVisible()
     await expect(detail.locator('.insight-evidence')).toContainText('Phase')
 
+    const deepDives = detail.locator('.insight-performance-deep-dives')
+    await expect(deepDives.getByRole('heading', {name: 'Performance deep dives'})).toBeVisible()
+    await expect(deepDives.getByRole('link', {name: /Open GET .* in Code Paths/})).toHaveAttribute(
+      'href',
+      /#\/code-paths\?route=/
+    )
+    await deepDives.getByRole('button', {name: 'Open the JFR profile tab'}).click()
+    await expect(page.getByRole('tab', {name: 'JFR profile'})).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('.insight-profile-running')).toHaveCount(0)
+    await expect(page.locator('.insight-profile').getByRole('button', {name: /Profile resources/})).toBeVisible()
+    await page.getByRole('tab', {name: /^Findings/}).click()
+
     await expect(page.getByRole('button', {name: 'Export JSON'})).toBeVisible()
 
     await page.getByRole('tab', {name: /^Coverage & limits/}).click()
@@ -67,7 +79,7 @@ test.describe('Runtime Insights view', () => {
 
   test('profiles resources only when asked, and splits the samples by route', async ({openView, page}) => {
     await openView('runtime-insights', 'Runtime Insights')
-    await page.getByRole('tab', {name: /^Profile/}).click()
+    await page.getByRole('tab', {name: /^JFR profile/}).click()
 
     const profile = page.locator('.insight-profile')
     const start = profile.getByRole('button', {name: /Profile (resources|again)/})
