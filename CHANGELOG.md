@@ -823,6 +823,8 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **Transactional-event fallback is immediate execution.** Spring listeners running without a transaction no longer
+  produce false writes-after-commit findings ([Runtime Insights](docs/features/overview.md#runtime-insights)).
 - **WebSocket execution profiles open from retained handlers.** Visible inbound anchors now show their recorded work by
   execution id, while hidden, missing, and outbound anchors stay unavailable ([Profiles](docs/features/overview.md#the-per-request-profiler)).
 - **Diagnostic state stays current.** Late reads cannot undo sensor switches or repopulate old activity queries,

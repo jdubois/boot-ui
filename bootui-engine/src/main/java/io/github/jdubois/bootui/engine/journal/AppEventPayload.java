@@ -10,7 +10,8 @@ import java.util.Objects;
  * @param kind {@link #PUBLISHED} or {@link #LISTENER}
  * @param eventType the event's class, or its payload's for a payload event
  * @param listener the listener, such as {@code OrderListener#onPlaced}, or {@code null} for a publication
- * @param phase {@code IMMEDIATE}, or a transaction phase such as {@code AFTER_COMMIT}, or {@code ASYNC}
+ * @param phase the effective execution phase: {@code IMMEDIATE}, including no-transaction fallback execution; a
+ *     transaction phase such as {@code AFTER_COMMIT} for deferred runs and configured deferrals/skips; or {@code ASYNC}
  * @param outcome {@link #RAN}, {@link #FAILED}, {@link #DEFERRED}, or {@link #SKIPPED_NO_TRANSACTION}; {@code null} for
  *     a publication
  * @param exceptionClass the exception a failed listener threw, or {@code null}
