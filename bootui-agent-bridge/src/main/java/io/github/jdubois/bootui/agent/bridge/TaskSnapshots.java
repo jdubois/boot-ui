@@ -16,8 +16,9 @@ import java.util.function.BiFunction;
  * entries stop counting against the current claim's admission limit but remain in the map to keep shared tasks
  * ambiguous; the total number of retained entries remains independently bounded.
  *
- * <p>Each registry retains at most {@link #MAX_PENDING} tasks in total and admits at most that many tasks for the
- * current claim, both atomically. At either limit, a new owned submission is refused, counted by its caller
+ * <p>Each registry retains at most {@link #MAX_PENDING} application entries plus {@link #SELF_TEST_RESERVE} self-test
+ * entries, and admits at most {@link #MAX_PENDING} application entries for the current claim, atomically. At either
+ * application-entry limit, a new owned submission is refused, counted by its caller
  * ({@link #overflowed()}), records nothing, and so runs unowned, exactly like an unowned submission of a task with no
  * entry. A submission of a task that already has an entry is never refused, so the ambiguity rules are unchanged. As
  * with an unowned first submission, a refused submission followed by an admitted one of the same task object lets the
@@ -34,6 +35,9 @@ final class TaskSnapshots {
 
     /** The most tasks a registry holds pending at once. */
     static final int MAX_PENDING = 32768;
+
+    /** Reserved map entries for hook self-tests when live application tasks fill the ordinary retention cap. */
+    static final int SELF_TEST_RESERVE = 64;
 
     /** The most reclaimed tasks one submission or release expunges, so an application thread does bounded work. */
     static final int EXPUNGE_BATCH = 64;
@@ -69,7 +73,7 @@ final class TaskSnapshots {
         this.maxPending = maxPending;
     }
 
-    /** Records a self-test marker past the current-claim cap, subject to the total-retention cap. */
+    /** Records a self-test marker past the application-entry cap, within its fixed reserved capacity. */
     int putSelfTest(Object task, long generation, Object[] payload) {
         return put(task, generation, payload, 0L, false);
     }
@@ -269,12 +273,14 @@ final class TaskSnapshots {
         @Override
         public Entry apply(Object key, Entry existing) {
             if (existing == null) {
-                // Reserve both limits before publishing a new map entry.
-                if (owner.retainedEntries.incrementAndGet() > owner.maxPending) {
+                // Self-test markers have a fixed reserve so a full application backlog cannot disable a healthy hook.
+                long totalLimit = (long) owner.maxPending + (capped ? 0 : SELF_TEST_RESERVE);
+                if (owner.retainedEntries.incrementAndGet() > totalLimit) {
                     owner.retainedEntries.decrementAndGet();
                     refused = true;
                     return null;
                 }
+                // Application entries also have a current-claim limit; older claims are uncounted but remain retained.
                 if (owner.entries.incrementAndGet() > owner.maxPending && capped) {
                     owner.entries.decrementAndGet();
                     owner.retainedEntries.decrementAndGet();

@@ -82,18 +82,28 @@ class TaskSnapshotsTests {
     }
 
     @Test
-    void selfTestMarkersRespectTheTotalRetainedEntryBound() {
+    void selfTestMarkersHaveAFixedReserveBeyondTheApplicationEntryBound() {
         TaskSnapshots snapshots = new TaskSnapshots(1);
         Object retained = new Object();
         snapshots.put(retained, GENERATION, owner("r1"), 0L);
-        Object marker = new Object();
+        List<Object> markers = new ArrayList<>();
+        for (int i = 0; i < TaskSnapshots.SELF_TEST_RESERVE; i++) {
+            Object marker = new Object();
+            markers.add(marker);
+            assertThat(snapshots.putSelfTest(marker, GENERATION, owner("self"))).isEqualTo(TaskSnapshots.OWNED);
+        }
+        Object excessMarker = new Object();
 
-        assertThat(snapshots.putSelfTest(marker, GENERATION, owner("self"))).isEqualTo(TaskSnapshots.REFUSED);
-
+        assertThat(snapshots.putSelfTest(excessMarker, GENERATION, owner("self")))
+                .isEqualTo(TaskSnapshots.REFUSED);
         assertThat(snapshots.overflow()).isZero();
-        assertThat(snapshots.peek(marker)).isNull();
-        assertThat(snapshots.entries.get()).isEqualTo(1);
-        assertThat(snapshots.retainedEntries.get()).isEqualTo(1);
+        assertThat(snapshots.peek(excessMarker)).isNull();
+        assertThat(snapshots.entries.get()).isEqualTo(TaskSnapshots.SELF_TEST_RESERVE + 1);
+        assertThat(snapshots.retainedEntries.get()).isEqualTo(TaskSnapshots.SELF_TEST_RESERVE + 1);
+        assertThat(snapshots.retainedEntries.get()).isLessThanOrEqualTo(1 + TaskSnapshots.SELF_TEST_RESERVE);
+        for (Object marker : markers) {
+            assertThat(snapshots.take(marker)).isNotNull();
+        }
         assertThat(snapshots.take(retained)).isNotNull();
         assertThat(snapshots.retainedEntries.get()).isZero();
     }
@@ -128,6 +138,7 @@ class TaskSnapshotsTests {
             assertThat(snapshots.size()).isEqualTo(cap);
         }
 
+        assertThat(liveTasks).hasSize(7);
         assertThat(snapshots.overflow()).isEqualTo(4);
         assertThat(snapshots.entries.get()).isZero();
         assertThat(snapshots.take(shared)).isSameAs(TaskSnapshots.AMBIGUOUS);

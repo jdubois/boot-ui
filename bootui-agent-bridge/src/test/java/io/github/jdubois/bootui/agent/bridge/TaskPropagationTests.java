@@ -129,6 +129,115 @@ class TaskPropagationTests {
     }
 
     @Test
+    void aRefusedWorkerStartCannotReleaseTheSameTaskAdmittedAfterRoomWasFreed() {
+        long generation = AgentBridge.current().generation;
+        List<Object> queued = new ArrayList<>();
+        for (int i = 0; i < TaskSnapshots.MAX_PENDING; i++) {
+            Object delayed = new Object();
+            queued.add(delayed);
+            TaskSnapshots.TASKS.put(delayed, generation, snapshot("delayed"), 0L);
+        }
+        Runnable shared = () -> {};
+        owner.set(snapshot("a"));
+        int refused = TaskPropagation.workerOffered(shared);
+        assertThat(refused).isEqualTo(TaskPropagation.OVERFLOWED);
+
+        TaskPropagation.exit(TaskPropagation.enter(queued.get(0), TaskPropagation.APPLY_RUN_WORKER), null);
+        owner.set(snapshot("b"));
+        assertThat(TaskPropagation.submitted(shared, TaskPropagation.KEY_THREAD_POOL))
+                .isTrue();
+
+        TaskPropagation.workerAdded(refused, shared, false);
+        TaskPropagation.exit(TaskPropagation.enter(shared, TaskPropagation.APPLY_RUN_WORKER), null);
+        owner.remove();
+
+        assertThat(reopened).last().asString().startsWith("b ");
+    }
+
+    @Test
+    void aRefusedQueueOfferCannotReleaseTheSameTaskAdmittedWhileOfferWasInFlight() {
+        long generation = AgentBridge.current().generation;
+        List<Object> queued = new ArrayList<>();
+        for (int i = 0; i < TaskSnapshots.MAX_PENDING; i++) {
+            Object delayed = new Object();
+            queued.add(delayed);
+            TaskSnapshots.TASKS.put(delayed, generation, snapshot("delayed"), 0L);
+        }
+        Runnable shared = () -> {};
+        java.util.concurrent.BlockingQueue<Object> refusing = new java.util.concurrent.ArrayBlockingQueue<Object>(1) {
+            @Override
+            public boolean offer(Object task) {
+                TaskPropagation.exit(TaskPropagation.enter(queued.get(0), TaskPropagation.APPLY_RUN_WORKER), null);
+                Object previousOwner = owner.get();
+                owner.set(snapshot("b"));
+                assertThat(TaskPropagation.submitted(task, TaskPropagation.KEY_THREAD_POOL))
+                        .isTrue();
+                owner.set(previousOwner);
+                return false;
+            }
+        };
+        owner.set(snapshot("a"));
+
+        assertThat(TaskPropagation.offer(refusing, shared)).isFalse();
+        TaskPropagation.exit(TaskPropagation.enter(shared, TaskPropagation.APPLY_RUN_WORKER), null);
+        owner.remove();
+
+        assertThat(reopened).last().asString().startsWith("b ");
+    }
+
+    @Test
+    void executorSelfTestMarkersAreAppliedWhenOldLiveTasksFillTheOrdinaryLimit() {
+        long generation = AgentBridge.current().generation;
+        List<Object> queued = new ArrayList<>();
+        for (int i = 0; i < TaskSnapshots.MAX_PENDING; i++) {
+            Object delayed = new Object();
+            queued.add(delayed);
+            TaskSnapshots.TASKS.put(delayed, generation, snapshot("old"), 0L);
+        }
+        claimWith(List.of());
+
+        Runnable marker = () -> {};
+        TaskPropagation.beginSelfTest();
+        assertThat(TaskPropagation.submitted(marker, TaskPropagation.KEY_THREAD_POOL))
+                .isTrue();
+        assertThat(TaskPropagation.enter(marker, TaskPropagation.APPLY_RUN_WORKER))
+                .isNull();
+        Map<String, Object> selfTest = TaskPropagation.endSelfTest();
+
+        assertThat(selfTest.get("keyed").toString()).contains("ThreadPoolExecutor.addWorker=1");
+        assertThat(selfTest.get("applied").toString()).contains("ThreadPoolExecutor.runWorker=1");
+        assertThat(queued).hasSize(TaskSnapshots.MAX_PENDING);
+        assertThat(TaskSnapshots.TASKS.retainedEntries.get())
+                .isLessThanOrEqualTo(TaskSnapshots.MAX_PENDING + TaskSnapshots.SELF_TEST_RESERVE);
+    }
+
+    @Test
+    void threadSelfTestMarkersAreAppliedWhenOldLiveTasksFillTheOrdinaryLimit() {
+        long generation = AgentBridge.current().generation;
+        List<Thread> retained = new ArrayList<>();
+        for (int i = 0; i < TaskSnapshots.MAX_PENDING; i++) {
+            Thread thread = new Thread();
+            retained.add(thread);
+            TaskSnapshots.THREADS.put(thread, generation, snapshot("old"), 0L);
+        }
+        claimWith(List.of());
+
+        Thread marker = new Thread();
+        ThreadPropagation.beginSelfTest();
+        assertThat(ThreadPropagation.starting(marker, ThreadPropagation.KEY_THREAD_START))
+                .isTrue();
+        assertThat(ThreadPropagation.enter(marker, null, ThreadPropagation.APPLY_THREAD_RUN))
+                .isNull();
+        Map<String, Object> selfTest = ThreadPropagation.endSelfTest();
+
+        assertThat(selfTest.get("keyed").toString()).contains("Thread.start=1");
+        assertThat(selfTest.get("applied").toString()).contains("Thread.run=1");
+        assertThat(retained).hasSize(TaskSnapshots.MAX_PENDING);
+        assertThat(TaskSnapshots.THREADS.retainedEntries.get())
+                .isLessThanOrEqualTo(TaskSnapshots.MAX_PENDING + TaskSnapshots.SELF_TEST_RESERVE);
+    }
+
+    @Test
     void anOwnedTaskCarriesTheSubmittingNodesStampToItsFragment() {
         AgentBridge.reset();
         AgentBridge.install(request -> Map.of("status", "ok"));

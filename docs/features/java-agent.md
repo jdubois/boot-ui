@@ -286,13 +286,15 @@ report warns that the self-test decides.
 | Threads skipped | Workers whose executor propagates the context itself (`bootui.agent.executors.skip-threads`). |
 | Failed tasks | Propagated tasks that ended with an exception. |
 
-The bridge retains at most 32,768 task entries in total and, apart, at most 32,768 thread entries for the threads
-sensor. It also caps entries counted for the current claim at 32,768. Earlier-claim entries stop counting against that
-per-claim limit but remain retained to keep a task shared across claims ambiguous. If those live entries fill the total
-cap, new distinct tasks from owned work are not recorded and run unowned, counted as over the limit, until entries run,
-are released, or are reclaimed. A task already pending still has its ambiguity tracked. Snapshots of reclaimed tasks
-are removed at most 64 at a time by a submission, so the application's threads never do unbounded clean-up; a status
-read removes all of them.
+The bridge retains at most 32,768 task entries plus 64 reserved self-test markers and, apart, at most 32,768 thread
+entries plus 64 reserved self-test markers for the threads sensor. Application entries counted for the current claim
+are separately capped at 32,768. Earlier-claim entries stop counting against that per-claim limit but remain retained to
+keep a task shared across claims ambiguous. If the live entries fill the ordinary total cap, new distinct tasks from
+owned work are not recorded and run unowned, counted as over the limit, until entries run, are released, or are
+reclaimed. The fixed self-test reserve lets hook verification run despite a full application backlog without making
+retention unbounded. A task already pending still has its ambiguity tracked. Snapshots of reclaimed tasks are removed at
+most 64 at a time by a submission, so the application's threads never do unbounded clean-up; a status read removes all
+of them.
 
 New submissions and skip counters are recorded only while the current armed claim asks for `executors` and that
 sensor has not been disabled by its self-test. Pending entries are still drained while recording is off, without
@@ -313,8 +315,9 @@ reopening their snapshots. A handoff already opened before recording stopped is 
 - A new task submitted while the bridge has reached either 32,768-entry limit runs unowned. Live entries from earlier
   claims count toward the total limit until their tasks run, are released, or are reclaimed, so a backlog can leave
   fewer slots for a new claim. A submission of a task object already in the bridge is still tracked and becomes
-  ambiguous across owners or claim generations; a refused task with no entry may be recorded by a later submission
-  once a slot is available.
+  ambiguous across owners or claim generations. A refused submission creates no entry: if the same task object is
+  submitted again by another owner once a slot is available, that later snapshot may be used by the earlier refused
+  run, as after any unowned first submission.
 - A task submitted before a DevTools restart or a Quarkus live reload that ends after it is never reopened, and a task
   from the previous run that is still running when it ends is lost.
 - If the same task object has pending submissions across claim generations, all overlapping submissions stay
