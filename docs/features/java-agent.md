@@ -1072,7 +1072,7 @@ the same starting thread family, target, kind, and code-paths call site (at most
 is its first start's when the code-paths sensor did not stamp it; a start no request owns is counted in that sighting
 and published by the drain thread. The sensor is opt-in until a same-runner A/B of the agent's overhead benchmark on a
 route that starts a thread and creates an executor per request shows its own median increment at most 3 % and the
-cumulative median at most 10 % (the `agent-overhead-thread-activity` job of `build.yml`). The first run measured 11.5 %
+cumulative median at most 10 % (the thread-activity legs of `build.yml`'s `agent-overhead-extra-legs` matrix). The first run measured 11.5 %
 for its own increment and 16.6 % cumulative, on a route that starts a thread and creates an executor on every request,
 so it stays opt-in. Add `thread-activity` to `bootui.agent.sensors` to record it, or switch it on at run time from the
 Java Agent or Side Effects panel, as `files` and `environment` are: it has its own transformer, so switching it
@@ -1153,10 +1153,10 @@ the opening, the sensor reports itself unavailable; a claim never fails.
 table larger than 16,384 slots or with more than 4,096 thread locals set is skipped, counted, at most 16 leftovers a
 scope are reported, and the bridge remembers at most 1,024 thread locals per run, weakly. With the sensor off, a scope
 costs one volatile read; on Spring WebFlux, while the agent is attached, each Reactor task also runs through a small
-wrapper. The sensor is opt-in whatever its overhead: the `agent-overhead-thread-locals` job of
-`build.yml` measures its own increment and the cumulative overhead on the default route: about 0.5 % over the default
-sensors, and 7.0 % cumulative against the 10 % budget, in its first run. Add `thread-locals` to `bootui.agent.sensors` to
-record it, or [switch it on at run time](#switching-sensors-at-run-time).
+wrapper. The sensor is opt-in whatever its overhead: the thread-locals legs of `build.yml`'s
+`agent-overhead-extra-legs` matrix measure its own increment and the cumulative overhead on the default route: about
+0.5 % over the default sensors, and 7.0 % cumulative against the 10 % budget, in its first run. Add `thread-locals` to
+`bootui.agent.sensors` to record it, or [switch it on at run time](#switching-sensors-at-run-time).
 
 Its self-test, on the sensor's own thread, opens a scope, leaves a plain, an inheritable, and a read `withInitial`
 thread local set, removes one, sets one to `null`, and expects exactly the three left set, never one set before the
@@ -1227,11 +1227,11 @@ kind untracked; the sensor fails when no close hook passed. Forked-JVM tests run
 newest verified JDK, alone and beside the OpenTelemetry agent in both orders, with a library pool's socket and the JDK
 `HttpClient`'s pool as counterexamples, never reported reclaimed.
 
-**Cost.** The `agent-overhead-resources` job of `build.yml` measures it on the benchmark's I/O route (one socket
-connected and closed and one file read per request), fifteen same-runner pairs each: its first run measured its own
-median increment at -0.5 % over the default sensors (pairs -12.2 to 12.0 %), 0.3 % beside `files`, and the cumulative
+**Cost.** The resources legs of `build.yml`'s `agent-overhead-extra-legs` matrix measure it on the benchmark's I/O route
+(one socket connected and closed and one file read per request), fifteen same-runner pairs each: its first run measured
+its own median increment at -0.5 % over the default sensors (pairs -12.2 to 12.0 %), 0.3 % beside `files`, and the cumulative
 median at 6.9 % (pairs 2.0 to 18.2 %), within the 3 % and 10 % budgets, so it is on by default (D47, an exception to
-D37's opt-in rule). That job now fails CI when its own increment exceeds 3 %. It still prints the cumulative median,
+D37's opt-in rule). The `agent-overhead` job now fails CI when its own increment exceeds 3 %. It still prints the cumulative median,
 for the record only, with its 95 % interval and what D48's rule would say: that figure is mostly the other default
 sensors' overhead (10.7 % and 11.7 % on noisy runners later), which the `agent-overhead` job gates under D48. It tracks
 sockets through `network` and file streams and channels through `files`, both on by default; the panel says when
@@ -1323,8 +1323,9 @@ itself. Forked-JVM tests redefine an instrumented bean class both ways, through 
 
 ## Overhead
 
-The `agent-overhead` jobs of `build.yml` measure the agent with the sample's executable jar, in pairs whose order
-alternates. Each report gives each pair's throughput ratio, their median, and, since the median of 9 or 15 pairs moves
+The `agent-overhead-legs` and `agent-overhead-extra-legs` jobs of `build.yml`, one measurement each and all at the
+same time, measure the agent with the sample's executable jar, in pairs whose order alternates on one runner; the
+`agent-overhead` job gathers their reports and runs the checks. Each report gives each pair's throughput ratio, their median, and, since the median of 9 or 15 pairs moves
 by several points from run to run on a shared runner, a distribution-free 95 % confidence interval of that median (the
 4th lowest and highest of 15 pairs, the 2nd of 9). The default sensors' cumulative median on the I/O route only warns
 above 10 %. These checks fail a build:
@@ -1454,23 +1455,35 @@ the panel is unavailable with the Java Agent panel's reason and a link to it, an
 `available: false` with that reason. The sidebar keeps it in the **Instrumentation** group, dimmed, with that reason. Its reads change nothing on Spring MVC, Spring WebFlux, and Quarkus; its one action
 is a [method probe](#method-probes), which the panel's read-only policy refuses.
 
-- **Routes**, ranked by their warm median: each route's warm requests, first recorded request, median and 95th
-  percentile, and its top methods by self time. A route marked **assembly only** has a handler that ran on an event
+- **Routes**, a list ranked by warm median, the slowest first, with a bar against the slowest: each route's warm
+  requests, first recorded request, median and 95th percentile, and its top method by self time. A filter above it
+  matches a route's path, its HTTP method, or the methods it spends its time in, and a sort ranks the routes by p95,
+  warm requests, first request, or path instead. A route marked **assembly only** has a handler that ran on an event
   loop, returned a reactive or asynchronous result, or BootUI could not tell where its work ran, so its tree times the
-  handler's assembly, not the work that ran later or elsewhere.
-- **The selected route's tree** as an indented table: method, calls per request, total and self time per request, an
-  approximate median (≈) per request that reached it, and its share of the handler's time in application methods (of the request's own time when no handler phase is known,
-  as on WebFlux), with a share bar. Work an executor ran for the request is marked **async** and shown apart under the
-  method that submitted it, never subtracted from it; a parent's methods past the tree's node budget are one **Other**
-  node.
+  handler's assembly, not the work that ran later or elsewhere. The arrow keys move between routes.
+- **Opening a route** shows its tree right under its row, as Runtime Insights opens an observation, so a long list never
+  stands between a route and its tree; the URL keeps the route (`?route=`), and the selected method (`?method=`), so a
+  link or a reload reopens both. While a route is open, auto-refresh updates its tree in place and keeps the rows in
+  their order, the open and closed branches, and the selected method.
+- **The route's tree** is a tree grid, each method under its caller with indent guides: calls per request, total and
+  self time per request, an approximate median (≈) per request that reached it, and its share of the handler's time in
+  application methods (of the request's own time when no handler phase is known, as on WebFlux), with a share bar. The
+  **hot path**, the call that took the most time at each level from the request down, is marked, and **Collapse to the
+  hot path** folds every other branch. Labels name the class without its package, which the method's detail and a
+  tooltip give in full. The arrow keys move through the tree, Right and Left open and close a branch, and Enter selects
+  a method. On a narrow screen the tree keeps each method's total and share, and its detail gives the rest. Work an
+  executor ran for the request is marked **async** and shown apart under the method that submitted it, never subtracted
+  from it; a parent's methods past the tree's node budget are one **Other** node.
 - **Calls under methods**: under each method, its SQL statements, REST client calls, cache accesses, and AI calls per
   request, with their time: the calls recorded while it was the innermost instrumented method open on their thread. A
   statement Hibernate flushes at commit runs after the `@Transactional` method returned, in the transaction interceptor
   around it, so it shows under the method that called the `@Transactional` one. Calls issued while no instrumented
   method was open, as in a filter or while the response is written, and calls recorded on another thread, as a
   streaming AI call's, show under no method; the limitations count each apart and say why.
-- **Selecting a method** shows its callers within the tree, every route whose tree reaches it, and **Probe this
-  method** ([method probes](#method-probes)).
+- **Selecting a method** opens its detail right under its row: its times, its full name, its callers within the tree,
+  every route whose tree reaches it, and **Probe this method** ([method probes](#method-probes)). A method another
+  panel asks to probe (`?probe=`) opens the route whose top method it is, selected, or else shows in the Method probes
+  card.
 - **Beans at runtime**, a tab beside the routes: the calls between beans observed in this run's route trees, with their
   counts, beside the dependencies the beans declare, as the Beans panel lists them. A filter keeps only the declared
   dependencies **not called in this run**, which is all a run can say: never "unused", since a path no request took or

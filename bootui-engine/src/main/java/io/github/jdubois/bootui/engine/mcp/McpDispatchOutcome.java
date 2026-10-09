@@ -76,8 +76,19 @@ public sealed interface McpDispatchOutcome
     /** The {@code prompts/list} result. */
     record PromptsListResult(List<McpPrompt> prompts) implements McpDispatchOutcome {}
 
-    /** The {@code prompts/get} result. */
-    record PromptGetResult(McpPrompt prompt) implements McpDispatchOutcome {}
+    /**
+     * The {@code prompts/get} result.
+     *
+     * @param prompt the prompt asked for
+     * @param text its text rendered with the client's arguments, which adapters send as the user message
+     */
+    record PromptGetResult(McpPrompt prompt, String text) implements McpDispatchOutcome {
+
+        /** The prompt's text without arguments. */
+        public PromptGetResult(McpPrompt prompt) {
+            this(prompt, prompt.text());
+        }
+    }
 
     /**
      * A successful {@code tools/call}: the adapter serializes {@code payload} to a single text content

@@ -38,6 +38,7 @@ public final class McpToolGuide {
     private static final Map<String, Map<String, Object>> EXAMPLES = Map.ofEntries(
             Map.entry("get_live_activity", args("query", "SQL", "limit", 20)),
             Map.entry("get_sql_traces", args("query", "orders")),
+            Map.entry("get_rest_client_traces", args("query", "503")),
             Map.entry("get_startup_timeline", args("limit", 10)),
             Map.entry("get_log_tail", args("query", "WARN")),
             Map.entry("get_copilot_sessions", args("limit", 5)),
@@ -114,6 +115,10 @@ public final class McpToolGuide {
             Map.entry(
                     "get_sql_traces",
                     "text in the SQL, category, call site, or error, or a request, trace, or execution id"),
+            Map.entry(
+                    "get_rest_client_traces",
+                    "a method, URI, host, path, status, client type, call site, or error, or a request, trace, or"
+                            + " execution id"),
             Map.entry("get_startup_timeline", "a step name or tag value, such as a bean name"),
             Map.entry("get_log_tail", "a level, logger, thread, or text in the message"),
             Map.entry("get_copilot_sessions", "a session id, model, working directory, status, or last activity"),

@@ -76,9 +76,10 @@ read one measurement: `JournalOverheadBenchmarkIT`, a paired A/B on the Spring s
 and no agent in both arms, the journal on (its default) against `bootui.runtime-journal.enabled=false`, on the
 default route (`/api/sample/product-search?term=console`, sixteen concurrent clients, 10 s warm-up and 15 s measured
 per run), in pairs whose order alternates after one discarded run. Its result is the median paired throughput delta
-with its distribution-free 95 % interval, the pairs, and the median p99 latency in each arm. CI's `journal-overhead`
-job in `build.yml` runs it with fifteen pairs on pushes to `v2`, manual runs, and pull requests labelled `agent`, and
-publishes the report to the job summary and the `journal-overhead` artifact; it is report-only and never fails the
+with its distribution-free 95 % interval, the pairs, and the median p99 latency in each arm. CI's runtime journal
+leg of `build.yml`'s `agent-overhead-extra-legs` matrix runs it with fifteen pairs on pushes to `v2`, manual runs, and
+pull requests labelled `agent`, and the `agent-overhead` job publishes the report to its summary and the
+`journal-overhead` artifact; it is report-only and never fails the
 build. `CaptureOverheadBenchmarkTest` compares BootUI on with BootUI off, so it does not measure the journal. To run it
 locally, after installing the reactor (`./mvnw -pl bootui-spring-sample-app -am -DskipTests install`):
 

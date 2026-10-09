@@ -1,8 +1,10 @@
 package io.github.jdubois.bootui.engine.mcp;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Protocol-level constants and canonical messages shared by both adapters' MCP transports.
@@ -217,6 +219,14 @@ public final class McpProtocol {
     public static final String MISSING_JSONRPC_MESSAGE = "Request must include jsonrpc: \"2.0\"";
     /** Returned when a (non-notification) request omits {@code method}. */
     public static final String MISSING_METHOD_MESSAGE = "Missing 'method'";
+    /** Returned when a {@code prompts/get} names an argument the prompt does not declare. */
+    public static String unknownPromptArgumentMessage(String prompt, String argument, Collection<String> declared) {
+        return "Unknown argument for prompt " + prompt + ": " + argument + ". "
+                + (declared.isEmpty()
+                        ? "It takes no arguments."
+                        : "It takes " + String.join(", ", new TreeSet<>(declared)) + ".");
+    }
+
     /** Returned when the transport receives a batch request, which MCP Streamable HTTP forbids. */
     public static final String BATCH_NOT_SUPPORTED_MESSAGE =
             "JSON-RPC batch requests are not supported by MCP Streamable HTTP transport";
@@ -226,6 +236,8 @@ public final class McpProtocol {
     public static final String MISSING_TOOL_NAME_MESSAGE = "Missing tool name";
     /** Returned when a {@code prompts/get} request omits the prompt name. */
     public static final String MISSING_PROMPT_NAME_MESSAGE = "Missing prompt name";
+    /** Returned when {@code prompts/get.params.arguments} is present but is not a JSON object. */
+    public static final String PROMPT_ARGUMENTS_OBJECT_MESSAGE = "Prompt arguments must be an object";
     /** Reported in-band when a {@link McpToolSchema#ID} tool is called without a (non-blank) {@code id}. */
     public static final String MISSING_ID_ARGUMENT_MESSAGE = "Missing required argument: id";
     /** Returned when advisor detail retrieval is not tied to a completed snapshot. */

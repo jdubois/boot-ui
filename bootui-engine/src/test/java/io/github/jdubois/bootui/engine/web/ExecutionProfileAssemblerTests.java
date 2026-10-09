@@ -52,6 +52,9 @@ class ExecutionProfileAssemblerTests {
 
             assertThat(profile.available()).isFalse();
             assertThat(profile.unavailableReason()).isEqualTo("Request missing-1 is no longer in the buffer");
+            assertThat(ExecutionProfileAssembler.notInBuffer(profile, "missing-1"))
+                    .isTrue();
+            assertThat(ExecutionProfileAssembler.notInBuffer(profile, "other")).isFalse();
         }
 
         @Test

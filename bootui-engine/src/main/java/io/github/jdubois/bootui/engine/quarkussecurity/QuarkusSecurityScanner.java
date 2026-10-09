@@ -43,7 +43,11 @@ public final class QuarkusSecurityScanner {
     private final Supplier<QuarkusSecuritySnapshot> snapshotSupplier;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
-    private final AdvisorScanState<SecurityReport> state = new AdvisorScanState<>(SecurityReport::withViolationDetails);
+    /** The synthetic id of an analysisErrors entry when the observation itself failed. */
+    static final String ANALYSIS_RULE_ID = "QS-ANALYSIS";
+
+    private final AdvisorScanState<SecurityReport> state =
+            new AdvisorScanState<>(SecurityReport::withViolationDetails, QuarkusSecurityScanner::ruleCatalog);
 
     private QuarkusSecurityScanner(Supplier<QuarkusSecuritySnapshot> snapshotSupplier, Clock clock) {
         this.snapshotSupplier = snapshotSupplier;
@@ -163,9 +167,16 @@ public final class QuarkusSecurityScanner {
         return report(status, message, scannedAt, policyLabels, raw, List.of());
     }
 
+    /** The rule ids detail reads know: every check, plus the analysis entry {@link #error} lists in analysisErrors. */
+    private static List<String> ruleCatalog() {
+        List<String> catalog = new java.util.ArrayList<>(QuarkusSecurityChecks.ruleIds());
+        catalog.add(ANALYSIS_RULE_ID);
+        return catalog;
+    }
+
     private static SecurityRuleResultDto error(String message) {
         return new SecurityRuleResultDto(
-                "QS-ANALYSIS",
+                ANALYSIS_RULE_ID,
                 "Quarkus security observation failed",
                 "Analysis",
                 "INFO",

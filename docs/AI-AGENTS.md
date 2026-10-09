@@ -370,9 +370,11 @@ through MCP and the CLI:
    `PROPAGATED` unavailable, with the reason, unless the agent's `executors` sensor propagates for the application. It
    follows the same panel policy and masking as the browser. When both are retained, `buffers` also accompanies the
    journal result so its SQL grouping and exception ids remain available. The buffer profile includes a trace whose
-   values follow [Trace value exposure](features/diagnostics.md#trace-value-exposure). An unknown or evicted id returns
-   `source: "none"` and `available: false` with an `unavailableReason` naming both retention windows; that is an answer,
-   not a failure to retry.
+   values follow [Trace value exposure](features/diagnostics.md#trace-value-exposure). An id that neither the runtime
+   journal nor the HTTP-exchange buffer retains is a tool error naming both windows: it was evicted, cleared, or never
+   recorded, so pick a current id rather than retry. `source: "none"` with `available: false` and an
+   `unavailableReason` is kept for what another id cannot fix: the journal is off, the id's panel hides it, or the
+   request carried nothing to correlate. See [Unknown ids and unavailable capabilities](#unknown-ids-and-unavailable-capabilities).
 3. **Follow each exception.** When the `buffers` profile is present, its exceptions carry an `exceptionGroupId`; pass it to
    `get_exception_detail` (`bootui exceptions show <id> --json`) for the stack trace, cause chain, and recent
    occurrences.
@@ -397,9 +399,9 @@ read tools return short, stable facts rather than a dashboard:
 with the `bootui` `command` line, the MCP `tool` and its `arguments`, and `why`. The list names the lead observation's
 evidence (`get_runtime_insight`, call sites included), one request that shows it (`get_request_profile`), the kind a
 `limit` left out, and for an anonymous-access observation the security rules (`get_spring_security`, on Spring) and
-the route's mapping. An unknown or evicted observation id names `get_runtime_insights`, an unknown run id names
-`previous` and the runs still kept, and an `AMBIGUOUS` or `NOT_FOUND` impact names the candidates, `get_beans`, or
-`get_mappings`. Only tools the application advertises are named, so Quarkus is never told to call a Spring-only tool;
+the route's mapping. An `AMBIGUOUS` or `NOT_FOUND` impact names the candidates, `get_beans`, or `get_mappings`. An
+unknown or evicted observation id, and a run id no kept run has, are tool errors instead, whose message names
+`get_runtime_insights` or `previous` and the runs still kept. Only tools the application advertises are named, so Quarkus is never told to call a Spring-only tool;
 a named tool whose panel is disabled is still refused like any other call.
 Calling a tool without its required `id` fails with the message naming where the id comes from, such as `Missing
 required argument: id (an observation id from get_runtime_insights)`. In the panel, the change impact's `next` is
@@ -629,8 +631,11 @@ Always verify each finding against source and effective configuration before edi
 
 These reads never rerun checks, import classes, query the database, or start a scan. A missing or replaced snapshot
 returns a known client failure (REST 409): **reread the cached report, not the scan tool**, then restart paging that
-report's scan ID. An unknown/non-finding rule returns REST 404. MCP exposes these as in-band `isError: true` failures
-with actionable messages, not internal errors. The CLI facade retains its existing tool-error mapping: unknown
+report's scan ID. A rule id outside the advisor's rule catalogue (a typo, a retired rule, or another advisor's rule)
+answers `Unknown advisor rule: ...`. A catalogue rule without a retained finding, whether it passed, was skipped, or
+failed (the report's `results` lists only violating rules, and its `analysisErrors` the failed ones), answers `Advisor rule has no findings
+in the current scan.`; both are REST 404. MCP exposes these as in-band `isError: true` failures whose text
+is that message, with no status code, not internal errors. The CLI facade retains its existing tool-error mapping: unknown
 rules are HTTP 400 (HTTP 404 is reserved for an unadvertised tool), and stale snapshots remain HTTP 409.
 
 MCP still refuses an oversized rendered response with JSON-RPC `-32003`. Retry the **same scan ID and offset**
@@ -713,6 +718,28 @@ property source enumerates under that literal name. Values are matched literally
 name and source its property source published. See the [Configuration panel](features/configuration.md#configuration)
 for the panel-side behavior.
 
+### Unknown ids and unavailable capabilities
+
+Every tool that takes an `id` follows one convention, on Spring MVC, WebFlux, and Quarkus alike:
+
+- **An unknown or expired id the caller supplied is a tool error.** MCP answers `isError: true` with a message naming
+  the id and where current ids come from; the CLI exits `1` with that message. This covers `get_exception_detail`,
+  `get_request_profile`, `get_runtime_insight`, `get_runtime_run_comparison` (a run id no kept run has),
+  `get_method_probe`, and the advisor `get_*_rule_violations` reads (an unknown rule or a stale `scanId`). Retrying the
+  same id cannot help; read the listing tool again.
+- **`available: false` with an `unavailableReason` means the capability is absent**, not that the id is wrong: the
+  panel's data source is off (the runtime journal, Runtime Insights), a dependency is missing, or DevTools LiveReload
+  is not running (`trigger_devtools_livereload`). The tool ran and that is its answer; the CLI exits `0`.
+- `get_runtime_impact` and `start_method_probe` take a code symbol rather than an id BootUI issued. An impact that
+  resolves to nothing answers `status: "NOT_FOUND"` (or `AMBIGUOUS`) with candidates and the calls that resolve it;
+  a probe on a method the agent cannot instrument is refused as an action.
+- A `query` is a search, not an id. A query that matches nothing, on `get_code_paths` or any other searchable tool,
+  answers `matched: 0` (with a limitation naming the call that lists everything, on `get_code_paths`), never a tool
+  error; `get_code_paths` answers `available: false` only when its agent evidence is absent.
+
+A panel that is disabled refuses its tools before they run (CLI exit `2`); a tool this application does not advertise
+answers with why its panel is unavailable.
+
 ### Agent-sized defaults
 
 An agent pays for every byte it reads, so the reads below answer with a short first page when the call gives no
@@ -722,9 +749,10 @@ An agent pays for every byte it reads, so the reads below answer with a short fi
 | Tool (command) | Default | `query` matches |
 | --- | --- | --- |
 | `get_sql_traces` (`bootui sql traces`) | 20 newest statements | SQL text, category, call site, error, request, trace, or execution id |
+| `get_rest_client_traces` (`bootui rest-client traces`) | 20 newest calls | Method, URI, host, path, status, client type, call site, error, request, trace, or execution id |
 | `get_startup_timeline` (`bootui startup`) | 25 slowest steps; a parent includes its children | Step name or tag value, such as a bean name |
 | `get_log_tail` (`bootui logs tail`) | 50 newest lines | Level, logger, thread, or message |
-| `get_copilot_sessions`, `get_claude_code_sessions` | 10 sessions | Id, model, working directory, status, or last activity |
+| `get_copilot_sessions`, `get_claude_code_sessions` | 10 sessions; the first read after startup parses the newest session files and can take seconds on a large session directory | Id, model, working directory, status, or last activity |
 | `get_vulnerabilities_report` (`bootui vulnerabilities report`) | 10 dependencies, vulnerable first, each with at most 5 advisories without details | Coordinates, severity, or an advisory id or alias; an exact `group:artifact` lists all its advisories, an exact advisory id or alias returns it whole |
 | `get_live_activity` (`bootui activity`) | 25 newest entries | An entry type (`SQL`, `EXCEPTION`, ...), a severity (`SLOW`, `WARN`, `ERROR`), or text such as a route |
 | `get_config`, `get_beans`, `get_metrics`, `get_conditions`, `get_threads`, `get_http_exchanges` | 25 rows | As before; `get_conditions` pages positive then negative matches and also narrows `unconditionalClasses` and `exclusions` |
@@ -936,9 +964,13 @@ When you do not know which panel to investigate first, ask your coding agent for
 The BootUI skill — installed [on its own](#install-the-bootui-agent-skill) or through the
 [Claude Code plugin](#install-the-bootui-claude-code-plugin) — teaches this workflow through MCP, the CLI, or the plain
 HTTP command-line endpoint. MCP clients with prompt support can select **`assess_application`** instead. BootUI advertises
-four argument-free prompts: `diagnose_runtime_issue` for a focused runtime failure, `verify_after_change` to run the tests,
+four prompts: `diagnose_runtime_issue` for a focused runtime failure, `verify_after_change` to run the tests,
 compare with the previous run, and stop, `review_application` for a focused
-advisor review, and `assess_application` for a broader assessment and approval-gated plan. Clients without prompt support
+advisor review, and `assess_application` for a broader assessment and approval-gated plan. Each declares optional
+string arguments that focus it: `symptom` and `route` for `diagnose_runtime_issue`, `change` and `route` for
+`verify_after_change`, `focus` for `review_application`, and `goal` for `assess_application`. A supplied value is
+appended to the prompt as context to verify (at most 500 characters each); without arguments the prompt is unchanged,
+and an undeclared or non-string argument is refused with `-32602`. Clients without prompt support
 can use the skill and the request above; there is no `bootui assess` command or new assessment tool.
 
 ### What the assessment does

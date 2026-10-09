@@ -63,8 +63,9 @@ public final class McpToolDescriptions {
                     "get_runtime_insight",
                     "Return one Runtime Insights observation by its id from get_runtime_insights, with every check "
                             + "to verify and at most 20 evidence rows. Drill down with get_request_profile on its "
-                            + "exemplar request. An unknown or evicted id returns available=false with a reason, and next names the call "
-                            + "that lists the current ids."),
+                            + "exemplar request. An unknown or evicted id is a tool error naming get_runtime_insights, "
+                            + "which lists the current ids; available=false with a reason means Runtime Insights is "
+                            + "unavailable."),
             Map.entry(
                     "get_runtime_impact",
                     "For a route, bean, class, method (Class#method, with parameter types for one overload, or a "
@@ -83,8 +84,8 @@ public final class McpToolDescriptions {
                             + "variable names a route, job, or startup uses new or no longer, per sensor COMPARED only when "
                             + "it recorded both runs whole, else NOT_COMPARED with the reason), then at most 8 behavior rows "
                             + "and edges; latency is left out. INSUFFICIENT and NOT_COMPARABLE never "
-                            + "mean no change. Call after tests to verify a change. next names the follow-up calls, or the run ids to use "
-                            + "after an unknown one."),
+                            + "mean no change. Call after tests to verify a change. next names the follow-up calls. A run "
+                            + "id no kept run has is a tool error naming previous and the kept run ids."),
             Map.entry(
                     "get_request_profile",
                     "Open a profileable request or scheduled/message execution id from get_live_activity or a "
@@ -92,7 +93,8 @@ public final class McpToolDescriptions {
                             + "execution label, resources and touched metadata when retained, plus HTTP-exchange "
                             + "details when available; otherwise source=buffers "
                             + "with the HTTP-exchange profile (SQL N+1 groups, exceptionGroupId, and correlation "
-                            + "tiers). Source=none and available=false explain when neither retains the id. Journal "
+                            + "tiers). An id neither retains is a tool error; available=false with source=none means "
+                            + "the journal is off or the id cannot be profiled, and says why. Journal "
                             + "events follow panel visibility and exposure policy; do not infer absent work from a "
                             + "missing event."),
             Map.entry(
@@ -106,7 +108,8 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_exception_detail",
                     "Return stack frames, causes, and occurrences for one exact exception-group id obtained from "
-                            + "get_exceptions, or an EXCEPTION entry's exceptionGroupId in get_live_activity."),
+                            + "get_exceptions, or an EXCEPTION entry's exceptionGroupId in get_live_activity. An "
+                            + "unknown or cleared id is a tool error."),
             Map.entry(
                     "get_security_logs",
                     "Return a bounded, newest-first snapshot of authentication and authorization audit events. "
@@ -358,7 +361,8 @@ public final class McpToolDescriptions {
                             + "never became active, failed, or ended before the code finished is inconclusive. An "
                             + "active "
                             + "probe waitingForClass has not seen its class load in this run yet, and an async method's "
-                            + "durations time the assembly of its result only."),
+                            + "durations time the assembly of its result only. An unknown or expired probe id is a "
+                            + "tool error."),
             Map.entry(
                     "get_side_effects",
                     "Return Side Effects: what the application does outside the JVM, from the BootUI agent's "
@@ -437,7 +441,9 @@ public final class McpToolDescriptions {
                             + "retention object reports capacity and retained, reserved, and evicted counts: failed, "
                             + "error, and slow calls are kept longer, so the window is not complete. totalCaptured counts the calls "
                             + "recorded since startup, which clear_rest_client_traces does not reset; stats and "
-                            + "entries cover the retained window only."),
+                            + "entries cover the retained window only. At most limit (20) newest entries matching "
+                            + "query (method, URI, host, path, status, client type, error, call site, or request, "
+                            + "trace, or execution id); page.hasMore means narrow the query or raise limit."),
             Map.entry(
                     "get_ai_overview",
                     "Return the local AI-framework telemetry overview derived from already-captured OTLP spans. This "
@@ -484,16 +490,20 @@ public final class McpToolDescriptions {
                             + "never calls GitHub; only the panel's explicit refresh action can use the network."),
             Map.entry(
                     "get_copilot_sessions",
-                    "Return the bounded, sanitized Copilot CLI session inventory already parsed from local session files. "
+                    "Return the bounded, sanitized Copilot CLI session inventory parsed from local session files. "
                             + "Raw prompts, tool arguments, command output, diffs, and network calls are excluded. At "
                             + "most limit (10) sessions matching query (id, model, working directory, status, or last "
-                            + "activity)."),
+                            + "activity). The first read after startup parses the newest session files "
+                            + "(bootui.copilot.max-parsed-sessions) and can take seconds on a large session directory; "
+                            + "later reads answer from the cache a directory watcher keeps current."),
             Map.entry(
                     "get_claude_code_sessions",
-                    "Return the bounded, sanitized Claude Code session inventory already parsed from local session files. "
+                    "Return the bounded, sanitized Claude Code session inventory parsed from local session files. "
                             + "Raw prompts, tool arguments, command output, diffs, and network calls are excluded. At "
                             + "most limit (10) sessions matching query (id, model, working directory, status, or last "
-                            + "activity)."),
+                            + "activity). The first read after startup parses the newest session files "
+                            + "(bootui.claude-code.max-parsed-sessions) and can take seconds on a large session directory; "
+                            + "later reads answer from the cache a directory watcher keeps current."),
             Map.entry(
                     "clear_sql_traces",
                     "Clear the bounded in-memory SQL trace buffer. This does not execute SQL or change whether trace "
@@ -527,8 +537,11 @@ public final class McpToolDescriptions {
                             + "change application exceptions."),
             Map.entry(
                     "analyze_heap_dump",
-                    "Analyze the existing BootUI heap dump and return the resulting report. This never captures, downloads, "
-                            + "or deletes a heap dump."));
+                    "Analyze the live JVM heap with a value-free class histogram (HotSpot GC.class_histogram, which "
+                            + "requests a garbage collection) and return the Heap Dump report: top classes by instance count and "
+                            + "shallow size, never object values. It reads the running heap, not a dump file, so it "
+                            + "works with no captured dump (dumpCount 0) and reports capture.status ANALYZED. It never "
+                            + "writes, captures, downloads, or deletes a heap dump."));
 
     /** How the shared tools of the platform-aware {@code spring} panel behave on Quarkus. */
     private static final String QUARKUS_APPLICATION_ADVISOR =
@@ -621,7 +634,9 @@ public final class McpToolDescriptions {
                 "Resume Spring transaction-boundary recording. This only affects BootUI's bounded local capture.";
             case "trigger_devtools_livereload" ->
                 "Trigger the existing local Spring Boot DevTools LiveReload notification and return its action result. "
-                        + "This does not restart the application or modify watched files.";
+                        + "This does not restart the application or modify watched files. available=false with "
+                        + "unavailableReason means LiveReload is not running here; status no_clients means the "
+                        + "command was sent but no browser is connected.";
             default -> common(name);
         };
     }
@@ -671,8 +686,10 @@ public final class McpToolDescriptions {
                     + "This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). "
                     + "Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, "
                     + "not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding "
-                    + "before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the "
-                    + "cached report, not a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset "
+                    + "before changing code. A refusal is a tool error whose text says why: an unknown rule (not a rule "
+                    + "of this advisor), a rule with no findings in that scan (it passed, was skipped, or failed), or a stale or missing scanId, "
+                    + "for which reread the cached report rather than start a new scan. On MCP -32003 byte-budget "
+                    + "refusal, retry the same scanId and offset "
                     + "with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list "
                     + "aligns index-for-index with violations (a null entry has no location); an empty list means no "
                     + "violation on the page has one.";

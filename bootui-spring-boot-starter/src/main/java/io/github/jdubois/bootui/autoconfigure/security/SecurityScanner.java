@@ -94,8 +94,11 @@ final class SecurityScanner {
     private final Supplier<SecurityDiscovery> discoverySupplier;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
-    private final AdvisorScanState<SecurityReport> scanState =
-            new AdvisorScanState<>(SecurityReport::withViolationDetails);
+    private final AdvisorScanState<SecurityReport> scanState = new AdvisorScanState<>(
+            SecurityReport::withViolationDetails,
+            () -> AdvisorScanState.ruleIds(
+                    SecurityRuleRegistry.activeRules(),
+                    rule -> rule.definition().id()));
 
     SecurityScanner(
             ObjectProvider<FilterChainProxy> filterChainProxies,
