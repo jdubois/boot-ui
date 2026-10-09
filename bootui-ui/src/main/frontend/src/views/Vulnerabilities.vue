@@ -483,7 +483,7 @@ onMounted(loadDependencies)
         code and are not counted as unscanned dependencies.
         <button
           v-if="firstPartyArchives.length"
-          class="btn btn-sm btn-link p-0 ms-1 align-baseline"
+          class="btn btn-sm btn-outline-secondary ms-1 align-baseline"
           type="button"
           :aria-expanded="showFirstPartyArchives"
           @click="showFirstPartyArchives = !showFirstPartyArchives"
@@ -656,6 +656,7 @@ onMounted(loadDependencies)
                         <a
                           v-if="vulnerability.references.length"
                           :href="vulnerability.references[0]"
+                          class="btn btn-outline-secondary btn-sm"
                           rel="noreferrer"
                           target="_blank"
                         >
@@ -705,7 +706,14 @@ onMounted(loadDependencies)
                       <div v-if="vulnerability.aliases.length" class="small text-muted">
                         <template v-for="item in aliasItems(vulnerability)" :key="item.alias">
                           <span v-if="item.showSeparator">, </span>
-                          <a v-if="item.href" :href="item.href" rel="noreferrer" target="_blank">{{ item.alias }}</a>
+                          <a
+                            v-if="item.href"
+                            :href="item.href"
+                            class="btn btn-outline-secondary btn-sm"
+                            rel="noreferrer"
+                            target="_blank"
+                            >{{ item.alias }}</a
+                          >
                           <span v-else>{{ item.alias }}</span>
                         </template>
                       </div>

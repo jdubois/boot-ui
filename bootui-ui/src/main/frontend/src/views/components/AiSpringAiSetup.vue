@@ -77,7 +77,12 @@ spring.ai.chat.observations.log-completion=true`
       </ol>
 
       <div class="mt-3 small">
-        <a href="https://docs.spring.io/spring-ai/reference/observability/index.html" rel="noopener" target="_blank">
+        <a
+          href="https://docs.spring.io/spring-ai/reference/observability/index.html"
+          class="btn btn-outline-secondary btn-sm"
+          rel="noopener"
+          target="_blank"
+        >
           Spring AI observability reference <i class="bi bi-box-arrow-up-right"></i>
         </a>
       </div>

@@ -425,7 +425,7 @@ function clearTrace() {
                   <tr class="rest-row" data-keyboard-delegate="toggleRow(entry)" @click="toggleRow(entry)">
                     <td class="text-muted">
                       <button
-                        class="btn btn-sm btn-link p-0 bootui-keyboard-target rest-row-toggle"
+                        class="btn btn-sm btn-outline-secondary bootui-keyboard-target rest-row-toggle"
                         type="button"
                         :aria-controls="`rest-details-${entry.id}`"
                         :aria-expanded="isExpanded(entry)"

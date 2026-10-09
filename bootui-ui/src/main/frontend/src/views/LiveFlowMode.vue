@@ -710,7 +710,11 @@ watch(selectedId, async (id) => {
             <span class="flow-recent__time">{{ formatClockTime(interaction.timestamp) }}</span>
           </li>
         </ul>
-        <router-link v-if="selected.sourceRoute" class="flow-detail__link" :to="{path: selected.sourceRoute}">
+        <router-link
+          v-if="selected.sourceRoute"
+          class="btn btn-outline-secondary btn-sm flow-detail__link"
+          :to="{path: selected.sourceRoute}"
+        >
           Open {{ selected.sourceLabel }}<i class="bi bi-box-arrow-up-right ms-1" aria-hidden="true"></i>
         </router-link>
       </div>

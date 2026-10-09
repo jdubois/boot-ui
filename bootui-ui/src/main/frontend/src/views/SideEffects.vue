@@ -481,7 +481,9 @@ function hookStatus(value, label) {
     <UnavailableState v-if="!manifestAvailable" icon="bi-box-arrow-up-right">
       {{ manifestUnavailableReason }}
       <div class="mt-2">
-        <router-link to="/java-agent" class="side-effects-agent-link">Open the Java Agent panel</router-link>
+        <router-link to="/java-agent" class="btn btn-outline-secondary btn-sm side-effects-agent-link"
+          >Open the Java Agent panel</router-link
+        >
         to attach the BootUI agent.
       </div>
     </UnavailableState>
@@ -492,7 +494,9 @@ function hookStatus(value, label) {
       <UnavailableState icon="bi-box-arrow-up-right" class="side-effects-unavailable">
         {{ summary.unavailableReason }}
         <div class="mt-2">
-          <router-link to="/java-agent" class="side-effects-agent-link">Open the Java Agent panel</router-link>
+          <router-link to="/java-agent" class="btn btn-outline-secondary btn-sm side-effects-agent-link"
+            >Open the Java Agent panel</router-link
+          >
           to attach the BootUI agent.
         </div>
       </UnavailableState>
@@ -727,9 +731,12 @@ function hookStatus(value, label) {
                                   captureOf(row).label
                                 }}</span>
                                 <div v-if="capturingPanel(row)" class="small mt-1">
-                                  <router-link v-if="capturingPanel(row).path" :to="capturingPanel(row).path">{{
-                                    capturingPanel(row).label
-                                  }}</router-link>
+                                  <router-link
+                                    v-if="capturingPanel(row).path"
+                                    :to="capturingPanel(row).path"
+                                    class="btn btn-outline-secondary btn-sm"
+                                    >{{ capturingPanel(row).label }}</router-link
+                                  >
                                   <span v-else>{{ capturingPanel(row).label }}</span>
                                 </div>
                               </template>
@@ -813,7 +820,10 @@ function hookStatus(value, label) {
                           <td>
                             <template v-if="row.exemplarRequestIds?.length">
                               <template v-for="(id, index) in row.exemplarRequestIds" :key="id">
-                                <router-link :to="{path: '/activity', query: {request: id}}">
+                                <router-link
+                                  :to="{path: '/activity', query: {request: id}}"
+                                  class="btn btn-outline-secondary btn-sm"
+                                >
                                   <code>{{ id }}</code> </router-link
                                 ><template v-if="Number(index) < row.exemplarRequestIds.length - 1">, </template>
                               </template>

@@ -846,7 +846,12 @@ function toggleFlow() {
               label="Use the existing datasource"
               @click="useExistingDatasource"
             />
-            <a :href="PERSISTENCE_DOCS_URL" class="small" rel="noopener noreferrer" target="_blank">
+            <a
+              :href="PERSISTENCE_DOCS_URL"
+              class="btn btn-outline-secondary btn-sm"
+              rel="noopener noreferrer"
+              target="_blank"
+            >
               View setup documentation <i class="bi bi-box-arrow-up-right"></i>
             </a>
           </div>
@@ -857,7 +862,12 @@ function toggleFlow() {
             <code>bootui.activity.persistence.enabled=true</code> (or add a dedicated JDBC URL) to store Live Activity
             durably.
           </p>
-          <a :href="PERSISTENCE_DOCS_URL" class="small" rel="noopener noreferrer" target="_blank">
+          <a
+            :href="PERSISTENCE_DOCS_URL"
+            class="btn btn-outline-secondary btn-sm"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
             View setup documentation <i class="bi bi-box-arrow-up-right"></i>
           </a>
         </template>
@@ -1034,7 +1044,7 @@ function toggleFlow() {
         </div>
       </div>
       <p v-if="available && whySlowLink" class="small mb-3 activity-why-slow">
-        <router-link :to="whySlowLink">
+        <router-link :to="whySlowLink" class="btn btn-outline-secondary btn-sm">
           Why is <code>{{ kpis.slowestEndpointRouteId }}</code> slow? Open its time breakdown in Runtime Insights
         </router-link>
       </p>
@@ -1242,7 +1252,7 @@ function toggleFlow() {
                   <td class="activity-summary-cell">
                     <button
                       v-if="hasChildren(entry)"
-                      class="btn btn-link btn-sm p-0 me-2 align-baseline activity-disclosure"
+                      class="btn btn-outline-secondary btn-sm me-2 align-baseline activity-disclosure"
                       type="button"
                       :aria-expanded="!isCollapsed(entry.id)"
                       :title="isCollapsed(entry.id) ? 'Expand correlated signals' : 'Collapse correlated signals'"
@@ -1786,17 +1796,6 @@ function toggleFlow() {
   overflow-wrap: anywhere;
   word-break: break-word;
   white-space: normal;
-}
-
-.activity-disclosure {
-  color: var(--bs-secondary-color);
-  text-decoration: none;
-  line-height: 1;
-}
-
-.activity-disclosure:hover,
-.activity-disclosure:focus-visible {
-  color: var(--bs-primary);
 }
 
 .activity-child-row > td {

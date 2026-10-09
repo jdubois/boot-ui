@@ -94,7 +94,11 @@ const agentSetupAvailable = computed(() => {
             Tip: Use the Java agent's code-paths sensor for method-level timing and deeper route insights.
           </p>
           <p class="text-muted mb-0">Code Paths unavailable: {{ codePathsUnavailableReason }}</p>
-          <router-link v-if="agentTip && agentSetupAvailable" to="/java-agent" class="d-inline-block mt-1">
+          <router-link
+            v-if="agentTip && agentSetupAvailable"
+            to="/java-agent"
+            class="btn btn-outline-secondary btn-sm mt-1"
+          >
             Set up the Java agent
           </router-link>
         </template>
@@ -120,7 +124,7 @@ const agentSetupAvailable = computed(() => {
     <h3 class="h6">Open a request</h3>
     <ul class="list-inline small mb-3">
       <li v-for="requestId in ctx.selected.exemplarRequestIds" :key="requestId" class="list-inline-item">
-        <router-link :to="{path: '/activity', query: {request: requestId}}">
+        <router-link :to="{path: '/activity', query: {request: requestId}}" class="btn btn-outline-secondary btn-sm">
           <code>{{ requestId }}</code>
         </router-link>
       </li>

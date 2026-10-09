@@ -1324,14 +1324,6 @@ function onGlobalKeydown(e) {
   --bs-alert-color: #93c5fd;
 }
 
-:global(:root[data-bootui-theme='dark'] .btn-outline-secondary) {
-  --bs-btn-color: var(--bootui-text-muted);
-  --bs-btn-border-color: var(--bootui-border-alt);
-  --bs-btn-hover-bg: rgba(226, 232, 240, 0.08);
-  --bs-btn-hover-color: var(--bootui-text);
-  --bs-btn-active-bg: rgba(226, 232, 240, 0.15);
-}
-
 :global(:root[data-bootui-theme='dark'] .badge.bg-light) {
   background-color: rgba(226, 232, 240, 0.12) !important;
   color: var(--bootui-text-muted) !important;
@@ -1434,6 +1426,7 @@ function onGlobalKeydown(e) {
 .nav-hamburger:focus-visible,
 .cp-trigger:focus-visible,
 .theme-toggle:focus-visible,
+:global(.btn:focus-visible),
 :global(.bootui-keyboard-target:focus-visible) {
   outline: 2px solid var(--bootui-blue);
   outline-offset: 2px;
@@ -1479,6 +1472,28 @@ function onGlobalKeydown(e) {
 
 :global(.btn) {
   font-weight: 600;
+}
+
+:global(a.btn) {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+:global(.btn code) {
+  color: inherit;
+}
+
+:global(.btn-outline-secondary) {
+  --bs-btn-color: var(--bootui-text-muted);
+  --bs-btn-border-color: var(--bootui-border-alt);
+  --bs-btn-hover-bg: var(--bootui-nav-hover-bg);
+  --bs-btn-hover-border-color: var(--bootui-border-alt);
+  --bs-btn-hover-color: var(--bootui-text);
+  --bs-btn-active-bg: var(--bootui-nav-hover-bg);
+  --bs-btn-active-border-color: var(--bootui-border-alt);
+  --bs-btn-active-color: var(--bootui-text);
+  --bs-btn-disabled-color: var(--bootui-text-subtle);
+  --bs-btn-disabled-border-color: var(--bootui-border-alt);
 }
 
 :global(.form-control),

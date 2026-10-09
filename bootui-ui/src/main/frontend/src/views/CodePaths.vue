@@ -369,7 +369,9 @@ const beanEdges = computed(() => {
     <UnavailableState v-if="!manifestAvailable" icon="bi-hourglass-split">
       {{ manifestUnavailableReason }}
       <div class="mt-2">
-        <router-link to="/java-agent" class="code-paths-agent-link">Open the Java Agent panel</router-link>
+        <router-link to="/java-agent" class="btn btn-outline-secondary btn-sm code-paths-agent-link"
+          >Open the Java Agent panel</router-link
+        >
         to attach the BootUI agent.
       </div>
     </UnavailableState>
@@ -380,7 +382,9 @@ const beanEdges = computed(() => {
       <UnavailableState icon="bi-hourglass-split" class="code-paths-unavailable">
         {{ summary.unavailableReason }}
         <div v-if="!httpExchangesDisabled" class="mt-2">
-          <router-link to="/java-agent" class="code-paths-agent-link">Open the Java Agent panel</router-link>
+          <router-link to="/java-agent" class="btn btn-outline-secondary btn-sm code-paths-agent-link"
+            >Open the Java Agent panel</router-link
+          >
           to attach the BootUI agent.
         </div>
       </UnavailableState>
@@ -451,7 +455,7 @@ const beanEdges = computed(() => {
 
           <p v-if="!visibleRoutes.length" class="small text-muted code-paths-route-none">
             No route matches “{{ search.trim() }}”.
-            <button class="btn btn-link btn-sm p-0 align-baseline" type="button" @click="search = ''">
+            <button class="btn btn-outline-secondary btn-sm align-baseline" type="button" @click="search = ''">
               Clear the filter
             </button>
           </p>
@@ -573,7 +577,9 @@ const beanEdges = computed(() => {
                   <p v-if="tree.exemplarRequestIds?.length" class="small mt-3 mb-0 code-paths-exemplars">
                     Slowest and failed requests kept:
                     <template v-for="(id, position) in tree.exemplarRequestIds" :key="id">
-                      <router-link :to="{path: '/activity', query: {request: id}}"
+                      <router-link
+                        :to="{path: '/activity', query: {request: id}}"
+                        class="btn btn-outline-secondary btn-sm"
                         ><code>{{ id }}</code></router-link
                       ><template v-if="Number(position) < tree.exemplarRequestIds.length - 1">, </template>
                     </template>

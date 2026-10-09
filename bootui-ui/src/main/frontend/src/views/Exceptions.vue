@@ -364,6 +364,7 @@ onMounted(() => {
                         <i class="bi bi-shield-check me-1"></i>Handled by
                         <router-link
                           :to="{path: '/rest-api', query: {errorContract: g.errorContract.component}}"
+                          class="btn btn-outline-secondary btn-sm"
                           :title="`Open the declared error contract for ${g.errorContract.component}`"
                         >
                           <code

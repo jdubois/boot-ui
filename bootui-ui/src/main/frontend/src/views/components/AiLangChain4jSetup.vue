@@ -110,7 +110,12 @@ const quarkusOpenTelemetry = `<dependency>
       </ol>
 
       <div class="mt-3 small">
-        <a href="https://docs.quarkiverse.io/quarkus-langchain4j/dev/" rel="noopener" target="_blank">
+        <a
+          href="https://docs.quarkiverse.io/quarkus-langchain4j/dev/"
+          class="btn btn-outline-secondary btn-sm"
+          rel="noopener"
+          target="_blank"
+        >
           Quarkus LangChain4j guide <i class="bi bi-box-arrow-up-right"></i>
         </a>
       </div>
@@ -191,7 +196,12 @@ const quarkusOpenTelemetry = `<dependency>
       </ol>
 
       <div class="mt-3 small">
-        <a href="https://docs.langchain4j.dev/tutorials/observability" rel="noopener" target="_blank">
+        <a
+          href="https://docs.langchain4j.dev/tutorials/observability"
+          class="btn btn-outline-secondary btn-sm"
+          rel="noopener"
+          target="_blank"
+        >
           LangChain4j observability tutorial <i class="bi bi-box-arrow-up-right"></i>
         </a>
       </div>

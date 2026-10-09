@@ -408,7 +408,7 @@ provide(
                 <button
                   v-if="compared"
                   type="button"
-                  class="btn btn-link btn-sm p-0 align-baseline insight-comparison-link"
+                  class="btn btn-outline-secondary btn-sm align-baseline insight-comparison-link"
                   @click="showTab('changes', 'insight-comparison')"
                 >
                   {{ comparisonText }}
@@ -419,7 +419,11 @@ provide(
             <p v-if="report.limitations?.length" class="small text-muted mb-0 mt-2 insight-verdict-limits">
               {{ formatNumber(report.limitations.length) }}
               {{ report.limitations.length === 1 ? 'limit' : 'limits' }} on what this run can show:
-              <button type="button" class="btn btn-link btn-sm p-0 align-baseline" @click="showTab('coverage')">
+              <button
+                type="button"
+                class="btn btn-outline-secondary btn-sm align-baseline"
+                @click="showTab('coverage')"
+              >
                 see Coverage &amp; limits
               </button>
             </p>
@@ -467,7 +471,7 @@ provide(
             Some checks show their findings in other panels:
             <template v-for="(panel, index) in ELSEWHERE" :key="panel.path"
               >{{ index === 0 ? '' : index === ELSEWHERE.length - 1 ? ', and ' : ', '
-              }}<router-link :to="panel.path">{{ panel.title }}</router-link
+              }}<router-link :to="panel.path" class="btn btn-outline-secondary btn-sm">{{ panel.title }}</router-link
               ><template v-if="panel.detail"> ({{ panel.detail }})</template></template
             >.
           </p>
@@ -512,7 +516,7 @@ provide(
             <p v-if="rows.length === 0" class="text-muted small mb-3 insight-none-listed">
               <template v-if="unlisted.total > 0">
                 Nothing is listed by default here. {{ formatNumber(unlisted.total) }} not listed: {{ unlistedText }}.
-                <button type="button" class="btn btn-link btn-sm p-0 align-baseline" @click="showAll = true">
+                <button type="button" class="btn btn-outline-secondary btn-sm align-baseline" @click="showAll = true">
                   Show all routes
                 </button>
               </template>
@@ -563,7 +567,7 @@ provide(
 
             <p v-if="rows.length > 0 && unlisted.total > 0" class="small text-muted mt-2 mb-0 insight-unlisted">
               {{ formatNumber(unlisted.total) }} more not listed by default: {{ unlistedText }}.
-              <button type="button" class="btn btn-link btn-sm p-0 align-baseline" @click="showAll = true">
+              <button type="button" class="btn btn-outline-secondary btn-sm align-baseline" @click="showAll = true">
                 Show all routes
               </button>
             </p>

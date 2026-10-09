@@ -68,6 +68,10 @@ describe('RequestCodePath', () => {
       path: '/code-paths',
       query: {route: 'GET /api/orders/{id}'}
     })
+    for (const link of section.findAll('a')) {
+      expect(link.classes()).toEqual(expect.arrayContaining(['btn', 'btn-outline-secondary', 'btn-sm']))
+      expect(link.attributes('role')).toBeUndefined()
+    }
     expect(section.text()).toContain('recording starts only if you choose Profile resources')
     expect(fetchMock.mock.calls[0][1]?.method ?? 'GET').toBe('GET')
     expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)

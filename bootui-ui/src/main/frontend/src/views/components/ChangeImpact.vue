@@ -287,7 +287,7 @@ const methodStatus = computed(() => methodStatusText(impact.value?.methodStatus)
               <li v-for="list in lists" :key="list.id" class="list-inline-item">
                 <button
                   type="button"
-                  class="btn btn-link btn-sm p-0 align-baseline insight-impact-summary-link"
+                  class="btn btn-outline-secondary btn-sm align-baseline insight-impact-summary-link"
                   @click="showList(list.id)"
                 >
                   {{ formatNumber(list.total) }} {{ list.total === 1 ? 'route' : 'routes' }} · {{ list.title }}
@@ -310,7 +310,7 @@ const methodStatus = computed(() => methodStatusText(impact.value?.methodStatus)
                 Only routes that reach what you checked; for the app-wide list of routes no request reached,
                 <button
                   type="button"
-                  class="btn btn-link btn-sm p-0 align-baseline insight-impact-coverage-link"
+                  class="btn btn-outline-secondary btn-sm align-baseline insight-impact-coverage-link"
                   @click="emit('show-coverage')"
                 >
                   see Coverage &amp; limits
@@ -334,7 +334,10 @@ const methodStatus = computed(() => methodStatusText(impact.value?.methodStatus)
                   </p>
                   <ul v-if="route.exemplarRequestIds.length" class="list-inline small mb-0 mt-1">
                     <li v-for="requestId in route.exemplarRequestIds" :key="requestId" class="list-inline-item">
-                      <router-link :to="{path: '/activity', query: {request: requestId}}">
+                      <router-link
+                        :to="{path: '/activity', query: {request: requestId}}"
+                        class="btn btn-outline-secondary btn-sm"
+                      >
                         <code>{{ requestId }}</code>
                       </router-link>
                     </li>

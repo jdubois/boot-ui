@@ -299,7 +299,9 @@ function moreRows(report) {
     <UnavailableState v-if="!manifestAvailable" icon="bi-list-check">
       {{ manifestUnavailableReason }}
       <div class="mt-2">
-        <router-link to="/java-agent" class="code-inventory-agent-link">Open the Java Agent panel</router-link>
+        <router-link to="/java-agent" class="btn btn-outline-secondary btn-sm code-inventory-agent-link"
+          >Open the Java Agent panel</router-link
+        >
         to attach the BootUI agent.
       </div>
     </UnavailableState>
@@ -310,7 +312,9 @@ function moreRows(report) {
       <UnavailableState icon="bi-list-check" class="code-inventory-unavailable">
         {{ summary.unavailableReason }}
         <div class="mt-2">
-          <router-link to="/java-agent" class="code-inventory-agent-link">Open the Java Agent panel</router-link>
+          <router-link to="/java-agent" class="btn btn-outline-secondary btn-sm code-inventory-agent-link"
+            >Open the Java Agent panel</router-link
+          >
           to attach the BootUI agent.
         </div>
       </UnavailableState>
@@ -441,7 +445,7 @@ function moreRows(report) {
                       <router-link
                         v-if="probeable(method)"
                         :to="{path: '/code-paths', query: {probe: method.key}}"
-                        class="small d-inline-block code-inventory-probe"
+                        class="btn btn-outline-secondary btn-sm code-inventory-probe"
                         :title="`Probe ${method.key} in Code Paths`"
                         >Probe in Code Paths</router-link
                       >
@@ -450,6 +454,7 @@ function moreRows(report) {
                       <router-link
                         v-if="method.firstRequestId"
                         :to="{path: '/activity', query: {request: method.firstRequestId}}"
+                        class="btn btn-outline-secondary btn-sm"
                       >
                         <code>{{ method.firstRoute || method.firstRequestId }}</code>
                       </router-link>
@@ -505,7 +510,7 @@ function moreRows(report) {
                     <td>
                       <button
                         :aria-expanded="selectedPackage === row.name"
-                        class="btn btn-link p-0 text-start code-inventory-package"
+                        class="btn btn-outline-secondary btn-sm text-start code-inventory-package"
                         type="button"
                         @click="togglePackage(row.name)"
                       >
@@ -549,7 +554,7 @@ function moreRows(report) {
                               <router-link
                                 v-if="method.firstRequestId"
                                 :to="{path: '/activity', query: {request: method.firstRequestId}}"
-                                class="ms-2"
+                                class="btn btn-outline-secondary btn-sm ms-2"
                               >
                                 {{ method.firstRoute || method.firstRequestId }}
                               </router-link>
@@ -623,6 +628,7 @@ function moreRows(report) {
                     <router-link
                       v-if="row.firstRequestId"
                       :to="{path: '/activity', query: {request: row.firstRequestId}}"
+                      class="btn btn-outline-secondary btn-sm"
                     >
                       <code>{{ row.firstRoute || row.firstRequestId }}</code>
                     </router-link>
@@ -653,16 +659,6 @@ function moreRows(report) {
 
 .code-inventory-classes {
   background: var(--bs-tertiary-bg);
-}
-
-.code-inventory-package {
-  color: inherit;
-  text-decoration: none;
-}
-
-.code-inventory-package:hover code,
-.code-inventory-package:focus-visible code {
-  text-decoration: underline;
 }
 
 .code-inventory-limitations summary {

@@ -518,7 +518,7 @@ function clearTrace() {
                   <td class="text-end">{{ group.shareOfRetainedTimePercent.toFixed(1) }}%</td>
                   <td class="text-end">
                     <button
-                      class="btn btn-sm sql-executions-link bootui-keyboard-target text-nowrap"
+                      class="btn btn-outline-secondary btn-sm sql-executions-link bootui-keyboard-target text-nowrap"
                       type="button"
                       :aria-label="`Show retained executions of ${group.sql}`"
                       @click="showExecutions(group.entryIds, group.sql, group.entryIdsTruncated)"
@@ -630,7 +630,7 @@ function clearTrace() {
                     <tr>
                       <td>
                         <button
-                          class="btn btn-sm btn-link p-0"
+                          class="btn btn-sm btn-outline-secondary"
                           type="button"
                           :aria-controls="`sql-route-${routeGroup.id}`"
                           :aria-expanded="isRouteExpanded(routeGroup)"
@@ -680,7 +680,7 @@ function clearTrace() {
                       <td class="text-end">{{ routeGroup.shareOfRetainedTimePercent.toFixed(1) }}%</td>
                       <td class="text-end">
                         <button
-                          class="btn btn-sm sql-executions-link bootui-keyboard-target text-nowrap"
+                          class="btn btn-outline-secondary btn-sm sql-executions-link bootui-keyboard-target text-nowrap"
                           type="button"
                           :aria-label="`Show retained executions for ${routeGroup.method} ${routeGroup.route}`"
                           @click="showExecutions(routeGroup.entryIds, `${routeGroup.method} ${routeGroup.route}`)"
@@ -846,7 +846,7 @@ function clearTrace() {
                   <tr class="sql-row" data-keyboard-delegate="toggleRow(entry)" @click="toggleRow(entry)">
                     <td class="text-muted">
                       <button
-                        class="btn btn-sm btn-link p-0 bootui-keyboard-target sql-row-toggle"
+                        class="btn btn-sm btn-outline-secondary bootui-keyboard-target sql-row-toggle"
                         type="button"
                         :aria-controls="`sql-details-${entry.id}`"
                         :aria-expanded="isExpanded(entry)"
@@ -970,23 +970,8 @@ function clearTrace() {
 
 .sql-executions-link {
   align-items: center;
-  background: color-mix(in srgb, var(--bootui-blue) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--bootui-blue) 24%, transparent);
-  border-radius: var(--bootui-radius-pill);
-  color: var(--bootui-blue);
   display: inline-flex;
-  font-weight: 600;
   gap: 0.3rem;
-  line-height: 1;
-  min-height: 2rem;
-  padding: 0.35rem 0.65rem;
-  text-decoration: none;
-}
-
-.sql-executions-link:hover {
-  background: color-mix(in srgb, var(--bootui-blue) 14%, transparent);
-  border-color: color-mix(in srgb, var(--bootui-blue) 40%, transparent);
-  color: var(--bootui-blue);
 }
 
 .sql-row {

@@ -139,7 +139,7 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
               <button
                 v-if="row.checkable"
                 type="button"
-                class="btn btn-link btn-sm p-0 insight-comparison-impact"
+                class="btn btn-outline-secondary btn-sm insight-comparison-impact"
                 :aria-label="`See its impact: ${row.name}`"
                 @click="emit('impact', {symbol: row.key, name: row.name})"
               >

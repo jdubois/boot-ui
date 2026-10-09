@@ -439,7 +439,7 @@ defineExpose({focusRow})
                     </div>
                     <button
                       aria-label="Close the method detail"
-                      class="btn btn-sm btn-link text-muted code-paths-method-close"
+                      class="btn btn-sm btn-outline-secondary code-paths-method-close"
                       type="button"
                       @click="closeDetail"
                     >
@@ -487,7 +487,7 @@ defineExpose({focusRow})
                         <li v-for="name in selectedDetail.routes" :key="name">
                           <button
                             v-if="name !== tree.route"
-                            class="btn btn-link btn-sm p-0 text-start"
+                            class="btn btn-outline-secondary btn-sm text-start"
                             type="button"
                             @click="emit('select-route', name)"
                           >

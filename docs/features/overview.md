@@ -3,6 +3,11 @@
 The top of the sidebar, shown without a group header, holds the three panels you start from: the **Scorecard** for what
 to fix, and **Live Activity** and **Runtime Insights** for what the application is doing now.
 
+Across the console, standalone navigation and secondary actions use compact, theme-aware buttons, including setup,
+advisor references, request details, filters, and disclosures. Navigation remains a link: it keeps its destination and
+supports opening in another tab. Inline explanatory references, sidebar navigation, tabs, and interactive summary cards
+keep their distinct presentation. All seven styles share the same controls and keyboard behavior.
+
 ## Scorecard
 
 ![BootUI Scorecard panel](../images/bootui-overview.webp)

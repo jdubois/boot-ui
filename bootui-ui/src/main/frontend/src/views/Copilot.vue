@@ -886,7 +886,9 @@ watch(
               <i class="bi bi-filter me-1"></i>
               Filtered to sessions active during {{ activeSessionWindow.label }}.
             </span>
-            <button class="btn btn-sm btn-link p-0" type="button" @click="clearActivityWindow">Clear filter</button>
+            <button class="btn btn-sm btn-outline-secondary" type="button" @click="clearActivityWindow">
+              Clear filter
+            </button>
           </div>
           <div v-if="sessionWarnings.length" class="mb-3">
             <div v-for="warning in sessionWarnings" :key="warning" class="small text-warning">
@@ -1098,7 +1100,7 @@ watch(
                           <div class="text-end small text-muted">
                             <div>{{ formatTime(event.timestampEpochMillis) }}</div>
                             <button
-                              class="btn btn-sm btn-link p-0"
+                              class="btn btn-sm btn-outline-secondary"
                               type="button"
                               :disabled="rawLoadingId === event.id"
                               @click="revealRaw(event)"

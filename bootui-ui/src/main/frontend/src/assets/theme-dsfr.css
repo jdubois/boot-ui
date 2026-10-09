@@ -128,14 +128,14 @@ html[data-bootui-theme='dsfr'] body {
   font-family: var(--dsfr-font);
 }
 
-html[data-bootui-theme='dsfr'] a {
+html[data-bootui-theme='dsfr'] a:not(.btn) {
   color: var(--dsfr-blue-france-sun-113);
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 0.18em;
 }
 
-html[data-bootui-theme='dsfr'] a:hover {
+html[data-bootui-theme='dsfr'] a:not(.btn):hover {
   color: var(--dsfr-blue-france-hover);
 }
 

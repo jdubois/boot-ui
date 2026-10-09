@@ -176,7 +176,7 @@ function showBeanGraph(bean) {
             <tr v-for="b in visibleBeans" :key="b.name">
               <td>
                 <button
-                  class="bean-graph-link"
+                  class="btn btn-outline-secondary btn-sm bean-graph-link"
                   type="button"
                   :title="`Show dependency graph for ${b.name}`"
                   :aria-label="`Show dependency graph for ${b.name}`"
@@ -279,23 +279,9 @@ function showBeanGraph(bean) {
 }
 
 .bean-graph-link {
-  background: none;
-  border: 0;
-  color: var(--bootui-blue);
   display: block;
   max-width: 100%;
-  padding: 0;
   text-align: left;
-}
-
-.bean-graph-link:hover code {
-  text-decoration: underline;
-}
-
-.bean-graph-link:focus-visible {
-  border-radius: var(--bootui-radius-sm);
-  outline: 2px solid var(--bootui-blue);
-  outline-offset: 2px;
 }
 
 .beans-table-name {
