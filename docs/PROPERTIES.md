@@ -230,7 +230,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Instrumentation | Java Agent                | `java-agent`                | `bootui.panels.java-agent.enabled`                | `bootui.panels.java-agent.read-only`      |
 | Instrumentation | Code Paths                | `code-paths`                | `bootui.panels.code-paths.enabled`                | `bootui.panels.code-paths.read-only`      |
 | Instrumentation | Code Inventory            | `code-inventory`            | `bootui.panels.code-inventory.enabled`            | Not applicable; view-only.                |
-| Instrumentation | Side Effects              | `side-effects`              | `bootui.panels.side-effects.enabled`              | Not applicable; sensor switches use Java Agent policy. |
+| Instrumentation | Side Effects              | `side-effects`              | `bootui.panels.side-effects.enabled`              | Not applicable; view-only.                |
 | Developer tools | MCP Server                | `mcp-server`                | `bootui.panels.mcp-server.enabled`                | `bootui.panels.mcp-server.read-only`      |
 | Developer tools | Command Line              | `cli`                       | `bootui.panels.cli.enabled`                       | Not applicable; view-only.                |
 | Developer tools | Spring DevTools           | `devtools`                  | `bootui.panels.devtools.enabled`                  | `bootui.panels.devtools.read-only`        |
