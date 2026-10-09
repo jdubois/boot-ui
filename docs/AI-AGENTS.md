@@ -493,7 +493,7 @@ application methods a route spends its time in, from the agent's `code-paths` se
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_code_paths` | `bootui code paths [--query Q] [--limit N]` | At most `limit` (10) routes matching `query` (blank for every route; else a route, or part of a route or method), slowest warm median first, each with its warm requests, median and 95th percentile, `assemblyOnly`, and top methods by self time per request; for a single route, its method nodes with the most self time, each with `calls`: the SQL, REST client, cache, and AI calls it issued per request, by kind; then the excluded methods and limitations |
+| `get_code_paths` | `bootui code paths [--query Q] [--limit N]` | At most `limit` (10) routes matching `query` (blank for every route; else a route, or part of a route or of a method its requests ran, a route's first request included), slowest warm median first, each with its warm requests, median and 95th percentile, `assemblyOnly`, and top methods by self time per request; for a single route, its method nodes with the most self time, each with `calls`: the SQL, REST client, cache, and AI calls it issued per request, by kind; then the excluded methods and limitations |
 
 Like `get_code_inventory`, it is advertised only while the sensor records this run. Times are per warm request, each
 route's first recorded request kept apart. A node's `calls` are the recorded calls stamped with it: it was the innermost

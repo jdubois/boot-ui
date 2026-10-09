@@ -47,6 +47,7 @@ class CodePathsServiceTests {
     private final AgentEvidence evidence = new AgentEvidence(panel -> !hiddenPanels.contains(panel), null);
     private CodePathsService service;
     private AgentClaim claim;
+    private AgentBridgeAccess access;
 
     @BeforeEach
     void installAgent() {
@@ -240,6 +241,48 @@ class CodePathsServiceTests {
         request("0000000000000005", () -> call(controller, null));
         clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
         assertThat(service.routeTreesFingerprint()).isNotEqualTo(fingerprint);
+    }
+
+    /**
+     * A class or method query matches a route through any method its requests executed, its first request's included,
+     * though that request is kept apart from the warm tree, and the report says so.
+     */
+    @Test
+    void aClassOrMethodQueryMatchesARouteOnlyItsFirstRequestReached() {
+        start(AgentSensorSettings.defaults());
+        service.setRequestOutcomes(ids -> {
+            Map<String, RequestOutcome> named = new LinkedHashMap<>();
+            for (String id : ids) {
+                named.put(id, new RequestOutcome(id.endsWith("1") ? "GET /api/once" : "GET /api/warm", 200, false));
+            }
+            return named;
+        });
+        int once = CodeInventory.methodId("shop.OnceController#atOnce()V");
+        int repository = CodeInventory.methodId("shop.NoteRepository#findAll()Ljava/util/List;");
+        int warm = CodeInventory.methodId("shop.WarmController#list()V");
+        request("0000000000000001", () -> call(once, () -> call(repository, null)));
+        for (int i = 2; i <= 4; i++) {
+            request(String.format("%016x", i), () -> call(warm, CodePathsServiceTests::spin));
+        }
+        clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
+
+        CodePathsAgentReport byClass = service.agentReport("OnceController", null);
+        assertThat(byClass.matched()).isEqualTo(1);
+        assertThat(byClass.routes()).singleElement().satisfies(route -> {
+            assertThat(route.route()).isEqualTo("GET /api/once");
+            assertThat(route.warmRequests()).isZero();
+            assertThat(route.topMethods()).isEmpty();
+        });
+        assertThat(byClass.limitations())
+                .anyMatch(limitation -> limitation.startsWith("GET /api/once matched because its first recorded"));
+        assertThat(service.agentReport("OnceController#atOnce", null).matched()).isEqualTo(1);
+        assertThat(service.agentReport("noterepository", null).routes())
+                .extracting(CodePathsRouteDto::route)
+                .containsExactly("GET /api/once");
+        CodePathsAgentReport warmRoute = service.agentReport("WarmController", null);
+        assertThat(warmRoute.routes()).extracting(CodePathsRouteDto::route).containsExactly("GET /api/warm");
+        assertThat(warmRoute.limitations()).noneMatch(limitation -> limitation.contains(" matched because its first"));
+        assertThat(service.agentReport("NothingRanThis", null).matched()).isZero();
     }
 
     /** Spring WebFlux installs {@link CodePathsService#EVERY_REQUEST} once: every request's tree is assembly only. */
@@ -748,12 +791,41 @@ class CodePathsServiceTests {
                 .noneMatch(thread -> thread.getName().equals(AgentRecordDrainer.THREAD_NAME) && thread.isAlive());
     }
 
+    @Test
+    void firstRequestMethodQueriesResolveBridgeKeysInPagesRatherThanPerMethod() {
+        start(AgentSensorSettings.defaults());
+        service.setRequestOutcomes(ids -> Map.of(REQUEST, new RequestOutcome("GET /once", 200, false)));
+        int controller = CodeInventory.methodId("shop.Controller#once()V");
+        int[] methods = new int[300];
+        for (int index = 0; index < methods.length; index++) {
+            methods[index] = CodeInventory.methodId("shop.Helper#method" + index + "()V");
+        }
+        request(
+                REQUEST,
+                () -> call(controller, () -> {
+                    for (int method : methods) {
+                        call(method, null);
+                    }
+                }));
+        clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
+
+        assertThat(service.agentReport("Helper#method299", null).matched()).isEqualTo(1);
+        org.mockito.Mockito.verify(access, org.mockito.Mockito.atLeastOnce())
+                .methodKeys(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.eq(256));
+        org.mockito.Mockito.verify(access, org.mockito.Mockito.never())
+                .methodKeys(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.eq(1));
+        org.mockito.Mockito.clearInvocations(access);
+        assertThat(service.agentReport("Helper#method299", null).matched()).isEqualTo(1);
+        org.mockito.Mockito.verify(access, org.mockito.Mockito.never())
+                .methodKeys(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
     private void start(AgentSensorSettings sensors) {
         claim = AgentClaim.claim(
                 AgentBridgeAccess.bind(AgentBridge.class), "shop", "shop-owner", "dev", List.of("shop"), sensors);
         claim.attach(new AgentHandoffs(context::get, null, null));
-        service = new CodePathsService(
-                AgentBridgeAccess.bind(AgentBridge.class), () -> claim, () -> null, evidence, clock::get);
+        access = org.mockito.Mockito.spy(AgentBridgeAccess.bind(AgentBridge.class));
+        service = new CodePathsService(access, () -> claim, () -> null, evidence, clock::get);
         service.start();
     }
 

@@ -88,6 +88,7 @@ report_error() {
 
 for file in "${files[@]}"; do
   line_number=0
+  # Shared matrix steps (such as agent-overhead-leg-steps in build.yml) are checked at their anchor definition.
   while IFS= read -r line || [[ -n "$line" ]]; do
     line_number=$((line_number + 1))
 

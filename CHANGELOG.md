@@ -82,6 +82,8 @@ give the details.
   agent-gated `NOT_APPLICABLE` as not measured; `verify_after_change` and the skill add verify-then-probe.
 - **Request input reaching a sink.** Opt-in Security sinks rows show a request parameter reaching SQL, a
   command, a file path, or a URL unchanged, its value redacted. ([#1296](https://github.com/jdubois/boot-ui/pull/1296))
+- **Security sinks: JDK checks.** The opt-in `security-sinks` sensor also shows deserialization without a
+  filter, weak digests and ciphers, and application trust managers, as facts.
 - **Caught exceptions, recorded by the BootUI agent.** The agent's new opt-in `caught-exceptions`
   sensor (`bootui.agent.sensors=...,caught-exceptions`) reports each exception application code catches, at a handler
   that names a type, and which of them are thrown again: by the method itself, by a library helper it calls, or wrapped
@@ -817,6 +819,14 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 - **`get_agent_status` no longer advertises a `limit` it ignored.** It takes only `query`; an older CLI's `--limit` is
   still accepted and ignored. `get_ai_overview` adds `aiFrameworkDetected`, and the Spring-named advisor tools say
   they run the Quarkus application advisor on Quarkus ([AI agents](docs/AI-AGENTS.md)).
+- **`get_code_paths` finds a route by its handler after one request.** A class or method query now matches any method
+  a route's requests ran, its first request included, and says when only that first request matched.
+- **The first `get_code_inventory` call no longer waits for the dependency catalogue.** It is read once at startup,
+  in the background, beside the class-file scan.
+- **The first MCP call on Quarkus no longer waits for agent session scans.** Copilot and Claude Code session files are
+  read when their own tool or panel is first used.
+- **Reactive transactions are recorded with the right outcome.** An R2DBC transaction that commits on another thread
+  than it began now completes its own row, without a parent taken from that thread.
 - **Unknown advisor rules are told apart from rules without findings.** `get_*_rule_violations` and the REST detail
   reads answer `Unknown advisor rule` for an id outside the advisor's rule catalogue ([AI agents](docs/AI-AGENTS.md#reading-retained-advisor-violations)).
 - **`analyze_heap_dump` describes what it does.** It analyzes the live heap's class histogram, with or without a

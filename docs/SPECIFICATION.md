@@ -796,7 +796,9 @@ Data sources:
   and `resources` sensors record by default, and `environment`, `thread-activity`, and `thread-locals` when opted in.
   `security-sinks` records, when opted in with `bootui.agent.security-sinks.request-values=true`, request input
   reaching SQL text, a command, a file path, or an outbound URL unchanged: the redacted sink, the parameter's name, and a
-  sentence stating the fact.
+  sentence stating the fact; opted in alone, its JDK checks record deserialization without an `ObjectInputFilter`,
+  weak `MessageDigest` and `Cipher` algorithms (application and library requests apart), the application's trust
+  managers and known library trust-all trust managers, and default hostname verifiers and SSL socket factories.
 - Each request's end, which the adapters mark once its response is complete (Spring MVC once an async request's
   context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended), for the
   `thread-activity` sensor to check what the request left running and the `resources` sensor what it left open, each
@@ -2578,20 +2580,20 @@ Features:
 
 Availability:
 
-- Spring MVC and Spring WebFlux capture boundaries from configurable blocking transaction managers. BootUI contributes
-  its listener through Spring Boot's transaction-manager customization and completes registration for user-defined
-  managers after singleton initialization.
+- Spring MVC and Spring WebFlux capture boundaries from configurable transaction managers, blocking and reactive. BootUI
+  contributes its listener through Spring Boot's transaction-manager customization and completes registration for
+  user-defined managers after singleton initialization. The listener pairs each boundary's callbacks by the transaction
+  execution Spring passes them, so a reactive transaction that completes on another thread than it began is recorded
+  once, without a thread-bound parent or isolation.
 - The panel returns a clear unavailable report when transaction capture is disabled, no
   `ConfigurableTransactionManager` is present, or capture is otherwise not configured.
-- A WebFlux application backed only by `ReactiveTransactionManager` (R2DBC) is explicitly unavailable because Spring's
-  transaction-execution listener hook exists only on the blocking transaction-manager SPI.
 - Transactions are not applicable on Quarkus. Narayana JTA and the CDI `@Transactional` interceptor expose no comparable
   per-boundary listener without invasive interception, so the Quarkus adapter reports the panel unavailable rather than
   providing lower-fidelity capture.
 
 Out of scope for the current release surface:
 
-- Capturing R2DBC-only transaction boundaries or adding an invasive Quarkus transaction interceptor.
+- Adding an invasive Quarkus transaction interceptor.
 - Changing transaction propagation, isolation, rollback rules, or application transaction-manager configuration.
 - Retaining an unbounded transaction history or recording application payloads and SQL parameter values.
 

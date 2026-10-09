@@ -129,7 +129,10 @@ public final class McpToolDescriptions {
                     "Return the current bounded transaction-boundary snapshot with outcomes, timings, nesting, and "
                             + "correlated SQL counts. Use it to verify which local operations actually ran in a "
                             + "transaction. totalCaptured counts the transactions recorded since startup, which "
-                            + "clear_transactions does not reset; stats and entries cover the retained window only."),
+                            + "clear_transactions does not reset; stats and entries cover the retained window only. "
+                            + "Reactive capture records physical begin/commit/rollback callbacks, not a complete "
+                            + "parent or savepoint hierarchy. SQL and connection counts cover JDBC work on the begin "
+                            + "thread only, not R2DBC statements or JDBC work moved to another thread."),
             Map.entry(
                     "get_traces",
                     "Return a bounded, newest-first snapshot of distributed and local traces captured by BootUI. Use "
@@ -327,8 +330,9 @@ public final class McpToolDescriptions {
                     "Return Code Paths: which application bean methods each route spends its time in, from the BootUI "
                             + "agent's code-paths sensor. Advertised only while that sensor records this run (see "
                             + "get_agent_status). Without query, the routes slowest warm median first, at most limit "
-                            + "(10), each with its top methods by self time; with query, the routes whose label or top "
-                            + "methods contain it, and for a single route its method nodes with the most self time. "
+                            + "(10), each with its top methods by self time; with query, the routes whose label, top "
+                            + "methods, or any method their requests ran (a route's first request included) contain it, "
+                            + "and for a single route its method nodes with the most self time. "
                             + "Times are per warm request; each node's calls list the SQL, REST client, cache, and AI "
                             + "calls recorded while it was the innermost instrumented method on their thread, whose time "
                             + "is part of its self time; calls recorded on another thread carry no stamp and show under "
@@ -373,7 +377,8 @@ public final class McpToolDescriptions {
                             + "files it opens, deletes, moves, and copies, the environment variables and system "
                             + "properties it reads, the threads it starts and executors it creates (thread-activity), "
                             + "the thread locals a request or a job left set on its pooled thread (thread-locals), "
-                            + "and request input reaching a sink (security-sinks, request-input-in-sink). "
+                            + "and request input reaching a sink (security-sinks, request-input-in-sink) with JDK checks: "
+                            + "deserialization without a filter, weak algorithms, and trust managers. "
                             + "Advertised only while "
                             + "the agent is armed for this run (see get_agent_status). Every sensor first, with its "
                             + "coverage (recording, not-claimed, not-available in this version, ...), without its hooks "
@@ -406,7 +411,10 @@ public final class McpToolDescriptions {
                             + "and argument index, file path pattern, or outbound URL that a request parameter's value "
                             + "reached unchanged, with that value redacted to {name}, the parameter's name, and a "
                             + "sentence stating the fact (for SQL, inside or outside a literal), a fact to check in the "
-                            + "code."),
+                            + "code; or a JDK check: an ObjectInputStream read without a filter with the classes read, "
+                            + "a weak MessageDigest or Cipher algorithm asked for by application or library code "
+                            + "(origin), or a trust manager, default hostname verifier, or SSL socket factory the "
+                            + "application installed, never a value."),
             Map.entry(
                     "get_jvm_tuning",
                     "Return the current JVM sizing facts and generated tuning recommendations using detected defaults: "
