@@ -63,6 +63,9 @@ class ToolManifestGeneratorTests {
         assertThat(agentStatus.schema()).isEqualTo("QUERY");
         assertThat(agentStatus.takesQuery()).isTrue();
         assertThat(agentStatus.takesLimit()).isFalse();
+        assertThat(agentStatus.description()).contains("overflow", "another request's context");
+        assertThat(ToolManifest.bundled().byName("get_agent_status").description())
+                .isEqualTo(agentStatus.description());
     }
 
     @Test

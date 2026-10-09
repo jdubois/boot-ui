@@ -168,10 +168,10 @@ final class TaskSnapshots {
     }
 
     /**
-     * Drops every entry and the counters, as when the sensor is disabled. Each removal is counted, so the admission count
-     * stays exact while submissions race with it.
+     * Drops every entry, as when the sensor is disabled, without resetting cumulative counters. Each removal is counted,
+     * so admission counts stay exact while submissions race with it.
      */
-    void reset() {
+    void clear() {
         for (Object key : snapshots.keySet()) {
             Entry removed = snapshots.remove(key);
             if (removed != null) {
@@ -181,6 +181,11 @@ final class TaskSnapshots {
                 }
             }
         }
+    }
+
+    /** Tests only: clears every entry and resets cumulative counters. */
+    void reset() {
+        clear();
         neverAppliedCount.reset();
         overflowCount.reset();
     }

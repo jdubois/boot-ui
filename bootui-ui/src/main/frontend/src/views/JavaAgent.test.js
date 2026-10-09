@@ -307,9 +307,52 @@ describe('Java Agent panel', () => {
     expect(text).toContain('pools whose workers started before the claim')
     expect(text).toContain('Periodic tasks skipped 2')
     expect(text).toContain('Over the limit 4')
-    expect(text).toContain('while 32,768 were already pending')
+    expect(text).toContain('A task object that several requests')
+    expect(text).toContain('another request’s context')
+    expect(text).toContain('when the snapshot retention limit was full')
     expect(text).not.toContain('No sensor installed')
     expect(wrapper.find('[aria-labelledby="java-agent-hooks-executors"]').exists()).toBe(true)
+  })
+
+  it.each([0, undefined])('does not warn about shared-task context when overflow is %s', async (overflow) => {
+    wrapper = mountPanel({
+      ...baseReport,
+      state: 'ARMED',
+      sensors: [
+        {
+          id: 'executors',
+          state: 'installed',
+          active: true,
+          hooks: [{id: 'ThreadPoolExecutor.addWorker', kind: 'key', present: true, transformed: true}],
+          executors: {pending: 0, overflow}
+        }
+      ]
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[aria-labelledby="java-agent-hooks-executors"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('another request’s context')
+    expect(wrapper.text()).not.toContain('Tasks went over the limit since the agent started')
+  })
+
+  it('keeps the historical shared-task warning when the executors sensor is inactive', async () => {
+    wrapper = mountPanel({
+      ...baseReport,
+      state: 'ARMED',
+      sensors: [
+        {
+          id: 'executors',
+          state: 'installed',
+          active: false,
+          hooks: [{id: 'ThreadPoolExecutor.addWorker', kind: 'key', present: true, transformed: true}],
+          executors: {pending: 0, overflow: 1}
+        }
+      ]
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Tasks went over the limit since the agent started')
+    expect(wrapper.text()).toContain('another request’s context')
   })
 
   it('shows the threads sensor with its own explained counters', async () => {
@@ -369,7 +412,9 @@ describe('Java Agent panel', () => {
     expect(text).toContain('Library threads skipped 6')
     expect(text).toContain('Pool workers skipped 2')
     expect(text).toContain('Over the limit 1')
-    expect(text).toContain('threads started from owned work while 32,768 were already pending')
+    // A thread is started once: the shared-task warning is the executors sensor's.
+    expect(text).not.toContain('A task object that several requests')
+    expect(text).toContain('threads started from owned work when the snapshot retention limit was full')
     expect(text).not.toContain('Periodic tasks skipped')
     expect(wrapper.find('[aria-labelledby="java-agent-hooks-threads"]').exists()).toBe(true)
   })

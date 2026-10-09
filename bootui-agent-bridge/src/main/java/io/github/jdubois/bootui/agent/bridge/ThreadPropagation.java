@@ -361,7 +361,7 @@ public final class ThreadPropagation {
      */
     public static void disable(long generation, boolean everyGeneration) {
         disabledGeneration = everyGeneration ? ALL : generation;
-        TaskSnapshots.THREADS.reset();
+        TaskSnapshots.THREADS.clear();
         ADDING_WORKER.clear();
     }
 

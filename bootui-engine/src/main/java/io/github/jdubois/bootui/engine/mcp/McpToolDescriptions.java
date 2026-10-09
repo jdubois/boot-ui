@@ -332,7 +332,9 @@ public final class McpToolDescriptions {
                             + "sensors, and setup snippets that attach it. This read never claims, installs, or "
                             + "changes the agent. Sensors are summarized (state, counters, failures); query with a sensor id, such "
                             + "as executors, to list only matching sensors with their hooks and self-test steps. Every "
-                            + "matching sensor is listed, so the tool takes no limit."),
+                            + "matching sensor is listed, so the tool takes no limit. Once the executors sensor has "
+                            + "counted overflow, a task object several requests submit may have run with another "
+                            + "request's context."),
             Map.entry(
                     "enable_agent_sensor",
                     "With the user's authorization, switch on one supported BootUI Java agent sensor for this "

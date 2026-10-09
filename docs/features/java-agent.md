@@ -300,6 +300,11 @@ New submissions and skip counters are recorded only while the current armed clai
 sensor has not been disabled by its self-test. Pending entries are still drained while recording is off, without
 reopening their snapshots. A handoff already opened before recording stopped is still closed and reports its outcome.
 
+Disabling the threads sensor clears its pending snapshots but keeps its cumulative **Over the limit** and
+**Never applied** counts. Those counts reset only when the JVM ends, not when the sensor is disabled or re-enabled.
+Once the executors sensor has counted overflow, the Java Agent panel warns that a shared task object may have run with
+another request's context. The `get_agent_status` tool and generated CLI help describe the same limitation.
+
 ### Accepted limits
 
 - Parallel-stream subtasks run by other workers stay unowned: only root submissions and a `fork()` from outside the pool

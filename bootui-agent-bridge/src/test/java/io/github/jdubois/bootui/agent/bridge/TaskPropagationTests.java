@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.agent.bridge;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.lang.ref.Reference;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -43,6 +44,40 @@ class TaskPropagationTests {
     @AfterEach
     void reset() {
         AgentBridge.reset();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false", "true"})
+    void disablingTheThreadsSensorClearsPendingSnapshotsButKeepsCumulativeCounters(boolean everyGeneration)
+            throws ReflectiveOperationException {
+        TaskSnapshots snapshots = TaskSnapshots.THREADS;
+        long generation = AgentBridge.current().generation;
+        snapshots.put(new Thread(), generation, snapshot("unapplied"), 0L);
+        java.lang.reflect.Field field = TaskSnapshots.class.getDeclaredField("snapshots");
+        field.setAccessible(true);
+        Map<?, ?> keyed = (Map<?, ?>) field.get(snapshots);
+        Reference<?> reclaimed = (Reference<?>) keyed.keySet().iterator().next();
+        reclaimed.clear();
+        assertThat(reclaimed.enqueue()).isTrue();
+        assertThat(snapshots.neverApplied()).isEqualTo(1L);
+        Thread pending = new Thread();
+        snapshots.put(pending, generation, snapshot("pending"), 0L);
+        snapshots.overflowed();
+
+        ThreadPropagation.disable(generation, everyGeneration);
+
+        assertThat(ThreadPropagation.status().get("overflow")).isEqualTo(1L);
+        assertThat(ThreadPropagation.status().get("neverApplied")).isEqualTo(1L);
+        assertThat(ThreadPropagation.status().get("pending")).isEqualTo(0L);
+        assertThat(snapshots.take(pending)).isNull();
+        assertThat(snapshots.entries.get()).isZero();
+        assertThat(snapshots.retainedEntries.get()).isZero();
+        claimWith(List.of());
+        assertThat(ThreadPropagation.status().get("overflow")).isEqualTo(1L);
+        assertThat(ThreadPropagation.status().get("neverApplied")).isEqualTo(1L);
+        snapshots.reset();
+        assertThat(snapshots.overflow()).isZero();
+        assertThat(snapshots.neverApplied()).isZero();
     }
 
     @Test
