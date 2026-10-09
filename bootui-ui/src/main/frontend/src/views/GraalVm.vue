@@ -727,12 +727,18 @@ onBeforeUnmount(stopProgressPolling)
                 <span v-if="dep.repositoryTestedVersions">({{ dep.repositoryTestedVersions }})</span>.
               </div>
               <div v-if="dep.repositoryUrl || dep.repositoryMetadataUrl" class="small mt-1 d-flex flex-wrap gap-2">
-                <a v-if="dep.repositoryUrl" :href="dep.repositoryUrl" target="_blank" rel="noopener noreferrer"
+                <a
+                  v-if="dep.repositoryUrl"
+                  :href="dep.repositoryUrl"
+                  class="btn btn-outline-secondary btn-sm"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   >Repository entry</a
                 >
                 <a
                   v-if="dep.repositoryMetadataUrl"
                   :href="dep.repositoryMetadataUrl"
+                  class="btn btn-outline-secondary btn-sm"
                   target="_blank"
                   rel="noopener noreferrer"
                   >Metadata file</a
@@ -795,7 +801,7 @@ onBeforeUnmount(stopProgressPolling)
           <button
             v-if="filtersActive"
             type="button"
-            class="btn btn-sm btn-link text-decoration-none ms-auto"
+            class="btn btn-sm btn-outline-secondary ms-auto"
             @click="clearFilters"
           >
             Clear filters
@@ -848,7 +854,7 @@ onBeforeUnmount(stopProgressPolling)
               <a
                 v-if="finding.learnMoreUrl"
                 :href="finding.learnMoreUrl"
-                class="ms-1"
+                class="btn btn-outline-secondary btn-sm ms-1"
                 rel="noopener noreferrer"
                 target="_blank"
               >

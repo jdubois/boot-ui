@@ -269,7 +269,7 @@ function treeStepHasChildren(stepId) {
                 :aria-expanded="step.expanded"
                 :aria-label="`${step.expanded ? 'Collapse' : 'Expand'} ${step.name}`"
                 :class="{invisible: !step.children?.length}"
-                class="btn btn-sm btn-link text-decoration-none p-0 startup-tree-toggle"
+                class="btn btn-sm btn-outline-secondary startup-tree-toggle"
                 type="button"
                 @click="toggleStep(step)"
               >

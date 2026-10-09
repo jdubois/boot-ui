@@ -472,7 +472,7 @@ function securitySignalUrl(signal) {
                     <a
                       v-if="repository?.htmlUrl"
                       :href="repository.htmlUrl"
-                      class="github-link-chip github-link-chip--primary"
+                      class="btn btn-outline-secondary btn-sm github-link-chip"
                       rel="noopener noreferrer"
                       target="_blank"
                     >
@@ -596,7 +596,12 @@ function securitySignalUrl(signal) {
               <tbody>
                 <tr v-for="pr in pullRequests" :key="pr.number">
                   <td>
-                    <a :href="pr.htmlUrl" class="github-link-chip" rel="noopener noreferrer" target="_blank">
+                    <a
+                      :href="pr.htmlUrl"
+                      class="btn btn-outline-secondary btn-sm github-link-chip"
+                      rel="noopener noreferrer"
+                      target="_blank"
+                    >
                       #{{ pr.number }} {{ pr.title }}
                       <i class="bi bi-box-arrow-up-right"></i>
                     </a>
@@ -643,7 +648,7 @@ function securitySignalUrl(signal) {
                     <a
                       v-if="issue.htmlUrl"
                       :href="issue.htmlUrl"
-                      class="github-link-chip"
+                      class="btn btn-outline-secondary btn-sm github-link-chip"
                       rel="noopener noreferrer"
                       target="_blank"
                     >
@@ -705,7 +710,7 @@ function securitySignalUrl(signal) {
                     <a
                       v-if="run.htmlUrl"
                       :href="run.htmlUrl"
-                      class="github-link-chip"
+                      class="btn btn-outline-secondary btn-sm github-link-chip"
                       rel="noopener noreferrer"
                       target="_blank"
                     >
@@ -721,7 +726,7 @@ function securitySignalUrl(signal) {
                     <a
                       v-if="workflowForRun(run)?.htmlUrl"
                       :href="workflowForRun(run).htmlUrl"
-                      class="github-link-chip"
+                      class="btn btn-outline-secondary btn-sm github-link-chip"
                       rel="noopener noreferrer"
                       target="_blank"
                     >
@@ -812,7 +817,7 @@ function securitySignalUrl(signal) {
               <a
                 v-if="copilotUsage?.documentationUrl"
                 :href="copilotUsage.documentationUrl"
-                class="github-link-chip"
+                class="btn btn-outline-secondary btn-sm github-link-chip"
                 rel="noopener noreferrer"
                 target="_blank"
               >
@@ -844,7 +849,7 @@ function securitySignalUrl(signal) {
                 <a
                   v-if="securitySignalUrl(activeSecuritySignal)"
                   :href="securitySignalUrl(activeSecuritySignal)"
-                  class="github-link-chip mt-3"
+                  class="btn btn-outline-secondary btn-sm github-link-chip mt-3"
                   rel="noopener noreferrer"
                   target="_blank"
                 >
@@ -871,7 +876,7 @@ function securitySignalUrl(signal) {
                   <a
                     v-if="alert.htmlUrl"
                     :href="alert.htmlUrl"
-                    class="github-link-chip ms-auto"
+                    class="btn btn-outline-secondary btn-sm github-link-chip ms-auto"
                     rel="noopener noreferrer"
                     target="_blank"
                   >
@@ -946,30 +951,9 @@ function securitySignalUrl(signal) {
 
 .github-link-chip {
   align-items: center;
-  background: var(--bs-tertiary-bg);
-  border: 1px solid var(--bs-border-color);
-  border-radius: 999px;
-  color: var(--bs-body-color);
   display: inline-flex;
   gap: 0.35rem;
-  max-width: 100%;
-  padding: 0.25rem 0.65rem;
-  text-decoration: none;
   vertical-align: middle;
-}
-
-.github-link-chip:hover,
-.github-link-chip:focus-visible {
-  background: rgba(var(--bs-primary-rgb), 0.1);
-  border-color: rgba(var(--bs-primary-rgb), 0.35);
-  color: var(--bs-primary);
-  text-decoration: none;
-}
-
-.github-link-chip--primary {
-  background: rgba(var(--bs-primary-rgb), 0.08);
-  border-color: rgba(var(--bs-primary-rgb), 0.25);
-  color: var(--bs-primary);
 }
 
 .workflow-event-badge {

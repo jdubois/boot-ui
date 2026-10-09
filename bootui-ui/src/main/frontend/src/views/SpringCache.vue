@@ -396,7 +396,7 @@ function showReadOnlyMessage() {
                     <button
                       v-if="cache.tiers && cache.tiers.length"
                       type="button"
-                      class="btn btn-sm btn-link p-0 text-decoration-none cache-tier-toggle"
+                      class="btn btn-sm btn-outline-secondary cache-tier-toggle"
                       :aria-expanded="tiersExpanded(cache) ? 'true' : 'false'"
                       :aria-controls="tierRowId(cacheIndex)"
                       @click="toggleTiers(cache)"

@@ -195,7 +195,7 @@ const diagnostics = computed(() => panel.report?.diagnostics || [])
               <a
                 v-if="result.learnMoreUrl"
                 :href="result.learnMoreUrl"
-                class="ms-1"
+                class="btn btn-outline-secondary btn-sm ms-1"
                 rel="noopener noreferrer"
                 target="_blank"
               >

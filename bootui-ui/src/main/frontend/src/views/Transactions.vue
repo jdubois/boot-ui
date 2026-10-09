@@ -375,7 +375,7 @@ function clearTransactions() {
                   >
                     <td class="text-muted">
                       <button
-                        class="btn btn-sm btn-link p-0 bootui-keyboard-target tx-row-toggle"
+                        class="btn btn-sm btn-outline-secondary bootui-keyboard-target tx-row-toggle"
                         type="button"
                         :aria-controls="`tx-details-${root.id}`"
                         :aria-expanded="isExpanded(root)"
@@ -390,7 +390,7 @@ function clearTransactions() {
                       </button>
                       <button
                         v-if="children(root).length"
-                        class="btn btn-sm btn-link p-0 ms-1 bootui-keyboard-target tx-node-toggle"
+                        class="btn btn-sm btn-outline-secondary ms-1 bootui-keyboard-target tx-node-toggle"
                         type="button"
                         :aria-expanded="!isNodeCollapsed(root)"
                         :aria-label="`${isNodeCollapsed(root) ? 'Expand' : 'Collapse'} nested transactions of ${root.methodName}`"
@@ -461,7 +461,7 @@ function clearTransactions() {
                       >
                         <td class="text-muted ps-4">
                           <button
-                            class="btn btn-sm btn-link p-0 bootui-keyboard-target tx-row-toggle"
+                            class="btn btn-sm btn-outline-secondary bootui-keyboard-target tx-row-toggle"
                             type="button"
                             :aria-controls="`tx-details-${child.id}`"
                             :aria-expanded="isExpanded(child)"

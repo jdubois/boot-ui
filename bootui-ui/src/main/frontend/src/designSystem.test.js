@@ -46,6 +46,73 @@ function walk(template, visit, lineOffset = 0) {
 }
 
 describe('BootUI design system contracts', () => {
+  it('uses button styling for standalone panel destinations, never Bootstrap link buttons', () => {
+    const inlineReferences = new Map([
+      ['views/Cli.vue', ['https://www.jbang.dev']],
+      ['views/Copilot.vue', ['panelConfig.inspiration.href']],
+      [
+        'views/Crac.vue',
+        ['https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html', 'https://crac.org/']
+      ],
+      ['views/Hibernate.vue', ['https://vladmihalcea.com']],
+      [
+        'views/McpServer.vue',
+        [
+          'https://modelcontextprotocol.io',
+          'https://www.julien-dubois.com/boot-ui/AI-AGENTS.html#install-the-bootui-agent-skill',
+          'https://www.julien-dubois.com/boot-ui/AI-AGENTS.html#assess-an-application-and-approve-an-action-plan'
+        ]
+      ],
+      ['views/Overview.vue', ['/mcp-server']],
+      [
+        'views/components/AiSetupChecklist.vue',
+        [
+          'https://docs.quarkiverse.io/quarkus-langchain4j/dev/',
+          'https://spring.io/projects/spring-ai',
+          'https://docs.langchain4j.dev'
+        ]
+      ]
+    ])
+    const referencesSeen = new Map()
+    const issues = []
+    for (const file of vueFiles(viewsRoot)) {
+      const descriptor = descriptorFor(file)
+      if (!descriptor.template) continue
+      walk(descriptor.template.content, (node, _ancestors, line) => {
+        const classes = staticClasses(node)
+        if (classes.has('btn-link')) issues.push(`${relative(file)}:${line}: link-styled action`)
+        if (!['a', 'router-link'].includes(node.tag)) return
+        if (classes.has('btn') || classes.has('activity-kpi-link')) return
+        const destination = node.props.find(
+          (prop) =>
+            (prop.type === 6 && ['href', 'to'].includes(prop.name)) ||
+            (prop.type === 7 && prop.name === 'bind' && ['href', 'to'].includes(prop.arg?.content))
+        )
+        const value = destination?.value?.content ?? destination?.exp?.content
+        if (!inlineReferences.get(relative(file))?.includes(value)) {
+          issues.push(`${relative(file)}:${line}: unclassified destination ${value}`)
+        } else {
+          referencesSeen.set(relative(file), [...(referencesSeen.get(relative(file)) ?? []), value])
+        }
+      })
+    }
+    expect(issues).toEqual([])
+    expect(referencesSeen).toEqual(inlineReferences)
+  })
+
+  it('shares secondary button state colors and keyboard focus rather than per-view overrides', () => {
+    const block = appSource.split(':global(.btn-outline-secondary) {')[1].split('}')[0]
+    expect(block).toContain('--bs-btn-color: var(--bootui-text-muted)')
+    expect(block).toContain('--bs-btn-hover-bg: var(--bootui-nav-hover-bg)')
+    expect(block).toContain('--bs-btn-active-color: var(--bootui-text)')
+    expect(block).toContain('--bs-btn-disabled-color: var(--bootui-text-subtle)')
+    expect(appSource).toContain(':global(.btn:focus-visible)')
+    expect(appSource).toContain(':global(.btn code) {\n  color: inherit;')
+    const france = fs.readFileSync(path.join(sourceRoot, 'assets/theme-dsfr.css'), 'utf8')
+    expect(france).toContain("html[data-bootui-theme='dsfr'] a:not(.btn) {")
+    expect(france).toContain("html[data-bootui-theme='dsfr'] a:not(.btn):hover {")
+  })
+
   // DESIGN.md "The Eyebrow-Containment Rule": the uppercase tracked label is a
   // sidebar nav-group affordance. Anywhere else it is the AI-SaaS-slop tell the
   // system explicitly rejects. Status badges may still normalise a machine-supplied

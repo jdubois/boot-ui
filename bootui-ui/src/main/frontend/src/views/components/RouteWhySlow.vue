@@ -53,7 +53,10 @@ async function load() {
         <p v-if="breakdown.whatToCheck?.length" class="mb-1 text-muted">
           <InsightText :text="breakdown.whatToCheck[0]" />
         </p>
-        <router-link :to="{path: '/runtime-insights', query: {q: route, insight: breakdown.id}}">
+        <router-link
+          :to="{path: '/runtime-insights', query: {q: route, insight: breakdown.id}}"
+          class="btn btn-outline-secondary btn-sm"
+        >
           Open in Runtime Insights
         </router-link>
       </template>

@@ -97,7 +97,7 @@ function methodLabel(key) {
         <router-link
           v-if="runtimeInsightsUsable"
           :to="{path: '/runtime-insights', query: {tab: 'profile'}}"
-          class="small"
+          class="btn btn-outline-secondary btn-sm"
         >
           Open the JFR profile in Runtime Insights
         </router-link>
@@ -137,7 +137,10 @@ function methodLabel(key) {
           Request code-path data is not available yet.
         </span>
         <template v-if="codePathsRoute && !codePathsUnavailableReason">
-          <router-link :to="{path: '/code-paths', query: {route: codePathsRoute}}">
+          <router-link
+            :to="{path: '/code-paths', query: {route: codePathsRoute}}"
+            class="btn btn-outline-secondary btn-sm"
+          >
             Open {{ codePathsRoute }} in Code Paths
           </router-link>
           <p class="text-muted mb-1">This opens the route-level tree, not an exact replay of this request.</p>

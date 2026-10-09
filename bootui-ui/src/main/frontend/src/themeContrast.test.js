@@ -197,6 +197,45 @@ it('keeps the Windows 95 title-bar caption legible', () => {
   expect(contrastRatio(parseColor('#ffffff'), parseColor(tokens['--w95-title']))).toBeGreaterThanOrEqual(4.5)
 })
 
+describe.each(['light', 'dark', 'graphite', 'minimal', 'cyberpunk', 'dsfr', 'win95'])(
+  '%s secondary button states',
+  (theme) => {
+    it('keeps labels and machine identifiers at AA contrast at rest, hovered, and pressed', () => {
+      const isDefault = ['light', 'dark'].includes(theme)
+      const skin = isDefault ? '' : skinCss(theme)
+      const tokens = {
+        ...(theme === 'dark' ? darkTokens : lightTokens),
+        ...(isDefault ? {} : declarations(cssBlock(`html[data-bootui-theme='${theme}'] {`, skin))),
+        '--bs-btn-bg': 'transparent',
+        ...declarations(cssBlock(':global(.btn-outline-secondary) {')),
+        ...(isDefault ? {} : declarations(cssBlock(`html[data-bootui-theme='${theme}'] .btn-outline-secondary`, skin)))
+      }
+      const color = (name) => {
+        let value = tokens[name]
+        for (let depth = 0; depth < 8; depth += 1) {
+          const reference = value.match(/^var\((--[\w-]+)\)$/)
+          if (!reference) return value === 'transparent' ? parseColor('#00000000') : parseColor(value)
+          value = tokens[reference[1]]
+          if (!value) throw new Error(`Missing ${reference[1]} in ${theme}`)
+        }
+        throw new Error(`Token cycle in ${theme}: ${name}`)
+      }
+      const surfaces = isDefault
+        ? [
+            ...backgroundStops(tokens).map((stop) => composite(color('--bootui-surface'), stop)),
+            color('--bootui-surface-solid')
+          ]
+        : [color('--bootui-surface-solid'), color('--bootui-surface-alt')]
+      for (const state of ['', 'hover-', 'active-']) {
+        for (const surface of surfaces) {
+          const ratio = contrastRatio(color(`--bs-btn-${state}color`), composite(color(`--bs-btn-${state}bg`), surface))
+          expect(ratio, `${theme} ${state || 'rest'} button text`).toBeGreaterThanOrEqual(4.5)
+        }
+      }
+    })
+  }
+)
+
 /* Panel tabs (PanelTabs.vue). Every theme paints them through the --bootui-tab-*
    tokens, which default to the nav link states and which a skin overrides only where
    its own tab idiom differs. Inactive tabs once inherited Bootstrap's link blue; this

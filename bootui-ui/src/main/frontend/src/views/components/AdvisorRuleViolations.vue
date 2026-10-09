@@ -117,14 +117,14 @@ async function refreshCachedReport() {
             <a
               v-if="openInHref(row.location, openIn)"
               :href="openInHref(row.location, openIn)"
-              class="font-monospace"
+              class="btn btn-outline-secondary btn-sm font-monospace"
               :aria-label="`Open ${row.label} in ${openInLabel}`"
               >{{ row.label }}</a
             >
             <span v-else class="font-monospace text-muted">{{ row.label }}</span>
             <button
               type="button"
-              class="btn btn-link btn-sm p-0 advisor-copy-location"
+              class="btn btn-outline-secondary btn-sm advisor-copy-location"
               :aria-label="`Copy location ${row.label}`"
               @click="copyLocation(row, index)"
             >
@@ -203,14 +203,8 @@ async function refreshCachedReport() {
   vertical-align: baseline;
 }
 
-.advisor-violation-location a:focus-visible,
-.advisor-copy-location:focus-visible {
-  outline: 2px solid var(--bs-primary);
-  outline-offset: 2px;
-}
-
 .advisor-rule-violations [tabindex='-1']:focus-visible {
-  outline: 2px solid var(--bs-primary);
+  outline: 2px solid var(--bootui-blue);
   outline-offset: 2px;
 }
 </style>

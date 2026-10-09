@@ -116,7 +116,9 @@ function shapeLabel(shape) {
       >
         {{ report.unavailableReason || 'Caught exception outcomes are not available.' }}
         <div class="mt-2">
-          <router-link to="/java-agent" class="caught-agent-link">Open the Java Agent panel</router-link>
+          <router-link to="/java-agent" class="btn btn-outline-secondary btn-sm caught-agent-link"
+            >Open the Java Agent panel</router-link
+          >
           to attach the BootUI agent.
         </div>
       </UnavailableState>
@@ -200,6 +202,7 @@ function shapeLabel(shape) {
                   <router-link
                     v-if="row.exemplarRequestId"
                     :to="{path: '/activity', query: {request: row.exemplarRequestId}}"
+                    class="btn btn-outline-secondary btn-sm"
                   >
                     <code>{{ row.exemplarRequestId }}</code>
                   </router-link>

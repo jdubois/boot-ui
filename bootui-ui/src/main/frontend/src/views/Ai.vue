@@ -990,7 +990,7 @@ const detectedFrameworkLabel = computed(() => {
                           <code>{{ selectedSpanId }}</code>
                           <button
                             :title="copiedKey === selectedSpanId ? 'Copied!' : 'Copy span id'"
-                            class="btn btn-sm btn-link p-0 ms-2"
+                            class="btn btn-sm btn-outline-secondary ms-2"
                             @click="copyToClipboard(selectedSpanId, selectedSpanId)"
                           >
                             <i :class="copiedKey === selectedSpanId ? 'bi-check-lg' : 'bi-clipboard'" class="bi"></i>

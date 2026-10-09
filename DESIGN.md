@@ -269,6 +269,15 @@ BootUI is a **layered** system, not a flat one — but the elevation is calm. Fr
 - **Placeholder:** must meet the same 4.5:1 contrast as body text; never the faint Slate Subtle gray.
 
 ### Navigation
+- **Panel destinations and actions:** standalone cross-panel links, request identifiers that open detail, setup/help
+  destinations, advisor references, and disclosure/filter/copy actions use `btn btn-outline-secondary btn-sm`, as in
+  Runtime Insights' Performance deep dives. Keep navigation as anchors or router links and actions as buttons; do not
+  change destinations, query identity, confirmation gates, or disabled/loading/read-only behavior for styling.
+  Secondary labels, hover/active fills, borders, and focus rings inherit shared theme tokens; skin files own geometry.
+  Machine identifiers inside a button stay monospace but inherit its state color. Long destinations wrap.
+- **Inline references stay inline:** product/library names, attribution, and references embedded in explanatory
+  sentences remain conventional links. Sidebar rows, tabs, interactive KPI cards, and the footer retain their own
+  established affordances rather than becoming a second button toolbar.
 - **Style:** a frosted, blurred left sidebar (`backdrop-filter: blur(22px)`) grouped under uppercase nav-group labels; collapses to a 5.25rem icon rail and to an off-canvas drawer below 992px.
 - **Default / Hover:** slate link text; hover tints the row green (`rgba(25,135,84,0.08)` bg, green text).
 - **Active:** the green→blue gradient pill with white text — the one place the gradient appears.

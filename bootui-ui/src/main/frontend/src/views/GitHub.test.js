@@ -355,8 +355,10 @@ describe('GitHub', () => {
     expect(wrapper.text()).not.toContain('Refresh now')
     expect(wrapper.find('button[title="Refresh"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('GitHub dashboard refreshed.')
-    expect(wrapper.find('a.github-link-chip--primary').text()).toContain('jdubois/boot-ui')
-    expect(wrapper.find('a.github-link-chip--primary .bi-box-arrow-up-right').exists()).toBe(false)
+    const repositoryLink = wrapper.find('a[href="https://github.com/jdubois/boot-ui"]')
+    expect(repositoryLink.text()).toContain('jdubois/boot-ui')
+    expect(repositoryLink.classes()).toEqual(expect.arrayContaining(['btn', 'btn-outline-secondary', 'btn-sm']))
+    expect(repositoryLink.find('.bi-box-arrow-up-right').exists()).toBe(false)
 
     await vi.advanceTimersByTimeAsync(59_000)
     expect(fetchMock).toHaveBeenCalledTimes(1)

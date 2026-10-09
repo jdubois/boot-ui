@@ -358,7 +358,7 @@ defineExpose({load})
           <div class="d-flex flex-wrap align-items-center gap-2">
             <button
               type="button"
-              class="btn btn-link p-0 text-start"
+              class="btn btn-outline-secondary btn-sm text-start"
               :aria-expanded="expanded.has(probe.id)"
               :aria-controls="`code-paths-probe-${probe.id}`"
               @click="toggle(probe.id)"
@@ -458,7 +458,11 @@ defineExpose({load})
                       <span v-if="hit.shapesIncomplete" class="text-warning-emphasis"> (some shapes lost)</span>
                     </td>
                     <td class="small">
-                      <router-link v-if="hit.requestId" :to="{path: '/activity', query: {request: hit.requestId}}">
+                      <router-link
+                        v-if="hit.requestId"
+                        :to="{path: '/activity', query: {request: hit.requestId}}"
+                        class="btn btn-outline-secondary btn-sm"
+                      >
                         <code>{{ hit.requestId }}</code>
                       </router-link>
                       <span v-else class="text-muted">—</span>
