@@ -428,6 +428,10 @@ give the details.
 
 ### Changed
 
+- **Runtime journal performance evidence.** The v2 validation report records one Spring MVC sample-route CI result:
+  14.1 % lower median throughput with the journal enabled than disabled, against a 5 % target, with zero drops. This
+  is not a universal application estimate; the journal remains enabled by default by maintainer decision
+  ([validation report](docs/V2-VALIDATION-REPORT.md#release-sign-off)).
 - **An unknown id is a tool error on every id-based tool.** `get_request_profile`, `get_runtime_insight`, and
   `get_runtime_run_comparison` refuse an unknown or evicted id, so the CLI exits `1` ([AI agents](docs/AI-AGENTS.md#unknown-ids-and-unavailable-capabilities)).
 - **DevTools LiveReload says when it is unavailable.** `trigger_devtools_livereload` reports `available: false` with
