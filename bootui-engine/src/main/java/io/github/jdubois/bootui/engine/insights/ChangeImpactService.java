@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.inventory.CodeInventoryService;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
+import io.github.jdubois.bootui.engine.journal.JournalCompleteness;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
@@ -309,12 +310,13 @@ public final class ChangeImpactService {
                 : ReverseClosure.of(model, start.id(), resource ? ACCESS : CODE, ReverseClosure.MAX_DEPTH);
         Map<String, RouteStats> stats = new HashMap<>();
         var aggregate = aggregates.snapshot();
-        aggregate.routes().forEach(route -> stats.put(route.route(), route));
+        JournalCompleteness.impactRoutes(aggregate).forEach(route -> stats.put(route.route(), route));
         boolean routeOverflow = aggregate.overflowed().getOrDefault("routes", 0L) > 0;
+        String absenceReason = JournalCompleteness.absenceReason(journal, aggregate, "routes");
         Map<String, List<String>> exemplars = exemplars(entries);
         List<RuntimeImpactRouteDto> observed = new ArrayList<>();
         List<RuntimeImpactRouteDto> notExercised = new ArrayList<>();
-        boolean undetermined = false;
+        boolean undetermined = absenceReason != null;
         Set<Integer> observedRoutes = new LinkedHashSet<>();
         List<Integer> reached = new ArrayList<>();
         if (routeStart) {
@@ -330,7 +332,7 @@ public final class ChangeImpactService {
             if ((routeStats != null && routeStats.requests() > 0) || model.executions(id) > 0) {
                 observedRoutes.add(id);
                 observed.add(row(model, node, stats, exemplars, List.of(), null, visible));
-            } else if (!routeOverflow) {
+            } else if (!routeOverflow && absenceReason == null) {
                 notExercised.add(row(
                         model,
                         node,
@@ -356,7 +358,10 @@ public final class ChangeImpactService {
         shared.sort(busiest);
         notExercised.sort(Comparator.comparing(RuntimeImpactRouteDto::route));
         List<String> limitations = new ArrayList<>(limitations(model, omitted));
-        if (undetermined) {
+        if (absenceReason != null) {
+            limitations.add(absenceReason);
+        }
+        if (undetermined && routeOverflow) {
             limitations.add("The route aggregate reached its cardinality limit: routes absent from its counts and"
                     + " the retained journal cannot be classified as not exercised.");
         }
@@ -614,8 +619,9 @@ public final class ChangeImpactService {
             Map<String, Boolean> visible,
             Set<String> omitted) {
         Map<String, RouteStats> stats = new HashMap<>();
-        aggregate.routes().forEach(route -> stats.put(route.route(), route));
+        JournalCompleteness.impactRoutes(aggregate).forEach(route -> stats.put(route.route(), route));
         boolean routeOverflow = aggregate.overflowed().getOrDefault("routes", 0L) > 0;
+        String absenceReason = JournalCompleteness.absenceReason(journal, aggregate, "routes");
         Map<String, List<String>> exemplars = exemplars(entries);
 
         // Observed: the routes whose requests' own trees executed it, or Code Inventory's first request's route.
@@ -685,7 +691,7 @@ public final class ChangeImpactService {
         List<String> silence = silence(className, method, keys, paths);
         List<RuntimeImpactRouteDto> notExercised = new ArrayList<>();
         List<RuntimeImpactRouteDto> notObserved = new ArrayList<>();
-        boolean undetermined = false;
+        boolean undetermined = absenceReason != null;
         for (int id : declared) {
             ModelNode node = model.node(id);
             if (executed.containsKey(node.key())) {
@@ -694,7 +700,7 @@ public final class ChangeImpactService {
             RouteStats routeStats = stats.get(node.key());
             long requests = routeStats != null ? routeStats.requests() : model.executions(id);
             if (requests == 0) {
-                if (routeOverflow) {
+                if (routeOverflow || absenceReason != null) {
                     undetermined = true;
                 } else {
                     notExercised.add(routeRow(
@@ -764,6 +770,9 @@ public final class ChangeImpactService {
         notExercised.sort(Comparator.comparing(RuntimeImpactRouteDto::route));
 
         List<String> limitations = new ArrayList<>(limitations(model, omitted));
+        if (absenceReason != null) {
+            limitations.add(absenceReason);
+        }
         limitations.add("A route is observed only when its requests' own call trees executed the method, its first"
                 + " request, executor work the agent followed, and fragments that arrived late included, or when Code"
                 + " Inventory saw a request of it run the method first; route traffic alone never counts, and calls"

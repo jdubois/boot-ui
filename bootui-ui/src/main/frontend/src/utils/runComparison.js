@@ -2,6 +2,7 @@ import {formatClockTime, formatNumber} from './format.js'
 
 const STATUS_LABELS = {
   COMPARED: 'Compared',
+  PARTIAL: 'Partly compared',
   INSUFFICIENT: 'Needs more traffic',
   NOT_COMPARABLE: 'Not comparable',
   NO_PREVIOUS_RUN: 'No previous run',
@@ -10,6 +11,7 @@ const STATUS_LABELS = {
 
 const STATUS_ICONS = {
   COMPARED: 'bi-check2',
+  PARTIAL: 'bi-dash-circle',
   INSUFFICIENT: 'bi-hourglass-split',
   NOT_COMPARABLE: 'bi-slash-circle',
   NO_PREVIOUS_RUN: 'bi-clock-history',
@@ -87,10 +89,15 @@ export function restartCostText(cost) {
 /** The comparison in a few words, for the run summary's link to it, or null before it loads. */
 export function comparisonSummary(comparison) {
   if (!isComparison(comparison)) return null
-  if (comparison.status === 'COMPARED' || comparison.status === 'INSUFFICIENT') {
+  if (['COMPARED', 'PARTIAL', 'INSUFFICIENT'].includes(comparison.status)) {
     const changes = (comparison.behavior?.length ?? 0) + (comparison.edges?.length ?? 0)
     const run = comparison.previous ? `run ${comparison.previous.ordinal}` : 'the previous run'
     if (comparison.status === 'INSUFFICIENT') return `Compared with ${run}: needs more traffic`
+    if (comparison.status === 'PARTIAL') {
+      return changes === 0
+        ? `Partly compared with ${run}: incomplete evidence`
+        : `${changes} ${changes === 1 ? 'change' : 'changes'} since ${run} (partly compared)`
+    }
     return changes === 0
       ? `No change in behavior since ${run}`
       : `${changes} ${changes === 1 ? 'change' : 'changes'} since ${run}`

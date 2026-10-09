@@ -200,6 +200,9 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
           Side effects not compared: {{ outside.reason }}
         </p>
         <p v-if="comparison.reason" class="mb-0 mt-2 insight-comparison-reason">{{ comparison.reason }}</p>
+        <p v-else-if="comparison.status === 'PARTIAL'" class="mb-0 mt-2 insight-comparison-reason">
+          Some evidence could not be compared. Read the limits before treating an empty list as no change.
+        </p>
         <ul v-if="extraReasons.length" class="small mb-0 mt-1 insight-comparison-reason">
           <li v-for="reason in extraReasons" :key="reason">{{ reason }}</li>
         </ul>

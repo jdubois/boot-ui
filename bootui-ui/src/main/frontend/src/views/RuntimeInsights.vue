@@ -79,7 +79,7 @@ const comparison = ref(null)
 const comparisonReady = ref(false)
 const comparisonText = computed(() => comparisonSummary(comparison.value))
 // Whether there is a previous run to show the changes of, rather than only a reason there is none.
-const compared = computed(() => ['COMPARED', 'INSUFFICIENT'].includes(comparison.value?.status))
+const compared = computed(() => ['COMPARED', 'PARTIAL', 'INSUFFICIENT'].includes(comparison.value?.status))
 // The methods the comparison found changed or added that change impact can check, offered as the first things to check
 // there; the total counts every changed or added method, including those the comparison did not list.
 const code = computed(() => codeChanges(comparison.value))

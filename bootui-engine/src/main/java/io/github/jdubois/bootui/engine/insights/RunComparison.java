@@ -5,10 +5,12 @@ import io.github.jdubois.bootui.core.dto.RuntimeRunChangeDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunRefDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.AggregatesSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.ExceptionGroupStats;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.ExecutionStats;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
+import io.github.jdubois.bootui.engine.journal.JournalCompleteness;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
@@ -46,6 +48,7 @@ public final class RunComparison {
     private static final Logger LOG = Logger.getLogger(RunComparison.class.getName());
 
     public static final String COMPARED = "COMPARED";
+    public static final String PARTIAL = "PARTIAL";
     public static final String INSUFFICIENT = "INSUFFICIENT";
     public static final String NOT_COMPARABLE = "NOT_COMPARABLE";
     public static final String NO_PREVIOUS_RUN = "NO_PREVIOUS_RUN";
@@ -59,6 +62,19 @@ public final class RunComparison {
     static final double MIN_BEAN_SHIFT_MS = 200;
     static final double MIN_BEAN_SHIFT = 0.5;
     static final double MIN_ALLOCATION_SHIFT_BYTES = 256 * 1024;
+    private static final Set<JournalSource> COMPARISON_SOURCES = EnumSet.of(
+            JournalSource.HTTP,
+            JournalSource.SQL,
+            JournalSource.EXCEPTION,
+            JournalSource.REST_CLIENT,
+            JournalSource.AI,
+            JournalSource.CACHE,
+            JournalSource.ORM,
+            JournalSource.RESOURCES,
+            JournalSource.SCHEDULED,
+            JournalSource.MESSAGING,
+            JournalSource.WEBSOCKET,
+            JournalSource.APP_EVENT);
 
     private RunComparison() {}
 
@@ -172,6 +188,9 @@ public final class RunComparison {
         AggregatesSnapshot then = previous.aggregates();
         Set<JournalSource> sharedSources = sharedSources(start, previousStart, now, then);
         sharedSources.removeIf(source -> !sourceVisible(source, hiddenPanels));
+        boolean partial = completenessLimitations(now, "This run", sharedSources, httpVisible, limitations)
+                | completenessLimitations(then, "Run " + before.ordinal(), sharedSources, httpVisible, limitations);
+        partial |= before.omittedEntries() > 0 || before.omittedEdges() > 0;
         if (start == null || previousStart == null) {
             limitations.add(
                     "Without both runs' source settings, source-specific facts are compared only when both recorded that source.");
@@ -200,6 +219,7 @@ public final class RunComparison {
         List<RuntimeRunChangeDto> behavior = new ArrayList<>();
         List<RuntimeRunChangeDto> latency = new ArrayList<>();
         int compared = 0;
+        int adequate = 0;
         int tooFew = 0;
         // Shared sources use recorded settings, or event presence when start facts are missing (M4-9).
         boolean ormInBoth = sharedSources.contains(JournalSource.ORM);
@@ -215,6 +235,7 @@ public final class RunComparison {
             routes.addAll(now.routes());
         }
         Set<String> executionNames = new LinkedHashSet<>();
+        Map<String, JournalSource> roots = new HashMap<>();
         if (then.executionsRecorded() && now.executionsRecorded()) {
             for (ExecutionStats execution : then.executions()) {
                 if (executionVisible(execution, sharedSources, hiddenPanels)) {
@@ -225,6 +246,7 @@ public final class RunComparison {
                 if (executionVisible(execution, sharedSources, hiddenPanels)) {
                     routes.add(execution.stats());
                     executionNames.add(execution.stats().route());
+                    roots.put(execution.stats().route(), execution.source());
                 }
             }
         }
@@ -233,32 +255,46 @@ public final class RunComparison {
             String name = route.route();
             boolean execution = executionNames.contains(name);
             String unit = execution ? "execution" : "request";
+            JournalSource root = roots.getOrDefault(name, JournalSource.HTTP);
             if ("Other".equals(name)) {
                 continue;
             }
             RouteStats old = previousRoutes.get(name);
             if (old == null) {
-                behavior.add(change(
-                        "route-new",
-                        name,
-                        null,
-                        "ADDED",
-                        null,
-                        (double) route.requests(),
-                        0,
-                        route.requests(),
-                        "`" + name + (execution ? "` completed " : "` served ") + route.requests()
-                                + plural(" " + unit, route.requests()) + ", and none in " + run + "."));
+                if (JournalCompleteness.windowComplete(now, root)
+                        && JournalCompleteness.absenceKnown(then, root, root)
+                        && before.omittedEntries() == 0
+                        && then.overflowed().getOrDefault(execution ? "executions" : "routes", 0L) == 0) {
+                    behavior.add(change(
+                            "route-new",
+                            name,
+                            null,
+                            "ADDED",
+                            null,
+                            (double) route.requests(),
+                            0,
+                            route.requests(),
+                            "`" + name + (execution ? "` completed " : "` served ") + route.requests()
+                                    + plural(" " + unit, route.requests()) + ", and none in " + run + "."));
+                }
                 continue;
             }
-            if (sharedSources.contains(JournalSource.SQL)) {
+            if (route.requests() >= MIN_REQUESTS && old.requests() >= MIN_REQUESTS) {
+                adequate++;
+            }
+            if (!JournalCompleteness.windowComplete(now, root) || !JournalCompleteness.windowComplete(then, root)) {
+                continue;
+            }
+            if (counterComparable(sharedSources, now, then, JournalSource.SQL, root)) {
                 Map<String, Long> statements = JournalTextExposure.statementCounts(route.statements());
                 Map<String, Long> oldStatements = JournalTextExposure.statementCounts(old.statements());
                 for (Map.Entry<String, Long> statement : statements.entrySet()) {
                     String fingerprint = statement.getKey();
                     if (!"Other".equals(fingerprint)
                             && !oldStatements.containsKey("Other")
-                            && !oldStatements.containsKey(fingerprint)) {
+                            && !oldStatements.containsKey(fingerprint)
+                            && JournalCompleteness.absenceKnown(then, JournalSource.SQL, root)
+                            && before.omittedEntries() == 0) {
                         behavior.add(change(
                                 "new-statement",
                                 name,
@@ -275,7 +311,8 @@ public final class RunComparison {
                 }
                 if (route.requests() >= MIN_REQUESTS
                         && !statements.containsKey("Other")
-                        && !oldStatements.containsKey("Other")) {
+                        && !oldStatements.containsKey("Other")
+                        && JournalCompleteness.absenceKnown(now, JournalSource.SQL, root)) {
                     oldStatements.forEach((fingerprint, count) -> {
                         if (!statements.containsKey(fingerprint)) {
                             behavior.add(change(
@@ -296,7 +333,11 @@ public final class RunComparison {
             Map<String, String> raised = currentSignatures.getOrDefault(name, Map.of());
             Map<String, String> raisedBefore = previousSignatures.getOrDefault(name, Map.of());
             raised.forEach((signature, exceptionClass) -> {
-                if (sharedSources.contains(JournalSource.EXCEPTION) && !raisedBefore.containsKey(signature)) {
+                if (counterComparable(sharedSources, now, then, JournalSource.EXCEPTION, root)
+                        && !raisedBefore.containsKey(signature)
+                        && JournalCompleteness.absenceKnown(then, JournalSource.EXCEPTION, root)
+                        && JournalCompleteness.exceptionSignaturesComplete(then)
+                        && before.omittedEntries() == 0) {
                     behavior.add(change(
                             "new-exception",
                             name,
@@ -315,7 +356,7 @@ public final class RunComparison {
                 continue;
             }
             compared++;
-            if (sharedSources.contains(JournalSource.SQL)) {
+            if (counterComparable(sharedSources, now, then, JournalSource.SQL, root)) {
                 perRequest(
                         behavior,
                         "statements-per-request",
@@ -328,7 +369,7 @@ public final class RunComparison {
                         child(route, JournalSource.SQL),
                         unit);
             }
-            if (sharedSources.contains(JournalSource.REST_CLIENT)) {
+            if (counterComparable(sharedSources, now, then, JournalSource.REST_CLIENT, root)) {
                 perRequest(
                         behavior,
                         "rest-calls-per-request",
@@ -341,7 +382,7 @@ public final class RunComparison {
                         child(route, JournalSource.REST_CLIENT),
                         unit);
             }
-            if (sharedSources.contains(JournalSource.AI)) {
+            if (counterComparable(sharedSources, now, then, JournalSource.AI, root)) {
                 perRequest(
                         behavior,
                         "ai-calls-per-request",
@@ -354,7 +395,7 @@ public final class RunComparison {
                         child(route, JournalSource.AI),
                         unit);
             }
-            if (sharedSources.contains(JournalSource.CACHE)) {
+            if (counterComparable(sharedSources, now, then, JournalSource.CACHE, root)) {
                 perRequest(
                         behavior,
                         "cache-misses-per-request",
@@ -367,10 +408,10 @@ public final class RunComparison {
                         route.cacheMisses(),
                         unit);
             }
-            if (sharedSources.contains(JournalSource.AI)) {
+            if (counterComparable(sharedSources, now, then, JournalSource.AI, root)) {
                 tokens(behavior, name, run, old, route, unit);
             }
-            if (ormInBoth) {
+            if (ormInBoth && counterComparable(sharedSources, now, then, JournalSource.ORM, root)) {
                 perRequest(
                         behavior,
                         "flushes-per-request",
@@ -389,7 +430,7 @@ public final class RunComparison {
             } else {
                 statusShare(behavior, name, run, old, route, 3, "4xx", unit);
                 statusShare(behavior, name, run, old, route, 4, "5xx", unit);
-                if (sharedSources.contains(JournalSource.RESOURCES)) {
+                if (counterComparable(sharedSources, now, then, JournalSource.RESOURCES, root)) {
                     allocation(behavior, name, run, old, route);
                 }
             }
@@ -401,9 +442,13 @@ public final class RunComparison {
         List<RuntimeRunChangeDto> edges = new ArrayList<>();
         diff.added().stream()
                 .filter(edge -> comparableEdge(edge, sharedSources, hiddenPanels))
+                .filter(edge -> before.omittedEdges() == 0 && JournalCompleteness.edgeAbsenceKnown(then, edge.edge()))
+                .filter(edge -> JournalCompleteness.edgeCountsKnown(now, edge.edge()))
                 .forEach(edge -> edges.add(edge(edge, true, run)));
         diff.removed().stream()
                 .filter(edge -> comparableEdge(edge, sharedSources, hiddenPanels))
+                .filter(edge -> JournalCompleteness.edgeAbsenceKnown(now, edge.edge()))
+                .filter(edge -> JournalCompleteness.edgeCountsKnown(then, edge.edge()))
                 .forEach(edge -> edges.add(edge(edge, false, run)));
         limitations.addAll(diff.limitations());
 
@@ -417,14 +462,18 @@ public final class RunComparison {
                 && ((!httpVisible && (!now.routes().isEmpty() || !then.routes().isEmpty()))
                         || hasHiddenExecution(now, hiddenPanels)
                         || hasHiddenExecution(then, hiddenPanels));
-        String status = compared > 0 ? COMPARED : policyUnavailable ? UNAVAILABLE : INSUFFICIENT;
-        String reason = compared > 0
-                ? null
-                : policyUnavailable
-                        ? "No routes or executions can be compared because their owning panels are disabled or unavailable."
-                        : "No comparable route or execution recorded at least " + MIN_REQUESTS
-                                + " samples in both runs, so"
-                                + " unchanged behavior cannot be told from work that was not exercised enough.";
+        String status = adequate > 0 && partial
+                ? PARTIAL
+                : compared > 0 ? COMPARED : policyUnavailable ? UNAVAILABLE : INSUFFICIENT;
+        String reason = PARTIAL.equals(status)
+                ? "Some journal evidence could not be compared; reliable dimensions remain available. Read the limits before treating an empty list as no change."
+                : compared > 0
+                        ? null
+                        : policyUnavailable
+                                ? "No routes or executions can be compared because their owning panels are disabled or unavailable."
+                                : "No comparable route or execution recorded at least " + MIN_REQUESTS
+                                        + " samples in both runs, so"
+                                        + " unchanged behavior cannot be told from work that was not exercised enough.";
         behavior.replaceAll(row -> executionNames.contains(row.subject()) ? executionRow(row) : row);
         latency.replaceAll(row -> executionNames.contains(row.subject()) ? executionRow(row) : row);
         return new RuntimeRunComparisonDto(
@@ -439,6 +488,82 @@ public final class RunComparison {
                 restartCost(current, start, before, kept, baselineRunId),
                 capped(latency, "latency rows", limitations),
                 limitations);
+    }
+
+    private static boolean counterComparable(
+            Set<JournalSource> shared,
+            AggregatesSnapshot now,
+            AggregatesSnapshot then,
+            JournalSource source,
+            JournalSource root) {
+        return shared.contains(source)
+                && JournalCompleteness.countersComplete(now, source, root)
+                && JournalCompleteness.countersComplete(then, source, root);
+    }
+
+    private static boolean completenessLimitations(
+            AggregatesSnapshot snapshot,
+            String run,
+            Set<JournalSource> shared,
+            boolean httpVisible,
+            List<String> limitations) {
+        if (!JournalCompleteness.verified(snapshot)) {
+            limitations.add(run + " kept no journal completeness metadata; completeness is unknown, so missing"
+                    + " counts and absent behavior are not compared as zero.");
+            return true;
+        }
+        boolean partial = JournalCompleteness.limited(snapshot);
+        if (snapshot.run().openRequests() > 0) {
+            partial = true;
+            limitations.add(run + " has request children awaiting completion; their absent route behavior cannot"
+                    + " yet be compared as whole-run absence.");
+        }
+        if (snapshot.overflowed().getOrDefault(JournalAggregates.OPEN_EXECUTIONS, 0L) > 0) {
+            partial = true;
+            limitations.add(run + " has execution children awaiting completion; their absent job or message"
+                    + " behavior cannot yet be compared as whole-run absence.");
+        }
+        if (JournalCompleteness.clears(snapshot) > 0) {
+            partial = true;
+            limitations.add(run + " was cleared; counters compare only complete executions started after the clear,"
+                    + " and remaining evidence cannot prove whole-run absence.");
+        }
+        Set<JournalSource> relevant = EnumSet.copyOf(COMPARISON_SOURCES);
+        relevant.retainAll(shared);
+        if (httpVisible) {
+            relevant.add(JournalSource.HTTP);
+        }
+        for (JournalSource source : relevant) {
+            long dropped = JournalCompleteness.dropped(snapshot, source);
+            long missed = JournalCompleteness.missed(snapshot, source);
+            long failed = JournalCompleteness.failed(snapshot, source);
+            if (failed > 0) {
+                partial = true;
+                limitations.add(
+                        run + "'s " + source.propertyName()
+                                + " aggregation failed for a batch of events; affected dimensions cannot prove complete capture.");
+            }
+            if (missed > 0) {
+                partial = true;
+                limitations.add(run + "'s " + source.propertyName() + " source missed " + missed
+                        + " events before aggregate registration; affected dimensions cannot prove complete capture.");
+            }
+            if (dropped > 0) {
+                partial = true;
+                limitations.add(run + "'s " + source.propertyName() + " source dropped " + dropped
+                        + " events; affected counters and whole-run absence are not compared.");
+            } else if (missed == 0 && failed == 0 && !JournalCompleteness.windowComplete(snapshot, source)) {
+                partial = true;
+                limitations.add(run + "'s " + source.propertyName()
+                        + " source is not recorded; its missing counts are not compared as zero.");
+            }
+        }
+        if (JournalCompleteness.limited(snapshot)) {
+            limitations.add(
+                    run
+                            + " reached aggregate or attribution limits; affected dimensions cannot prove absence or complete per-unit counts.");
+        }
+        return partial;
     }
 
     private static RuntimeRunChangeDto executionRow(RuntimeRunChangeDto row) {
@@ -476,26 +601,8 @@ public final class RunComparison {
     private static boolean comparableEdge(
             ObservedEdge observed, Set<JournalSource> sources, Map<String, String> hiddenPanels) {
         EdgeRef edge = observed.edge();
-        JournalSource origin =
-                switch (edge.fromType()) {
-                    case ROUTE, GRAPHQL_OPERATION -> JournalSource.HTTP;
-                    case SCHEDULED_JOB -> JournalSource.SCHEDULED;
-                    case LISTENER ->
-                        edge.fromKey().startsWith("websocket:") ? JournalSource.WEBSOCKET : JournalSource.MESSAGING;
-                    default -> null;
-                };
-        JournalSource target =
-                switch (edge.toType()) {
-                    case TABLE -> JournalSource.SQL;
-                    case CACHE -> JournalSource.CACHE;
-                    case HOST -> JournalSource.REST_CLIENT;
-                    case AI_MODEL -> JournalSource.AI;
-                    case EXCEPTION_GROUP -> JournalSource.EXCEPTION;
-                    case DESTINATION ->
-                        edge.toKey().startsWith("websocket:") ? JournalSource.WEBSOCKET : JournalSource.MESSAGING;
-                    case EVENT -> JournalSource.APP_EVENT;
-                    default -> null;
-                };
+        JournalSource origin = JournalCompleteness.rootSource(edge);
+        JournalSource target = JournalCompleteness.targetSource(edge);
         return (origin == null || sources.contains(origin))
                 && (target == null || sources.contains(target))
                 && (origin != JournalSource.MESSAGING || messagingVisible(edge.fromKey(), hiddenPanels))

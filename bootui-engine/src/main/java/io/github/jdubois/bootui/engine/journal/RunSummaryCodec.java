@@ -39,7 +39,9 @@ import java.util.function.ToLongFunction;
  * buckets. When the summary exceeds the bound, the least-used entries of each aggregate and the least-observed edges are
  * left out, halving how many are kept until it fits, and the header counts what was left out, and how many edges.</p>
  *
- * <p>Version 13 adds the run's application to its header, so runs of different applications sharing a JVM are never
+ * <p>Version 14 keeps explicit aggregate-completeness metadata in a reserved limit-map namespace: admission drops,
+ * recorded sources, and clear boundaries. Earlier versions have unknown completeness, never verified zero loss.
+ * Version 13 adds the run's application to its header, so runs of different applications sharing a JVM are never
  * compared; an earlier summary reads with none, and is compared with any application, as before. Version 12 adds what
  * the run did outside the JVM ({@link RunSideEffects}, M5-7b) after the executions, within its
  * own byte budget of {@value #SIDE_EFFECTS_MAX_BYTES} bytes, trimmed per sensor before anything else; an earlier
@@ -51,7 +53,7 @@ final class RunSummaryCodec {
 
     private static final int MAGIC = 0x42555253;
 
-    private static final int VERSION = 13;
+    private static final int VERSION = 14;
 
     /** The most bytes a summary's side effects take, so they never crowd out the aggregates. */
     static final int SIDE_EFFECTS_MAX_BYTES = 48 * 1024;
@@ -110,6 +112,10 @@ final class RunSummaryCodec {
                 in.list(() -> new ThreadFamilyStats(in.string(), in.sourceMap(), in.sourceMap()));
         List<ObservedEdge> edges = in.edges();
         Map<String, Long> overflowed = in.stringMap();
+        if (in.version < 14) {
+            overflowed = new LinkedHashMap<>(overflowed);
+            overflowed.keySet().removeIf(key -> key.startsWith(JournalCompleteness.PREFIX));
+        }
         if (in.version < 11) {
             overflowed = new LinkedHashMap<>(overflowed);
             overflowed.put(JournalAggregates.LEGACY_TABLE_EDGES, 1L);
@@ -406,7 +412,7 @@ final class RunSummaryCodec {
         for (ExceptionGroupStats group : aggregates.exceptionGroups()) {
             largest = Math.max(largest, group.routes().size());
         }
-        return largest;
+        return Math.max(largest, JournalCompleteness.positiveEntries(aggregates.overflowed()));
     }
 
     private static AggregatesSnapshot trim(AggregatesSnapshot aggregates, int limit) {
@@ -472,7 +478,7 @@ final class RunSummaryCodec {
                 families,
                 edges,
                 aggregates.run(),
-                aggregates.overflowed(),
+                JournalCompleteness.trim(aggregates.overflowed(), limit),
                 executions,
                 aggregates.executionsRecorded());
     }
@@ -523,7 +529,8 @@ final class RunSummaryCodec {
                 + aggregates.transactionalMethods().size()
                 + aggregates.threadFamilies().size()
                 + aggregates.edges().size()
-                + aggregates.executions().size();
+                + aggregates.executions().size()
+                + JournalCompleteness.positiveEntries(aggregates.overflowed());
         for (ExecutionStats execution : aggregates.executions()) {
             entries += execution.stats().statements().size();
         }

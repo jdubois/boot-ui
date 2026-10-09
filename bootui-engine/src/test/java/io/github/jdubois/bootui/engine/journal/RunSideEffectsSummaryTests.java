@@ -56,7 +56,7 @@ class RunSideEffectsSummaryTests {
                 RunSummary.of(RunIdentity.start(), new JournalAggregates().snapshot(), null, sideEffects, 2),
                 RunHistory.MAX_SUMMARY_BYTES);
 
-        assertThat(encoded[4]).isEqualTo((byte) 13);
+        assertThat(encoded[4]).isEqualTo((byte) 14);
         assertThat(RunSummaryCodec.decode(encoded).sideEffects()).isEqualTo(sideEffects);
 
         byte[] none = RunSummaryCodec.encode(

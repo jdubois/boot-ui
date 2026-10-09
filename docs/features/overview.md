@@ -906,6 +906,9 @@ without retained evidence is not claimed to be unexercised: `notExercisedUndeter
 instead of claiming every mapped route ran. Disabled source panels leave their facts out and are named in the
 limitations only when relevant evidence was recorded; when HTTP Exchanges is disabled, change impact cannot classify
 traffic at all. Symbol suggestions reuse a policy-filtered projection until the journal or panel policy changes.
+HTTP journal capture being off, dropped HTTP completions, or **Clear recording** also make whole-run absence unknown:
+the impact and the app-wide unexercised-route list do not call an absent route unexercised. Positive observed routes
+remain usable, including a completion that straddled a clear; its missing pre-clear work is not treated as zero.
 
 **Profile resources** measures what scope readings cannot, such as CPU on virtual threads. Only when you click it, it
 records a JDK Flight Recorder session of `bootui.resources.jfr.max-duration` (30 seconds by default; **Stop now** ends
@@ -952,6 +955,16 @@ dialect-specific literals, so comparison does not claim their separate identitie
 New statement fingerprints are listed from their first occurrence; gone fingerprints need 3 current samples, and
 capped fingerprint maps cannot prove that a statement disappeared. Source-specific counters and edges are compared
 only when both runs recorded their sources and their owning panels remain enabled and available.
+Admission drops are distinct from evidence eviction: an evicted event still reached the incremental aggregates, but
+an event refused by the journal did not. A source that dropped events withholds its affected counters and absence
+claims, without hiding reliable HTTP, REST-client, cache, or unrelated execution evidence. Such a comparison is
+**Partly compared** (`PARTIAL`), with its limits, never an empty successful “no change.” Genuine older summaries without
+completeness metadata remain readable, but unknown completeness cannot supply verified zero counts.
+After **Clear recording**, only complete requests and executions that started after the clear supply per-unit
+statistics. A crossing completion, or a message whose start is unknown, cannot turn cleared SQL into a reduction;
+fresh requests on the same route and fresh executions of the same job remain comparable. The remaining window cannot
+prove whole-run absence. Summary format v14 persists source-drop counts, explicit completeness presence, and clear
+boundaries, including when aggregate entries are trimmed.
 Disabled panels' facts, fingerprints, exception classes, execution names, and edges are omitted, with an explicit
 “not compared because &lt;panel&gt; is disabled” limitation. Messaging follows each broker's panel independently.
 Disabling HTTP Exchanges also hides the request totals in all run references: the JSON retains `requests: 0` for

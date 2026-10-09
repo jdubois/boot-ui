@@ -76,6 +76,8 @@ public final class JournalAggregates implements JournalListener {
     public static final String LATE_REQUEST_ATTRIBUTIONS = "lateRequestAttributions";
     public static final String ATTRIBUTION_TOMBSTONES = "attributionTombstones";
     public static final String TRACE_AI_ATTRIBUTIONS = "traceAiAttributions";
+    public static final String OPEN_EXECUTIONS = "openExecutions";
+    public static final String EXCEPTION_GROUP_ATTRIBUTIONS = "exceptionGroupAttributions";
 
     /**
      * The {@link AggregatesSnapshot#overflowed()} key of the trace-only AI calls that no request of their trace ever
@@ -107,6 +109,7 @@ public final class JournalAggregates implements JournalListener {
     private final LinkedHashMap<String, PendingRequest> pendingExecutions = new LinkedHashMap<>();
     private final Map<String, Boolean> completedExecutions = bounded(MAX_PENDING_REQUESTS);
     private long unattributedExecutions;
+    private long exceptionGroupAttributions;
 
     /** The most recently completed requests, including the state needed to apply exactly owned late events once. */
     private final LinkedHashMap<String, CompletedRequest> completed = new LinkedHashMap<>();
@@ -156,6 +159,56 @@ public final class JournalAggregates implements JournalListener {
     private volatile Supplier<RunSideEffects> sideEffects;
     private RunStart runStart;
     private Long runReadyAtEpochMillis;
+    private RuntimeJournal journal;
+    private boolean completenessVerified;
+    private Map<JournalSource, Long> missedBeforeBinding = Map.of();
+    private Map<JournalSource, Long> windowMissed = Map.of();
+    private final long[] failedAggregations = new long[SOURCES];
+    private final long[] windowFailedAggregations = new long[SOURCES];
+    private RuntimeJournal.ClearBoundary clearBoundary = new RuntimeJournal.ClearBoundary(0, 0, Map.of());
+    private final CappedMap<long[]> crossingRoutes = new CappedMap<>(MAX_ROUTES, () -> new long[2]);
+    private final CappedMap<long[]> crossingExecutions = new CappedMap<>(MAX_ROUTES, () -> new long[1]);
+    private final Map<String, Boolean> crossingOwners = bounded(MAX_PENDING_REQUESTS);
+
+    synchronized void bind(RuntimeJournal journal, Map<JournalSource, Long> missed) {
+        if (this.journal != null
+                && clearBoundary.clears() != journal.clearBoundary().clears()) {
+            reset();
+            windowMissed = Map.of();
+        }
+        Map<JournalSource, Long> lifetime = new EnumMap<>(JournalSource.class);
+        lifetime.putAll(missedBeforeBinding);
+        Map<JournalSource, Long> window = new EnumMap<>(JournalSource.class);
+        for (JournalSource source : JournalSource.values()) {
+            long missing = Math.max(0, missed.getOrDefault(source, 0L) - runCounts[source.ordinal()]);
+            if (missing > 0) {
+                window.put(source, missing);
+            }
+            long additional = Math.max(0, missing - windowMissed.getOrDefault(source, 0L));
+            if (additional > 0) {
+                lifetime.merge(source, additional, Long::sum);
+            }
+        }
+        this.journal = journal;
+        this.completenessVerified = true;
+        this.missedBeforeBinding = Map.copyOf(lifetime);
+        this.windowMissed = Map.copyOf(window);
+        this.clearBoundary = journal.clearBoundary();
+    }
+
+    synchronized void unbind(RuntimeJournal journal) {
+        if (this.journal == journal) {
+            completenessVerified = false;
+        }
+    }
+
+    synchronized void failedEntries(List<JournalEntry> entries) {
+        for (JournalEntry entry : entries) {
+            int source = entry.event().source().ordinal();
+            failedAggregations[source]++;
+            windowFailedAggregations[source]++;
+        }
+    }
 
     /**
      * Installs the application's declared routes, which name a request's route when the framework recorded no
@@ -281,6 +334,38 @@ public final class JournalAggregates implements JournalListener {
         }
         String label =
                 event.source() == JournalSource.HTTP && payload instanceof HttpPayload http ? routeOf(http) : null;
+        ObservedEdges.Execution root = ObservedEdges.execution(event, ignored -> label);
+        String owner = ObservedEdges.ownerKey(event);
+        if (clearBoundary.clears() > 0
+                && (root != null || label != null)
+                && (event.epochMillis() <= clearBoundary.epochMillis() || event.durationNanos() < 0)) {
+            if (event.source() == JournalSource.HTTP && payload instanceof HttpPayload http) {
+                long[] positive = crossingRoutes.get(label);
+                positive[0]++;
+                if (http.status() >= 500) {
+                    positive[1]++;
+                    failedRequests++;
+                }
+            } else {
+                crossingExecutions.get(event.source().propertyName() + " " + root.key())[0]++;
+            }
+            if (owner != null) {
+                crossingOwners.put(owner, Boolean.TRUE);
+                pendingEdges.remove(owner);
+                executions.remove(owner);
+            }
+            pending.remove(event.requestId());
+            pendingExecutions.remove(event.executionId());
+            if (event.source() == JournalSource.HTTP) {
+                aiCallOwners.learn(event);
+            }
+            return;
+        }
+        if (owner != null
+                && (crossingOwners.containsKey(owner)
+                        || (clearBoundary.clears() > 0 && event.epochMillis() <= clearBoundary.epochMillis()))) {
+            return;
+        }
         observeEdges(event, label);
         // An event not observed on a thread, such as an AI call joined to its request by trace id or a message sent
         // from an I/O callback, belongs to no thread family rather than inflating an unknown one.
@@ -368,6 +453,9 @@ public final class JournalAggregates implements JournalListener {
         } else if (payload instanceof ExceptionPayload exception) {
             exceptionGroups.get(exception.groupId()).add(exception);
             boolean newGroup = children != null && children.exceptionGroup(exception.groupId());
+            if (children != null && !newGroup && !children.exceptionGroups.contains(exception.groupId())) {
+                exceptionGroupAttributions++;
+            }
             if (completedRequest != null && newGroup) {
                 exceptionGroups.get(exception.groupId()).routes.get(completedRequest.label)[0]++;
             }
@@ -787,18 +875,31 @@ public final class JournalAggregates implements JournalListener {
      * clear is counted after it.
      */
     @Override
-    public void onClear() {
-        clear();
+    public synchronized void onClear() {
+        reset();
+        windowMissed = Map.of();
+        completenessVerified = journal != null && journal.notifies(this);
+        clearBoundary = journal == null
+                ? new RuntimeJournal.ClearBoundary(clearBoundary.clears() + 1, System.currentTimeMillis(), Map.of())
+                : journal.clearBoundary();
     }
 
     /** Drops every aggregate, for <b>Clear recording</b>. */
     public synchronized void clear() {
+        reset();
+        completenessVerified = false;
+        clearBoundary =
+                new RuntimeJournal.ClearBoundary(clearBoundary.clears() + 1, System.currentTimeMillis(), Map.of());
+    }
+
+    private void reset() {
         resourceTrack.clear();
         executionStats.clear();
         executionSources.clear();
         pendingExecutions.clear();
         completedExecutions.clear();
         unattributedExecutions = 0;
+        exceptionGroupAttributions = 0;
         routes.clear();
         statements.clear();
         exceptionGroups.clear();
@@ -832,6 +933,10 @@ public final class JournalAggregates implements JournalListener {
         lastEpochMillis = Long.MIN_VALUE;
         failedRequests = 0;
         unattributedRequests = 0;
+        crossingRoutes.clear();
+        crossingExecutions.clear();
+        crossingOwners.clear();
+        Arrays.fill(windowFailedAggregations, 0);
     }
 
     /**
@@ -839,7 +944,15 @@ public final class JournalAggregates implements JournalListener {
      * statistics, and whether more routes were seen than {@value #MAX_ROUTES} kept.
      */
     public synchronized RouteLabels routeLabels() {
-        return new RouteLabels(Set.copyOf(routes.entries().keySet()), routes.overflowed() > 0);
+        Set<String> labels = new LinkedHashSet<>(routes.entries().keySet());
+        labels.addAll(crossingRoutes.entries().keySet());
+        String incomplete = !completenessVerified
+                        || windowMissed.getOrDefault(JournalSource.HTTP, 0L) > 0
+                        || windowFailedAggregations[JournalSource.HTTP.ordinal()] > 0
+                ? "HTTP aggregate completeness is unknown, so absent declared routes cannot be classified as not exercised."
+                : null;
+        return new RouteLabels(
+                Set.copyOf(labels), routes.overflowed() > 0 || crossingRoutes.overflowed() > 0, incomplete);
     }
 
     /**
@@ -847,8 +960,13 @@ public final class JournalAggregates implements JournalListener {
      *
      * @param labels the labels kept
      * @param overflowed whether some routes were not kept
+     * @param incompleteReason why aggregate capture cannot prove absence, or {@code null}
      */
-    public record RouteLabels(Set<String> labels, boolean overflowed) {}
+    public record RouteLabels(Set<String> labels, boolean overflowed, String incompleteReason) {
+        public RouteLabels(Set<String> labels, boolean overflowed) {
+            this(labels, overflowed, null);
+        }
+    }
 
     /** An immutable copy of every aggregate. */
     public synchronized AggregatesSnapshot snapshot() {
@@ -873,6 +991,7 @@ public final class JournalAggregates implements JournalListener {
         overflowed.put("routes", routes.overflowed());
         overflowed.put("statements", statements.overflowed());
         overflowed.put("exceptionGroups", exceptionGroups.overflowed());
+        overflowed.put(EXCEPTION_GROUP_ATTRIBUTIONS, exceptionGroupAttributions);
         overflowed.put("transactionalMethods", transactionalMethods.overflowed());
         overflowed.put("threadFamilies", threadFamilies.overflowed());
         overflowed.put(COMPLETED_REQUEST_ATTRIBUTIONS, completedAttributionExpiry);
@@ -927,6 +1046,54 @@ public final class JournalAggregates implements JournalListener {
         overflowed.put(EDGES, projectedEdgeOverflow);
         overflowed.put("executions", executionStats.overflowed());
         overflowed.put("unattributedExecutions", unattributedExecutions);
+        overflowed.put(OPEN_EXECUTIONS, (long) pendingExecutions.size());
+        if (journal != null && completenessVerified) {
+            overflowed.put(JournalCompleteness.VERIFIED, 1L);
+            overflowed.put(JournalCompleteness.CLEARS, clearBoundary.clears());
+            overflowed.put(JournalCompleteness.CLEAR_AT, clearBoundary.epochMillis());
+            Map<JournalSource, Long> drops = journal.droppedCounts();
+            for (JournalSource source : JournalSource.values()) {
+                if (journal.records(source)) {
+                    overflowed.put(JournalCompleteness.SOURCE + source.propertyName(), 1L);
+                }
+                long count = drops.getOrDefault(source, 0L);
+                if (count > 0) {
+                    overflowed.put(JournalCompleteness.DROPPED + source.propertyName(), count);
+                }
+                long window = count - clearBoundary.dropped().getOrDefault(source, 0L);
+                if (window > 0) {
+                    overflowed.put(JournalCompleteness.WINDOW_DROPPED + source.propertyName(), window);
+                }
+                long missed = missedBeforeBinding.getOrDefault(source, 0L);
+                if (missed > 0) {
+                    overflowed.put(JournalCompleteness.MISSED + source.propertyName(), missed);
+                }
+                long missedWindow = windowMissed.getOrDefault(source, 0L);
+                if (missedWindow > 0) {
+                    overflowed.put(JournalCompleteness.WINDOW_MISSED + source.propertyName(), missedWindow);
+                }
+                if (failedAggregations[source.ordinal()] > 0) {
+                    overflowed.put(
+                            JournalCompleteness.FAILED + source.propertyName(), failedAggregations[source.ordinal()]);
+                }
+                if (windowFailedAggregations[source.ordinal()] > 0) {
+                    overflowed.put(
+                            JournalCompleteness.WINDOW_FAILED + source.propertyName(),
+                            windowFailedAggregations[source.ordinal()]);
+                }
+            }
+        }
+        crossingRoutes.entries().forEach((label, counts) -> {
+            overflowed.put(JournalCompleteness.CROSSING_ROUTE + label, counts[0]);
+            overflowed.put(JournalCompleteness.CROSSING_ERRORS + label, counts[1]);
+        });
+        crossingExecutions
+                .entries()
+                .forEach((label, counts) -> overflowed.put(JournalCompleteness.CROSSING_EXECUTION + label, counts[0]));
+        long crossingOverflow = crossingRoutes.overflowed() + crossingExecutions.overflowed();
+        if (crossingOverflow > 0) {
+            overflowed.put(JournalCompleteness.CROSSING_OVERFLOW, crossingOverflow);
+        }
         List<ExecutionStats> work = new ArrayList<>();
         executionStats
                 .entries()
@@ -1471,6 +1638,8 @@ public final class JournalAggregates implements JournalListener {
      * {@code resources} is what its requests' segments measured (§5.11). {@code warmLatency} leaves out the route's
      * first, cold request, and {@code cacheMisses} and {@code aiTokens} sum its requests' cache misses and model
      * tokens, for the run comparison (§5.8).
+     * After a clear these statistics exclude roots started before the clear; their positive completion counts remain
+     * in the reserved completeness metadata for impact, never as zero-child comparison samples.
      */
     public record RouteStats(
             String route,

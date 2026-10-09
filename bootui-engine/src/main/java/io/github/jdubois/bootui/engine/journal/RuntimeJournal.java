@@ -17,6 +17,7 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
@@ -89,6 +90,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     private final LongAdder acceptedTotal = new LongAdder();
     private final AtomicLong processed = new AtomicLong();
     private final AtomicLong lastSequence = new AtomicLong();
+    private final long[] processedSources = new long[JournalSource.values().length];
     private final LongAdder listenerFailures = new LongAdder();
     private final CorrelationSource correlation = new CorrelationSource();
     private final ThreadKinds threadKinds = new ThreadKinds();
@@ -125,6 +127,31 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
 
     // Counted when a clear is wholly done, listeners included, and read first by status().
     private volatile long clearsCompleted;
+    private volatile ClearBoundary clearBoundary = new ClearBoundary(0, 0, Map.of());
+
+    record ClearBoundary(long clears, long epochMillis, Map<JournalSource, Long> dropped) {
+        ClearBoundary {
+            dropped = Map.copyOf(dropped);
+        }
+    }
+
+    ClearBoundary clearBoundary() {
+        return clearBoundary;
+    }
+
+    Map<JournalSource, Long> droppedCounts() {
+        return perSource(dropped);
+    }
+
+    private Map<JournalSource, Long> processedSourceCounts() {
+        Map<JournalSource, Long> counts = new EnumMap<>(JournalSource.class);
+        for (JournalSource source : JournalSource.values()) {
+            if (processedSources[source.ordinal()] > 0) {
+                counts.put(source, processedSources[source.ordinal()]);
+            }
+        }
+        return Map.copyOf(counts);
+    }
 
     private GcEventSource gcSource;
     private ResourceSampler resourceSampler;
@@ -425,6 +452,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
                 JournalEntry entry = new JournalEntry(sequence, event, event.estimatedBytes(dictionary));
                 ring.add(entry);
                 lastSequence.set(sequence);
+                processedSources[event.source().ordinal()]++;
                 entries.add(entry);
             }
             List<JournalEntry> view = Collections.unmodifiableList(entries);
@@ -433,6 +461,9 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
                     listener.onEntries(view);
                 } catch (RuntimeException ex) {
                     listenerFailures.increment();
+                    if (listener instanceof JournalAggregates aggregates) {
+                        aggregates.failedEntries(view);
+                    }
                     log.log(Level.WARNING, "A runtime journal listener failed to process a batch of events", ex);
                 }
             }
@@ -478,11 +509,22 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
 
     /** Registers a listener for every batch accepted from now on. */
     public void addListener(JournalListener listener) {
-        listeners.add(Objects.requireNonNull(listener, "listener must not be null"));
+        Objects.requireNonNull(listener, "listener must not be null");
+        if (listener instanceof JournalAggregates aggregates) {
+            synchronized (processing) {
+                aggregates.bind(this, processedSourceCounts());
+                listeners.add(listener);
+            }
+        } else {
+            listeners.add(listener);
+        }
     }
 
     public void removeListener(JournalListener listener) {
         listeners.remove(listener);
+        if (listener instanceof JournalAggregates aggregates) {
+            aggregates.unbind(this);
+        }
     }
 
     /**
@@ -622,6 +664,10 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     /** {@link #clear()}, returning how many retained and queued events it dropped, counted under the same lock. */
     private long clearAndCount() {
         synchronized (processing) {
+            ClearBoundary boundary = new ClearBoundary(
+                    clearsCompleted + 1,
+                    Math.max(System.currentTimeMillis(), clearBoundary.epochMillis()),
+                    perSource(dropped));
             JournalQueue detached = admission;
             int queued = 0;
             // A closed journal's queue stays: compare-and-set, since a close with a stuck dispatcher installs it
@@ -634,6 +680,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
                 // Outside the queue's lock: their requests and executions lost them to the clear.
                 cleared.forEach(ring::lost);
             }
+            clearBoundary = boundary;
             if (beforeQueueDrain != null) {
                 beforeQueueDrain.accept(queued);
             }
@@ -642,11 +689,15 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
             ring.clear();
             dictionary.clear();
             SqlShapes.clear();
+            Arrays.fill(processedSources, 0);
             for (JournalListener listener : listeners) {
                 try {
                     listener.onClear();
                 } catch (RuntimeException ex) {
                     listenerFailures.increment();
+                    if (listener instanceof JournalAggregates aggregates) {
+                        aggregates.unbind(this);
+                    }
                     log.log(Level.WARNING, "A listener of BootUI's runtime journal failed to clear its state", ex);
                 }
             }
