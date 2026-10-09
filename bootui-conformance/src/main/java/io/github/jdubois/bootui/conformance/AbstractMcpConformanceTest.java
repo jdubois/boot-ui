@@ -81,6 +81,25 @@ public abstract class AbstractMcpConformanceTest {
 
     private static final String MODERN = "2026-07-28";
 
+    @Test
+    void testMcpAgentSensorSwitchRefusalsAreInBandWithTheirReasons() {
+        assertThat(enableMcp()).isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            for (String tool : List.of("enable_agent_sensor", "disable_agent_sensor")) {
+                for (String sensor : List.of("executors", "files")) {
+                    Response response =
+                            modernRequest("tools/call", "1", tool, "\"arguments\":{\"id\":\"" + sensor + "\"}");
+                    assertThat(response.status()).isEqualTo(200);
+                    assertThat(response.json().has("error")).as(response.body()).isFalse();
+                    JsonNode result = response.json().path("result");
+                    assertThat(result.path("isError").asBoolean()).isTrue();
+                    assertThat(result.path("content").get(0).path("text").asText())
+                            .contains(sensor.equals("executors") ? "cannot be switched" : "not armed");
+                }
+            }
+        }
+    }
+
     private Response modernRequest(String method, String id, String name, String params) {
         Map<String, String> headers = new java.util.LinkedHashMap<>();
         headers.put("Content-Type", "application/json");

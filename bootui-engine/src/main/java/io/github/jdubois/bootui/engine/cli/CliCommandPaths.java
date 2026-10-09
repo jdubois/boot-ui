@@ -26,6 +26,8 @@ public final class CliCommandPaths {
             Map.entry("analyze_heap_dump", "memory heap analyze"),
             Map.entry("architecture_scan", "architecture scan"),
             Map.entry("get_agent_status", "agent status"),
+            Map.entry("enable_agent_sensor", "agent sensor enable"),
+            Map.entry("disable_agent_sensor", "agent sensor disable"),
             Map.entry("get_code_inventory", "code inventory"),
             Map.entry("get_code_paths", "code paths"),
             Map.entry("start_method_probe", "probe start"),

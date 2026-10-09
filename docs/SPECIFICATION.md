@@ -646,9 +646,13 @@ Features:
 
 Acceptance criteria:
 
-- The panel is always available on Spring MVC, Spring WebFlux, and Quarkus. Its one action switches an opt-in sensor
-  (`threads`, `files`, `environment`, `thread-activity`, `thread-locals`, `security-sinks`) on or off at run time: refused by
-  `bootui.panels.java-agent.read-only` and `bootui.read-only`, offered only while this application's claim is armed.
+- The panel is always available on Spring MVC, Spring WebFlux, and Quarkus. Its runtime switch actions can turn
+  (`threads`, `files`, `environment`, `thread-activity`, `thread-locals`, `security-sinks`) on or off while this
+  application's claim is armed. The browser panel uses the Java Agent panel; MCP exposes `enable_agent_sensor` and
+  `disable_agent_sensor`, which agents call only with the user's approval. All paths are refused by
+  `bootui.panels.java-agent.read-only` and `bootui.read-only`. The override lasts only until the JVM ends and is not
+  persisted; `security-sinks` request-value matching still requires
+  `bootui.agent.security-sinks.request-values=true` at startup.
 - `GET /bootui/api/java-agent`, `get_agent_status`, and `bootui agent status` return the same `JavaAgentReport`.
 - Spring claims from `BootUiAgentClaimEnvironmentPostProcessor` (registered in `META-INF/spring.factories`) once BootUI activation is resolved, refines after context
   refresh, disarms on close or startup failure, and releases the agent when BootUI or `bootui.agent.enabled` is off.
@@ -3522,6 +3526,10 @@ Design rules:
     and `start_method_probe`, which retransforms one application method for at most 20 invocations or 60 seconds and
     needs the user's separate approval (refused by read-only policy, metadata only in every exposure mode).
 
+  Java Agent exposes actions `enable_agent_sensor` and `disable_agent_sensor` for the switchable runtime sensors; each
+  requires a sensor id and is refused by the Java Agent panel's read-only policy. Agents must ask the user before
+  calling either action. `get_agent_status` verifies the result.
+
   MySQL (§5.17.8) exposes cached read `get_mysql_report` and action `mysql_read`, both
   argument-free, on MVC/WebFlux/Quarkus with a supported JDBC datasource. The generated CLI equivalents are
   `bootui db mysql report` and `bootui db mysql read`. Agents must request approval before active collection and
@@ -3529,7 +3537,8 @@ Design rules:
 
   Heap capture/download, HTTP probes, database/cache mutations, GitHub writes, dev-service restarts, and arbitrary agent
   commands are deliberately excluded, as are Profile resources (JFR), enabling Hibernate statistics, the WebSockets
-  capture switch, the Java agent's sensor switches, and logger-level changes, which stay browser-only. Tools whose
+  capture switch, and logger-level changes, which stay browser-only. Java agent sensor switches are bounded MCP/CLI
+  actions, guarded by the Java Agent panel's enabled and read-only policy. Tools whose
   backing controller is absent or not applicable to the running stack are not advertised; a `tools/call` naming one of
   them answers `-32602` with `Tool not available in this application: <name>.` and the panel's unavailable reason, also
   in `error.data` (`tool`, `panel`, `reason`), while a name outside the catalog keeps `Unknown tool: <name>`. The CLI

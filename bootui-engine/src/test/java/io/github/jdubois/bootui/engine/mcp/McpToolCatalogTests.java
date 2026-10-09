@@ -13,10 +13,10 @@ class McpToolCatalogTests {
 
     @Test
     void advertisesTheFullToolSurfacePerStack() {
-        assertThat(McpToolCatalog.entries()).hasSize(103);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(103);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(102);
-        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(87);
+        assertThat(McpToolCatalog.entries()).hasSize(105);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(105);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(104);
+        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(89);
     }
 
     @Test
@@ -126,6 +126,17 @@ class McpToolCatalogTests {
         assertThat(read.action()).isFalse();
         assertThat(read.panelId()).isEqualTo(BootUiPanels.CODE_PATHS);
         assertThat(read.stacks()).containsExactlyInAnyOrder(Stack.values());
+    }
+
+    @Test
+    void agentSensorSwitchesAreJavaAgentActionsOnEveryStack() {
+        for (String name : List.of("enable_agent_sensor", "disable_agent_sensor")) {
+            McpToolCatalog.Entry entry = McpToolCatalog.byName(name).orElseThrow();
+            assertThat(entry.schema()).isEqualTo(McpToolSchema.ID);
+            assertThat(entry.action()).isTrue();
+            assertThat(entry.panelId()).isEqualTo(BootUiPanels.JAVA_AGENT);
+            assertThat(entry.stacks()).containsExactlyInAnyOrder(Stack.values());
+        }
     }
 
     @Test

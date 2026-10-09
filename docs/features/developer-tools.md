@@ -104,6 +104,14 @@ reads them (see [Method probes](java-agent.md#method-probes)).
 **Side Effects read** — `get_side_effects`: with the BootUI agent, the side-effect sensor coverage and most frequent
 rows matching a process sensor, route, target, or call site (see [Side Effects](java-agent.md#side-effects)).
 
+**Java Agent sensor switches** — `enable_agent_sensor` and `disable_agent_sensor`, or
+`bootui agent sensor enable|disable <id>`, apply the panel's bounded runtime switches on all three stacks.
+Read `get_agent_status` and `get_side_effects` first, explain the sensor's collection and performance trade-offs,
+and obtain the user's approval before switching. These actions use the Java Agent panel's enabled/read-only policy
+and require an attached, armed agent with runtime-switch support. Overrides last only for this JVM and are not
+persisted; request-value matching still requires `bootui.agent.security-sinks.request-values=true` at startup.
+Read `get_agent_status` again to verify the result (see [Runtime switches](java-agent.md#switching-sensors-at-run-time)).
+
 **Bounded controls** — `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`, `resume_sql_trace_recording`,
 `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`, `clear_traces`,
 `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`, `postgresql_read`,

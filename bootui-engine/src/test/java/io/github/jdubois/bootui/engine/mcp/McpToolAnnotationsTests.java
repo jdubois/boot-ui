@@ -27,6 +27,10 @@ class McpToolAnnotationsTests {
                 .isEqualTo(new McpToolAnnotations(false, false, false, true));
         assertThat(McpToolAnnotations.of("start_method_probe", true))
                 .isEqualTo(new McpToolAnnotations(false, false, false, false));
+        assertThat(McpToolAnnotations.of("enable_agent_sensor", true))
+                .isEqualTo(new McpToolAnnotations(false, false, false, false));
+        assertThat(McpToolAnnotations.of("disable_agent_sensor", true))
+                .isEqualTo(new McpToolAnnotations(false, false, false, false));
         assertThat(McpToolAnnotations.of("memory_scan", true))
                 .isEqualTo(new McpToolAnnotations(false, false, false, false));
     }

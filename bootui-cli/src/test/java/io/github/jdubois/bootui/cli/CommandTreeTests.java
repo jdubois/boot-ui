@@ -135,6 +135,30 @@ class CommandTreeTests {
     }
 
     @Test
+    void agentSensorCommandsSendTheSensorIdAndRequireApproval() {
+        for (String toolName : List.of("enable_agent_sensor", "disable_agent_sensor")) {
+            ToolManifest.Tool tool = ToolManifest.bundled().byName(toolName);
+            List<String> args = new ArrayList<>(tool.path());
+            args.add("security-sinks");
+
+            assertThat(run(args)).isEqualTo(ExitCodes.SUCCESS);
+            assertThat(bodies).containsExactly("{\"id\":\"security-sinks\"}");
+            bodies.clear();
+
+            String help = help(tool.path().toArray(String[]::new));
+            assertThat(help)
+                    .contains(
+                            ToolManifest.Tool.ACTION_TAG,
+                            "user's authorization",
+                            "Request-value",
+                            "retains query/path values");
+        }
+        assertThat(paths)
+                .containsExactly(
+                        "/bootui/api/cli/tools/enable_agent_sensor", "/bootui/api/cli/tools/disable_agent_sensor");
+    }
+
+    @Test
     void advisorCommandsRequireTheScanIdAndForwardEveryPageArgument() {
         for (String group : List.of("architecture", "hibernate", "spring", "rest-api", "memory", "security", "db")) {
             paths.clear();

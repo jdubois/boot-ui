@@ -1,8 +1,8 @@
 # Java Agent
 
 The Java Agent panel explains whether the optional BootUI `-javaagent` is attached to the current JVM, whether this
-application has claimed it, and how to attach it when it is missing. It is view-only on Spring MVC, Spring WebFlux, and
-Quarkus.
+application has claimed it, and how to attach it when it is missing. Its bounded runtime sensor switches are available
+on Spring MVC, Spring WebFlux, and Quarkus.
 
 The panel opens the sidebar's **Instrumentation** group, the setup and status entry point for the panels that read the
 agent's sensors: [Code Paths](#code-paths) and [Code Inventory](#code-inventory). Without the agent those two stay in
@@ -105,9 +105,12 @@ refuse it with the canonical 403, and it carries the same localhost, Host, and c
 BootUI action. Another sensor id, or a body without `enabled`, answers 400; a switch the agent cannot make answers 409
 with the reason: the agent is not attached or not armed for this application, an older agent predates switches, the
 claim changed meanwhile, `threads` already failed in this run, or `files`, `environment`, or `security-sinks` already
-failed its self-test in this JVM. There is no MCP tool or CLI command for it, and only these sensors are ever switched: the
+failed its self-test in this JVM. Only these sensors are ever switched: the
 bridge refuses any other, the other default sensors (`executors`, `inventory`, `code-paths`, `processes`, `network`,
-`blocking`, and `resources`) and `caught-exceptions` included. The report lists `toggles`
+`blocking`, and `resources`) and `caught-exceptions` included. MCP provides the same bounded action through
+`enable_agent_sensor` and `disable_agent_sensor`, and the CLI exposes `bootui agent sensor enable|disable <id>`.
+Both use the Java Agent panel's action/read-only policy; agents must obtain the user's approval before calling them.
+The CLI marks them as actions that need approval. The report lists `toggles`
 only while this application's claim is armed.
 
 The agent applies a switch to the running claim, keeping its generation: switching `threads` on installs and self-tests

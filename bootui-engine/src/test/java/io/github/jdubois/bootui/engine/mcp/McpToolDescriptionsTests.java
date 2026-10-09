@@ -30,6 +30,31 @@ class McpToolDescriptionsTests {
     }
 
     @Test
+    void agentSensorActionsExplainEvidenceCostAndApprovalOnEveryStack() {
+        for (Function<String, String> descriptions :
+                List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+            for (String tool : List.of("enable_agent_sensor", "disable_agent_sensor")) {
+                assertThat(descriptions.apply(tool))
+                        .as(tool)
+                        .contains(
+                                "user's authorization",
+                                "get_agent_status",
+                                "get_side_effects",
+                                "thread-activity",
+                                "java.lang.Thread",
+                                "6.8%",
+                                "11.5%",
+                                "thread-locals",
+                                "security-sinks",
+                                "redacted",
+                                "request-values=true",
+                                "not persisted",
+                                "run comparisons");
+            }
+        }
+    }
+
+    @Test
     void onlyLocatedAdvisorsAdvertiseStructuredViolationLocations() {
         for (Function<String, String> provider :
                 List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
