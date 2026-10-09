@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.RequestHandoffDto;
 import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
 import io.github.jdubois.bootui.core.dto.RequestOrmDto;
 import io.github.jdubois.bootui.core.dto.RequestTimelineItemDto;
+import io.github.jdubois.bootui.core.dto.TouchedResourcesDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.resources.GcPauseRange;
@@ -447,6 +448,170 @@ class RequestJournalProfilesTests {
     }
 
     @Test
+    void aRetainedWebSocketExecutionProfilesItsHandlersSqlAndExceptionWithoutHttpMeasurements() {
+        CorrelationContext handler = CorrelationContext.forExecution("websocket-1");
+        offer(sql(handler, 1_005, 2_000_000));
+        offer(RuntimeEvent.of(
+                JournalSource.EXCEPTION,
+                1_010,
+                -1,
+                handler,
+                "clientInboundChannel-1",
+                ThreadKind.WORKER,
+                true,
+                new ExceptionPayload("chat-failure", "java.lang.IllegalStateException")));
+        offer(webSocket(
+                "websocket-1",
+                1_000,
+                25_000_000,
+                WebSocketPayload.handled("stomp:/ws", "/app/chat/{room}", 12L, true)));
+        offer(webSocket(
+                "websocket-1",
+                1_012,
+                -1,
+                new WebSocketPayload("stomp:/ws", WebSocketPayload.MESSAGE, false, "/topic/chat", 8, null, false)));
+        offer(sql(CorrelationContext.forExecution("websocket-2"), 1_006, 1_000_000));
+        journal.dispatchPending();
+
+        RequestJournalProfileDto profile = profiles(null).profile("websocket-1");
+
+        assertThat(profile.available()).isTrue();
+        assertThat(profile.requestId()).isEqualTo("websocket-1");
+        assertThat(profile.route()).isEqualTo("WebSocket: /app/chat/{room}");
+        assertThat(profile.startedAt()).isEqualTo(1_000);
+        assertThat(profile.durationMicros()).isEqualTo(25_000);
+        assertThat(profile.status()).isNull();
+        assertThat(profile.resources()).isNull();
+        assertThat(profile.gcPauses()).isEmpty();
+        assertThat(profile.routeComparison()).isNull();
+        assertThat(profile.timeline())
+                .extracting(
+                        RequestTimelineItemDto::source,
+                        RequestTimelineItemDto::offsetMillis,
+                        RequestTimelineItemDto::durationMicros,
+                        RequestTimelineItemDto::severity)
+                .containsExactly(
+                        tuple("sql", 5L, 2_000L, "OK"),
+                        tuple("exception", 10L, null, "ERROR"),
+                        tuple("websocket", 12L, null, "OK"));
+        assertThat(profile.timeline().get(1).label()).isEqualTo("java.lang.IllegalStateException");
+        assertThat(profile.touched().tables()).containsExactly("orders");
+        assertThat(profile.touched().dataSources()).containsExactly("orders");
+        assertThat(profile.notes())
+                .containsExactly("CPU, allocation, and GC pauses are not measured for this execution.");
+        assertThat(profiles(panel -> !panel.equals(BootUiPanels.HTTP_EXCHANGES))
+                        .profile("websocket-1")
+                        .available())
+                .isTrue();
+        var selected = RequestProfileSelection.select("websocket-1", profiles(null)::profile, id -> {
+            throw new AssertionError("a WebSocket execution must not read the HTTP-exchange buffer");
+        });
+        assertThat(selected.available()).isTrue();
+        assertThat(selected.source()).isEqualTo("journal");
+        assertThat(selected.journal()).isEqualTo(profile);
+        assertThat(selected.buffers()).isNull();
+    }
+
+    @Test
+    void aWebSocketExecutionLabelFallsBackToRetainedEndpointMetadataThenAGenericMessage() {
+        offer(webSocket("endpoint-only", 1_000, 1_000_000, WebSocketPayload.handled("/chat", null, null, false)));
+        offer(webSocket("metadata-absent", 2_000, 1_000_000, WebSocketPayload.handled(null, null, null, false)));
+        journal.dispatchPending();
+
+        assertThat(profiles(null).profile("endpoint-only").route()).isEqualTo("WebSocket: /chat");
+        assertThat(profiles(null).profile("metadata-absent").route()).isEqualTo("WebSocket: message");
+    }
+
+    @Test
+    void aHiddenWebSocketAnchorWithVisibleChildrenDoesNotExposeItsProfile() {
+        offer(webSocket("websocket-1", 1_000, 25_000_000, WebSocketPayload.handled("/chat", "/room", null, false)));
+        offer(sql(CorrelationContext.forExecution("websocket-1"), 1_005, 2_000_000));
+        journal.dispatchPending();
+
+        RequestJournalProfileDto hidden =
+                profiles(panel -> !panel.equals(BootUiPanels.WEBSOCKETS)).profile("websocket-1");
+
+        assertThat(hidden.available()).isFalse();
+        assertThat(hidden.unavailableReason()).contains("websockets").contains("websocket-1");
+        assertThat(hidden.route()).isNull();
+        assertThat(hidden.startedAt()).isNull();
+        assertThat(hidden.timeline()).isEmpty();
+        assertThat(hidden.touched()).isEqualTo(TouchedResourcesDto.NONE);
+        assertThat(RequestJournalProfiles.notRetained(hidden, "websocket-1")).isFalse();
+    }
+
+    @Test
+    void disabledChildPanelsHideTheirEvidenceFromAVisibleWebSocketExecution() {
+        CorrelationContext handler = CorrelationContext.forExecution("websocket-1");
+        offer(webSocket("websocket-1", 1_000, 25_000_000, WebSocketPayload.handled("/chat", "/room", null, false)));
+        offer(sql(handler, 1_005, 2_000_000));
+        offer(RuntimeEvent.of(
+                JournalSource.EXCEPTION,
+                1_010,
+                -1,
+                handler,
+                "clientInboundChannel-1",
+                ThreadKind.WORKER,
+                true,
+                new ExceptionPayload("chat-failure", "java.lang.IllegalStateException")));
+        journal.dispatchPending();
+
+        RequestJournalProfileDto withoutSql =
+                profiles(panel -> !panel.equals(BootUiPanels.SQL_TRACE)).profile("websocket-1");
+        assertThat(withoutSql.available()).isTrue();
+        assertThat(withoutSql.timeline())
+                .extracting(RequestTimelineItemDto::source)
+                .containsExactly("exception");
+        assertThat(withoutSql.touched().tables()).isEmpty();
+        assertThat(withoutSql.touched().dataSources()).isEmpty();
+
+        RequestJournalProfileDto withoutExceptions =
+                profiles(panel -> !panel.equals(BootUiPanels.EXCEPTIONS)).profile("websocket-1");
+        assertThat(withoutExceptions.available()).isTrue();
+        assertThat(withoutExceptions.timeline())
+                .extracting(RequestTimelineItemDto::source)
+                .containsExactly("sql");
+        assertThat(withoutExceptions.touched().tables()).containsExactly("orders");
+    }
+
+    @Test
+    void webSocketChildrenWithoutARetainedAnchorDoNotFabricateAnExecutionProfile() {
+        offer(sql(CorrelationContext.forExecution("websocket-missing"), 1_005, 2_000_000));
+        journal.dispatchPending();
+
+        RequestJournalProfileDto missing = profiles(null).profile("websocket-missing");
+
+        assertThat(RequestJournalProfiles.notRetained(missing, "websocket-missing"))
+                .isTrue();
+        assertThat(missing.route()).isNull();
+        assertThat(missing.timeline()).isEmpty();
+        assertThat(missing.touched()).isEqualTo(TouchedResourcesDto.NONE);
+    }
+
+    @Test
+    void outboundMessagesAndSessionLifecycleEventsDoNotOpenWebSocketExecutionProfiles() {
+        List<WebSocketPayload> nonExecutions = List.of(
+                new WebSocketPayload("/chat", WebSocketPayload.MESSAGE, false, "/room", 8, null, false),
+                new WebSocketPayload("/chat", WebSocketPayload.OPEN, true, null, -1, null, false),
+                new WebSocketPayload("/chat", WebSocketPayload.CLOSE, true, null, -1, "1000", false),
+                new WebSocketPayload("/chat", "PING", true, null, -1, null, false));
+        for (int i = 0; i < nonExecutions.size(); i++) {
+            String executionId = "websocket-nonexecution-" + i;
+            offer(webSocket(executionId, 1_000, 1_000_000, nonExecutions.get(i)));
+            offer(sql(CorrelationContext.forExecution(executionId), 1_005, 2_000_000));
+        }
+        journal.dispatchPending();
+
+        for (int i = 0; i < nonExecutions.size(); i++) {
+            String executionId = "websocket-nonexecution-" + i;
+            RequestJournalProfileDto profile = profiles(null).profile(executionId);
+            assertThat(RequestJournalProfiles.notRetained(profile, executionId)).isTrue();
+            assertThat(profile.timeline()).isEmpty();
+            assertThat(profile.touched()).isEqualTo(TouchedResourcesDto.NONE);
+        }
+    }
+
+    @Test
     void aRequestsHandoffsCarryWhatTheyDidAndLateOnesAreOnlyCounted() {
         CorrelationContext async1 = CorrelationContext.forRequest("r1").withExecutionId("async-1");
         CorrelationContext async2 = CorrelationContext.forRequest("r1").withExecutionId("async-2");
@@ -815,6 +980,18 @@ class RequestJournalProfilesTests {
                 "worker-1",
                 ThreadKind.WORKER,
                 false,
+                payload);
+    }
+
+    private static RuntimeEvent webSocket(String executionId, long start, long nanos, WebSocketPayload payload) {
+        return RuntimeEvent.of(
+                JournalSource.WEBSOCKET,
+                start,
+                nanos,
+                CorrelationContext.forExecution(executionId),
+                "clientInboundChannel-1",
+                ThreadKind.WORKER,
+                payload.failed(),
                 payload);
     }
 

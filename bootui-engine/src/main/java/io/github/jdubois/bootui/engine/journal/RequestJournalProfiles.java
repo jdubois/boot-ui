@@ -156,7 +156,8 @@ public final class RequestJournalProfiles {
                 }
             } else if (event.requestId() == null && requestId.equals(event.executionId())) {
                 if (event.payload() instanceof ScheduledPayload
-                        || event.payload() instanceof MessagingPayload message && !message.sent()) {
+                        || event.payload() instanceof MessagingPayload message && !message.sent()
+                        || event.payload() instanceof WebSocketPayload webSocket && webSocket.opensExecution()) {
                     request = entry;
                 } else if (visible(event)) {
                     children.add(entry);
@@ -303,6 +304,12 @@ public final class RequestJournalProfiles {
     private static String executionLabel(RuntimeEvent event) {
         if (event.payload() instanceof ScheduledPayload scheduled) {
             return "Scheduled: " + (scheduled.task() == null ? "task" : scheduled.task());
+        }
+        if (event.payload() instanceof WebSocketPayload webSocket) {
+            return "WebSocket: "
+                    + (webSocket.destination() != null
+                            ? webSocket.destination()
+                            : webSocket.endpoint() == null ? "message" : webSocket.endpoint());
         }
         MessagingPayload message = (MessagingPayload) event.payload();
         return "Message: " + (message.destination() == null ? "consumer" : message.destination());
