@@ -81,6 +81,7 @@ declines the call, so CI can branch on it. Windows has a PowerShell installer, a
 - [CHANGELOG.md](CHANGELOG.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [SECURITY.md](SECURITY.md)
+- [Three-hour BootUI workshop](docs/workshop/README.md)
 
 ## License
 

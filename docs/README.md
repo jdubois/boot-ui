@@ -43,14 +43,15 @@ showcaseVideo: true
 
 ## Start here
 
-| Goal                                              | Documentation                           |
-| ------------------------------------------------- | --------------------------------------- |
-| Run the full demo locally                         | [Try the sample app](TRY-SAMPLE-APP.md) |
-| Add BootUI to a Spring Boot or Quarkus app        | [Setup](SETUP.md)                       |
-| Explore every panel                               | [Features](features/README.md)          |
-| Configure activation, safety, panels, and actions | [Properties](PROPERTIES.md)             |
-| Drive BootUI from an AI coding agent              | [AI agents](AI-AGENTS.md)               |
-| Ask a running application from a terminal or CI   | [Command line](CLI.md)                  |
+| Goal | Documentation |
+| ---- | ------------- |
+| Run the full demo locally | [Try the sample app](TRY-SAMPLE-APP.md) |
+| Add BootUI to a Spring Boot or Quarkus app | [Setup](SETUP.md) |
+| Explore every panel | [Features](features/README.md) |
+| Learn the runtime-to-fix workflow in three hours | [Workshop](workshop/README.md) |
+| Configure activation, safety, panels, and actions | [Properties](PROPERTIES.md) |
+| Drive BootUI from an AI coding agent | [AI agents](AI-AGENTS.md) |
+| Ask a running application from a terminal or CI | [Command line](CLI.md) |
 
 ## Install the BootUI agent skill
 

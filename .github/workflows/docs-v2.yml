@@ -8,6 +8,7 @@ on:
     branches: [ v2 ]
     paths:
       - 'docs/**'
+      - 'workshop/**'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/docs-v2.yml'
@@ -38,6 +39,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
+
+      - name: Check workshop navigation and exercise instructions
+        run: node --test docs/.vuepress/workshop.test.mjs
 
       - name: Build VuePress site
         run: npm run docs:build
