@@ -41,15 +41,18 @@ configuration for this running application. There is one tab per client, because
 skip this with the [BootUI plugin](../AI-AGENTS.md#install-the-bootui-claude-code-plugin), which registers the server
 for them.
 
-A loopback agent needs no credentials. An agent reaching the application from anywhere else, most often a container
-reached through a published port, is a remote API caller: every MCP call answers `401` until it sends BootUI's token in
-the `Authorization` header. Tick **Agent connects from another host or container** to add that header to every snippet.
+A loopback agent needs no credentials. Sources explicitly trusted through `bootui.trusted-proxies` or
+`bootui.trust-container-gateway` are also authentication-free. When `bootui.allow-non-localhost=true` permits an
+otherwise untrusted source, every MCP call answers `401` until it sends BootUI's token in the `Authorization` header.
+Tick **Agent connects from another host or container** to add that header to every snippet when the source is untrusted.
 The panel never prints the token. It is the value of `bootui.authentication.token`, and when that is blank BootUI
 generates one at each start and logs it once.
 
 ### Available tools
 
-Tools reuse the existing controllers and DTOs, so every tool returns the same masked, bounded shape as the REST API.
+Tools reuse the existing services and captured evidence, with the same masking and panel policy as the REST API.
+Many agent reads and action acknowledgements are intentionally compact rather than the complete browser report;
+see [compact answers](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls).
 Tools whose backing panel or controller is absent are not advertised. The live panel is the authoritative catalog for
 your stack.
 
@@ -75,11 +78,15 @@ impact, and the run comparison, compacted for agents, with `INSUFFICIENT` and `N
 `get_sql_traces`, `get_transactions` (Spring MVC and WebFlux only), `get_traces`, `get_log_tail`,
 `get_http_exchanges`, `get_http_routes`, and
 `get_rest_client_traces`. `get_live_activity` returns the correlated feed of HTTP requests, SQL statements, exceptions,
-security events, scheduled-task runs, and, on Spring, cache accesses, grouped by request or trace.
+security events, scheduled-task runs, messaging, and the other retained journal signal types described in
+[Live Activity](overview.md#feed-types), grouped by request or execution id; the panel-buffer fallback uses its
+available exact ids and, on MVC, the documented weaker tiers.
 `get_request_profile` takes a profileable request or execution id and returns a selection with `available`,
 `unavailableReason`, `source`, `journal`, and `buffers`. It consults the retained journal first; when an HTTP exchange
 is also retained, `buffers` carries the richer [per-request profile](overview.md#the-per-request-profiler), including
-each exception's `exceptionGroupId`. `source` is `none` when neither retention window holds the id.
+each exception's `exceptionGroupId`. An unknown, cleared, or expired id returns an explicit tool error rather than a successful empty profile.
+`source: "none"` instead accompanies an unavailable selection, such as evidence hidden by panel policy or an
+uncorrelatable request.
 `get_exception_detail` returns a group's stack trace, causes, and occurrences.
 
 **Runtime and integration reads** — `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
@@ -134,8 +141,8 @@ The server inherits BootUI's full safety model:
   `bootui.enabled=ON` overrides that.
 - The endpoint sits behind `LocalhostOnlyFilter`, with its loopback source check, `Host` allow-list, and cross-site
   write protection. It is exempt from BootUI's SPA CSRF token, which only browsers can present, so non-browser clients
-  connect on loopback with no credentials while the cross-site defenses still block browser-driven writes. When
-  non-loopback access is enabled, the client must send the BootUI bearer token like any other remote caller.
+  connect from loopback or explicitly trusted sources without credentials while the cross-site defenses still block
+  browser-driven writes. Other permitted non-loopback clients must send the BootUI bearer token.
 - Read tools require their backing panel to be enabled. Action tools are additionally refused when the panel is
   read-only or `bootui.read-only=true`, returning a clear tool error rather than running.
 - Values pass through the same secret masking and `bootui.expose-values` mode as the REST API, and paginated reads are
@@ -162,7 +169,8 @@ engine. Each adapter supplies only a thin Jackson envelope codec, Jackson 2 on Q
 requests and responses are byte-identical across backends.
 
 **Quarkus** runs the same JSON-RPC bridge at the same endpoint with the same runtime toggle, reading the `bootui.mcp.*`
-keys from MicroProfile Config. Its catalog declares 85 tools against Spring MVC's 101, because the tools behind
+keys from MicroProfile Config. Its catalog declares 89 tools against Spring MVC's 105, before runtime capability
+filtering. It withholds tools behind
 Spring-only panels are withheld: the GraalVM and CRaC scans and reports, Conditions, Startup Timeline, HTTP Sessions,
 Spring Data, Spring Security, JMS, DevTools, and every transaction tool. `get_overview` is offered, and `spring_scan`
 runs the Quarkus-native idiom advisor.
@@ -196,7 +204,7 @@ maps to, its backing panel, and whether that panel is disabled or read-only. Tha
 `2`: BootUI declining to run a tool is a statement about how the target is configured, not a failed request.
 
 The spellings come from the running application through `GET /bootui/api/cli`, not from the CLI's own build, so the
-panel shows what *this* instance answers to even when the CLI on your path was built against another BootUI version.
+panel shows what _this_ instance answers to even when the CLI on your path was built against another BootUI version.
 
 Call counters — calls, mean latency, capacity refusals, and timeouts — are tracked separately from the MCP server's, so
 this panel reports what terminals and CI jobs did. There is no response-limit counter, because the command-line facade

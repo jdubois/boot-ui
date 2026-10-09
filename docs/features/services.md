@@ -48,13 +48,13 @@ calls, so routine calls are evicted first; the panel states the kept, reserved, 
 [Failure-preserving retention](diagnostics.md#failure-preserving-retention). An outbound call can fail two ways, so
 unlike SQL Trace there are two failure counters:
 
-| Counter | Counts |
-| ------- | ------ |
-| **Failed** | Transport-level failures, where the call never got a response: connection refused, timeout, DNS failure. |
-| **Error responses** | Calls that completed with a `4xx` or `5xx` status. |
+| Counter             | Counts                                                                                                   |
+| ------------------- | -------------------------------------------------------------------------------------------------------- |
+| **Failed**          | Transport-level failures, where the call never got a response: connection refused, timeout, DNS failure. |
+| **Error responses** | Calls that completed with a `4xx` or `5xx` status.                                                       |
 
 A **Most frequent calls** table groups calls by method, host, and normalized path, and flags high-frequency groups as
-*chatty*. Rows filter by HTTP method, a slow-only toggle, or free text, and each expands for full detail. Local-only
+_chatty_. Rows filter by HTTP method, a slow-only toggle, or free text, and each expands for full detail. Local-only
 **Pause**, **Resume**, and **Clear** actions stop recording or empty the buffer without removing instrumentation.
 Pausing stops only this panel's buffer: the [runtime journal](overview.md#runtime-journal) keeps recording calls.
 **Clear** empties the retained window — the entries, the aggregate stats, and the top calls — and resets nothing else:
@@ -68,7 +68,7 @@ types (`RestClient`, `RestTemplate`, `WebClient`, or `Quarkus REST Client Reacti
 groups calls by method, host, and normalized path — numeric and UUID segments collapse to `{id}`, so `/orders/1` and
 `/orders/2` group under `/orders/{id}`. It flags a group at or above `bootui.rest-client-trace.chatty-call-threshold`
 calls as a **chatty** (repeated-call) pattern. Unlike SQL's N+1 rule, which only flags repeated `SELECT`s, a chatty
-pattern is flagged for calls of *any* HTTP method, since looping a `POST`/`PUT` per item is just as costly as looping a
+pattern is flagged for calls of _any_ HTTP method, since looping a `POST`/`PUT` per item is just as costly as looping a
 `GET`. A flagged group also lists the distinct call site(s) that issued it, most-recently-seen first and bounded to a
 handful of entries. Each call row expands to reveal the full URI, request headers when that adapter supports them, client
 type, trace id, executing thread, call site, and error message. Rows filter by HTTP method, a slow-only toggle, or free
@@ -82,6 +82,7 @@ headers, or credentials. Call-site capture names only your own code — class, m
 privacy-gated.
 
 ::: details Exact redaction rules
+
 - **Spring** retains the URI and masks query values **by name** (the same `SecretMasker` rules Config and HTTP Exchanges
   use, matched percent-decoded so a URL-encoded parameter name cannot slip through). URI authority credentials such as
   `user:secret@host` are removed before buffering, and the client error message is flattened, credential-redacted, and
@@ -136,7 +137,8 @@ Because the trace buffer is genuinely event-driven, the browser subscribes to `/
 the server pushes a small coalesced notification the moment a call is captured, the buffer is cleared, or recording is
 paused/resumed. The push carries no data — masking and truncation still apply through the regular endpoint — and bursts
 of calls are folded into a single refresh so high-volume workloads do not flood the UI. Recent calls surface in Live
-Activity using the same trace-id-first, serving-thread-second correlation SQL statements use. The "chatty" grouping above
+Activity using BootUI's request id first, then a unique trace id, with a serving-thread fallback on Spring MVC only.
+The "chatty" grouping above
 is not yet surfaced as a row-level badge in the merged stream the way SQL's N+1 suspicion is — it is visible only in this
 panel's own "Most frequent calls" table. Tracing, the initial recording state, header capture, call-site capture, buffer
 size, the slow-call and chatty-call thresholds, and URI/header truncation limits are all configurable under
@@ -163,6 +165,7 @@ request that produced them. Set `bootui.fault-tolerance.enabled=false` to keep t
 events.
 
 ::: details Per-provider sources and capture scope
+
 - **Resilience4j** — read live from the `CircuitBreakerRegistry`, `RetryRegistry`, `RateLimiterRegistry`,
   `BulkheadRegistry`, `ThreadPoolBulkheadRegistry`, and `TimeLimiterRegistry` beans, including entries created lazily at
   runtime. Resilience4j's own event publishers feed the event feed, so state transitions and retries appear without any
@@ -178,7 +181,7 @@ events.
   `@CircuitBreakerName`; SmallRye publishes no per-call event stream, so retries and rejections are not individually
   captured.
 
-Event capture is metadata only: policy name, outcome, attempt number, duration, the *simple name* of a failure's
+Event capture is metadata only: policy name, outcome, attempt number, duration, the _simple name_ of a failure's
 exception class, and circuit breaker state. Method arguments, return values, payloads, and exception messages are never
 recorded. Clicking a Live Activity `FAULT_TOLERANCE` entry opens this panel filtered to that policy.
 :::
@@ -230,16 +233,17 @@ available where capture is supported, and both honor `bootui.panels.websockets.r
 ### Where frame capture is installed
 
 Frame capture is installed only where the framework offers a sanctioned seam, and the panel says which case applies.
-Spring MVC with `@EnableWebSocketMessageBroker` supports it. Spring WebFlux and Quarkus report endpoints and live
-connections but no frame capture, with the concrete reason shown.
+Spring MVC with `@EnableWebSocketMessageBroker` supports it. Spring WebFlux reports endpoint topology, and Quarkus
+reports endpoints and live connections, but neither supports frame capture; the concrete reason is shown.
 
 ::: details Per-stack capture and session tracking
+
 - On **Spring MVC** with `@EnableWebSocketMessageBroker`, BootUI registers a `WebSocketHandlerDecoratorFactory` plus
   inbound and outbound `ChannelInterceptor`s through the public `WebSocketMessageBrokerConfigurer` contract, so STOMP
   endpoints report `frameCaptureSupported=true` and are badged **installed**. Native `WebSocketHandler` endpoints
   registered without the message broker report their full topology but are badged **metadata**, because decorating them
   would require reaching into non-public state.
-- On **Spring WebFlux** and **Quarkus**, the panel reports endpoints and live connections but
+- On **Spring WebFlux** and **Quarkus**, the panel reports endpoint topology but
   `frameCaptureSupported=false` with the concrete reason: `@EnableWebSocketMessageBroker` is servlet-only, and Quarkus
   WebSockets Next exposes no message-interception SPI.
 
@@ -252,7 +256,7 @@ call. `bootui.websockets.enabled=false` turns it off with the panel's capture.
 
 Live session tracking is reported with the same honesty through `sessionTrackingSupported` and
 `sessionTrackingUnavailableReason`: Spring MVC and Quarkus observe connection lifecycle, while Spring WebFlux exposes no
-session registry, so its empty Sessions table says *not supported on this stack* instead of implying nothing is
+session registry, so its empty Sessions table says _not supported on this stack_ instead of implying nothing is
 connected. Buffer sizes, initial capture state, and per-collection caps are configurable under `bootui.websockets.*`;
 every collection is independently truncated and the panel says when it was.
 :::
@@ -357,7 +361,7 @@ maximum entry count, and configured expiry. When the provider's own configuratio
 carries a short **policy note** — a weight-bounded Caffeine cache, for instance, states that its bound is a total weight
 rather than an entry count. Counters are shown as their own labelled series — provider statistics are never blended with
 Micrometer meters, and both are rendered side by side when both exist. A Micrometer series that has recorded no request
-yet shows *ratio unknown*, rather than a misleading 0%.
+yet shows _ratio unknown_, rather than a misleading 0%.
 :::
 
 ### Read from public APIs only
@@ -367,7 +371,8 @@ tiers, an unavailable counter is omitted rather than shown as zero, statistics a
 recording, and reading tiers and counters never contacts anything over the network.
 
 ::: details Exactly how honesty is preserved
-- A cache implementation that does not describe its storage reports **no tiers at all** and is marked *Not described*
+
+- A cache implementation that does not describe its storage reports **no tiers at all** and is marked _Not described_
   with a reason, rather than having a tier inferred from its class name.
 - A counter a provider does not expose (Caffeine has no put or explicit-removal counter, for instance) is **omitted**,
   never rendered as zero.
@@ -375,7 +380,7 @@ recording, and reading tiers and counters never contacts anything over the netwo
   and Spring Data Redis without `enableStatistics()` both report unavailable with the reason and the fix, instead of an
   all-zero series that reads like a cold cache.
 - A **hit ratio is derived only** from a hit and a miss counter the adapter declared comparable (same counter family,
-  scope, and window) and only when their sum is positive. An idle cache shows *ratio unknown* with the reason, never "0%".
+  scope, and window) and only when their sum is positive. An idle cache shows _ratio unknown_ with the reason, never "0%".
 - Reading tiers and counters **never contacts anything over the network**. No Redis entry count is reported, because
   counting keys would be an unsolicited network round trip on panel render. Local reads stay cheap too, with one honest
   exception: the Quarkus adapter reads a Caffeine cache's entry count through Quarkus' own `keySet()` accessor, which
@@ -383,7 +388,7 @@ recording, and reading tiers and counters never contacts anything over the netwo
   dev/test-only and BootUI does not read entry counts anywhere else.
 - Large topologies are bounded (100 managers, 500 caches per manager, 20 tiers per cache) and truncation is stated in the
   report's warnings rather than silently dropping rows.
-:::
+  :::
 
 ::: details Concrete examples
 A Caffeine cache built with `recordStats()` shows hits, misses, requests, evictions, load successes/failures, a hit
@@ -451,7 +456,7 @@ cap only applies to bodies.
 ::: details On Quarkus
 
 The panel is identical on Quarkus over the same `/bootui/api/email` contract, available when `quarkus-mailer` is on the
-classpath. One behaviour differs by necessity: because Quarkus fires its capture event *after* the send, the
+classpath. One behaviour differs by necessity: because Quarkus fires its capture event _after_ the send, the
 recorded-but-not-sent distinction reflects Quarkus's own mock-mail mode (`quarkus.mailer.mock=true`, the default in dev
 and test) rather than a BootUI trap, and such messages are labelled **mock** instead of **dev-trap**.
 

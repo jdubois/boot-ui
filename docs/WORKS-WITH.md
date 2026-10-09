@@ -4,15 +4,15 @@ BootUI is one of three projects by [Julien Dubois](https://www.julien-dubois.com
 from scaffolding an application, to observing it from the inside, to driving its build and run lifecycle from Copilot.
 Each owns one color in a shared **circle of color**:
 
-| Color         | Project                                               | Role                                                                                        |
-| ------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Color         | Project                                               | Role                                                                                          |
+| ------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | 🟢 Green      | BootUI (this site)                                    | An in-app developer console served by the running Spring Boot or Quarkus app over `/bootui/`. |
-| 🔵 Blue       | [Coffilot](https://www.julien-dubois.com/coffilot/)   | A Copilot canvas extension that builds, tests, runs and debugs the app from the side panel. |
-| 🟤 Terracotta | [Dr JSkill](https://www.julien-dubois.com/dr-jskill/) | Generates a Spring Boot application to start from.                                          |
+| 🔵 Blue       | [Coffilot](https://www.julien-dubois.com/coffilot/)   | A Copilot canvas extension that builds, tests, runs and debugs the app from the side panel.   |
+| 🟤 Terracotta | [Dr JSkill](https://www.julien-dubois.com/dr-jskill/) | Generates a Spring Boot application to start from.                                            |
 
 ## How they work together
 
-1. **Generate the app with Dr JSkill.** Start from a freshly scaffolded Spring Boot 4 application instead of a blank
+1. **Generate the app with Dr JSkill.** Start from a freshly scaffolded Spring Boot application instead of a blank
    directory, so the project layout, build, and dependencies are in place from the first commit.
 2. **Add the BootUI starter.** Drop in the BootUI starter to get a local-only, in-app developer console at `/bootui/`,
    backed by its REST API at `/bootui/api/**`. It activates automatically in the `dev` / `local` profiles and stays

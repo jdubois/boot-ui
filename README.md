@@ -14,24 +14,24 @@ activates only in local development.
 
 Read the documentation at <https://www.julien-dubois.com/boot-ui/>.
 
-> **BootUI 2.0 is in progress on the `v2` branch**, with exact correlation, a runtime journal, Runtime Insights, and run
-> comparison. It is not published yet: [build it locally to try it](docs/V2-EARLY-ADOPTERS.md), read its
+> **The `v2` branch contains BootUI 2.0**, with exact correlation, a runtime journal, Runtime Insights, run comparison,
+> and optional Java-agent instrumentation. It is not published yet: [build it locally to try it](docs/V2-EARLY-ADOPTERS.md), read its
 > [known limitations](docs/KNOWN-LIMITATIONS.md), and share feedback in
 > [GitHub Discussions](https://github.com/jdubois/boot-ui/discussions).
 
 ## Quick links
 
-| Topic | Link |
-| ----- | ---- |
-| Setup | <https://www.julien-dubois.com/boot-ui/setup> |
-| Features | <https://www.julien-dubois.com/boot-ui/features> |
-| MySQL operational view | [Feature guide](docs/features/database.md#mysql) |
-| Properties | <https://www.julien-dubois.com/boot-ui/properties> |
-| AI agents | <https://www.julien-dubois.com/boot-ui/ai-agents> |
-| Command line | <https://www.julien-dubois.com/boot-ui/cli> |
-| Sample app | <https://www.julien-dubois.com/boot-ui/try-sample-app> |
-| Repository docs | <https://www.julien-dubois.com/boot-ui/repository> |
-| Known limitations of 2.0 | [Known limitations](docs/KNOWN-LIMITATIONS.md) |
+| Topic                    | Link                                                   |
+| ------------------------ | ------------------------------------------------------ |
+| Setup                    | <https://www.julien-dubois.com/boot-ui/setup>          |
+| Features                 | <https://www.julien-dubois.com/boot-ui/features>       |
+| MySQL operational view   | [Feature guide](docs/features/database.md#mysql)       |
+| Properties               | <https://www.julien-dubois.com/boot-ui/properties>     |
+| AI agents                | <https://www.julien-dubois.com/boot-ui/ai-agents>      |
+| Command line             | <https://www.julien-dubois.com/boot-ui/cli>            |
+| Sample app               | <https://www.julien-dubois.com/boot-ui/try-sample-app> |
+| Repository docs          | <https://www.julien-dubois.com/boot-ui/repository>     |
+| Known limitations of 2.0 | [Known limitations](docs/KNOWN-LIMITATIONS.md)         |
 
 ## Use with AI agents
 
@@ -47,11 +47,11 @@ npx skills add https://github.com/jdubois/boot-ui/tree/main/skills/bootui
 The interactive installer detects supported agents and installs the canonical consumer skill. Native integrations are
 also available:
 
-| Agent | Native installation |
-| ----- | ------------------- |
-| GitHub Copilot | `gh skill install jdubois/boot-ui skills/bootui` |
-| Claude Code | `/plugin marketplace add jdubois/boot-ui`, then `/plugin install bootui@bootui` |
-| Cursor | Find **BootUI** on [Cursor Directory](https://cursor.directory/plugins/bootui) |
+| Agent          | Native installation                                                             |
+| -------------- | ------------------------------------------------------------------------------- |
+| GitHub Copilot | `gh skill install jdubois/boot-ui skills/bootui`                                |
+| Claude Code    | `/plugin marketplace add jdubois/boot-ui`, then `/plugin install bootui@bootui` |
+| Cursor         | Find **BootUI** on [Cursor Directory](https://cursor.directory/plugins/bootui)  |
 
 The Cursor and Claude Code plugins install the skill and configure the MCP server together. BootUI also pairs with
 [Coffilot](https://github.com/jdubois/coffilot), a GitHub Copilot canvas extension that builds, runs, and scans your

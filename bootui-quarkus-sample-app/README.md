@@ -9,26 +9,26 @@ e2e suite.
 
 Each ingredient maps to a BootUI panel, mirroring the Spring sample's demo intent:
 
-| Ingredient (Quarkus extension)                  | Panels it feeds                          |
-| ----------------------------------------------- | ---------------------------------------- |
-| `quarkus-rest` (+ Jackson)                      | REST API advisor, Mappings, demo endpoints |
-| `quarkus-hibernate-orm-panache`                 | Hibernate advisor, Database, SQL Trace   |
-| `quarkus-jdbc-postgresql` + Dev Services        | Database Connection Pools, Dev Services   |
-| `quarkus-flyway` / `quarkus-liquibase`          | Flyway, Liquibase                        |
-| `quarkus-cache`                                 | Cache                                    |
-| `quarkus-scheduler`                             | Scheduled Tasks                          |
-| `quarkus-security` (+ elytron properties file)  | Security Logs, Quarkus advisor           |
-| `quarkus-smallrye-health`                       | Health                                   |
-| `quarkus-micrometer-registry-prometheus`        | Metrics                                  |
-| `quarkus-opentelemetry`                         | Traces                                   |
-| `quarkus-langchain4j-ollama`                    | AI Framework                             |
+| Ingredient (Quarkus extension)                 | Panels it feeds                            |
+| ---------------------------------------------- | ------------------------------------------ |
+| `quarkus-rest` (+ Jackson)                     | REST API advisor, Mappings, demo endpoints |
+| `quarkus-hibernate-orm-panache`                | Hibernate advisor, Database, SQL Trace     |
+| `quarkus-jdbc-postgresql` + Dev Services       | Database Connection Pools, Dev Services    |
+| `quarkus-flyway` / `quarkus-liquibase`         | Flyway, Liquibase                          |
+| `quarkus-cache`                                | Cache                                      |
+| `quarkus-scheduler`                            | Scheduled Tasks                            |
+| `quarkus-security` (+ elytron properties file) | Security Logs, Quarkus advisor             |
+| `quarkus-smallrye-health`                      | Health                                     |
+| `quarkus-micrometer-registry-prometheus`       | Metrics                                    |
+| `quarkus-opentelemetry`                        | Traces                                     |
+| `quarkus-langchain4j-ollama`                   | AI Framework                               |
 
 ## Demo endpoints
 
 `SampleResource` (`/api/sample/*`) mirrors the Spring sample's `SampleController`: `hello`, `products`,
 `product-search`, `metrics-burst`, `allocate`, `slow`, `pool-stress`, `chained`, and `boom`. The
 `advisor/hibernate` package contains intentional JPA mapping anti-patterns (the Hibernate advisor scans the
-metamodel at boot, so they are flagged without needing rows), and `ArchitectureIssuesResource` triggers
+metamodel on an explicit scan, so they are flagged without needing rows), and `ArchitectureIssuesResource` supplies
 advisor findings. Secured endpoints (`/admin`, `/api/secure`) require the `admin`/`admin` account.
 
 `GET /api/secure/products` (`SecureResource`, admin/admin, backed by a live SQL query) is also the endpoint
@@ -63,8 +63,9 @@ BootUI activates automatically under `quarkus:dev` (development launch mode). In
 (`java -jar`, NORMAL launch mode) the console stays dark by design — there is no runtime flag to force it on.
 
 > Run from source on **JDK 17 to 27**: Hibernate ORM's ByteBuddy enhancement cannot augment class files
-> newer than the platform's ByteBuddy recognizes (Java 27), so augmentation is skipped on JDK 28+. Quarkus 3.33
-> LTS officially supports JDK 17, 21 and 25; JDK 26 and 27 are verified to work. The Docker image below
+> newer than the platform's ByteBuddy recognizes (Java 27), so augmentation is skipped on JDK 28+. The platform
+> version comes from `quarkus.platform.version` in the root POM; use its supported JDKs for normal development.
+> JDK 26 and 27 also have compatibility coverage in this repository. The Docker image below
 > sidesteps this by building inside JDK 21.
 
 When run from source this way, this app's spans are also exported over OTLP/HTTP to the Spring sample app's
@@ -73,7 +74,6 @@ BootUI (`quarkus.otel.exporter.otlp.endpoint` in `application.properties`, defau
 [Cross-service trace demo](../bootui-spring-sample-app/README.md#cross-service-trace-demo-with-the-quarkus-sample-app).
 This is harmless if the Spring app is not running (the export just fails quietly in the background); it is
 disabled in the Docker image below, which has no Spring app nearby.
-
 
 ### Run it with the BootUI Java agent
 
@@ -92,7 +92,8 @@ The `mysql-diagnostics` Maven profile adds Connector/J through `quarkus-jdbc-mys
 **named** `mysql` datasource. The default PostgreSQL datasource, Hibernate model, and migration demos are unchanged.
 Neither profile is active by default, and MySQL Dev Services is explicitly disabled.
 
-Use Oracle MySQL 8.4 LTS (the live fixture pins `mysql:8.4.6`); MariaDB is read but unsupported. Set connection
+Use Oracle MySQL 8.4 LTS or 9.7 LTS (the live fixtures pin `mysql:8.4.6` and `mysql:9.7.2`);
+MariaDB is read but unsupported. Set connection
 details for an existing
 local synthetic database and its restricted account outside source control:
 
@@ -131,13 +132,13 @@ platform's ByteBuddy recognizes (the `skip-quarkus-build-on-unsupported-jdk` pro
 sources still compile and resolve, so code intelligence works in the IDE regardless of the importer JDK.
 
 If you are on an older checkout (where the whole module sat behind a JDK-`[17,26)` profile) and IntelliJ shows
-it as *"not a Java/Maven project"*, point the Maven importer at a JDK the platform supports and reload:
+it as _"not a Java/Maven project"_, point the Maven importer at a JDK the platform supports and reload:
 
 - **Settings → Build, Execution, Deployment → Build Tools → Maven → Importing → "JDK for importer"** → pick a
   JDK 17 to 27.
 - **File → Project Structure → Project → SDK** → set the project SDK to the same JDK.
-- Optionally, in the **Maven tool window → Profiles**, tick `quarkus-sample-app`, then **Reload All Maven
-  Projects**.
+- In the **Maven tool window**, **Reload All Maven Projects**. The current checkout needs no
+  `quarkus-sample-app` profile: the module is always in the reactor.
 
 To actually run or augment the app from the IDE (`quarkus:dev`) you still need a JDK 17 to 27, for the same
 Hibernate ByteBuddy reason as above; on JDK 28+ the module imports and compiles but does not augment.
@@ -154,8 +155,8 @@ docker run --rm -p 8082:8082 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO bootui-sampl
 ```
 
 This is the **only** image flavor for Quarkus — deliberately no AOT, GraalVM native, or CRaC variants
-(Quarkus builds native images itself, and BootUI's GraalVM/CRaC advisors are Spring-oriented and report *not
-applicable* on Quarkus). Because BootUI activates only outside production launch mode, the image launches the
+(Quarkus builds native images itself, and BootUI's GraalVM/CRaC advisors are Spring-oriented and report _not
+applicable_ on Quarkus). Because BootUI activates only outside production launch mode, the image launches the
 app in **source-based dev mode** (`quarkus:dev`), which is why it needs a full JDK base and is larger
 than the Spring sample's distroless image. `BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO` lets
 the host browser reach BootUI through Docker's bridge gateway while the Host allow-list and CSRF defenses stay
@@ -172,8 +173,8 @@ docker run --rm -p 8082:8082 \
   bootui-sample-app-quarkus
 ```
 
-## Not published
+## Not published to Maven Central
 
 Like `bootui-spring-sample-app`, this module sets `<maven.deploy.skip>true</maven.deploy.skip>` and is never released
-to Maven Central. The Docker image above is built from this repository; unlike the Spring sample images it is
-not (yet) published to Docker Hub.
+to Maven Central. Like the Spring sample images, the Docker image above is built from this repository and
+published to Docker Hub as `jdubois/bootui-sample-app-quarkus`; see [Try the sample app](../docs/TRY-SAMPLE-APP.md#quarkus-image).

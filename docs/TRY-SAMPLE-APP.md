@@ -3,6 +3,9 @@
 The fastest way to see BootUI is to run a published sample-app image. No clone, no build, and no JDK are required —
 only a Docker-compatible engine such as Docker Desktop, Docker Engine, or Podman.
 
+The published images follow the released line. To try the v2-only runtime journal, Runtime Insights, and Java-agent
+panels before 2.0 publication, [build the v2 branch](V2-EARLY-ADOPTERS.md) and use the sample's source launchers instead.
+
 ```bash
 docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app
 ```
@@ -17,14 +20,14 @@ the Host allow-list and cross-site-write defenses stay in force. See
 
 Each flavor listens on one fixed port, identical whether you run it from Docker or from source with Maven.
 
-| Image | Port | What it demonstrates |
-| ----- | ---- | -------------------- |
-| `jdubois/bootui-sample-app` | 8080 | Spring Boot servlet on a plain JVM |
-| [`jdubois/bootui-sample-app-aot`](#jvm-aot-image) | 8080 | The same app with Spring AOT and the JDK 25 AOT class loading cache |
-| [`jdubois/bootui-sample-app-native`](#graalvm-native-image) | 8080 | The same app as a GraalVM native image |
-| [`jdubois/bootui-sample-app-crac`](#crac-image) | 8080 | The same app restored from a CRaC checkpoint, on Linux only |
-| [`jdubois/bootui-sample-app-webflux`](#webflux-image) | 8081 | The reactive adapter on Netty |
-| [`jdubois/bootui-sample-app-quarkus`](#quarkus-image) | 8082 | The Quarkus extension, in dev mode |
+| Image                                                       | Port | What it demonstrates                                                |
+| ----------------------------------------------------------- | ---- | ------------------------------------------------------------------- |
+| `jdubois/bootui-sample-app`                                 | 8080 | Spring Boot servlet on a plain JVM                                  |
+| [`jdubois/bootui-sample-app-aot`](#jvm-aot-image)           | 8080 | The same app with Spring AOT and the JDK 25 AOT class loading cache |
+| [`jdubois/bootui-sample-app-native`](#graalvm-native-image) | 8080 | The same app as a GraalVM native image                              |
+| [`jdubois/bootui-sample-app-crac`](#crac-image)             | 8080 | The same app restored from a CRaC checkpoint, on Linux only         |
+| [`jdubois/bootui-sample-app-webflux`](#webflux-image)       | 8081 | The reactive adapter on Netty                                       |
+| [`jdubois/bootui-sample-app-quarkus`](#quarkus-image)       | 8082 | The Quarkus extension, in dev mode                                  |
 
 ## What the default profile gives you
 
@@ -56,7 +59,7 @@ Three images cannot be changed this way:
 - The **AOT** and **native** images run Spring AOT with the migrations disabled, which freezes that decision into the
   generated context. Setting the variables at runtime leaves the Flyway and Liquibase panels reporting
   `No Flyway beans are available`. Rebuild with the flags removed from the `process-aot` configuration instead.
-- The **CRaC** image takes its checkpoint with migrations off, so the variables must be set on the run that *creates*
+- The **CRaC** image takes its checkpoint with migrations off, so the variables must be set on the run that _creates_
   the checkpoint. An existing checkpoint has to be regenerated.
 
 ## JVM + AOT image
@@ -73,8 +76,8 @@ toolchain and no CRIU privileges:
 docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-aot
 ```
 
-On the sample app, that is roughly 40–45 % off the Spring-reported startup time (about 9.7 s down to 5–6 s) for a
-70–100 MB larger image.
+Historical sample measurements showed roughly 40–45 % off the Spring-reported startup time (about 9.7 s down to
+5–6 s) for a 70–100 MB larger image. These have not been rerun for the current v2 code and are not startup guarantees.
 
 `-e SPRING_PROFILES_ACTIVE=...` still changes which property files are loaded, but it cannot change which beans exist.
 Spring AOT evaluated the profile and property conditions when the image was built, so bean selection is fixed whatever
@@ -102,7 +105,8 @@ docker run --rm -p 127.0.0.1:8080:8080 \
 
 ## GraalVM native image
 
-`jdubois/bootui-sample-app-native` is a [GraalVM](https://www.graalvm.org/) native image that starts in about 0.3 s:
+`jdubois/bootui-sample-app-native` is a [GraalVM](https://www.graalvm.org/) native image. Historical sample measurements
+reported about 0.3 s of application startup; the current v2 code has not been remeasured:
 
 ```bash
 docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-native
@@ -126,7 +130,8 @@ rather than claiming a complete security assessment. See
 
 `jdubois/bootui-sample-app-crac` uses
 [CRaC](https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html) to restore a
-pre-initialized application context in about 0.11 s. The checkpoint is taken at `onRefresh`, after non-lazy singleton
+pre-initialized application context. Historical sample measurements reported about 0.11 s of application restore;
+the current v2 code has not been remeasured. The checkpoint is taken at `onRefresh`, after non-lazy singleton
 initialization but before lifecycle start, so it is not a fully warmed-up application.
 
 It runs on a **Linux** host only, needs elevated privileges for [CRIU](https://criu.org/), and keeps its checkpoint in
@@ -161,7 +166,7 @@ are reactive equivalents rather than the servlet behaviour: the Security advisor
 catalogue, and the raw Spring Security panel shows the reactive `SecurityWebFilterChain` pipeline with explanations
 marked best effort. See [Framework support](FRAMEWORK-SUPPORT.md#spring-webflux).
 
-What a *panel* shows still depends on the application's own dependencies, and this sample is a minimal one. It has no
+What a _panel_ shows still depends on the application's own dependencies, and this sample is a minimal one. It has no
 JPA and no Spring AI, so the Hibernate and AI panels report themselves unavailable here even though the adapter
 supports them.
 
@@ -181,7 +186,7 @@ Then open <http://localhost:8082/bootui>.
 BootUI activates only outside Quarkus' production launch mode, so the image starts the application in dev mode. That
 requires a full JDK base image, which makes it larger than the Spring images.
 
-Most panels are live. A handful target Spring-specific concepts and are marked *not applicable* — see
+Most panels are live. A handful target Spring-specific concepts and are marked _not applicable_ — see
 [what is not on Quarkus](FRAMEWORK-SUPPORT.md#what-is-not-on-quarkus). There is no AOT, native, or CRaC variant:
 Quarkus builds native images itself, and BootUI's GraalVM and CRaC advisors are Spring-oriented.
 
