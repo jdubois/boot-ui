@@ -66,11 +66,17 @@ The local development server runs at <http://127.0.0.1:8090>. Before pushing doc
 
 ```bash
 npm run docs:build
+node --test docs/.vuepress/workshop.test.mjs
 python3 -B -m unittest discover -s .github/scripts -p 'test_docs_links.py'
 ```
 
-The fragment-link regression check reads the generated HTML for the AI agents, Security checks, and Pentesting checks
-pages, including their heading IDs. It does not contact external sites.
+The workshop check verifies the 180-minute agenda, ordered navigation, and participant source links. The generated-link
+regression check reads the HTML for the AI agents, Security checks, Pentesting checks, and all workshop pages,
+including their heading IDs and workshop cross-page targets. Neither check contacts external sites.
+
+The [three-hour workshop](workshop/README.md) is published from `docs/workshop/`. Its navbar entry follows Features,
+and its ordered sidebar group follows Get started. Planning, facilitator instructions, and reference exercise assets
+stay in the repository-only `workshop/` directory; `workshop/PLAN.md` preserves the original curriculum plan.
 
 GitHub Pages is deployed by `.github/workflows/pages.yml` from the `main` branch. In the repository settings, set
 **Pages > Build and deployment > Source** to **GitHub Actions**. The workflow builds VuePress with the `/boot-ui/` base

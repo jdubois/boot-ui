@@ -1,0 +1,11 @@
+diff --git a/bootui-spring-sample-app/src/main/java/io/github/jdubois/bootui/sample/insights/EagerDemoOrderService.java b/bootui-spring-sample-app/src/main/java/io/github/jdubois/bootui/sample/insights/EagerDemoOrderService.java
+--- a/bootui-spring-sample-app/src/main/java/io/github/jdubois/bootui/sample/insights/EagerDemoOrderService.java
++++ b/bootui-spring-sample-app/src/main/java/io/github/jdubois/bootui/sample/insights/EagerDemoOrderService.java
+@@ -16,6 +16,4 @@ public class EagerDemoOrderService {
+     @Transactional(readOnly = true)
+     public List<OrderSummary> listWithSecondarySelects() {
+-        return orders.findWithSecondarySelects().stream()
+-                .map(OrderSummary::from)
+-                .toList();
++        return orders.findWithCustomerJoin().stream().map(OrderSummary::from).toList();
+     }

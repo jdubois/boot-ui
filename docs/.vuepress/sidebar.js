@@ -12,6 +12,21 @@ const hiddenDocs = ['README.md', 'JVM-TUNING-CHECKS.md', 'PRIVACY.md']
 /* Sidebar labels only. Page titles stay long-form; the group heading already supplies the context
    these labels would otherwise repeat. */
 const sidebarLabels = {
+  'workshop/README.md': 'Workshop overview',
+  'workshop/00-runtime-understanding.md': '00 - Runtime understanding',
+  'workshop/01-setup-and-tooling.md': '01 - Setup and tooling',
+  'workshop/02-configuration-and-wiring.md': '02 - Configuration and wiring',
+  'workshop/03-runtime-journal.md': '03 - Runtime journal',
+  'workshop/04-runtime-insights.md': '04 - Runtime Insights',
+  'workshop/05-java-instrumentation.md': '05 - Java instrumentation',
+  'workshop/06-assessment-and-impact.md': '06 - Assessment and impact',
+  'workshop/07-agent-change-loop.md': '07 - Agent change loop',
+  'workshop/08-going-further.md': '08 - Going further',
+  'workshop/participant-worksheet.md': 'Participant worksheet',
+  'workshop/appendix-a-prompts.md': 'A - Prompts',
+  'workshop/appendix-b-troubleshooting.md': 'B - Troubleshooting',
+  'workshop/appendix-c-frameworks.md': 'C - Frameworks',
+  'workshop/appendix-d-extensions.md': 'D - Extensions',
   'features/README.md': 'All features',
   'setup/webflux.md': 'Spring WebFlux',
   'setup/quarkus.md': 'Quarkus',
@@ -58,6 +73,26 @@ const groups = [
       'setup/activation.md',
       'setup/environments.md',
       'setup/troubleshooting.md'
+    ]
+  },
+  {
+    text: 'Workshop',
+    docs: [
+      'workshop/README.md',
+      'workshop/00-runtime-understanding.md',
+      'workshop/01-setup-and-tooling.md',
+      'workshop/02-configuration-and-wiring.md',
+      'workshop/03-runtime-journal.md',
+      'workshop/04-runtime-insights.md',
+      'workshop/05-java-instrumentation.md',
+      'workshop/06-assessment-and-impact.md',
+      'workshop/07-agent-change-loop.md',
+      'workshop/08-going-further.md',
+      'workshop/participant-worksheet.md',
+      'workshop/appendix-a-prompts.md',
+      'workshop/appendix-b-troubleshooting.md',
+      'workshop/appendix-c-frameworks.md',
+      'workshop/appendix-d-extensions.md'
     ]
   },
   {

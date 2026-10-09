@@ -86,6 +86,7 @@ export default defineUserConfig({
       {text: 'Try it', link: toDocLink('TRY-SAMPLE-APP.md')},
       {text: 'Setup', link: toDocLink('SETUP.md')},
       {text: 'Features', link: toDocLink('features/README.md')},
+      {text: 'Workshop', link: toDocLink('workshop/README.md')},
       {text: 'Properties', link: toDocLink('PROPERTIES.md')},
       {text: 'AI agents', link: toDocLink('AI-AGENTS.md')},
       {text: 'Ecosystem', link: toDocLink('WORKS-WITH.md')}
