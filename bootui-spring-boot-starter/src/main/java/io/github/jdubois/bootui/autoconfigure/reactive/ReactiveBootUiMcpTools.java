@@ -51,10 +51,12 @@ import io.github.jdubois.bootui.autoconfigure.web.StartupController;
 import io.github.jdubois.bootui.autoconfigure.web.ThreadDumpController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.autoconfigure.web.VulnerabilitiesController;
+import io.github.jdubois.bootui.core.dto.JavaAgentSensorSwitchRequest;
 import io.github.jdubois.bootui.core.dto.RestClientTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.TransactionRecordingRequest;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsAgentView;
+import io.github.jdubois.bootui.engine.mcp.McpAgentSensorSwitches;
 import io.github.jdubois.bootui.engine.mcp.McpAgentViews;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpControlAcks;
@@ -334,6 +336,18 @@ public class ReactiveBootUiMcpTools {
                     "get_agent_status",
                     McpToolDescriptions.spring("get_agent_status"),
                     args -> McpAgentViews.agentStatus(javaAgentBean.report(), args.query())));
+            registry.add(tool(
+                    "enable_agent_sensor",
+                    McpToolDescriptions.spring("enable_agent_sensor"),
+                    args -> McpAgentSensorSwitches.invoke(
+                            args.id(),
+                            () -> javaAgentBean.switchSensor(args.id(), new JavaAgentSensorSwitchRequest(true)))));
+            registry.add(tool(
+                    "disable_agent_sensor",
+                    McpToolDescriptions.spring("disable_agent_sensor"),
+                    args -> McpAgentSensorSwitches.invoke(
+                            args.id(),
+                            () -> javaAgentBean.switchSensor(args.id(), new JavaAgentSensorSwitchRequest(false)))));
         }
         if (codeInventoryBean != null) {
             registry.add(tool(

@@ -45,6 +45,8 @@ public final class McpToolGuide {
             Map.entry("get_claude_code_sessions", args("limit", 5)),
             Map.entry("get_vulnerabilities_report", args("query", "CRITICAL")),
             Map.entry("get_agent_status", args("query", "executors")),
+            Map.entry("enable_agent_sensor", args("id", "security-sinks")),
+            Map.entry("disable_agent_sensor", args("id", "security-sinks")),
             Map.entry("get_security_logs", args("limit", 20)),
             Map.entry("get_traces", args("limit", 20)),
             Map.entry("get_http_exchanges", args("limit", 20)),
@@ -98,6 +100,18 @@ public final class McpToolGuide {
                     "start_method_probe",
                     new IdSource("an application method (binary.Class#name)", List.of("get_code_paths"))),
             Map.entry("get_method_probe", new IdSource("a probe id", List.of("start_method_probe"))),
+            Map.entry(
+                    "enable_agent_sensor",
+                    new IdSource(
+                            "a switchable Java agent sensor id (threads, files, environment, thread-activity, "
+                                    + "thread-locals, or security-sinks)",
+                            List.of())),
+            Map.entry(
+                    "disable_agent_sensor",
+                    new IdSource(
+                            "a switchable Java agent sensor id (threads, files, environment, thread-activity, "
+                                    + "thread-locals, or security-sinks)",
+                            List.of())),
             Map.entry("get_architecture_rule_violations", ruleSource("get_architecture_report")),
             Map.entry("get_spring_rule_violations", ruleSource("get_spring_report")),
             Map.entry("get_hibernate_rule_violations", ruleSource("get_hibernate_report")),

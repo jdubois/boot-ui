@@ -5,6 +5,27 @@ import java.util.Map;
 /** Agent-oriented descriptions for every BootUI MCP tool. */
 public final class McpToolDescriptions {
 
+    private static final String AGENT_SENSOR_SWITCH_GUIDANCE =
+            " Before switching, read get_agent_status and get_side_effects for the sensor and confirm its current "
+                    + "coverage. Enable only when the investigation needs evidence that this sensor uniquely records; "
+                    + "explain the collection and performance trade-off and obtain the user's approval first. "
+                    + "Sensors: threads propagates context through Thread operations and retransforms java.lang.Thread, "
+                    + "so it is opt-in and a failed self-test leaves it off until restart; files records path patterns "
+                    + "for file operations, never contents, and is on by default; environment records environment and "
+                    + "system-property names, never values, and measured about 6.8% throughput cost on a property-heavy "
+                    + "route; thread-activity records threads and executors per request and added about 11.5% overhead "
+                    + "on a thread-per-request route (16.6% with default sensors, above the 10% overall budget); "
+                    + "thread-locals scans pooled-thread local maps and reports field identity, "
+                    + "never values; security-sinks records JDK checks (unfiltered deserialization, weak algorithms, "
+                    + "trust-manager configuration) and request input reaching SQL, commands, file paths, or outbound "
+                    + "URLs, with values redacted in reports. Request-value matching also retains query/path values in "
+                    + "memory while requests run and is only active when bootui.agent.security-sinks.request-values=true "
+                    + "was set at startup; it cannot be enabled by this switch. Security-sinks JDK checks measured about "
+                    + "3.9% extra throughput cost on the benchmark route, and request matching about 3%. Switches last "
+                    + "only for this JVM, are not persisted, and change the evidence available to run comparisons. "
+                    + "Disable the sensor after the investigation if it is no longer needed; read get_agent_status again "
+                    + "to verify the result.";
+
     private static final Map<String, String> COMMON = Map.ofEntries(
             Map.entry(
                     "architecture_scan",
@@ -312,6 +333,22 @@ public final class McpToolDescriptions {
                             + "changes the agent. Sensors are summarized (state, counters, failures); query with a sensor id, such "
                             + "as executors, to list only matching sensors with their hooks and self-test steps. Every "
                             + "matching sensor is listed, so the tool takes no limit."),
+            Map.entry(
+                    "enable_agent_sensor",
+                    "With the user's authorization, switch on one supported BootUI Java agent sensor for this "
+                            + "application now and for later claims in this JVM; the override is not persisted. id is "
+                            + "one of threads, files, environment, thread-activity, thread-locals, or security-sinks. "
+                            + "The agent must be attached, armed for this application, and support runtime switches. "
+                            + "Returns the updated Java Agent report; use get_agent_status to verify recording."
+                            + AGENT_SENSOR_SWITCH_GUIDANCE),
+            Map.entry(
+                    "disable_agent_sensor",
+                    "With the user's authorization, switch off one supported BootUI Java agent sensor for this "
+                            + "application now and for later claims in this JVM; the override is not persisted. id is "
+                            + "one of threads, files, environment, thread-activity, thread-locals, or security-sinks. "
+                            + "The agent must be attached, armed for this application, and support runtime switches. "
+                            + "Returns the updated Java Agent report; use get_agent_status to verify it stopped recording."
+                            + AGENT_SENSOR_SWITCH_GUIDANCE),
             Map.entry(
                     "get_code_inventory",
                     "Return Code Inventory: did the code that changed since the previous run execute in this run? "

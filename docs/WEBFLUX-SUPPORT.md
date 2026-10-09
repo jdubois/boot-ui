@@ -17,8 +17,9 @@ status where they don't.
 ## 2. Current status
 
 The WebFlux adapter serves the large majority of the panel surface — the same 65-panel manifest the servlet adapter
-reports, including the view-only **Java Agent**, **Code Inventory**, and **Side Effects** panels and **Code Paths** with
-its method probes, minus the one panel (**HTTP Sessions**, §6.7) that stays unavailable for stack reasons. Every available
+reports, including the action-capable **Java Agent** and **Side Effects** panels with their runtime sensor switches,
+the view-only **Code Inventory** panel, and **Code Paths** with its method probes, minus the one panel
+(**HTTP Sessions**, §6.7) that stays unavailable for stack reasons. Every available
 action-capable panel behaves identically to the servlet adapter, behind the same shared `LocalhostGuard` write floor.
 
 **R2DBC statements are not recorded.** BootUI records SQL through a traced JDBC `DataSource`, so an application
@@ -39,6 +40,7 @@ Connector/J is read but unsupported. See [MySQL](features/database.md#mysql).
 | Loggers              | set level                            |
 | HTTP Probe           | probe                                |
 | Cache                | clear                                |
+| Java Agent           | enable / disable runtime sensors     |
 | Hibernate Statistics | runtime enable                       |
 | Flyway               | migrate / clean                      |
 | Liquibase            | update                               |

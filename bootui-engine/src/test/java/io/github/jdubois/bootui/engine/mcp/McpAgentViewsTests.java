@@ -250,6 +250,35 @@ class McpAgentViewsTests {
     }
 
     @Test
+    void sensorSwitchReturnsTheUpdatedReportWithTheSelectedSensorsDetails() {
+        JavaAgentReport report = agentReport(List.of(sensor("executors"), sensor("security-sinks")));
+
+        JavaAgentReport result = McpAgentSensorSwitches.invoke("security-sinks", () -> report);
+
+        assertThat(result).isEqualTo(McpAgentViews.agentStatus(report, "security-sinks"));
+        assertThat(result.sensors()).containsExactly(report.sensors().get(1));
+    }
+
+    @Test
+    void sensorSwitchRefusalsKeepTheirCanonicalStatusAndReason() {
+        for (RuntimeException failure : List.of(
+                new IllegalArgumentException("Unknown sensor"), new IllegalStateException("Agent is not armed"))) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> McpAgentSensorSwitches.invoke("files", () -> {
+                        throw failure;
+                    }))
+                    .isInstanceOf(McpToolClientException.class)
+                    .hasMessage(failure.getMessage())
+                    .satisfies(ex -> assertThat(((McpToolClientException) ex).status())
+                            .isEqualTo(failure instanceof IllegalArgumentException ? 400 : 409));
+        }
+        RuntimeException fault = new UnsupportedOperationException("Unexpected fault");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> McpAgentSensorSwitches.invoke("files", () -> {
+                    throw fault;
+                }))
+                .isSameAs(fault);
+    }
+
+    @Test
     void liveActivityKeepsTheNewestMatchingEntriesAndSaysWhetherMoreMatched() {
         LiveActivityReport report = new LiveActivityReport(
                 true,

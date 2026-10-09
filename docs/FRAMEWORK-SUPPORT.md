@@ -39,7 +39,7 @@ feature guide lists the tested driver/pool combinations.
 
 ## Spring WebFlux
 
-Everything works, including the view-only Java Agent panel and every action — setting log levels, running migrations,
+Everything works, including Java Agent runtime sensor switches and every action — setting log levels, running migrations,
 capturing heap dumps, and every advisor scan — behind the same safety rules as the servlet stack.
 
 The single exception is **HTTP Sessions**, which inventories servlet sessions through Spring Session's registry.

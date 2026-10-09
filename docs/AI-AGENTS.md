@@ -344,13 +344,18 @@ user; BootUI's own panel and read-only gates still apply.
 - **Bounded controls (actions):** `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
   `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`,
   `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`,
-  `postgresql_read`, `mysql_read`, `analyze_heap_dump`, `trigger_devtools_livereload`, and `start_method_probe`. They never capture or download a heap dump,
+  `postgresql_read`, `mysql_read`, `analyze_heap_dump`, `trigger_devtools_livereload`, `start_method_probe`,
+  `enable_agent_sensor`, and `disable_agent_sensor`. The Java agent actions take a switchable sensor id such as
+  `security-sinks`; use them only with the user's approval, and read `get_agent_status` to confirm the result. They
+  require an attached, armed agent and are refused by Java Agent panel read-only policy. Overrides last only for this JVM.
+  Enabling `security-sinks` includes its JDK checks; request-value matching additionally requires
+  `bootui.agent.security-sinks.request-values=true` at startup. These tools never capture or download a heap dump,
   execute an HTTP probe, mutate a database, clear a cache, write GitHub state, restart a dev service, or run an agent
   command. The capture controls and the database reads answer
   [compactly](#compact-answers-from-scans-and-capture-controls); the matching read tool returns the rows.
 - **Browser only, by design:** HTTP Probe (it sends requests the user composes), Profile resources and its JDK Flight
-  Recorder results in Runtime Insights, enabling Hibernate statistics, the WebSockets capture switch, the Java agent's
-  sensor switches, changing a logger level, and the other panel controls not listed above have no MCP tool or CLI
+  Recorder results in Runtime Insights, enabling Hibernate statistics, the WebSockets capture switch, changing a logger
+  level, and the other panel controls not listed above have no MCP tool or CLI
   command. An agent should point the user to the panel rather than work around it.
 
 ### Investigate one request

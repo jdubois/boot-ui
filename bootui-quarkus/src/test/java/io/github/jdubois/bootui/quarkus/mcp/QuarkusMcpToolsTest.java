@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.core.dto.JavaAgentReport;
 import io.github.jdubois.bootui.core.dto.MySqlInsightReport;
 import io.github.jdubois.bootui.core.dto.RestClientTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
@@ -212,6 +213,39 @@ class QuarkusMcpToolsTest {
     }
 
     @Test
+    void agentSensorActionsSwitchTheNativeJavaAgentResource() throws Exception {
+        QuarkusPanelAvailability availability = mock(QuarkusPanelAvailability.class);
+        when(availability.isPanelAvailable(anyString())).thenReturn(true);
+        JavaAgentResource javaAgent = mock(JavaAgentResource.class);
+        when(javaAgent.switchSensorReport(anyString(), org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenReturn(agentReport());
+        java.lang.reflect.Constructor<?> constructor = java.util.Arrays.stream(
+                        QuarkusMcpTools.class.getDeclaredConstructors())
+                .max(java.util.Comparator.comparingInt(java.lang.reflect.Constructor::getParameterCount))
+                .orElseThrow();
+        Object[] arguments = java.util.Arrays.stream(constructor.getParameterTypes())
+                .map(type -> type == QuarkusPanelAvailability.class
+                        ? availability
+                        : type == JavaAgentResource.class ? javaAgent : mock(type))
+                .toArray();
+        List<McpTool> tools = ((QuarkusMcpTools) constructor.newInstance(arguments)).tools();
+
+        invoke(tools, "enable_agent_sensor", new McpArguments(null, 100, "security-sinks"));
+        invoke(tools, "disable_agent_sensor", new McpArguments(null, 100, "security-sinks"));
+
+        verify(javaAgent).switchSensorReport("security-sinks", true);
+        verify(javaAgent).switchSensorReport("security-sinks", false);
+        assertThat(tools)
+                .filteredOn(tool ->
+                        tool.name().equals("enable_agent_sensor") || tool.name().equals("disable_agent_sensor"))
+                .allSatisfy(tool -> {
+                    assertThat(tool.action()).isTrue();
+                    assertThat(tool.panelId()).isEqualTo(BootUiPanels.JAVA_AGENT);
+                    assertThat(tool.schema()).isEqualTo(McpToolSchema.ID);
+                });
+    }
+
+    @Test
     void omitsToolsWhenTheirPanelIsUnavailable() {
         QuarkusPanelAvailability availability = mock(QuarkusPanelAvailability.class);
         when(availability.isPanelAvailable(anyString())).thenReturn(true);
@@ -295,5 +329,28 @@ class QuarkusMcpToolsTest {
                 .findFirst()
                 .orElseThrow()
                 .invoke(arguments);
+    }
+
+    private static JavaAgentReport agentReport() {
+        return new JavaAgentReport(
+                JavaAgentReport.ARMED,
+                null,
+                "2.0.0",
+                "2.0.0",
+                1,
+                1,
+                "21",
+                "javaagent",
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null);
     }
 }

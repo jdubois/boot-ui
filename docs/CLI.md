@@ -306,6 +306,22 @@ refuse the action, and `panel disabled` when the panel is off. This is also how 
 Quarkus application advertises fewer tools than Spring MVC, and some Spring tools appear only when the
 corresponding library is on the classpath.
 
+### Java agent sensor switches
+
+With the user's approval, `bootui agent sensor enable <id>` and `bootui agent sensor disable <id>` apply the same
+bounded runtime switch as `enable_agent_sensor` and `disable_agent_sensor` in MCP, on Spring MVC, Spring WebFlux,
+and Quarkus. Accepted ids are `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, and `security-sinks`.
+Read `bootui agent status` and `bootui side-effects` first, explain the sensor's collection and performance trade-offs,
+and obtain approval before switching. Read status again to verify the result.
+
+The agent must be attached, armed for this application, and support runtime switches. The Java Agent panel's enabled
+and read-only policy applies. Invalid ids and switch refusals retain the panel's error message; panel policy refusals
+exit `2`, while invalid ids and unavailable-agent refusals exit `1`. Overrides last through later claims in this JVM,
+including DevTools restarts and Quarkus live reloads, but are not written to a file and disappear when the JVM exits.
+Enabling `security-sinks` cannot enable request-value matching unless `bootui.agent.security-sinks.request-values=true`
+was set at startup. See [Switching sensors at run time](features/java-agent.md#switching-sensors-at-run-time) for the
+privacy, overhead, and comparison limits.
+
 ### MySQL reads
 
 The MySQL command pair is the projection of `get_mysql_report` and `mysql_read`, not a SQL console. It supports
