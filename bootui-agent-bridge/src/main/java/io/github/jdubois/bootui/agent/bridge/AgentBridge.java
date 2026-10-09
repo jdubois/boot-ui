@@ -174,6 +174,8 @@ public final class AgentBridge {
             }
         }
         CLAIMS.increment();
+        TaskPropagation.claimed(next.generation);
+        ThreadPropagation.claimed(next.generation);
         if (current != null && current.armed && !current.slot.equals(slot)) {
             TAKEOVERS.increment();
         }

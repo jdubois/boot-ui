@@ -82,18 +82,119 @@ class TaskSnapshotsTests {
     }
 
     @Test
-    void selfTestMarkersAreAdmittedPastTheCap() {
+    @SuppressWarnings("unchecked")
+    void capacityIsNotFreedUntilTheMapCompletesItsRemoval() throws Exception {
         TaskSnapshots snapshots = new TaskSnapshots(1);
-        snapshots.put(new Object(), GENERATION, owner("r1"), 0L);
-        Object marker = new Object();
+        Object retained = new Object();
+        Object next;
+        int hash = System.identityHashCode(retained);
+        int bin = (hash ^ (hash >>> 16)) & 15;
+        do {
+            next = new Object();
+            hash = System.identityHashCode(next);
+        } while (((hash ^ (hash >>> 16)) & 15) == bin);
+        Object otherBinTask = next;
+        snapshots.put(retained, GENERATION, owner("old"), 0L);
+        java.lang.reflect.Field field = TaskSnapshots.class.getDeclaredField("snapshots");
+        field.setAccessible(true);
+        java.util.concurrent.ConcurrentHashMap<Object, TaskSnapshots.Entry> map =
+                (java.util.concurrent.ConcurrentHashMap<Object, TaskSnapshots.Entry>) field.get(snapshots);
+        TaskSnapshots.Take take = new TaskSnapshots.Take(snapshots);
+        java.util.concurrent.FutureTask<Integer> admission =
+                new java.util.concurrent.FutureTask<>(() -> snapshots.put(otherBinTask, GENERATION, owner("new"), 0L));
+        Thread submitter = new Thread(admission, "snapshot-admission-other-bin");
 
-        assertThat(snapshots.putSelfTest(marker, GENERATION, owner("self"))).isEqualTo(TaskSnapshots.OWNED);
+        map.computeIfPresent(new TaskSnapshots.Lookup(retained), (key, entry) -> {
+            TaskSnapshots.Entry result = take.apply(key, entry);
+            assertThat(result).isNull();
+            // The callback has decided to remove, but the old physical entry still occupies its bin.
+            submitter.start();
+            try {
+                assertThat(admission.get(5, java.util.concurrent.TimeUnit.SECONDS))
+                        .isEqualTo(TaskSnapshots.REFUSED);
+            } catch (Exception ex) {
+                throw new AssertionError(ex);
+            }
+            assertThat(map).hasSize(1);
+            return result;
+        });
 
+        submitter.join(5000);
+        assertThat(submitter.isAlive()).isFalse();
+        assertThat(map).isEmpty();
+        take.releaseCapacity();
+        assertThat(snapshots.put(otherBinTask, GENERATION, owner("new"), 0L)).isEqualTo(TaskSnapshots.OWNED);
+        snapshots.release(otherBinTask);
+        assertThat(snapshots.retainedEntries.get()).isZero();
+        assertThat(snapshots.entries.get()).isZero();
+    }
+
+    @Test
+    void selfTestMarkersHaveAFixedReserveBeyondTheApplicationEntryBound() {
+        TaskSnapshots snapshots = new TaskSnapshots(1);
+        Object retained = new Object();
+        snapshots.put(retained, GENERATION, owner("r1"), 0L);
+        List<Object> markers = new ArrayList<>();
+        for (int i = 0; i < TaskSnapshots.SELF_TEST_RESERVE; i++) {
+            Object marker = new Object();
+            markers.add(marker);
+            assertThat(snapshots.putSelfTest(marker, GENERATION, owner("self"))).isEqualTo(TaskSnapshots.OWNED);
+        }
+        Object excessMarker = new Object();
+
+        assertThat(snapshots.putSelfTest(excessMarker, GENERATION, owner("self")))
+                .isEqualTo(TaskSnapshots.REFUSED);
         assertThat(snapshots.overflow()).isZero();
-        assertThat(snapshots.peek(marker)).isNotNull();
-        assertThat(snapshots.entries.get()).isEqualTo(2);
-        snapshots.take(marker);
-        assertThat(snapshots.entries.get()).isEqualTo(1);
+        assertThat(snapshots.peek(excessMarker)).isNull();
+        assertThat(snapshots.entries.get()).isEqualTo(TaskSnapshots.SELF_TEST_RESERVE + 1);
+        assertThat(snapshots.retainedEntries.get()).isEqualTo(TaskSnapshots.SELF_TEST_RESERVE + 1);
+        assertThat(snapshots.retainedEntries.get()).isLessThanOrEqualTo(1 + TaskSnapshots.SELF_TEST_RESERVE);
+        for (Object marker : markers) {
+            assertThat(snapshots.take(marker)).isNotNull();
+        }
+        assertThat(snapshots.take(retained)).isNotNull();
+        assertThat(snapshots.retainedEntries.get()).isZero();
+    }
+
+    @Test
+    void liveEntriesAcrossClaimsNeverExceedTheTotalBoundOrTransferOwners() {
+        int cap = 3;
+        TaskSnapshots snapshots = new TaskSnapshots(cap);
+        Object shared = new Object();
+        Object oldOnly = new Object();
+        Object secondGeneration = new Object();
+        List<Object> liveTasks = new ArrayList<>(List.of(shared, oldOnly, secondGeneration));
+
+        assertThat(snapshots.put(shared, GENERATION, owner("old-shared"), 0L)).isEqualTo(TaskSnapshots.OWNED);
+        assertThat(snapshots.put(oldOnly, GENERATION, owner("old-only"), 0L)).isEqualTo(TaskSnapshots.OWNED);
+        assertThat(snapshots.releaseEarlierClaims(GENERATION + 1)).isEqualTo(2);
+
+        assertThat(snapshots.put(shared, GENERATION + 1, owner("new-shared"), 0L))
+                .isEqualTo(TaskSnapshots.AMBIGUOUS_PUT);
+        assertThat(snapshots.put(secondGeneration, GENERATION + 1, owner("second-generation"), 0L))
+                .isEqualTo(TaskSnapshots.OWNED);
+        assertThat(snapshots.retainedEntries.get()).isEqualTo(cap);
+
+        for (long generation = GENERATION + 2; generation < GENERATION + 6; generation++) {
+            assertThat(snapshots.releaseEarlierClaims(generation)).isEqualTo(generation == GENERATION + 2 ? 1 : 0);
+            Object refused = new Object();
+            liveTasks.add(refused);
+            assertThat(snapshots.put(refused, generation, owner("refused-" + generation), 0L))
+                    .isEqualTo(TaskSnapshots.REFUSED);
+            snapshots.overflowed();
+            assertThat(snapshots.retainedEntries.get()).isEqualTo(cap);
+            assertThat(snapshots.size()).isEqualTo(cap);
+        }
+
+        assertThat(liveTasks).hasSize(7);
+        assertThat(snapshots.overflow()).isEqualTo(4);
+        assertThat(snapshots.entries.get()).isZero();
+        assertThat(snapshots.take(shared)).isSameAs(TaskSnapshots.AMBIGUOUS);
+        assertThat(snapshots.take(shared)).isSameAs(TaskSnapshots.AMBIGUOUS);
+        assertThat(((TaskSnapshots.Entry) snapshots.take(oldOnly)).payload[0]).isEqualTo("old-only");
+        assertThat(((TaskSnapshots.Entry) snapshots.take(secondGeneration)).payload[0])
+                .isEqualTo("second-generation");
+        assertThat(snapshots.retainedEntries.get()).isZero();
     }
 
     @Test

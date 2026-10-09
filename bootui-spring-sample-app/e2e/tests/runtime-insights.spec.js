@@ -1,13 +1,85 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
 
+for (const platform of ['spring-boot', 'spring-boot-reactive', 'quarkus']) {
+  for (const state of ['available', 'detached', 'disabled']) {
+    test(`observation deep dives: ${platform}, ${state}`, async ({page, request, agentAttached}) => {
+      test.skip(state === 'available' && !agentAttached, 'Route trees need the agent-backed browser suite.')
+      const route = 'GET /api/sample/product-search'
+      for (let i = 0; i < 7; i += 1) {
+        expect((await request.get('/api/sample/product-search')).ok()).toBeTruthy()
+      }
+      const report = await (await request.get('/bootui/api/runtime-insights')).json()
+      const observation = report.observations.find(
+        (item) => item.kind === 'route-time-breakdown' && item.subject === route
+      )
+      expect(observation).toBeTruthy()
+
+      // Exercise the shared UI with each adapter's manifest discriminator without changing the running agent.
+      await page.route('**/api/panels', async (intercept) => {
+        const response = await intercept.fetch()
+        const manifest = await response.json()
+        manifest.platform = platform
+        const panel = manifest.panels.find((item) => item.id === 'code-paths')
+        panel.enabled = state !== 'disabled'
+        panel.available = state !== 'detached'
+        panel.unavailableReason =
+          state === 'detached' ? "Requires the BootUI agent's code-paths sensor: no agent attached." : null
+        await intercept.fulfill({response, json: manifest})
+      })
+      const recordings = []
+      page.on('request', (request) => {
+        if (request.method() === 'POST' && request.url().includes('/resource-profile')) recordings.push(request.url())
+      })
+      await page.goto(
+        `/bootui/#/runtime-insights?q=${encodeURIComponent(route)}&insight=${encodeURIComponent(observation.id)}`
+      )
+      const section = page.locator('.insight-performance-deep-dives')
+      await expect(section).toBeVisible()
+      await expect(page.locator('.insight-item[aria-expanded="true"]')).toContainText(route)
+      const action = section.getByRole('button', {name: 'Open the JFR profile tab'})
+      await action.focus()
+      await page.keyboard.press('Enter')
+      const tab = page.getByRole('tab', {name: 'JFR profile'})
+      await expect(tab).toHaveAttribute('aria-selected', 'true')
+      await expect(tab).toBeFocused()
+      expect(recordings).toEqual([])
+      await page.getByRole('tab', {name: /^Findings/}).click()
+
+      const link = section.getByRole('link', {name: `Open ${route} in Code Paths`})
+      if (state === 'available') {
+        await expect(link).toHaveAttribute('href', /#\/code-paths\?route=GET\+\/api\/sample\/product-search$/)
+        await link.focus()
+        await page.keyboard.press('Enter')
+        await expect(page).toHaveURL(/#\/code-paths\?route=GET\+\/api\/sample\/product-search$/)
+        await expect(page.locator('.code-paths-route', {hasText: route})).toHaveAttribute('aria-expanded', 'true')
+        await expect(page.locator('.code-paths-route-detail')).toBeVisible()
+      } else {
+        await expect(link).toHaveCount(0)
+        if (state === 'detached') {
+          await expect(section.locator('.insight-agent-tip')).toContainText('method-level timing')
+          await expect(section.getByRole('link', {name: 'Set up the Java agent'})).toBeVisible()
+        } else {
+          await expect(section).toContainText('bootui.panels.code-paths.enabled=false')
+          await expect(section.locator('.insight-agent-tip')).toHaveCount(0)
+        }
+      }
+      expect(recordings).toEqual([])
+    })
+  }
+}
+
 /**
  * Runtime Insights (docs/PLAN-v2.md §5.5): the runtime journal's retained requests projected into observations.
  * Seven calls to one route give it the five warm requests `route-time-breakdown` needs, so the panel always has one
  * observation to open, whatever ran before; a short route is reached with **Show all routes** (M4-19).
  */
 test.describe('Runtime Insights view', () => {
-  test('lists a route time breakdown with its window, coverage, checks, and evidence', async ({openView, page}) => {
+  test('lists a route time breakdown with its window, coverage, checks, and evidence', async ({
+    openView,
+    page,
+    agentAttached
+  }) => {
     for (let i = 0; i < 7; i += 1) {
       const search = await page.request.get('/api/sample/product-search')
       expect(search.ok()).toBeTruthy()
@@ -36,12 +108,33 @@ test.describe('Runtime Insights view', () => {
     const deepDives = detail.locator('.insight-performance-deep-dives')
     await expect(deepDives.getByRole('heading', {name: 'Performance deep dives'})).toBeVisible()
     const codePathsLink = deepDives.getByRole('link', {name: /Open GET .* in Code Paths/})
-    await expect(codePathsLink).toHaveAttribute('href', /#\/code-paths\?route=/)
-    await deepDives.getByRole('button', {name: 'Open the JFR profile tab'}).click()
+    if (agentAttached) {
+      await expect(codePathsLink).toHaveAttribute('href', /#\/code-paths\?route=GET\+\/api\/sample\/product-search$/)
+    } else {
+      await expect(codePathsLink).toHaveCount(0)
+      await expect(deepDives.locator('.insight-agent-tip')).toContainText('method-level timing')
+      await expect(deepDives.getByRole('link', {name: 'Set up the Java agent'})).toHaveAttribute(
+        'href',
+        /#\/java-agent$/
+      )
+    }
+    await deepDives.getByRole('button', {name: 'Open the JFR profile tab'}).focus()
+    await page.keyboard.press('Enter')
     await expect(page.getByRole('tab', {name: 'JFR profile'})).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tab', {name: 'JFR profile'})).toBeFocused()
     await expect(page.locator('.insight-profile-running')).toHaveCount(0)
     await expect(page.locator('.insight-profile').getByRole('button', {name: /Profile resources/})).toBeVisible()
     await page.getByRole('tab', {name: /^Findings/}).click()
+    if (agentAttached) {
+      await codePathsLink.click()
+      await expect(page).toHaveURL(/#\/code-paths\?route=GET\+\/api\/sample\/product-search$/)
+      await expect(page.locator('.code-paths-route', {hasText: 'GET /api/sample/product-search'})).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      )
+      await expect(page.locator('.code-paths-route-detail')).toBeVisible()
+      await page.goBack()
+    }
 
     await expect(page.getByRole('button', {name: 'Export JSON'})).toBeVisible()
 
