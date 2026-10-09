@@ -1,6 +1,7 @@
 <script setup>
-import {inject} from 'vue'
+import {computed, inject, ref} from 'vue'
 import {formatNumber} from '../../utils/format.js'
+import {panelDisabledReason} from '../../utils/panelNavigation.js'
 import {isListed, isMachineColumn} from '../../utils/runtimeInsights.js'
 import AiExportPreview from './AiExportPreview.vue'
 import InsightText from './InsightText.vue'
@@ -8,6 +9,23 @@ import InsightText from './InsightText.vue'
 // The open observation of Runtime Insights: its sentence, what to check, exemplar requests, evidence, and limits. The
 // panel owns the state and provides it; its sentence names the region that holds this body.
 const ctx = inject('runtimeInsights')
+const panels = inject('panels', ref(null))
+const codePathsPanel = computed(() => panels.value?.panels?.find((panel) => panel.id === 'code-paths'))
+const codePathsUnavailableReason = computed(() => {
+  if (!Array.isArray(panels.value?.panels)) return 'Code Paths availability is not known yet.'
+  const panel = codePathsPanel.value
+  if (!panel) return 'Code Paths is not available in this runtime.'
+  if (panel.enabled === false) return panelDisabledReason(panel)
+  if (panel.available === false) return panel.unavailableReason || 'Code Paths is unavailable in this runtime.'
+  return null
+})
+const agentTip = computed(() =>
+  codePathsUnavailableReason.value?.startsWith("Requires the BootUI agent's code-paths sensor")
+)
+const agentSetupAvailable = computed(() => {
+  const panel = panels.value?.panels?.find((panel) => panel.id === 'java-agent')
+  return !!panel && panel.enabled !== false && panel.available !== false
+})
 </script>
 
 <template>
@@ -50,27 +68,50 @@ const ctx = inject('runtimeInsights')
   </ol>
 
   <section
-    v-if="ctx.selected.kind === 'route-time-breakdown' && ctx.selected.subject"
+    v-if="ctx.selected.kind === 'route-time-breakdown'"
     class="mb-3 insight-performance-deep-dives"
     aria-labelledby="insight-performance-deep-dives-heading"
   >
     <h3 id="insight-performance-deep-dives-heading" class="h6">Performance deep dives</h3>
-    <ul class="list-inline small mb-0">
-      <li class="list-inline-item">
+    <ul class="list-unstyled small mb-0">
+      <li class="mb-3">
         <button
           type="button"
-          class="btn btn-link btn-sm p-0 align-baseline"
+          class="btn btn-outline-secondary btn-sm"
           @click="ctx.showTab('profile', 'insights-tab-profile')"
         >
+          <i class="bi bi-cpu me-1" aria-hidden="true"></i>
           Open the JFR profile tab
         </button>
-        <span class="text-muted"> — recording starts only when you choose Profile resources.</span>
+        <p class="text-muted mt-1 mb-0">
+          Inspect CPU and allocation samples. Opens the tab only; recording starts only when you choose Profile
+          resources.
+        </p>
       </li>
-      <li class="list-inline-item">
-        <router-link :to="{path: '/code-paths', query: {route: ctx.selected.subject}}">
-          Open {{ ctx.selected.subject }} in Code Paths
-        </router-link>
-        <span class="text-muted"> — its route-level tree, not an exact request replay.</span>
+      <li>
+        <template v-if="codePathsUnavailableReason">
+          <p v-if="agentTip" class="mb-1 insight-agent-tip">
+            Tip: Use the Java agent's code-paths sensor for method-level timing and deeper route insights.
+          </p>
+          <p class="text-muted mb-0">Code Paths unavailable: {{ codePathsUnavailableReason }}</p>
+          <router-link v-if="agentTip && agentSetupAvailable" to="/java-agent" class="d-inline-block mt-1">
+            Set up the Java agent
+          </router-link>
+        </template>
+        <template v-else-if="ctx.selected.subject">
+          <router-link
+            :to="{path: '/code-paths', query: {route: ctx.selected.subject}}"
+            class="btn btn-outline-secondary btn-sm bootui-break-anywhere"
+          >
+            <i class="bi bi-diagram-3 me-1" aria-hidden="true"></i>
+            Open <code>{{ ctx.selected.subject }}</code> in Code Paths
+          </router-link>
+          <p class="text-muted mt-1 mb-0">
+            See this route's retained method timings and calls, not an exact request replay. If no tree was retained,
+            Code Paths has no route evidence to show.
+          </p>
+        </template>
+        <p v-else class="text-muted mb-0">This observation has no known route for the Code Paths view.</p>
       </li>
     </ul>
   </section>
