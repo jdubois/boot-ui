@@ -1556,7 +1556,7 @@ class BootUiQuarkusProcessor {
      */
     static List<RawErrorHandler> scanErrorHandlers(IndexView index) {
         List<RawErrorHandler> handlers = new ArrayList<>();
-        for (ClassInfo mapper : index.getAllKnownImplementors(EXCEPTION_MAPPER)) {
+        for (ClassInfo mapper : index.getAllKnownImplementations(EXCEPTION_MAPPER)) {
             if (mapper.isInterface() || Modifier.isAbstract(mapper.flags()) || isBootUiClass(mapper)) {
                 continue;
             }

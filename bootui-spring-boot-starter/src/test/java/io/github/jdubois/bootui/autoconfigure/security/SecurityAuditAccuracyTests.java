@@ -62,6 +62,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.NoOpPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -93,6 +94,12 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
 
 class SecurityAuditAccuracyTests {
+
+    // The audit must recognize Spring's real insecure encoder; a secure replacement would invalidate the fixture.
+    @SuppressWarnings("deprecation")
+    private static PasswordEncoder noOpPasswordEncoder() {
+        return NoOpPasswordEncoder.getInstance();
+    }
 
     @Test
     void nativeActuatorOperationInventoryIsInspectedWithoutInvokingEndpoint() {
@@ -722,7 +729,7 @@ class SecurityAuditAccuracyTests {
     @Test
     void unusedNoopEncoderIsNotEffectivePasswordStorage() {
         DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
-        factory.registerSingleton("unusedNoOp", NoOpPasswordEncoder.getInstance());
+        factory.registerSingleton("unusedNoOp", noOpPasswordEncoder());
         SecurityReport report = scan(factory, new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE));
         assertThat(report.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-AUTH-001");
     }
@@ -731,7 +738,7 @@ class SecurityAuditAccuracyTests {
     void activeProviderSelectedEncoderIsInspectedWithoutCallingSupplier() {
         var provider = new DaoAuthenticationProvider(new InMemoryUserDetailsManager(
                 User.withUsername("test").password("unused").authorities("USER").build()));
-        provider.setPasswordEncoder(NoOpPasswordEncoder.getInstance());
+        provider.setPasswordEncoder(noOpPasswordEncoder());
         var filter = new BasicAuthenticationFilter(new ProviderManager(provider));
         SecurityReport report = scan(
                 new DefaultListableBeanFactory(), new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, filter));
@@ -1522,12 +1529,11 @@ class SecurityAuditAccuracyTests {
                 .isEqualTo("SKIPPED");
     }
 
-    @SuppressWarnings("deprecation")
     private static void assertIndependentFindingAndIncompleteConfiguration(MockEnvironment environment) {
         var provider = new DaoAuthenticationProvider(username -> {
             throw new AssertionError("No user lookup");
         });
-        provider.setPasswordEncoder(NoOpPasswordEncoder.getInstance());
+        provider.setPasswordEncoder(noOpPasswordEncoder());
         var factory = new DefaultListableBeanFactory();
         factory.registerSingleton(
                 "springSecurityFilterChain",

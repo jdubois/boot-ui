@@ -267,7 +267,7 @@ final class SecurityDeclarationCapture {
     private static boolean implementsAny(IndexView index, List<String> types) {
         for (String name : types) {
             DotName type = DotName.createSimple(name);
-            if (!index.getAllKnownImplementors(type).isEmpty()
+            if (!index.getAllKnownImplementations(type).isEmpty()
                     || !index.getAllKnownSubclasses(type).isEmpty()) {
                 return true;
             }

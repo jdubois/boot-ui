@@ -177,6 +177,54 @@ class Resilience4jPolicyProviderTests {
     }
 
     @Test
+    void readsFirstRetryDelayFromDefaultAndConfiguredIntervalFunctions() {
+        RetryRegistry retries = RetryRegistry.ofDefaults();
+        retries.retry("default");
+        retries.retry(
+                "fixed",
+                RetryConfig.custom().waitDuration(Duration.ofMillis(125)).build());
+        retries.retry(
+                "backoff",
+                RetryConfig.custom().intervalFunction(attempt -> attempt * 250L).build());
+        retries.retry(
+                "biFunction",
+                RetryConfig.custom()
+                        .intervalBiFunction((attempt, result) -> attempt * 750L)
+                        .build());
+        Resilience4jPolicyProvider provider = new Resilience4jPolicyProvider(beanFactory(retries), recorder);
+        List<FaultTolerancePolicyDto> policies = provider.policies();
+
+        for (var expected : java.util.Map.of(
+                        "default", RetryConfig.DEFAULT_WAIT_DURATION + " ms",
+                        "fixed", "125 ms",
+                        "backoff", "250 ms",
+                        "biFunction", "750 ms")
+                .entrySet()) {
+            assertThat(setting(policy(policies, expected.getKey()), "firstRetryDelay"))
+                    .get()
+                    .satisfies(delay -> {
+                        assertThat(delay.value()).isEqualTo(expected.getValue());
+                        assertThat(delay.provenance()).isEqualTo(FaultToleranceVocabulary.PROVENANCE_UNKNOWN);
+                    });
+        }
+    }
+
+    @Test
+    void resultDependentRetryDelayStaysUnknownWhenNoResultIsAvailable() {
+        RetryRegistry retries = RetryRegistry.ofDefaults();
+        retries.retry(
+                "resultDependent",
+                RetryConfig.<String>custom()
+                        .intervalBiFunction(
+                                (attempt, result) -> (long) result.get().length())
+                        .build());
+        Resilience4jPolicyProvider provider = new Resilience4jPolicyProvider(beanFactory(retries), recorder);
+
+        assertThat(setting(policy(provider.policies(), "resultDependent"), "firstRetryDelay"))
+                .isEmpty();
+    }
+
+    @Test
     void capturesCircuitBreakerStateTransitionsAndShortCircuitsAsMetadataOnly() {
         CircuitBreakerRegistry registry = CircuitBreakerRegistry.ofDefaults();
         CircuitBreaker breaker = registry.circuitBreaker("payments");

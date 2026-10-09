@@ -166,7 +166,8 @@ events.
 - **Resilience4j** — read live from the `CircuitBreakerRegistry`, `RetryRegistry`, `RateLimiterRegistry`,
   `BulkheadRegistry`, `ThreadPoolBulkheadRegistry`, and `TimeLimiterRegistry` beans, including entries created lazily at
   runtime. Resilience4j's own event publishers feed the event feed, so state transitions and retries appear without any
-  wrapping or proxying by BootUI.
+  wrapping or proxying by BootUI. The first retry delay is inspected without a call result; when a custom interval
+  function needs a result to calculate it, the delay is omitted rather than guessed. Its provenance remains unknown.
 - **Spring Retry** — `@Retryable` metadata plus an additive `RetryListener` bean that records retry attempts and
   exhaustion.
 - **SmallRye Fault Tolerance** — `@CircuitBreaker`, `@Retry`, `@Timeout`, `@Bulkhead`, `@RateLimit`, and `@Fallback`

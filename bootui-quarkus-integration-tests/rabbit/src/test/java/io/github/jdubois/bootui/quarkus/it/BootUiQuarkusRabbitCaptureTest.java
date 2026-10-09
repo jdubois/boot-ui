@@ -141,7 +141,7 @@ class BootUiQuarkusRabbitCaptureTest {
         Message<?> sent;
         try (BootUiCorrelation.Scope ignored =
                 BootUiCorrelation.open(CorrelationContext.forRequest("0123456789abcdef"))) {
-            sent = producerCapture.onMessage(outgoingMessage());
+            sent = producerCapture.beforeMessageSend(outgoingMessage());
         }
         CompletableFuture.runAsync(() -> producerCapture.onMessageAck(sent)).get(10, TimeUnit.SECONDS);
 
