@@ -112,7 +112,29 @@ class AppEventObservationsTests {
                             + " write in 1 of 1 request after its transaction completed, in no transaction of its"
                             + " own.");
             assertThat(observation.whatToCheck().get(1)).contains("REQUIRES_NEW");
+            assertThat(observation.whatToCheck().get(0)).contains("timing alone does not prove");
         });
+    }
+
+    @Test
+    void aNoTransactionFallbackWriteIsNotEvidenceThatATransactionCompleted() {
+        long start = 1_000 * MS;
+        offer(
+                "fallback",
+                new Child(
+                        JournalSource.APP_EVENT,
+                        5 * MS,
+                        AppEventPayload.listener(
+                                PLACED,
+                                "AuditListener#fallback",
+                                AppEventPayload.IMMEDIATE,
+                                AppEventPayload.RAN,
+                                null,
+                                start)),
+                new Child(JournalSource.SQL, MS, sql("insert into audit values (?)", start + 2 * MS)));
+
+        assertThat(observations(AfterCommitWrites.KIND)).isEmpty();
+        assertThat(observations(TransactionalListenerSkipped.KIND)).isEmpty();
     }
 
     @Test
