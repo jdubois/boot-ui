@@ -6,8 +6,9 @@ application at that repository. Your regular `~/.m2` repository and the released
 
 ## What 2.0 adds
 
-- **Exact correlation**: every SQL statement, exception, security event, cache access, message, and log line knows its
-  request or execution, with or without tracing, on Spring MVC, WebFlux, and Quarkus.
+- **Exact correlation**: captured work carrying BootUI's request or execution id joins that owner, with or without
+  tracing, on Spring MVC, WebFlux, and Quarkus. Unsupported, missed or unowned work stays explicit rather than being
+  inferred from an empty report; the stack and agent limits below still apply.
 - **The runtime journal**: one bounded, in-memory record of what the run did, behind Live Activity, request profiles,
   and run summaries that survive restarts.
 - **Runtime Insights**: observations such as repeated selects, writes behind a `GET`, errors behind a 2xx, transactions
@@ -41,7 +42,7 @@ uses the same `bootui-spring-boot-starter` as a Spring MVC one: the `v2` build h
 To find the version:
 
 ```bash
-./mvnw -q -DforceStdout help:evaluate -Dexpression=project.version
+./mvnw -q -Dmaven.repo.local="$HOME/.m2/bootui-v2" -DforceStdout help:evaluate -Dexpression=project.version
 ```
 
 Then build and run your application with the same repository:
@@ -61,12 +62,21 @@ repositories {
 }
 ```
 
+For the new CLI commands, use the **CLI built from the same `v2` checkout**, not an older installed 1.x command.
+The build installs its runnable jar in that separate repository; replace `VERSION` with the version reported above:
+
+```bash
+java -jar "$HOME/.m2/bootui-v2/com/julien-dubois/bootui/bootui-cli/VERSION/bootui-cli-VERSION-all.jar" insights list
+```
+
 ## Get a first observation
 
-1. Start the application with BootUI on, as in 1.x, with no extra property.
+1. Start the application with BootUI on, as in 1.x, with no extra property. The runtime journal is enabled by default;
+   the optional Java agent adds method and side-effect evidence only when attached and claimed.
 2. Run your integration or browser tests against it, or click through its main flows, so it serves realistic traffic.
-3. Open **Runtime Insights**, or run `bootui insights list`. Read the coverage strip and the checks that did not run
-   first: an empty list never means healthy.
+3. Open **Runtime Insights**, or use the v2 CLI jar above. Read the coverage strip and the checks that did not run
+   first: an empty list never means healthy. Enabling a sensor or starting **Profile resources** later cannot recover
+   measurements missed earlier in the run.
 4. After a change, restart, run the same traffic, and open the run comparison.
 
 ## Give feedback

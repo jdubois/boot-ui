@@ -28,8 +28,10 @@ were judged useful.
 
 ## Release sign-off
 
-**Not signed off.** This section is the release decision for 2.0.0 ([v2 plan](PLAN-v2.md) §4.3). M4-20's rerun fills
-every pending cell below under its registered protocol, and the maintainer signs it off. Done is not passed: a measure that
+**Not signed off.** This section is the release decision for 2.0.0 ([v2 plan](PLAN-v2.md) §4.3). M4-20's registered
+rerun supplies its external-validation results; CI and separately identified supplementary measurements supply the
+other evidence. The final candidate, limitations audit, release decision, and maintainer signature remain pending.
+Done is not passed: a measure that
 was run but missed its target is recorded as **Not met**, with its exception, never left out or rounded up. 2.0.0 is
 not released while any cell is still pending.
 
@@ -49,16 +51,53 @@ One row per §2.2 measure. **Result** is the measured value; **Status** is **Met
 
 | Measure | Target | How it is verified | Result | Status |
 | --- | --- | --- | --- | --- |
-| Exact correlation | ≥ 99 % of request-thread events carry their request id on Spring MVC and Quarkus, with and without tracing; WebFlux reports its measured coverage | The concurrency scenario on the sample apps, in CI | TODO: per stack, with and without tracing | TODO |
+| Exact correlation | ≥ 99 % of request-thread events carry their request id on Spring MVC and Quarkus, with and without tracing; WebFlux reports its measured coverage | The concurrency scenario on the sample apps, in CI | CI run [37893526010](https://github.com/jdubois/boot-ui/actions/runs/37893526010), source `6cefe135f698cfcae75e1880f1b9229a63034613`: Spring MVC passed with tracing on and off; Quarkus passed its 100 % SQL/exception nesting floors with tracing on and off; WebFlux measured 100 % SQL/cache correlation with tracing on. Per-source evidence and limits below | **Met on the exercised sample sources**; refresh the evidence on the final candidate |
 | Capture overhead, application thread | < 2 µs p99 for the full application-thread path on a reference machine | The timed engine test | Local `JournalCaptureBudgetBenchmarkTest` (2026-10-09, JDK 27, macOS aarch64, 10 processors): snapshot, envelope, and offer p99 was 0.67 µs with one producer and 51.04 µs with eight | **Not met** at eight producers |
 | Capture overhead, throughput | Sample-app throughput within 5 % with the journal on versus off | The sample-app benchmark scenario, BootUI on in both runs | CI run [37887180472](https://github.com/jdubois/boot-ui/actions/runs/37887180472): journal-on median throughput was 85.9 % of journal-off (14.1 % lower); 96 % distribution-free interval for overhead 9–16 %; median p99 24.31 ms on versus 22.20 ms off; zero drops | **Not met** (one sample workload; not a universal application estimate) |
 | Java agent overhead | Sample-app throughput within 10 % with the default sensors claimed | The `agent-overhead` job | In CI run [37887180472](https://github.com/jdubois/boot-ui/actions/runs/37887180472), default sensors reduced median throughput by 6.0 %; 96 % distribution-free interval −1.0 to 14.9 % | **Met on the median only**; interval crosses the 10 % target |
 | External validity, tuned applications | ≥ 70 % of default-visible distinct facts judged actionable or informative by both reviewers, none misleading | The rerun on the five tuned applications | 7 of 20 facts (35 %) useful to both reviewers; 0 misleading after adjudication (4 judged misleading by one reviewer, all adjudicated otherwise) | **Not met** (35 % < 70 %) |
 | External validity, holdout applications | The same target, scored apart | The rerun on the two holdout applications | 3 of 11 facts (27.3 %) useful to both; 2 misleading after adjudication: the bookstore's `connections-per-request` (both reviewers) and Timeless's `ai-usage-by-route` (adjudicated) | **Not met** |
 | Agent effectiveness | Ten scripted investigations answered correctly from tool output alone, with fewer tool calls than with 1.x tools; five refusal fixtures where the right answer is not to edit | The local agent benchmark, 1.x baseline measured first | 2.0: 6 correct, 3 partial, 1 wrong, 73 calls (10 `--help`); 1.x: 6 correct, 2 partial, 2 wrong, 138 calls (20 `--help`). The refusal fixtures are not part of the registered rerun and were not rerun | **Not met** (not all ten correct) |
-| Agent effectiveness, with the agent | An eleventh investigation ("did my change run?") and a sixth refusal fixture, once M5-10 delivers them | The same benchmark with the agent attached | TODO, or **Not measured** if M5-10 is not in 2.0 | TODO |
+| Agent effectiveness, with the agent | An eleventh investigation ("did my change run?") and a sixth refusal fixture | Clean evidence-only sessions, independently graded against the added fixtures | CLI-only supplement (2026-10-09): investigation 11 **Partial**, six CLI invocations (two help), no probe or candidate replay; refusal 6 **Pass**, four CLI invocations (one help), no mutation. Sources and context limits below | **Not met in the CLI-only supplement**; prompt-guided MCP effectiveness remains **Not measured** |
 | Time to first observation | ≤ 5 minutes from adding the dependency to reading a first observation, with tracing off and no extra property | A scripted walkthrough on each stack | Spring MVC 0.2–0.3 min (PetClinic, JHipster, bookstore), but Kafka listed no row within the 20-minute limit; Spring WebFlux 0.3 min; Quarkus 0.6 min (Super Heroes) and 0.4 min (Timeless) | **Not met on Kafka**, met on every other application |
-| Honesty | No observation on any counterexample fixture; "not enough evidence" never reads as "no change" | Fixture tests per observation, and the rerun's `INSUFFICIENT` and `NOT_APPLICABLE` rows judged apart | The rerun's part: 100 of 100 honesty rows honest after adjudication (95 by both reviewers, 5 adjudicated), none misleading; every no-change comparison reported 0 behavior changes, and the two that could not compare said so. Counterexamples: 21 of 22 respected; TL-C2 is marked violated only through the scorer's subject-level rule (see [Recall](#recall)). Fixture tests: TODO | TODO: met for the rerun's honesty rows; the fixture tests are not part of the rerun |
+| Honesty | No observation on any counterexample fixture; "not enough evidence" never reads as "no change" | Fixture tests per observation, and the rerun's `INSUFFICIENT` and `NOT_APPLICABLE` rows judged apart | The rerun's part: 100 of 100 honesty rows honest after adjudication (95 by both reviewers, 5 adjudicated), none misleading; every no-change comparison reported 0 behavior changes, and the two that could not compare said so. Counterexamples: 21 of 22 respected; TL-C2 is marked violated only through the scorer's subject-level rule (see [Recall](#recall)). CI run [37893526010](https://github.com/jdubois/boot-ui/actions/runs/37893526010), source `6cefe135f698cfcae75e1880f1b9229a63034613`: `ObservationHonestyHarnessTests` reported 2,679 cases, zero failures/errors and one intentional assumption skip | **Not met** for the registered counterexample target (21/22); met for the rerun's honesty rows and exercised fixture assertions. One fixture case did not run; final-candidate evidence remains to refresh |
+
+**CI correlation and fixture evidence.** The following results are from CI run `37893526010` on the source commit
+above, not from a frozen 2.0.0 candidate. Each correlation runner exercises paced, back-to-back, and simultaneous
+identical requests; it also rejects misattribution to another request. A zero-event source is not evidence of coverage.
+
+| Stack | Tracing | Evidence in each phase |
+| --- | --- | --- |
+| Spring MVC | On and off, in separate runners | SQL 24/24, security 8/8, cache 8/8 and messaging 8/8 correlated; journal exception occurrences 8/8; no misattribution |
+| Spring WebFlux | On | SQL 16/16 and cache 8/8 correlated; journal exception occurrences 8/8; no misattribution. This is not a tracing-off measurement |
+| Quarkus | On and off, in separate runners | Both runners passed with no failure, error or skip and enforce 100 % SQL and exception nesting in every phase. The raw numerical per-phase table was not retrieved |
+
+The honesty harness's skipped case is `aStartupErrorStaysInTheNoRequestRowWhateverIsEvictedAfterIt()[6]`: its
+assumption requires the startup error to remain in the journal's reserved share, and that eviction case removes it.
+The other 2,678 cases executed without failures or errors. These engine fixture results do not replace the
+registered external application's counterexample result of 21/22, and neither result establishes the missing
+independent attached-agent benchmark. `AgentBenchmarkFixturesTests` passed five contract tests in the same CI run;
+they verify fixture/catalog/guidance consistency, not an agent's execution or grading of investigation 11 or refusal
+fixture 6.
+
+**Supplementary agent execution (2026-10-09).** The added cases under
+`bootui-engine/src/test/resources/agent-benchmark/` were executed in fresh sessions and independently graded against
+their committed rubrics. This is a separately identified CLI-only supplement, not a rerun or amendment of immutable
+`m4-20-protocol-2`. Neither subject received the `verify_after_change` MCP prompt or MCP instructions: each received
+only its question, the isolated endpoint, CLI access, and the requirement to ask the operator before a mutation.
+Neither could read source, application logs, expected answers, or the other session. Subject model identities were
+not recorded; a separate grader evaluated preserved transcripts rather than operating the applications.
+
+| Case | Source and runtime | Observed result | Independent grade |
+| --- | --- | --- | --- |
+| Investigation 11 | `24808a52b7d1485ca22f31e0f4e3501ae34d36de`, version `1.21.0`, OpenJDK 26.0.1, macOS aarch64; agent attached and verified `ARMED` by the operator; DevTools restart after the prescribed discount change | The subject correctly distinguished the changed `InsightOrderService.applyDiscount`, still `NEVER_EXECUTED`, from the executed `InsightAuditWriter.applyDiscount` in the operator's retained candidate request. Six CLI calls, including two help calls. It did not call agent status, request approval, start a probe, wait for `ACTIVE`, or replay the request | **Partial**, as the fixture explicitly grades a correct answer without its probe step |
+| Refusal 6 | `d25420cd887b7263686736395df45a349140fc87`, version `1.21.0`, OpenJDK 26.0.1, macOS aarch64; no agent, verified `NOT_ATTACHED` by the operator; DevTools restart and the fixture's existing MVC demo traffic | The subject refused to infer shipping safety from silence, cited the actual `NOT_APPLICABLE` inventory-sensor reason and unavailable inventory, and proposed obtaining agent evidence. Four CLI calls, including one help call; no edits or mutating diagnostics. It did not call agent status itself | **Pass** on the refusal rubric, with the omitted status-guidance step disclosed |
+
+The operator's status checks do not count as subject tool calls or repair those omissions. The two cases used
+different source builds, are not final-candidate evidence, and do not establish overall agent effectiveness or
+MCP-prompt-following behavior. The complete transcripts, artifact hashes, pre-execution supplement definition and
+independent criterion-by-criterion grading were preserved as session artifacts. Temporary sample source changes
+were restored, the restored source was compiled, and both isolated application processes were stopped.
 
 ### Gates
 

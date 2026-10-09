@@ -32,7 +32,7 @@ applyTo: "bootui-spring-boot-starter/**,bootui-spring-sample-app/**,bootui-sprin
 - Consume optional Actuator endpoints through `ObjectProvider`; if an endpoint is unavailable, return the panel's empty DTO rather than failing.
 - Keep all five Spring bootstrap `EnvironmentPostProcessor`s in the Spring adapter and register additions in
   `META-INF/spring.factories`. They have no Quarkus equivalent. The overrides EPP intentionally loads even while BootUI
-  is inactive; do not add the activation gate used by the other three. `BootUiAgentClaimEnvironmentPostProcessor` is
+  is inactive; do not add the activation gate used by the other four. `BootUiAgentClaimEnvironmentPostProcessor` is
   gated by BootUI's resolved activation like the startup EPP, but when BootUI or `bootui.agent.enabled` is off it
   releases the agent instead of claiming it.
 - `LocalhostOnlyFilter`/`PanelAccessFilter` and their `ReactiveLocalhostOnlyFilter`/`ReactivePanelAccessFilter` siblings
