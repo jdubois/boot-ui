@@ -823,6 +823,8 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **CLI failures are not successful answers or policy skips.** Empty tool replies, wrong targets, and outages now
+  fail explicitly; endpoint disablement requires a valid disabled catalog ([CLI](docs/CLI.md#exit-codes)).
 - **MCP correlation ids cannot exceed the response budget.** An unanswerable request gets bodyless HTTP `413` before
   any tool runs; normal replies keep their ids and wire shape ([AI agents](docs/AI-AGENTS.md#protocol-eras)).
 - **Quarkus advisor rules report one outcome per scan.** A rule with findings and incomplete coverage, such as

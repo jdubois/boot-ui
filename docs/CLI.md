@@ -175,6 +175,11 @@ A 1.x CLI keeps calling these commands, without the newer options, and gets the 
 Auto-detection is a convenience, not a contract: on a JDK 22 or later runtime a redirected stream can still
 report a console. Pass `--json` explicitly in scripts.
 
+Successful tool calls must contain JSON. An empty or whitespace-only response, including HTTP `204`, exits `1`
+without printing a fabricated result; literal JSON `null`, objects, arrays, and evolving tool payloads remain valid.
+`bootui tools` validates the BootUI catalog in both text and JSON modes, while accepting older catalogs and unknown
+extra fields.
+
 ### Retrieve more than the advisor preview
 
 Architecture, Hibernate, Spring (the Quarkus application advisor on Quarkus), REST API, Memory, Security, and
@@ -243,8 +248,12 @@ the offset after any failure or silently rescan to recover. See [agent paginatio
 | --- | --- |
 | `0` | The tool ran and answered. |
 | `1` | Usage error, a rejected argument, authentication was rejected, or the application could not be reached or did not answer. |
-| `2` | BootUI declined to run the tool: its panel is disabled, or read-only and the tool is an action. |
+| `2` | BootUI declined to run the tool: its panel is disabled, read-only and the tool is an action, or its CLI catalog confirms the endpoint is disabled. |
 | `3` | Reserved for a future severity threshold. |
+
+HTTP `503` alone is not a policy refusal. The CLI checks the target's BootUI catalog and reports endpoint disablement
+only when `enabled` is `false` and `tools` is empty. An outage, an invalid catalog, or a wrong target exits `1`, not
+the policy-skip code `2`; a catalog that still reports `enabled: true` cannot turn an outage into a skip.
 
 A command whose tool this application does not advertise exits `1` and says why: "This application does not expose
 'get_kafka_activity'." followed by the panel's own reason, such as a missing library or the Java agent, or the stacks
