@@ -1690,7 +1690,8 @@ Features:
   its Exceptions group, so a profile reaches the group's detail through `GET /bootui/api/exceptions/{id}` or
   `get_exception_detail`. The `get_request_profile` MCP tool and `bootui request-profile <id>` CLI command instead
   select the journal's retained request or scheduled/message execution profile first, and this HTTP-exchange DTO as
-  fallback; `source: "none"` reports when neither retains the id.
+  fallback. An id neither retains is a tool error (CLI exit `1`); `source: "none"` with `available: false` reports a
+  journal that is off or an id that cannot be profiled.
 - **Copy profile** and **Copy for AI** in the profile drawer, and **Copy for AI** in an Exceptions detail, render one
   Markdown document through a single shared frontend helper, built only from DTOs the browser holds or loads through
   existing read endpoints, so identical DTOs produce identical text on every adapter. Captured strings are escaped, and
@@ -3087,8 +3088,9 @@ Detail reads require the report's nonblank `scanId`; offset defaults to zero and
 Malformed/fractional/overflowing inputs, negative offsets, and nonpositive limits are rejected. Responses contain
 `scanId`, `ruleId`, full `violationCount`, `retainedCount`, `truncated`, `violations`,
 `page: {total, matched, offset, limit, returned, hasMore}`, and `locations`. Page totals count retained entries; a
-terminal page does not prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Unknown/non-finding
-rules return 404; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
+terminal page does not prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Ids outside the
+advisor's rule catalogue (`Unknown advisor rule: ...`) and catalogue rules without findings, whether passed, skipped, or
+failed (`Advisor rule has no findings in the current scan.`), both return 404 with those distinct messages; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
 retrievable. Reads obey panel availability, enabled and safety policy, but are allowed in read-only mode, and never
 rescan or collect new observations.
 

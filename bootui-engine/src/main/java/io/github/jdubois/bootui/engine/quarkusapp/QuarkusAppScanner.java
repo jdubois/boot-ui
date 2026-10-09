@@ -43,7 +43,8 @@ public final class QuarkusAppScanner {
     private final Supplier<QuarkusAppSnapshot> snapshotSupplier;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
-    private final AdvisorScanState<SpringReport> state = new AdvisorScanState<>(SpringReport::withViolationDetails);
+    private final AdvisorScanState<SpringReport> state =
+            new AdvisorScanState<>(SpringReport::withViolationDetails, QuarkusAppChecks::ruleIds);
 
     private QuarkusAppScanner(Supplier<QuarkusAppSnapshot> snapshotSupplier, Clock clock) {
         this.snapshotSupplier = snapshotSupplier;

@@ -1,11 +1,13 @@
 package io.github.jdubois.bootui.engine.journal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileSelectionDto;
+import io.github.jdubois.bootui.engine.mcp.McpToolClientException;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -51,6 +53,41 @@ class RequestProfileSelectionTests {
         assertThat(absent.unavailableReason()).contains("r1", "Journal evicted", "buffer");
         assertThat(absent.journal()).isNull();
         assertThat(absent.buffers()).isNull();
+    }
+
+    @Test
+    void refusesAnIdTheEnabledJournalAndTheBufferBothDoNotRecordAsAnUnknownId() {
+        RequestJournalProfileDto missing =
+                RequestJournalProfileDto.unavailable("nope", RequestJournalProfiles.notRetainedReason("nope"));
+        RequestProfileDto notInBuffer = RequestProfileDto.unavailable("Request nope is no longer in the buffer");
+
+        assertThatThrownBy(() -> RequestProfileSelection.select("nope", id -> missing, id -> notInBuffer))
+                .isInstanceOfSatisfying(McpToolClientException.class, refusal -> {
+                    assertThat(refusal.status()).isEqualTo(404);
+                    assertThat(refusal.getMessage())
+                            .isEqualTo(RequestProfileSelection.unknownIdMessage("nope"))
+                            .contains("nope", "get_live_activity");
+                });
+    }
+
+    @Test
+    void keepsUnavailableWhenTheJournalIsOffOrTheRequestCannotBeProfiled() {
+        RequestJournalProfileDto off = RequestJournalProfileDto.unavailable("r1", RequestJournalProfiles.DISABLED);
+        RequestProfileDto notInBuffer = RequestProfileDto.unavailable("Request r1 is no longer in the buffer");
+        RequestProfileSelectionDto journalOff = RequestProfileSelection.select("r1", id -> off, id -> notInBuffer);
+
+        assertThat(journalOff.available())
+                .as("with the journal off, a missing id says the journal is off rather than that the id is unknown")
+                .isFalse();
+        assertThat(journalOff.unavailableReason()).contains(RequestJournalProfiles.DISABLED);
+
+        RequestJournalProfileDto missing =
+                RequestJournalProfileDto.unavailable("r1", RequestJournalProfiles.notRetainedReason("r1"));
+        RequestProfileDto uncorrelated = RequestProfileDto.unavailable("No trace id was captured for r1.");
+        assertThat(RequestProfileSelection.select("r1", id -> missing, id -> uncorrelated)
+                        .available())
+                .as("a buffered request that cannot be profiled is not an unknown id")
+                .isFalse();
     }
 
     @Test

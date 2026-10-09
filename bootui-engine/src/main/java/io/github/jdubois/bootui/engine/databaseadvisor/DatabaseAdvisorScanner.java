@@ -60,8 +60,11 @@ public final class DatabaseAdvisorScanner {
     private final Clock clock;
     private final DatabaseAdvisorLimits limits;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
-    private final AdvisorScanState<DatabaseAdvisorReport> state =
-            new AdvisorScanState<>(DatabaseAdvisorReport::withViolationDetails);
+    private final AdvisorScanState<DatabaseAdvisorReport> state = new AdvisorScanState<>(
+            DatabaseAdvisorReport::withViolationDetails,
+            () -> AdvisorScanState.ruleIds(
+                    DatabaseAdvisorRuleRegistry.activeRules(),
+                    rule -> rule.definition().id()));
 
     public static DatabaseAdvisorScanner using(
             Supplier<List<NamedDataSource>> dataSourceSupplier,
