@@ -1774,7 +1774,8 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(newest.status()).as("GET %s status", contract.relativePath()).isEqualTo(200);
         assertJsonContract("run comparison, newest", contract, newest.json(), failures);
         JsonNode json = newest.json();
-        assertThat(json.path("status").asText()).isIn("COMPARED", "INSUFFICIENT", "NOT_COMPARABLE", "NO_PREVIOUS_RUN");
+        assertThat(json.path("status").asText())
+                .isIn("COMPARED", "PARTIAL", "INSUFFICIENT", "NOT_COMPARABLE", "NO_PREVIOUS_RUN");
         assertThat(json.path("current").path("source").asText()).isEqualTo("CURRENT");
         if (json.path("previous").isNull()) {
             assertThat(json.path("status").asText()).isEqualTo("NO_PREVIOUS_RUN");

@@ -392,6 +392,37 @@ describe('Runtime Insights panel', () => {
     expect(elsewhere.findAll('a')).toHaveLength(5)
   })
 
+  it('links a partial comparison from the verdict to its limits without claiming no change', async () => {
+    const comparison = {
+      status: 'PARTIAL',
+      reason: 'Some journal evidence could not be compared.',
+      current: {runId: 'run-5', ordinal: 5, requests: 9, source: 'CURRENT'},
+      previous: {runId: 'run-4', ordinal: 4, requests: 9, source: 'MEMORY'},
+      runs: [],
+      notComparableReasons: [],
+      behavior: [],
+      edges: [],
+      restartCost: {status: 'UNAVAILABLE', reason: 'No adjacent restart.', beans: []},
+      latency: [],
+      limitations: ['The sql source dropped 3 events; statement changes are not compared.']
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => Promise.resolve(jsonResponse(String(url).includes('/comparison') ? comparison : report)))
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    const link = wrapper.get('.insight-comparison-link')
+    expect(link.text()).toBe('Partly compared with run 4: incomplete evidence')
+    await link.trigger('click')
+    expect(shown(wrapper.get('#insights-panel-changes'))).toBe(true)
+    expect(wrapper.get('#insights-tab-changes').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('#insights-panel-changes').text()).toContain('The sql source dropped 3 events')
+    expect(wrapper.text()).not.toContain('No change in behavior')
+    expect(wrapper.text()).not.toContain('No eligible route or execution changed')
+  })
+
   it('never counts a check that could not see its evidence as one that ran', async () => {
     const unavailable = {
       kind: 'safe-method-dml',

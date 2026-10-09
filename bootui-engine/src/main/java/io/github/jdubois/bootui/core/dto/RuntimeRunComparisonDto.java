@@ -6,7 +6,8 @@ import java.util.List;
  * The comparison of the current run with a previous one ({@code docs/PLAN-v2.md} §5.8). On a laptop, warmup and noise
  * dominate latency, while the work identical requests do is stable, so behavior comes first and latency last.
  *
- * @param status {@code COMPARED}; {@code INSUFFICIENT} when no route or execution recorded enough samples in both runs to tell that
+ * @param status {@code COMPARED}; {@code PARTIAL} when completeness or bounds prevent comparing some dimensions;
+ *     {@code INSUFFICIENT} when no route or execution recorded enough samples in both runs to tell that
  *     nothing changed; {@code NOT_COMPARABLE} when the runs differ in database, profiles, or cache;
  *     {@code NO_PREVIOUS_RUN}; or {@code UNAVAILABLE} when the journal does not record
  * @param reason why the status is not {@code COMPARED}, or {@code null}

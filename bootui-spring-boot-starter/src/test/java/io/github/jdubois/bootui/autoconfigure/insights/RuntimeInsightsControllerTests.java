@@ -19,7 +19,6 @@ import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.insights.SqlCapture;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
-import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -30,6 +29,7 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
 import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.MappingProvider;
+import java.time.Duration;
 import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
@@ -50,11 +50,17 @@ class RuntimeInsightsControllerTests {
         journal.close();
     }
 
+    private JournalAggregates recordingAggregates() {
+        JournalAggregates aggregates = new JournalAggregates();
+        journal.addListener(aggregates);
+        return aggregates;
+    }
+
     @Test
     void servesTheReportAndAnUnknownObservationAsUnavailableWithoutRecordingAnything() throws Exception {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(RuntimeJournal.class, () -> journal);
-            context.registerBean(JournalAggregates.class, JournalAggregates::new);
+            context.registerBean(JournalAggregates.class, this::recordingAggregates);
             context.registerBean(BootUiProperties.class, BootUiProperties::new);
             context.registerBean(RuntimeInsightsController.class);
             context.refresh();
@@ -87,8 +93,8 @@ class RuntimeInsightsControllerTests {
     }
 
     @Test
-    void comparisonReadsLiveSourcePanelPolicyOnBothSpringStacks() {
-        JournalAggregates captured = new JournalAggregates();
+    void comparisonReadsLiveSourcePanelPolicyOnBothSpringStacks() throws Exception {
+        JournalAggregates captured = recordingAggregates();
         RuntimeEvent request = RuntimeEvent.of(
                 JournalSource.HTTP,
                 1_000,
@@ -98,7 +104,8 @@ class RuntimeInsightsControllerTests {
                 null,
                 false,
                 new HttpPayload("GET", "/private", "/private", null, 200));
-        captured.onEntries(List.of(new JournalEntry(1, request, request.estimatedBytes())));
+        assertThat(journal.offer(request)).isTrue();
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
         try (GenericApplicationContext servlet = new GenericApplicationContext();
                 GenericReactiveWebApplicationContext reactive = new GenericReactiveWebApplicationContext()) {
             for (GenericApplicationContext context : List.of(servlet, reactive)) {
@@ -128,7 +135,7 @@ class RuntimeInsightsControllerTests {
     void listsTheDeclaredRoutesNoRequestOfThisRunReached() throws Exception {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(RuntimeJournal.class, () -> journal);
-            context.registerBean(JournalAggregates.class, JournalAggregates::new);
+            context.registerBean(JournalAggregates.class, this::recordingAggregates);
             context.registerBean(BootUiProperties.class, BootUiProperties::new);
             context.registerBean(MappingProvider.class, () -> new MappingProvider() {
                 @Override
@@ -219,7 +226,7 @@ class RuntimeInsightsControllerTests {
     void anUnavailableRouteInventoryIsSaidRatherThanListingNoRoute() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(RuntimeJournal.class, () -> journal);
-            context.registerBean(JournalAggregates.class, JournalAggregates::new);
+            context.registerBean(JournalAggregates.class, this::recordingAggregates);
             context.registerBean(MappingProvider.class, () -> new MappingProvider() {
                 @Override
                 public boolean available() {

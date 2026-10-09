@@ -15,6 +15,7 @@ import io.github.jdubois.bootui.engine.journal.AiCallOwners;
 import io.github.jdubois.bootui.engine.journal.ControlMarkers;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalCompleteness;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
@@ -1194,11 +1195,20 @@ public final class RuntimeInsightsService {
                             : panelsLabel(panels) + " is disabled, so the routes no request reached are not listed.");
             return List.of();
         }
+        String absenceReason = JournalCompleteness.absenceReason(journal, "declared routes");
+        if (absenceReason != null) {
+            limitations.add(absenceReason);
+            return List.of();
+        }
         try {
             Set<String> exercised = new HashSet<>(snapshot.httpByRoute().keySet());
             Supplier<JournalAggregates.RouteLabels> run = runRoutes;
             JournalAggregates.RouteLabels labels = run == null ? null : run.get();
             if (labels != null) {
+                if (labels.incompleteReason() != null) {
+                    limitations.add(labels.incompleteReason());
+                    return List.of();
+                }
                 exercised.addAll(labels.labels());
                 if (labels.overflowed()) {
                     limitations.add("This run reached more routes than its aggregates keep, so some routes listed as"

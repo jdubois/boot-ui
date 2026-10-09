@@ -424,7 +424,15 @@ ran that `requests` does not count. A run-level observation with no exemplar doe
 say HTTP Exchanges is disabled or unavailable, that comparison's run references retain `requests: 0` as a hidden
 count, not evidence of zero traffic. Source-panel policy also hides disabled sources' counters, fingerprints,
 exception classes, execution names, and edges, with a “not compared because &lt;panel&gt; is disabled” limitation;
-configuration comparability and restart timings are independent facts. The `diagnose_runtime_issue` prompt starts
+configuration comparability and restart timings are independent facts.
+Run comparison returns `PARTIAL` when admission drops, clear boundaries, aggregate limits, or unknown legacy
+completeness prevent comparing some dimensions: reliable rows remain, but empty rows never prove no change.
+Evidence eviction alone does not invalidate incremental aggregates. After a clear, fresh complete requests and jobs
+remain comparable; a crossing completion cannot supply zero SQL for work the clear discarded. HTTP capture off,
+dropped HTTP completions, and clears also make whole-run unexercised routes unknown, without hiding retained positive
+route evidence. The same status, limits, and decisions appear in browser, MCP, and CLI output.
+
+The `diagnose_runtime_issue` prompt starts
 with `get_runtime_insights`, calls it again with `all` or the route when nothing listed explains the issue, then one
 `get_request_profile`, and for a slow route whose time is in its handler,
 `get_code_paths` when the agent is attached, and it words a dependency reached or request input matched verbatim as a

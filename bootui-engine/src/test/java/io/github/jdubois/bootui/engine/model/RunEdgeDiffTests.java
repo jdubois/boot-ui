@@ -372,7 +372,8 @@ class RunEdgeDiffTests {
         RunEdgeDiff fromNoEdges = RunEdgeDiff.compare(withoutEdges, current, null);
         assertThat(fromNoEdges.added()).extracting(ObservedEdge::edge).containsExactly(ORDERS_READ);
         assertThat(fromNoEdges.limitations())
-                .containsExactly("Run 2 kept no edges, so every edge of this run is reported as added.");
+                .containsExactly(
+                        "Run 2 kept no edges, so absent edges cannot establish a newly introduced dependency.");
 
         RunSummary trimmed = summary(3, 7, current);
         assertThat(RunEdgeDiff.compare(trimmed, current, null).limitations())

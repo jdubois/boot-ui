@@ -23,7 +23,8 @@ import java.util.List;
  * @param sharedResourcesTotal how many there are
  * @param limitations what the impact cannot see, and, for a list holding more than {@value #MAX_ROWS} routes, the
  *     names of the others
- * @param notExercisedUndetermined whether some reached routes cannot be classified: after aggregate overflow, or, for a
+ * @param notExercisedUndetermined whether some reached routes cannot be classified: when HTTP capture is off, dropped
+ *     completions, or the recording was cleared, after aggregate overflow, or, for a
  *     method, routes that ran without their call trees showing it ({@code notObserved})
  * @param observedFrom how observed routes were found: {@code STRUCTURE} (the bean graph and route traffic),
  *     {@code HANDLER_MAPPING} (the routes mapped to a handler method), or {@code ROUTE_TREES} (the routes whose requests'
