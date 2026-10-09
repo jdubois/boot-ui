@@ -1,5 +1,5 @@
 <script setup>
-// What the BootUI Java agent is, what needs it, and what it costs: shown while no agent is attached, below the setup
+// What the BootUI Java agent is, what needs it, and what it costs: shown while no agent is attached, above the setup
 // card, for a developer deciding whether to attach it. Keep it in line with docs/features/java-agent.md.
 const FEATURES = [
   ['Code Inventory', 'Which of your methods ran in this run, and which changed since the previous one.'],

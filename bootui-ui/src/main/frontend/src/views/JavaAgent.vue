@@ -245,7 +245,7 @@ function onSensorSwitched(updated) {
   lastFetched.value = Date.now()
 }
 
-// Without an attached agent, the setup and what the agent adds open the panel, and the sections that describe an
+// Without an attached agent, what the agent adds and the setup open the panel, and the sections that describe an
 // attached agent are left out. Every other state keeps the agent's own diagnosis first and the setup last.
 const notAttached = computed(() => report.value?.state === 'NOT_ATTACHED')
 const stateDetail = computed(() => STATE_DETAILS[report.value?.state] ?? STATE_DETAILS.UNAVAILABLE)
@@ -348,8 +348,8 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
       </section>
 
       <template v-if="notAttached">
-        <JavaAgentSetup class="mb-4" :setup="report.setup" :attached="false" />
         <JavaAgentAbout class="mb-4" />
+        <JavaAgentSetup class="mb-4" :setup="report.setup" :attached="false" />
       </template>
 
       <template v-else>

@@ -4,7 +4,7 @@ import {expect, test} from './fixtures.js'
 /**
  * The Java Agent view. The default suites run the sample without the agent and assert the not-attached state; the agent
  * suite (playwright.agent.config.js) sets the `agentAttached` fixture option and asserts the armed claim and its sensor
- * rows instead. Without the agent the setup and what the agent adds come first. Both legs check the setup snippets,
+ * rows instead. Without the agent what the agent adds comes before setup. Both legs check the setup snippets,
  * their tabs, and Copy, which the panel offers in every state.
  */
 test.describe('Java Agent view', () => {
@@ -60,12 +60,12 @@ test.describe('Java Agent view', () => {
     } else {
       await expect(page.getByRole('heading', {name: 'Not attached'})).toBeVisible()
       await expect(page.getByText('This JVM runs without the BootUI agent')).toBeVisible()
-      // Without the agent, the setup and what the agent adds open the panel; the attached-only sections are left out.
+      // Without the agent, what the agent adds precedes setup; the attached-only sections are left out.
       const regions = page.locator('.java-agent-panel > section')
-      await expect(regions.nth(1)).toHaveAttribute('aria-labelledby', 'java-agent-setup-title')
-      await expect(page.getByRole('heading', {name: 'Attach the agent'})).toBeVisible()
-      await expect(regions.nth(2)).toHaveAttribute('aria-labelledby', 'java-agent-about-title')
+      await expect(regions.nth(1)).toHaveAttribute('aria-labelledby', 'java-agent-about-title')
       await expect(page.getByRole('heading', {name: 'What the Java agent adds'})).toBeVisible()
+      await expect(regions.nth(2)).toHaveAttribute('aria-labelledby', 'java-agent-setup-title')
+      await expect(page.getByRole('heading', {name: 'Attach the agent'})).toBeVisible()
       await expect(page.getByRole('region', {name: 'Sensors'})).toHaveCount(0)
       await expect(page.getByRole('region', {name: 'Runtime switches'})).toHaveCount(0)
     }
