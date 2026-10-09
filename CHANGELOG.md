@@ -15,7 +15,11 @@ give the details.
 - One Spring Boot starter serves Spring MVC and WebFlux. WebFlux applications replace
   `bootui-spring-boot-starter-reactive` with `bootui-spring-boot-starter`. The starter no longer brings a web stack, so
   the application declares its own `spring-boot-starter-web` or `spring-boot-starter-webflux`, as most already do
-  ([Setup](docs/SETUP.md); "Eight Maven Central artifacts" under Changed).
+  ([Setup](docs/SETUP.md); "Seven Maven Central artifacts" under Changed).
+- `bootui-core` is now part of `bootui-engine`: remove `bootui-core` from your dependencies and depend on
+  `bootui-engine` instead; its packages are unchanged. A `bootui-core` 1.x left next to `bootui-engine` 2.0 puts two
+  copies of the same classes on the classpath, with no error. An application that used only the DTOs now also gets
+  `bootui-engine`'s dependencies: `micrometer-core`, `archunit`, and `slf4j-api`.
 - A direct `bootui-spring-autoconfigure` or `bootui-client` dependency becomes `bootui-spring-boot-starter` or
   `bootui-cli`.
 - The runtime journal is on by default. It keeps the run's events in bounded memory, by default the smaller of 32 MB
@@ -508,8 +512,8 @@ give the details.
 - **A shorter Runtime Insights default list.** Some kinds move to the panels showing the same evidence or appear only
   on request, each row saying where, and five wording and attribution bugs are fixed
   ([Runtime Insights](docs/features/overview.md#runtime-insights)).
-- **Eight Maven Central artifacts instead of thirteen; one Spring Boot starter for Spring MVC and WebFlux.** BootUI
-  2.0 publishes `bootui-core`, `bootui-engine`, `bootui-ui`, `bootui-spring-boot-starter`, `bootui-quarkus`,
+- **Seven Maven Central artifacts instead of thirteen; one Spring Boot starter for Spring MVC and WebFlux.** BootUI
+  2.0 publishes `bootui-engine`, `bootui-ui`, `bootui-spring-boot-starter`, `bootui-quarkus`,
   `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`. To migrate:
   - **Spring WebFlux:** replace `bootui-spring-boot-starter-reactive` with `bootui-spring-boot-starter`.
   - **Spring MVC:** nothing changes, as long as the application declares its own `spring-boot-starter-web` (or
@@ -519,6 +523,8 @@ give the details.
     which is what `spring-boot-starter-webflux` alone gives them.
   - **A direct `bootui-spring-autoconfigure` dependency:** depend on `bootui-spring-boot-starter`. The auto-configuration
     moved into it, keeping its `io.github.jdubois.bootui.autoconfigure` packages.
+  - **A direct `bootui-core` dependency:** `bootui-core` is now part of `bootui-engine`: depend on `bootui-engine`
+    instead. Its `io.github.jdubois.bootui.core` packages are unchanged.
   - **A direct `bootui-client` dependency:** depend on `bootui-cli`. The client keeps its
     `io.github.jdubois.bootui.client` package and stays dependency-free: picocli is an optional dependency of
     `bootui-cli`. The runnable CLI is still the shaded `bootui-cli-<version>-all.jar`, which is what JBang and the

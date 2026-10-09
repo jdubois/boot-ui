@@ -148,7 +148,7 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p><strong>Panel surface (Phase 2 of the WebFlux port).</strong> Every controller imported here is a
  * framework-neutral {@code @RestController} that was already reusable as-is (it talks only to
- * {@code bootui-engine}/{@code bootui-core} and the stack-agnostic {@code org.springframework.http.*} /
+ * {@code bootui-engine} and the stack-agnostic {@code org.springframework.http.*} /
  * Actuator types), so the bulk of the panel surface lights up unchanged from the servlet adapter. A
  * handful of small, stack-agnostic {@code @Bean} methods were duplicated from
  * {@link BootUiAutoConfiguration} itself (not from {@link BootUiEngineConfiguration}, which is imported

@@ -31,7 +31,7 @@ Trace record construction, serialization, all transport consumers, and availabil
 Identify whether the change is internal or changes field names, null/empty behavior, ordering, types, or enum/status
 values on the wire. Do not add Jackson annotations to shared records to repair one adapter.
 
-Use [CoreDtoImmutabilityTests](../../../../bootui-core/src/test/java/io/github/jdubois/bootui/core/dto/CoreDtoImmutabilityTests.java)
+Use [CoreDtoImmutabilityTests](../../../../bootui-engine/src/test/java/io/github/jdubois/bootui/core/dto/CoreDtoImmutabilityTests.java)
 for defensive-copy behavior and
 [AbstractBootUiApiConformanceTest](../../../../bootui-conformance/src/main/java/io/github/jdubois/bootui/conformance/AbstractBootUiApiConformanceTest.java)
 for shared HTTP expectations. Extend the relevant contract assertions or fixture when existing coverage does not

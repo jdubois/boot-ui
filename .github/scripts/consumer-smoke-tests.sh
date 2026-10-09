@@ -35,10 +35,9 @@ readonly MVC_PORT="${SMOKE_MVC_PORT:-8080}"
 readonly WEBFLUX_PORT="${SMOKE_WEBFLUX_PORT:-8081}"
 readonly BOOTUI_SMOKE_TIMEOUT="${SMOKE_TIMEOUT_SECONDS:-300}"
 
-# The eight published coordinates. Everything a consumer resolves from com.julien-dubois.bootui must be one of
+# The seven published coordinates. Everything a consumer resolves from com.julien-dubois.bootui must be one of
 # them, and together the consumers below resolve all of them. Keep this list in step with release.yml.
 readonly PUBLISHED_ARTIFACTS=(
-  bootui-core
   bootui-engine
   bootui-ui
   bootui-spring-boot-starter

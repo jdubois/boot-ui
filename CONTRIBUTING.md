@@ -24,8 +24,8 @@ participating you are expected to uphold this code.
 ## Project layout
 
 ```
-bootui-core/                         Shared DTOs, secret masking, and core helpers
-bootui-engine/                       Framework-neutral services/advisors and SPI ports
+bootui-engine/                       Shared DTOs, secret masking, and core helpers (JDK-only core package),
+                                     and the framework-neutral services/advisors and SPI ports
 bootui-spring-boot-starter/          Spring MVC + WebFlux adapter and starter (auto-config, endpoints, safety)
 bootui-ui/                           Vue 3 SPA bundled into META-INF/resources/bootui
 bootui-conformance/                  Shared HTTP contract suite + golden manifests for all adapters
@@ -672,13 +672,17 @@ uploads it through the Central Portal Publisher API with
 python3 .github/scripts/assemble_central_bundle.py ~/.m2/repository VERSION target/central-bundle.zip
 unzip -q target/central-bundle.zip -d target/central-bundle
 python3 .github/scripts/check-central-bundle.py target/central-bundle VERSION
+RELEASE_KEY_FINGERPRINT=7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9 \
+  bash .github/scripts/verify-release-signatures.sh bundle target/central-bundle
 python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip bootui-VERSION true
 ```
 
-The assembler bundles only the eight published coordinates, so `bootui-agent-bridge`
+The assembler bundles only the seven published coordinates, so `bootui-agent-bridge`
 (shaded into `bootui-agent`) and both parent POMs, which the reactor installs, never
 reach Central; `check-central-bundle.py` refuses any other coordinate or file and
-any POM that is not flattened.
+any POM that is not flattened. Every signature must verify and be by the pinned
+release key before the upload; the workflow also checks the build's signatures before
+the tag.
 
 It does not run `deploy` through the Sonatype Central Publishing plugin: under
 Maven 3.10 that plugin stages resolver bookkeeping (`maven-metadata-local.xml`) in

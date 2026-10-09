@@ -51,7 +51,7 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
     /** Configuration metadata scanned by {@code ConfigMetadataCatalog} for the Config panel. */
     private static final String CONFIGURATION_METADATA_RESOURCE = "META-INF/spring-configuration-metadata.json";
 
-    /** Version file read by {@code BootUiInfo} (lives in bootui-core). */
+    /** Version file read by {@code BootUiInfo} (lives in bootui-engine). */
     private static final String BOOTUI_VERSION_RESOURCE = "bootui-version.properties";
 
     private static final String DTO_PACKAGE = "io.github.jdubois.bootui.core.dto";

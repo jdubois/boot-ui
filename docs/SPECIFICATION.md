@@ -2985,7 +2985,6 @@ Acceptance criteria:
 ```text
 BootUI/
 ├── pom.xml
-├── bootui-core/
 ├── bootui-engine/
 ├── bootui-conformance/
 ├── bootui-ui/
@@ -3004,9 +3003,9 @@ BootUI/
 
 Shared modules:
 
-- `bootui-core`: immutable DTO records, secret masking, version metadata, and safe value rendering.
-- `bootui-engine`: framework-neutral services and advisor engines plus the neutral
-  `io.github.jdubois.bootui.spi` ports. The bytecode-reading advisors here are Kotlin-aware — compiler-generated
+- `bootui-engine`: the immutable DTO records, secret masking, version metadata, and safe value rendering of the
+  `io.github.jdubois.bootui.core` package, the framework-neutral services and advisor engines built on them, and the
+  neutral `io.github.jdubois.bootui.spi` ports. The bytecode-reading advisors here are Kotlin-aware — compiler-generated
   members and classes are filtered out and suspending functions are judged on their declared signature — implemented by
   bytecode name only, so no Kotlin runtime dependency is added and every adapter behaves identically.
 - `bootui-conformance`: the shared HTTP contract suite and golden panel manifests run against every adapter.
@@ -3015,7 +3014,7 @@ Shared modules:
 - `bootui-cli`: the `bootui` command-line interface, a picocli tree generated from the engine's tool catalog and
   published as a runnable uber-jar (the `all` classifier), together with the dependency-free client for the
   command-line endpoint, the `io.github.jdubois.bootui.client` package — URL and token handling, tool invocation,
-  outcome mapping, and an opaque JSON tree. The client reaches nothing outside the JDK, not even `bootui-core` or
+  outcome mapping, and an opaque JSON tree. The client reaches nothing outside the JDK, not even BootUI's DTOs or
   picocli, so it stays version-compatible with applications it was not built against; picocli is an optional
   dependency of `bootui-cli`, so tooling that depends on it for the client gets no dependency at all.
 
@@ -3036,15 +3035,17 @@ Quarkus modules:
 - `bootui-quarkus-integration-tests`: Docker-free `@QuarkusTest` conformance and smoke tests.
 - `bootui-quarkus-sample-app`: Quarkus reference app.
 
-Dependency direction is one-way: `bootui-engine` depends on `bootui-core`, and each framework adapter depends on both.
-`bootui-cli` sits outside that chain entirely: its client package depends on nothing, its command line on picocli
-(optional), and it uses `bootui-engine` only in test scope, to generate its command manifest. Maven Central receives
-eight coordinates, each with a flattened, parentless POM: `bootui-core`, `bootui-engine`, `bootui-ui`,
-`bootui-spring-boot-starter`, `bootui-quarkus`, `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`.
-The shared `core`, `engine`, `conformance`, and UI modules never depend on Spring or Quarkus. JSON parsing and
-serialization stay in the adapters because Spring Boot and Quarkus use incompatible Jackson major versions.
+Dependency direction is one-way, by package inside `bootui-engine` and by module beyond it:
+`io.github.jdubois.bootui.core` depends only on the JDK, the engine and SPI packages depend on it, and each framework
+adapter depends on `bootui-engine`. `CoreBoundaryArchitectureTests` keeps the core package off the engine, the SPI, the
+adapters, and every external library. `bootui-cli` sits outside that chain entirely: its client package depends on
+nothing, its command line on picocli (optional), and it uses `bootui-engine` only in test scope, to generate its command
+manifest. Maven Central receives seven coordinates, each with a flattened, parentless POM: `bootui-engine`, `bootui-ui`,
+`bootui-spring-boot-starter`, `bootui-quarkus`, `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`. The
+shared `engine` (with its `core` package), `conformance`, and UI modules never depend on Spring or Quarkus. JSON parsing
+and serialization stay in the adapters because Spring Boot and Quarkus use incompatible Jackson major versions.
 
-Core DTO immutability is enforced, not just documented. Every collection component of a `bootui-core` record is
+Core DTO immutability is enforced, not just documented. Every collection component of a core DTO record is
 defensively copied in the record's compact constructor, so a caller cannot change a published report by mutating the
 collection it passed in or the collection an accessor returned, and a `null` collection is normalized to an empty one.
 The copies preserve the caller's iteration order — in particular map components are copied into a `LinkedHashMap` rather
@@ -3684,7 +3685,7 @@ Design rules:
   over the catalog. Adding an MCP tool without giving it a command therefore fails the build, and a hand-written
   command for a tool that no longer exists cannot survive either. A second test runs every command against a stub and
   asserts it reaches the tool it claims to, so a tree that builds but shadows a leaf is caught as well.
-- **No compile-time coupling to BootUI's types.** The client package depends on nothing — not `bootui-core`, not
+- **No compile-time coupling to BootUI's types.** The client package depends on nothing — not BootUI's DTOs, not
   Jackson, not picocli, not an HTTP library beyond the JDK's, enforced by `ClientDependencyTests` — and treats payloads as opaque JSON re-emitted verbatim. A CLI from one
   release has to keep working against an application running another, which rules out sharing DTO records with it.
   The engine is a *test-scoped* dependency of `bootui-cli`, used only to generate the manifest.

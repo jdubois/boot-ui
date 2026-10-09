@@ -21,7 +21,7 @@
         a minimal JSON reader: a client is embedded in other people's builds, where an extra Jackson (2 or 3) on the
         classpath is a version conflict waiting to happen, and responses must stay opaque, because a client built
         against one BootUI version has to keep working against another, so it must not bind server payloads to DTO
-        types from bootui-core. ClientDependencyTests fails the build if the package reaches outside the JDK.
+        types from bootui-engine. ClientDependencyTests fails the build if the package reaches outside the JDK.
 
         The io.github.jdubois.bootui.cli package is the command line on top of it, which needs picocli. picocli is
         optional, so tooling that depends on this artifact for the client gets no dependency at all; the runnable

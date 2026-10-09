@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
  * The client ships inside {@code bootui-cli} beside the picocli command line, but it is embedded in other
  * people's builds, which depend on {@code bootui-cli} for it and get picocli only as an optional dependency.
  * It must therefore reach nothing outside the JDK: no picocli, no {@code io.github.jdubois.bootui.cli}, no
- * {@code bootui-core} DTOs, no Jackson.
+ * {@code io.github.jdubois.bootui.core} DTOs, no Jackson.
  */
 class ClientDependencyTests {
 
