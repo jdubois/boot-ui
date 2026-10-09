@@ -216,8 +216,14 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(journal).toContainText('GET /api/sample/product-search')
     await expect(journal.locator('.request-journal__source', {hasText: /^sql$/}).first()).toBeVisible()
 
-    await drawer.getByRole('button', {name: 'Close'}).click()
-    await expect(drawer).toHaveCount(0)
+    const deepDives = drawer.locator('.request-code-path')
+    await expect(deepDives.getByRole('link', {name: 'Open the JFR profile in Runtime Insights'})).toBeVisible()
+    await expect(deepDives).toContainText('Code Paths unavailable')
+    await deepDives.getByRole('link', {name: 'Open the JFR profile in Runtime Insights'}).click()
+    await expect(page).toHaveURL(/#\/runtime-insights\?tab=profile/)
+    await expect(page.getByRole('tab', {name: 'JFR profile'})).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('.insight-profile').getByRole('button', {name: /Profile resources/})).toBeVisible()
+    await expect(page.locator('.insight-profile-running')).toHaveCount(0)
   })
 
   test('attributes a REST client call to its caller by request id when two requests share a trace id', async ({

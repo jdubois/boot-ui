@@ -49,6 +49,32 @@ const ctx = inject('runtimeInsights')
     <li v-for="check in ctx.selected.whatToCheck" :key="check"><InsightText :text="check" /></li>
   </ol>
 
+  <section
+    v-if="ctx.selected.kind === 'route-time-breakdown' && ctx.selected.subject"
+    class="mb-3 insight-performance-deep-dives"
+    aria-labelledby="insight-performance-deep-dives-heading"
+  >
+    <h3 id="insight-performance-deep-dives-heading" class="h6">Performance deep dives</h3>
+    <ul class="list-inline small mb-0">
+      <li class="list-inline-item">
+        <button
+          type="button"
+          class="btn btn-link btn-sm p-0 align-baseline"
+          @click="ctx.showTab('profile', 'insights-tab-profile')"
+        >
+          Open the JFR profile tab
+        </button>
+        <span class="text-muted"> — recording starts only when you choose Profile resources.</span>
+      </li>
+      <li class="list-inline-item">
+        <router-link :to="{path: '/code-paths', query: {route: ctx.selected.subject}}">
+          Open {{ ctx.selected.subject }} in Code Paths
+        </router-link>
+        <span class="text-muted"> — its route-level tree, not an exact request replay.</span>
+      </li>
+    </ul>
+  </section>
+
   <template v-if="ctx.selected.exemplarRequestIds.length">
     <h3 class="h6">Open a request</h3>
     <ul class="list-inline small mb-3">
