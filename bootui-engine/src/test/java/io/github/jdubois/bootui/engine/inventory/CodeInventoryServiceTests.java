@@ -1066,6 +1066,39 @@ class CodeInventoryServiceTests {
     }
 
     @Test
+    void theScanReadsTheDeclaredDependenciesOnceBeforeAnyRead() throws Exception {
+        Path root = classes();
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {root.toUri().toURL()}, null)) {
+            AgentClaim claim = claim();
+            load(INIT, GREET, TOTAL, NEVER);
+            List<String> readers = new java.util.concurrent.CopyOnWriteArrayList<>();
+            CodeInventoryService service = new CodeInventoryService(
+                    AgentBridgeAccess.bind(AgentBridge.class),
+                    () -> claim,
+                    () -> null,
+                    () -> loader,
+                    () -> {
+                        readers.add(Thread.currentThread().getName());
+                        return DependencyInventory.complete(List.of());
+                    },
+                    () -> 1_000L,
+                    CodeInventorySettings.defaults(),
+                    history,
+                    evidence,
+                    clock::get);
+            services.add(service);
+            service.start();
+            service.awaitScan();
+
+            assertThat(readers)
+                    .as("read off the request thread, as the scan ends")
+                    .containsExactly("bootui-code-inventory-scan");
+            assertThat(service.agentReport(null, null).summary().available()).isTrue();
+            assertThat(readers).as("a read reuses it").hasSize(1);
+        }
+    }
+
+    @Test
     void isUnavailableWithTheAgentsReason() {
         CodeInventoryService service = new CodeInventoryService(
                 AgentBridgeAccess.absent(),

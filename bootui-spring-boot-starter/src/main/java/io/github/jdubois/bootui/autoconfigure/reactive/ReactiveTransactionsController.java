@@ -25,11 +25,11 @@ import reactor.core.publisher.Flux;
  *
  * <p>Capture itself is wired the same way as Spring MVC: BootUI contributes a {@code
  * TransactionExecutionListener} bean through Spring Boot's standard transaction-manager customization,
- * which registers it against every {@code ConfigurableTransactionManager} and observes any blocking {@code
- * PlatformTransactionManager} a WebFlux application still uses (e.g. wrapping JDBC repositories). A
- * WebFlux application backed only by a {@code ReactiveTransactionManager} (R2DBC) has no such bean to
- * observe — Spring's transaction-execution listener hook exists solely on the blocking SPI — so the
- * panel honestly reports unavailable in that case, exactly as it does when no manager exists at all.</p>
+ * which registers it against every {@code ConfigurableTransactionManager}: any blocking {@code
+ * PlatformTransactionManager} a WebFlux application still uses (e.g. wrapping JDBC repositories), and a
+ * {@code ReactiveTransactionManager} such as R2DBC's, which implements the same listener SPI and whose
+ * transactions the listener pairs by execution rather than by thread. Without any configurable manager
+ * the panel honestly reports unavailable.</p>
  */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/transactions")

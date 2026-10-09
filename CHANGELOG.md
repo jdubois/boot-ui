@@ -802,6 +802,14 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **`get_code_paths` finds a route by its handler after one request.** A class or method query now matches any method
+  a route's requests ran, its first request included, and says when only that first request matched.
+- **The first `get_code_inventory` call no longer waits for the dependency catalogue.** It is read once at startup,
+  in the background, beside the class-file scan.
+- **The first MCP call on Quarkus no longer waits for agent session scans.** Copilot and Claude Code session files are
+  read when their own tool or panel is first used.
+- **Reactive transactions are recorded with the right outcome.** An R2DBC transaction that commits on another thread
+  than it began now completes its own row, without a parent taken from that thread.
 - **Unknown advisor rules are told apart from rules without findings.** `get_*_rule_violations` and the REST detail
   reads answer `Unknown advisor rule` for an id outside the advisor's rule catalogue ([AI agents](docs/AI-AGENTS.md#reading-retained-advisor-violations)).
 - **`analyze_heap_dump` describes what it does.** It analyzes the live heap's class histogram, with or without a

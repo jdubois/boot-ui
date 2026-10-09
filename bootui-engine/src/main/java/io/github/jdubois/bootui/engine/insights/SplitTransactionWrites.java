@@ -127,7 +127,8 @@ public final class SplitTransactionWrites implements Observation {
                     + " statement had no monotonic time.");
         }
         if (snapshot.stack() == InsightsStack.SPRING_WEBFLUX) {
-            limitations.add("Only blocking transactions are recorded; a reactive transaction is not.");
+            limitations.add("A reactive transaction belongs to a request only when its pipeline carried the request's"
+                    + " context to the thread it began on.");
         }
         return new Finding(
                 route,
