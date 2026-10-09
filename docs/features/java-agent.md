@@ -704,8 +704,8 @@ environment operations, not process starts. After 100 internal errors of its own
 JVM's life, alone, and the report says why; 100 errors in the sensors' shared code switch them all off.
 
 In the report, the sensor's side-effect coverage is `recording` when this application's armed claim includes it and the
-bridge supports it, otherwise `not-claimed`, `not-available`, or `failed` with the reason. The Side Effects sensors not
-missing from an older attached agent are listed as `not-available` with reason `Not available in this version.`;
+bridge supports it, otherwise `not-claimed`, `not-available`, or `failed` with the reason.
+A sensor missing from an older attached agent is listed as `not-available` with reason `Not available in this version.`;
 all nine current Side Effects sensors ship.
 
 
