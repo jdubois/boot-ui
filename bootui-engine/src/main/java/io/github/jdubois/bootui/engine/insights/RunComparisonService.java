@@ -44,6 +44,22 @@ import java.util.logging.Logger;
 public final class RunComparisonService {
     private static final Logger LOG = Logger.getLogger(RunComparisonService.class.getName());
 
+    /** Why a comparison names no previous run: no kept run has the id {@code runId} the caller asked for. */
+    static String unknownRunReason(String runId) {
+        return "No kept run of this application has the id " + runId + ": it may have been dropped, as only the "
+                + RunHistory.MAX_RUNS + " most recent runs are kept, or belong to another application in this JVM.";
+    }
+
+    /**
+     * Whether {@code comparison} answers a run id no kept run has, as opposed to a history that is off or unreadable.
+     */
+    public static boolean unknownRun(RuntimeRunComparisonDto comparison, String runId) {
+        return runId != null
+                && comparison.previous() == null
+                && !RunComparison.UNAVAILABLE.equals(comparison.status())
+                && unknownRunReason(runId).equals(comparison.reason());
+    }
+
     static final String NO_PREVIOUS_RUN = "No previous run is kept yet: restart the application, as DevTools or a"
             + " Quarkus live reload does, or set bootui.runtime-journal.baseline-file to keep the last run across a"
             + " full JVM restart.";
@@ -510,9 +526,7 @@ public final class RunComparisonService {
                 }
             }
             if (previous == null) {
-                reason = "No kept run of this application has the id " + runId + ": it may have been dropped, as"
-                        + " only the " + RunHistory.MAX_RUNS + " most recent runs are kept, or belong to another"
-                        + " application in this JVM.";
+                reason = unknownRunReason(runId);
             }
         }
         if (history == null) {

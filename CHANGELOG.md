@@ -38,6 +38,10 @@ give the details.
 
 ### Added
 
+- **Optional arguments for the MCP prompts.** `diagnose_runtime_issue`, `verify_after_change`, `review_application`, and
+  `assess_application` accept a symptom, route, change, focus, or goal that focuses them ([AI agents](docs/AI-AGENTS.md#assess-an-application-and-approve-an-action-plan)).
+- **REST-client traces for agents take a query and a limit.** `get_rest_client_traces` (`bootui rest-client traces`)
+  answers the 20 newest matching calls by default, like `get_sql_traces` ([AI agents](docs/AI-AGENTS.md#agent-sized-defaults)).
 - **Resources sensor in the BootUI agent.** On by default, it shows the sockets and file streams a request
   left open or never closed, in Side Effects' **Threads and leaks** tab ([Java Agent](docs/features/java-agent.md#the-resources-sensor)).
 - **Change impact has its own Runtime Insights tab.** It opens on its search field instead of sitting below the run
@@ -410,6 +414,13 @@ give the details.
 
 ### Changed
 
+- **An unknown id is a tool error on every id-based tool.** `get_request_profile`, `get_runtime_insight`, and
+  `get_runtime_run_comparison` refuse an unknown or evicted id, so the CLI exits `1` ([AI agents](docs/AI-AGENTS.md#unknown-ids-and-unavailable-capabilities)).
+- **DevTools LiveReload says when it is unavailable.** `trigger_devtools_livereload` reports `available: false` with
+  the reason, in the shape other tools use, instead of only `status: unavailable`.
+- **Code Paths opens a route's tree under its row.** The routes are a searchable, sortable list, and opening one shows
+  its call tree right there, with the hot path marked, collapsible branches, keyboard navigation, and each method's
+  detail and **Probe this method** under its row; `?method=` links to a method ([Java Agent](docs/features/java-agent.md#code-paths)).
 - **The `files` sensor is on by default, and still switched at run time.** `bootui.agent.sensors` now defaults to
   `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `blocking`, and `resources`. The Java Agent panel's
   **Runtime switches** card, renamed from **Opt-in sensors**, and the Side Effects sections switch it off, and back on,
@@ -793,6 +804,10 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **Unknown advisor rules are told apart from rules without findings.** `get_*_rule_violations` and the REST detail
+  reads answer `Unknown advisor rule` for an id outside the advisor's rule catalogue ([AI agents](docs/AI-AGENTS.md#reading-retained-advisor-violations)).
+- **`analyze_heap_dump` describes what it does.** It analyzes the live heap's class histogram, with or without a
+  captured dump; its MCP description no longer claims it reads an existing dump.
 - **MCP calls no longer keep a restarted application in memory.** BootUI's shared MCP, HTTP-client, and profiler
   threads used to keep the application that first used them reachable across DevTools restarts and Quarkus live
   reloads. They no longer inherit its class loader or thread-locals, and an MCP tool runs with its own application's

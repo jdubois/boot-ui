@@ -14,7 +14,9 @@ const props = defineProps({
   // The method key a Probe this method button offers, or null.
   method: {type: String, default: null},
   readOnly: {type: Boolean, default: false},
-  readOnlyReason: {type: String, default: ''}
+  readOnlyReason: {type: String, default: ''},
+  // Where Probe this method renders: the element next to the selected method, else null for this card's header.
+  actionTarget: {type: Object, default: null}
 })
 
 const POLL_MILLIS = 1000
@@ -22,6 +24,8 @@ const LIVE_STATES = new Set(['starting', 'active', 'ending'])
 
 const {confirm} = useConfirm()
 const {message: banner, flash, show, clear} = useFlashMessage(6000)
+// Stop is in the list, so what it says shows there, wherever the start action is.
+const {message: listBanner, flash: flashList, show: showList, clear: clearList} = useFlashMessage(6000)
 const report = ref(null)
 const loadError = ref(null)
 const busy = ref(false)
@@ -141,17 +145,18 @@ async function start() {
 
 async function stop(probe) {
   if (props.readOnly) {
-    flash(props.readOnlyReason, 'warning')
+    flashList(props.readOnlyReason, 'warning')
     return
   }
+  clearList()
   try {
     const res = await apiFetch(`api/code-paths/probes/${encodeURIComponent(probe.id)}/stop`, {method: 'POST'})
     if (!res.ok) {
       const body = await res.json().catch(() => null)
-      show(body?.error ?? `Could not stop probe ${probe.id} (HTTP ${res.status}).`, 'danger')
+      showList(body?.error ?? `Could not stop probe ${probe.id} (HTTP ${res.status}).`, 'danger')
     }
   } catch (e) {
-    show(formatLoadError(e, 'Could not stop the probe'), 'danger')
+    showList(formatLoadError(e, 'Could not stop the probe'), 'danger')
   }
   await load()
 }
@@ -283,45 +288,58 @@ defineExpose({load})
 <template>
   <section class="card mb-4 code-paths-probes" aria-labelledby="code-paths-probes-heading">
     <div class="card-body">
-      <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-2">
-        <div>
-          <h3 id="code-paths-probes-heading" class="h6 fw-semibold mb-1">Method probes</h3>
-          <p class="small text-muted mb-0">
-            Record one method's next {{ report?.maxInvocations ?? 20 }} invocations, for at most
-            {{ report?.windowSeconds ?? 60 }} seconds, {{ report?.maxActive ?? 5 }} probes at once: metadata, and
-            argument and return shapes when you ask for them, never values.
-          </p>
-        </div>
-        <div v-if="method" class="d-flex flex-wrap align-items-center gap-3">
-          <div class="form-check small mb-0 code-paths-probe-shapes-option">
-            <input
-              id="code-paths-probe-shapes"
-              v-model="recordShapes"
-              class="form-check-input"
-              type="checkbox"
-              :disabled="!shapesAvailable || readOnly"
-              :aria-describedby="shapesWhy ? 'code-paths-probe-shapes-why' : undefined"
-            />
-            <label class="form-check-label" for="code-paths-probe-shapes">Record argument and return shapes</label>
+      <h3 id="code-paths-probes-heading" class="h6 fw-semibold mb-1">Method probes</h3>
+      <p class="small text-muted mb-2">
+        Record one method's next {{ report?.maxInvocations ?? 20 }} invocations, for at most
+        {{ report?.windowSeconds ?? 60 }} seconds, {{ report?.maxActive ?? 5 }} probes at once: metadata, and argument
+        and return shapes when you ask for them, never values.
+      </p>
+      <!-- One action, two homes: beside the method selected in a route's tree, else here for a method another panel
+           asked to probe. Teleporting keeps one state, so the button, its status, and its messages move together. -->
+      <Teleport :to="actionTarget ?? 'body'" :disabled="!actionTarget">
+        <div v-if="method" class="code-paths-probe-action" :class="{'code-paths-probe-action-inline': actionTarget}">
+          <div class="d-flex flex-wrap align-items-center gap-3">
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-primary code-paths-probe-start"
+              :disabled="!canStart"
+              aria-describedby="code-paths-probe-target"
+              @click="start"
+            >
+              <i class="bi bi-crosshair me-1" aria-hidden="true"></i>Probe this method
+            </button>
+            <div class="form-check small mb-0 code-paths-probe-shapes-option">
+              <input
+                id="code-paths-probe-shapes"
+                v-model="recordShapes"
+                class="form-check-input"
+                type="checkbox"
+                :disabled="!shapesAvailable || readOnly"
+                :aria-describedby="shapesWhy ? 'code-paths-probe-shapes-why' : undefined"
+              />
+              <label class="form-check-label" for="code-paths-probe-shapes">Record argument and return shapes</label>
+            </div>
           </div>
-          <button
-            type="button"
-            class="btn btn-sm btn-outline-primary code-paths-probe-start"
-            :disabled="!canStart"
-            :aria-describedby="method ? 'code-paths-probe-target' : undefined"
-            @click="start"
+          <p
+            id="code-paths-probe-target"
+            class="small mb-0 mt-2"
+            :class="{'visually-hidden': actionTarget && !probing}"
           >
-            <i class="bi bi-crosshair me-1" aria-hidden="true"></i>Probe this method
-          </button>
+            <code class="bootui-break-anywhere" :class="{'visually-hidden': actionTarget}">{{ method }}</code>
+            <span v-if="probing" class="text-muted">
+              <template v-if="!actionTarget"> — </template>Probe {{ probing.id }} is {{ stateLabel(probing) }}; its
+              invocations are listed under Method probes.</span
+            >
+          </p>
+          <p v-if="shapesWhy" id="code-paths-probe-shapes-why" class="small text-muted mb-0 mt-2">
+            {{ report.shapesUnavailableReason }}
+          </p>
+          <p v-if="actionTarget && readOnly" class="small text-muted mb-0 mt-2 code-paths-probe-read-only">
+            {{ readOnlyReason }}
+          </p>
+          <FlashBanner class="mt-2 mb-0" :message="banner" @dismiss="clear" />
         </div>
-      </div>
-      <p v-if="method" id="code-paths-probe-target" class="small mb-2">
-        <code class="bootui-break-anywhere">{{ method }}</code>
-        <span v-if="probing" class="text-muted"> — probe {{ probing.id }} is {{ stateLabel(probing) }}.</span>
-      </p>
-      <p v-if="method && shapesWhy" id="code-paths-probe-shapes-why" class="small text-muted mb-2">
-        {{ report.shapesUnavailableReason }}
-      </p>
+      </Teleport>
       <ReadOnlyNotice v-if="readOnly" :reason="readOnlyReason"
         >Starting and stopping probes is read-only; a running probe ends by itself within
         {{ report?.windowSeconds ?? 60 }} seconds.</ReadOnlyNotice
@@ -330,7 +348,7 @@ defineExpose({load})
         {{ report.unavailableReason }}
       </p>
       <p v-if="loadError" class="small text-danger mb-2" role="alert">{{ loadError }}</p>
-      <FlashBanner :message="banner" @dismiss="clear" />
+      <FlashBanner :message="listBanner" @dismiss="clearList" />
 
       <p v-if="report && !probes.length" class="small text-muted mb-0 code-paths-probes-empty">
         No probe in this run. Select a method in a route's tree, then Probe this method.

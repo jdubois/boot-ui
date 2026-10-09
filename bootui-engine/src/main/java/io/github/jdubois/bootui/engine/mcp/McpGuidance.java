@@ -64,7 +64,18 @@ public final class McpGuidance {
                                 + "effective configuration before calling it actionable. Correlate trace ids, "
                                 + "request paths, SQL timings, and log timestamps. Separate observed evidence from "
                                 + "hypotheses, note missing telemetry, and propose the smallest fix plus a verification "
-                                + "step. Do not expose sensitive runtime data."),
+                                + "step. Do not expose sensitive runtime data.",
+                        List.of(
+                                new McpPrompt.Argument(
+                                        "symptom",
+                                        "What the user observed, such as a failing request, an error message, or a"
+                                                + " slowdown.",
+                                        "The symptom the user reports"),
+                                new McpPrompt.Argument(
+                                        "route",
+                                        "The route, job, or listener involved, such as GET /api/orders/{id}: pass it"
+                                                + " as the query of get_runtime_insights and get_live_activity.",
+                                        "The route, job, or listener involved"))),
                 new McpPrompt(
                         "verify_after_change",
                         "Verify a change by comparing the run after the tests with the previous one, then stop.",
@@ -103,7 +114,18 @@ public final class McpGuidance {
                                 + " whether a repeat is gone. Report"
                                 + " comparability first: NOT_COMPARABLE or INSUFFICIENT is not a pass. Do not edit"
                                 + " code from a latency row, and do not treat a missing observation as proof that a"
-                                + " behavior is gone."),
+                                + " behavior is gone.",
+                        List.of(
+                                new McpPrompt.Argument(
+                                        "change",
+                                        "A short summary of the change to verify, such as the methods, beans, or"
+                                                + " tables it touched.",
+                                        "The change to verify"),
+                                new McpPrompt.Argument(
+                                        "route",
+                                        "The route or test the change should affect: run it before comparing, and"
+                                                + " pass it as the query of get_runtime_insights.",
+                                        "The route or test the change should affect"))),
                 new McpPrompt(
                         "review_application",
                         "Review application structure and configuration with BootUI advisors before proposing changes.",
@@ -114,11 +136,22 @@ public final class McpGuidance {
                                 + "memory_scan may trigger a full GC and pentest_scan performs bounded loopback probes. "
                                 + "Validate each advisor finding against source and effective configuration, discard "
                                 + "false positives, prioritize by impact and confidence, and recommend focused changes "
-                                + "with concrete verification steps."),
+                                + "with concrete verification steps.",
+                        List.of(new McpPrompt.Argument(
+                                "focus",
+                                "The area to review, such as security, persistence, REST API design, or"
+                                        + " configuration: run only the advisors relevant to it.",
+                                "The area the user wants reviewed"))),
                 new McpPrompt(
                         "assess_application",
                         "Assess available application capabilities, propose an evidence-backed plan, and wait for approval.",
-                        assessmentWorkflow(framework)));
+                        assessmentWorkflow(framework),
+                        List.of(new McpPrompt.Argument(
+                                "goal",
+                                "The user's assessment goal, such as production readiness or a performance"
+                                        + " review; without it, the assessment states a general application-health"
+                                        + " goal.",
+                                "The user's goal"))));
     }
 
     private static String assessmentWorkflow(String framework) {

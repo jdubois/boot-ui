@@ -12,6 +12,7 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.RestApiReport;
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
 import io.github.jdubois.bootui.engine.action.ActionBusyException;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleRefusals;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -44,10 +45,24 @@ class RestApiScannerTests {
                         return RestApiRuleSupport.fromViolations(context, definition(), details);
                     }
                 };
-        RestApiScanner scanner = fixtureScanner(() -> false, () -> false, List.of(rule));
+        RestApiRule passing =
+                new AbstractRestApiRule(new RestApiRuleDefinition(
+                        "RAPI-TEST-PASSES", "Passes", RestApiCategory.ROUTING, "LOW", "Test", "Review", "")) {
+                    @Override
+                    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+                        context.evidence().markApplicable();
+                        return RestApiRuleSupport.fromViolations(context, definition(), List.of());
+                    }
+                };
+        RestApiScanner scanner = fixtureScanner(() -> false, () -> false, List.of(rule, passing));
         assertThat(scanner.lastReport().violationDetails().scanId()).isNull();
         RestApiReport report = scanner.scan();
         String scanId = report.violationDetails().scanId();
+        AdvisorRuleRefusals.assertKnownAndUnknownRulesAreToldApart(
+                List.of(rule.definition().id(), passing.definition().id()),
+                report.results().stream().map(evaluated -> evaluated.id()).toList(),
+                report.violationDetails().scanId(),
+                (asked, scan) -> scanner.ruleViolations(asked, scan, 0, 1));
         assertThat(report.violationDetails().total()).isEqualTo(16);
         assertThat(report.violationDetails().retained()).isEqualTo(16);
         assertThat(report.violationDetails().truncated()).isFalse();
