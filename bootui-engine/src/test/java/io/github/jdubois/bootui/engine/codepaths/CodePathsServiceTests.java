@@ -47,6 +47,7 @@ class CodePathsServiceTests {
     private final AgentEvidence evidence = new AgentEvidence(panel -> !hiddenPanels.contains(panel), null);
     private CodePathsService service;
     private AgentClaim claim;
+    private AgentBridgeAccess access;
 
     @BeforeEach
     void installAgent() {
@@ -790,12 +791,41 @@ class CodePathsServiceTests {
                 .noneMatch(thread -> thread.getName().equals(AgentRecordDrainer.THREAD_NAME) && thread.isAlive());
     }
 
+    @Test
+    void firstRequestMethodQueriesResolveBridgeKeysInPagesRatherThanPerMethod() {
+        start(AgentSensorSettings.defaults());
+        service.setRequestOutcomes(ids -> Map.of(REQUEST, new RequestOutcome("GET /once", 200, false)));
+        int controller = CodeInventory.methodId("shop.Controller#once()V");
+        int[] methods = new int[300];
+        for (int index = 0; index < methods.length; index++) {
+            methods[index] = CodeInventory.methodId("shop.Helper#method" + index + "()V");
+        }
+        request(
+                REQUEST,
+                () -> call(controller, () -> {
+                    for (int method : methods) {
+                        call(method, null);
+                    }
+                }));
+        clock.addAndGet(RequestTreeStore.SETTLE_NANOS);
+
+        assertThat(service.agentReport("Helper#method299", null).matched()).isEqualTo(1);
+        org.mockito.Mockito.verify(access, org.mockito.Mockito.atLeastOnce())
+                .methodKeys(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.eq(256));
+        org.mockito.Mockito.verify(access, org.mockito.Mockito.never())
+                .methodKeys(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.eq(1));
+        org.mockito.Mockito.clearInvocations(access);
+        assertThat(service.agentReport("Helper#method299", null).matched()).isEqualTo(1);
+        org.mockito.Mockito.verify(access, org.mockito.Mockito.never())
+                .methodKeys(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
     private void start(AgentSensorSettings sensors) {
         claim = AgentClaim.claim(
                 AgentBridgeAccess.bind(AgentBridge.class), "shop", "shop-owner", "dev", List.of("shop"), sensors);
         claim.attach(new AgentHandoffs(context::get, null, null));
-        service = new CodePathsService(
-                AgentBridgeAccess.bind(AgentBridge.class), () -> claim, () -> null, evidence, clock::get);
+        access = org.mockito.Mockito.spy(AgentBridgeAccess.bind(AgentBridge.class));
+        service = new CodePathsService(access, () -> claim, () -> null, evidence, clock::get);
         service.start();
     }
 

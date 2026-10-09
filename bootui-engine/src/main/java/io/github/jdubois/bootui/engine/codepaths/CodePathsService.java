@@ -620,25 +620,60 @@ public final class CodePathsService implements AutoCloseable {
     /**
      * Whether a method {@code route}'s requests executed, its first recorded request's included though the warm tree
      * leaves that request out, has a key containing {@code needle}; methods the bridge cannot name are skipped. Reads
-     * the route's tree once, under the lock, and stops at the first match.
+     * the route's tree once, under the lock, then resolves missing keys in batches outside that lock.
      */
     private ExecutedMatch executedMatch(Run current, String route, String needle) {
         if (current == null) {
             return ExecutedMatch.NONE;
         }
+        int[] methods;
+        boolean firstOnly;
+        boolean partial;
+        Map<Integer, String> keys = new HashMap<>();
         synchronized (lock) {
             RouteTree tree = current.routes.route(route);
             if (tree == null) {
                 return ExecutedMatch.NONE;
             }
-            for (int id : tree.executedMethods()) {
-                String key = current.key(id);
-                if (!key.startsWith("#") && key.toLowerCase(Locale.ROOT).contains(needle)) {
-                    return tree.warmRequests() == 0 ? ExecutedMatch.FIRST_REQUEST_ONLY : ExecutedMatch.MATCHED;
+            methods = tree.executedMethods();
+            firstOnly = tree.warmRequests() == 0;
+            partial = tree.methodsPartial();
+            for (int id : methods) {
+                String known = current.keys.get(id);
+                if (known != null) {
+                    keys.put(id, known);
                 }
             }
-            return tree.methodsPartial() ? ExecutedMatch.PARTIAL : ExecutedMatch.NONE;
         }
+        Set<Integer> resolvedPages = new HashSet<>();
+        for (int id : methods) {
+            String key = keys.get(id);
+            if (key == null) {
+                int start = id - id % 256;
+                if (resolvedPages.add(start)) {
+                    String[] page = access.methodKeys(start, 256);
+                    Map<Integer, String> resolved = new HashMap<>();
+                    for (int index = 0; index < page.length; index++) {
+                        if (page[index] != null) {
+                            resolved.put(start + index, page[index]);
+                        }
+                    }
+                    keys.putAll(resolved);
+                    synchronized (lock) {
+                        if (current.keys.size() + resolved.size() <= 1_000_000) {
+                            current.keys.putAll(resolved);
+                        }
+                    }
+                }
+                key = keys.get(id);
+            }
+            if (key != null
+                    && !key.startsWith("#")
+                    && key.toLowerCase(Locale.ROOT).contains(needle)) {
+                return firstOnly ? ExecutedMatch.FIRST_REQUEST_ONLY : ExecutedMatch.MATCHED;
+            }
+        }
+        return partial ? ExecutedMatch.PARTIAL : ExecutedMatch.NONE;
     }
 
     /** The route's method nodes with the most self time, from its whole tree, at most {@code max}. */
