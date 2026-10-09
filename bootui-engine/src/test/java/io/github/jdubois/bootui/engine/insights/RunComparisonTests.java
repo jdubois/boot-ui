@@ -13,7 +13,6 @@ import io.github.jdubois.bootui.engine.journal.ExceptionPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.AggregatesSnapshot;
-import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.MessagingPayload;
 import io.github.jdubois.bootui.engine.journal.OrmPayload;
@@ -22,14 +21,16 @@ import io.github.jdubois.bootui.engine.journal.RunStart;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPayload;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.journal.StartupStepTiming;
+import io.github.jdubois.bootui.engine.journal.SynchronousJournals;
 import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.spi.CorrelationContext;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -810,8 +811,13 @@ class RunComparisonTests {
     private static final class Run {
 
         private final JournalAggregates aggregates = new JournalAggregates();
-        private final List<JournalEntry> entries = new ArrayList<>();
+        private final RuntimeJournal journal =
+                SynchronousJournals.create(RuntimeJournalSettings.defaults(), ignored -> false);
         private long sequence;
+
+        Run() {
+            journal.addListener(aggregates);
+        }
 
         void request(String method, String route, int status, long millis, RuntimeEventPayload... children) {
             String requestId = "r" + (++sequence);
@@ -823,8 +829,7 @@ class RunComparisonTests {
                     JournalSource.HTTP,
                     millis * 1_000_000,
                     new HttpPayload(method, route, route, null, status)));
-            aggregates.onEntries(entries);
-            entries.clear();
+            SynchronousJournals.dispatch(journal);
         }
 
         void allocated(long bytes) {
@@ -835,8 +840,7 @@ class RunComparisonTests {
                     JournalSource.HTTP,
                     1_000_000,
                     new HttpPayload("GET", "/allocated", "/allocated", null, 200, resources)));
-            aggregates.onEntries(entries);
-            entries.clear();
+            SynchronousJournals.dispatch(journal);
         }
 
         void execution(JournalSource source, RuntimeEventPayload... children) {
@@ -865,8 +869,7 @@ class RunComparisonTests {
                 add(RuntimeEvent.of(source(child), 1000, 1_000_000, context, "worker", null, false, child));
             }
             add(RuntimeEvent.of(source, 1000, millis * 1_000_000, context, "worker", null, false, root));
-            aggregates.onEntries(entries);
-            entries.clear();
+            SynchronousJournals.dispatch(journal);
         }
 
         AggregatesSnapshot snapshot() {
@@ -878,7 +881,8 @@ class RunComparisonTests {
         }
 
         private void add(RuntimeEvent event) {
-            entries.add(new JournalEntry(++sequence, event, event.estimatedBytes()));
+            sequence++;
+            assertThat(journal.offer(event)).isTrue();
         }
 
         private static JournalSource source(RuntimeEventPayload payload) {

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.journal;
 
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import java.util.function.IntConsumer;
 import java.util.function.IntPredicate;
 
 /**
@@ -18,12 +19,23 @@ public final class SynchronousJournals {
      * @param drops which offers to drop, by their zero-based position among this journal's queue offers
      */
     public static RuntimeJournal create(RuntimeJournalSettings settings, IntPredicate drops) {
+        return create(settings, drops, null);
+    }
+
+    /** Pauses a clear after replacing its queue but before resetting listeners, when {@code beforeQueueDrain} asks. */
+    public static RuntimeJournal create(
+            RuntimeJournalSettings settings, IntPredicate drops, IntConsumer beforeQueueDrain) {
         int[] offers = {0};
-        return new RuntimeJournal(settings, RunIdentity.start(), false, () -> {
-            if (drops.test(offers[0]++)) {
-                throw new IllegalStateException("Dropped by the test");
-            }
-        });
+        return new RuntimeJournal(
+                settings,
+                RunIdentity.start(),
+                false,
+                () -> {
+                    if (drops.test(offers[0]++)) {
+                        throw new IllegalStateException("Dropped by the test");
+                    }
+                },
+                beforeQueueDrain);
     }
 
     /** Processes every queued event on the calling thread. */

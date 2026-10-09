@@ -346,6 +346,37 @@ describe('RunComparison', () => {
     expect(alert.text()).not.toContain('{')
   })
 
+  it.each([{behavior: []}, {behavior: compared.behavior}])(
+    'keeps a partial comparison honest with $behavior behavior rows',
+    async ({behavior}) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          jsonResponse({
+            ...compared,
+            status: 'PARTIAL',
+            reason: 'Some journal evidence could not be compared.',
+            behavior,
+            edges: [],
+            limitations: ['The sql source dropped 3 events; statement changes are not compared.']
+          })
+        )
+      )
+      wrapper = mount(RunComparison)
+      await flushPromises()
+
+      expect(wrapper.get('[data-testid="comparison-status"]').text()).toBe('Partly compared')
+      expect(wrapper.get('[data-testid="comparison-status"]').classes()).not.toContain(
+        'insight-comparison-status-settled'
+      )
+      expect(wrapper.text()).toContain('Some journal evidence could not be compared.')
+      expect(wrapper.text()).not.toContain('No eligible route or execution changed')
+      expect(wrapper.get('details').text()).toContain('The sql source dropped 3 events')
+      expect(wrapper.find('[data-section="behavior"]').exists()).toBe(behavior.length > 0)
+      expect(wrapper.emitted('loaded')[0][0].status).toBe('PARTIAL')
+    }
+  )
+
   it('compares with a chosen kept run', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(compared))
     vi.stubGlobal('fetch', fetchMock)
@@ -452,6 +483,10 @@ describe('comparisonSummary', () => {
     expect(comparisonSummary(compared)).toBe('2 changes since run 4')
     expect(comparisonSummary({...compared, behavior: [], edges: []})).toBe('No change in behavior since run 4')
     expect(comparisonSummary({...compared, status: 'INSUFFICIENT'})).toBe('Compared with run 4: needs more traffic')
+    expect(comparisonSummary({...compared, status: 'PARTIAL', behavior: [], edges: []})).toBe(
+      'Partly compared with run 4: incomplete evidence'
+    )
+    expect(comparisonSummary({...compared, status: 'PARTIAL'})).toBe('2 changes since run 4 (partly compared)')
     expect(comparisonSummary({...compared, status: 'NO_PREVIOUS_RUN', previous: null})).toBe('No previous run')
     expect(comparisonSummary(null)).toBeNull()
   })

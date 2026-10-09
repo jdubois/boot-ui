@@ -59,7 +59,7 @@ public record RunEdgeDiff(
                     + " compared with this run.");
         }
         if (before.edges().isEmpty() && previous.header().events() > 0) {
-            limitations.add(run + " kept no edges, so every edge of this run is reported as added.");
+            limitations.add(run + " kept no edges, so absent edges cannot establish a newly introduced dependency.");
         }
         if (previous.header().omittedEdges() > 0) {
             limitations.add(run + "'s summary left out its " + previous.header().omittedEdges()

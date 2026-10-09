@@ -1212,7 +1212,7 @@ public abstract class AbstractMcpConformanceTest {
             assertThat(defaultComparison.path("status")).isEqualTo(comparison.path("status"));
             assertThat(defaultComparison.path("previousRunId")).isEqualTo(comparison.path("previousRunId"));
             assertThat(comparison.path("status").asText())
-                    .isIn("COMPARED", "INSUFFICIENT", "NOT_COMPARABLE", "NO_PREVIOUS_RUN", "UNAVAILABLE");
+                    .isIn("COMPARED", "PARTIAL", "INSUFFICIENT", "NOT_COMPARABLE", "NO_PREVIOUS_RUN", "UNAVAILABLE");
             assertThat(comparison.path("behavior").size()).isLessThanOrEqualTo(8);
             assertThat(comparison.has("runs"))
                     .as("the kept run ids an agent may name")

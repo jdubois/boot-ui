@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import io.github.jdubois.bootui.engine.journal.SynchronousJournals;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Duration;
@@ -171,6 +172,38 @@ class NotExercisedRoutesTests {
         } finally {
             journal.close();
             withoutHttp.close();
+        }
+    }
+
+    @Test
+    void droppedHttpOrAClearCannotProveDeclaredRoutesWereNotExercised() {
+        for (boolean cleared : List.of(false, true)) {
+            try (RuntimeJournal journal =
+                    SynchronousJournals.create(RuntimeJournalSettings.defaults(), index -> !cleared && index == 0)) {
+                JournalAggregates aggregates = new JournalAggregates();
+                journal.addListener(aggregates);
+                journal.offer(RuntimeEvent.of(
+                        JournalSource.HTTP,
+                        1,
+                        1,
+                        CorrelationContext.forRequest("r1"),
+                        "worker",
+                        null,
+                        false,
+                        new HttpPayload("GET", "/api/orders/7", "/api/orders/{id}", null, 200)));
+                SynchronousJournals.dispatch(journal);
+                if (cleared) {
+                    journal.clear();
+                }
+                RuntimeInsightsService service = new RuntimeInsightsService(journal, null, null, null, null, List.of());
+                service.setDeclaredRoutes(() -> DECLARED, aggregates::routeLabels);
+                RuntimeInsightsReportDto report = service.report();
+                assertThat(report.notExercised()).isEmpty();
+                assertThat(report.notExercisedOmitted()).isZero();
+                assertThat(report.limitations()).anyMatch(limit -> limit.contains(cleared ? "clear" : "dropped"));
+                assertThat(RuntimeInsightsAgentView.list(report, null, null).notExercised())
+                        .isEmpty();
+            }
         }
     }
 

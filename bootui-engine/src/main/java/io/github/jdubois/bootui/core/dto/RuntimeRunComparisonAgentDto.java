@@ -7,7 +7,7 @@ import java.util.List;
  * {@value #MAX_ROWS} behavior rows and edges. Latency is left out, since it is noisy; {@code INSUFFICIENT} and {@code
  * NOT_COMPARABLE} never mean "no change".
  *
- * @param status {@code COMPARED}, {@code INSUFFICIENT}, {@code NOT_COMPARABLE}, {@code NO_PREVIOUS_RUN}, or {@code
+ * @param status {@code COMPARED}, {@code PARTIAL}, {@code INSUFFICIENT}, {@code NOT_COMPARABLE}, {@code NO_PREVIOUS_RUN}, or {@code
  *     UNAVAILABLE}
  * @param reason why it is not {@code COMPARED}, or {@code null}
  * @param currentRunId the run compared, or {@code null} when the journal does not record

@@ -825,6 +825,8 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 - **Agent sensor lifecycle.** Reclaims during release preserve bean instrumentation, and failed class restoration prevents
   reinstallation ([Java Agent](docs/features/java-agent.md#claims-and-lifecycle)).
+- **Incomplete runs no longer invent absent work.** Capture gaps yield partial comparisons and unknown unexercised
+  routes without hiding reliable observations ([#1418](https://github.com/jdubois/boot-ui/pull/1418)).
 - **Transactional-event fallback is immediate execution.** Spring listeners running without a transaction no longer
   produce false writes-after-commit findings ([Runtime Insights](docs/features/overview.md#runtime-insights)).
 - **WebSocket execution profiles open from retained handlers.** Visible inbound anchors now show their recorded work by

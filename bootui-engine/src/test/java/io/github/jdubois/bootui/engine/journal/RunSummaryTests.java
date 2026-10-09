@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.core.dto.RuntimeJournalStatusDto;
+import io.github.jdubois.bootui.core.dto.RuntimeRunChangeDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.insights.RunComparison;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.AggregatesSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.StatementStats;
@@ -19,7 +21,158 @@ import org.junit.jupiter.api.Test;
 
 class RunSummaryTests {
 
+    // Emitted and round-tripped by the unchanged v13 codec at 32f3a6142, before completeness metadata existed.
+    private static final String VERSION_THIRTEEN =
+            "QlVSUw0KbGVnYWN5LXYxMwToB9APAwAGAAABAAABA2RldgAEbm9uZQEXF2FnZW50LmNhdWdodC1leGNlcHRpb25zD2FnZW50LmV4ZWN1dG9ycwJhaQlhcHAtZXZlbnQNYXV0aG9yaXphdGlvbgVjYWNoZQpjb25uZWN0aW9uCWV4Y2VwdGlvbg9mYXVsdC10b2xlcmFuY2UCZ2MEaHR0cAlsaWZlY3ljbGUDbG9nBG1haWwJbWVzc2FnaW5nA29ybQlyZXNvdXJjZXMLcmVzdC1jbGllbnQJc2NoZWR1bGVkCHNlY3VyaXR5A3NxbAt0cmFuc2FjdGlvbgl3ZWJzb2NrZXQAFQRodHRwA3NxbAtHRVQgL29yZGVycxRzZWxlY3QgKiBmcm9tIG9yZGVycwVST1VURQVSRUFEUwVUQUJMRQZvcmRlcnMGcm91dGVzCnN0YXRlbWVudHMPZXhjZXB0aW9uR3JvdXBzFHRyYW5zYWN0aW9uYWxNZXRob2RzDnRocmVhZEZhbWlsaWVzHGNvbXBsZXRlZFJlcXVlc3RBdHRyaWJ1dGlvbnMXbGF0ZVJlcXVlc3RBdHRyaWJ1dGlvbnMVYXR0cmlidXRpb25Ub21ic3RvbmVzE3RyYWNlQWlBdHRyaWJ1dGlvbnMOdHJhY2VBaVVub3duZWQFZWRnZXMKZXhlY3V0aW9ucxZ1bmF0dHJpYnV0ZWRFeGVjdXRpb25zAgEDAgMCAYCb7gICwI23AekH6QcDAAAAAQMDAAMAAAAD8C7QDwF/AwECAwECwI23AQEEAwAAAAAAAAAAAAEAAAAAAqAf0A8BfwIAAAAAAAAAAAAAAAAAAAAAAAEEAwADuBfoBwFvAwAAAAABBQMGBwgD6AfoBw0JAAoACwAMAA0ADgAPABAAEQASABMAFAAVAAEAAA==";
+
     private long sequence;
+
+    @Test
+    void genuineVersionThirteenPreservesObservedFactsButCannotProveSqlDisappeared() {
+        RunSummary legacy = RunSummaryCodec.decode(java.util.Base64.getDecoder().decode(VERSION_THIRTEEN));
+        assertThat(legacy.header().requests()).isEqualTo(3);
+        assertThat(legacy.aggregates().routes())
+                .singleElement()
+                .satisfies(route -> assertThat(route.statements()).containsEntry("select * from orders", 3L));
+        assertThat(legacy.aggregates().overflowed().keySet()).noneMatch(key -> key.startsWith("journal:"));
+        try (RuntimeJournal journal = SynchronousJournals.create(RuntimeJournalSettings.defaults(), index -> false)) {
+            JournalAggregates current = new JournalAggregates();
+            journal.addListener(current);
+            for (int i = 0; i < 3; i++) {
+                journal.offer(http("r" + i, "/orders", 200, 2_000_000));
+            }
+            SynchronousJournals.dispatch(journal);
+            var comparison = RunComparison.compare(
+                    journal.run(),
+                    current.snapshot(),
+                    legacy.header().runStart(),
+                    legacy,
+                    List.of(legacy.header()),
+                    null,
+                    null);
+            assertThat(comparison.previous().requests()).isEqualTo(3);
+            assertThat(comparison.behavior())
+                    .extracting(RuntimeRunChangeDto::kind)
+                    .doesNotContain("gone-statement", "statements-per-request");
+            assertThat(comparison.edges()).isEmpty();
+            assertThat(comparison.status()).isEqualTo("PARTIAL");
+            assertThat(comparison.limitations())
+                    .anyMatch(limit -> limit.contains("completeness") && limit.contains("unknown"));
+        }
+    }
+
+    @Test
+    void completenessPresenceDropsAndClearBoundaryRoundTripAndSurviveSummaryTrimming() {
+        for (boolean cleared : List.of(false, true)) {
+            for (boolean dropped : List.of(false, true)) {
+                try (RuntimeJournal journal =
+                        SynchronousJournals.create(RuntimeJournalSettings.defaults(), index -> dropped && index == 0)) {
+                    JournalAggregates aggregates = new JournalAggregates();
+                    journal.addListener(aggregates);
+                    journal.offer(sql("lost", "select * from old_orders", 1_000_000, null));
+                    if (cleared) {
+                        journal.clear();
+                    }
+                    long started = journal.clearBoundary().epochMillis() + 1;
+                    for (int i = 0; i < 150; i++) {
+                        String route = "/orders/" + i + "/" + "long-template".repeat(8);
+                        journal.offer(RuntimeEvent.of(
+                                JournalSource.HTTP,
+                                started,
+                                1_000_000,
+                                CorrelationContext.forRequest("fresh" + i),
+                                "worker",
+                                null,
+                                false,
+                                new HttpPayload("GET", route, route, null, 200)));
+                    }
+                    SynchronousJournals.dispatch(journal);
+                    var full = aggregates.snapshot();
+                    assertThat(JournalCompleteness.limited(full))
+                            .as("metadata presence, source markers and a nonzero clear timestamp are not overflows")
+                            .isFalse();
+                    for (int bound : List.of(RunHistory.MAX_SUMMARY_BYTES, 4096)) {
+                        RunSummary decoded = RunSummaryCodec.decode(
+                                RunSummaryCodec.encode(RunSummary.of(journal.run(), full, 2000), bound));
+                        assertThat(JournalCompleteness.verified(decoded.aggregates()))
+                                .isTrue();
+                        assertThat(JournalCompleteness.limited(decoded.aggregates()))
+                                .isFalse();
+                        assertThat(JournalCompleteness.dropped(decoded.aggregates(), JournalSource.SQL))
+                                .isEqualTo(dropped ? 1 : 0);
+                        assertThat(JournalCompleteness.clears(decoded.aggregates()))
+                                .isEqualTo(cleared ? 1 : 0);
+                        assertThat(JournalCompleteness.clearAt(decoded.aggregates()))
+                                .isEqualTo(journal.clearBoundary().epochMillis());
+                        assertThat(JournalCompleteness.windowComplete(decoded.aggregates(), JournalSource.SQL))
+                                .isEqualTo(!dropped || cleared);
+                        if (bound == 4096) {
+                            assertThat(decoded.header().omittedEntries()).isPositive();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    void aggregateFailureIsSourceSpecificPersistsAndAFreshClearRestoresWindowCompleteness() {
+        try (RuntimeJournal journal = SynchronousJournals.create(RuntimeJournalSettings.defaults(), ignored -> false)) {
+            JournalAggregates aggregates = new JournalAggregates();
+            journal.addListener(aggregates);
+            RuntimeEvent failed = sql("failed", "select * from orders", 1_000_000, null);
+            aggregates.failedEntries(List.of(new JournalEntry(1, failed, failed.estimatedBytes())));
+            RunSummary decoded = RunSummaryCodec.decode(RunSummaryCodec.encode(
+                    RunSummary.of(journal.run(), aggregates.snapshot(), 2000), RunHistory.MAX_SUMMARY_BYTES));
+            assertThat(JournalCompleteness.windowComplete(decoded.aggregates(), JournalSource.SQL))
+                    .isFalse();
+            assertThat(JournalCompleteness.windowComplete(decoded.aggregates(), JournalSource.HTTP))
+                    .isTrue();
+            assertThat(JournalCompleteness.failed(decoded.aggregates(), JournalSource.SQL))
+                    .isEqualTo(1);
+            journal.clear();
+            assertThat(JournalCompleteness.windowComplete(aggregates.snapshot(), JournalSource.SQL))
+                    .isTrue();
+            assertThat(JournalCompleteness.wholeRunComplete(aggregates.snapshot(), JournalSource.SQL))
+                    .isFalse();
+            assertThat(JournalCompleteness.failed(aggregates.snapshot(), JournalSource.SQL))
+                    .isEqualTo(1);
+        }
+    }
+
+    @Test
+    void perOwnerExceptionGroupAttributionLossSurvivesRoundTripAndTrimming() {
+        JournalAggregates aggregates = new JournalAggregates();
+        for (int group = 0; group < 17; group++) {
+            publish(
+                    aggregates,
+                    event(
+                            "owner",
+                            JournalSource.EXCEPTION,
+                            1_000_000,
+                            new ExceptionPayload("group-" + group, "example.Failure", "signature-" + group)));
+        }
+        publish(aggregates, http("owner", "/orders", 200, 1_000_000));
+        for (int route = 0; route < 150; route++) {
+            publish(
+                    aggregates,
+                    http("r" + route, "/orders/" + route + "/" + "long-template".repeat(8), 200, 1_000_000));
+        }
+        for (int bound : List.of(RunHistory.MAX_SUMMARY_BYTES, 4096)) {
+            RunSummary decoded = RunSummaryCodec.decode(
+                    RunSummaryCodec.encode(RunSummary.of(RunIdentity.start(), aggregates.snapshot(), 2000), bound));
+            assertThat(decoded.aggregates().overflowed()).containsEntry("exceptionGroupAttributions", 1L);
+            assertThat(JournalCompleteness.exceptionSignaturesComplete(decoded.aggregates()))
+                    .isFalse();
+            if (bound == 4096) {
+                assertThat(decoded.header().omittedEntries()).isPositive();
+            }
+        }
+        aggregates.clear();
+        assertThat(aggregates.snapshot().overflowed()).containsEntry("exceptionGroupAttributions", 0L);
+        assertThat(JournalCompleteness.exceptionSignaturesComplete(aggregates.snapshot()))
+                .isTrue();
+    }
 
     @Test
     void oldVersionNineSqlLiteralsAreSanitizedOnReadAndNeverWrittenAgain() {
@@ -29,6 +182,7 @@ class RunSummaryTests {
                         "QlVSUwkKbGVnYWN5LXNxbALoB9APAQACAAAAEQRodHRwA3NxbAtQT1NUIC91c2VycyppbnNlcnQgaW50byB1c2VycyhwdykgdmFsdWVzKCJ6enNlY3JldHp6IikPUmVwb3NpdG9yeS5zYXZlBVJPVVRFBldSSVRFUwVUQUJMRQV1c2VycwZyb3V0ZXMKc3RhdGVtZW50cw9leGNlcHRpb25Hcm91cHMUdHJhbnNhY3Rpb25hbE1ldGhvZHMOdGhyZWFkRmFtaWxpZXMFZWRnZXMKZXhlY3V0aW9ucxZ1bmF0dHJpYnV0ZWRFeGVjdXRpb25zAgEBAgECAYCJegLAhD3pB+oHAQAAAAEDAQABAAAAAdAP0A8BfwEBAgEBAsCEPQEEAQAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQBAAHoB+gHAW8BAQUBAAAAAQYDBwgJAegH6AcICgALAAwADQAOAA8AEAARAAEA");
         RunSummary decoded = RunSummaryCodec.decode(encoded);
 
+        assertThat(JournalCompleteness.verified(decoded.aggregates())).isFalse();
         assertThat(decoded.aggregates().statements()).singleElement().satisfies(statement -> {
             assertThat(statement.fingerprint()).isEqualTo("insert into users(pw) values(?)");
             assertThat(statement.executions()).isEqualTo(1);
@@ -82,7 +236,7 @@ class RunSummaryTests {
                 RunSummary.of(new RunIdentity("sql-shapes", 2, 1000), aggregates.snapshot(), 2000),
                 RunHistory.MAX_SUMMARY_BYTES);
 
-        assertThat(encoded[4]).isEqualTo((byte) 13);
+        assertThat(encoded[4]).isEqualTo((byte) 14);
         assertThat(new String(encoded, StandardCharsets.UTF_8)).doesNotContain("zzsecretzz", "secondsecret");
         RunSummary decoded = RunSummaryCodec.decode(encoded);
         assertThat(decoded.aggregates().statements()).singleElement().satisfies(statement -> {
@@ -158,6 +312,7 @@ class RunSummaryTests {
                         "QlVSUwgJb2xkLXJvdXRlAugH0A8BAAEAAAAIBGh0dHAIR0VUIC9vbGQGcm91dGVzCnN0YXRlbWVudHMPZXhjZXB0aW9uR3JvdXBzFHRyYW5zYWN0aW9uYWxNZXRob2RzDnRocmVhZEZhbWlsaWVzBWVkZ2VzAQEBAQHAhD3pB+kHAQAAAAECAQABAAAAAegH6AcBbwEAAAAAAQAAAYAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAwAEAAUABgAHAAgA");
         RunSummary decoded = RunSummaryCodec.decode(encoded);
         assertThat(decoded.header().runId()).isEqualTo("old-route");
+        assertThat(JournalCompleteness.verified(decoded.aggregates())).isFalse();
         assertThat(decoded.aggregates().executionsRecorded()).isFalse();
         assertThat(decoded.aggregates().routes()).singleElement().satisfies(route -> {
             assertThat(route.route()).isEqualTo("GET /old");

@@ -419,7 +419,14 @@ public final class RuntimeInsightsAgentView {
             return next.list();
         }
         switch (comparison.status()) {
-            case RunComparison.COMPARED -> {
+            case RunComparison.COMPARED, RunComparison.PARTIAL -> {
+                if (RunComparison.PARTIAL.equals(comparison.status())) {
+                    next.add(
+                            "get_config",
+                            "query",
+                            JOURNAL_SETTINGS,
+                            "the journal capture settings behind this partial comparison; empty rows do not prove no change");
+                }
                 RuntimeCodeChangesDto changes = comparison.codeChanges();
                 if (changes != null) {
                     changes.methods().stream()
