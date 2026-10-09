@@ -39,6 +39,13 @@ public interface AgentTestHook {
     /** Called with each claim's description, on the claiming thread. */
     default void onClaim(Map<String, Object> claim) {}
 
+    /**
+     * Called on the side-effect sensors' worker, inside its job, just before it installs the transformer of {@code
+     * sensors}, the side-effect sensors not yet installed and passing, so a mutation test can fail one job and prove
+     * that only the groups it touched are disabled.
+     */
+    default void installingSideEffects(Set<String> sensors) {}
+
     /** The default hook: nothing enabled, nothing injected. */
     AgentTestHook NONE = new AgentTestHook() {};
 }

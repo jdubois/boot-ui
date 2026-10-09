@@ -161,7 +161,7 @@ See [Reading a bounded result](AI-AGENTS.md#reading-a-bounded-result) for the fu
 name matching that lets `bootui config --query bootui.mcp.enabled` find a value supplied as `BOOTUI_MCP_ENABLED`.
 
 Large reads answer with a short first page when no `--limit` is given, such as the newest 20 statements for
-`bootui sql traces` or 25 entries for `bootui activity`, and `page.hasMore` says when rows were left out: narrow
+`bootui sql traces`, the newest 20 calls for `bootui rest-client traces`, or 25 entries for `bootui activity`, and `page.hasMore` says when rows were left out: narrow
 `--query` or raise `--limit`. [Agent-sized defaults](AI-AGENTS.md#agent-sized-defaults) lists each command's default.
 A 1.x CLI keeps calling these commands, without the newer options, and gets the same short first page.
 
@@ -218,9 +218,11 @@ verify every finding before changing code.
 Such gaps remain explicit in diagnostics; increasing the retention budget does not manufacture missing identities.
 
 Only the latest completed snapshot is kept. A stale ID or no completed snapshot is HTTP 409: reread the
-cached `… report`, obtain its ID, and restart detail paging, **not** `… scan`. An unknown/non-finding rule
-is REST/MCP client error 404; the CLI facade preserves its existing mapping to HTTP 400 so an unknown rule is
-not mistaken for an unavailable command. Both exit `1` with the application's message. A missing scan ID is
+cached `… report`, obtain its ID, and restart detail paging, **not** `… scan`. A rule id outside the advisor's
+rule catalogue answers `Unknown advisor rule: ...`, and a catalogue rule without findings (passed, skipped, or failed)
+answers `Advisor rule has no findings in the current scan.`; both are REST/MCP client error 404, and the CLI facade preserves its
+existing mapping to HTTP 400 so an unknown rule is not mistaken for an unavailable command. Both exit `1` with the
+application's message. A missing scan ID is
 rejected before a detail read. Dismissal leaves the snapshot ID and its details intact.
 
 MCP also has a rendered-byte limit: `-32003` means retry the same offset and scan ID with a smaller limit,
@@ -240,8 +242,9 @@ A command whose tool this application does not advertise exits `1` and says why:
 'get_kafka_activity'." followed by the panel's own reason, such as a missing library or the Java agent, or the stacks
 that do offer it. It is not `2`, because no panel policy refused it; nothing here can serve it.
 
-A tool that runs and rejects what you asked for — `bootui exceptions show` on an id that is not in the
-buffer, say — exits `1` and prints the application's own message. That is the same code as a usage error
+A tool that runs and rejects what you asked for — `bootui exceptions show`, `bootui request-profile`,
+`bootui insights show`, `bootui insights compare`, or `bootui probe show` on an id that is unknown or no longer
+retained, say — exits `1` and prints the application's own message, which names where current ids come from. That is the same code as a usage error
 because it is the same kind of mistake: the command exists and BootUI was willing to run it, but the
 request was wrong, so retrying it unchanged cannot help.
 
@@ -352,8 +355,10 @@ The result is a selection: `source: "journal"` has a `journal` timeline and touc
 message executions; `source: "buffers"` has the legacy HTTP-exchange `buffers` profile, with N+1 groups, call sites,
 and exception `exceptionGroupId` values for `bootui exceptions show`. When both are retained for an HTTP request,
 `source` is `journal` and both fields are populated; read `buffers` for the richer HTTP details. The journal is consulted
-first, then the buffer. Both respect panel visibility and exposure policy. An id neither retains still exits `0`, with
-`source: "none"`, `available: false`, and an `unavailableReason` naming both windows.
+first, then the buffer. Both respect panel visibility and exposure policy. An id neither retains exits `1` with a
+message naming both windows, like any other unknown id. `source: "none"` with `available: false` and an
+`unavailableReason` (exit `0`) remains for what another id cannot fix: the runtime journal is off, the id's panel hides
+it, or the request carried nothing to correlate.
 
 The command is `request-profile`, at the top level, because `bootui activity` is itself a command and a command path
 cannot also be the parent of another. It is unavailable, and exits `2`, when the Live Activity panel is disabled. See
@@ -445,7 +450,7 @@ exposes a tool is still what `bootui tools` says.
 | Command | MCP tool | Arguments | Kind | Stacks |
 | --- | --- | --- | --- | --- |
 | `bootui activity` | `get_live_activity` | `--query`, `--limit` | read | all |
-| `bootui agent status` | `get_agent_status` | `--query`, `--limit` | read | all |
+| `bootui agent status` | `get_agent_status` | `--query` | read | all |
 | `bootui ai overview` | `get_ai_overview` | — | read | all |
 | `bootui architecture report` | `get_architecture_report` | — | read | all |
 | `bootui architecture violations` | `get_architecture_rule_violations` | `<id> --scan-id <scanId> [--offset N] [--limit N]` | read | all |
@@ -520,7 +525,7 @@ exposes a tool is still what `bootui tools` says.
 | `bootui rest-client clear` | `clear_rest_client_traces` | — | action | all |
 | `bootui rest-client pause` | `pause_rest_client_recording` | — | action | all |
 | `bootui rest-client resume` | `resume_rest_client_recording` | — | action | all |
-| `bootui rest-client traces` | `get_rest_client_traces` | — | read | all |
+| `bootui rest-client traces` | `get_rest_client_traces` | `--query`, `--limit` | read | all |
 | `bootui scheduled` | `get_scheduled_tasks` | — | read | all |
 | `bootui security config` | `get_spring_security` | — | read | Spring MVC, WebFlux |
 | `bootui security logs` | `get_security_logs` | `--limit` | read | all |

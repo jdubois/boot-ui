@@ -34,8 +34,9 @@ See [WebFlux design notes](WEBFLUX-SUPPORT.md) for the panel-by-panel detail.
   report `UNAVAILABLE`, and no SQL time appears in `route-time-breakdown`. R2DBC capture is deferred until after 2.0.
 - **`route-time-breakdown` has no handler or response phase.** It times authentication and the recorded calls; the
   rest of a request's time is reported as unattributed, never as application code.
-- **Transactions are blocking only.** `transaction-across-remote-call` and `split-transaction-writes` read blocking
-  transactions; a `ReactiveTransactionManager` is not captured.
+- **A reactive transaction has no thread-bound context.** A `ReactiveTransactionManager`'s transactions are recorded
+  without a parent transaction or isolation level, and `transaction-across-remote-call` and `split-transaction-writes`
+  place one in a request only when its pipeline carried the request's context to the thread it began on.
 - **`lazy-sql-after-handler` does not apply**, and WebSocket frames and the HTTP Sessions panel are unavailable.
 
 ## Quarkus
@@ -98,22 +99,26 @@ application's own code did. See [Java Agent](features/java-agent.md).
   with optional argument and return shapes, shown in the panel only: types and sizes, plus an enum constant's name and
   a string's length under `FULL`;
 - runtime reach in the Vulnerabilities panel;
-- the **Side Effects** panel with the default `network` (outbound hosts), `processes`, and `blocking` sensors, and the
-  opt-in `files`, `environment`, `thread-activity` (threads per request), and `thread-locals` (`thread-local-left-set`)
-  sensors, which the Java Agent and Side Effects panels switch on and off at run time;
+- the **Side Effects** panel with the default `network` (outbound hosts), `processes`, `files`, `blocking`, and
+  `resources` (streams and sockets a request left open, `resource-not-closed`) sensors, and the opt-in `environment`, `thread-activity` (threads per request), and `thread-locals` (`thread-local-left-set`)
+  sensors; `files`, `environment`, `thread-activity`, and `thread-locals` are switched on and off at run time from the
+  Java Agent and Side Effects panels;
 - side effects in the run comparison: hosts, file patterns, processes, and variable names new or gone since the
   previous run;
 - the Exceptions panel's **Caught in application code** section, with the agent's opt-in `caught-exceptions` sensor;
 - `request-input-in-sink` as opt-in Security sinks rows: request input reaching SQL text, a command, a file path, or
   an outbound URL unchanged, with query and path parameters;
+- the opt-in Security sinks JDK checks: deserialization without a filter, weak algorithms, and trust managers and
+  hostname verifiers; the panels switch the `security-sinks` sensor on and off at run time too, and its request-value
+  matching turns on with its own transformer, so when that transformer fails to install or its self-test fails, matching
+  is off too;
 - agent guidance in the MCP instructions and prompts, and the scripted "did my change run?" agent investigation.
 
 **Planned, may not be in 2.0:**
 
-- the `resources` sensor: resources a request opened and left open, such as leaked streams (`resource-not-closed`);
 - caught exceptions as evidence of `errors-behind-2xx`;
-- the rest of security sinks: form values in `request-input-in-sink`, outbound URLs opened through `HttpClient` or
-  `URL.openConnection`, deserialization without a filter, weak algorithms, and trust managers;
+- the rest of security sinks: form values in `request-input-in-sink`, and outbound URLs opened through `HttpClient` or
+  `URL.openConnection`;
 - side effects in change impact, and methods no longer executed on routes exercised in both runs;
 - dynamic access recording.
 

@@ -64,6 +64,7 @@ import io.github.jdubois.bootui.quarkus.web.ThreadsResource;
 import io.github.jdubois.bootui.quarkus.web.TracesResource;
 import io.github.jdubois.bootui.quarkus.web.VulnerabilitiesResource;
 import io.github.jdubois.bootui.quarkus.web.WebSocketsResource;
+import jakarta.inject.Provider;
 import jakarta.inject.Singleton;
 import java.util.ArrayList;
 import java.util.List;
@@ -146,8 +147,10 @@ public class QuarkusMcpTools {
             RabbitResource rabbit,
             DevServicesResource devServices,
             GitHubResource github,
-            CopilotResource copilot,
-            ClaudeCodeResource claudeCode,
+            // Resolved on their tool's first call: building them starts their session stores, whose first read
+            // scans the CLIs' local session files, which every first MCP call would otherwise wait for.
+            Provider<CopilotResource> copilot,
+            Provider<ClaudeCodeResource> claudeCode,
             RuntimeInsightsResource runtimeInsights,
             JavaAgentResource javaAgent,
             CodeInventoryResource codeInventory,
@@ -683,7 +686,7 @@ public class QuarkusMcpTools {
                 tool(
                         "get_rest_client_traces",
                         McpToolDescriptions.quarkus("get_rest_client_traces"),
-                        args -> restClientTrace.trace()));
+                        args -> McpAgentViews.restClientTraces(restClientTrace.trace(), args.query(), args.limit())));
         addIfAvailable(
                 registry,
                 availability,
@@ -745,14 +748,16 @@ public class QuarkusMcpTools {
                 tool(
                         "get_copilot_sessions",
                         McpToolDescriptions.quarkus("get_copilot_sessions"),
-                        args -> McpAgentViews.sessions(copilot.sessions(null, null), args.query(), args.limit())));
+                        args -> McpAgentViews.sessions(
+                                copilot.get().sessions(null, null), args.query(), args.limit())));
         addIfAvailable(
                 registry,
                 availability,
                 tool(
                         "get_claude_code_sessions",
                         McpToolDescriptions.quarkus("get_claude_code_sessions"),
-                        args -> McpAgentViews.sessions(claudeCode.sessions(null, null), args.query(), args.limit())));
+                        args -> McpAgentViews.sessions(
+                                claudeCode.get().sessions(null, null), args.query(), args.limit())));
 
         addIfAvailable(
                 registry,

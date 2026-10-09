@@ -364,6 +364,27 @@ class DependencyCatalogTests {
     }
 
     @Test
+    void applicationCatalogueKeepsItsLoaderWhenReadWithoutAThreadContextLoader() throws Exception {
+        Path root = tempDir.resolve("application-loader");
+        Path descriptor = root.resolve("META-INF/maven/com.acme/widget/pom.properties");
+        Files.createDirectories(descriptor.getParent());
+        Files.write(descriptor, WIDGET_DESCRIPTOR);
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {root.toUri().toURL()}, null)) {
+            var catalogue = DependencyCatalog.forApplication(List::of, loader);
+            Thread thread = Thread.currentThread();
+            ClassLoader previous = thread.getContextClassLoader();
+            try {
+                thread.setContextClassLoader(null);
+                assertThat(catalogue.inventory().dependencies())
+                        .extracting(DependencyDto::packageName)
+                        .contains("com.acme:widget");
+            } finally {
+                thread.setContextClassLoader(previous);
+            }
+        }
+    }
+
+    @Test
     void identifiesExplodedLibrariesFromMavenDescriptorsWithoutAnSbom() throws Exception {
         Path described = tempDir.resolve("BOOT-INF/lib/renamed-bundle.jar");
         Files.createDirectories(described.getParent());

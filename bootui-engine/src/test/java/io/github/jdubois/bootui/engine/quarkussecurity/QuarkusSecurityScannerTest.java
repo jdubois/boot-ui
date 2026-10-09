@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleRefusals;
 import io.github.jdubois.bootui.spi.QuarkusSecurityEndpoint;
 import io.github.jdubois.bootui.spi.QuarkusSecurityEvidence;
 import io.github.jdubois.bootui.spi.QuarkusSecurityPermission;
@@ -54,6 +55,11 @@ class QuarkusSecurityScannerTest {
         assertThat(report.violationDetails().retained()).isEqualTo(Math.min(4, retentionLimit));
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         String scanId = report.violationDetails().scanId();
+        AdvisorRuleRefusals.assertKnownAndUnknownRulesAreToldApart(
+                QuarkusSecurityChecks.ruleIds(),
+                report.results().stream().map(evaluated -> evaluated.id()).toList(),
+                report.violationDetails().scanId(),
+                (asked, scan) -> scanner.ruleViolations(asked, scan, 0, 1));
         for (String unknown : snap.evidence.unknownRules()) {
             assertThatThrownBy(() -> scanner.ruleViolations(unknown, scanId, 0, null))
                     .isInstanceOfSatisfying(
@@ -343,12 +349,35 @@ class QuarkusSecurityScannerTest {
     }
 
     @Test
+    void permissionLabelsIdentifyEachPermissionAndCollapseOnlyIdenticalOnes() {
+        Snap s = new Snap();
+        s.permissions = List.of(
+                new QuarkusSecurityPermission("admin", "/admin,/admin/*", "admin-role", null, false, "all", true),
+                new QuarkusSecurityPermission("secure", "/api/secure", "admin-role", "GET,POST", true, "jaxrs", true),
+                new QuarkusSecurityPermission("odd", "/odd", "custom-check", null, false, "all", false),
+                new QuarkusSecurityPermission(
+                        "\"quoted secret\"", "/x", "s3cr3t policy=value", null, false, "all", true),
+                new QuarkusSecurityPermission(
+                        "\"other secret\"", "/x", "s3cr3t policy=value", null, false, "all", true));
+        SecurityReport r = scan(s);
+        assertThat(r.filterChains())
+                .containsExactly(
+                        "admin: /admin, /admin/* → policy admin-role (all methods)",
+                        "secure: /api/secure → policy admin-role (GET, POST, JAX-RS only, shared)",
+                        "odd: /odd → policy custom-check (all methods, custom policy not analysed)",
+                        "unnamed permission: /x → policy (name omitted) (all methods)");
+        assertThat(r.filterChainsAnalyzed()).isEqualTo(4);
+        assertThat(r.toString()).doesNotContain("quoted secret", "other secret", "s3cr3t");
+    }
+
+    @Test
     void hardenedBaselineHasNoFindings() {
         Snap s = new Snap();
         s.permissions = List.of(new QuarkusSecurityPermission("api", "/api/*", "authenticated", null));
         SecurityReport r = scan(s);
         assertThat(r.violationsFound()).isZero();
         assertThat(r.filterChainsAnalyzed()).isEqualTo(1);
+        assertThat(r.filterChains()).containsExactly("api: /api/* → policy authenticated (all methods)");
         assertThat(r.scan().status()).isEqualTo("PARTIAL");
         assertThat(r.evidence().usable()).isTrue();
         assertThat(r.evidence().coverageComplete()).isFalse();
@@ -1472,6 +1501,7 @@ class QuarkusSecurityScannerTest {
                 "QS-MSG-001",
                 "QS-PROXY-001");
         assertThat(ids).hasSize(QuarkusSecurityChecks.ruleCount()).doesNotHaveDuplicates();
+        assertThat(ids).containsExactlyInAnyOrderElementsOf(QuarkusSecurityChecks.ruleIds());
         // Verified against the pinned Quarkus 3.33 guides and anchors; only the authentication-absence rule uses the
         // overview.
         assertThat(ids)
@@ -1509,14 +1539,23 @@ class QuarkusSecurityScannerTest {
 
     @Test
     void nullOrFailedSnapshotHasValueFreeAnalysisError() {
-        var report = QuarkusSecurityScanner.usingSnapshot(
-                        () -> {
-                            throw new IllegalArgumentException("secret-value");
-                        },
-                        CLOCK)
-                .scan();
+        QuarkusSecurityScanner failing = QuarkusSecurityScanner.usingSnapshot(
+                () -> {
+                    throw new IllegalArgumentException("secret-value");
+                },
+                CLOCK);
+        var report = failing.scan();
         assertThat(report.scan().status()).isEqualTo("ERROR");
         assertThat(report.analysisErrors()).hasSize(1);
+        String analysisId = report.analysisErrors().get(0).id();
+        assertThatThrownBy(() -> failing.ruleViolations(
+                        analysisId, report.violationDetails().scanId(), 0, null))
+                .as("the report lists its analysis entry, so its id is not an unknown rule")
+                .isInstanceOfSatisfying(
+                        io.github.jdubois.bootui.engine.advisor.AdvisorViolationException.class,
+                        failure -> assertThat(failure.getMessage())
+                                .isEqualTo(
+                                        io.github.jdubois.bootui.engine.advisor.AdvisorScanState.NO_FINDINGS_MESSAGE));
         assertThat(report.toString()).doesNotContain("secret-value");
         assertThat(QuarkusSecurityScanner.usingSnapshot(() -> null, CLOCK)
                         .scan()
@@ -1626,5 +1665,32 @@ class QuarkusSecurityScannerTest {
         s.corsOrigins = "/.*/,https://app.example";
         assertThat(find(scan(s), "QS-CORS-002")).isNotNull();
         assertThat(find(scan(s), "QS-CORS-001")).isNull();
+    }
+
+    @Test
+    void everyRuleIdTheChecksEmitIsInTheCatalogueDetailReadsUse() throws java.io.IOException {
+        String source = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/io/github/jdubois/bootui/engine/quarkussecurity/QuarkusSecurityChecks.java"));
+        int learnMore = source.indexOf("static String learnMore(String id)");
+        int catalogue = source.indexOf("RULE_IDS = List.of(");
+        assertThat(learnMore)
+                .as("the learnMore guide map is excluded: it may name rules no check emits")
+                .isPositive();
+        assertThat(catalogue).isPositive();
+        int catalogueEnd = source.indexOf(");", catalogue);
+        int learnMoreEnd = source.indexOf("\n    }\n", learnMore);
+        String checks = source.substring(0, catalogue)
+                + source.substring(catalogueEnd, learnMore)
+                + source.substring(learnMoreEnd);
+        java.util.Set<String> emitted = new java.util.TreeSet<>();
+        java.util.regex.Matcher literal =
+                java.util.regex.Pattern.compile("\"(QS-[A-Z]+-\\d+)\"").matcher(checks);
+        while (literal.find()) {
+            emitted.add(literal.group(1));
+        }
+        assertThat(emitted).isNotEmpty();
+        assertThat(QuarkusSecurityChecks.ruleIds())
+                .as("a rule id a check names but RULE_IDS lacks would answer Unknown advisor rule")
+                .containsAll(emitted);
     }
 }

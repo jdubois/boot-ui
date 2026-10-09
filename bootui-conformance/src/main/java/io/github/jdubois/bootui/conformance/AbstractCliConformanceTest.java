@@ -82,7 +82,7 @@ public abstract class AbstractCliConformanceTest {
         assertThat(tool.path("name").asText()).isNotBlank();
         assertThat(tool.path("description").asText()).isNotBlank();
         assertThat(tool.path("panel").asText()).isNotBlank();
-        assertThat(tool.path("schema").asText()).isIn("NONE", "LIMIT", "QUERY_LIMIT", "ID", "RULE_VIOLATIONS");
+        assertThat(tool.path("schema").asText()).isIn("NONE", "LIMIT", "QUERY_LIMIT", "QUERY", "ID", "RULE_VIOLATIONS");
         assertThat(tool.path("arguments").isArray()).isTrue();
         assertThat(tool.path("action").isBoolean()).isTrue();
         assertThat(tool.path("panelEnabled").isBoolean()).isTrue();
@@ -200,6 +200,35 @@ public abstract class AbstractCliConformanceTest {
         assertThat(response.json().path("error").asText()).contains("no_such_tool");
     }
 
+    /**
+     * The agent's commands without the BootUI agent ({@code docs/PLAN-v2.md} M5-10's acceptance pass): the catalog
+     * lists {@code bootui agent status}, which answers that the agent is not attached and why, and none of the commands
+     * that need one of its sensors, which answer 404 as a command this instance does not serve, never an empty success.
+     */
+    @Test
+    void testCliAgentCommandsSayTheAgentIsNotAttachedAndTheOthersAreNotServed() {
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                JavaAgentPresence.detached(), "this JVM runs with the BootUI agent attached");
+        java.util.List<String> listed = new java.util.ArrayList<>();
+        probe().get(CLI)
+                .json()
+                .path("tools")
+                .forEach(tool -> listed.add(tool.path("name").asText()));
+        assertThat(listed).contains("get_agent_status");
+        assertThat(listed).doesNotContainAnyElementsOf(JavaAgentPresence.AGENT_SENSOR_TOOLS);
+
+        Response status = invoke("get_agent_status", "{}");
+        assertThat(status.status()).isEqualTo(200);
+        assertThat(status.json().path("state").asText()).isEqualTo("NOT_ATTACHED");
+        assertThat(status.json().path("reason").asText()).isNotBlank();
+
+        for (String tool : JavaAgentPresence.AGENT_SENSOR_TOOLS) {
+            Response response = invoke(tool, "{}");
+            assertThat(response.status()).as("%s without the agent", tool).isEqualTo(404);
+            assertThat(response.json().path("error").asText()).contains(tool);
+        }
+    }
+
     @Test
     void testCliArgumentTheToolDoesNotDeclareIsRejected() {
         Response response = invoke("get_overview", "{\"id\":\"anything\"}");
@@ -227,15 +256,15 @@ public abstract class AbstractCliConformanceTest {
     }
 
     @Test
-    void testCliRequestProfileNamesBothMissingRetentionWindows() {
+    void testCliRequestProfileRefusesAnIdNeitherRetentionWindowHas() {
         String id = "conformance-unknown-request";
         assertThat(catalogEntry("get_request_profile").path("panel").asText()).isEqualTo("activity");
 
         Response cli = invoke("get_request_profile", "{\"id\":\"" + id + "\"}");
-        assertThat(cli.status()).isEqualTo(200);
-        assertThat(cli.json().path("available").asBoolean(true)).isFalse();
-        assertThat(cli.json().path("source").asText()).isEqualTo("none");
-        assertThat(cli.json().path("unavailableReason").asText()).contains(id, "journal", "buffer");
+        assertThat(cli.status())
+                .as("an unknown id is the caller's mistake, so the CLI exits with an error")
+                .isEqualTo(400);
+        assertThat(cli.json().path("error").asText()).contains(id, "journal", "buffer", "get_live_activity");
     }
 
     @Test
@@ -267,7 +296,9 @@ public abstract class AbstractCliConformanceTest {
                 .as("a missing id names the command that lists the ids")
                 .contains("get_runtime_insights");
         Response unknown = invoke("get_runtime_insight", "{\"id\":\"conformance-unknown-observation\"}");
-        assertThat(unknown.json().path("next").path(0).path("command").asText()).isEqualTo("bootui insights list");
+        assertThat(unknown.status()).isEqualTo(400);
+        assertThat(unknown.json().path("error").asText())
+                .contains("conformance-unknown-observation", "get_runtime_insights");
     }
 
     @Test

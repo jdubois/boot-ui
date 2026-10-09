@@ -73,12 +73,16 @@ class McpToolDescriptionsTests {
                         .contains(
                                 "page.hasMore",
                                 "violationCount",
-                                "404",
-                                "409",
-                                "cached report, not a new scan",
+                                "tool error",
+                                "unknown rule",
+                                "no findings",
+                                "stale or missing scanId",
+                                "rather than start a new scan",
                                 "-32003",
                                 "same scanId and offset",
-                                "smaller limit");
+                                "smaller limit")
+                        .as("an MCP tool error carries no HTTP status")
+                        .doesNotContain("404", "409");
             }
         }
         assertThat(McpToolDescriptions.spring("get_hibernate_report"))
@@ -89,6 +93,50 @@ class McpToolDescriptionsTests {
         assertThat(McpToolDescriptions.spring("get_spring_report")).contains("up to 10");
         assertThat(McpToolDescriptions.quarkus("get_spring_report")).contains("up to 20");
         assertThat(McpToolDescriptions.quarkus("get_security_report")).contains("up to 20");
+    }
+
+    @Test
+    void springNamedAdvisorToolsSayTheyRunTheQuarkusApplicationAdvisorOnQuarkus() {
+        for (String name : List.of("spring_scan", "get_spring_report", "get_spring_rule_violations")) {
+            assertThat(McpToolDescriptions.quarkus(name))
+                    .as(name)
+                    .contains("Quarkus application advisor", "keeps its Spring name");
+            // The CLI manifest is generated from the Spring descriptions and serves every stack.
+            assertThat(McpToolDescriptions.spring(name))
+                    .as(name)
+                    .contains("On Quarkus, the same tool runs the Quarkus application advisor");
+        }
+        assertThat(McpToolDescriptions.quarkus("get_ai_overview"))
+                .contains("aiFrameworkDetected", "springAiDetected is Spring AI only");
+    }
+
+    @Test
+    void idBasedToolsDescribeAnUnknownIdAsAToolErrorAndAnAbsentCapabilityAsUnavailable() {
+        for (Function<String, String> provider :
+                List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+            for (String tool : List.of(
+                    "get_exception_detail",
+                    "get_request_profile",
+                    "get_runtime_insight",
+                    "get_runtime_run_comparison",
+                    "get_method_probe")) {
+                assertThat(provider.apply(tool)).as(tool).contains("tool error");
+            }
+            assertThat(provider.apply("get_runtime_insight")).contains("available=false", "get_runtime_insights");
+            assertThat(provider.apply("get_request_profile")).contains("available=false", "journal is off");
+        }
+        assertThat(McpToolDescriptions.spring("trigger_devtools_livereload"))
+                .contains("available=false", "unavailableReason", "no_clients");
+    }
+
+    @Test
+    void analyzeHeapDumpSaysItReadsTheLiveHeapRatherThanADumpFile() {
+        for (Function<String, String> provider :
+                List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+            assertThat(provider.apply("analyze_heap_dump"))
+                    .contains("live JVM heap", "not a dump file", "dumpCount 0", "ANALYZED", "never")
+                    .doesNotContain("existing BootUI heap dump");
+        }
     }
 
     @Test
@@ -151,7 +199,8 @@ class McpToolDescriptionsTests {
             assertThat(McpToolDescriptions.quarkus(tool)).as(tool).contains("summary, not the");
         }
         assertThat(McpToolDescriptions.spring("graalvm_scan")).contains("get_graalvm_report");
-        assertThat(McpToolDescriptions.spring("get_vulnerabilities_report")).contains("-32003", "smaller limit");
+        assertThat(McpToolDescriptions.spring("get_vulnerabilities_report"))
+                .contains("at most 5 advisories", "advisories.omitted", "exact advisory id or alias");
     }
 
     private static void assertDescriptions(Set<String> names, Function<String, String> descriptionProvider) {

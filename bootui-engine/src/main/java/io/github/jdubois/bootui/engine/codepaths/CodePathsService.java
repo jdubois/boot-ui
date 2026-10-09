@@ -541,14 +541,30 @@ public final class CodePathsService implements AutoCloseable {
         }
         String needle = asked.toLowerCase(Locale.ROOT);
         List<CodePathsRouteDto> matching = new ArrayList<>();
-        for (CodePathsRouteDto route : report.routes()) {
-            if (route.route().equalsIgnoreCase(asked)) {
-                matching.clear();
-                matching.add(route);
-                break;
-            }
-            if (needle.isEmpty() || matches(route, needle)) {
-                matching.add(route);
+        List<String> firstRequestOnly = new ArrayList<>();
+        List<String> partial = new ArrayList<>();
+        CodePathsRouteDto exactRoute = report.routes().stream()
+                .filter(route -> route.route().equalsIgnoreCase(asked))
+                .findFirst()
+                .orElse(null);
+        if (exactRoute != null) {
+            matching.add(exactRoute);
+        } else {
+            Run current = needle.isEmpty() ? null : settledRun();
+            for (CodePathsRouteDto route : report.routes()) {
+                if (needle.isEmpty() || matches(route, needle)) {
+                    matching.add(route);
+                    continue;
+                }
+                switch (executedMatch(current, route.route(), needle)) {
+                    case MATCHED -> matching.add(route);
+                    case FIRST_REQUEST_ONLY -> {
+                        matching.add(route);
+                        firstRequestOnly.add(route.route());
+                    }
+                    case PARTIAL -> partial.add(route.route());
+                    case NONE -> {}
+                }
             }
         }
         List<CodePathsRouteDto> listed = matching.subList(0, Math.min(max, matching.size()));
@@ -557,6 +573,17 @@ public final class CodePathsService implements AutoCloseable {
         List<String> limitations = new ArrayList<>(report.limitations());
         if (!hottest.isEmpty()) {
             limitations.add(LIMITATION_PERCENTILES);
+        }
+        if (!firstRequestOnly.isEmpty()) {
+            limitations.add(String.join(", ", firstRequestOnly) + (firstRequestOnly.size() == 1 ? " matched" : " match")
+                    + " because its first recorded request, kept apart from its warm tree, executed a method"
+                    + " matching \"" + asked + "\": it has no top methods or method times yet; send it again to build"
+                    + " its warm tree.");
+        }
+        if (!partial.isEmpty()) {
+            limitations.add(String.join(", ", partial) + (partial.size() == 1 ? " has" : " have")
+                    + " more executed methods than a route or this run keeps, so a method its requests executed may"
+                    + " be missing from the match.");
         }
         if (matching.isEmpty() && !report.routes().isEmpty()) {
             limitations.add("No route matched \"" + asked + "\": call get_code_paths without a query to list them.");
@@ -577,6 +604,76 @@ public final class CodePathsService implements AutoCloseable {
                         .map(CodePathsExcludedMethodDto::method)
                         .toList(),
                 limitations);
+    }
+
+    /** How a query matched a route through the methods its requests executed. */
+    private enum ExecutedMatch {
+        /** A method its requests executed matches, and the route has a warm tree. */
+        MATCHED,
+        /** A method matches, but only the route's first recorded request, kept apart from its warm tree, ran so far. */
+        FIRST_REQUEST_ONLY,
+        /** No method matches, and some methods its requests executed are missing: a method table was full. */
+        PARTIAL,
+        NONE
+    }
+
+    /**
+     * Whether a method {@code route}'s requests executed, its first recorded request's included though the warm tree
+     * leaves that request out, has a key containing {@code needle}; methods the bridge cannot name are skipped. Reads
+     * the route's tree once, under the lock, then resolves missing keys in batches outside that lock.
+     */
+    private ExecutedMatch executedMatch(Run current, String route, String needle) {
+        if (current == null) {
+            return ExecutedMatch.NONE;
+        }
+        int[] methods;
+        boolean firstOnly;
+        boolean partial;
+        Map<Integer, String> keys = new HashMap<>();
+        synchronized (lock) {
+            RouteTree tree = current.routes.route(route);
+            if (tree == null) {
+                return ExecutedMatch.NONE;
+            }
+            methods = tree.executedMethods();
+            firstOnly = tree.warmRequests() == 0;
+            partial = tree.methodsPartial();
+            for (int id : methods) {
+                String known = current.keys.get(id);
+                if (known != null) {
+                    keys.put(id, known);
+                }
+            }
+        }
+        Set<Integer> resolvedPages = new HashSet<>();
+        for (int id : methods) {
+            String key = keys.get(id);
+            if (key == null) {
+                int start = id - id % 256;
+                if (resolvedPages.add(start)) {
+                    String[] page = access.methodKeys(start, 256);
+                    Map<Integer, String> resolved = new HashMap<>();
+                    for (int index = 0; index < page.length; index++) {
+                        if (page[index] != null) {
+                            resolved.put(start + index, page[index]);
+                        }
+                    }
+                    keys.putAll(resolved);
+                    synchronized (lock) {
+                        if (current.keys.size() + resolved.size() <= 1_000_000) {
+                            current.keys.putAll(resolved);
+                        }
+                    }
+                }
+                key = keys.get(id);
+            }
+            if (key != null
+                    && !key.startsWith("#")
+                    && key.toLowerCase(Locale.ROOT).contains(needle)) {
+                return firstOnly ? ExecutedMatch.FIRST_REQUEST_ONLY : ExecutedMatch.MATCHED;
+            }
+        }
+        return partial ? ExecutedMatch.PARTIAL : ExecutedMatch.NONE;
     }
 
     /** The route's method nodes with the most self time, from its whole tree, at most {@code max}. */

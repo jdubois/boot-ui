@@ -16,7 +16,7 @@ healthy or "nothing to worry about".
 1. Start the Spring MVC sample application with DevTools and **without** the BootUI agent:
 
    ```bash
-   ./mvnw -pl bootui-spring-sample-app spring-boot:run
+   ./mvnw -Dmaven.repo.local="$PWD/.m2" -pl bootui-spring-sample-app spring-boot:run
    ```
 
 2. Change one line of `InsightOrderService#applyDiscount(long)` and let DevTools restart the application. Send the

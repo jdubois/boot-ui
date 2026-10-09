@@ -26,7 +26,11 @@ test.describe('Method probes, agent attached', () => {
 
     await page.goto(`/bootui/#/code-paths?route=${encodeURIComponent(ROUTE)}`)
     await expect(page.locator('#code-paths-tree-heading')).toHaveText(ROUTE)
-    await page.locator('.code-paths-tree').getByRole('button', {name: 'SlowPricingService.quote'}).click()
+    await page
+      .locator('.code-paths-tree')
+      .locator('.code-paths-node')
+      .filter({hasText: 'SlowPricingService.quote'})
+      .click()
     await expect(page.locator('#code-paths-probe-target')).toContainText(SLOW)
 
     await page.getByRole('button', {name: 'Probe this method'}).click()
@@ -91,7 +95,11 @@ test.describe('Method probes, agent attached', () => {
       .toBe(true)
 
     await page.goto(`/bootui/#/code-paths?route=${encodeURIComponent(ROUTE)}`)
-    await page.locator('.code-paths-tree').getByRole('button', {name: 'SlowPricingService.quote'}).click()
+    await page
+      .locator('.code-paths-tree')
+      .locator('.code-paths-node')
+      .filter({hasText: 'SlowPricingService.quote'})
+      .click()
     await expect(page.locator('#code-paths-probe-target')).toContainText(SLOW)
     await page.getByLabel('Record argument and return shapes').check()
     await page.getByRole('button', {name: 'Probe this method'}).click()

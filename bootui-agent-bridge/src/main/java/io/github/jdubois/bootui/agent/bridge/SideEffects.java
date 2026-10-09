@@ -79,7 +79,7 @@ public final class SideEffects {
     /** The files sensor's id (M5-5d). */
     public static final String FILES = "files";
 
-    /** The environment sensor's id (M5-5d), opt-in. */
+    /** The environment sensor's id (M5-5d), opt-in (D49). */
     public static final String ENVIRONMENT = "environment";
 
     /** The blocking sensor's id ({@link Blocking}, M5-5c). */
@@ -94,8 +94,8 @@ public final class SideEffects {
     public static final String RESOURCES = "resources";
 
     /**
-     * The security-sinks sensor's id (M5-6b): its request-value matching (M5-6b1) publishes its records on this ring;
-     * its own hooks and its registration among the sensors above are M5-6b2's.
+     * The security-sinks sensor's id (M5-6b): its request-value matching (M5-6b1, {@link RequestValues}) and its JDK
+     * checks (M5-6b2, {@link SecuritySinks}) publish their records on this ring.
      */
     public static final String SECURITY_SINKS = "security-sinks";
 
@@ -117,14 +117,17 @@ public final class SideEffects {
     /** The resources sensor's id in records ({@link Resources}, M5-5g). */
     public static final int SENSOR_RESOURCES = 9;
 
-    /**
-     * Id 8 is reserved for the security-sinks sensor (PLAN-v2 M5-6b): its name here never matches a claim, and status
-     * never reports it.
-     */
-    static final String RESERVED = "(reserved)";
-
     static final String[] SENSOR_NAMES = {
-        "other", PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY, THREAD_LOCALS, RESERVED, RESOURCES
+        "other",
+        PROCESSES,
+        NETWORK,
+        FILES,
+        ENVIRONMENT,
+        BLOCKING,
+        THREAD_ACTIVITY,
+        THREAD_LOCALS,
+        SECURITY_SINKS,
+        RESOURCES
     };
 
     public static final int MASK_PROCESSES = 1 << SENSOR_PROCESSES;
@@ -194,6 +197,16 @@ public final class SideEffects {
     public static final int HOOK_FJP_SHUTDOWN = 35;
     public static final int HOOK_PER_TASK_SHUTDOWN = 36;
 
+    /** The security-sinks sensor's JDK checks ({@link SecuritySinks}, M5-6b2). */
+    public static final int HOOK_DIGEST = 37;
+
+    public static final int HOOK_CIPHER = 38;
+    public static final int HOOK_READ_OBJECT = 39;
+    public static final int HOOK_RESOLVE_CLASS = 40;
+    public static final int HOOK_SSL_INIT = 41;
+    public static final int HOOK_DEFAULT_VERIFIER = 42;
+    public static final int HOOK_DEFAULT_FACTORY = 43;
+
     static final String[] HOOKS = {
         "ProcessBuilder.start",
         "Socket.connect",
@@ -231,7 +244,14 @@ public final class SideEffects {
         "ThreadPoolExecutor.shutdown",
         "ThreadPoolExecutor.shutdownNow",
         "ForkJoinPool.shutdown",
-        "ThreadPerTaskExecutor.shutdown"
+        "ThreadPerTaskExecutor.shutdown",
+        "MessageDigest.getInstance",
+        "Cipher.getInstance",
+        "ObjectInputStream.readObject",
+        "ObjectInputStream.resolveClass",
+        "SSLContext.init",
+        "HttpsURLConnection.setDefaultHostnameVerifier",
+        "HttpsURLConnection.setDefaultSSLSocketFactory"
     };
     static final int[] HOOK_SENSORS = {
         SENSOR_PROCESSES,
@@ -270,7 +290,14 @@ public final class SideEffects {
         SENSOR_THREADS,
         SENSOR_THREADS,
         SENSOR_THREADS,
-        SENSOR_THREADS
+        SENSOR_THREADS,
+        SENSOR_SECURITY_SINKS,
+        SENSOR_SECURITY_SINKS,
+        SENSOR_SECURITY_SINKS,
+        SENSOR_SECURITY_SINKS,
+        SENSOR_SECURITY_SINKS,
+        SENSOR_SECURITY_SINKS,
+        SENSOR_SECURITY_SINKS
     };
 
     /** Record kinds. */
@@ -540,6 +567,11 @@ public final class SideEffects {
      * without it, the plain walker, by class name only.
      */
     private static volatile StackWalker classWalker;
+
+    /** The walker retaining classes once {@link #warm()} made it, else {@code null}. */
+    static StackWalker classWalker() {
+        return classWalker;
+    }
 
     private static final ExitQueue EXITS = new ExitQueue();
     private static final AtomicBoolean EXIT_WORKER_HANDED_OUT = new AtomicBoolean();
@@ -3776,8 +3808,7 @@ public final class SideEffects {
 
     /** Whether {@code claim} asks for a side-effect sensor. */
     static boolean claims(Claim claim) {
-        // The security-sinks sensor's records need the ring and the intern table even when it is the only one asked.
-        return claimedMask(claim) != 0 || claim.hasSensor(SECURITY_SINKS);
+        return claimedMask(claim) != 0;
     }
 
     private static int claimedMask(Claim claim) {
@@ -3855,9 +3886,31 @@ public final class SideEffects {
                 mask = value;
             } while (value != recomputed() || claimedBits != recomputedClaim());
             updateGate();
+            requestValues();
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
+    }
+
+    /**
+     * Turns the security-sinks sensor's request-value matching ({@link RequestValues}) on exactly while its bit records
+     * for the current generation: claimed, enabled by the agent, and not switched off. It never waits for the sensor's
+     * JDK checks, whose groups fail alone ({@link SecuritySinks#groups}). Each writer checks the holder against the mask
+     * again after writing it and rewrites it when another writer changed the mask meanwhile, as {@link #updateGate()}
+     * does, so once every writer returns the holder matches the mask, without a monitor.
+     */
+    private static void requestValues() {
+        boolean on;
+        long current;
+        do {
+            on = (mask & MASK_SECURITY_SINKS) != 0;
+            current = generation;
+            if (RequestValues.sensorGeneration() != (on ? current : Long.MIN_VALUE)) {
+                RequestValues.sensor(on, current);
+            }
+        } while (on != ((mask & MASK_SECURITY_SINKS) != 0)
+                || current != generation
+                || RequestValues.sensorGeneration() != (on ? current : Long.MIN_VALUE));
     }
 
     /** What {@link #refresh()} would write to {@link #claimedBits} now. */
@@ -4058,6 +4111,8 @@ public final class SideEffects {
             status(THREAD_ACTIVITY);
             ThreadLocals.warm();
             status(THREAD_LOCALS);
+            SecuritySinks.warm();
+            status(SECURITY_SINKS);
             Resources.warm();
             Resources.opened(null, owner, null, 0, 0, 0L, 0L, 0);
             status(RESOURCES);
@@ -4143,6 +4198,7 @@ public final class SideEffects {
                 offReason = "switched off after " + MAX_ERRORS + " internal errors, the last: " + ex;
                 mask = 0;
                 updateGate();
+                requestValues();
                 AgentBridge.message("the side-effect sensors were " + offReason);
             }
         } catch (Throwable ignored) {
@@ -4211,6 +4267,9 @@ public final class SideEffects {
             if (sensor == SENSOR_THREAD_LOCALS) {
                 ThreadLocals.putStatus(map);
             }
+            if (sensor == SENSOR_SECURITY_SINKS) {
+                SecuritySinks.putStatus(map);
+            }
             if (sensor == SENSOR_RESOURCES) {
                 Resources.putStatus(map);
             }
@@ -4254,17 +4313,9 @@ public final class SideEffects {
 
     /** The ids of every side-effect sensor this bridge knows. */
     static String[] sensorIds() {
-        int count = 0;
+        String[] ids = new String[SENSOR_NAMES.length - 1];
         for (int i = 1; i < SENSOR_NAMES.length; i++) {
-            if (SENSOR_NAMES[i] != RESERVED) {
-                count++;
-            }
-        }
-        String[] ids = new String[count];
-        for (int i = 1, j = 0; i < SENSOR_NAMES.length; i++) {
-            if (SENSOR_NAMES[i] != RESERVED) {
-                ids[j++] = SENSOR_NAMES[i];
-            }
+            ids[i - 1] = SENSOR_NAMES[i];
         }
         return ids;
     }
@@ -4325,6 +4376,7 @@ public final class SideEffects {
         Blocking.reset();
         ThreadActivity.reset();
         ThreadLocals.reset();
+        SecuritySinks.reset();
         Resources.reset();
         off = false;
         offReason = null;

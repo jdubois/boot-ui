@@ -485,6 +485,47 @@ class AdvisorScanStateTests {
         assertThatThrownBy(() -> firstPage.violations().clear()).isInstanceOf(UnsupportedOperationException.class);
     }
 
+    @Test
+    void anIdOutsideTheCatalogueIsRefusedDifferentlyFromACatalogueRuleWithoutFindings() {
+        AdvisorScanState<Report> state =
+                new AdvisorScanState<>(Report::withViolationDetails, () -> List.of("violated", "passed"));
+        AdvisorViolationCollector collector = state.collector();
+        collector.record("violated", 1, List.of("finding"), UnaryOperator.identity());
+        String scanId = state.publish(new Report("report", 1, null), collector)
+                .violationDetails()
+                .scanId();
+
+        assertThat(state.ruleViolations("violated", scanId, null, null).violations())
+                .containsExactly("finding");
+        assertFailure(state, "passed", scanId, null, null, 404, AdvisorScanState.NO_FINDINGS_MESSAGE);
+        assertFailure(state, "definitely-unknown", scanId, null, null, 404, AdvisorScanState.UNKNOWN_RULE_MESSAGE);
+        assertThat(AdvisorScanState.UNKNOWN_RULE_MESSAGE).isNotEqualTo(AdvisorScanState.NO_FINDINGS_MESSAGE);
+        // A stale scan id is still refused first: it says nothing about the rule.
+        assertFailure(
+                state,
+                "definitely-unknown",
+                "stale",
+                null,
+                null,
+                409,
+                "Advisor scan has been replaced. Reread the cached report before requesting details.");
+    }
+
+    @Test
+    void aStateThatDoesNotKnowTheCatalogueAnswersNoFindingsForEveryMissingRule() {
+        AdvisorScanState<Report> state = new AdvisorScanState<>(Report::withViolationDetails, () -> null);
+        String scanId = publish(state, List.of("finding"), 1).violationDetails().scanId();
+
+        assertFailure(state, "definitely-unknown", scanId, null, null, 404, AdvisorScanState.NO_FINDINGS_MESSAGE);
+    }
+
+    @Test
+    void ruleIdsReadsTheRuleIdsAndToleratesAMissingList() {
+        assertThat(AdvisorScanState.ruleIds(List.of("a", "b"), value -> value.toUpperCase(java.util.Locale.ROOT)))
+                .containsExactly("A", "B");
+        assertThat(AdvisorScanState.<String>ruleIds(null, value -> value)).isNull();
+    }
+
     private static AdvisorScanState<Report> state() {
         return new AdvisorScanState<>(Report::withViolationDetails);
     }

@@ -179,6 +179,11 @@ public final class DependencyCatalog implements DependencyProvider {
         return new DependencyCatalog(new PathMatchingResourcePatternResolver(), basePackages);
     }
 
+    /** The catalogue bound to its application's loader, including when read from a background thread without a TCCL. */
+    public static DependencyProvider forApplication(Supplier<List<String>> basePackages, ClassLoader loader) {
+        return new DependencyCatalog(new PathMatchingResourcePatternResolver(loader), basePackages);
+    }
+
     @Override
     public List<DependencyDto> dependencies() {
         return inventory().dependencies();

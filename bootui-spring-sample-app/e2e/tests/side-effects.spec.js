@@ -1,5 +1,5 @@
 // @ts-check
-import {expect, switchAgentSensor, test} from './fixtures.js'
+import {assertSecuritySinksSwitch, expect, switchAgentSensor, test} from './fixtures.js'
 
 /**
  * The Side Effects view (docs/PLAN-v2.md §5.16, M5-5a). The default suites run the sample without the agent, so the
@@ -112,6 +112,58 @@ test.describe('Side Effects view', () => {
     await page.goto('/bootui/#/side-effects')
     await page.getByRole('tab', {name: /Security sinks/}).click()
     await expect(page.locator('main')).toContainText('Request input reached this')
+  })
+
+  test('shows the JDK checks as facts: a weak digest, an unfiltered read, a trust manager (M5-6b2)', async ({
+    page,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, "Security sinks' JDK checks need the BootUI agent")
+    const checkRows = async () =>
+      (
+        (await (await page.request.get('/bootui/api/side-effects/sensor?sensor=security-sinks&limit=500')).json())
+          .rows ?? []
+      ).filter((row) => row.callSite?.includes('SecurityCheckSeeds'))
+    for (const path of [
+      '/api/sinks/checks/digest',
+      '/api/sinks/checks/deserialize',
+      '/api/sinks/checks/trust-manager'
+    ]) {
+      expect((await page.request.get(path)).ok()).toBeTruthy()
+    }
+    await expect
+      .poll(async () => new Set((await checkRows()).map((row) => row.kind)).size, {timeout: 30_000})
+      .toBeGreaterThanOrEqual(3)
+    const rows = await checkRows()
+    const digest = rows.find((row) => row.kind === 'weak digest')
+    expect(digest.target).toBe('MD5')
+    expect(digest.origin).toBe('application')
+    expect(digest.detail).toContain('Weak algorithm MD5 requested by application code')
+    const read = rows.find((row) => row.kind === 'deserialization without a filter')
+    expect(read.target).toContain('Cart')
+    expect(read.count).toBe(1)
+    expect(read.detail).toContain('java.util.ArrayList')
+    const trust = rows.find((row) => row.kind === 'trust manager')
+    expect(trust.target).toContain('DelegatingTrustManager')
+    // The counterexamples: SHA-256, AES/GCM/NoPadding, and the filtered read show nothing.
+    expect(rows.some((row) => ['SHA-256', 'AES/GCM/NoPadding'].includes(row.target))).toBe(false)
+    expect(rows.filter((row) => row.kind === 'deserialization without a filter')).toHaveLength(1)
+    for (const row of rows) {
+      expect(row.detail).not.toMatch(/vulnerab|injection/i)
+    }
+
+    await page.goto('/bootui/#/side-effects')
+    await page.getByRole('tab', {name: /Security sinks/}).click()
+    await expect(page.locator('main')).toContainText('Deserialization without an ObjectInputFilter')
+  })
+
+  test('switches the security-sinks sensor off and on at run time, recording only while it is on (M5-14)', async ({
+    page,
+    openView,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, 'The security-sinks switch needs the BootUI agent')
+    await assertSecuritySinksSwitch(page, openView)
   })
 
   test('says the blocking sensor is not applicable on Spring MVC, which runs no event loop', async ({

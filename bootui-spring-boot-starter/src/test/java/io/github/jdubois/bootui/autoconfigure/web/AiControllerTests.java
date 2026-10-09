@@ -132,6 +132,7 @@ class AiControllerTests {
                 .andExpect(jsonPath("$.enabled").value(true))
                 .andExpect(jsonPath("$.springAiDetected").value(false))
                 .andExpect(jsonPath("$.langChain4jDetected").value(false))
+                .andExpect(jsonPath("$.aiFrameworkDetected").value(false))
                 .andExpect(jsonPath("$.totalChats").value(1))
                 .andExpect(jsonPath("$.totalInputTokens").value(42))
                 .andExpect(jsonPath("$.totalOutputTokens").value(8))

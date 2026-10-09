@@ -34,6 +34,7 @@ public class SideEffectsController {
     private final ReportWriter reports;
     private final SampleCatalog catalog;
     private final BenchmarkIo benchmarkIo;
+    private final BenchmarkChecks benchmarkChecks;
 
     public SideEffectsController(
             JavaVersionReporter reporter,
@@ -42,7 +43,8 @@ public class SideEffectsController {
             Environment environment,
             ReportWriter reports,
             SampleCatalog catalog,
-            BenchmarkIo benchmarkIo) {
+            BenchmarkIo benchmarkIo,
+            BenchmarkChecks benchmarkChecks) {
         this.reporter = reporter;
         this.licenses = licenses;
         this.restClients = restClients;
@@ -50,6 +52,7 @@ public class SideEffectsController {
         this.reports = reports;
         this.catalog = catalog;
         this.benchmarkIo = benchmarkIo;
+        this.benchmarkChecks = benchmarkChecks;
     }
 
     /** Writes a report outside the temporary directory and reads a system property (M5-5d's seed). */
@@ -91,6 +94,44 @@ public class SideEffectsController {
         benchmarkIo.read();
         return catalog.searchProducts(term);
     }
+
+    /**
+     * The agent overhead benchmark's JDK checks route (M5-6b2): the product search plus the security-sinks hooks' fast
+     * paths and one weak path ({@link BenchmarkChecks}).
+     */
+    @GetMapping("/benchmark-checks")
+    public List<ProductSummary> benchmarkChecks(@RequestParam(name = "term", defaultValue = "console") String term) {
+        benchmarkChecks.touch();
+        return catalog.searchProducts(term);
+    }
+
+    /**
+     * The agent overhead benchmark's environment route (D49): the product search plus {@value #BENCHMARK_PROPERTY_READS}
+     * {@code System.getProperty} reads of four names from application code, so the environment sensor's advice runs on
+     * every read, as it would for application code that reads its settings directly.
+     */
+    @GetMapping("/benchmark-environment")
+    public List<ProductSummary> benchmarkEnvironment(
+            @RequestParam(name = "term", defaultValue = "console") String term) {
+        int found = 0;
+        for (int i = 0; i < BENCHMARK_PROPERTY_READS; i++) {
+            if (System.getProperty(BENCHMARK_PROPERTIES[i % BENCHMARK_PROPERTIES.length]) != null) {
+                found++;
+            }
+        }
+        // Keeps the reads' result observable, so the JIT cannot drop them.
+        benchmarkPropertiesFound = found;
+        return catalog.searchProducts(term);
+    }
+
+    private volatile int benchmarkPropertiesFound;
+
+    /** The {@code System.getProperty} reads of one benchmark-environment request. */
+    static final int BENCHMARK_PROPERTY_READS = 50;
+
+    private static final String[] BENCHMARK_PROPERTIES = {
+        "sample.benchmark.mode", "sample.benchmark.region", "java.version", "file.encoding"
+    };
 
     @GetMapping("/java-version")
     public Map<String, String> javaVersion() {

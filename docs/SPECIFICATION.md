@@ -644,7 +644,7 @@ Features:
 Acceptance criteria:
 
 - The panel is always available on Spring MVC, Spring WebFlux, and Quarkus. Its one action switches an opt-in sensor
-  (`threads`, `files`, `environment`, `thread-activity`, `thread-locals`) on or off at run time: refused by
+  (`threads`, `files`, `environment`, `thread-activity`, `thread-locals`, `security-sinks`) on or off at run time: refused by
   `bootui.panels.java-agent.read-only` and `bootui.read-only`, offered only while this application's claim is armed.
 - `GET /bootui/api/java-agent`, `get_agent_status`, and `bootui agent status` return the same `JavaAgentReport`.
 - Spring claims from `BootUiAgentClaimEnvironmentPostProcessor` (registered in `META-INF/spring.factories`) once BootUI activation is resolved, refines after context
@@ -792,11 +792,13 @@ Purpose: answer "Which processes, hosts, and other side effects did this route o
 
 Data sources:
 
-- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes`, `network`, `blocking`, and
-  `resources` sensors record by default, and `files`, `environment`, `thread-activity`, and `thread-locals` when opted
-  in. `security-sinks` records, when opted in with `bootui.agent.security-sinks.request-values=true`, request input
+- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes`, `network`, `files`, `blocking`,
+  and `resources` sensors record by default, and `environment`, `thread-activity`, and `thread-locals` when opted in.
+  `security-sinks` records, when opted in with `bootui.agent.security-sinks.request-values=true`, request input
   reaching SQL text, a command, a file path, or an outbound URL unchanged: the redacted sink, the parameter's name, and a
-  sentence stating the fact.
+  sentence stating the fact; opted in alone, its JDK checks record deserialization without an `ObjectInputFilter`,
+  weak `MessageDigest` and `Cipher` algorithms (application and library requests apart), the application's trust
+  managers and known library trust-all trust managers, and default hostname verifiers and SSL socket factories.
 - Each request's end, which the adapters mark once its response is complete (Spring MVC once an async request's
   context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended), for the
   `thread-activity` sensor to check what the request left running and the `resources` sensor what it left open, each
@@ -948,17 +950,18 @@ Acceptance criteria:
   `ScheduledTenant`, on when `side-effects-seed.scheduled-every` sets its period, leaves `TenantContext.JOB` set from a
   scheduled run: a row of scope `execution` with no request.
 - The `resources` sensor (M5-5g, D46), on by default (D47), tracks the streams, channels, and sockets the `files` and
-  `network` sensors record opening (sockets by default, file streams only while the opt-in `files` is on) for a request or a job with an application frame on the
+  `network` sensors record opening (sockets and file streams, both by default) for a request or a job with an application frame on the
   stack, and the JDK's close methods. The **Threads and leaks** tab shows rows by attribution, resource kind (`file input
   stream`, `file output stream`, `random access file`, `file channel`, `socket`, `socket channel`), target (the masked
   path pattern or host and port), call site, and origin (`Opened by the application`, or `Opened by a library the
   application called`), with how many were still open 250 ms after their request's response completed and closed after
   it (a hand-off, as a pool's connection), and how many the collector reclaimed without `close()`, the leak. With the
-  agent and `files` opted in, the three samples' `GET /api/resources/leaked-stream` shows a `file input
+  agent, the three samples' `GET /api/resources/leaked-stream` shows a `file input
   stream` reclaimed without `close()`; the counterexamples `GET /api/resources/closed-stream` (try-with-resources) shows
   nothing, and `GET /api/resources/pooled-client` (the JDK `HttpClient`'s pool) never a reclaim.
-- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, and
-  `resources`; `threads`, `files`, `environment`, `thread-activity`, and `thread-locals` remain opt-in.
+- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`,
+  `blocking`, and `resources`; `threads`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and
+  `security-sinks` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
   the accepted ids.
@@ -1690,7 +1693,8 @@ Features:
   its Exceptions group, so a profile reaches the group's detail through `GET /bootui/api/exceptions/{id}` or
   `get_exception_detail`. The `get_request_profile` MCP tool and `bootui request-profile <id>` CLI command instead
   select the journal's retained request or scheduled/message execution profile first, and this HTTP-exchange DTO as
-  fallback; `source: "none"` reports when neither retains the id.
+  fallback. An id neither retains is a tool error (CLI exit `1`); `source: "none"` with `available: false` reports a
+  journal that is off or an id that cannot be profiled.
 - **Copy profile** and **Copy for AI** in the profile drawer, and **Copy for AI** in an Exceptions detail, render one
   Markdown document through a single shared frontend helper, built only from DTOs the browser holds or loads through
   existing read endpoints, so identical DTOs produce identical text on every adapter. Captured strings are escaped, and
@@ -2577,20 +2581,20 @@ Features:
 
 Availability:
 
-- Spring MVC and Spring WebFlux capture boundaries from configurable blocking transaction managers. BootUI contributes
-  its listener through Spring Boot's transaction-manager customization and completes registration for user-defined
-  managers after singleton initialization.
+- Spring MVC and Spring WebFlux capture boundaries from configurable transaction managers, blocking and reactive. BootUI
+  contributes its listener through Spring Boot's transaction-manager customization and completes registration for
+  user-defined managers after singleton initialization. The listener pairs each boundary's callbacks by the transaction
+  execution Spring passes them, so a reactive transaction that completes on another thread than it began is recorded
+  once, without a thread-bound parent or isolation.
 - The panel returns a clear unavailable report when transaction capture is disabled, no
   `ConfigurableTransactionManager` is present, or capture is otherwise not configured.
-- A WebFlux application backed only by `ReactiveTransactionManager` (R2DBC) is explicitly unavailable because Spring's
-  transaction-execution listener hook exists only on the blocking transaction-manager SPI.
 - Transactions are not applicable on Quarkus. Narayana JTA and the CDI `@Transactional` interceptor expose no comparable
   per-boundary listener without invasive interception, so the Quarkus adapter reports the panel unavailable rather than
   providing lower-fidelity capture.
 
 Out of scope for the current release surface:
 
-- Capturing R2DBC-only transaction boundaries or adding an invasive Quarkus transaction interceptor.
+- Adding an invasive Quarkus transaction interceptor.
 - Changing transaction propagation, isolation, rollback rules, or application transaction-manager configuration.
 - Retaining an unbounded transaction history or recording application payloads and SQL parameter values.
 
@@ -3087,8 +3091,9 @@ Detail reads require the report's nonblank `scanId`; offset defaults to zero and
 Malformed/fractional/overflowing inputs, negative offsets, and nonpositive limits are rejected. Responses contain
 `scanId`, `ruleId`, full `violationCount`, `retainedCount`, `truncated`, `violations`,
 `page: {total, matched, offset, limit, returned, hasMore}`, and `locations`. Page totals count retained entries; a
-terminal page does not prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Unknown/non-finding
-rules return 404; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
+terminal page does not prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Ids outside the
+advisor's rule catalogue (`Unknown advisor rule: ...`) and catalogue rules without findings, whether passed, skipped, or
+failed (`Advisor rule has no findings in the current scan.`), both return 404 with those distinct messages; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
 retrievable. Reads obey panel availability, enabled and safety policy, but are allowed in read-only mode, and never
 rescan or collect new observations.
 

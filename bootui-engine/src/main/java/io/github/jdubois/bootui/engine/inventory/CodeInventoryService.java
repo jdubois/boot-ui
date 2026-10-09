@@ -369,6 +369,7 @@ public final class CodeInventoryService implements AutoCloseable {
                                 : kept == null ? NO_PREVIOUS_RUN : mixed ? MIXED_RUNS : null;
                         current.scan =
                                 new ScanState(result.status(), result.reason(), result, changes, note, kept != null);
+                        prewarmDependencies(current);
                     } catch (Throwable ex) {
                         // Never an absolute path or a message: the exception's type says enough, and stays local.
                         current.scan = new ScanState(
@@ -390,6 +391,32 @@ public final class CodeInventoryService implements AutoCloseable {
         thread.setContextClassLoader(null);
         current.scanThread = thread;
         thread.start();
+    }
+
+    /**
+     * Reads, on the scan's thread, what the first view's dependency rows need and keeps: the application's declared
+     * dependencies, which parses every jar's Maven metadata, and the identity of every code source seen so far. A read
+     * would otherwise do it on its own thread, as an MCP tool call, which took seconds on a loaded machine; a read
+     * arriving meanwhile waits for the declared dependencies rather than reading them again. Never throws.
+     */
+    private void prewarmDependencies(Run current) {
+        if (current.closed) {
+            return;
+        }
+        try {
+            current.declared(this);
+            for (Map<String, Object> source : access.codeSources()) {
+                String location = Objects.toString(source.get("location"), null);
+                if (current.closed) {
+                    return;
+                }
+                if (location != null) {
+                    CodeSources.of(location);
+                }
+            }
+        } catch (RuntimeException ex) {
+            // A read does it again, and reports what fails.
+        }
     }
 
     // ---- availability --------------------------------------------------------------------------------------------

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -841,6 +842,38 @@ public abstract class AbstractMcpConformanceTest {
                         .isEqualTo(rule.path("count").asInt());
                 assertThat(detail.path("page").path("limit").asInt()).isEqualTo(1);
             }
+            JsonNode unknownRule = callAdvisorTool(
+                    "get_architecture_rule_violations", Map.of("id", "definitely-unknown", "scanId", scanId));
+            assertThat(unknownRule.path("isError").asBoolean()).isTrue();
+            assertThat(unknownRule.path("content").get(0).path("text").asText())
+                    .as("an unknown rule is told apart from a rule without findings")
+                    .isEqualTo(AdvisorScanState.UNKNOWN_RULE_MESSAGE);
+            // The scan answers with a summary, so the full report names the rules with findings or errors; its results
+            // list only violating rules, so a rule that passed is one of the catalogue's rules absent from them.
+            JsonNode fullReport = probe().get("/bootui/api/architecture").json();
+            assertThat(fullReport.path("violationDetails").path("scanId").asText())
+                    .isEqualTo(scanId);
+            java.util.Set<String> reported = new java.util.HashSet<>();
+            fullReport
+                    .path("results")
+                    .forEach(result -> reported.add(result.path("id").asText()));
+            fullReport
+                    .path("analysisErrors")
+                    .forEach(result -> reported.add(result.path("id").asText()));
+            assertThat(reported)
+                    .as("the full report lists every rule with a finding, as the scan summary counts them")
+                    .hasSizeGreaterThanOrEqualTo(report.path("topFindings").size());
+            String passedRule = java.util.stream.Stream.of(
+                            "ARCH-CODE-004", "ARCH-CODE-006", "ARCH-CODE-007", "ARCH-SPRING-014", "ARCH-SPRING-020")
+                    .filter(candidate -> !reported.contains(candidate))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("every candidate rule reported a finding: " + reported));
+            JsonNode passed =
+                    callAdvisorTool("get_architecture_rule_violations", Map.of("id", passedRule, "scanId", scanId));
+            assertThat(passed.path("isError").asBoolean()).isTrue();
+            assertThat(passed.path("content").get(0).path("text").asText())
+                    .as("%s ran without findings, so it is not an unknown rule", passedRule)
+                    .isEqualTo(AdvisorScanState.NO_FINDINGS_MESSAGE);
             JsonNode stale = callAdvisorTool(
                     "get_architecture_rule_violations", Map.of("id", "ARCH-CODE-002", "scanId", "stale-snapshot"));
             assertThat(stale.path("isError").asBoolean()).isTrue();
@@ -1042,7 +1075,7 @@ public abstract class AbstractMcpConformanceTest {
     }
 
     @Test
-    void testMcpRequestProfileNamesBothMissingRetentionWindows() throws Exception {
+    void testMcpRequestProfileRefusesAnIdNeitherRetentionWindowHas() throws Exception {
         assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
         try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
             String id = "conformance-unknown-request";
@@ -1055,13 +1088,11 @@ public abstract class AbstractMcpConformanceTest {
                                     + "\"arguments\":{\"id\":\"" + id + "\"}}}");
             assertThat(response.status()).isEqualTo(200);
             JsonNode result = response.json().path("result");
-            assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
-            JsonNode profile = new ObjectMapper()
-                    .readTree(result.path("content").get(0).path("text").asText());
-
-            assertThat(profile.path("available").asBoolean(true)).isFalse();
-            assertThat(profile.path("source").asText()).isEqualTo("none");
-            assertThat(profile.path("unavailableReason").asText()).contains(id, "journal", "buffer");
+            assertThat(result.path("isError").asBoolean())
+                    .as("an unknown id is a tool error, not an unavailable capability: " + result)
+                    .isTrue();
+            assertThat(result.path("content").get(0).path("text").asText())
+                    .contains(id, "journal", "buffer", "get_live_activity");
         }
     }
 
@@ -1145,13 +1176,13 @@ public abstract class AbstractMcpConformanceTest {
 
             assertThat(list.path("next").isArray()).isTrue();
 
-            JsonNode unknown = callTool("get_runtime_insight", "{\"id\":\"conformance-unknown-observation\"}");
-            assertThat(unknown.path("available").asBoolean(true)).isFalse();
-            assertThat(unknown.path("unavailableReason").asText()).isNotBlank();
-            assertThat(unknown.path("next").path(0).path("tool").asText())
-                    .as("an unknown observation id names the call that lists the current ids")
-                    .isEqualTo("get_runtime_insights");
-            assertThat(unknown.path("next").path(0).path("command").asText()).isEqualTo("bootui insights list");
+            JsonNode unknown = callToolResult("get_runtime_insight", "{\"id\":\"conformance-unknown-observation\"}");
+            assertThat(unknown.path("isError").asBoolean())
+                    .as("an unknown observation id is a tool error: " + unknown)
+                    .isTrue();
+            assertThat(unknown.path("content").get(0).path("text").asText())
+                    .as("it names the id and the call that lists the current ids")
+                    .contains("conformance-unknown-observation", "get_runtime_insights");
 
             JsonNode impact = callTool("get_runtime_impact", "{\"id\":\"conformanceUnknownSymbol\"}");
             assertThat(impact.path("status").asText()).isIn("NOT_FOUND", "UNAVAILABLE");
@@ -1171,16 +1202,97 @@ public abstract class AbstractMcpConformanceTest {
                     .as("latency is left out for agents")
                     .isFalse();
             assertThat(comparison.path("next").isArray()).isTrue();
-            JsonNode unknownRun = callTool("get_runtime_run_comparison", "{\"id\":\"conformance-unknown-run\"}");
-            if (!"UNAVAILABLE".equals(unknownRun.path("status").asText())) {
-                assertThat(unknownRun.path("next").path(0).path("command").asText())
-                        .as("an unknown run id names the default comparison instead")
-                        .isEqualTo("bootui insights compare previous");
+            JsonNode unknownRun = callToolResult("get_runtime_run_comparison", "{\"id\":\"conformance-unknown-run\"}");
+            if (!"UNAVAILABLE".equals(comparison.path("status").asText())) {
+                assertThat(unknownRun.path("isError").asBoolean())
+                        .as("an unknown run id is a tool error: " + unknownRun)
+                        .isTrue();
+                assertThat(unknownRun.path("content").get(0).path("text").asText())
+                        .as("it names the id and the default comparison instead")
+                        .contains("conformance-unknown-run", "previous");
+            }
+        }
+    }
+
+    /**
+     * The agent's tools without the BootUI agent ({@code docs/PLAN-v2.md} M5-10's acceptance pass): only
+     * {@code get_agent_status} is advertised, and it says the agent is not attached and why; a tool that needs one of
+     * the agent's sensors is not advertised, so calling it says its panel needs the agent rather than answering a tool
+     * failure or an empty success; and Runtime Insights lists its agent-gated checks among the checks not run, with the agent as
+     * the reason, and compares runs without a code changes or side effects section.
+     */
+    @Test
+    void testMcpAgentToolsSayTheAgentIsNotAttachedAndTheOthersAreNotAdvertised() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                JavaAgentPresence.detached(), "this JVM runs with the BootUI agent attached");
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            Response list = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/list\"}");
+            List<String> advertised = new java.util.ArrayList<>();
+            list.json()
+                    .path("result")
+                    .path("tools")
+                    .forEach(tool -> advertised.add(tool.path("name").asText()));
+            assertThat(advertised).contains("get_agent_status");
+            assertThat(advertised).doesNotContainAnyElementsOf(JavaAgentPresence.AGENT_SENSOR_TOOLS);
+
+            JsonNode status = callTool("get_agent_status", "{}");
+            assertThat(status.path("state").asText()).isEqualTo("NOT_ATTACHED");
+            assertThat(status.path("reason").asText()).isNotBlank();
+            assertThat(status.path("sensors")).isEmpty();
+
+            for (String tool : JavaAgentPresence.AGENT_SENSOR_TOOLS) {
+                Response call = probe().request(
+                                "POST",
+                                "/bootui/api/mcp",
+                                Map.of("Content-Type", "application/json"),
+                                "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\",\"params\":{\"name\":\""
+                                        + tool + "\",\"arguments\":{}}}");
+                assertThat(call.status()).isEqualTo(200);
+                assertThat(call.json().path("result").isMissingNode())
+                        .as("%s answers no result without the agent: %s", tool, call.json())
+                        .isTrue();
+                assertThat(call.json().path("error").path("message").asText())
+                        .as("%s without the agent", tool)
+                        .startsWith("Tool not available in this application: " + tool + ".")
+                        .contains("Requires the BootUI agent");
+            }
+
+            JsonNode insights = callTool("get_runtime_insights", "{\"query\":\"all\",\"limit\":50}");
+            if (insights.path("available").asBoolean(false)) {
+                List<String> notRun = new java.util.ArrayList<>();
+                insights.path("checksNotRun").forEach(check -> notRun.add(check.asText()));
+                for (String kind : JavaAgentPresence.AGENT_CHECKS) {
+                    assertThat(notRun)
+                            .as("%s is a check not run, naming the agent", kind)
+                            .anySatisfy(check -> assertThat(check)
+                                    .startsWith(kind + ": NOT_APPLICABLE, ")
+                                    .contains("requires the BootUI agent's"));
+                }
+            }
+            JsonNode comparison = callTool("get_runtime_run_comparison", "{}");
+            for (String section : List.of("codeChanges", "sideEffects")) {
+                JsonNode value = comparison.path(section);
+                assertThat(value.isNull() || value.isMissingNode())
+                        .as("the comparison has no %s section without the agent: %s", section, value)
+                        .isTrue();
             }
         }
     }
 
     private JsonNode callTool(String name, String arguments) throws Exception {
+        JsonNode result = callToolResult(name, arguments);
+        assertThat(result.path("isError").asBoolean()).as(name + ": " + result).isFalse();
+        return new ObjectMapper()
+                .readTree(result.path("content").get(0).path("text").asText());
+    }
+
+    /** The {@code tools/call} result envelope, a tool error included. */
+    private JsonNode callToolResult(String name, String arguments) {
         Response response = probe().request(
                         "POST",
                         "/bootui/api/mcp",
@@ -1188,10 +1300,7 @@ public abstract class AbstractMcpConformanceTest {
                         "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\",\"params\":{\"name\":\"" + name
                                 + "\",\"arguments\":" + arguments + "}}");
         assertThat(response.status()).isEqualTo(200);
-        JsonNode result = response.json().path("result");
-        assertThat(result.path("isError").asBoolean()).as(name + ": " + result).isFalse();
-        return new ObjectMapper()
-                .readTree(result.path("content").get(0).path("text").asText());
+        return response.json().path("result");
     }
 
     @Test
@@ -1260,7 +1369,15 @@ public abstract class AbstractMcpConformanceTest {
             for (JsonNode prompt : prompts) {
                 String name = prompt.path("name").asText();
                 assertThat(prompt.path("arguments").isArray()).isTrue();
-                assertThat(prompt.path("arguments")).isEmpty();
+                assertThat(prompt.path("arguments"))
+                        .as("every prompt argument is optional, so a client that sends none keeps working")
+                        .isNotEmpty()
+                        .allSatisfy(argument -> {
+                            assertThat(argument.path("name").asText()).isNotBlank();
+                            assertThat(argument.path("description").asText()).isNotBlank();
+                            assertThat(argument.path("required").asBoolean(true))
+                                    .isFalse();
+                        });
                 Response get = probe().request(
                                 "POST",
                                 "/bootui/api/mcp",
@@ -1285,6 +1402,22 @@ public abstract class AbstractMcpConformanceTest {
                                     "rule AND affected target");
                 }
             }
+
+            Response focused = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"prompts/get\",\"params\":{\"name\":"
+                                    + "\"diagnose_runtime_issue\",\"arguments\":{\"route\":\"GET /conformance\"}}}");
+            assertThat(focused.json()
+                            .path("result")
+                            .path("messages")
+                            .get(0)
+                            .path("content")
+                            .path("text")
+                            .asText())
+                    .as("a prompt argument reaches the rendered prompt on every stack")
+                    .endsWith("- The route, job, or listener involved: GET /conformance");
         } finally {
             disableMcp();
         }

@@ -253,31 +253,75 @@ public final class JavaAgentService {
         }
     }
 
+    /** The security-sinks sensor's check groups, as the bridge's status names them, and how the reason says them. */
+    private static final Map<String, String> CHECK_GROUPS = Map.of(
+            "deserialization", "deserialization without a filter",
+            "weak-algorithms", "weak algorithms",
+            "trust-managers", "trust managers and hostname verifiers");
+
+    /**
+     * The installed {@code security-sinks} sensor's reason (M5-6b2): its JDK check groups, each on, or off with why, as
+     * one whose hook failed its self-test is off alone; then its request-value matching, as {@link
+     * #securitySinksCoverage} says it.
+     */
+    static String securitySinksReason(Map<String, Object> counters, Map<String, Object> status, List<String> claimed) {
+        Map<String, Object> groups = AgentBridgeAccess.map(counters, "groups");
+        List<String> on = new ArrayList<>();
+        List<String> off = new ArrayList<>();
+        for (String group : List.of("deserialization", "weak-algorithms", "trust-managers")) {
+            String state = AgentBridgeAccess.text(groups, group);
+            String label = CHECK_GROUPS.get(group);
+            if ("on".equals(state)) {
+                on.add(label);
+            } else {
+                off.add(label + (state != null && state.startsWith("off: ") ? " (" + state.substring(5) + ")" : ""));
+            }
+        }
+        StringBuilder reason = new StringBuilder("JDK checks: ");
+        reason.append(on.isEmpty() ? "none run" : String.join(", ", on));
+        if (!off.isEmpty()) {
+            reason.append("; off: ").append(String.join("; ", off));
+        }
+        reason.append(". ");
+        SideEffectsCoverage values = securitySinksCoverage(status, List.of(), claimed, null);
+        reason.append(values.reason());
+        return reason.toString();
+    }
+
     /**
      * The {@code security-sinks} sensor while the agent reports no hooks of its own for it (M5-6b1): its request-value
      * matching rides on the SQL and REST client recorders and on the processes and files sensors' hooks, so it records
      * once the claim asks for it and {@code bootui.agent.security-sinks.request-values} is on. While recording, its
      * reason names the sinks it checks, and those it cannot because their sensor is not claimed; its drops are the
-     * holder's records the ring could not take.
+     * holder's records the ring could not take. {@code claimed} is the claim's sensors with the runtime switches
+     * applied; {@code toggle}, the sensor's runtime switch, or {@code null}.
      */
     static SideEffectsCoverage securitySinksCoverage(
-            Map<String, Object> status, List<SideEffectsHookDto> hooks, List<String> claimed) {
+            Map<String, Object> status,
+            List<SideEffectsHookDto> hooks,
+            List<String> claimed,
+            JavaAgentSensorToggleDto toggle) {
         Map<String, Object> holder = AgentBridgeAccess.map(status, "requestValues");
         long dropped = longValue(holder, "dropped");
         if (!AgentRequestValues.enabled()) {
             return new SideEffectsCoverage(
                     SideEffectsSensorDto.DISABLED,
-                    "Request-value matching is off: set bootui.agent.security-sinks.request-values=true to check"
-                            + " whether request input reaches SQL text, a command, a file path, or an outbound URL.",
+                    "Request-value matching is off: set bootui.agent.security-sinks.request-values=true and restart"
+                            + " the application to check whether request input reaches SQL text, a command, a file"
+                            + " path, or an outbound URL.",
                     hooks,
-                    dropped);
+                    dropped,
+                    Map.of(),
+                    toggle);
         }
         if (!AgentBridgeAccess.flag(holder, "active")) {
             return new SideEffectsCoverage(
                     SideEffectsSensorDto.INSTALLING,
                     "The attached BootUI agent has not turned request-value matching on for this claim.",
                     hooks,
-                    dropped);
+                    dropped,
+                    Map.of(),
+                    toggle);
         }
         StringBuilder reason = new StringBuilder("Checks SQL text where SQL Trace captures it and outbound URLs where"
                 + " REST Client Trace records the call");
@@ -289,7 +333,8 @@ public final class JavaAgentService {
                 claimed.contains(AgentSensorSettings.FILES)
                         ? "; file paths through the files sensor."
                         : "; not file paths: the files sensor is not claimed.");
-        return new SideEffectsCoverage(SideEffectsSensorDto.RECORDING, reason.toString(), hooks, dropped);
+        return new SideEffectsCoverage(
+                SideEffectsSensorDto.RECORDING, reason.toString(), hooks, dropped, Map.of(), toggle);
     }
 
     /**
@@ -328,8 +373,7 @@ public final class JavaAgentService {
                         toggle);
             }
             if (sensor == null && AgentSensorSettings.SECURITY_SINKS.equals(id)) {
-                return securitySinksCoverage(
-                        status, hooks, ours == null ? List.of() : ours.sensors().sensors());
+                return securitySinksCoverage(status, hooks, ours == null ? List.of() : ours.activeSensors(), toggle);
             }
             if (sensor == null) {
                 return new SideEffectsCoverage(
@@ -377,6 +421,16 @@ public final class JavaAgentService {
                     buckets.put(bucket, number.longValue());
                 }
             });
+            if (AgentSensorSettings.SECURITY_SINKS.equals(id)) {
+                // Its JDK checks record; the reason says which check groups run and whether request values match.
+                return new SideEffectsCoverage(
+                        SideEffectsSensorDto.RECORDING,
+                        securitySinksReason(counters, status, ours == null ? List.of() : ours.activeSensors()),
+                        hooks,
+                        dropped,
+                        buckets,
+                        toggle);
+            }
             return new SideEffectsCoverage(SideEffectsSensorDto.RECORDING, null, hooks, dropped, buckets, toggle);
         } catch (RuntimeException ex) {
             return new SideEffectsCoverage(
@@ -394,7 +448,7 @@ public final class JavaAgentService {
      * @param buckets for the files sensor, the operations the bridge counted in buckets rather than recorded, by bucket
      *     ({@code classFiles}, {@code archives}, {@code archiveFileSystems}, {@code javaHome},
      *     {@code classPathDirectories}), since the claim; empty otherwise
-     * @param toggle the sensor's runtime switch, for an opt-in sensor while the agent is armed for this application;
+     * @param toggle the sensor's runtime switch, for a switchable sensor while the agent is armed for this application;
      *     otherwise {@code null}
      */
     public record SideEffectsCoverage(
@@ -595,21 +649,21 @@ public final class JavaAgentService {
     }
 
     /**
-     * Switches the opt-in sensor {@code id} on or off at run time for this application ({@code docs/PLAN-v2.md} M5-14),
+     * Switches the sensor {@code id}, one of {@link AgentSensorSettings#SWITCHABLE_SENSORS}, on or off at run time for this application ({@code docs/PLAN-v2.md} M5-14),
      * through its armed claim: the agent installs or removes it now, and the switch holds for this application's later
      * claims in this JVM, across DevTools restarts and Quarkus live reloads, never written anywhere. Returns the report
      * after the switch.
      *
-     * @throws IllegalArgumentException when {@code id} is not one of {@link AgentSensorSettings#OPT_IN_SENSORS}
+     * @throws IllegalArgumentException when {@code id} is not one of {@link AgentSensorSettings#SWITCHABLE_SENSORS}
      * @throws IllegalStateException when the agent is not armed for this application, predates runtime switches, or
      *     refused or failed the switch
      */
     public JavaAgentReport switchSensor(String id, boolean enabled) {
         String sensor = id == null ? "" : id.trim();
-        if (!AgentSensorSettings.OPT_IN_SENSORS.contains(sensor)) {
+        if (!AgentSensorSettings.SWITCHABLE_SENSORS.contains(sensor)) {
             throw new IllegalArgumentException(
-                    "'" + id + "' is not an opt-in sensor: the sensors switched at run time are "
-                            + String.join(", ", AgentSensorSettings.OPT_IN_SENSORS) + ".");
+                    "'" + id + "' cannot be switched at run time: the sensors switched at run time are "
+                            + String.join(", ", AgentSensorSettings.SWITCHABLE_SENSORS) + ".");
         }
         Map<String, Object> status = access.status();
         Resolution resolution = resolve(status, AgentBridgeAccess.map(status, "claim"));
@@ -675,25 +729,25 @@ public final class JavaAgentService {
                 + settings.bootUiVersion() + ".";
     }
 
-    /** The opt-in sensors' runtime switches while this application's claim is armed, or none. */
+    /** The switchable sensors' runtime switches while this application's claim is armed, or none. */
     private List<JavaAgentSensorToggleDto> toggles(Resolution resolution, Map<String, Object> agent) {
         AgentClaim ours = claim.get();
         if (ours == null || !JavaAgentReport.ARMED.equals(resolution.state())) {
             return List.of();
         }
         List<JavaAgentSensorToggleDto> toggles = new ArrayList<>();
-        for (String id : AgentSensorSettings.OPT_IN_SENSORS) {
+        for (String id : AgentSensorSettings.SWITCHABLE_SENSORS) {
             toggles.add(toggle(ours, sensor(agent, id), id));
         }
         return toggles;
     }
 
     /**
-     * The runtime switch of {@code id} for this application's claim, or {@code null} when {@code id} is not an opt-in
-     * sensor; {@code sensor} is the agent's status row for it, or {@code null}.
+     * The runtime switch of {@code id} for this application's claim, or {@code null} when {@code id} cannot be switched
+     * at run time; {@code sensor} is the agent's status row for it, or {@code null}.
      */
     private JavaAgentSensorToggleDto toggle(AgentClaim ours, Map<String, Object> sensor, String id) {
-        if (!AgentSensorSettings.OPT_IN_SENSORS.contains(id)) {
+        if (!AgentSensorSettings.SWITCHABLE_SENSORS.contains(id)) {
             return null;
         }
         boolean configured = ours.sensors().sensors().contains(id);
@@ -742,7 +796,7 @@ public final class JavaAgentService {
                 enabled,
                 ours.sensorOverrides().containsKey(id),
                 state,
-                AgentSensorSettings.optInReason(id),
+                AgentSensorSettings.defaultReason(id),
                 unavailable == null,
                 unavailable,
                 failure == null ? null : "The agent failed this switch: " + failure);

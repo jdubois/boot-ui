@@ -416,6 +416,7 @@ class JavaAgentServiceTests {
                                 "code-paths",
                                 "processes",
                                 "network",
+                                "files",
                                 "blocking",
                                 "resources"))
                 .containsEntry("ringCapacity", AgentSensorSettings.DEFAULT_RING_CAPACITY);
@@ -713,9 +714,14 @@ class JavaAgentServiceTests {
                         org.assertj.core.api.Assertions.tuple("files", true, true, false, "installing", true),
                         org.assertj.core.api.Assertions.tuple("environment", false, false, false, "off", true),
                         org.assertj.core.api.Assertions.tuple("thread-activity", false, false, false, "off", true),
-                        org.assertj.core.api.Assertions.tuple("thread-locals", false, false, false, "off", true));
+                        org.assertj.core.api.Assertions.tuple("thread-locals", false, false, false, "off", true),
+                        org.assertj.core.api.Assertions.tuple("security-sinks", false, false, false, "off", true));
         assertThat(service.report().toggles())
-                .allSatisfy(toggle -> assertThat(toggle.optInReason()).startsWith("Off by default"));
+                .allSatisfy(toggle -> assertThat(toggle.optInReason())
+                        .startsWith(
+                                AgentSensorSettings.DEFAULT_SENSORS.contains(toggle.id())
+                                        ? "On by default"
+                                        : "Off by default"));
 
         Map<String, Object> environment = new LinkedHashMap<>();
         environment.put("id", "environment");
@@ -753,6 +759,61 @@ class JavaAgentServiceTests {
         claim.get().disarm();
         assertThat(service.report().toggles()).isEmpty();
         assertThatThrownBy(() -> service.switchSensor("environment", false)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void theDefaultFilesSensorIsSwitchedOffAndBackOnAndTheOptInEnvironmentSensorOnAndBackOffAtRunTime() {
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        claim.set(AgentClaim.claim(
+                Bridges.access(),
+                "petclinic",
+                "petclinic@1",
+                "dev",
+                List.of("com.example"),
+                AgentSensorSettings.defaults()));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+
+        assertThat(AgentSensorSettings.DEFAULT_SENSORS).contains("files").doesNotContain("environment");
+        assertThat(AgentSensorSettings.SWITCHABLE_SENSORS).contains("files", "environment");
+        assertThat(toggle(service.report(), "files")).satisfies(files -> {
+            assertThat(files.configured()).isTrue();
+            assertThat(files.enabled()).isTrue();
+            assertThat(files.optInReason()).startsWith("On by default");
+        });
+        assertThat(toggle(service.report(), "environment")).satisfies(environment -> {
+            assertThat(environment.configured()).isFalse();
+            assertThat(environment.enabled()).isFalse();
+            assertThat(environment.available()).isTrue();
+            assertThat(environment.optInReason()).startsWith("Off by default").contains("System.getProperty");
+        });
+
+        JavaAgentSensorToggleDto filesOff = toggle(service.switchSensor("files", false), "files");
+        assertThat(filesOff.enabled()).isFalse();
+        assertThat(filesOff.overridden()).isTrue();
+        assertThat(filesOff.state()).isEqualTo("off");
+        assertThat(claim.get().activeSensors()).doesNotContain("files");
+        assertThat(service.sideEffectsCoverage("files").reason()).startsWith("Switched off at run time");
+        JavaAgentSensorToggleDto filesOn = toggle(service.switchSensor("files", true), "files");
+        assertThat(filesOn.enabled()).isTrue();
+        assertThat(filesOn.overridden())
+                .as("switched back to its configured default, the override is dropped")
+                .isFalse();
+
+        JavaAgentSensorToggleDto environmentOn = toggle(service.switchSensor("environment", true), "environment");
+        assertThat(environmentOn.enabled()).isTrue();
+        assertThat(environmentOn.overridden()).isTrue();
+        assertThat(claim.get().activeSensors()).contains("environment");
+        JavaAgentSensorToggleDto environmentOff = toggle(service.switchSensor("environment", false), "environment");
+        assertThat(environmentOff.enabled()).isFalse();
+        assertThat(environmentOff.overridden()).isFalse();
+        assertThat(stub.ops()).contains("sensors");
+    }
+
+    private static JavaAgentSensorToggleDto toggle(JavaAgentReport report, String id) {
+        return report.toggles().stream()
+                .filter(toggle -> toggle.id().equals(id))
+                .findFirst()
+                .orElseThrow();
     }
 
     @Test
@@ -870,6 +931,46 @@ class JavaAgentServiceTests {
             assertThat(toggle.enabled()).isTrue();
             assertThat(toggle.overridden()).isTrue();
         });
+    }
+
+    @Test
+    void theSecuritySinksSwitchNeverTurnsRequestValueMatchingOnWithoutItsProperty() {
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        AgentSensorSettings sensors = new AgentSensorSettings(List.of("processes"), List.of(), List.of(), null);
+        claim.set(
+                AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example"), sensors));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+        AgentRequestValues.configure(false);
+
+        assertThat(service.report().toggles().get(5)).satisfies(toggle -> {
+            assertThat(toggle.id()).isEqualTo("security-sinks");
+            assertThat(toggle.enabled()).isFalse();
+            assertThat(toggle.available()).isTrue();
+            assertThat(toggle.optInReason())
+                    .contains("bootui.agent.security-sinks.request-values=true")
+                    .doesNotContainPattern("\\b[MD]\\d");
+        });
+
+        JavaAgentReport on = service.switchSensor("security-sinks", true);
+
+        assertThat(on.toggles().get(5).enabled()).isTrue();
+        assertThat(on.toggles().get(5).overridden()).isTrue();
+        assertThat(claim.get().activeSensors()).containsExactly("processes", "security-sinks");
+        assertThat(stub.ops()).contains("sensors");
+        JavaAgentService.SideEffectsCoverage coverage = service.sideEffectsCoverage("security-sinks");
+        assertThat(coverage.toggle()).isNotNull();
+        assertThat(coverage.toggle().enabled()).isTrue();
+        assertThat(coverage.reason())
+                .startsWith("Request-value matching is off")
+                .contains("request-values=true and restart the application");
+        assertThat(AgentRequestValues.active()).isFalse();
+
+        service.switchSensor("security-sinks", false);
+
+        JavaAgentService.SideEffectsCoverage off = service.sideEffectsCoverage("security-sinks");
+        assertThat(off.state()).isEqualTo("not-claimed");
+        assertThat(off.reason()).isEqualTo("This application's bootui.agent.sensors does not include security-sinks.");
+        assertThat(off.toggle().enabled()).isFalse();
     }
 
     private JavaAgentService service(AgentBridgeAccess access, JavaAgentSettings settings) {

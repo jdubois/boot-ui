@@ -1,11 +1,12 @@
 package io.github.jdubois.bootui.autoconfigure.transactions;
 
-import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import io.github.jdubois.bootui.engine.transactions.TransactionRecorder;
 import io.github.jdubois.bootui.engine.transactions.TransactionRecorder.Status;
 import java.sql.Connection;
-import java.util.ArrayDeque;
-import java.util.Deque;
+import java.util.Collections;
+import java.util.Map;
+import java.util.WeakHashMap;
+import org.springframework.transaction.ReactiveTransaction;
 import org.springframework.transaction.TransactionExecution;
 import org.springframework.transaction.TransactionExecutionListener;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -20,10 +21,12 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * <p>The recorder is told about a boundary at {@code afterBegin} rather than {@code beforeBegin} so
  * that, on success, {@link TransactionSynchronizationManager#getCurrentTransactionIsolationLevel()} is
  * already populated (isolation is bound to the synchronization only once the manager's {@code
- * doBegin} has actually run). A per-thread stack remembers the id assigned to each in-flight
- * transaction so the matching {@code afterCommit}/{@code afterRollback} callback — which fires on the
- * same thread, synchronously, before any nested transaction's callbacks unwind past it — can complete
- * the right entry.</p>
+ * doBegin} has actually run). Each callback names its transaction by the {@link TransactionExecution}
+ * Spring passes to every callback of one boundary, the same instance from begin to completion, so the
+ * matching {@code afterCommit}/{@code afterRollback} completes the right entry wherever it runs. A
+ * reactive transaction ({@code AbstractReactiveTransactionManager}, such as R2DBC's) begins and completes
+ * on whichever threads its pipeline runs, so it is recorded without a thread-bound parent or isolation.
+ * The executions are held weakly: a boundary that never completes leaves nothing behind here.</p>
  *
  * <p>Every callback is fully guarded: a recorder failure must never fail, roll back, or otherwise
  * disrupt the application's actual transaction.</p>
@@ -31,9 +34,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 public final class BootUiTransactionExecutionListener implements TransactionExecutionListener {
 
     private final TransactionRecorder recorder;
-    private final ThreadLocal<Deque<Long>> pending = BootUiThreadLocal.withInitial(ArrayDeque::new);
-    /** Whether the transaction completing on this thread was marked rollback-only, read just before it completes. */
-    private final ThreadLocal<Boolean> rollbackOnly = new BootUiThreadLocal<>();
+    /** Per begun boundary, its recorder id and whether it was marked rollback-only just before it completed. */
+    private final Map<TransactionExecution, Pending> pending = Collections.synchronizedMap(new WeakHashMap<>());
 
     public BootUiTransactionExecutionListener(TransactionRecorder recorder) {
         this.recorder = recorder;
@@ -51,9 +53,18 @@ public final class BootUiTransactionExecutionListener implements TransactionExec
                 recorder.completeTransaction(id, Status.UNKNOWN, message(beginFailure));
                 return;
             }
+            boolean threadBound = !(transactionExecution instanceof ReactiveTransaction);
             long id = recorder.beginTransaction(
-                    name, readOnly, currentIsolation(), thread, traceId, transactionExecution.isNested());
-            pending.get().addLast(id);
+                    name,
+                    readOnly,
+                    threadBound ? currentIsolation() : null,
+                    thread,
+                    traceId,
+                    transactionExecution.isNested(),
+                    threadBound);
+            if (id >= 0) {
+                pending.put(transactionExecution, new Pending(id));
+            }
         } catch (RuntimeException ignored) {
             // A recorder failure must never disrupt the application's real transaction.
         }
@@ -71,33 +82,34 @@ public final class BootUiTransactionExecutionListener implements TransactionExec
 
     @Override
     public void afterCommit(TransactionExecution transactionExecution, Throwable commitFailure) {
-        complete(commitFailure == null ? Status.COMMITTED : Status.UNKNOWN, commitFailure);
+        complete(transactionExecution, commitFailure == null ? Status.COMMITTED : Status.UNKNOWN, commitFailure);
     }
 
     @Override
     public void afterRollback(TransactionExecution transactionExecution, Throwable rollbackFailure) {
-        complete(Status.ROLLED_BACK, rollbackFailure);
+        complete(transactionExecution, Status.ROLLED_BACK, rollbackFailure);
     }
 
     private void markRollbackOnly(TransactionExecution transactionExecution) {
         try {
-            rollbackOnly.set(transactionExecution.isRollbackOnly());
+            Pending begun = pending.get(transactionExecution);
+            if (begun != null) {
+                begun.rollbackOnly = transactionExecution.isRollbackOnly();
+            }
         } catch (RuntimeException ignored) {
-            rollbackOnly.remove();
+            // A recorder failure must never disrupt the application's real transaction.
         }
     }
 
-    private void complete(Status status, Throwable failure) {
+    private void complete(TransactionExecution transactionExecution, Status status, Throwable failure) {
         try {
-            boolean markedRollbackOnly = Boolean.TRUE.equals(rollbackOnly.get());
-            rollbackOnly.remove();
-            Long id = popPending();
-            if (id != null) {
+            Pending begun = pending.remove(transactionExecution);
+            if (begun != null) {
                 recorder.completeTransaction(
-                        id,
+                        begun.id,
                         status,
                         message(failure),
-                        markedRollbackOnly,
+                        begun.rollbackOnly,
                         failure == null ? null : failure.getClass().getName());
             }
         } catch (RuntimeException ignored) {
@@ -105,13 +117,15 @@ public final class BootUiTransactionExecutionListener implements TransactionExec
         }
     }
 
-    private Long popPending() {
-        Deque<Long> stack = pending.get();
-        Long id = stack.pollLast();
-        if (stack.isEmpty()) {
-            pending.remove();
+    /** A begun boundary: its recorder id, and whether it was marked rollback-only when it was about to complete. */
+    private static final class Pending {
+
+        final long id;
+        volatile boolean rollbackOnly;
+
+        Pending(long id) {
+            this.id = id;
         }
-        return id;
     }
 
     private static String transactionName(TransactionExecution transactionExecution) {

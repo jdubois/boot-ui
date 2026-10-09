@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.insights;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.core.dto.RuntimeInsightAgentDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
@@ -14,6 +15,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeRunChangeDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonAgentDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunRefDto;
+import io.github.jdubois.bootui.engine.mcp.McpToolClientException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.IntStream;
@@ -282,14 +284,23 @@ class RuntimeInsightsAgentViewTests {
                 false, "The journal is disabled.", null, List.of(), List.of(), List.of(), List.of(), List.of(), 0);
         assertThat(RuntimeInsightsAgentView.list(disabled, "", 8).unavailableReason())
                 .isEqualTo("The journal is disabled.");
-        RuntimeInsightAgentDetailDto unknown = RuntimeInsightsAgentView.detail(
-                new RuntimeObservationDetailDto(false, "No observation x.", null, List.of(), List.of(), 0));
-        assertThat(unknown.available()).isFalse();
-        assertThat(unknown.unavailableReason()).isEqualTo("No observation x.");
-        assertThat(unknown.next())
-                .as("an unknown id names the call that lists the current ones")
+        RuntimeInsightAgentDetailDto off = RuntimeInsightsAgentView.detail(
+                new RuntimeObservationDetailDto(false, "The journal is disabled.", null, List.of(), List.of(), 0));
+        assertThat(off.available())
+                .as("Runtime Insights being unavailable is not an unknown id")
+                .isFalse();
+        assertThat(off.unavailableReason()).isEqualTo("The journal is disabled.");
+        assertThat(off.next())
                 .singleElement()
                 .satisfies(step -> assertThat(step.command()).isEqualTo("bootui insights list"));
+        String evicted = "No observation x in this run's retained events: it may have been evicted or cleared.";
+        assertThatThrownBy(() -> RuntimeInsightsAgentView.detail(
+                        new RuntimeObservationDetailDto(false, evicted, null, List.of(), List.of(), 0)))
+                .as("an unknown id is a tool error that names the call that lists the current ones")
+                .isInstanceOfSatisfying(McpToolClientException.class, refusal -> {
+                    assertThat(refusal.status()).isEqualTo(404);
+                    assertThat(refusal.getMessage()).startsWith(evicted).contains("get_runtime_insights");
+                });
         assertThat(RuntimeInsightsAgentView.list(disabled, "", 8).next())
                 .extracting(step -> step.command())
                 .containsExactly("bootui config --query bootui.runtime-journal");
@@ -407,7 +418,37 @@ class RuntimeInsightsAgentViewTests {
     }
 
     @Test
-    void anUnknownRunIdNamesThePreviousRunAndTheRunsStillKept() {
+    void anUnknownRunIdIsAToolErrorNamingThePreviousRunAndTheRunsStillKept() {
+        String reason = RunComparisonService.unknownRunReason("run-1");
+        RuntimeRunComparisonDto missing = new RuntimeRunComparisonDto(
+                "NO_PREVIOUS_RUN",
+                reason,
+                new RuntimeRunRefDto("run-5", 5, 3, null, 12, "CURRENT"),
+                null,
+                List.of(
+                        new RuntimeRunRefDto("run-4", 4, 1, 2L, 10, "KEPT"),
+                        new RuntimeRunRefDto("run-3", 3, 0, 1L, 9, "KEPT")),
+                List.of(),
+                List.of(),
+                List.of(),
+                null,
+                List.of(),
+                List.of());
+        assertThatThrownBy(() -> RuntimeInsightsAgentView.comparison(missing, " run-1 ", null))
+                .isInstanceOfSatisfying(McpToolClientException.class, refusal -> {
+                    assertThat(refusal.status()).isEqualTo(404);
+                    assertThat(refusal.getMessage())
+                            .isEqualTo(reason + " Use the id previous for the newest kept run, or one of the kept"
+                                    + " runs: run-4, run-3.");
+                });
+        assertThat(RuntimeInsightsAgentView.comparison(missing, "previous", null)
+                        .status())
+                .as("the default comparison is never an unknown id")
+                .isEqualTo("NO_PREVIOUS_RUN");
+    }
+
+    @Test
+    void aRunIdTheHistoryCannotAnswerStaysAComparisonThatNamesThePreviousRun() {
         RuntimeRunComparisonAgentDto unknown = RuntimeInsightsAgentView.comparison(
                 new RuntimeRunComparisonDto(
                         "NO_PREVIOUS_RUN",

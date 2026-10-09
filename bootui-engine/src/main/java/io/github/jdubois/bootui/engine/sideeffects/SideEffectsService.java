@@ -77,13 +77,14 @@ public final class SideEffectsService implements AutoCloseable {
     static final String LIMITATION_SCOPE = "Side Effects records only what the BootUI agent's side-effect sensors hook:"
             + " this version records the processes the application starts, through ProcessBuilder.start, which"
             + " Runtime.exec and ProcessBuilder.startPipeline also reach; its network: connects, datagram sends, and"
-            + " the host names the JVM resolves; the blocking calls started on an event loop; and, opt-in, the files it"
+            + " the host names the JVM resolves; the blocking calls started on an event loop; the streams, channels, and"
+            + " sockets a request or a job left open (resources); the files it"
             + " opens, deletes, moves, and copies, through FileInputStream, FileOutputStream, RandomAccessFile, the Files"
-            + " methods, and FileChannel.open, and the environment variables and system properties it reads by name"
-            + " through System.getenv and System.getProperty; and, opt-in, the threads it starts and the executors it"
+            + " methods, and FileChannel.open; and, opt-in, the environment variables and system properties it reads"
+            + " by name through System.getenv and System.getProperty; and, opt-in, the threads it starts and the executors it"
             + " creates; and, opt-in, the thread locals a request or a job left set on its pooled thread, and request"
-            + " input reaching SQL text, a command, a file path, or an outbound URL unchanged (security sinks)."
-            + " Resources left open are not available in this version.";
+            + " input reaching SQL text, a command, a file path, or an outbound URL unchanged, deserialization without a"
+            + " filter, weak algorithms, and trust managers and hostname verifiers (security sinks).";
 
     static final String LIMITATION_THREADS =
             "Thread activity: Thread.start, VirtualThread.start, the ThreadPoolExecutor,"
@@ -249,6 +250,25 @@ public final class SideEffectsService implements AutoCloseable {
             + " value outside an SQL literal, or made of digits only, is shown once a second request confirms the text"
             + " varies with it.";
 
+    static final String LIMITATION_SECURITY_CHECKS = "Security sinks' JDK checks: a deserialization is one outermost"
+            + " ObjectInputStream.readObject whose stream has no ObjectInputFilter, named by the classes"
+            + " ObjectInputStream.resolveClass resolved, at most 16, so a subclass that resolves classes itself names none;"
+            + " readUnshared is checked as readObject is. A weak algorithm is MessageDigest MD5, MD2, or SHA-1, or a Cipher with DES,"
+            + " DESede, RC4, or a block cipher in ECB mode, which a bare AES, Blowfish, or RC2 defaults to; KeyGenerator,"
+            + " Signature, Mac, SecureRandom, and PBE algorithms are left out. What the JDK asks for itself, as"
+            + " UUID.nameUUIDFromBytes, SecureRandom, TLS, or jar verification, is counted, never shown; a library's"
+            + " request is shown apart. A trust manager is shown when its class is the application's, or when it is one"
+            + " of a few known library trust-alls (Netty's InsecureTrustManagerFactory, Vert.x's TrustAllTrustManager,"
+            + " Apache HttpClient's TrustAllStrategy and TrustSelfSignedStrategy, the last accepting every self-signed"
+            + " certificate), also inside Netty's and Apache's own wrappers, which also reveal an application trust"
+            + " manager or trust strategy they wrap; any other library trust manager that accepts every certificate is not seen, nor one Netty's"
+            + " OpenSSL provider uses, which never reaches SSLContext.init. A default hostname verifier or SSL socket"
+            + " factory is shown when the application installed it. A check group whose JDK hook failed its"
+            + " self-test is off alone.";
+
+    /** A deserialization row whose classes no {@code resolveClass} named, as a subclass resolving them itself. */
+    static final String CLASSES_NOT_NAMED = "(classes not named)";
+
     /** A security-sinks row whose redacted text the holder could not keep. */
     static final String TEXT_NOT_KEPT = "(text not kept)";
 
@@ -261,6 +281,18 @@ public final class SideEffectsService implements AutoCloseable {
             SideEffectsCatalog.FILES_ID,
             SideEffectsCatalog.PROCESSES_ID,
             SideEffectsCatalog.ENVIRONMENT_ID);
+
+    /**
+     * The runtime-switchable sensors whose hooks ride on the side-effect transformer that {@link #COMPARED_SENSORS} share
+     * (M5-14): switching one reinstalls that transformer, pausing every sensor on it while its self-test runs again.
+     * Thread-activity and security-sinks have transformers of their own, so switching them pauses no other sensor.
+     */
+    static final java.util.Set<String> SHARED_TRANSFORMER_SWITCHES =
+            java.util.Set.of(SideEffectsCatalog.FILES_ID, SideEffectsCatalog.ENVIRONMENT_ID);
+
+    /** Why a compared sensor's run is not whole after a switch reinstalled the transformer it shares. */
+    static final String PAUSED_FOR_A_SWITCH =
+            "its hooks paused while the agent reinstalled them for a runtime switch of another sensor";
 
     /** A files row's target past the agent's quota of distinct path patterns. */
     static final String TOO_MANY_PATHS = "(path not kept: too many distinct paths or strings)";
@@ -627,12 +659,17 @@ public final class SideEffectsService implements AutoCloseable {
 
     /**
      * Marks sensor {@code id} as switched during this run, so the run is not compared for it: for a runtime sensor
-     * switch (M5-14), which changes what a sensor records without a new claim.
+     * switch (M5-14), which changes what a sensor records without a new claim. A switch of a sensor on the shared
+     * side-effect transformer ({@link #SHARED_TRANSFORMER_SWITCHES}) also leaves every compared sensor out, since the
+     * agent pauses them while it reinstalls that transformer.
      */
     public void sensorSwitched(String id) {
         synchronized (lock) {
             if (run != null && id != null && ended == null) {
                 run.switched.add(id);
+                if (SHARED_TRANSFORMER_SWITCHES.contains(id)) {
+                    run.reinstalled = true;
+                }
             }
         }
     }
@@ -758,6 +795,9 @@ public final class SideEffectsService implements AutoCloseable {
         if (dropped > 0) {
             return "BootUI dropped " + dropped + (dropped == 1 ? " operation" : " operations")
                     + ": its waiting queue or its rows were full";
+        }
+        if (current.reinstalled) {
+            return PAUSED_FOR_A_SWITCH;
         }
         return null;
     }
@@ -1457,6 +1497,7 @@ public final class SideEffectsService implements AutoCloseable {
                 LIMITATION_THREADS,
                 LIMITATION_THREAD_LOCALS,
                 LIMITATION_SECURITY_SINKS,
+                LIMITATION_SECURITY_CHECKS,
                 LIMITATION_RESOURCES,
                 LIMITATION_ATTRIBUTION));
         if (current != null && current.claim.sensors().threadLocals()) {
@@ -1953,6 +1994,9 @@ public final class SideEffectsService implements AutoCloseable {
         /** The sensors a runtime switch changed during this run (M5-14). */
         final java.util.Set<String> switched = new java.util.HashSet<>();
 
+        /** Whether a runtime switch reinstalled the side-effect transformer the compared sensors share. */
+        boolean reinstalled;
+
         long drainResolvedAt = Long.MIN_VALUE / 2;
 
         Run(AgentClaim claim, long readyAt) {
@@ -2057,7 +2101,9 @@ public final class SideEffectsService implements AutoCloseable {
                     (record.firstMillis() < store.readyAt() ? unknownStartupTargets : unknownTargets)
                             .merge(sensor.id(), 1L, Long::sum);
                 }
-                if (record.sensor() == SideEffectsCatalog.RECORD_SECURITY_SINKS) {
+                if (SideEffectsCatalog.check(record.sensor(), record.kind())) {
+                    store.add(check(record, sensor, target, outside, application));
+                } else if (record.sensor() == SideEffectsCatalog.RECORD_SECURITY_SINKS) {
                     store.add(sink(record, sensor, target, outside, application));
                 } else if (record.sensor() == SideEffectsCatalog.RECORD_NETWORK) {
                     // Ahead of the context below: a network record's bits 32-63 are its client frame, not a context.
@@ -2449,6 +2495,38 @@ public final class SideEffectsService implements AutoCloseable {
                     normalizer.threadFamily(string(record.threadName())),
                     location,
                     parameter == null ? "(name not kept)" : parameter);
+        }
+
+        /**
+         * A security-sinks JDK check's observation (M5-6b2): what was asked for or installed, at the application frame,
+         * else the first frame outside the JDK; a library's request names that library frame as its location and is
+         * grouped as a library's; a deserialization carries the other classes it read.
+         */
+        private SideEffectsStore.Observation check(
+                SideEffectRecord record,
+                SideEffectsCatalog.Sensor sensor,
+                String target,
+                String outside,
+                String application) {
+            boolean library = (record.outcome() & 0x3) == SideEffectsCatalog.CHECK_LIBRARY;
+            String shown = target != null
+                    ? target
+                    : record.kind() == SideEffectsCatalog.KIND_CHECK_DESERIALIZATION && record.target() == 0
+                            ? CLASSES_NOT_NAMED
+                            : TEXT_NOT_KEPT;
+            return SideEffectsStore.Observation.check(
+                    record,
+                    sensor.id(),
+                    SideEffectsCatalog.kind(record.sensor(), record.kind()),
+                    shown,
+                    application != null ? application : outside,
+                    insideMethod(record.stamp()),
+                    normalizer.threadFamily(string(record.threadName())),
+                    library ? SideEffectOrigins.LIBRARY : SideEffectOrigins.APPLICATION,
+                    library ? outside : null,
+                    record.kind() == SideEffectsCatalog.KIND_CHECK_DESERIALIZATION
+                            ? string(record.exitStatus())
+                            : null);
         }
 
         /** A frame of BootUI's own modules, never an application's, as the sample apps' are. */

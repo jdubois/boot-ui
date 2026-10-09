@@ -25,13 +25,26 @@ applyTo: ".github/workflows/**,.github/scripts/**,.github/dependabot.yml,Dockerf
   including the agent-attached ones and the companion legs that attach the OpenTelemetry Java agent (both orders) or
   JaCoCo's agent beside BootUI's, is its own matrix leg. Companion agent jars come from Maven Central through the
   sample's build (`target/agent-companions`), never from a download in a workflow step. The `agent-overhead` job records the BootUI agent's
-  overhead benchmark, warns above its 10 % budget, and fails only above 30 %. The `journal-overhead` job records the
-  runtime journal's on-versus-off throughput A/B, BootUI on in both arms, for the 2.0 sign-off; it is report-only and
-  never fails the build. The agent-attached legs, `agent-overhead`,
+  overhead benchmark, warns above its 10 % budget, and fails only above 30 %. Each overhead measurement is one leg of
+  the `agent-overhead-legs` matrix, or of `agent-overhead-extra-legs` for those that need the `extras` output (gated at
+  job level, so a run without them starts no runner), on its own runner, with its arguments unchanged; both run the
+  same anchored steps. The runtime journal's on-versus-off throughput A/B, BootUI on in both arms, for the 2.0
+  sign-off, is one of those legs, report-only: it never fails the build, and its report keeps the `journal-overhead`
+  artifact. `agent-overhead` (the job name `Agent overhead (Java 17)`) gathers the legs' reports, runs every check on
+  them, and fails when any leg failed, so a new measurement is a new matrix leg and a new check a step there.
+  Each e2e job caches `~/.cache/ms-playwright` and `~/.cache/playwright-apt` per runner image (`ImageOS`) and
+  Playwright version and installs through `.github/scripts/install-playwright-chromium.sh`, which installs only the
+  system packages Playwright's dry run finds missing, from the cached .deb files when it can. `build.yml` and
+  `jdk-compatibility.yml` set `MAVEN_OPTS` at workflow level to the resolver's retry and timeout properties
+  (`aether.transport.http.*`, read as system properties, since `mvnw` ignores `MAVEN_ARGS`): only 429 and 5xx answers
+  are retried, never a 404 or a timeout, and a stalled transfer fails after 120 s instead of hanging. A step that sets
+  its own `MAVEN_OPTS` should append to it. `.mvn/maven.config` stays git-ignored for per-worktree overrides. The
+  agent-attached legs, `agent-overhead`,
   and the JDK lanes run on every push to `main` and `v2`, every pull request into `main`, and the nightly schedule; a
   pull request into `v2` runs them only when it changes a path listed in `.github/scripts/agent-changes.sh` or carries
   the `agent` label (otherwise the agent legs pass without starting anything). Keep that path list in step with new
-  agent-backed code. `jdk-compatibility.yml` covers
+  agent-backed code, and list the files the agent legs depend on in `.github/scripts/test_agent_changes.py`, which
+  `build.yml` runs. `jdk-compatibility.yml` covers
   Java 21 and 25 with a focused build, the BootUI agent's forked-JVM tests, the Spring sample's agent integration
   tests, and the whole Spring MVC browser suite with the agent attached (`agent-e2e`), plus a non-blocking Java 27 early-warning lane that stays `continue-on-error` until Spring Boot and Quarkus
   document support for it. Keep new checks on the baseline workflow unless they are genuinely JDK-specific.

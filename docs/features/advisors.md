@@ -113,8 +113,9 @@ retry the **same scan ID and offset with a smaller limit**. See [MCP](../AI-AGEN
 
 A missing/replaced snapshot returns **409**. Samples or the last accepted page remain visible; choose **Refresh cached
 report**, then **View violations** again. Refresh only reads the cached report; it never starts a scan. Other failures
-offer a local **Retry** without discarding the current view. Unknown/non-finding rules return REST **404**, an MCP
-in-band client error, or CLI-facade **400** (CLI 404 is reserved for an unadvertised tool). Stale snapshots remain
+offer a local **Retry** without discarding the current view. A rule id outside the advisor's catalogue
+answers `Unknown advisor rule`, distinct from a catalogue rule without findings (passed, skipped, or failed); both return REST **404**, an MCP in-band
+client error, or CLI-facade **400** (CLI 404 is reserved for an unadvertised tool). Stale snapshots remain
 **409** through the CLI facade. Dismissed findings remain retrievable by ID, while the panel keeps its compact
 dismissed-rule summary.
 
@@ -822,8 +823,8 @@ of application safety or complete runtime discovery. Panel and Scorecard use the
 An agent's `vulnerabilities_scan` answers with a
 [summary](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls): at most ten vulnerable dependencies, each
 with its most severe advisory, rather than every advisory's full OSV text. `get_vulnerabilities_report` then lists
-`limit` dependencies (10 by default) with their advisories; narrow it with `query` or lower `limit` when a page is
-refused for exceeding `bootui.mcp.max-response-bytes`.
+`limit` dependencies (10 by default), each with at most 5 advisories without their details; an exact `group:artifact`
+query lists all of one dependency's advisories, and an exact advisory id or alias returns that advisory whole.
 
 ### Severity scoring
 

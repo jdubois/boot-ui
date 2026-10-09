@@ -53,7 +53,7 @@ public final class ThreadActivityBehaviors {
         for (String sensor : sensors) {
             awaitSelfTest(sensor);
         }
-        if (!"check".equals(mode)) {
+        if (!"check".equals(mode) && !"worker-failure".equals(mode)) {
             leftRunning();
             joined();
             executorLeftRunning();
@@ -75,6 +75,10 @@ public final class ThreadActivityBehaviors {
             if (!"beside-propagation".equals(mode)) {
                 releaseRestores();
             }
+        }
+        if ("worker-failure".equals(mode)) {
+            aFailedJobDisablesOnlyTheGroupItTouched();
+            leftRunning();
         }
         Map<String, Object> status = AgentBridge.status();
         System.out.println("THREAD_ACTIVITY=" + status.get(SideEffects.THREAD_ACTIVITY));
@@ -392,6 +396,35 @@ public final class ThreadActivityBehaviors {
                         && left != null
                         && left[SideEffects.R_REQUEST] == request
                         && "switch-survivor-{n}".equals(string(left[SideEffects.R_TARGET])));
+    }
+
+    /**
+     * A side-effect sensors' job that fails (here, the install of {@code files}, which the IT hook makes throw once)
+     * marks and disables only the transformer group it touched: {@code files} reads failed, while thread-activity, in
+     * the other group, keeps its state, its verdict, and its install and self-test durations, and goes on recording.
+     */
+    static void aFailedJobDisablesOnlyTheGroupItTouched() throws Exception {
+        Map<String, Object> before = sensor(SideEffects.THREAD_ACTIVITY);
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        Map<String, Object> on = AgentBridge.switchSensor(token, SideEffects.FILES, true);
+        Map<String, Object> files = watch(seen, () -> {
+            Map<String, Object> sensor = sensor(SideEffects.FILES);
+            return "failed".equals(sensor.get("state")) && Boolean.TRUE.equals(sensor.get("idle")) ? sensor : null;
+        });
+        Map<String, Object> after = sensor(SideEffects.THREAD_ACTIVITY);
+        check(
+                "a failed side-effect job disables only the group it touched: thread-activity keeps its state, verdict,"
+                        + " and durations (" + on + " " + files + " " + seen + " before=" + before + " after=" + after
+                        + ")",
+                AgentBridge.ARMED.equals(on.get("status"))
+                        && files != null
+                        && Boolean.FALSE.equals(files.get("selfTestPassed"))
+                        && seen.equals(java.util.Set.of("installed true"))
+                        && "installed".equals(after.get("state"))
+                        && Boolean.TRUE.equals(after.get("selfTestPassed"))
+                        && after.get("selfTestError") == null
+                        && before.get("installMillis").equals(after.get("installMillis"))
+                        && before.get("selfTestMillis").equals(after.get("selfTestMillis")));
     }
 
     /**

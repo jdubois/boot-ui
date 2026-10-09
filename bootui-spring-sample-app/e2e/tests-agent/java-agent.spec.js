@@ -21,6 +21,11 @@ test.describe('Java Agent, attached', () => {
     await expect(page.locator('#java-agent-hooks-executors')).toBeVisible()
     await expect(page.getByRole('table', {name: /executors\s+hooks/})).toContainText('ThreadPoolExecutor.runWorker')
     await expect(page.locator('.java-agent-counters[data-sensor="executors"]')).toContainText('Never applied')
+    // The opt-in security-sinks sensor's runtime switch, configured on in this suite, with why it is off by default.
+    const sinks = page.getByTestId('agent-sensor-toggle-security-sinks')
+    await expect(sinks.getByRole('switch', {name: /security-sinks/})).toBeChecked()
+    await expect(sinks).toContainText('Configured: on')
+    await expect(sinks).toContainText('bootui.agent.security-sinks.request-values=true')
   })
 
   // Every agent leg, a companion agent beside BootUI's included (agent-config.js): no sensor may fail to install or to

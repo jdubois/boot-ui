@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.core.dto.MemoryReport;
 import io.github.jdubois.bootui.core.dto.MySqlDataSourceDto;
 import io.github.jdubois.bootui.core.dto.MySqlInsightReport;
 import io.github.jdubois.bootui.core.dto.MySqlSectionDto;
+import io.github.jdubois.bootui.core.dto.PentestingFindingDto;
 import io.github.jdubois.bootui.core.dto.PentestingReport;
 import io.github.jdubois.bootui.core.dto.PostgresDatabaseDto;
 import io.github.jdubois.bootui.core.dto.PostgresInsightReport;
@@ -59,8 +60,7 @@ public final class McpScanSummaries {
     /** The longest title a summary row carries, in characters. */
     static final int MAX_TITLE_LENGTH = 160;
 
-    private static final List<String> VULNERABILITY_SEVERITIES =
-            List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN", "NONE");
+    private static final List<String> VULNERABILITY_SEVERITIES = McpAgentViews.VULNERABILITY_SEVERITIES;
 
     private McpScanSummaries() {}
 
@@ -174,8 +174,33 @@ public final class McpScanSummaries {
                 report.severityCounts(),
                 report.evidence(),
                 null,
-                rows(report.findings(), f -> f.dismissed() ? null : new Finding(f.id(), f.title(), f.severity(), 1)),
+                byCheck(report.findings()),
                 SeverityOrder.DEFAULT);
+    }
+
+    /**
+     * One row per pentest check: a check can report several findings, one per cookie or target, so its {@code count}
+     * is its active findings and its {@code severity} the most severe of them, as a rule advisor's row counts its
+     * violations.
+     */
+    private static List<Finding> byCheck(List<PentestingFindingDto> findings) {
+        Map<String, Finding> checks = new LinkedHashMap<>();
+        for (PentestingFindingDto finding : findings) {
+            if (finding.dismissed()) {
+                continue;
+            }
+            checks.merge(
+                    finding.id(),
+                    new Finding(finding.id(), title(finding.title()), finding.severity(), 1),
+                    (seen, next) -> new Finding(
+                            seen.id(),
+                            seen.title(),
+                            SeverityOrder.rank(next.severity()) < SeverityOrder.rank(seen.severity())
+                                    ? next.severity()
+                                    : seen.severity(),
+                            seen.count() + 1));
+        }
+        return new ArrayList<>(checks.values());
     }
 
     public static Map<String, Object> graalvm(GraalVmReadinessReport report) {

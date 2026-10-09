@@ -163,12 +163,31 @@ class QuarkusMcpEnvelopeTest {
         assertThat(objectMapper.writeValueAsString(report).length())
                 .isGreaterThan(McpCompactAnswerContract.COMPACT_BYTES);
 
-        assertThat(compact.handle(objectMapper.readTree(
-                                McpCompactAnswerContract.call("get_vulnerabilities_report", "{}")))
-                        .path("error")
-                        .path("code")
+        JsonNode defaultPage = compact.handle(
+                objectMapper.readTree(McpCompactAnswerContract.call("get_vulnerabilities_report", "{}")));
+        assertThat(defaultPage.has("error")).isFalse();
+        assertThat(objectMapper.writeValueAsString(defaultPage).length())
+                .isLessThan(McpCompactAnswerContract.VULNERABILITY_PAGE_BYTES);
+        assertThat(defaultPage
+                        .path("result")
+                        .path("structuredContent")
+                        .path("advisories")
+                        .path("omitted")
                         .asInt())
-                .isEqualTo(McpProtocol.RESPONSE_TOO_LARGE);
+                .isPositive();
+        JsonNode advisory = compact.handle(objectMapper.readTree(
+                        McpCompactAnswerContract.call("get_vulnerabilities_report", "{\"query\":\"GHSA-3-7\"}")))
+                .path("result")
+                .path("structuredContent")
+                .path("dependencies")
+                .get(0)
+                .path("vulnerabilities");
+        boolean whole = false;
+        for (JsonNode each : advisory) {
+            whole |= each.path("id").asText().equals("GHSA-3-7")
+                    && each.path("details").asText().length() > 1000;
+        }
+        assertThat(whole).as("an exact advisory id returns that advisory whole").isTrue();
         JsonNode page = compact.handle(
                 objectMapper.readTree(McpCompactAnswerContract.call("get_vulnerabilities_report", "{\"limit\":1}")));
         assertThat(page.has("error")).isFalse();
@@ -801,6 +820,56 @@ class QuarkusMcpEnvelopeTest {
                 request,
                 new McpRequestHeaders(List.of(version), List.of(method), name == null ? List.of() : List.of(name)),
                 enabled);
+    }
+
+    @Test
+    void promptArgumentsAreDeclaredAndRenderedIntoThePrompt() {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        McpDispatcher dispatcher = new McpDispatcher(
+                List.of(tool(args -> "ok")),
+                io.github.jdubois.bootui.engine.mcp.McpGuidance.prompts("Quarkus"),
+                new AllowAllPolicy(),
+                "1.2.3",
+                "instructions",
+                50,
+                20,
+                diagnostics);
+        QuarkusMcpEnvelope envelope = new QuarkusMcpEnvelope(dispatcher, objectMapper, diagnostics);
+        ObjectNode list = JsonNodeFactory.instance.objectNode();
+        list.put("jsonrpc", "2.0");
+        list.put("id", 60);
+        list.put("method", "prompts/list");
+        JsonNode declared =
+                envelope.handle(list).path("result").path("prompts").get(1).path("arguments");
+        assertThat(declared)
+                .extracting(argument -> argument.path("name").asText())
+                .containsExactly("change", "route");
+        assertThat(declared)
+                .allSatisfy(argument ->
+                        assertThat(argument.path("required").asBoolean(true)).isFalse());
+
+        ObjectNode get = JsonNodeFactory.instance.objectNode();
+        get.put("jsonrpc", "2.0");
+        get.put("id", 61);
+        get.put("method", "prompts/get");
+        ObjectNode params = get.putObject("params");
+        params.put("name", "verify_after_change");
+        params.putObject("arguments").put("change", "OrderService#total now rounds");
+        assertThat(envelope.handle(get)
+                        .path("result")
+                        .path("messages")
+                        .get(0)
+                        .path("content")
+                        .path("text")
+                        .asText())
+                .endsWith("- The change to verify: OrderService#total now rounds");
+
+        ((ObjectNode) params.path("arguments")).put("change", 5);
+        assertThat(envelope.handle(get).path("error").path("message").asText())
+                .isEqualTo(McpProtocol.invalidArgumentTypeMessage("change", "a string"));
+        params.putObject("arguments").put("goal", "x");
+        assertThat(envelope.handle(get).path("error").path("message").asText()).contains("goal", "change", "route");
+        assertThat(diagnostics.count()).isZero();
     }
 
     private QuarkusMcpEnvelope envelope(McpTool tool, RecordingFailureReporter diagnostics) {
