@@ -129,7 +129,10 @@ public final class McpToolDescriptions {
                     "Return the current bounded transaction-boundary snapshot with outcomes, timings, nesting, and "
                             + "correlated SQL counts. Use it to verify which local operations actually ran in a "
                             + "transaction. totalCaptured counts the transactions recorded since startup, which "
-                            + "clear_transactions does not reset; stats and entries cover the retained window only."),
+                            + "clear_transactions does not reset; stats and entries cover the retained window only. "
+                            + "Reactive capture records physical begin/commit/rollback callbacks, not a complete "
+                            + "parent or savepoint hierarchy. SQL and connection counts cover JDBC work on the begin "
+                            + "thread only, not R2DBC statements or JDBC work moved to another thread."),
             Map.entry(
                     "get_traces",
                     "Return a bounded, newest-first snapshot of distributed and local traces captured by BootUI. Use "
@@ -307,8 +310,8 @@ public final class McpToolDescriptions {
                             + "DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, "
                             + "sensors, and setup snippets that attach it. This read never claims, installs, or "
                             + "changes the agent. Sensors are summarized (state, counters, failures); query with a sensor id, such "
-                            + "as executors, to list only matching sensors with their hooks and self-test steps. Every sensor is "
-                            + "listed: limit does not apply."),
+                            + "as executors, to list only matching sensors with their hooks and self-test steps. Every "
+                            + "matching sensor is listed, so the tool takes no limit."),
             Map.entry(
                     "get_code_inventory",
                     "Return Code Inventory: did the code that changed since the previous run execute in this run? "
@@ -327,8 +330,9 @@ public final class McpToolDescriptions {
                     "Return Code Paths: which application bean methods each route spends its time in, from the BootUI "
                             + "agent's code-paths sensor. Advertised only while that sensor records this run (see "
                             + "get_agent_status). Without query, the routes slowest warm median first, at most limit "
-                            + "(10), each with its top methods by self time; with query, the routes whose label or top "
-                            + "methods contain it, and for a single route its method nodes with the most self time. "
+                            + "(10), each with its top methods by self time; with query, the routes whose label, top "
+                            + "methods, or any method their requests ran (a route's first request included) contain it, "
+                            + "and for a single route its method nodes with the most self time. "
                             + "Times are per warm request; each node's calls list the SQL, REST client, cache, and AI "
                             + "calls recorded while it was the innermost instrumented method on their thread, whose time "
                             + "is part of its self time; calls recorded on another thread carry no stamp and show under "
@@ -451,7 +455,10 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_ai_overview",
                     "Return the local AI-framework telemetry overview derived from already-captured OTLP spans. This "
-                            + "does not invoke a model, send a prompt, or make any network request."),
+                            + "does not invoke a model, send a prompt, or make any network request. "
+                            + "aiFrameworkDetected says whether any supported AI framework is present on every stack; "
+                            + "springAiDetected is Spring AI only, so it is always false on Quarkus, and "
+                            + "langChain4jDetected covers LangChain4j, including Quarkus LangChain4j."),
             Map.entry(
                     "get_emails",
                     "Return the bounded local email-capture inventory with content governed by BootUI exposure policy. "
@@ -544,6 +551,14 @@ public final class McpToolDescriptions {
                             + "works with no captured dump (dumpCount 0) and reports capture.status ANALYZED. It never "
                             + "writes, captures, downloads, or deletes a heap dump."));
 
+    /** How the shared tools of the platform-aware {@code spring} panel behave on Quarkus. */
+    private static final String QUARKUS_APPLICATION_ADVISOR =
+            "On Quarkus, the same tool runs the Quarkus application advisor (QA-* rules) instead.";
+
+    /** Why a Quarkus agent still calls a Spring-named tool. */
+    private static final String SPRING_NAMED_ON_QUARKUS = "The tool keeps its Spring name, shared with Spring Boot, so"
+            + " published CLI binaries and agent configurations keep working.";
+
     /** Advisors whose findings carry structured violation locations. */
     private static final java.util.Set<String> LOCATED_ADVISORS =
             java.util.Set.of("architecture", "rest_api", "hibernate");
@@ -558,7 +573,8 @@ public final class McpToolDescriptions {
         return switch (name) {
             case "spring_scan" ->
                 "Actively inspect Spring configuration and bean usage for correctness and maintainability risks. "
-                        + "Verify each finding against effective configuration before changing code.";
+                        + "Verify each finding against effective configuration before changing code. "
+                        + QUARKUS_APPLICATION_ADVISOR;
             case "rest_api_scan" ->
                 "Actively inspect Spring REST controllers and API design for correctness and maintainability risks. "
                         + "Verify recommendations against the public API contract.";
@@ -570,7 +586,9 @@ public final class McpToolDescriptions {
                         + "CRaC checkpoint and restore test.";
             case "get_spring_report" ->
                 "Return the last completed Spring advisor report without starting a new application scan. Use this "
-                        + "cached evidence before deciding whether an active spring_scan is necessary.";
+                        + "cached evidence before deciding whether an active spring_scan is necessary. "
+                        + QUARKUS_APPLICATION_ADVISOR;
+            case "get_spring_rule_violations" -> common(name) + " " + QUARKUS_APPLICATION_ADVISOR;
             case "get_graalvm_report" ->
                 "Return the last completed GraalVM readiness report without starting a new classpath or dependency "
                         + "scan. Use cached findings before deciding whether graalvm_scan is necessary.";
@@ -638,11 +656,16 @@ public final class McpToolDescriptions {
     private static String quarkusDescription(String name) {
         return switch (name) {
             case "spring_scan" ->
-                "Actively inspect Quarkus configuration and idioms for correctness and maintainability risks. Verify "
-                        + "each finding against effective configuration before changing code.";
+                "Actively run the Quarkus application advisor: inspect Quarkus configuration and idioms for "
+                        + "correctness and maintainability risks. Verify each finding against effective configuration "
+                        + "before changing code. " + SPRING_NAMED_ON_QUARKUS;
             case "get_spring_report" ->
                 "Return the last completed Quarkus application advisor report without starting a new application scan. "
-                        + "Use this cached evidence before deciding whether an active spring_scan is necessary.";
+                        + "Use this cached evidence before deciding whether an active spring_scan is necessary. "
+                        + SPRING_NAMED_ON_QUARKUS;
+            case "get_spring_rule_violations" ->
+                common(name) + " On Quarkus, the rules are the Quarkus application advisor's QA-* rules. "
+                        + SPRING_NAMED_ON_QUARKUS;
             case "rest_api_scan" ->
                 "Actively inspect JAX-RS resources and API design for correctness and maintainability risks. Verify "
                         + "recommendations against the public API contract.";

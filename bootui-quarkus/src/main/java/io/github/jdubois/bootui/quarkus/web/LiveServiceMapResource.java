@@ -153,7 +153,7 @@ public class LiveServiceMapResource {
             return null;
         }
         HikariPoolsReport report = connectionPools.report();
-        return report.hikariPresent() ? report.pools() : null;
+        return report.poolLibraryPresent() ? report.pools() : null;
     }
 
     private SqlTraceRecorder sqlTraceRecorder() {

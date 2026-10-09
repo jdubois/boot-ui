@@ -218,10 +218,12 @@ public class ThreadDumpService {
 
         List<Long> deadlockedIds = deadlocked.stream().sorted().toList();
 
+        // The peak is a separate counter read after the dump: never report it below the live threads just counted.
+        int peakThreads = Math.max(threadMxBean.getPeakThreadCount(), rows.size());
         return new Snapshot(
                 capturedAt,
                 daemonThreads,
-                threadMxBean.getPeakThreadCount(),
+                peakThreads,
                 threadMxBean.getTotalStartedThreadCount(),
                 virtualThreadsSupported(),
                 cpuTimeSupported,

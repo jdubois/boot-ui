@@ -932,8 +932,8 @@ jobs:
               -Dbootui.benchmark.route=sinks -Dbootui.benchmark.report=spring-mvc-agent-sinks
               -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,files,blocking,resources,security-sinks
               -Dbootui.benchmark.agent.extra=--bootui.agent.security-sinks.request-values=true
-          # The security-sinks JDK checks stay opt-in: measure their own increment and cumulative overhead on the
-          # checks route, with request-value matching disabled. The report gate below applies the interval rule.
+          # JDK checks stay opt-in: each leg keeps both A/B arms on one runner, with request-value matching off.
+          # The aggregator reports the 3 % increment and 10 % cumulative rules from their intervals' lower bounds.
           - id: spring-mvc-checks-ab
             name: security-sinks JDK checks A/B
             step: Measure the security-sinks JDK checks' share on the checks route

@@ -31,6 +31,8 @@ give the details.
 - The new BootUI agent is optional. When attached, it turns on its default sensors; the others are opt-in, and an
   unknown id in `bootui.agent.sensors` stops the application's start
   ([Java Agent](docs/features/java-agent.md#configuration)).
+- The connection-pool report's `hikariPresent` is now `poolLibraryPresent`, and a pool setting its library does not
+  expose is `null` instead of `-1` or `false` ([Database Connection Pools](docs/features/database.md)).
 - MCP and CLI scans answer with a summary, and pause, resume, and clear with an acknowledgement. A script that reads
   `.results` or `.findings` from `bootui … scan --json`, or expects `{"cleared":true}`, reads the `… report` command
   or `topFindings` and the acknowledgement's `action` instead
@@ -809,6 +811,27 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **Quarkus advisor rules report one outcome per scan.** A rule with findings and incomplete coverage, such as
+  QA-WEB-004 in development mode, is no longer also listed as an analysis error; its coverage note stays on the finding.
+- **Quarkus connection pools say they are Agroal.** Each pool names its `implementation`, and settings Agroal does not
+  expose read as unknown instead of HikariCP sentinels ([Database Connection Pools](docs/features/database.md)).
+- **The Quarkus Security report names each HTTP permission.** Its entries list the permission's name, paths, methods
+  and policy instead of four identical "HTTP permission declaration" lines ([Quarkus checks](docs/QUARKUS-CHECKS.md)).
+- **Quarkus exceptions raised before routing keep their request.** A 406 or other early RESTEasy Reactive failure on
+  the event loop now records the request's method and path, like Spring MVC and WebFlux.
+- **The thread peak is never below the live thread count.** The Threads and Memory reports clamp the JVM's separately
+  read peak counter to the threads of the same snapshot.
+- **`get_agent_status` no longer advertises a `limit` it ignored.** It takes only `query`; an older CLI's `--limit` is
+  still accepted and ignored. `get_ai_overview` adds `aiFrameworkDetected`, and the Spring-named advisor tools say
+  they run the Quarkus application advisor on Quarkus ([AI agents](docs/AI-AGENTS.md)).
+- **`get_code_paths` finds a route by its handler after one request.** A class or method query now matches any method
+  a route's requests ran, its first request included, and says when only that first request matched.
+- **The first `get_code_inventory` call no longer waits for the dependency catalogue.** It is read once at startup,
+  in the background, beside the class-file scan.
+- **The first MCP call on Quarkus no longer waits for agent session scans.** Copilot and Claude Code session files are
+  read when their own tool or panel is first used.
+- **Reactive transactions are recorded with the right outcome.** An R2DBC transaction that commits on another thread
+  than it began now completes its own row, without a parent taken from that thread.
 - **Unknown advisor rules are told apart from rules without findings.** `get_*_rule_violations` and the REST detail
   reads answer `Unknown advisor rule` for an id outside the advisor's rule catalogue ([AI agents](docs/AI-AGENTS.md#reading-retained-advisor-violations)).
 - **`analyze_heap_dump` describes what it does.** It analyzes the live heap's class histogram, with or without a

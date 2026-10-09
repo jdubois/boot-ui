@@ -15,7 +15,7 @@ The connections each request held at once, from the runtime journal, are in [Run
 (`connections-per-request`), which does not list them by default; this panel links to them, and the link opens Runtime Insights with
 every row shown.
 
-For each pool it shows the pool identity, the masked JDBC URL and username, the driver, the minimum and maximum
+For each pool it shows the pool identity and library, the masked JDBC URL and username, the driver, the minimum and maximum
 sizing, and the timeout and lifetime settings. Closed and uninitialized pools carry a clear unavailable reason. A live
 chart polls bounded snapshots of active, idle, total, and pending connections every two seconds, so you can watch
 saturation trends without leaving the console.
@@ -25,9 +25,10 @@ saturation trends without leaving the console.
 The panel is served over **Agroal** (Quarkus' pool library) instead of HikariCP. A Quarkus provider maps the live Agroal
 pool configuration and `AgroalDataSourceMetrics` (active/available/awaiting counts) into the same DTO shape, so the panel
 looks and behaves identically. Pool metrics require `quarkus.datasource.jdbc.metrics.enabled=true`; with metrics disabled
-the pool configuration still renders but the live snapshot is marked unavailable. A few Hikari-specific fields have no
-faithful Agroal equivalent and are reported as neutral defaults (per-call validation timeout, keepalive interval, and
-read-only flag).
+the pool configuration still renders but the live snapshot is marked unavailable. Each pool's **Pool library** reads
+`Agroal` (`implementation` in the JSON, `HikariCP` on Spring). Settings Agroal does not expose, the per-call validation
+timeout, the keepalive interval and the read-only flag, are `null` and render as "—"; a maximum lifetime of `0` is
+Agroal's default and means no limit.
 
 :::
 
@@ -668,7 +669,15 @@ On Spring MVC and WebFlux, BootUI contributes a `TransactionExecutionListener`, 
 through Spring Boot's standard transaction-manager customization, completing registration for user-defined
 `ConfigurableTransactionManager` beans after singleton initialization. It composes with your own transaction management
 and listeners rather than replacing them. Managers that do not implement the configurable listener SPI stay
-unobserved.
+unobserved. On WebFlux this observes both the blocking transaction managers a reactive application still uses, such as
+`@Transactional` JDBC work run on a Reactor `boundedElastic` worker, which the WebFlux sample's
+`GET /api/sample/transaction-samples` generates, and a `ReactiveTransactionManager` such as R2DBC's, whose transactions
+may begin and complete on different threads and are recorded without a thread-bound parent or isolation
+([WebFlux support](../WEBFLUX-SUPPORT.md)).
+
+Reactive capture records physical begin/commit/rollback callbacks, not a full reactive parent or savepoint hierarchy.
+SQL and connection counts describe JDBC work on the begin thread within its time window: R2DBC statements and JDBC
+work moved to another thread are not counted, so zero counts are not evidence that no database work occurred.
 
 Transactions are retained in a bounded ring buffer, most recently completed first, with aggregate stats: total,
 average, and maximum duration, slow and connection-held counts, commit, rollback, and unknown outcome counts, and a
@@ -706,9 +715,9 @@ twice.
 Transaction metadata — method names, propagation, isolation, thread names, trace ids — is not sensitive application
 data the way bound SQL parameters are, so none of it is masked or gated behind exposure settings.
 
-The panel fails closed and reports unavailable with a reason when no `PlatformTransactionManager` bean exists, and when
-a WebFlux application uses only a `ReactiveTransactionManager` over R2DBC, since Spring's listener hook exists solely
-on the blocking SPI. Capture, the initial recording state, buffer size, and the slow-transaction and connection-hold
+The panel fails closed and reports unavailable with a reason when no configurable transaction manager bean exists. A
+`ReactiveTransactionManager` over R2DBC is configurable too, so a WebFlux application that uses only R2DBC has its
+transactions recorded. Capture, the initial recording state, buffer size, and the slow-transaction and connection-hold
 thresholds are configurable under `bootui.transactions.*`.
 
 The panel refreshes over Server-Sent Events. The browser subscribes to `/bootui/api/transactions/stream`, and the

@@ -887,7 +887,7 @@ public class BootUiReactiveAutoConfiguration {
     /**
      * Duplicates {@link BootUiAutoConfiguration#bootUiTransactionExecutionListener}: no stack-specific
      * dependency. Spring Boot's standard transaction-manager customization registers this listener
-     * against every configurable blocking transaction manager.
+     * against every configurable transaction manager, blocking or reactive.
      */
     @Bean
     @ConditionalOnProperty(prefix = "bootui.transactions", name = "enabled", matchIfMissing = true)

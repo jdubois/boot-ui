@@ -248,6 +248,14 @@
           <small>Inspect: Database Connection Pools, SQL Trace</small>
         </article>
         <article class="test-action">
+          <button class="button" id="transaction-samples-button" type="button">Generate transaction samples</button>
+          <p>
+            Calls <code>GET /api/sample/transaction-samples</code> for committed, slow, and rolled-back
+            <code>@Transactional</code> boundaries on a bounded-elastic thread.
+          </p>
+          <small>Inspect: Transactions</small>
+        </article>
+        <article class="test-action">
           <button class="button" id="chained-button" type="button">Make a multi-hop request</button>
           <p>Calls <code>GET /api/sample/chained</code>, which nests spans across a notes read and a greeting call.</p>
           <small>Inspect: Traces, HTTP Exchanges, SQL Trace</small>
@@ -274,6 +282,7 @@
   const allocateButton = document.getElementById('allocate-button')
   const slowButton = document.getElementById('slow-button')
   const poolStressButton = document.getElementById('pool-stress-button')
+  const transactionSamplesButton = document.getElementById('transaction-samples-button')
   const chainedButton = document.getElementById('chained-button')
   const sendEmailButton = document.getElementById('send-email-button')
   const sampleActionStatus = document.getElementById('sample-action-status')
@@ -415,6 +424,21 @@
       showSampleResult(
         `Ran ${body.queries} concurrent queries in ${body.elapsedMillis} ms`,
         'Open BootUI Database Connection Pools to inspect active connections and usage.'
+      )
+    })
+  )
+
+  transactionSamplesButton.addEventListener('click', () =>
+    runSampleAction(transactionSamplesButton, 'Generating transaction samples...', async () => {
+      const response = await fetch('/api/sample/transaction-samples', {headers: {Accept: 'application/json'}})
+      const body = await response.json()
+      if (!response.ok) {
+        throw new Error(`Transaction samples request failed with HTTP ${response.status}`)
+      }
+      showSampleResult(
+        `Generated ${body.scenarios.length} transaction scenarios`,
+        `The slow transaction held its boundary for ${body.slowMillis} ms. ` +
+          'Open BootUI Transactions to inspect the committed and rolled-back boundaries.'
       )
     })
   )

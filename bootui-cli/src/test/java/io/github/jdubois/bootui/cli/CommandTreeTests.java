@@ -80,7 +80,7 @@ class CommandTreeTests {
 
         for (ToolManifest.Tool tool : ToolManifest.bundled().tools()) {
             check(failures, tool, "--query", tool.takesQuery());
-            check(failures, tool, "--limit", tool.takesLimit());
+            check(failures, tool, "--limit", tool.takesLimit() || tool.ignoresLimit());
             check(failures, tool, "--scan-id", tool.takesScanId());
             check(failures, tool, "--offset", tool.takesOffset());
         }
@@ -120,6 +120,18 @@ class CommandTreeTests {
         run(args);
 
         assertThat(bodies).containsExactly("{\"query\":\"dataSource\"}");
+    }
+
+    @Test
+    void agentStatusAcceptsAnOlderScriptsLimitWithoutSendingIt() {
+        bodies.clear();
+
+        List<String> args = new ArrayList<>(
+                ToolManifest.bundled().byName("get_agent_status").path());
+        args.addAll(List.of("--query", "executors", "--limit", "3"));
+
+        assertThat(run(args)).isEqualTo(ExitCodes.SUCCESS);
+        assertThat(bodies).containsExactly("{\"query\":\"executors\"}");
     }
 
     @Test

@@ -2581,20 +2581,20 @@ Features:
 
 Availability:
 
-- Spring MVC and Spring WebFlux capture boundaries from configurable blocking transaction managers. BootUI contributes
-  its listener through Spring Boot's transaction-manager customization and completes registration for user-defined
-  managers after singleton initialization.
+- Spring MVC and Spring WebFlux capture boundaries from configurable transaction managers, blocking and reactive. BootUI
+  contributes its listener through Spring Boot's transaction-manager customization and completes registration for
+  user-defined managers after singleton initialization. The listener pairs each boundary's callbacks by the transaction
+  execution Spring passes them, so a reactive transaction that completes on another thread than it began is recorded
+  once, without a thread-bound parent or isolation.
 - The panel returns a clear unavailable report when transaction capture is disabled, no
   `ConfigurableTransactionManager` is present, or capture is otherwise not configured.
-- A WebFlux application backed only by `ReactiveTransactionManager` (R2DBC) is explicitly unavailable because Spring's
-  transaction-execution listener hook exists only on the blocking transaction-manager SPI.
 - Transactions are not applicable on Quarkus. Narayana JTA and the CDI `@Transactional` interceptor expose no comparable
   per-boundary listener without invasive interception, so the Quarkus adapter reports the panel unavailable rather than
   providing lower-fidelity capture.
 
 Out of scope for the current release surface:
 
-- Capturing R2DBC-only transaction boundaries or adding an invasive Quarkus transaction interceptor.
+- Adding an invasive Quarkus transaction interceptor.
 - Changing transaction propagation, isolation, rollback rules, or application transaction-manager configuration.
 - Retaining an unbounded transaction history or recording application payloads and SQL parameter values.
 

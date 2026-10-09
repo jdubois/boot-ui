@@ -236,7 +236,8 @@ flushes at commit shows under the method that called the `@Transactional` one, s
 A call recorded on another thread than the one that issued it, as a streaming AI call, carries no stamp and shows under
 no method. An `assemblyOnly` route's handler ran on an event loop, returned a reactive or
 asynchronous result, or BootUI could not tell where its work ran: its tree times assembly, not the work, so do not
-optimize from it.
+optimize from it. A class or method as `--query` lists the routes whose requests ran it, including a route sent only
+once, which has no method times until it is sent again.
 
 ### Check whether a method runs, and how
 
@@ -617,7 +618,9 @@ When BootUI MCP tools are available:
    For what a run did across requests, use `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
    `get_runtime_run_comparison`, as described in the two Runtime Insights workflows above.
 3. Run only the advisor relevant to the task, such as `architecture_scan`, `spring_scan`, `hibernate_scan`,
-   `memory_scan`, `security_scan`, `pentest_scan`, or `rest_api_scan`.
+   `memory_scan`, `security_scan`, `pentest_scan`, or `rest_api_scan`. On Quarkus, `spring_scan`,
+   `get_spring_report`, and `get_spring_rule_violations` keep their Spring names but run the Quarkus application
+   advisor (QA-* rules).
 4. Use identifiers returned by summary tools to request detail rather than repeatedly fetching broad result sets.
 5. After making and testing a fix, rerun the same tool and compare results.
 

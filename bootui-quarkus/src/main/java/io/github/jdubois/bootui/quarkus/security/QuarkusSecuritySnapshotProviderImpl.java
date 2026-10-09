@@ -835,7 +835,7 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 byName.put(
                         key,
                         new QuarkusSecurityPermission(
-                                "permission declaration",
+                                permissionLabel(key),
                                 paths,
                                 policy,
                                 methods,
@@ -845,6 +845,14 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
             }
         }
         return new ArrayList<>(byName.values());
+    }
+
+    /**
+     * The permission's configuration name, which identifies it in the report, or a fixed placeholder when the name
+     * is not a plain identifier: a quoted name is free text and is never echoed.
+     */
+    static String permissionLabel(String key) {
+        return key != null && key.length() <= 64 && key.matches("[A-Za-z0-9_-]+") ? key : "unnamed permission";
     }
 
     private List<String> suspectedSecrets() {

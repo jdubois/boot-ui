@@ -528,6 +528,7 @@ public final class McpDispatcher {
         }
         TreeSet<String> unexpectedArguments = new TreeSet<>(request.argumentNames());
         unexpectedArguments.removeAll(tool.schema().argumentNames());
+        unexpectedArguments.removeAll(tool.schema().ignoredArgumentNames());
         if (!unexpectedArguments.isEmpty()) {
             return new ProtocolError(
                     McpProtocol.INVALID_PARAMS,

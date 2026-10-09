@@ -152,6 +152,16 @@ final class CommandTree {
                     .setter(setter((Integer value) -> command.limit = value))
                     .build());
         }
+        if (tool.ignoresLimit()) {
+            // A script written while the tool took a limit keeps working: the option is accepted, hidden, and unsent.
+            spec.addOption(OptionSpec.builder("-n", "--limit")
+                    .paramLabel("<count>")
+                    .type(Integer.class)
+                    .hidden(true)
+                    .description("Ignored: this command lists every match.")
+                    .setter(setter((Integer value) -> {}))
+                    .build());
+        }
         if (tool.takesId()) {
             spec.addPositional(PositionalParamSpec.builder()
                     .paramLabel("<id>")

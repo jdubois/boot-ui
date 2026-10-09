@@ -1642,8 +1642,10 @@ that arrives after its request's tree was merged amends its route rather than op
 trees may miss methods says so ([Change impact](overview.md#runtime-insights)).
 
 `get_code_paths` and `bootui code paths` return at most `limit` (10) routes matching `query` (a route, or part of a
-route or of a method), slowest warm median first, each with its top methods; for a single route, its method nodes with
-the most self time, each with its calls. The `diagnose_runtime_issue` MCP prompt points to it for a slow route's handler.
+route or of a method its requests ran), slowest warm median first, each with its top methods; for a single route, its
+method nodes with the most self time, each with its calls. A class or method query also finds a route only its first
+request reached, which the warm tree keeps apart, and a limitation says so: that route has no method times until it
+is sent again. The `diagnose_runtime_issue` MCP prompt points to it for a slow route's handler.
 
 ### Method probes
 

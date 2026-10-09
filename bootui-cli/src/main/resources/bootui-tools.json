@@ -19,7 +19,7 @@
     {
       "name": "get_agent_status",
       "command": "agent status",
-      "schema": "QUERY_LIMIT",
+      "schema": "QUERY",
       "panel": "java-agent",
       "action": false,
       "stacks": [
@@ -28,7 +28,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, sensors, and setup snippets that attach it.",
-      "description": "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, sensors, and setup snippets that attach it. This read never claims, installs, or changes the agent. Sensors are summarized (state, counters, failures); query with a sensor id, such as executors, to list only matching sensors with their hooks and self-test steps. Every sensor is listed: limit does not apply.",
+      "description": "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, sensors, and setup snippets that attach it. This read never claims, installs, or changes the agent. Sensors are summarized (state, counters, failures); query with a sensor id, such as executors, to list only matching sensors with their hooks and self-test steps. Every matching sensor is listed, so the tool takes no limit.",
       "example": "bootui agent status --query executors",
       "queryHelp": "a sensor id, such as executors, for its hooks and self-test steps"
     },
@@ -44,7 +44,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the local AI-framework telemetry overview derived from already-captured OTLP spans.",
-      "description": "Return the local AI-framework telemetry overview derived from already-captured OTLP spans. This does not invoke a model, send a prompt, or make any network request.",
+      "description": "Return the local AI-framework telemetry overview derived from already-captured OTLP spans. This does not invoke a model, send a prompt, or make any network request. aiFrameworkDetected says whether any supported AI framework is present on every stack; springAiDetected is Spring AI only, so it is always false on Quarkus, and langChain4jDetected covers LangChain4j, including Quarkus LangChain4j.",
       "example": "bootui ai overview"
     },
     {
@@ -1298,7 +1298,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the last completed Spring advisor report without starting a new application scan.",
-      "description": "Return the last completed Spring advisor report without starting a new application scan. Use this cached evidence before deciding whether an active spring_scan is necessary. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_spring_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
+      "description": "Return the last completed Spring advisor report without starting a new application scan. Use this cached evidence before deciding whether an active spring_scan is necessary. On Quarkus, the same tool runs the Quarkus application advisor (QA-* rules) instead. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_spring_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
       "example": "bootui spring report"
     },
     {
@@ -1313,7 +1313,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively inspect Spring configuration and bean usage for correctness and maintainability risks.",
-      "description": "Actively inspect Spring configuration and bean usage for correctness and maintainability risks. Verify each finding against effective configuration before changing code. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence and violationDetails.scanId. Read the cached report with get_spring_report and page a rule's retained violations with get_spring_rule_violations, without scanning again.",
+      "description": "Actively inspect Spring configuration and bean usage for correctness and maintainability risks. Verify each finding against effective configuration before changing code. On Quarkus, the same tool runs the Quarkus application advisor (QA-* rules) instead. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence and violationDetails.scanId. Read the cached report with get_spring_report and page a rule's retained violations with get_spring_rule_violations, without scanning again.",
       "example": "bootui spring scan"
     },
     {
@@ -1328,7 +1328,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Read one page of retained violations for the exact rule id from get_spring_report and that cached report's violationDetails.scanId.",
-      "description": "Read one page of retained violations for the exact rule id from get_spring_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. A refusal is a tool error whose text says why: an unknown rule (not a rule of this advisor), a rule with no findings in that scan (it passed, was skipped, or failed), or a stale or missing scanId, for which reread the cached report rather than start a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one.",
+      "description": "Read one page of retained violations for the exact rule id from get_spring_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. A refusal is a tool error whose text says why: an unknown rule (not a rule of this advisor), a rule with no findings in that scan (it passed, was skipped, or failed), or a stale or missing scanId, for which reread the cached report rather than start a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one. On Quarkus, the same tool runs the Quarkus application advisor (QA-* rules) instead.",
       "example": "bootui spring violations <ruleId> --scan-id <scanId> --limit 100",
       "idHelp": "A rule id and the violationDetails.scanId from 'bootui spring report'."
     },
