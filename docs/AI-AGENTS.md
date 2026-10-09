@@ -35,6 +35,12 @@ reflects a dismissal or restoration without rescanning, and scan evidence and co
 
 ## MCP server or CLI?
 
+The optional Kotlin JetBrains companion prototype in `plugins/jetbrains` is AI-ready, not an AI client. Its bounded
+overview context can be copied for review, but it does not send prompts, call providers, or edit code. Copilot in
+JetBrains IDEs can independently use BootUI's existing opt-in MCP server; enabling the companion does not enable MCP.
+Future ACP support would connect an editor client to an agent, while MCP supplies diagnostic tools to that agent.
+Neither requires moving diagnostics into the IDE, and no direct Copilot inter-plugin chat API is assumed.
+
 Both surfaces give the agent identical data: the same registry, the same panel policy, the same masked, bounded DTOs.
 The CLI can neither offer a diagnostic the MCP server lacks nor miss one it has, because its command table is generated
 from the tool registry at build time.

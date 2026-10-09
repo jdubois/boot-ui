@@ -10,9 +10,18 @@ for WebFlux) or a Quarkus extension — over a shared, framework-neutral engine,
 Laravel Telescope, Micronaut Control Panel, and Spring Boot Admin, but is focused specifically on the inner development
 loop of a single application.
 
-BootUI is not a standalone application, production monitoring tool, APM product, cloud service, IDE plugin, or
+BootUI is not a standalone application, production monitoring tool, APM product, cloud service, or
 replacement for Actuator. It is a framework-native visualization and explanation layer loaded into the user's running
 application through a starter (Spring Boot) or extension (Quarkus) dependency.
+
+An optional Kotlin JetBrains companion prototype lives in `plugins/jetbrains`. It is an independently built client of
+the existing local HTTP contract, not a replacement for the application dependency or the IDE-agnostic browser console.
+Its first slice is explicit connection and overview inspection, with a bounded context export for later AI integration.
+It also offers a reviewed dependency-installation action for a selected Maven or Gradle application build file and a
+button to run IntelliJ's selected run configuration. Dependency installation does not change activation settings,
+reload the build, or start the application; build edits are undoable and require explicit confirmation.
+It neither runs scanners nor sends data to an AI provider. It is not a published Marketplace plugin or part of the
+1.x runtime release.
 
 ## 1.1 Target platform
 
