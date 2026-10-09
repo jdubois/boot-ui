@@ -29,6 +29,31 @@ function respond(body, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), {status, headers: {'content-type': 'application/json'}}))
 }
 
+function agentReport(toggles = [], overrides = {}) {
+  return {
+    state: 'ARMED',
+    reason: null,
+    agentVersion: null,
+    bootUiVersion: '2.0.0',
+    protocol: null,
+    expectedProtocol: 1,
+    jdk: 'OpenJDK 17',
+    loadMode: null,
+    jarPath: null,
+    startupMicros: null,
+    claim: null,
+    heldBy: null,
+    sensors: [],
+    toggles,
+    retransformation: null,
+    counters: null,
+    messages: [],
+    warnings: [],
+    setup: null,
+    ...overrides
+  }
+}
+
 function mountToggle(props = toggle(), panels = manifest()) {
   return mount(AgentSensorToggle, {props: {toggle: props}, global: {provide: {panels}}, attachTo: document.body})
 }
@@ -38,7 +63,7 @@ describe('AgentSensorToggle', () => {
 
   beforeEach(() => {
     document.cookie = 'XSRF-TOKEN=test-token'
-    fetchMock = vi.fn(() => respond({toggles: []}))
+    fetchMock = vi.fn(() => respond(agentReport()))
     vi.stubGlobal('fetch', fetchMock)
   })
 
@@ -63,7 +88,7 @@ describe('AgentSensorToggle', () => {
   })
 
   it('posts the switch and emits the new report', async () => {
-    const report = {toggles: [toggle({enabled: true, overridden: true, state: 'installing'})]}
+    const report = agentReport([toggle({enabled: true, overridden: true, state: 'installing'})])
     fetchMock.mockImplementation(() => respond(report))
     const wrapper = mountToggle()
 
@@ -86,6 +111,53 @@ describe('AgentSensorToggle', () => {
     expect(wrapper.text()).toContain('Recording')
     expect(wrapper.text()).toContain('until this JVM ends')
   })
+
+  it.each(['', '{', 'null', '{}', '{"state":"ARMED","toggles":[]}'])(
+    'does not acknowledge an invalid 2xx sensor report %j and requests a read without retrying the POST',
+    async (body) => {
+      fetchMock.mockResolvedValue(new Response(body, {status: 200}))
+      const wrapper = mountToggle()
+      await wrapper.get('input[role="switch"]').setValue(true)
+      await flushPromises()
+
+      expect(wrapper.emitted('switched')).toBeUndefined()
+      expect(wrapper.emitted('stale')).toHaveLength(1)
+      expect(wrapper.get('[role="alert"]').text()).toContain('outcome is unknown')
+      expect(wrapper.get('input').element.checked).toBe(false)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    }
+  )
+
+  it.each([
+    [403, '', 'HTTP 403'],
+    [503, '<html>unavailable</html>', 'HTTP 503'],
+    [409, '{"reason":"The claim changed"}', 'The claim changed']
+  ])('preserves HTTP %s errors instead of treating their bodies as acknowledgements', async (status, body, message) => {
+    fetchMock.mockResolvedValue(new Response(body, {status, headers: {'content-type': 'application/json'}}))
+    const wrapper = mountToggle()
+    await wrapper.get('input').setValue(true)
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain(message)
+    expect(wrapper.emitted('switched')).toBeUndefined()
+    expect(wrapper.emitted('stale')).toHaveLength(1)
+  })
+
+  it.each([
+    agentReport(),
+    agentReport([toggle({enabled: true, state: 'failed', failure: 'Install failed after the switch was kept.'})]),
+    agentReport([], {state: 'FUTURE_STATE', futureField: {supported: true}})
+  ])(
+    'accepts a complete report with nullable fields, empty collections, or a committed install failure',
+    async (body) => {
+      fetchMock.mockImplementation(() => respond(body))
+      const wrapper = mountToggle()
+      await wrapper.get('input').setValue(true)
+      await flushPromises()
+      expect(wrapper.emitted('switched')).toEqual([[body]])
+      expect(wrapper.emitted('stale')).toBeUndefined()
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    }
+  )
 
   it('shows a refused switch with the canonical error and keeps the switch as it was', async () => {
     fetchMock.mockImplementation(() =>

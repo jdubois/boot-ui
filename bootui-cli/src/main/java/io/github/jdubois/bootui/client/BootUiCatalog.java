@@ -38,10 +38,21 @@ public record BootUiCatalog(
 
     /** Parses the endpoint's status document. */
     public static BootUiCatalog from(JsonValue json) {
+        JsonValue enabled = json.get("enabled");
+        JsonValue advertisedTools = json.get("tools");
+        if (!json.isObject()
+                || !"bootui".equals(json.get("serverName").asString(null))
+                || !enabled.isBoolean()
+                || !advertisedTools.isArray()
+                || (!enabled.asBoolean(false) && advertisedTools.size() != 0)) {
+            throw new BootUiClientException(
+                    "Response is not a valid BootUI command-line catalog: expected serverName 'bootui', "
+                            + "a boolean enabled, and a tools array that is empty while disabled.");
+        }
         List<CatalogTool> tools =
-                json.get("tools").values().stream().map(CatalogTool::from).toList();
+                advertisedTools.values().stream().map(CatalogTool::from).toList();
         return new BootUiCatalog(
-                json.get("enabled").asBoolean(false),
+                enabled.asBoolean(false),
                 json.get("serverName").asString(""),
                 json.get("serverVersion").asString(""),
                 json.get("endpoint").asString(""),

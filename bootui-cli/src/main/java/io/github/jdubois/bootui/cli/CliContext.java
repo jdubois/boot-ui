@@ -100,10 +100,10 @@ final class CliContext {
                 emit(result.payload(), result.rawBody());
                 return ExitCodes.SUCCESS;
             }
-            confirmBootUiAnswered(client, result.outcome());
-            err.println(describe(client, tool, result.outcome(), result.errorMessage()));
+            ToolOutcome outcome = confirmBootUiAnswered(client, result);
+            err.println(describe(client, tool, outcome, result.errorMessage()));
             err.flush();
-            return exitCodeFor(result.outcome());
+            return exitCodeFor(outcome);
         });
     }
 
@@ -117,18 +117,23 @@ final class CliContext {
      * declining by policy, and exit {@code 2}. A CI gate reads that as "skip", so a misconfigured target
      * would quietly pass instead of failing.
      *
-     * <p>Asking for the catalog settles it: if there is no command-line endpoint there, that throws, and
-     * its message already names the likely causes. This costs a request only on a path that has failed.
+     * <p>HTTP 503 also needs the catalog: only a disabled endpoint is a policy refusal, while an outage
+     * remains a failed request even when the target is BootUI. The catalog is validated before its enabled
+     * state is trusted. This costs a request only on a path that has failed.
      */
-    private void confirmBootUiAnswered(BootUiClient client, ToolOutcome outcome) {
-        if (outcome != ToolOutcome.REFUSED_BY_POLICY && outcome != ToolOutcome.UNKNOWN_TOOL) {
-            return;
+    private ToolOutcome confirmBootUiAnswered(BootUiClient client, ToolResult result) {
+        ToolOutcome outcome = result.outcome();
+        if (outcome != ToolOutcome.REFUSED_BY_POLICY && outcome != ToolOutcome.UNKNOWN_TOOL && result.status() != 503) {
+            return outcome;
         }
         try {
-            client.catalog();
+            BootUiCatalog catalog = client.catalog();
+            return result.status() == 503 && !catalog.enabled() ? ToolOutcome.ENDPOINT_DISABLED : outcome;
         } catch (BootUiClientException noEndpoint) {
-            throw new BootUiClientException(
-                    "This is not a BootUI policy refusal. " + noEndpoint.getMessage(), noEndpoint);
+            String context = result.status() == 503
+                    ? "Cannot confirm BootUI command-line endpoint state after HTTP 503. "
+                    : "This is not a BootUI policy refusal. ";
+            throw new BootUiClientException(context + noEndpoint.getMessage(), noEndpoint);
         }
     }
 
@@ -136,12 +141,12 @@ final class CliContext {
     int listTools() {
         return withClient(client -> {
             JsonValue document = client.get(CliPaths.CLI);
+            BootUiCatalog catalog = BootUiCatalog.from(document);
             if (options.json(terminal)) {
                 out.println(document.toJson());
                 out.flush();
                 return ExitCodes.SUCCESS;
             }
-            BootUiCatalog catalog = BootUiCatalog.from(document);
             List<JsonValue> rows = new ArrayList<>();
             for (BootUiCatalog.CatalogTool tool : catalog.tools()) {
                 ToolManifest.Tool known = manifest.byName(tool.name());

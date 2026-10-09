@@ -4,6 +4,7 @@ import {ref} from 'vue'
 
 import {safeLocalStorage} from '../utils/safeStorage.js'
 import LiveActivity from './LiveActivity.vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 vi.mock('../utils/useConfirm.js', () => ({
   useConfirm: () => ({confirm: () => Promise.resolve(true)})
@@ -134,6 +135,8 @@ describe('LiveActivity', () => {
     wrapper?.unmount()
     wrapper = null
     safeLocalStorage.removeItem('bootui.activity.flowCollapsed')
+    safeLocalStorage.removeItem('bootui.activity.filters')
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
@@ -467,6 +470,209 @@ describe('LiveActivity', () => {
       vi.useRealTimers()
       safeLocalStorage.removeItem('bootui.activity.filters')
     }
+  })
+
+  it.each(['resolve', 'reject'])(
+    'ignores an old-filter cursor page that %ss without changing the new page or its busy state',
+    async (settlement) => {
+      vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+      safeLocalStorage.removeItem('bootui.activity.filters')
+      let finishOld
+      let failOld
+      const oldPage = new Promise((resolve, reject) => {
+        finishOld = resolve
+        failOld = reject
+      })
+      let finishNew
+      const newPage = new Promise((resolve) => {
+        finishNew = resolve
+      })
+      const head = (cursor, entries) =>
+        activityReport({
+          entries,
+          pageInfo: {persistent: true, hasMore: true, nextCursor: cursor}
+        })
+      const fetchMock = vi.fn((url) => {
+        const query = new URLSearchParams(String(url).split('?')[1])
+        if (query.get('cursor') === 'old-cursor') return oldPage
+        if (query.get('cursor') === 'new-cursor') return newPage
+        return Promise.resolve(
+          jsonResponse(
+            head(query.has('severity') ? 'new-cursor' : 'old-cursor', [
+              requestEntry({severity: 'ERROR', summary: 'Current head'})
+            ])
+          )
+        )
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      wrapper = mountLiveActivity()
+      await flushPromises()
+      const olderButton = () =>
+        wrapper.findAll('button').find((button) => ['Load older activity', 'Loading…'].includes(button.text()))
+      await olderButton().trigger('click')
+      await wrapper.get('#activity-severity-filter').setValue('ERROR')
+      await vi.advanceTimersByTimeAsync(301)
+      await flushPromises()
+      expect(olderButton().attributes('disabled')).toBeUndefined()
+      await olderButton().trigger('click')
+      expect(olderButton().attributes('disabled')).toBeDefined()
+
+      if (settlement === 'resolve') {
+        finishOld(
+          jsonResponse(
+            head('wrong-cursor', [
+              requestEntry({
+                id: 'old-query',
+                severity: 'ERROR',
+                summary: 'Obsolete page'
+              })
+            ])
+          )
+        )
+      } else failOld(new Error('Obsolete page failed'))
+      await flushPromises()
+      expect(wrapper.text()).not.toContain('Obsolete page')
+      expect(olderButton().attributes('disabled')).toBeDefined()
+
+      finishNew(
+        jsonResponse(
+          head('next-new-cursor', [
+            requestEntry({
+              id: 'new-query',
+              severity: 'ERROR',
+              summary: 'Current older page'
+            })
+          ])
+        )
+      )
+      await flushPromises()
+      expect(wrapper.text()).toContain('Current older page')
+      expect(olderButton().attributes('disabled')).toBeUndefined()
+      await olderButton().trigger('click')
+      await flushPromises()
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('cursor=next-new-cursor'))).toBe(true)
+      vi.useRealTimers()
+    }
+  )
+
+  it('invalidates older pages when the backing feed becomes in-memory or its source changes', async () => {
+    safeLocalStorage.removeItem('bootui.activity.filters')
+    let finishOld
+    const oldPage = new Promise((resolve) => {
+      finishOld = resolve
+    })
+    let memory = false
+    const persisted = activityReport({
+      pageInfo: {persistent: true, hasMore: true, nextCursor: 'old-cursor'}
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        String(url).includes('cursor=') ? oldPage : Promise.resolve(jsonResponse(memory ? activityReport() : persisted))
+      )
+    )
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Load older activity')
+      .trigger('click')
+    memory = true
+    wrapper.findComponent(PanelHeader).vm.$emit('refresh')
+    await flushPromises()
+    await wrapper.get('#activity-feed-source').setValue('buffers')
+    finishOld(
+      jsonResponse(
+        activityReport({
+          entries: [requestEntry({id: 'obsolete', summary: 'Obsolete persisted row'})],
+          pageInfo: {persistent: true, hasMore: true, nextCursor: 'obsolete-cursor'}
+        })
+      )
+    )
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Obsolete persisted row')
+    expect(wrapper.text()).not.toContain('Load older activity')
+    expect(wrapper.text()).not.toContain('Loading…')
+  })
+
+  it('keeps ordinary pagination merged with the current live head and follows the older cursor', async () => {
+    const head = (entries, cursor) =>
+      activityReport({
+        entries,
+        pageInfo: {persistent: true, hasMore: cursor !== null, nextCursor: cursor}
+      })
+    let finishOlder
+    const pending = new Promise((resolve) => {
+      finishOlder = resolve
+    })
+    let refreshed = false
+    const fetchMock = vi.fn((url) => {
+      const cursor = new URLSearchParams(String(url).split('?')[1]).get('cursor')
+      if (cursor === 'first-page') return pending
+      if (cursor === 'second-page')
+        return Promise.resolve(jsonResponse(head([requestEntry({id: 'oldest', summary: 'Oldest page'})], null)))
+      return Promise.resolve(
+        jsonResponse(head([requestEntry({summary: refreshed ? 'Updated current head' : 'Initial head'})], 'first-page'))
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    const olderButton = () => wrapper.findAll('button').find((button) => button.text() === 'Load older activity')
+    await olderButton().trigger('click')
+    refreshed = true
+    wrapper.findComponent(PanelHeader).vm.$emit('refresh')
+    await flushPromises()
+    finishOlder(
+      jsonResponse(
+        head(
+          [requestEntry({summary: 'Duplicate old head'}), requestEntry({id: 'older', summary: 'Older page'})],
+          'second-page'
+        )
+      )
+    )
+    await flushPromises()
+    expect(wrapper.text()).toContain('Updated current head')
+    expect(wrapper.text()).not.toContain('Duplicate old head')
+    expect(wrapper.text()).toContain('Older page')
+    await olderButton().trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Oldest page')
+    expect(olderButton()).toBeUndefined()
+  })
+
+  it('ignores a superseded filter head while the new query waits for the outstanding read', async () => {
+    vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+    const head = (summary, cursor) =>
+      activityReport({
+        entries: [requestEntry({severity: 'ERROR', summary})],
+        pageInfo: {persistent: true, hasMore: true, nextCursor: cursor}
+      })
+    let finishOld
+    const pending = new Promise((resolve) => {
+      finishOld = resolve
+    })
+    let finishCurrent
+    const current = new Promise((resolve) => {
+      finishCurrent = resolve
+    })
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(head('Initial head', 'initial')))
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    fetchMock.mockImplementation((url) => (String(url).includes('severity=ERROR') ? current : pending))
+    wrapper.findComponent(PanelHeader).vm.$emit('refresh')
+    await flushPromises()
+    await wrapper.get('#activity-severity-filter').setValue('ERROR')
+    await vi.advanceTimersByTimeAsync(301)
+    finishOld(jsonResponse(head('Obsolete query head', 'obsolete')))
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Obsolete query head')
+    expect(wrapper.findAll('button').find((button) => button.text() === 'Load older activity')).toBeUndefined()
+    finishCurrent(jsonResponse(head('Current query head', 'current')))
+    await flushPromises()
+    expect(wrapper.text()).toContain('Current query head')
+    expect(wrapper.findAll('button').find((button) => button.text() === 'Load older activity')).toBeTruthy()
   })
 
   it('says no activity is recorded yet when the feed is empty and nothing narrows it', async () => {
@@ -1270,54 +1476,58 @@ describe('LiveActivity', () => {
     expect(wrapper.findAll('button').find((b) => b.text().includes('Use the existing datasource'))).toBeTruthy()
   })
 
-  it('switches to the database when the existing-datasource action is confirmed', async () => {
-    let persistedNow = false
-    const notPersisted = activityReport({
-      persistenceOption: {active: false, dataSourceAvailable: true, tableName: 'bootui_activity'}
-    })
-    const persisted = activityReport({
-      pageInfo: {persistent: true, nextCursor: null, hasMore: false},
-      persistenceOption: {active: true, dataSourceAvailable: true, tableName: 'bootui_activity'}
-    })
-    const fetchMock = vi.fn((url) => {
-      if (url === 'api/activity/use-existing-datasource') {
-        persistedNow = true
-        return Promise.resolve(
-          jsonResponse({
-            status: 'success',
-            message: 'Live Activity is now saving to the "bootui_activity" table.',
-            tableName: 'bootui_activity'
-          })
-        )
-      }
-      if (typeof url === 'string' && url.startsWith('api/activity/request/')) {
-        return Promise.resolve(jsonResponse(requestProfile()))
-      }
-      return Promise.resolve(jsonResponse(persistedNow ? persisted : notPersisted))
-    })
-    vi.stubGlobal('fetch', fetchMock)
+  it.each(['success', 'already-active'])(
+    'switches to the database with a %s acknowledgement and a custom table',
+    async (status) => {
+      let persistedNow = false
+      const notPersisted = activityReport({
+        persistenceOption: {active: false, dataSourceAvailable: true, tableName: 'bootui_activity'}
+      })
+      const persisted = activityReport({
+        pageInfo: {persistent: true, nextCursor: null, hasMore: false},
+        persistenceOption: {active: true, dataSourceAvailable: true, tableName: 'bootui_activity'}
+      })
+      const fetchMock = vi.fn((url) => {
+        if (url === 'api/activity/use-existing-datasource') {
+          persistedNow = true
+          return Promise.resolve(
+            jsonResponse({
+              status,
+              message: 'Live Activity is now saving to the "custom_activity" table.',
+              tableName: 'custom_activity',
+              futureField: true
+            })
+          )
+        }
+        if (typeof url === 'string' && url.startsWith('api/activity/request/')) {
+          return Promise.resolve(jsonResponse(requestProfile()))
+        }
+        return Promise.resolve(jsonResponse(persistedNow ? persisted : notPersisted))
+      })
+      vi.stubGlobal('fetch', fetchMock)
 
-    wrapper = mountLiveActivity()
-    await flushPromises()
+      wrapper = mountLiveActivity()
+      await flushPromises()
 
-    await wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('Use a database'))
-      .trigger('click')
-    await flushPromises()
-    await wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('Use the existing datasource'))
-      .trigger('click')
-    await flushPromises()
+      await wrapper
+        .findAll('button')
+        .find((b) => b.text().includes('Use a database'))
+        .trigger('click')
+      await flushPromises()
+      await wrapper
+        .findAll('button')
+        .find((b) => b.text().includes('Use the existing datasource'))
+        .trigger('click')
+      await flushPromises()
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      'api/activity/use-existing-datasource',
-      expect.objectContaining({method: 'POST', body: JSON.stringify({confirm: true})})
-    )
-    expect(wrapper.text()).toContain('Live Activity is now saving to the "bootui_activity" table.')
-    expect(wrapper.findAll('button').find((b) => b.text().includes('Use a database'))).toBeFalsy()
-  })
+      expect(fetchMock).toHaveBeenCalledWith(
+        'api/activity/use-existing-datasource',
+        expect.objectContaining({method: 'POST', body: JSON.stringify({confirm: true})})
+      )
+      expect(wrapper.text()).toContain('Live Activity is now saving to the "custom_activity" table.')
+      expect(wrapper.findAll('button').find((b) => b.text().includes('Use a database'))).toBeFalsy()
+    }
+  )
 
   it('disables the existing-datasource switch action when the panel is read-only', async () => {
     vi.stubGlobal(
@@ -1341,6 +1551,76 @@ describe('LiveActivity', () => {
 
     const switchButton = wrapper.findAll('button').find((b) => b.text().includes('Use the existing datasource'))
     expect(switchButton.attributes('disabled')).toBeDefined()
+  })
+
+  it.each(['', '{', 'null', '{}', '{"status":"unexpected","message":"Saved","tableName":"custom_activity"}'])(
+    'does not acknowledge an invalid 2xx datasource response %j and re-reads without retrying the POST',
+    async (body) => {
+      safeLocalStorage.removeItem('bootui.activity.filters')
+      let reads = 0
+      const before = activityReport({
+        persistenceOption: {active: false, dataSourceAvailable: true, tableName: 'custom_activity'}
+      })
+      const fetchMock = vi.fn((url) => {
+        if (url === 'api/activity/use-existing-datasource') {
+          return Promise.resolve(new Response(body, {status: 200}))
+        }
+        if (url === 'api/activity') {
+          reads++
+          if (reads > 1) return Promise.reject(new Error('Feed read unavailable'))
+        }
+        return Promise.resolve(jsonResponse(before))
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      wrapper = mountLiveActivity()
+      await flushPromises()
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text().includes('Use a database'))
+        .trigger('click')
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text().includes('Use the existing datasource'))
+        .trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('outcome is unknown')
+      expect(wrapper.text()).not.toContain('Live Activity is now saving to a database.')
+      expect(wrapper.find('.alert-success').exists()).toBe(false)
+      expect(reads).toBe(2)
+      expect(fetchMock.mock.calls.filter(([url]) => url === 'api/activity/use-existing-datasource')).toHaveLength(1)
+      expect(wrapper.text()).toContain('GET /api/todos')
+    }
+  )
+
+  it.each([
+    [403, '', 'HTTP 403'],
+    [503, '<html>Unavailable</html>', 'HTTP 503'],
+    [409, '{"reason":"Datasource changed"}', 'Datasource changed']
+  ])('preserves HTTP %s datasource errors without inventing a success', async (code, body, message) => {
+    const before = activityReport({
+      persistenceOption: {active: false, dataSourceAvailable: true, tableName: 'custom_activity'}
+    })
+    const fetchMock = vi.fn((url) =>
+      url === 'api/activity/use-existing-datasource'
+        ? Promise.resolve(new Response(body, {status: code, headers: {'content-type': 'application/json'}}))
+        : Promise.resolve(jsonResponse(before))
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('Use a database'))
+      .trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('Use the existing datasource'))
+      .trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain(message)
+    expect(wrapper.find('.alert-success').exists()).toBe(false)
+    expect(fetchMock.mock.calls.filter(([url]) => url === 'api/activity/use-existing-datasource')).toHaveLength(1)
   })
 
   it('shows Live flow between the KPI summary and activity feed controls by default', async () => {
