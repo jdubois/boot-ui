@@ -1,7 +1,7 @@
 # Command line
 
-BootUI's diagnostics are reachable from a terminal. The `bootui` CLI asks a running Spring Boot or Quarkus
-application one question and prints the answer — no browser, no MCP client, no hand-written `curl`.
+BootUI's diagnostics are reachable from a terminal. The `bootui` CLI works with Spring Boot and Quarkus: it asks a
+running application one question and prints the answer — no browser, no MCP client, no hand-written `curl`.
 
 ```console
 $ bootui beans --query dataSource
@@ -9,9 +9,10 @@ $ bootui hibernate scan --json | jq '.topFindings[] | select(.severity == "HIGH"
 $ bootui http exchanges --limit 20
 ```
 
-Every command is one BootUI [MCP](AI-AGENTS.md) tool, projected mechanically from the same registry. The CLI
+Every diagnostic command is one BootUI [MCP](AI-AGENTS.md) tool, projected mechanically from the same registry. The CLI
 cannot offer a diagnostic the MCP server does not, and cannot lack one it does: the command table is generated
-from the registry at build time and a test fails when the two disagree.
+from the registry at build time and a test fails when the two disagree. `tools` reads the CLI catalog, and
+`mcp status|enable|disable` call the MCP Server panel directly rather than invoking catalog tools.
 
 ## Install
 
@@ -30,11 +31,15 @@ curl -fsSL https://www.julien-dubois.com/boot-ui/install.sh | sh
 irm https://www.julien-dubois.com/boot-ui/install.ps1 | iex
 ```
 
-That asks Maven Central for the newest release, checks the download against the checksum published beside
-it, and leaves a `bootui` command in `~/.local/bin` — `%LOCALAPPDATA%\BootUI\bin` on Windows, which it adds
+That asks Maven Central for the newest release, tries its published SHA-512, SHA-256, then SHA-1 checksum, and leaves
+a `bootui` command in `~/.local/bin` — `%LOCALAPPDATA%\BootUI\bin` on Windows, which it adds
 to your user `PATH`. It needs no administrator rights, does not edit your shell profile, and contacts
 nothing but the Maven repository. Running it again upgrades in place, and `--uninstall` — `-Uninstall` in
 PowerShell — reverses it.
+
+An available checksum mismatch aborts without installing. If no checksum can be fetched or calculated, the installer
+prints a note and continues without verification; it does not verify a GPG signature. Inspect that output before
+trusting the installed jar.
 
 To pin a version or install somewhere else, pass options after `sh -s --`:
 
@@ -89,10 +94,12 @@ bootui: version 1.17.0 is available; you have 1.16.0.
         Silence this with BOOTUI_NO_UPDATE_CHECK=1.
 ```
 
-The run that prints it makes no network call of its own: it reports what a previous check left in
+The notice reads the cached result in
 `~/.bootui` — `%LOCALAPPDATA%\BootUI` on Windows, or `BOOTUI_INSTALL_DIR` wherever you pointed it. That check
 reads the same `maven-metadata.xml` the installer does, at most once a day, on a background thread that the
-command never waits for and that is abandoned rather than delayed. Nothing is written to standard output and
+command gives at most 250 ms to finish at shutdown. A still-running refresh is abandoned when the JVM exits.
+An interrupted refresh may be retried by a later run; a completed attempt is normally throttled to once a day.
+Nothing is written to standard output and
 the exit code is untouched, so a pipeline sees exactly what it saw before.
 
 A piped run says nothing and asks nothing, so CI does no unexpected network traffic. `BOOTUI_NO_UPDATE_CHECK=1`
@@ -119,7 +126,7 @@ See [Properties](PROPERTIES.md) for `bootui.cli.max-results`, `bootui.cli.execut
 | --- | --- | --- | --- |
 | `--url <url>` | `BOOTUI_URL` | `http://localhost:8080` | Where the application is listening. A bare `host:port` is accepted. |
 | `--api-path <path>` | `BOOTUI_API_PATH` | `/bootui/api` | Only needed when `bootui.api-path` is customised. |
-| `--token <token>` | `BOOTUI_TOKEN` | none | Sent as an `Authorization` header when `bootui.authentication.token` is set. |
+| `--token <token>` | `BOOTUI_TOKEN` | none | Sent as an `Authorization: Bearer <token>` header. Needed for an untrusted non-loopback caller, using the configured or generated BootUI token; loopback, trusted proxies, and trusted container gateways need none. |
 | `--timeout <seconds>` | — | `60` | How long to wait for an answer. Raise it for a slow scan. |
 | `--json` | — | auto | Print the application's JSON verbatim. Implied when output is not a terminal. |
 | `--no-color` | `NO_COLOR` | — | Disable ANSI colour. |
@@ -220,12 +227,13 @@ Such gaps remain explicit in diagnostics; increasing the retention budget does n
 Only the latest completed snapshot is kept. A stale ID or no completed snapshot is HTTP 409: reread the
 cached `… report`, obtain its ID, and restart detail paging, **not** `… scan`. A rule id outside the advisor's
 rule catalogue answers `Unknown advisor rule: ...`, and a catalogue rule without findings (passed, skipped, or failed)
-answers `Advisor rule has no findings in the current scan.`; both are REST/MCP client error 404, and the CLI facade preserves its
+answers `Advisor rule has no findings in the current scan.`; both are REST 404 and MCP in-band `isError: true` failures,
+and the CLI facade preserves its
 existing mapping to HTTP 400 so an unknown rule is not mistaken for an unavailable command. Both exit `1` with the
 application's message. A missing scan ID is
 rejected before a detail read. Dismissal leaves the snapshot ID and its details intact.
 
-MCP also has a rendered-byte limit: `-32003` means retry the same offset and scan ID with a smaller limit,
+MCP also has a rendered-byte limit: `-32003` (legacy) or `-31003` (modern) means retry the same offset and scan ID with a smaller limit,
 not that the page was empty. The CLI's own result, timeout, and concurrency budgets still apply; do not advance
 the offset after any failure or silently rescan to recover. See [agent pagination guidance](AI-AGENTS.md#reading-retained-advisor-violations).
 
@@ -307,6 +315,13 @@ Quarkus application advertises fewer tools than Spring MVC, and some Spring tool
 corresponding library is on the classpath.
 
 ### Java agent sensor switches
+
+`bootui agent status --json` accepts `--query`, not `--limit`, and lists every matching sensor. The task and thread
+snapshot registries each retain at most 32,768 application entries across all claim generations, plus 64 reserved
+self-test markers. Inspect `overflow` and `neverApplied`: both are cumulative until the JVM exits, even after disabling
+the threads sensor. Once executor overflow has occurred, a reused task object can have run with a later submitter's
+request context; the Java Agent panel and the MCP/generated CLI help warn about this limit. Do not interpret affected
+propagation as proof of exact ownership.
 
 With the user's approval, `bootui agent sensor enable <id>` and `bootui agent sensor disable <id>` apply the same
 bounded runtime switch as `enable_agent_sensor` and `disable_agent_sensor` in MCP, on Spring MVC, Spring WebFlux,
@@ -467,6 +482,8 @@ exposes a tool is still what `bootui tools` says.
 | --- | --- | --- | --- | --- |
 | `bootui activity` | `get_live_activity` | `--query`, `--limit` | read | all |
 | `bootui agent status` | `get_agent_status` | `--query` | read | all |
+| `bootui agent sensor disable` | `disable_agent_sensor` | `<id>` (switchable sensor); needs approval | action | all |
+| `bootui agent sensor enable` | `enable_agent_sensor` | `<id>` (switchable sensor); needs approval | action | all |
 | `bootui ai overview` | `get_ai_overview` | — | read | all |
 | `bootui architecture report` | `get_architecture_report` | — | read | all |
 | `bootui architecture violations` | `get_architecture_rule_violations` | `<id> --scan-id <scanId> [--offset N] [--limit N]` | read | all |

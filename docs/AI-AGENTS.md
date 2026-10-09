@@ -24,8 +24,8 @@ the running application instead:
 - **Core context** — application overview, health, effective configuration (secrets masked), beans, and request
   mappings.
 
-Every tool reuses the same controllers and immutable DTOs as the browser UI, so the agent sees the same masked,
-bounded shape a human would, never raw internals.
+Every tool reuses the same services and immutable DTO contracts as the browser UI, with compact agent projections
+where needed, so the agent sees masked, bounded evidence, never raw internals. Method-probe shapes stay in the panel.
 
 ::: details Dismissed Pentesting findings
 `pentest_scan`, `get_pentest_report`, their CLI equivalents, and the REST API retain accepted findings with
@@ -104,8 +104,9 @@ BootUI must already be running in your application, and its MCP server must be e
 
 If the application uses another port or a custom [`bootui.api-path`](PROPERTIES.md), disable the bundled BootUI MCP
 server in **Customize** and use the manual `~/.cursor/mcp.json` entry below with the correct URL. Do the same for an
-application reached from a container or another host, adding its `Authorization` bearer token to your local
-configuration. Agent Plugins does not expand environment variables in remote URLs, and the portable plugin deliberately
+application reached from a container or another host. If its raw peer is not loopback, a configured trusted proxy, or
+a trusted container gateway, add its `Authorization` bearer token to your local configuration.
+Agent Plugins does not expand environment variables in remote URLs, and the portable plugin deliberately
 ships no credentials.
 
 Agent Plugins names BootUI's transport `streamable-http`; Claude Code and VS Code call the same transport `http`, while
@@ -138,7 +139,7 @@ Two things to know before your first call:
    export BOOTUI_MCP_URL=http://127.0.0.1:8081/bootui/api/mcp
    ```
 
-An agent reaching BootUI from anywhere other than loopback must also present the bearer token; the plugin's
+An agent reaching BootUI from an untrusted non-loopback peer must also present the bearer token; the plugin's
 configuration carries no header, so register that server yourself with the
 [`claude mcp add` form below](#connect-an-agent-to-the-bootui-mcp-server) instead.
 
@@ -150,8 +151,9 @@ mutating actions — applies exactly as it does to any other MCP client.
 ## Connect an agent to the BootUI MCP server
 
 The BootUI MCP server is a local, opt-in JSON-RPC 2.0 endpoint at `POST /bootui/api/mcp`. It is **disabled by default**
-(fail-closed) and, like the rest of BootUI, only reachable over the loopback interface unless non-loopback access is
-explicitly enabled, which requires authentication.
+(fail-closed) and, like the rest of BootUI, rejects non-loopback peers unless access is explicitly enabled.
+Configured trusted proxy ranges and trusted container gateways are loopback-equivalent for authentication;
+`bootui.allow-non-localhost=true` alone does not confer that trust and requires a token for other peers.
 
 The endpoint speaks both MCP eras. A client that opens with `initialize` gets MCP 2025-06-18 exactly as before; a client
 that sends MCP 2026-07-28 per-request `_meta` (with the matching `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name`
@@ -219,10 +221,10 @@ stream in either era (`405`). See [Protocol eras](#protocol-eras) for the detail
    non-browser MCP client connects with a plain HTTP config, while the loopback, `Host` allow-list, and cross-site write
    defenses still apply.
 
-4. **If the agent is not on loopback, send the bearer token.** An agent that reaches the app from anywhere other than
-   loopback — the common case being an app in a container reached through a published port — is a remote API caller
-   like any other, and every MCP call answers `401` until it presents BootUI's token in the standard `Authorization`
-   header.
+4. **For an untrusted non-loopback peer, send the bearer token.** Loopback peers, configured
+   `bootui.trusted-proxies` ranges, and a gateway trusted by `bootui.trust-container-gateway` bypass authentication.
+   Any other peer allowed through `bootui.allow-non-localhost=true` answers `401` until it presents BootUI's token in
+   the standard `Authorization` header. Host and cross-site-write checks apply in every case.
    Tick **Agent connects from another host or container** in the panel and the snippets gain the header. For Claude Code
    that is:
 
@@ -498,7 +500,10 @@ The server's instructions tell an agent to call `get_agent_status` once before r
 needs the BootUI agent, so it learns up front whether Code Paths, Code Inventory, Side Effects, and method probes can
 answer, rather than one refused or unadvertised tool at a time. An observation `NOT_APPLICABLE` because it requires the
 BootUI agent (or one of its sensors) was **not measured**: it is never healthy, never "nothing to worry about", and
-never a passed check. The agent benchmark's sixth refusal fixture checks exactly that.
+never a passed check. `ARMED` means the claim was accepted, not that every asynchronous sensor self-test passed.
+Inspect the sensor states and reasons. After executor snapshot overflow, a reused task can have run under another
+submitter's request context: the tool description and Java Agent panel warn about this, and disabling a sensor does not
+reset its cumulative overflow or never-applied counters.
 
 ### Where does the handler's time go?
 
@@ -525,13 +530,13 @@ approximate (≈), interpolated within log2 buckets. The `diagnose_runtime_issue
 ### Did this method run, and how?
 
 A [method probe](features/java-agent.md#method-probes) records one application method's next invocations: metadata
-only, in every exposure mode (D24). A probe the user started in the Code Paths panel with argument and return shapes
+only, in every exposure mode. A probe the user started in the Code Paths panel with argument and return shapes
 says so (`recordShapes`), but `get_method_probe` never returns those shapes, in any exposure mode: its
 `shapesHiddenReason` says they are shown in the panel only.
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `start_method_probe` | `bootui probe start <method>` | An action: starts a probe on `id`, the method as `binary.Class#name`, with its JVM descriptor for an overloaded one (`com.example.PriceService#quote(I)J`), as Code Paths and Code Inventory name it. Returns the probe, `starting`. Refused (an in-band tool error with the REST status) for a method the agent never instrumented or outside the application's packages (400), and while BootUI or the Code Paths panel is read-only, without the agent, or when five probes run (409) |
+| `start_method_probe` | `bootui probe start <method>` | An action: starts a probe on `id`, the method as `binary.Class#name`, with its JVM descriptor for an overloaded one (`com.example.PriceService#quote(I)J`), as Code Paths and Code Inventory name it. Returns the probe, `starting`. A method that cannot be probed is a client error (REST/CLI 400); an unavailable or busy probe service is 409. Disabled/read-only panel policy refuses the action before it runs (REST/CLI 403, CLI exit 2); MCP reports refusals in-band with `isError: true`, not an HTTP status in the result. Without the agent, the tool is normally not advertised |
 | `get_method_probe` | `bootui probe show <id>` | The probe `id`: its state (`starting`, `active`, `ending`, `ended`, `failed`), `endReason` or `failure`, `waitingForClass`, `async`, and each recorded invocation's duration, thread kind, request id, outcome or exception type, and calling frame |
 
 A probe records at most 20 invocations, for at most 60 seconds, five at once, and ends with the run; the agent enforces
@@ -572,7 +577,8 @@ Like `get_code_paths`, it is advertised only while the agent is armed for this r
 the agent evidence contract. When HTTP Exchanges is disabled, route rows merge under
 `(route hidden: HTTP Exchanges is disabled)` and expose no request ids. When Code Paths is disabled, rows lose their
 inside bean method. A disabled Side Effects panel shows no rows. Sensor groups this version does not ship are listed as
-`not-available` with reason `Not available in this version.` `blocking` is
+`not-available` with reason `Not available in this version.` Every Side Effects sensor in the current catalog ships;
+an older attached agent can still lack one. `blocking` is
 `not-applicable` on Spring MVC until a WebClient's event loop is registered.
 
 ### MySQL operational evidence
@@ -652,7 +658,7 @@ in the current scan.`; both are REST 404. MCP exposes these as in-band `isError:
 is that message, with no status code, not internal errors. The CLI facade retains its existing tool-error mapping: unknown
 rules are HTTP 400 (HTTP 404 is reserved for an unadvertised tool), and stale snapshots remain HTTP 409.
 
-MCP still refuses an oversized rendered response with JSON-RPC `-32003`. Retry the **same scan ID and offset**
+MCP still refuses an oversized rendered response with JSON-RPC `-32003` (legacy) or `-31003` (modern). Retry the **same scan ID and offset**
 with a smaller `limit`; a byte-budget refusal is neither an empty page nor proof of completion. Do not advance
 the offset on any error. Keep pages bounded and stop rather than looping if even one detail exceeds the byte budget.
 
@@ -757,7 +763,8 @@ answers with why its panel is unavailable.
 ### Agent-sized defaults
 
 An agent pays for every byte it reads, so the reads below answer with a short first page when the call gives no
-`limit`, and keep the full payload for the browser. Each takes a `query` and carries the `page` envelope above:
+`limit`, and keep the full payload for the browser. Most accept `query`; HTTP Exchanges accepts only `limit`.
+They carry the `page` envelope above (Live Activity uses `pageInfo`):
 `hasMore: true` means rows were left out, so narrow the query or raise `limit` (still capped by `max-results`).
 
 | Tool (command) | Default | `query` matches |
@@ -769,7 +776,8 @@ An agent pays for every byte it reads, so the reads below answer with a short fi
 | `get_copilot_sessions`, `get_claude_code_sessions` | 10 sessions; the first read after startup parses the newest session files and can take seconds on a large session directory | Id, model, working directory, status, or last activity |
 | `get_vulnerabilities_report` (`bootui vulnerabilities report`) | 10 dependencies, vulnerable first, each with at most 5 advisories without details | Coordinates, severity, or an advisory id or alias; an exact `group:artifact` lists all its advisories, an exact advisory id or alias returns it whole |
 | `get_live_activity` (`bootui activity`) | 25 newest entries | An entry type (`SQL`, `EXCEPTION`, ...), a severity (`SLOW`, `WARN`, `ERROR`), or text such as a route |
-| `get_config`, `get_beans`, `get_metrics`, `get_conditions`, `get_threads`, `get_http_exchanges` | 25 rows | As before; `get_conditions` pages positive then negative matches and also narrows `unconditionalClasses` and `exclusions` |
+| `get_config`, `get_beans`, `get_metrics`, `get_conditions`, `get_threads` | 25 rows | As before; `get_conditions` pages positive then negative matches and also narrows `unconditionalClasses` and `exclusions` |
+| `get_http_exchanges` (`bootui http exchanges`) | 25 newest exchanges | No `query` argument; raise `limit` within the server cap |
 
 Totals such as the vulnerabilities report's `total` and `vulnerable` still count the whole report. Live Activity keeps
 its own shape: `typeCounts` counts every retained entry by type, and `pageInfo.hasMore` says whether more entries
@@ -781,7 +789,8 @@ out `propertySuggestions`, the browser's completion list of every known property
 lists every matching sensor and takes no `limit`, ignoring one sent by an older CLI. Side Effects
 lists the fixed limitations of a sensor's rows only for sensors with listed rows; query a sensor id, such as
 `executors`, for its hooks (and, from agent status, its self-test steps). A 1.x CLI, which knows these commands without the newer
-options, keeps working and gets the same first page.
+options, keeps working for commands it already provides and gets the same first page. New Java-agent commands require
+a CLI version that includes them; an old binary does not gain commands just because the running server advertises them.
 
 ### Compact answers from scans and capture controls
 
@@ -834,7 +843,7 @@ browser, the MCP tools, and the CLI alike:
 Exceptions and Traces keep no lifetime count, so their acknowledgement's `totalCaptured` is `null`.
 
 Every tool response, report tools included, obeys `bootui.mcp.max-response-bytes` (4 MiB by default). A response that
-does not fit is refused with JSON-RPC `-32003` rather than truncated, so the agent never mistakes a cut report for a
+does not fit is refused with JSON-RPC `-32003` (legacy) or `-31003` (modern) rather than truncated, so the agent never mistakes a cut report for a
 complete one. Report tools stay well below it: a rule advisor's report keeps at most 10 (or 20) sample violations per
 rule and pages the rest with its `get_*_rule_violations` tool; `get_vulnerabilities_report` lists `limit` dependencies,
 each with at most 5 advisories (active and most severe first) without their OSV `details` and with at most 3
@@ -866,14 +875,16 @@ claim metadata.
 ## Protocol eras
 
 BootUI selects the era of each `POST /bootui/api/mcp` from the request itself, as MCP 2026-07-28's backward
-compatibility rules describe:
+compatibility rules describe. Protocol fields belong in `params._meta`, not at the JSON-RPC envelope's top level:
 
 - **Legacy (MCP 2025-06-18).** A request without `_meta["io.modelcontextprotocol/protocolVersion"]`, and every
   `initialize`, is served as in BootUI 1.x: `initialize`, `ping`, the same result shapes, and error codes `-32000`
   (disabled), `-32001` (at capacity), `-32002` (timeout), and `-32003` (response too large). An `MCP-Protocol-Version`
   header with any value other than `2025-06-18` or `2026-07-28`, or sent more than once, is refused with `400` and
   `-32600`; `2026-07-28` without the modern `_meta` is a malformed modern request (`400`, `-32602`, echoing the request
-  id; BootUI 1.x answered `-32600` with a `null` id). The envelope fields `jsonrpc`, `method`, and `params.name` count
+  id; BootUI 1.x answered `-32600` with a `null` id). For `initialize`, only an absent header or `2025-06-18` is
+  accepted; a `2026-07-28` header is refused with `400`, `-32600`, even if `_meta` is present. The envelope fields
+  `jsonrpc`, `method`, and `params.name` count
   only when they are strings, so a `null` or numeric `method` is `Missing 'method'` and a `null` tool name is `Missing
   tool name` on every stack. `MCP-Protocol-Version` is judged after the body is read, so an oversized, unparseable, or
   batch body reports that problem first.
@@ -1064,6 +1075,7 @@ Docker.
 ```bash
 git clone https://github.com/jdubois/boot-ui.git
 cd boot-ui
+./mvnw -B -ntp -pl bootui-spring-sample-app -am install -DskipTests
 ./mvnw -pl bootui-spring-sample-app spring-boot:run
 ```
 
@@ -1103,7 +1115,8 @@ join or entity graph where a use case needs it up front.
 
 ### 6. Verify
 
-The agent re-runs `hibernate_scan`, whose summary counts `HIB-FETCH-001` at 2 instead of 3, then reads
+Rebuild and restart or let DevTools reload the edited application before scanning again. The agent re-runs
+`hibernate_scan`, whose summary counts `HIB-FETCH-001` at 2 instead of 3, then reads
 `get_hibernate_report`: the rule's `violationCount` is 2, and its `sampleViolations`
 no longer mention `SampleOrder#customer` — confirmed against the actually running app, not by re-reading the source.
 `HIB-FETCH-001` itself does **not** disappear from the report: `SampleAppPreferences#enabledFeatures` and
@@ -1118,9 +1131,8 @@ bootui hibernate scan > /dev/null && bootui hibernate report --json \
 An empty result means the fix held.
 
 `SampleOrder` intentionally ships with several other mappings that trip other Hibernate checks (see the comments in
-the source file), so a fresh clone always has this same finding to practice on. Discard the change afterwards
-(`git checkout -- bootui-spring-sample-app`) if you want to leave the fixture as-is for next time, or keep it if
-you're using the sample app as a personal scratch pad.
+the source file), so a fresh clone has this finding to practice on. If you want to restore the exercise fixture,
+review the diff and revert only the association change you made, preserving any unrelated local work.
 
 ### The same pattern for every advisor
 

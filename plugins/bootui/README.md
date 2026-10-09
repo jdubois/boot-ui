@@ -1,6 +1,6 @@
 # BootUI agent plugin
 
-This plugin lets an agent consult a running Spring Boot or Quarkus application through BootUI. It installs:
+This plugin lets an agent consult running Spring Boot and Quarkus applications through BootUI. It installs:
 
 - the `bootui` skill, which teaches the agent how to add, configure, and use BootUI safely;
 - the local MCP server connection at `http://127.0.0.1:8080/bootui/api/mcp`.
@@ -63,8 +63,9 @@ The bundled MCP server uses the default loopback endpoint. If the application us
 }
 ```
 
-For an application reached from another host or container, add the bearer token yourself; the plugin never ships or
-stores credentials:
+For an untrusted non-loopback peer, add the bearer token yourself; the plugin never ships or stores credentials.
+Loopback peers, configured `bootui.trusted-proxies` ranges, and a trusted container gateway bypass authentication.
+`bootui.allow-non-localhost=true` alone does not bypass it. Host and cross-site-write checks apply in every case:
 
 ```json
 {
@@ -89,7 +90,8 @@ Add this repository's marketplace and install the plugin:
 ```
 
 Claude Code reads the client-specific manifest in `.claude-plugin/plugin.json`. Set `BOOTUI_MCP_URL` before starting
-Claude Code when the application does not use the default endpoint. For non-loopback access, register the server
+Claude Code when the application does not use the default endpoint. For access from an untrusted non-loopback peer,
+register the server
 manually so its `Authorization` header stays in your local configuration rather than in the plugin.
 
 For complete setup, safety, and tool documentation, see the

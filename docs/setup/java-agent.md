@@ -27,7 +27,7 @@ Copy the snippet for your build from the panel or from `bootui agent status --js
 for one Spring Boot run:
 
 ```bash
-JAVA_TOOL_OPTIONS='-javaagent:<path to bootui-agent.jar>' ./mvnw spring-boot:run
+JAVA_TOOL_OPTIONS='"-javaagent:/path to/bootui-agent.jar"' ./mvnw spring-boot:run
 ```
 
 or for Quarkus dev mode:
@@ -44,9 +44,11 @@ Spring when `bootui.enabled=ON` forces BootUI on in a disabled profile such as `
 ## 3. Check that it is armed
 
 Restart the application, then run `bootui agent status` or reopen the panel. `ARMED` means this application claimed the
-agent and its sensors record; the report lists each sensor. Any other state comes with its reason; see
+agent; installation and self-tests happen asynchronously, so check each sensor's state before relying on its evidence.
+Any other agent state comes with its reason; see
 [Status states](../features/java-agent.md#status-states). The default sensors are `executors`, `inventory`,
-`code-paths`, `processes`, `network`, `files`, `blocking`, and `resources`; `bootui.agent.sensors` adds the opt-in ones.
+`code-paths`, `processes`, `network`, `files`, `blocking`, and `resources`. Setting `bootui.agent.sensors` replaces this
+list: include the defaults you want to keep alongside any opt-in sensors.
 
 ## 4. Answer "did my change run?"
 
@@ -54,8 +56,8 @@ Code Inventory compares this run with the previous one, so it needs a DevTools r
 the edit:
 
 1. Change a method and let the application restart or reload.
-2. `bootui code inventory` lists the changed methods, each `EXECUTED` or `NEVER_EXECUTED` in this run, with the first
-   request and route that ran it.
+2. `bootui code inventory` lists the changed methods, each `EXECUTED`, `NEVER_EXECUTED`, or `NOT_TRACKED` in this run,
+   with the first request and route when retained. `NOT_TRACKED` is unknown, not evidence that the method never ran.
 3. Run the test or send the request that should reach a `NEVER_EXECUTED` method, then read the inventory again.
 4. Still `NEVER_EXECUTED`? Start a method probe on it (`bootui probe start <method>`, or **Probe in Code Paths** on the
    method in the Code Inventory panel), wait until `bootui probe show <id>` says `active`, rerun the same test or

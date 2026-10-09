@@ -10,7 +10,9 @@ Panel settings are consistent across the UI and API:
 - Every visible panel has `bootui.panels.<panel-id>.enabled` with default `true`.
 - Panels with browser-triggered actions also have `bootui.panels.<panel-id>.read-only` with default `false`.
 - `bootui.read-only=true` makes every action-capable panel read-only, even when the per-panel read-only flag is `false`.
-- Disabled panels are moved to the Disabled / unavailable sidebar group and their panel API routes return `403`.
+- Disabled panels are moved to the Disabled / unavailable sidebar group and their registered panel API routes return
+  `403`. Scorecard and Command Line have no panel API prefix: their panel switches hide the navigation entry, not
+  `/overview` or the CLI transport; `bootui.cli.enabled` controls the latter.
 - Read-only panels keep read endpoints visible but block mutating API requests. Safe methods (`GET`, `HEAD`, `OPTIONS`)
   remain allowed.
 
@@ -20,8 +22,8 @@ BootUI targets Spring Boot and Quarkus from one codebase, and its `bootui.*` key
 same by name on both adapters** — but they are read by different configuration engines, and a few
 keys are platform-specific.
 
-**How keys are read.** On Spring, `bootui.*` keys are bound once into a `@ConfigurationProperties`
-object, so Spring's relaxed binding applies (camelCase, kebab-case, and underscores are all
+**How keys are read.** On Spring, most static `bootui.*` settings are bound into a `@ConfigurationProperties`
+object; early activation and agent claims read the prepared environment. Spring's relaxed binding applies (camelCase, kebab-case, and underscores are all
 accepted). On Quarkus, keys are read through MicroProfile Config and must be
 written in **exact kebab-case**. Safety policy is read **live, per request**; a missing or invalid value **fails closed** (for example, masking
 stays on and non-loopback access stays denied). Most keys below are honored identically on both
@@ -52,6 +54,10 @@ equivalents).
 | `bootui.dev-services.restart-enabled` / `.log-tail-bytes`                    | Spring only                | Quarkus Dev Services are build-time; the panel has no log-tail or restart controls.                                                      |
 | `bootui.graalvm.*`                                                           | Spring only                | The GraalVM panel is not applicable on Quarkus.                                                                                          |
 | `bootui.http-sessions.max-sessions`                                          | Spring only                | The HTTP Sessions panel is not applicable on Quarkus.                                                                                    |
+| `bootui.transactions.*`, `bootui.jms.*` | Spring MVC and WebFlux only | Quarkus has no transaction or JMS capture integration. |
+| `bootui.agent.allow-in-disabled-profiles` | Spring only | Quarkus production mode never claims the agent, with no override. |
+| `bootui.rest-client-trace.capture-headers`, `bootui.rest-client-trace.max-header-value-length` | Spring only | Quarkus never captures arbitrary REST-client headers. |
+| `bootui.claude-code.allow-raw-reveal` | Spring only | Quarkus always disables raw Claude Code JSONL reveal, even if this key is set. |
 | `bootui.activity.max-entries`, `bootui.activity.n-plus-one-threshold` | Spring only | Stream cap and N+1 detection threshold apply only to Spring's richer tiered-correlation profiler; Quarkus's reduced trace-id-only profiler has no equivalent config. `bootui.activity.request-slow-threshold-ms` and `bootui.activity.max-scheduled-task-runs` are shared by both adapters (see below). The optional durable-persistence backend (`bootui.activity.persistence.*`) is **shared** — see below. |
 | `bootui.telemetry.max-request-bytes`                                         | Spring only                | Sizes the embedded OTLP receiver, which Quarkus does not run (it captures spans in-process).                                             |
 | `bootui.cache.activity-capture-enabled`, `bootui.cache.activity-max-events`  | Spring only                | Feeds the Live Activity `CACHE` events and cache hit ratio KPI, captured by decorating Spring `CacheManager` beans; Quarkus has no comparable runtime interception seam for `quarkus-cache`'s build-time-woven annotations. |
@@ -63,9 +69,11 @@ equivalents).
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `bootui.overrides-file` | The Configuration panel persists runtime overrides here, and the key also locates the advisor dismissed-rules file. | The Configuration panel is read-only on Quarkus, so the key only locates the advisor dismissed-rules file (`.bootui/boot-ui.yml`). |
 | `bootui.agent.*` | Read at startup, before the context exists, to decide whether and how the run claims an attached BootUI agent. | Build-time configuration read when the application is built (augmented); dev mode rebuilds when it changes. |
+| `bootui.email.dev-trap` | Suppresses handing captured mail to the real transport when enabled. | Not a send gate; sent/not-sent comes from `quarkus.mailer.mock`, because capture occurs after sending. |
+| `bootui.websockets.*` | Endpoint/session topology is supported; frame capture requires servlet STOMP. | Endpoint/session topology is supported with Quarkus WebSockets Next; no frame capture or STOMP subscriptions. |
 
-Everything not listed in the two tables above is honored under the same key — and with the same
-default — on both adapters. This includes the safety keys (`bootui.allow-non-localhost`,
+The remaining shared settings use the same names and defaults wherever their backing capability exists; a property
+does not add a missing integration. These include the safety keys (`bootui.allow-non-localhost`,
 `bootui.allowed-hosts`, `bootui.trusted-proxies`, `bootui.trust-container-gateway`,
 `bootui.authentication.token`),
 `bootui.expose-values`, `bootui.mask-secrets`, `bootui.path` / `bootui.api-path`,
@@ -74,7 +82,8 @@ default — on both adapters. This includes the safety keys (`bootui.allow-non-l
 `1000`),
 `bootui.log-tail.max-bytes` (default `0`, meaning unbounded), and the `bootui.github.*`,
 `bootui.vulnerabilities.*` (including `osv-base-uri`, default `https://api.osv.dev`),
-`bootui.sql-trace.*`, `bootui.runtime-journal.*`, `bootui.postgresql.*`, `bootui.transactions.*`, `bootui.telemetry.*` (except `max-request-bytes`), `bootui.heap-dump.*`,
+`bootui.sql-trace.*`, `bootui.runtime-journal.*`, `bootui.postgresql.*`, `bootui.mysql.*`, `bootui.runtime-insights.*`,
+`bootui.code-inventory.*`, `bootui.resources.*`, `bootui.telemetry.*` (except `max-request-bytes`), `bootui.heap-dump.*`,
 `bootui.exceptions.*`, `bootui.security-logs.*`, `bootui.cache.*` (except `.activity-capture-enabled` and
 `.activity-max-events`, Spring only — see above), `bootui.mcp.*`, `bootui.cli.*`, `bootui.ai.*`,
 `bootui.copilot.*`, and `bootui.claude-code.*` families. It also includes the per-panel access keys —
@@ -90,14 +99,14 @@ settings" below.
 | `bootui.enabled`                 | `AUTO`                                  | Activation mode. `AUTO` activates only for configured local profiles or DevTools; `ON` forces BootUI on; `OFF` forces it off. In YAML, `ON`/`OFF` are parsed as booleans, so `true`/`yes` and `false`/`no` are accepted as `ON`/`OFF`. |
 | `bootui.enabled-profiles`        | `dev,local`                             | Profiles that activate BootUI when `bootui.enabled=AUTO`.                                                                       |
 | `bootui.disabled-profiles`       | `prod,production`                       | Profiles that force BootUI off unless `bootui.enabled=ON`.                                                                      |
-| `bootui.force-web`               | `true`                                  | While BootUI is active, force a non-web (command-line) application into a servlet web application so the console can be served. No effect on apps that are already servlet web apps or explicitly reactive. Set to `false` to leave the host's web-application type untouched. |
+| `bootui.force-web`               | `true`                                  | While BootUI is active, request servlet mode for a non-web application. This does not add servlet classes or an embedded server: the application must supply a servlet web starter to serve the console. No effect on apps already servlet or explicitly reactive. Set `false` to leave the web-application type untouched. |
 | `bootui.path`                    | `/bootui`                               | Application-relative UI base path used by the shell, assets, filters, and startup banner. Normalized and validated as described below. |
 | `bootui.api-path`                | `<bootui.path>/api`                     | Optional application-relative API base path used by the UI, controllers, filters, MCP, OTLP, streams, and downloads.             |
 | `bootui.allow-non-localhost`     | `false`                                 | Explicitly relax only the source-address check. Host/DNS-rebinding, cross-site-write, and bearer-authentication protections remain active. Keep this `false` unless remote access is required and the network is trusted. |
 | `bootui.allowed-hosts`           | _(empty)_                               | Extra `Host` header values accepted by the loopback filter, in addition to the built-in loopback names (`localhost`, `127.0.0.1`, `::1`). Use this for custom local hostnames while keeping DNS-rebinding protection. Entries must be well-formed hostnames or IP literals: a request whose `Host` header cannot be parsed as an authority is rejected. |
-| `bootui.authentication.token`    | _(generated)_                           | Access token required for every non-loopback `/bootui/api/**` request. When remote access is configured and this property is blank, BootUI generates a 256-bit token and logs it once at startup. Supply a stable token through an environment-backed property when logs are shared; configured tokens are never printed. |
-| `bootui.trusted-proxies`         | _(empty)_                               | Source IP ranges in CIDR notation (e.g. `172.16.0.0/12` for the Linux Docker bridge, or `192.168.65.0/24` for the Docker Desktop gateway) trusted in addition to loopback. A narrow opt-in for local Docker-bridge callers: it relaxes only the source-address check while keeping the `Host` allow-list (DNS-rebinding) and cross-site write (CSRF) protections in force. Prefer this over `bootui.allow-non-localhost`, and pair it with `bootui.allowed-hosts` for the hostname the browser uses. |
-| `bootui.trust-container-gateway` | `OFF`                                   | One-flag opt-in to trust the auto-detected container gateway as a single `/32`, so BootUI can be reached inside a container with a published port (host→container traffic is SNAT'd to the gateway) without knowing the subnet or setting a broad `bootui.trusted-proxies` CIDR. Detection works on both flavors: the bridge default gateway from `/proc/net/route` on Linux Docker Engine (e.g. `172.17.0.1`), and the `gateway.docker.internal` DNS name on Docker Desktop (`192.168.65.1`, which is _not_ the route-table gateway). `OFF` (default, fail closed) never trusts it; `AUTO` auto-detects and trusts the gateway only when running inside a container; `ON` trusts a detected gateway even if container heuristics are inconclusive. Relaxes only the source-address check — the `Host` allow-list (DNS-rebinding) and cross-site write (CSRF) protections stay in force. Note: with the common `-p 8080:8080` bind, LAN clients reaching the published port are also SNAT'd to the gateway; use `-p 127.0.0.1:8080:8080` for strict loopback equivalence. |
+| `bootui.authentication.token`    | _(generated)_                           | Access token for API callers whose raw peer is neither loopback, a configured trusted proxy, nor a trusted container gateway. `bootui.allow-non-localhost=true` alone does not bypass authentication. A blank property generates a 256-bit token for this application; when remote access is configured, it is logged once at startup. Supply a stable token through an environment-backed property when logs are shared; configured tokens are never printed. |
+| `bootui.trusted-proxies`         | _(empty)_                               | Raw peer IP ranges in CIDR notation trusted as loopback-equivalent for source acceptance and authentication. No forwarded header establishes trust. Keep ranges narrow; Host/DNS-rebinding and cross-site-write checks remain active. Pair with `bootui.allowed-hosts` for the browser's hostname. |
+| `bootui.trust-container-gateway` | `OFF`                                   | Trust detected container gateways as individual `/32` addresses, both for source acceptance and authentication. Detection reads `/proc/net/route` on Linux Docker Engine and resolves `gateway.docker.internal` on Docker Desktop. `OFF` trusts none; `AUTO` trusts detected gateways only inside a detected container; `ON` trusts them even when container heuristics are inconclusive. Host and cross-site-write checks remain active. Published-port traffic can be SNAT'd to the gateway, including LAN callers: bind with `-p 127.0.0.1:8080:8080` for strict loopback exposure. |
 | `bootui.mask-secrets`            | `true`                                  | Enables secret-like value masking helpers.                                                                                      |
 | `bootui.expose-values`           | `MASKED`                                | Configuration value exposure mode: `MASKED`, `METADATA_ONLY`, or `FULL`. It also governs exception, Log Tail, and Dev Services container log text, and the span values of the Traces detail, request profile, and AI Framework chat detail. It also governs the text the [runtime journal](#runtime-journal) shows. In Live Activity, `MASKED` replaces SQL literals with `?` and masks secret-like assignments in SQL and log text and `;name=value` path parameters, `METADATA_ONLY` omits log text and keeps only a statement's literal-free shape, and `FULL`, or `MASKED` with `bootui.mask-secrets=false`, shows the text as recorded. Runtime Insights always quotes a statement's literal-free shape; the log text and request paths in its sentences and evidence follow the same rule. For [method probes](#code-paths), a string's length and an enum constant's name in argument and return shapes need `FULL`, or `MASKED` with `bootui.mask-secrets=false`, and `METADATA_ONLY` hides shapes. `FULL` can disclose secrets. |
 | `bootui.show-banner`             | `true`                                  | Print the BootUI URL on application startup.                                                                                    |
@@ -105,20 +114,24 @@ settings" below.
 | `bootui.startup.capacity`        | `4096`                                  | Maximum startup steps retained by BootUI's auto-installed startup buffer. Values less than or equal to zero disable the buffer. |
 | `bootui.free-on-idle.enabled`    | `true`                                  | Release BootUI's live in-memory diagnostic buffers (captured SQL, ingested traces, and the request/security correlation windows) and pause recording into them after the console has been idle for `bootui.free-on-idle.timeout`, refilling them from live traffic once the console is used again. Dev-only (BootUI is inactive in production); the Exceptions and Log Tail buffers are always retained, and the [runtime journal](#runtime-journal) keeps recording while the buffers are released. Set to `false` to keep all buffers recording continuously. |
 | `bootui.free-on-idle.timeout`    | `5m`                                    | How long the console may go without any BootUI request (UI load, API poll, or stream open) before its live buffers are released. The timer resets on every BootUI request, so an open console never reclaims. Clamped to a minimum of one second. |
-| `bootui.read-only`               | `false`                                 | Disable every browser-triggered action while keeping read-only panel data visible.                                              |
+| `bootui.read-only`               | `false`                                 | Block panel actions through the browser, REST, MCP, and CLI while keeping reads visible. |
 | `bootui.overrides-file`          | `.bootui/application-bootui.properties` | File used by the Configuration panel to persist local runtime overrides. BootUI resolves the advisor dismissed-findings file (`boot-ui.yml`) in the same directory. Set it from the environment, not from `application.properties`. |
 | `bootui.monitoring.exclude-self` | `true`                                  | Hide BootUI's own beans, mappings, loggers, metrics, traces, and related runtime data from monitoring panels.                   |
 
 ### Remote API authentication
 
 The configured static SPA remains available after non-loopback access is explicitly enabled, but
-the configured API surface requires authentication for every caller whose raw TCP peer is not
-loopback. Paste the startup token into the unlock screen; BootUI exchanges it for an HTTP-only,
+the configured API surface requires authentication for a caller whose raw TCP peer is neither loopback, nor within a configured
+`bootui.trusted-proxies` range, nor a gateway trusted by `bootui.trust-container-gateway`.
+`bootui.allow-non-localhost=true` bypasses only source rejection, never this authentication requirement.
+Paste the startup token into the unlock screen; BootUI exchanges it for an HTTP-only,
 `SameSite=Strict` session cookie scoped to the browser-visible API path (including the host application's context/root
 path), which also authenticates SSE streams and
 downloads. CLI, MCP, and OTLP clients should send the token using the standard HTTP bearer authorization scheme.
 
-Localhost requests remain frictionless and do not require a token. Authentication is an additional
+Localhost, configured trusted proxy, and trusted gateway requests remain frictionless and do not require a token.
+Trusting a proxy or gateway therefore changes both source acceptance and authentication; Host and cross-site-write
+protection still apply. Bind container ports to loopback and keep trust ranges narrow. Authentication is an additional
 layer: activation, source trust, Host validation, cross-site-write protection, panel access, and
 read-only checks still apply. Use HTTPS for direct remote access because bearer credentials sent over
 plain HTTP can be intercepted.
@@ -214,10 +227,10 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Diagnostics     | Exceptions                | `exceptions`                | `bootui.panels.exceptions.enabled`                | `bootui.panels.exceptions.read-only`      |
 | Diagnostics     | HTTP Exchanges            | `http-exchanges`            | `bootui.panels.http-exchanges.enabled`            | Not applicable; view-only.                |
 | Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`      |
-| Java agent      | Java Agent                | `java-agent`                | `bootui.panels.java-agent.enabled`                | `bootui.panels.java-agent.read-only`      |
-| Java agent      | Code Paths                | `code-paths`                | `bootui.panels.code-paths.enabled`                | `bootui.panels.code-paths.read-only`      |
-| Java agent      | Code Inventory            | `code-inventory`            | `bootui.panels.code-inventory.enabled`            | Not applicable; view-only.                |
-| Java agent      | Side Effects              | `side-effects`              | `bootui.panels.side-effects.enabled`              | Not applicable; view-only.                |
+| Instrumentation | Java Agent                | `java-agent`                | `bootui.panels.java-agent.enabled`                | `bootui.panels.java-agent.read-only`      |
+| Instrumentation | Code Paths                | `code-paths`                | `bootui.panels.code-paths.enabled`                | `bootui.panels.code-paths.read-only`      |
+| Instrumentation | Code Inventory            | `code-inventory`            | `bootui.panels.code-inventory.enabled`            | Not applicable; view-only.                |
+| Instrumentation | Side Effects              | `side-effects`              | `bootui.panels.side-effects.enabled`              | Not applicable; sensor switches use Java Agent policy. |
 | Developer tools | MCP Server                | `mcp-server`                | `bootui.panels.mcp-server.enabled`                | `bootui.panels.mcp-server.read-only`      |
 | Developer tools | Command Line              | `cli`                       | `bootui.panels.cli.enabled`                       | Not applicable; view-only.                |
 | Developer tools | Spring DevTools           | `devtools`                  | `bootui.panels.devtools.enabled`                  | `bootui.panels.devtools.read-only`        |
@@ -362,7 +375,7 @@ remain gated. Retrieval completeness does not affect evidence coverage or scores
 **Enable for this runtime** starts statistics collection for the current application process only. It does not rewrite
 application configuration or reset existing counters, and it does not require confirmation. The action is blocked when
 either `bootui.read-only=true` or `bootui.panels.hibernate-statistics.read-only=true`. To enable collection persistently
-from startup, set `hibernate.generate_statistics=true` on Spring or
+from startup, set `spring.jpa.properties.hibernate.generate_statistics=true` on Spring or
 `quarkus.hibernate-orm.statistics=true` on Quarkus, as recommended by
 [HIB-CONFIG-007](HIBERNATE-CHECKS.md#hib-config-007-hibernate-statistics-should-be-enabled-when-tuning).
 
@@ -490,7 +503,7 @@ See [MySQL](features/database.md#mysql) for permissions, evidence scopes, and sa
 | ------------------------------------------------------- | ------- | ----------- |
 | `bootui.panels.transactions.enabled`                    | `true`  | Show the Transactions panel and register transaction capture. |
 | `bootui.panels.transactions.read-only`                  | `false` | Disable Pause/Resume and Clear while keeping captured transactions visible. |
-| `bootui.transactions.enabled`                           | `true`  | Contribute BootUI's listener to configurable blocking Spring transaction managers. |
+| `bootui.transactions.enabled`                           | `true`  | Contribute BootUI's listener to configurable blocking and reactive Spring transaction managers. |
 | `bootui.transactions.recording`                         | `true`  | Initial recording state; the panel can pause or resume it at runtime. |
 | `bootui.transactions.max-entries`                       | `200`   | Maximum completed transaction boundaries retained in the bounded in-memory buffer. |
 | `bootui.transactions.slow-transaction-threshold-millis` | `200`   | Transactions at or above this duration are flagged as slow; `0` disables the flag. |
@@ -545,8 +558,8 @@ The Live Activity panel reuses the HTTP Exchanges, SQL Trace, REST Client, Excep
 Scheduled Tasks, and Email sources, so disabling any of those panels through their own `bootui.panels.*` toggles also
 removes them from the stream. Kafka, RabbitMQ, and JMS capture additionally have their own `bootui.kafka.*`,
 `bootui.rabbitmq.*`, and `bootui.jms.*` toggles—see below—and each stops feeding Live Activity when its dedicated panel is
-disabled. The panel itself is
-read-only. A request whose correlated SQL trips `bootui.activity.n-plus-one-threshold` is flagged with a red **N+1**
+disabled. Reading the feed changes nothing. Its **Clear recording** and **Free BootUI memory** actions are blocked by
+`bootui.read-only` or `bootui.panels.activity.read-only`. A request whose correlated SQL trips `bootui.activity.n-plus-one-threshold` is flagged with a red **N+1**
 badge both in the main stream row and in its profile drawer (the same threshold, so the two views never disagree); the
 drawer additionally lists the flagged group's call site(s) whenever `bootui.sql-trace.capture-call-site` is enabled.
 
@@ -557,7 +570,7 @@ drawer additionally lists the flagged group's call site(s) whenever `bootui.sql-
 | `bootui.activity.request-slow-threshold-ms`   | `1000`  | Duration in milliseconds at or above which a request is slow, on every stack: it sets the `SLOW` severity of `REQUEST` and `SCHEDULED` entries and decides which HTTP exchanges are kept in the reserved share, and so which requests Live Activity durable persistence remembers as reserved. Set to `0` to disable slow classification. |
 | `bootui.activity.n-plus-one-threshold`        | `5`     | Number of identical correlated `SELECT` statements above which a request is flagged with a potential N+1 pattern, both as a list-level badge and in its profile drawer. |
 | `bootui.activity.max-scheduled-task-runs`     | `200`   | Maximum number of captured `@Scheduled` method executions retained for `SCHEDULED` stream entries. Shared by both adapters: Spring feeds it from Micrometer's `ScheduledTaskObservationContext`, Quarkus from the CDI `SuccessfulExecution`/`FailedExecution` events (see [Live Activity](features/overview.md#feed-types)). |
-| `bootui.activity.feed-source`                 | `journal` | Where the stream comes from, on every stack: `journal` renders the runtime journal's retained events, so its history reaches as far back as the journal retains and every child nests under its request or execution by id ([PLAN-v2.md](PLAN-v2.md) §5.3). `buffers`, 1.x's feed merged from each panel's own buffer, was removed in 2.0.0 and fails startup with a message naming its replacement: remove the property or set it to `journal`. With the journal disabled (`bootui.runtime-journal.enabled=false`) the panel buffers serve the feed on their own, and a request may still ask for them with `?source=buffers`, as the panel's **Panel buffers** choice does. The journal keeps no exception or log messages, principals, or email subjects; the live feed adds them back, already masked, from the panels while they still hold the event, and otherwise shows metadata only. It shows each exception occurrence rather than one row per group and adds `TRANSACTION` and `LOG` rows. With durable persistence on, `journal` also writes the history from the journal as it records each batch, instead of polling the merged feed, so a burst is kept as completely as the journal records it; persisted rows carry metadata only. An unknown value fails startup, on Spring MVC, Spring WebFlux, and Quarkus alike. |
+| `bootui.activity.feed-source`                 | `journal` | Where the stream comes from, on every stack: `journal` renders the runtime journal's retained events, so its history reaches as far back as the journal retains and every child nests under its request or execution by id. The configured value `buffers` was removed in 2.0 and fails startup with a message naming its replacement: remove the property or set it to `journal`. With the journal disabled (`bootui.runtime-journal.enabled=false`) the panel buffers serve the feed on their own, and a request may still ask for them with `?source=buffers`, as the panel's **Panel buffers** choice does. The journal keeps no exception or formatted log messages, principals, or email subjects; the live feed adds them back, already masked, from the panels while they still hold the event, and otherwise shows metadata only. It shows each exception occurrence rather than one row per group and adds `TRANSACTION` and `LOG` rows. With durable persistence on, `journal` also writes the history from the journal as it records each batch, instead of polling the merged feed, so a burst is kept as completely as the journal records it; persisted rows carry metadata only. An unknown value fails startup, on Spring MVC, Spring WebFlux, and Quarkus alike. |
 
 #### Live Activity Kafka capture
 
@@ -570,7 +583,7 @@ On Spring, the consumer group is available and the listener-id field currently c
 bean name (not the resolved per-`@KafkaListener` id); on Quarkus the group is unavailable and the channel name is used
 as the listener id. Quarkus outgoing capture requires `OutgoingKafkaRecordMetadata` to be attached before the interceptor;
 payload-only emissions that rely solely on channel configuration are not recorded. See
-[SPECIFICATION.md §5.14.2](./SPECIFICATION.md).
+[Live Activity specification](./SPECIFICATION.md).
 
 | Property                             | Default | Description                                                                                                    |
 | ------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -622,7 +635,7 @@ over direct JDBC, so history survives a restart and the dashboard can page back 
 on both adapters with an identical config surface and wire contract; on Quarkus a `QuarkusActivityCapture` CDI bean
 (`@Observes StartupEvent`/`ShutdownEvent`) owns the journal capture's lifecycle instead of Spring's controller-inline
 wiring. Durable history is written by the runtime journal's subscriber, whatever source the feed reads; with the
-journal disabled, persistence logs a warning and writes nothing. See [SPECIFICATION.md §5.14.2](./SPECIFICATION.md) for the full design (the `ActivityStore` abstraction,
+journal disabled, persistence logs a warning and writes nothing. See the [Live Activity specification](./SPECIFICATION.md) for the full design (the `ActivityStore` abstraction,
 buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and multi-tenancy).
 
 | Property                                                | Default            | Description                                                                                                                        |
@@ -642,8 +655,8 @@ buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and mult
 ### Runtime journal
 
 BootUI 2.0's runtime journal records every runtime event once, in a bounded in-memory structure, and keeps running
-aggregates per route, statement, exception group, transactional method, and thread family
-([PLAN-v2.md](PLAN-v2.md) §5.2). Recording never blocks a request: events wait in a bounded queue for one BootUI
+aggregates per route, statement, exception group, transactional method, and thread family.
+Recording never blocks a request: events wait in a bounded queue for one BootUI
 daemon thread, and an event the queue cannot take is dropped and counted. HTTP requests, SQL statements, exception
 occurrences, security events, REST client calls, cache accesses, messages, scheduled runs, transactions (Spring),
 logical database connections (how long each was waited for and held), application `WARN` and `ERROR` log events,
@@ -669,10 +682,11 @@ names its session listener in `spring.jpa.properties.hibernate.session.events.au
 `quarkus.hibernate-orm.unsupported-properties."hibernate.session.events.auto"` for the default unit, in dev and test mode
 only, which Quarkus reports at startup as an unsupported property. Either way, an application's own listener wins and the source
 then records nothing. The `resources` source measures each request's CPU time, allocated bytes, and
-the collections that completed while it ran, summed over every thread its work ran on ([PLAN-v2.md](PLAN-v2.md)
-§5.11). The JVM does not measure virtual threads, so a request served on one reports its CPU time and allocated bytes
+the collections that completed while it ran, summed over the measured threads its work ran on.
+The JVM does not measure virtual threads, so a request served on one reports its CPU time and allocated bytes
 as unavailable or partial, never as zero. Payloads hold no bind values, keys, message bodies, exception or log messages, or principals: a log event keeps its unformatted
-template only. Nothing is written to disk unless `bootui.runtime-journal.baseline-file` is set, and that file holds a run
+template only. Apart from opt-in [durable activity persistence](#live-activity-durable-persistence), the journal writes
+nothing to disk unless `bootui.runtime-journal.baseline-file` is set, and that file holds a run
 summary only: route templates, statement fingerprints, call sites, exception-group ids, thread families, observed
 edges, counts, histograms, and, with the BootUI agent, the run's side-effect keys (hosts and ports, masked file
 patterns, process file names, and variable names), never principals, literals, SQL text, values, arguments, or file
@@ -703,12 +717,13 @@ to Transactions, `exception` to Exceptions, `security` and `authorization` to Se
 Trace, `cache` to Cache, `messaging` to its broker's panel (Kafka, RabbitMQ, or JMS, so disabling one broker leaves the
 others), `scheduled` to Scheduled Tasks, `log` to Log Tail, `mail` to Email, `fault-tolerance` to Fault Tolerance, `ai`
 to AI, `websocket` to WebSockets, `orm` to Hibernate, `agent.executors` to Java Agent, and `agent.caught-exceptions` to Exceptions. `lifecycle`, `gc`,
-`resources`, and `app-event` belong to no panel and are always recorded when the journal is on.
+`resources`, and `app-event` belong to no panel: they are not panel-gated, but still require the journal and their
+entry in `bootui.runtime-journal.sources` to be enabled.
 
 ### Resource correlation
 
-While the runtime journal records the `resources` source, one BootUI daemon thread sweeps the JVM once per interval
-([PLAN-v2.md](PLAN-v2.md) §5.11). Its CPU ledger splits the process's CPU time three ways: the share credited to
+While the runtime journal records the `resources` source, one BootUI daemon thread sweeps the JVM once per interval.
+Its CPU ledger splits the process's CPU time three ways: the share credited to
 requests, the rest of each thread family's share (BootUI's own threads as one family), and the JVM's own work (GC,
 JIT, VM threads, and threads the sweep did not read), which together sum to the process's CPU time. Its resource track
 keeps heap use, heap after collections, allocation, and thread counts. The 900 most recent points are kept in memory,
@@ -905,7 +920,7 @@ outside the journal is bounded by [`bootui.runtime-journal.agent-evidence-max-by
 | `bootui.agent.sensors`    | `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `blocking`, `resources` | The agent sensors this application asks for. `executors` propagates a request's correlation through the JDK's executors, so work handed to a raw thread pool or `CompletableFuture` is owned by its request. `inventory` records which application methods ran in this run and which jars and class directories loaded classes. `code-paths` times the application's bean methods per request, as call trees. `processes` records process starts for Side Effects: sanitized command name only, never arguments or environment. `network` records connects, datagram sends, and the names the JVM resolves for Side Effects: a host and port and the recognized client, never a byte sent or received. `blocking` records `Thread.sleep`, `Object.wait`, `LockSupport.park`, and the network and files sensors' blocking operations started on an event loop, for Side Effects. `files` records the files application code opens, deletes, moves, and copies for Side Effects, as path patterns, never contents. `threads`, opt-in, also propagates a request's correlation into threads started from application code and into virtual threads. `environment`, opt-in, records the names of the environment variables and system properties application code reads directly, never their values; it advises `System.getProperty`, about 23–28 ns per read instead of 5–6 ns. `thread-activity`, opt-in, records the threads application code starts and the executors it creates per route, and those a request left running when it ended, never what a thread holds; it is distinct from `threads`. `thread-locals`, opt-in, reports the thread locals a request or a job left set on its pooled platform thread, found by scanning the thread's thread-local maps when its scope closes, named by the static field that holds them, never their values. `resources`, on by default, records the sockets, file streams, and channels a request or a job left open past the request, or never closed before the collector reclaimed them, among those `network` and `files` record, never contents. `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, and `security-sinks` can also be switched on and off at run time from the Java Agent and Side Effects panels (`POST {api}/java-agent/sensors/{id}`), MCP (`enable_agent_sensor` / `disable_agent_sensor`), or CLI (`bootui agent sensor enable|disable <id>`): an approved runtime override, never written to a file, kept across DevTools restarts and Quarkus live reloads, forgotten when the JVM ends, and dropped once this property agrees with it. An empty list asks for none. `security-sinks`, opt-in and switchable at run time, records deserialization without an `ObjectInputFilter`, weak `MessageDigest` and `Cipher` algorithms, and the application's trust managers, known library trust-all trust managers, and default hostname verifiers and SSL socket factories, and checks with `bootui.agent.security-sinks.request-values` whether request input reaches SQL text, a command, a file path, or an outbound URL unchanged; request-value matching still requires this property, read at startup. Any other id fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming the accepted ids. `caught-exceptions`, opt-in, reports the exceptions application code catches and which of them are thrown again, with their handler and owner, never their message, to the runtime journal's `agent.caught-exceptions` source. |
 | `bootui.agent.executors.skip-tasks` | `io.github.jdubois.bootui.engine.correlation.ManagedTasks`, `io.micrometer.context.`, `org.springframework.core.task.support.ContextPropagatingTaskDecorator`, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl`, `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes the executors sensor never propagates, because they already carry their context or belong to the JDK (its process reaper included), the connection pool, or the cache. Setting it replaces the defaults. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes the executors sensor never propagates to. On Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on (`spring.reactor.context-propagation=auto`), since it carries BootUI's context itself. Setting it replaces the defaults. |
-| `bootui.agent.security-sinks.request-values` | `false` | With the `security-sinks` sensor, holds the current request's query and path parameter values of 4 to 256 characters (at most 32) while it runs, so that SQL text, a command, a file path, or an outbound URL it reaches can be checked for one appearing verbatim: a Security sinks row of Side Effects names the parameter and the redacted sink, never the value. Values are compared, never stored, logged, or displayed, and forgotten when the response completes. Form values, headers, and bodies are never read. Read at startup: switching the `security-sinks` sensor on at run time never turns it on. Opt-in. |
+| `bootui.agent.security-sinks.request-values` | `false` | With the `security-sinks` sensor, holds query and path parameter values transiently in memory: at most 128 requests, at most 32 values of 4 to 256 characters each per request. A Security sinks row names the parameter and redacted sink, never the value. Values are never persisted, logged, or displayed; they are removed when the response completes, after a 60-second sweep for a missed end, on a new claim/release, or when the sensor is switched off. Form values, headers, and bodies are never read. Read at startup: the runtime switch cannot enable matching by itself. Opt-in. |
 | `bootui.agent.ring-capacity` | `65536` | The records the agent's transport ring holds before it drops new ones (64 bytes each), clamped to 1,024–4,194,304 and rounded up to a power of two. The first claim in a JVM sizes the ring, which then lasts for the JVM's life. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window of a propagated task, counted from its start: a task belongs to the request that handed it over when it starts no later than this after the request ended (a later one is only counted in the request profile), its work recorded more than this after it started is not attributed, and a task running longer is published `capped`. |
 
@@ -917,16 +932,18 @@ that scan. On Spring they are read when the context starts, on Quarkus at runtim
 
 | Property                              | Default  | Description |
 | ------------------------------------- | -------- | ----------- |
-| `bootui.code-inventory.max-classes`   | `20000`  | The most application classes the scan hashes. Past it the scan is partial and says so, and classes it did not reach are neither counted nor compared with the previous run. Must be positive. |
-| `bootui.code-inventory.scan-timeout`  | `30s`    | The scan's deadline. Past it the scan is partial and says so. Must be positive. |
+| `bootui.code-inventory.max-classes`   | `20000`  | The most application classes the scan hashes. Past it the scan is partial and says so, and classes it did not reach are neither counted nor compared with the previous run. Use a positive integer: Spring rejects non-positive values; Quarkus currently normalizes them to the default. |
+| `bootui.code-inventory.scan-timeout`  | `30s`    | The scan's deadline. Past it the scan is partial and says so. Use a positive duration: Spring rejects zero/negative values; Quarkus currently normalizes them to the default. |
 
 ### Code Paths
 
 The Code Paths panel needs the BootUI agent's `code-paths` sensor (`bootui.agent.sensors`) and has no property of its
 own: its route trees are bounded in code, at 2,000 nodes a route, 100,000 nodes and 500 routes a run, and its method
-probes at 20 invocations, 60 seconds, and five probes at once. Method probes are its only actions:
+probes at 20 invocations, 60 seconds, and five probes at once; a smaller agent-evidence byte bound shrinks tree limits.
+Method probes are its only actions:
 `bootui.panels.code-paths.read-only=true`, or the global `bootui.read-only=true`, refuses starting and stopping them,
-in the browser, the API, MCP, and the CLI. Disabling it with `bootui.panels.code-paths.enabled=false` also stops
+in the browser/API, and starting through MCP/CLI. Stopping has no MCP tool or CLI command.
+Disabling it with `bootui.panels.code-paths.enabled=false` also stops
 `route-time-breakdown` from splitting the handler by method.
 
 ### Side Effects
@@ -934,7 +951,8 @@ in the browser, the API, MCP, and the CLI. Disabling it with `bootui.panels.code
 The Side Effects panel is view-only, needs the BootUI agent's side-effect bridge and its sensors (`processes`,
 `network`, `files`, `blocking`, and `resources` by default, `environment`, `thread-activity`, `thread-locals`, and
 `security-sinks` opt-in, in `bootui.agent.sensors`), and has no property of its own. `bootui.panels.side-effects.enabled=false`
-hides the panel and rejects its reads.
+hides the panel and rejects its reads. Runtime switches shown inside this panel are actions of the Java Agent panel,
+so `bootui.panels.java-agent.enabled` and `.read-only`, plus global read-only policy, govern them.
 
 In this version every sensor in the panel ships: `processes`, `network`, `files`, `blocking`, `resources`, and the
 opt-in `environment`, `thread-activity`, `thread-locals`, and `security-sinks` record. `resources` tracks sockets
@@ -995,7 +1013,7 @@ recording and Free BootUI memory clear Side Effects rows through the agent evide
 | `bootui.claude-code.max-sessions`           | `100`                | Maximum recent Claude Code sessions returned by the explorer.                                                            |
 | `bootui.claude-code.max-parsed-sessions`    | `100`                | Maximum recent Claude Code JSONL files parsed and retained in memory.                                                    |
 | `bootui.claude-code.stream-debounce`        | `400ms`              | Debounce window before refreshing parsed Claude Code sessions and notifying stream subscribers.                          |
-| `bootui.claude-code.allow-raw-reveal`       | `false`              | Allow explicit raw Claude Code JSONL reveal; disabled by default because logs can include prompts and outputs.           |
+| `bootui.claude-code.allow-raw-reveal`       | `false`              | Spring only: allow explicit raw Claude Code JSONL reveal; disabled by default because logs can include prompts and outputs. Quarkus always refuses raw reveal. |
 
 ### MCP server
 

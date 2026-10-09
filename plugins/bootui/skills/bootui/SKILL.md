@@ -1,6 +1,6 @@
 ---
 name: bootui
-description: Install, configure, and use BootUI in Spring Boot or Quarkus applications; assess a running application, propose a prioritized action plan, and execute only approved fixes using runtime evidence. Use when asked to add or troubleshoot BootUI, assess application health, or investigate a slow or failing endpoint, exceptions, SQL, Hibernate, beans, mappings, configuration, health, metrics, logs, or traces; to find runtime-only bugs such as N+1 queries, split transactions, or bypassed @Transactional proxies, or check which routes a code change affects and verify what it changed at runtime after the tests; also for architecture, security, memory, database, REST, pentest, GraalVM, CRaC, or vulnerability scans, or connecting an AI agent to BootUI.
+description: Install, configure, and use BootUI in Spring Boot and Quarkus applications; assess a running application, propose a prioritized action plan, and execute only approved fixes using runtime evidence. Use when asked to add or troubleshoot BootUI, assess application health, or investigate a slow or failing endpoint, exceptions, SQL, Hibernate, beans, mappings, configuration, health, metrics, logs, or traces; to find runtime-only bugs such as N+1 queries, split transactions, or bypassed @Transactional proxies, or check which routes a code change affects and verify what it changed at runtime after the tests; also for architecture, security, memory, database, REST, pentest, GraalVM, CRaC, or vulnerability scans, or connecting an AI agent to BootUI.
 license: Apache-2.0
 ---
 
@@ -22,7 +22,9 @@ Before changing anything:
 4. Find the runnable module, active development profile, configured HTTP port, and existing BootUI dependency.
 5. Run the project's existing focused tests before and after changes when practical.
 
-Do not add a Spring web starter for BootUI's sake; keep the application's own. Do not add the Spring starter to Quarkus or the Quarkus extension to Spring.
+Keep an existing application's own web stack. BootUI adds no web starter; a non-web Spring application needs an
+explicitly approved servlet starter and embedded server to serve the console. `bootui.force-web` requests servlet
+mode, not dependencies. Do not add the Spring starter to Quarkus or the Quarkus extension to Spring.
 
 ## Install BootUI
 
@@ -120,7 +122,8 @@ curl -fsS -X POST -H 'Content-Type: application/json' -d '{"limit": 20}' \
 ```
 
 Always send `Content-Type: application/json` and a body, `{}` when the tool takes no argument, exactly as the CLI does.
-Add `-H "Authorization: Bearer $BOOTUI_TOKEN"` when `bootui.authentication.token` is set. The tool names are the MCP
+For an untrusted non-loopback caller, put the configured or generated token in `BOOTUI_TOKEN` and add
+`-H "Authorization: Bearer $BOOTUI_TOKEN"`. Trusted callers need none. The tool names are the MCP
 tool names; `bootui tools` and the catalog both list them. On this path the outcome is the HTTP status rather than an
 exit code: `403` is the panel refusing, the same condition the CLI reports as `2`.
 
@@ -150,7 +153,9 @@ bootui request-profile <id> --json # retained journal profile, or HTTP-exchange 
 
 - `--url` (or `BOOTUI_URL`) defaults to `http://localhost:8080`; pass the application's real port.
 - `--api-path` is only needed when `bootui.api-path` is customised, `--token` only when
-  `bootui.authentication.token` is set, and `--timeout` raises the 60-second wait for a slow scan.
+  the caller is an untrusted non-loopback peer (use the configured or generated token), and `--timeout` raises the
+  60-second wait for a slow scan. Loopback, configured trusted proxy ranges, and trusted container gateways bypass
+  authentication; Host and cross-site-write checks still apply.
 - **Always pass `--json` when parsing.** The human table rendering is not a contract, and terminal auto-detection is
   unreliable on JDK 22 or later.
 - `bootui tools` prints a human table whose `status` column reads `ready`, `action`, `read-only`, or `panel disabled`.
@@ -193,10 +198,19 @@ Read `bootui agent status --json` / `get_agent_status` first: the report include
 Maven, Gradle, Quarkus dev, Surefire/Failsafe, IntelliJ, and `JAVA_TOOL_OPTIONS` snippets. If the jar is missing, follow
 the report's `maven-download` snippet before adding `-javaagent:<path>`.
 
+The default sensors are `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `blocking`, and
+`resources`; `environment` is opt-in. Setting `bootui.agent.sensors` replaces the list rather than extending it.
+Use the application's reported snippets, including JVM quoting for paths with spaces; for a custom local Maven
+repository, the download and the application JVM's expected path must refer to the same repository.
+
 Before relying on anything that needs the agent (Code Paths, Code Inventory, Side Effects, method probes, or an
 observation such as `changed-code-not-executed`), read `bootui agent status --json` once. An observation
 `NOT_APPLICABLE` because it requires the BootUI agent was not measured: never read it, or a missing agent command, as
-healthy, as "nothing to worry about", or as a passed check.
+healthy, as "nothing to worry about", or as a passed check. `ARMED` alone does not prove a sensor passed its asynchronous
+self-test: inspect the sensor state and reason. Agent status takes `query`, not `limit`. Executor overflow warns that a
+shared task object may have run under another request's context; do not treat affected propagation as exact evidence.
+Task and thread snapshot registries each retain at most 32,768 application entries across all claims plus 64 reserved
+self-test markers. `overflow` and `neverApplied` remain cumulative after disabling a sensor, until the JVM exits.
 
 ### Verify that a change ran, then probe
 
@@ -264,9 +278,10 @@ environment: it is cut at whitespace or `=`, reduced to the basename, and unsafe
 records the hosts and ports the application connects to, datagrams, and names the JVM resolved, with the client
 recognized from the calling frames, never a byte sent or received; `files` records path patterns (`./` working
 directory, `$TMPDIR`, `~`, ids as `{n}`), never contents, with class loading, the JDK, and logging grouped apart; the
-the opt-in `environment` records variable and property names, never values; `blocking` records `Thread.sleep`,
+opt-in `environment` records variable and property names, never values; `blocking` records `Thread.sleep`,
 `Object.wait`, `LockSupport.park`, and blocking network or file operations started on an event loop (Spring WebFlux,
-Quarkus), by operation, loop family, and call site, with how long it blocked, not applicable on Spring MVC; the opt-in
+Quarkus), by operation, loop family, and call site, with how long it blocked, not applicable on Spring MVC until a
+recorded Reactor Netty WebClient response registers an event loop; the opt-in
 `thread-activity` records the threads the application starts and the executors it creates per route, how many a request
 starts (`count` / `requests`), and those its code left running when the request ended (`leftRunning`), library and JDK
 pools apart, never what a thread holds; the opt-in `thread-locals` names the static field of each thread local a
@@ -276,18 +291,20 @@ counts those the garbage collector reclaimed never closed, the leak, while `left
 request) and `completed` (closed after it) are a pool's or a cache's hand-off, never contents. Pass `--query
 not-captured` to list the outbound calls no panel shows (`capture: not-captured`), or `--query processes`, `network`,
 `files`, `blocking`, `thread-activity`, `thread-locals`, `resources`, `security-sinks`, a route, target,
-client, or call site to narrow it. The other sensor groups are listed as not available in this version.
+client, or call site to narrow it. All nine current Side Effects sensors ship; a sensor an older attached agent lacks
+is reported unavailable. A sensor omitted from the claim is not evidence of no side effects.
 
 The opt-in `security-sinks` sensor reports `request-input-in-sink`: a query or path parameter's value that reached SQL
 text, a command, a file path, or an outbound URL unchanged, by parameter name and sink, never the value itself. It
-records only when `bootui.agent.sensors` lists `security-sinks` and `bootui.agent.security-sinks.request-values=true`;
+records only while `security-sinks` is enabled, by configuration or an approved runtime switch, and
+`bootui.agent.security-sinks.request-values=true` was set at startup;
 without both, no row is not evidence of safety, so say the check did not run. A row is a check to perform, never a
 vulnerability verdict: "request input reached this SQL text unchanged" asks you to confirm in source that the value is
 bound as a parameter, escaped, or chosen from a fixed list; a command argument or file path validated and kept in its
 directory; an outbound URL unable to change its host. A row seen in one request so far is weaker evidence. Do not turn
 the sensor on yourself: suggest the two properties to the user.
 
-With `security-sinks` listed in `bootui.agent.sensors`, its JDK checks run even without request-value matching:
+With `security-sinks` enabled by configuration or an approved runtime switch, its JDK checks run even without request-value matching:
 deserialization without an `ObjectInputFilter`, weak algorithms, and trust managers or hostname verifiers installed by
 application or library code. Treat these rows as checks to perform, never vulnerability verdicts: verify the
 deserialized input's origin and filtering, whether an algorithm protects security or serves a non-security checksum,
@@ -371,8 +388,9 @@ Detail reads never rerun checks or query a database and remain permitted in read
 completed snapshot is kept; dismissal preserves its ID and details. On stale/no-snapshot client error 409,
 **reread the cached report, not the scan tool**, and restart pages using its ID. A rule id outside the advisor's
 rule catalogue answers `Unknown advisor rule: ...`, distinct from a catalogue rule that passed, was skipped, or failed
-(`Advisor rule has no findings in the current scan.`); both are REST/MCP client error 404 (CLI facade 400, exit `1`). On MCP rendered-byte
-refusal `-32003`, retry the same scan ID and offset with a smaller limit; never advance after a failure or treat
+(`Advisor rule has no findings in the current scan.`); both are REST 404 and MCP in-band `isError: true` failures
+(CLI facade 400, exit `1`). On MCP rendered-byte
+refusal `-32003` (legacy) or `-31003` (modern), retry the same scan ID and offset with a smaller limit; never advance after a failure or treat
 it as an empty page. Stop rather than retry indefinitely when one detail cannot fit. Verify every finding against
 source and effective configuration before proposing a fix; do not claim complete coverage when truncated.
 
@@ -635,8 +653,8 @@ with the application's actual port. VS Code uses a `servers` block:
 Claude Code, Cursor, and most other clients use `mcpServers` instead, and Claude Code can register the server directly
 with `claude mcp add --transport http bootui http://127.0.0.1:8080/bootui/api/mcp`.
 
-Prefer `127.0.0.1` and replace `8080` when needed. A loopback agent needs no credentials. An agent that reaches the app
-from anywhere else — typically an app in a container reached through a published port — must send BootUI's token as
+Prefer `127.0.0.1` and replace `8080` when needed. Loopback peers, configured trusted proxy ranges, and trusted container
+gateways need no credentials. Any other peer allowed through `bootui.allow-non-localhost=true` must send BootUI's token as
 `Authorization: Bearer <token>` on every call or receive `401`; the token is `bootui.authentication.token`, or the value
 BootUI generated and logged once at startup. Verify
 `GET /bootui/api/mcp-server` before debugging the client; it reports enabled state and advertised tools. Tools are
