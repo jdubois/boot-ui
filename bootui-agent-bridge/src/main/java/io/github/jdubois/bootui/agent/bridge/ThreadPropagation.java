@@ -130,8 +130,11 @@ public final class ThreadPropagation {
                 return false;
             }
             if (selfTest) {
+                if (TaskSnapshots.THREADS.putSelfTest(thread, generation, TaskPropagation.SELF_TEST)
+                        == TaskSnapshots.REFUSED) {
+                    return false;
+                }
                 SELF_TEST_KEYED[hook].increment();
-                TaskSnapshots.THREADS.putSelfTest(thread, generation, TaskPropagation.SELF_TEST);
                 return true;
             }
             if (bootUi(started)) {
@@ -177,6 +180,15 @@ public final class ThreadPropagation {
             } catch (Throwable ex) {
                 AgentBridge.error(ex);
             }
+        }
+    }
+
+    /** Earlier-generation threads are never reopened, but stay retained to preserve cross-generation ambiguity. */
+    static void claimed(long generation) {
+        try {
+            TaskSnapshots.THREADS.releaseEarlierClaims(generation);
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
         }
     }
 
