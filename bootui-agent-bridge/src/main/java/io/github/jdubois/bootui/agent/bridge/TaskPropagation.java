@@ -214,7 +214,7 @@ public final class TaskPropagation {
         }
         if (started) {
             confirm(outcome, KEY_THREAD_POOL);
-        } else {
+        } else if (outcome != OVERFLOWED) {
             release(firstTask);
         }
     }
@@ -239,7 +239,7 @@ public final class TaskPropagation {
             if (outcome != NONE) {
                 if (queued) {
                     confirm(outcome, KEY_THREAD_POOL_QUEUE);
-                } else {
+                } else if (outcome != OVERFLOWED) {
                     release(task);
                 }
             }
@@ -332,6 +332,15 @@ public final class TaskPropagation {
             return;
         }
         submitted(task, KEY_DELAYED);
+    }
+
+    /** Earlier-generation tasks are never reopened, but stay retained to preserve cross-generation ambiguity. */
+    static void claimed(long generation) {
+        try {
+            TaskSnapshots.TASKS.releaseEarlierClaims(generation);
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
     }
 
     /** A submission that will not run: the worker did not start, or the task was removed. */

@@ -180,6 +180,15 @@ public final class ThreadPropagation {
         }
     }
 
+    /** Earlier-generation threads are never reopened, but stay retained to preserve cross-generation ambiguity. */
+    static void claimed(long generation) {
+        try {
+            TaskSnapshots.THREADS.releaseEarlierClaims(generation);
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
+    }
+
     // ---- apply points --------------------------------------------------------------------------------------------
 
     /**

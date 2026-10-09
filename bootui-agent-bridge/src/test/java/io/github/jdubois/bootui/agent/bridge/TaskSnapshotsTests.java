@@ -82,18 +82,60 @@ class TaskSnapshotsTests {
     }
 
     @Test
-    void selfTestMarkersAreAdmittedPastTheCap() {
+    void selfTestMarkersRespectTheTotalRetainedEntryBound() {
         TaskSnapshots snapshots = new TaskSnapshots(1);
-        snapshots.put(new Object(), GENERATION, owner("r1"), 0L);
+        Object retained = new Object();
+        snapshots.put(retained, GENERATION, owner("r1"), 0L);
         Object marker = new Object();
 
-        assertThat(snapshots.putSelfTest(marker, GENERATION, owner("self"))).isEqualTo(TaskSnapshots.OWNED);
+        assertThat(snapshots.putSelfTest(marker, GENERATION, owner("self"))).isEqualTo(TaskSnapshots.REFUSED);
 
         assertThat(snapshots.overflow()).isZero();
-        assertThat(snapshots.peek(marker)).isNotNull();
-        assertThat(snapshots.entries.get()).isEqualTo(2);
-        snapshots.take(marker);
+        assertThat(snapshots.peek(marker)).isNull();
         assertThat(snapshots.entries.get()).isEqualTo(1);
+        assertThat(snapshots.retainedEntries.get()).isEqualTo(1);
+        assertThat(snapshots.take(retained)).isNotNull();
+        assertThat(snapshots.retainedEntries.get()).isZero();
+    }
+
+    @Test
+    void liveEntriesAcrossClaimsNeverExceedTheTotalBoundOrTransferOwners() {
+        int cap = 3;
+        TaskSnapshots snapshots = new TaskSnapshots(cap);
+        Object shared = new Object();
+        Object oldOnly = new Object();
+        Object secondGeneration = new Object();
+        List<Object> liveTasks = new ArrayList<>(List.of(shared, oldOnly, secondGeneration));
+
+        assertThat(snapshots.put(shared, GENERATION, owner("old-shared"), 0L)).isEqualTo(TaskSnapshots.OWNED);
+        assertThat(snapshots.put(oldOnly, GENERATION, owner("old-only"), 0L)).isEqualTo(TaskSnapshots.OWNED);
+        assertThat(snapshots.releaseEarlierClaims(GENERATION + 1)).isEqualTo(2);
+
+        assertThat(snapshots.put(shared, GENERATION + 1, owner("new-shared"), 0L))
+                .isEqualTo(TaskSnapshots.AMBIGUOUS_PUT);
+        assertThat(snapshots.put(secondGeneration, GENERATION + 1, owner("second-generation"), 0L))
+                .isEqualTo(TaskSnapshots.OWNED);
+        assertThat(snapshots.retainedEntries.get()).isEqualTo(cap);
+
+        for (long generation = GENERATION + 2; generation < GENERATION + 6; generation++) {
+            assertThat(snapshots.releaseEarlierClaims(generation)).isEqualTo(generation == GENERATION + 2 ? 1 : 0);
+            Object refused = new Object();
+            liveTasks.add(refused);
+            assertThat(snapshots.put(refused, generation, owner("refused-" + generation), 0L))
+                    .isEqualTo(TaskSnapshots.REFUSED);
+            snapshots.overflowed();
+            assertThat(snapshots.retainedEntries.get()).isEqualTo(cap);
+            assertThat(snapshots.size()).isEqualTo(cap);
+        }
+
+        assertThat(snapshots.overflow()).isEqualTo(4);
+        assertThat(snapshots.entries.get()).isZero();
+        assertThat(snapshots.take(shared)).isSameAs(TaskSnapshots.AMBIGUOUS);
+        assertThat(snapshots.take(shared)).isSameAs(TaskSnapshots.AMBIGUOUS);
+        assertThat(((TaskSnapshots.Entry) snapshots.take(oldOnly)).payload[0]).isEqualTo("old-only");
+        assertThat(((TaskSnapshots.Entry) snapshots.take(secondGeneration)).payload[0])
+                .isEqualTo("second-generation");
+        assertThat(snapshots.retainedEntries.get()).isZero();
     }
 
     @Test
