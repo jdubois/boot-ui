@@ -5,7 +5,9 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
 # Release and publishing
 
 - Use `.github/workflows/release.yml` for version bumps. It must update Maven versions, `README.md`, `docs/SETUP.md`,
-  and every npm package and lock file.
+  every npm package and lock file, and `plugins/bootui/plugin.json`. The portable plugin version is part of the signed
+  release contents and must match the release version before publication. Leave `.claude-plugin/plugin.json` inside
+  the plugin version-free so Claude Code retains commit-SHA updates.
 - Keep `quarkus.platform.version` independent from the BootUI project version.
 - Exactly eight coordinates are published: `bootui-core`, `bootui-engine`, `bootui-ui`, `bootui-spring-boot-starter`
   (the auto-configuration and the one Spring starter, for Spring MVC and WebFlux), `bootui-quarkus`,

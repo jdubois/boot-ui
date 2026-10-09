@@ -188,6 +188,14 @@ jobs:
             exit 1
           fi
 
+          node -e '
+            const fs = require("fs");
+            const path = "plugins/bootui/plugin.json";
+            const plugin = JSON.parse(fs.readFileSync(path, "utf8"));
+            plugin.version = process.argv[1];
+            fs.writeFileSync(path, JSON.stringify(plugin, null, 2) + "\n");
+          ' "$VERSION"
+
           for npm_dir in . bootui-ui/src/main/frontend bootui-spring-sample-app/e2e bootui-quarkus-sample-app/e2e; do
             ( cd "$npm_dir" && npm version "$VERSION" --no-git-tag-version --allow-same-version --ignore-scripts >/dev/null )
             if ! grep -q "\"version\": \"$VERSION\"" "$npm_dir/package.json"; then
@@ -419,6 +427,15 @@ jobs:
               }
             ' "$npm_dir" "$VERSION"
           done
+
+          node -e '
+            const fs = require("fs");
+            const plugin = JSON.parse(fs.readFileSync("plugins/bootui/plugin.json", "utf8"));
+            if (plugin.version !== process.argv[1]) {
+              console.error(`::error::BootUI plugin version mismatch: expected ${process.argv[1]}, found ${plugin.version}`);
+              process.exit(1);
+            }
+          ' "$VERSION"
 
           echo "Publishing version $VERSION from $RELEASE_SHA"
 
