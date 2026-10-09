@@ -40,7 +40,7 @@ class QuarkusRabbitCaptureTests {
         RabbitActivityRecorder recorder = new RabbitActivityRecorder(true, true, 10, 16);
         QuarkusRabbitProducerCapture capture = new QuarkusRabbitProducerCapture(recorder);
 
-        Message<?> sent = capture.onMessage(outgoingMessage("created", "customer-123"));
+        Message<?> sent = capture.beforeMessageSend(outgoingMessage("created", "customer-123"));
         Thread.sleep(20);
         capture.onMessageAck(sent);
 

@@ -329,7 +329,7 @@
                 </executions>
                 <configuration>
                     <!-- Failsafe 3.6 no longer binds -DskipTests on its own; keep it skipping these ITs too. -->
-                    <skipTests>${skipTests}</skipTests>
+                    <skipITs>${skipTests}</skipITs>
                     <!-- Same as the root Surefire configuration: test output goes to target/failsafe-reports. -->
                     <redirectTestOutputToFile>true</redirectTestOutputToFile>
                     <!-- The classes, not the repackaged jar, whose BOOT-INF layout a plain class path cannot read. -->

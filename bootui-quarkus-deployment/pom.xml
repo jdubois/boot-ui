@@ -139,7 +139,7 @@
                 </executions>
                 <configuration>
                     <!-- Failsafe 3.6 no longer binds -DskipTests on its own; keep it skipping these ITs too. -->
-                    <skipTests>${skipTests}</skipTests>
+                    <skipITs>${skipTests}</skipITs>
                     <redirectTestOutputToFile>true</redirectTestOutputToFile>
                     <classesDirectory>${project.build.outputDirectory}</classesDirectory>
                     <argLine>@{argLine} ${quarkus.test.argLine} -javaagent:${com.julien-dubois.bootui:bootui-agent:jar} -Xmx3g</argLine>

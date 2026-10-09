@@ -367,7 +367,7 @@
                 </executions>
                 <configuration>
                     <!-- Failsafe 3.6 no longer binds -DskipTests on its own; keep it skipping these ITs too. -->
-                    <skipTests>${skipTests}</skipTests>
+                    <skipITs>${skipTests}</skipITs>
                     <!--
                         The compiled classes, not the shaded jar, whose agent classes are hidden from the class path by
                         design: the verifier stress test applies the caught-exceptions visit in this JVM.

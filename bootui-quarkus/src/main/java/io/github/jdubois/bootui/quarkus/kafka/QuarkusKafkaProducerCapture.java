@@ -38,7 +38,7 @@ import org.jboss.logging.Logger;
  * aside for it); and fail-open (any error while inspecting metadata or recording is caught and logged at
  * warn, never disrupting the send).</p>
  *
- * <p>A send is timed from when its message enters the channel ({@link #onMessage}) to its ack or nack, and starts
+ * <p>A send is timed from when its message enters the channel ({@link #beforeMessageSend}) to its ack or nack, and starts
  * then, so a request's timeline places it where the request sent it.</p>
  */
 @ApplicationScoped
@@ -114,7 +114,7 @@ public class QuarkusKafkaProducerCapture implements OutgoingInterceptor {
      * metadata.
      */
     @Override
-    public Message<?> onMessage(Message<?> message) {
+    public Message<?> beforeMessageSend(Message<?> message) {
         if (!recorder.isEnabled()) {
             return message;
         }

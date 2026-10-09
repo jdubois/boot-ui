@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.hibernate.SessionFactory;
+import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -48,7 +49,7 @@ class BootUiQuarkusUnsupportedPropertiesPassthroughSpikeTest {
 
     @Test
     void unsupportedPropertiesPassthroughReachesHibernatesOwnSessionFactoryOptions() {
-        SessionFactory sessionFactory = entityManagerFactory.unwrap(SessionFactory.class);
+        SessionFactoryImplementor sessionFactory = entityManagerFactory.unwrap(SessionFactoryImplementor.class);
 
         assertThat(sessionFactory.getSessionFactoryOptions().isOrderInsertsEnabled())
                 .as("quarkus.hibernate-orm.unsupported-properties.\"hibernate.order_inserts\"=true must reach"

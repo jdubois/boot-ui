@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.dto.FaultTolerancePolicyDto;
 import io.github.jdubois.bootui.core.dto.FaultTolerancePolicyMetricsDto;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceVocabulary;
+import io.github.resilience4j.core.functions.Either;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.retry.RetryRegistry;
@@ -87,10 +88,11 @@ final class Resilience4jRetryReader implements Resilience4jRegistryReader {
     /**
      * Resilience4j models the retry delay as an interval function, so BootUI reports the first attempt's
      * interval with unknown provenance rather than guessing whether a custom backoff was configured.
+     * No call result exists during inspection, so result-dependent functions may leave the delay unknown.
      */
     private static String firstRetryDelay(RetryConfig config) {
         try {
-            return config.getIntervalFunction().apply(1) + " ms";
+            return config.getIntervalBiFunction().apply(1, Either.right(null)) + " ms";
         } catch (RuntimeException ex) {
             return null;
         }

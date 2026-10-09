@@ -69,6 +69,9 @@ This downloads Node + npm, runs `npm install`, runs the Vue unit tests with Vite
 builds the Vue UI with Vite, and packages every module. A full clean build takes
 about a minute on a warm cache.
 
+`-DskipTests` skips both unit tests and Failsafe integration tests. The Failsafe executions bind their
+supported `skipITs` parameter to that property, preserving the same switch across the build.
+
 For a faster local build, add `-T 1C` (one reactor thread per CPU core) to build modules in parallel:
 
 ```bash

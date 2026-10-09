@@ -161,7 +161,7 @@ class QuarkusKafkaCaptureTests {
         Message<?> sent;
         try (BootUiCorrelation.Scope ignored =
                 BootUiCorrelation.open(CorrelationContext.forExecution("00112233aabbccdd"))) {
-            sent = producer.onMessage(outgoingKafkaMessage("shipments", 0, "k"));
+            sent = producer.beforeMessageSend(outgoingKafkaMessage("shipments", 0, "k"));
         }
         Thread.sleep(20);
         java.util.concurrent.CompletableFuture.runAsync(() -> producer.onMessageAck(sent))

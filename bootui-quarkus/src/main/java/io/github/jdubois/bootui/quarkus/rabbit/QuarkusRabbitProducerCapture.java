@@ -37,7 +37,7 @@ import org.jboss.logging.Logger;
  * for a channel always wins and BootUI steps aside for it); and fail-open (any error while inspecting
  * metadata or recording is caught and logged at warn, never disrupting the send).</p>
  *
- * <p>A publish is timed from when its message enters the channel ({@link #onMessage}) to its ack or nack, and starts
+ * <p>A publish is timed from when its message enters the channel ({@link #beforeMessageSend}) to its ack or nack, and starts
  * then, so a request's timeline places it where the request published it.</p>
  */
 @ApplicationScoped
@@ -104,7 +104,7 @@ public class QuarkusRabbitProducerCapture implements OutgoingInterceptor {
      * metadata.
      */
     @Override
-    public Message<?> onMessage(Message<?> message) {
+    public Message<?> beforeMessageSend(Message<?> message) {
         if (!recorder.isEnabled()) {
             return message;
         }
