@@ -62,7 +62,7 @@ public final class TransactionsControllerSupport {
                             + " profile).");
         }
         if (transactionManagerProvider.stream().findAny().isEmpty()) {
-            return TransactionReport.unavailable("No configurable PlatformTransactionManager bean is available");
+            return TransactionReport.unavailable("No configurable transaction manager bean is available");
         }
         return recorder.report();
     }

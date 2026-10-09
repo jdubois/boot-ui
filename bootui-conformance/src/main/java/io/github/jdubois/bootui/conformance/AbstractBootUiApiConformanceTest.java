@@ -21,6 +21,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -882,6 +884,7 @@ public abstract class AbstractBootUiApiConformanceTest {
             Response scanned = probe.request("POST", api("/" + panel + "/scan"), stateChangingHeaders(probe), "");
             assertThat(scanned.status()).as(panel + " scan").isEqualTo(200);
             JsonNode report = scanned.json();
+            assertOneOutcomePerRule(panel, report);
             JsonNode metadata = report.path("violationDetails");
             String scanId = metadata.path("scanId").asText();
             assertThat(scanId).as(panel + " snapshot identifier").isNotBlank();
@@ -933,6 +936,24 @@ public abstract class AbstractBootUiApiConformanceTest {
             assertThat(probe.get(api("/" + panel)).json().path("violationDetails"))
                     .isEqualTo(metadata);
         }
+    }
+
+    /**
+     * A rule has exactly one outcome per scan: an id listed in {@code results} is never also listed in
+     * {@code analysisErrors}, whichever advisor and stack produced the report. Incomplete coverage of a rule that did
+     * find something belongs in the finding and the evidence limitations, not in a second, contradictory entry.
+     */
+    private static void assertOneOutcomePerRule(String panel, JsonNode report) {
+        Set<String> findings = new HashSet<>();
+        report.path("results").forEach(result -> findings.add(result.path("id").asText()));
+        List<String> errors = new ArrayList<>();
+        report.path("analysisErrors")
+                .forEach(error -> errors.add(error.path("id").asText()));
+        assertThat(errors)
+                .as(panel + " analysisErrors must not repeat a rule listed in results")
+                .allSatisfy(id -> assertThat(findings)
+                        .as(panel + " rule " + id + " is both a result and an analysis error")
+                        .doesNotContain(id));
     }
 
     /**
@@ -1922,12 +1943,7 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     private static boolean bootstrapAgentBridgeAbsent() {
-        try {
-            Class.forName("io.github.jdubois.bootui.agent.bridge.AgentBridge", false, null);
-            return false;
-        } catch (ClassNotFoundException | LinkageError ex) {
-            return true;
-        }
+        return JavaAgentPresence.detached();
     }
 
     @Test
@@ -1958,12 +1974,13 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     /**
-     * The runtime switch of an opt-in agent sensor ({@code docs/PLAN-v2.md} M5-14) without the BootUI agent: the report
-     * offers no switch, an opt-in sensor answers 409 with the reason, and any other sensor or a body without
+     * The runtime switch of an agent sensor ({@code docs/PLAN-v2.md} M5-14) without the BootUI agent: the report offers
+     * no switch, a switchable sensor such as {@code environment} answers 409 with the reason, and a sensor installed with
+     * the claim only, such as {@code executors}, or a body without
      * {@code enabled} answers 400, each with the canonical {@code error} body; a read-only panel refuses it first with 403.
      */
     @Test
-    void anOptInSensorCannotBeSwitchedWithoutTheAgentAndOtherSensorsNever() {
+    void aSwitchableSensorCannotBeSwitchedWithoutTheAgentAndOtherSensorsNever() {
         assumeTrue(isPanelUsableInLiveManifest("java-agent"), "java-agent panel is not available in this environment");
         assumeTrue(bootstrapAgentBridgeAbsent(), "this JVM runs with the BootUI agent attached");
         assertThat(probe().get(api("/java-agent")).json().path("toggles").size())
@@ -2191,6 +2208,62 @@ public abstract class AbstractBootUiApiConformanceTest {
         Response unknown = probe().get(api("/side-effects/sensor?sensor=not-a-sensor"));
         assertThat(unknown.status()).as("an unknown sensor").isEqualTo(400);
         assertThat(unknown.json().path("error").asText()).contains("not-a-sensor");
+    }
+
+    /**
+     * The Runtime Insights surfaces that read the BootUI agent's evidence, without the agent ({@code docs/PLAN-v2.md}
+     * M5-10's acceptance pass): each agent-gated check is {@code NOT_APPLICABLE} naming the agent, never evaluated
+     * with zero findings; the run comparison carries no code changes or side effects section, rather than an empty
+     * one that would read as "nothing changed"; and the journal's agent evidence retains nothing.
+     */
+    @Test
+    void agentGatedRuntimeInsightsSayTheyNeedTheAgentWithoutIt() {
+        assumeTrue(bootstrapAgentBridgeAbsent(), "this JVM runs with the BootUI agent attached");
+        assumeTrue(
+                isPanelUsableInLiveManifest("runtime-insights"),
+                "runtime-insights panel is not available in this environment");
+
+        JsonNode report = probe().get(api("/runtime-insights")).json();
+        assumeTrue(report.path("available").asBoolean(false), "the runtime journal does not record here");
+        Map<String, JsonNode> checks = new HashMap<>();
+        report.path("checks").forEach(check -> checks.put(check.path("kind").asText(), check));
+        for (String kind : JavaAgentPresence.AGENT_CHECKS) {
+            JsonNode check = checks.get(kind);
+            assertThat(check).as("the %s check is listed", kind).isNotNull();
+            assertThat(check.path("status").asText()).as("%s status", kind).isEqualTo("NOT_APPLICABLE");
+            assertThat(check.path("findings").asInt()).as("%s findings", kind).isZero();
+            assertThat(check.path("reason").asText())
+                    .as("%s reason", kind)
+                    .startsWith("This observation requires the BootUI agent's");
+        }
+        report.path("observations")
+                .forEach(observation -> assertThat(observation.path("kind").asText())
+                        .as("no agent-gated observation without the agent")
+                        .isNotIn(JavaAgentPresence.AGENT_CHECKS));
+
+        Response comparison = probe().get(api("/runtime-insights/comparison"));
+        assertThat(comparison.status()).isEqualTo(200);
+        for (String section : List.of("codeChanges", "sideEffects")) {
+            JsonNode value = comparison.json().path(section);
+            assertThat(value.isNull() || value.isMissingNode())
+                    .as("the comparison has no %s section without the agent: %s", section, value)
+                    .isTrue();
+        }
+
+        if (isPanelUsableInLiveManifest("activity")) {
+            JsonNode evidence = probe().get(
+                            api(BootUiApiContractCatalog.runtimeJournal().relativePath()))
+                    .json()
+                    .path("agentEvidence");
+            if (!evidence.isNull() && !evidence.isMissingNode()) {
+                assertThat(evidence.path("retainedBytes").asLong())
+                        .as("no agent evidence is retained")
+                        .isZero();
+                assertThat(evidence.path("stores"))
+                        .as("no agent evidence store reports")
+                        .isEmpty();
+            }
+        }
     }
 
     @Test

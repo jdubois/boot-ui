@@ -37,6 +37,7 @@ import io.github.jdubois.bootui.engine.mcp.McpToolInputSchema;
 import io.github.jdubois.bootui.engine.progress.ProgressEvent;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -340,7 +341,9 @@ public class QuarkusMcpEnvelope {
         String requestedProtocolVersion = text(params.path("protocolVersion"));
         String toolName = text(params.path("name"));
         JsonNode arguments = params.get("arguments");
-        ParsedArguments parsedArguments = parseArguments(arguments);
+        boolean prompt = "prompts/get".equals(method);
+        ParsedArguments parsedArguments = prompt ? ParsedArguments.empty() : parseArguments(arguments);
+        PromptArguments promptArguments = prompt ? parsePromptArguments(arguments) : PromptArguments.NONE;
         return new McpRequest(
                 jsonrpc,
                 method,
@@ -351,7 +354,7 @@ public class QuarkusMcpEnvelope {
                 parsedArguments.limit(),
                 parsedArguments.id(),
                 parsedArguments.names(),
-                parsedArguments.error(),
+                prompt ? promptArguments.error() : parsedArguments.error(),
                 parsedArguments.scanId(),
                 parsedArguments.offset(),
                 serve.era(),
@@ -359,7 +362,34 @@ public class QuarkusMcpEnvelope {
                 // Only a call that can be cancelled, or a cancellation, needs the key.
                 "tools/call".equals(method) ? requestKey(id) : null,
                 "notifications/cancelled".equals(method) ? requestKey(params.get("requestId")) : null,
-                "notifications/cancelled".equals(method) ? cancelReason(params.get("reason")) : null);
+                "notifications/cancelled".equals(method) ? cancelReason(params.get("reason")) : null,
+                promptArguments.values());
+    }
+
+    /**
+     * The string values of {@code prompts/get.params.arguments}: MCP prompt arguments are strings, so any other value
+     * is reported as an argument error rather than coerced.
+     */
+    private static PromptArguments parsePromptArguments(JsonNode arguments) {
+        if (arguments == null || arguments.isNull()) {
+            return PromptArguments.NONE;
+        }
+        if (!arguments.isObject()) {
+            return new PromptArguments(Map.of(), McpProtocol.PROMPT_ARGUMENTS_OBJECT_MESSAGE);
+        }
+        Map<String, String> values = new LinkedHashMap<>();
+        for (Map.Entry<String, JsonNode> argument : arguments.properties()) {
+            if (!argument.getValue().isTextual()) {
+                return new PromptArguments(
+                        Map.of(), McpProtocol.invalidArgumentTypeMessage(argument.getKey(), "a string"));
+            }
+            values.put(argument.getKey(), argument.getValue().asText());
+        }
+        return new PromptArguments(values, null);
+    }
+
+    private record PromptArguments(Map<String, String> values, String error) {
+        private static final PromptArguments NONE = new PromptArguments(Map.of(), null);
     }
 
     /**
@@ -487,7 +517,7 @@ public class QuarkusMcpEnvelope {
             return result(id, era, renderPromptsList(r), true);
         }
         if (outcome instanceof PromptGetResult r) {
-            return result(id, era, renderPrompt(r.prompt()), false);
+            return result(id, era, renderPrompt(r), false);
         }
         if (outcome instanceof ToolCallError e) {
             return result(id, era, toolError(e.message()), false);
@@ -560,16 +590,24 @@ public class QuarkusMcpEnvelope {
             ObjectNode node = JsonNodeFactory.instance.objectNode();
             node.put("name", prompt.name());
             node.put("description", prompt.description());
-            node.set("arguments", JsonNodeFactory.instance.arrayNode());
+            ArrayNode arguments = JsonNodeFactory.instance.arrayNode();
+            for (McpPrompt.Argument argument : prompt.arguments()) {
+                ObjectNode declared = JsonNodeFactory.instance.objectNode();
+                declared.put("name", argument.name());
+                declared.put("description", argument.description());
+                declared.put("required", false);
+                arguments.add(declared);
+            }
+            node.set("arguments", arguments);
             array.add(node);
         }
         result.set("prompts", array);
         return result;
     }
 
-    private static ObjectNode renderPrompt(McpPrompt prompt) {
+    private static ObjectNode renderPrompt(PromptGetResult prompt) {
         ObjectNode result = JsonNodeFactory.instance.objectNode();
-        result.put("description", prompt.description());
+        result.put("description", prompt.prompt().description());
         ArrayNode messages = JsonNodeFactory.instance.arrayNode();
         ObjectNode message = JsonNodeFactory.instance.objectNode();
         message.put("role", "user");

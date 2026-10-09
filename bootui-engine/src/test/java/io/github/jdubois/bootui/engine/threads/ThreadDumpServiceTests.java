@@ -1,12 +1,17 @@
 package io.github.jdubois.bootui.engine.threads;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.ThreadDumpReport;
 import io.github.jdubois.bootui.core.dto.ThreadInfoDto;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadMXBean;
 import org.junit.jupiter.api.Test;
+import org.mockito.AdditionalAnswers;
 
 /**
  * Slice tests for {@link ThreadDumpService}. The service reads the live JVM via
@@ -112,6 +117,21 @@ class ThreadDumpServiceTests {
         assertThat(first.id()).isPositive();
         assertThat(first.name()).isNotBlank();
         assertThat(first.state()).isNotBlank();
+    }
+
+    @Test
+    void peakThreadsIsNeverBelowTheLiveThreadsOfTheSameSnapshot() {
+        ThreadMXBean real = ManagementFactory.getThreadMXBean();
+        // The peak counter is read separately from the dump; a stale or reset counter must not undercut it.
+        ThreadMXBean stalePeak = mock(ThreadMXBean.class, AdditionalAnswers.delegatesTo(real));
+        doReturn(1).when(stalePeak).getPeakThreadCount();
+
+        ThreadDumpReport report = new ThreadDumpService(stalePeak, masked).report(null, null, null, null);
+
+        assertThat(report.totalThreads()).isGreaterThan(1);
+        assertThat(report.peakThreads()).isEqualTo(report.totalThreads());
+        ThreadDumpReport live = new ThreadDumpService(masked).report(null, null, null, null);
+        assertThat(live.peakThreads()).isGreaterThanOrEqualTo(live.totalThreads());
     }
 
     /**

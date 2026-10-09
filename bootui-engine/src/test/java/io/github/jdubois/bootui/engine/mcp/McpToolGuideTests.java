@@ -64,7 +64,7 @@ class McpToolGuideTests {
         assertThat(McpToolGuide.toolsWithQueryWords())
                 .allSatisfy(tool -> assertThat(
                                 McpToolCatalog.byName(tool).orElseThrow().schema())
-                        .isEqualTo(McpToolSchema.QUERY_LIMIT));
+                        .isIn(McpToolSchema.QUERY_LIMIT, McpToolSchema.QUERY));
     }
 
     @Test

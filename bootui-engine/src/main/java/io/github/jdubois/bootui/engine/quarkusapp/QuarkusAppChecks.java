@@ -224,12 +224,24 @@ final class QuarkusAppChecks {
         return CHECKS.stream().map(Check::id).toList();
     }
 
+    /**
+     * One outcome per rule: a rule with findings is a {@code VIOLATION} in {@code findings}, even when its coverage is
+     * incomplete, and is never also an analysis error; a rule that could not be evaluated and found nothing is an
+     * {@code ERROR} in {@code errors}. {@code limitations} names every incompletely covered rule either way, so an
+     * incomplete scan is never reported as complete.
+     */
     record Evaluation(
             List<SpringRuleResultDto> findings,
             List<SpringRuleResultDto> errors,
+            List<String> limitations,
             int rulesEvaluated,
             boolean evidenceInspected,
-            boolean usable) {}
+            boolean usable) {
+
+        boolean coverageComplete() {
+            return limitations.isEmpty();
+        }
+    }
 
     static Evaluation evaluate(QuarkusAppSnapshot snapshot) {
         return evaluate(snapshot, null);
@@ -238,6 +250,7 @@ final class QuarkusAppChecks {
     static Evaluation evaluate(QuarkusAppSnapshot snapshot, AdvisorViolationCollector collector) {
         List<SpringRuleResultDto> findings = new ArrayList<>();
         List<SpringRuleResultDto> errors = new ArrayList<>();
+        List<String> limitations = new ArrayList<>();
         Map<String, Set<Reason>> failures = new HashMap<>();
         QuarkusAppMetadata metadata = snapshot == null ? null : snapshot.metadata();
         if (snapshot != null) {
@@ -325,27 +338,37 @@ final class QuarkusAppChecks {
                 }
             }
             List<String> unique = samples.stream().distinct().sorted().toList();
+            Set<Reason> reasons = failures.get(check.id());
             if (!unique.isEmpty()) {
                 usable = true;
                 inspected = true;
                 if (collector != null) {
                     collector.record(check.id(), unique.size(), unique, DetailText::sanitize);
                 }
+                String description = reasons == null
+                        ? check.description()
+                        : check.description() + " Coverage is incomplete: " + limitation(check, reasons);
                 findings.add(check.result(
                         severity,
+                        description,
                         "VIOLATION",
                         unique.size(),
                         unique.stream().limit(MAX_SAMPLES).toList()));
             }
-            if (failures.containsKey(check.id())) {
-                errors.add(error(check, failures.get(check.id())));
+            if (reasons != null) {
+                // A finding is the rule's outcome; its incomplete coverage stays visible in the limitations.
+                if (unique.isEmpty()) {
+                    errors.add(error(check, reasons));
+                }
+                limitations.add(check.id() + ": " + limitation(check, reasons));
             } else {
                 evaluated++;
                 usable |= applicableObservation;
                 inspected = true;
             }
         }
-        return new Evaluation(List.copyOf(findings), List.copyOf(errors), evaluated, inspected, usable);
+        return new Evaluation(
+                List.copyOf(findings), List.copyOf(errors), List.copyOf(limitations), evaluated, inspected, usable);
     }
 
     /** Normal scopes share the client-proxy mechanism; only singleton fields are reached directly. */
@@ -368,13 +391,19 @@ final class QuarkusAppChecks {
                 .add(reason);
     }
 
-    private static SpringRuleResultDto error(Check check, Set<Reason> reasons) {
+    private static String limitation(Check check, Set<Reason> reasons) {
         String description = reasons.stream().map(reason -> reason.description).collect(Collectors.joining(" "));
-        String recommendation =
-                "Restore the required application metadata or configuration evidence and run the checks again.";
         if (PRODUCTION_RULES.contains(check.id())) {
             description += " Loaded declarations cannot reconstruct a future production deployment's effective"
                     + " configuration, external overrides, or unloaded profile-aware files.";
+        }
+        return description;
+    }
+
+    private static SpringRuleResultDto error(Check check, Set<Reason> reasons) {
+        String recommendation =
+                "Restore the required application metadata or configuration evidence and run the checks again.";
+        if (PRODUCTION_RULES.contains(check.id())) {
             recommendation = "Review loaded production declarations separately from the intended deployment's"
                     + " configuration. " + recommendation;
         }
@@ -383,7 +412,7 @@ final class QuarkusAppChecks {
                 check.name(),
                 check.category(),
                 check.severity(),
-                description,
+                limitation(check, reasons),
                 "ERROR",
                 0,
                 List.of(),
@@ -457,13 +486,14 @@ final class QuarkusAppChecks {
             return !accepted.isEmpty();
         }
 
-        SpringRuleResultDto result(String effectiveSeverity, String status, int count, List<String> samples) {
+        SpringRuleResultDto result(
+                String effectiveSeverity, String effectiveDescription, String status, int count, List<String> samples) {
             return new SpringRuleResultDto(
                     id,
                     name,
                     category,
                     effectiveSeverity,
-                    description,
+                    effectiveDescription,
                     status,
                     count,
                     samples,

@@ -904,7 +904,50 @@ describe('Side Effects panel', () => {
     expect(table.text()).not.toContain('Failed')
   })
 
-  it('explains that the files sensor is opt-in, and not the processes sensor', async () => {
+  it('shows JDK check rows with their origin, and groups what libraries requested apart', async () => {
+    const own = row({
+      sensor: 'security-sinks',
+      kind: 'weak digest',
+      target: 'MD5',
+      origin: 'application',
+      callSite: 'com.example.UserService#hash',
+      detail:
+        'Weak algorithm MD5 requested by application code at `com.example.UserService#hash`. MD5 and SHA-1 remain fine for checksums and ETags; check that this one protects no password, signature, or token.',
+      count: 3
+    })
+    const library = row({
+      sensor: 'security-sinks',
+      kind: 'weak digest',
+      target: 'MD5',
+      origin: 'library',
+      location: 'org.springframework.util.DigestUtils#md5',
+      callSite: 'com.example.EtagService#tag',
+      detail:
+        'Weak algorithm MD5 requested by library code `org.springframework.util.DigestUtils#md5` for application frame `com.example.EtagService#tag`.',
+      count: 9
+    })
+    ;({wrapper} = mountPanel({
+      'api/side-effects/sensor?sensor=security-sinks&offset=0&limit=50': sensorReport('security-sinks', [own, library]),
+      'api/side-effects': summary({sensors: {'security-sinks': {state: 'recording', reason: null}}})
+    }))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Security sinks')
+      .trigger('click')
+    await flushPromises()
+
+    const tables = wrapper.findAll('.side-effects-table')
+    expect(tables).toHaveLength(2)
+    expect(tables[0].text()).toContain('Sink (value redacted) or check')
+    expect(tables[0].text()).toContain('Application')
+    expect(tables[0].text()).toContain('requested by application code')
+    expect(wrapper.get('.side-effects-apart summary').text()).toBe('Requested by libraries (1), grouped apart')
+    expect(tables[1].text()).toContain('org.springframework.util.DigestUtils#md5')
+    expect(wrapper.text().toLowerCase()).not.toContain('vulnerab')
+  })
+
+  it('explains that the files sensor is on by default when left out, and not the processes sensor', async () => {
     ;({wrapper} = mountPanel({
       'api/side-effects': summary({
         sensors: {
@@ -930,7 +973,7 @@ describe('Side Effects panel', () => {
     const notes = wrapper.findAll('.side-effects-state-note').map((note) => note.text())
     const files = notes.find((note) => note.includes('does not include files'))
     const processes = notes.find((note) => note.includes('does not include processes'))
-    expect(files).toContain('It is opt-in: add files to bootui.agent.sensors')
+    expect(files).toContain('It is on by default, but not in this configuration: add files to bootui.agent.sensors')
     expect(files).toContain('path patterns')
     expect(processes).not.toContain('opt-in')
   })
@@ -993,6 +1036,53 @@ describe('Side Effects panel', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="agent-sensor-toggle-environment"]').exists()).toBe(false)
     expect(wrapper.get('.side-effects-state-note').text()).not.toContain('switch it on')
+  })
+
+  it('points a default sensor switched off at run time back at its switch, not at the property', async () => {
+    const toggle = {
+      id: 'files',
+      configured: true,
+      enabled: false,
+      overridden: true,
+      state: 'off',
+      optInReason: 'On by default: it records the files the application opens.',
+      available: true,
+      unavailableReason: null
+    }
+    const panels = ref({panels: [{id: 'java-agent', enabled: true, available: true, readOnly: false}]})
+    ;({wrapper} = mountPanel(
+      {
+        'api/side-effects': summary({
+          sensors: {
+            files: {
+              state: 'not-claimed',
+              reason: "Switched off at run time: this application's bootui.agent.sensors includes files.",
+              toggle
+            }
+          }
+        }),
+        'api/side-effects/sensor?sensor=files&offset=0&limit=50': sensorReport('files', []),
+        'api/side-effects/sensor?sensor=processes&offset=0&limit=50': sensorReport('processes', [])
+      },
+      {},
+      panels
+    ))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Files and processes')
+      .trigger('click')
+    await flushPromises()
+
+    const control = wrapper.get('[data-testid="agent-sensor-toggle-files"]')
+    expect(control.get('input[role="switch"]').element.checked).toBe(false)
+    expect(control.text()).toContain('On by default')
+    const note = wrapper
+      .findAll('.side-effects-state-note')
+      .map((each) => each.text())
+      .find((text) => text.includes('Switched off at run time'))
+    expect(note).toContain('switch it on above to record again for this JVM')
+    expect(note).not.toContain('bootui.agent.sensors to record')
   })
 
   it('shows a switch’s answer at once and reads the summary again', async () => {
@@ -1074,5 +1164,76 @@ describe('Side Effects panel', () => {
     await flushPromises()
     expect(wrapper.get('[data-testid="agent-sensor-toggle-environment"] input').element.disabled).toBe(true)
     expect(wrapper.get('.side-effects-state-note').text()).not.toContain('switch it on')
+  })
+
+  it('offers the security-sinks switch, which says request-value matching still needs its property', async () => {
+    const toggle = {
+      id: 'security-sinks',
+      configured: false,
+      enabled: false,
+      overridden: false,
+      state: 'off',
+      optInReason:
+        'Off by default: its JDK checks added about 3.9 % on the benchmark. Its request-value matching also needs bootui.agent.security-sinks.request-values=true.',
+      available: true,
+      unavailableReason: null
+    }
+    const panels = ref({panels: [{id: 'java-agent', enabled: true, available: true, readOnly: false}]})
+    const responses = {
+      'api/side-effects': summary({
+        sensors: {
+          'security-sinks': {
+            state: 'not-claimed',
+            reason: "This application's bootui.agent.sensors does not include security-sinks.",
+            toggle
+          }
+        }
+      }),
+      'api/side-effects/sensor?sensor=security-sinks&offset=0&limit=50': sensorReport('security-sinks', [])
+    }
+    ;({wrapper} = mountPanel(responses, {}, panels))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Security sinks')
+      .trigger('click')
+    await flushPromises()
+
+    const control = wrapper.get('[data-testid="agent-sensor-toggle-security-sinks"]')
+    const input = control.get('input[role="switch"]')
+    expect(input.element.checked).toBe(false)
+    expect(input.attributes('aria-describedby')).toBeTruthy()
+    expect(control.text()).toContain('Record with the security-sinks sensor')
+    expect(control.text()).toContain('bootui.agent.security-sinks.request-values=true')
+    const note = wrapper.get('.side-effects-state-note').text()
+    expect(note).toContain('add security-sinks to bootui.agent.sensors')
+    expect(note).toContain('or switch it on above for this JVM')
+    wrapper.unmount()
+
+    // Switched on with request-value matching off: the JDK checks record, and the reason says how to turn matching on.
+    responses['api/side-effects'] = summary({
+      sensors: {
+        'security-sinks': {
+          state: 'recording',
+          reason:
+            'JDK checks: deserialization without a filter, weak algorithms, trust managers and hostname verifiers. Request-value matching is off: set bootui.agent.security-sinks.request-values=true and restart the application to check whether request input reaches SQL text, a command, a file path, or an outbound URL.',
+          toggle: {...toggle, enabled: true, overridden: true, state: 'installed'}
+        }
+      }
+    })
+    ;({wrapper} = mountPanel(responses, {}, panels))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Security sinks')
+      .trigger('click')
+    await flushPromises()
+    const on = wrapper.get('[data-testid="agent-sensor-toggle-security-sinks"]')
+    expect(on.get('input[role="switch"]').element.checked).toBe(true)
+    expect(on.text()).toContain('Recording')
+    expect(on.text()).toContain('Overridden')
+    expect(wrapper.text()).toContain(
+      'Request-value matching is off: set bootui.agent.security-sinks.request-values=true and restart the application'
+    )
   })
 })

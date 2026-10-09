@@ -82,6 +82,18 @@ public final class ExecutionProfileAssembler {
     /** Maximum number of children each profile section shows; the rest are counted as truncated. */
     public static final int DEFAULT_MAX_CHILDREN_PER_SECTION = 200;
 
+    /** Why {@code requestId} has no profile: no captured request has that id any more. */
+    static String notInBufferReason(String requestId) {
+        return "Request " + requestId + " is no longer in the buffer";
+    }
+
+    /** Whether {@code profile} says no captured request has the id {@code requestId}, as opposed to another reason. */
+    public static boolean notInBuffer(RequestProfileDto profile, String requestId) {
+        return profile != null
+                && !profile.available()
+                && notInBufferReason(requestId).equals(profile.unavailableReason());
+    }
+
     static final String NO_TRACE_ID_REASON = "No distributed trace id and no BootUI request id was captured for "
             + "this request; per-request profiling on this adapter needs one of them, for example a trace id from an "
             + "active distributed tracing integration (such as OpenTelemetry) or an inbound propagation header.";
@@ -140,7 +152,7 @@ public final class ExecutionProfileAssembler {
             String requestId, ProfileEvidence evidence, ProfileCapabilities capabilities) {
         HttpExchangeDto request = findRequest(requestId, evidence.requests());
         if (request == null) {
-            return RequestProfileDto.unavailable("Request " + requestId + " is no longer in the buffer");
+            return RequestProfileDto.unavailable(notInBufferReason(requestId));
         }
         String traceId = BlankStrings.blankToNull(request.traceId());
         Context context =

@@ -56,6 +56,7 @@ public final class ChildMain {
             case "network-behaviors" -> NetworkBehaviors.main(new String[] {args[1]});
             case "security-sinks-behaviors" -> SecuritySinksBehaviors.main(new String[0]);
             case "thread-activity-behaviors" -> ThreadActivityBehaviors.main(new String[] {args[1]});
+            case "security-checks-behaviors" -> SecurityChecksBehaviors.main(new String[] {args[1]});
             case "resources-behaviors" -> ResourcesBehaviors.main(new String[] {args[1]});
             case "sensor-switch-behaviors" -> SensorSwitchBehaviors.main(new String[0]);
             case "runs" -> runs(Integer.parseInt(args[1]), args[2]);

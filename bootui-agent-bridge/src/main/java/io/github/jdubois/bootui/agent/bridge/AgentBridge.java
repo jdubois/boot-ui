@@ -199,10 +199,6 @@ public final class AgentBridge {
             // The side-effect sensors' ring and intern table, before any of their hooks records for the run.
             SideEffects.claimed(next);
         }
-        // Request-value matching (M5-6b1) runs under a claim asking for the security-sinks sensor. Until its hooks and
-        // self-test land (M5-6b2), which enable it from the side-effect sensors' enable path, the claim itself turns it
-        // on.
-        RequestValues.sensor(next.hasSensor(SideEffects.SECURITY_SINKS), next.generation);
         CodePaths.refresh();
         // A probe never outlives the run that started it (PLAN-v2 M5-8).
         MethodProbes.claimed(next.generation);
@@ -219,10 +215,10 @@ public final class AgentBridge {
      * (PLAN-v2 M5-14): an override, never written anywhere, dropped once the application's own sensors agree with it. The
      * switches travel with the slot's claims, each claim in the same slot taking its predecessor's, and are kept by
      * {@link SlotSwitches} while another slot's claim, or none, is current.
-     * Only the opt-in {@code threads}, {@code files}, {@code environment}, {@code thread-activity}, and
-     * {@code thread-locals} can be switched
-     * ({@link #switchable}), since
-     * the agent installs and removes them without a new claim. The claim keeps its generation and token; its {@code sensorsRevision} grows by one, which orders the
+     * Only {@code threads}, {@code files}, {@code environment}, {@code thread-activity}, {@code thread-locals}, and
+     * {@code security-sinks} can be switched ({@link #switchable}), whether they are on by default or not, since the
+     * agent installs and removes them without a new claim. The claim keeps its generation and token; its
+     * {@code sensorsRevision} grows by one, which orders the
      * switches the agent receives. Re-enabling {@code threads} after it failed in this run is refused: its bridge
      * disables it for the run's generation, so only the next claim tries it again.
      */
@@ -236,7 +232,7 @@ public final class AgentBridge {
                     FAILED,
                     "the " + sensor + " sensor cannot be switched at run time: only " + ThreadPropagation.SENSOR + ", "
                             + SideEffects.FILES + ", " + SideEffects.ENVIRONMENT + ", " + SideEffects.THREAD_ACTIVITY
-                            + ", and " + SideEffects.THREAD_LOCALS + " can",
+                            + ", " + SideEffects.THREAD_LOCALS + ", and " + SideEffects.SECURITY_SINKS + " can",
                     null);
         }
         Claim next;
@@ -270,11 +266,13 @@ public final class AgentBridge {
     }
 
     /**
-     * Whether {@code sensor} can be switched at run time: only the opt-in {@code threads}, {@code files},
-     * {@code environment}, {@code thread-activity}, and {@code thread-locals}, which the agent installs and removes
-     * without a new claim ({@code thread-locals} transforms nothing: its scan is enabled or disabled). Never a default
-     * sensor, as {@code resources}, nor
-     * {@code blocking}, whose call-site visit is installed with the application methods' transformer at the claim (M5-5c),
+     * Whether {@code sensor} can be switched at run time: only {@code threads}, {@code files}, {@code environment},
+     * {@code thread-activity}, {@code thread-locals}, and {@code security-sinks}, which the agent installs and removes
+     * without a new claim, whether on by default or not ({@code thread-locals} transforms nothing: its scan is enabled
+     * or disabled; {@code security-sinks}' JDK checks have a transformer of their own, and request-value matching
+     * follows the sensor's bit, {@link RequestValues#active()}). Never {@code executors}, {@code inventory},
+     * {@code code-paths}, {@code processes}, {@code network}, or {@code resources}, nor {@code blocking}, whose call-site
+     * visit is installed with the application methods' transformer at the claim (M5-5c),
      * nor {@code caught-exceptions}, whose visit is installed with the claim only.
      */
     static boolean switchable(String sensor) {
@@ -282,7 +280,8 @@ public final class AgentBridge {
                 || SideEffects.FILES.equals(sensor)
                 || SideEffects.ENVIRONMENT.equals(sensor)
                 || SideEffects.THREAD_ACTIVITY.equals(sensor)
-                || SideEffects.THREAD_LOCALS.equals(sensor);
+                || SideEffects.THREAD_LOCALS.equals(sensor)
+                || SideEffects.SECURITY_SINKS.equals(sensor);
     }
 
     /**

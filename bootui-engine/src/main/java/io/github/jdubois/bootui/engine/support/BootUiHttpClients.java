@@ -6,7 +6,6 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Builders of BootUI's own JDK {@link HttpClient}s (vulnerability and EPSS lookups, GitHub, reachability metadata, HTTP
@@ -30,15 +29,8 @@ public final class BootUiHttpClients {
     }
 
     private static ExecutorService executor() {
-        AtomicInteger sequence = new AtomicInteger();
-        ClassLoader loader = BootUiHttpClients.class.getClassLoader();
-        ThreadFactory threads = task -> {
-            Thread thread = new Thread(task, THREAD_PREFIX + sequence.incrementAndGet());
-            thread.setDaemon(true);
-            // Never the caller's class loader, which a DevTools restart discards.
-            thread.setContextClassLoader(loader);
-            return thread;
-        };
+        // Never the caller's class loader or thread-locals, which a DevTools restart discards.
+        ThreadFactory threads = BootUiThreads.daemonFactory(THREAD_PREFIX, BootUiThreads.ENGINE_LOADER);
         ThreadPoolExecutor executor =
                 new ThreadPoolExecutor(0, Integer.MAX_VALUE, 60L, TimeUnit.SECONDS, new SynchronousQueue<>(), threads);
         return executor;

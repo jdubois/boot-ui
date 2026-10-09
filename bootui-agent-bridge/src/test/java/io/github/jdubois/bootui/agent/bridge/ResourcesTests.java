@@ -197,8 +197,8 @@ class ResourcesTests {
     }
 
     @Test
-    void theStatusReportsTheSensorAndReservedIdsAreNeverListed() {
-        assertThat(SideEffects.sensorIds()).contains(SideEffects.RESOURCES).doesNotContain(SideEffects.RESERVED);
+    void theStatusReportsTheSensorBesideSecuritySinks() {
+        assertThat(SideEffects.sensorIds()).contains(SideEffects.RESOURCES, SideEffects.SECURITY_SINKS);
         assertThat(SideEffects.bit(SideEffects.RESOURCES)).isEqualTo(SideEffects.MASK_RESOURCES);
         assertThat(SideEffects.status(SideEffects.RESOURCES)).containsKeys("tracked", "leftOpen", "reclaimed");
     }

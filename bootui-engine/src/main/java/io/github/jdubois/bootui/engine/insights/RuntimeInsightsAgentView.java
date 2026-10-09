@@ -18,6 +18,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeRunRefDto;
 import io.github.jdubois.bootui.core.dto.RuntimeSideEffectChangeDto;
 import io.github.jdubois.bootui.core.dto.RuntimeSideEffectChangesDto;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
+import io.github.jdubois.bootui.engine.mcp.McpToolClientException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -203,10 +204,15 @@ public final class RuntimeInsightsAgentView {
     }
 
     /**
-     * One observation with its evidence; an unknown or evicted id answers unavailable with the reason, and names the
-     * call that lists the current ids. One the default list leaves out says why first among its limitations.
+     * One observation with its evidence. An unknown or evicted id is refused as a tool error (404) naming the call that
+     * lists the current ids; Runtime Insights being unavailable answers unavailable with the reason. One the default
+     * list leaves out says why first among its limitations.
      */
     public static RuntimeInsightAgentDetailDto detail(RuntimeObservationDetailDto detail, Predicate<String> callable) {
+        if (RuntimeInsightsService.unknownObservation(detail)) {
+            throw new McpToolClientException(
+                    404, detail.unavailableReason() + " List the current observation ids with get_runtime_insights.");
+        }
         NextSteps next = new NextSteps(callable);
         RuntimeObservationDto observation = detail.observation();
         if (!detail.available() || observation == null) {
@@ -248,10 +254,15 @@ public final class RuntimeInsightsAgentView {
     /**
      * A run comparison with comparability first and at most eight behavior rows and edges; latency is left out.
      *
-     * @param asked the run id the caller named, or {@code null} for the default, so an unknown one can be corrected
+     * @param asked the run id the caller named, or {@code null} for the default; one no kept run has is refused as a
+     *     tool error (404) that names the kept runs instead
      */
     public static RuntimeRunComparisonAgentDto comparison(
             RuntimeRunComparisonDto comparison, String asked, Predicate<String> callable) {
+        String run = runId(asked);
+        if (RunComparisonService.unknownRun(comparison, run)) {
+            throw new McpToolClientException(404, unknownRunMessage(comparison));
+        }
         List<String> limitations = new ArrayList<>(comparison.limitations());
         if (!comparison.latency().isEmpty()) {
             limitations.add("Latency rows are left out: they are noisy, and a change in them is never a reason to"
@@ -519,6 +530,20 @@ public final class RuntimeInsightsAgentView {
                 sideEffects.limitations());
     }
 
+    /** The refusal of a run id no kept run has: the reason, then the ids the caller may name instead. */
+    private static String unknownRunMessage(RuntimeRunComparisonDto comparison) {
+        String current =
+                comparison.current() == null ? null : comparison.current().runId();
+        List<String> kept = comparison.runs().stream()
+                .map(RuntimeRunRefDto::runId)
+                .filter(id -> !id.equals(current))
+                .toList();
+        return comparison.reason() + " Use the id previous for the newest kept run"
+                + (kept.isEmpty()
+                        ? ", once one is kept."
+                        : ", or one of the kept runs: " + String.join(", ", kept) + ".");
+    }
+
     /** {@code previous}, blank, or {@code null} names the newest kept run; anything else is a run id. */
     public static String runId(String asked) {
         return asked == null || asked.isBlank() || asked.trim().equalsIgnoreCase("previous") ? null : asked.trim();
@@ -713,12 +738,23 @@ public final class RuntimeInsightsAgentView {
         return text != null && text.toLowerCase(Locale.ROOT).contains(needle);
     }
 
-    private static List<String> checksNotRun(List<RuntimeInsightCheckDto> checks) {
+    /**
+     * The checks that did not apply or ran partially: every check not {@code EVALUATED}, and every evaluated check whose
+     * reason names evidence it could not see or count, such as a changed method the agent could not track, so an empty
+     * observation list never hides it. What a check judged and does not report is left out ({@link
+     * JudgedWithoutFinding}).
+     */
+    static List<String> checksNotRun(List<RuntimeInsightCheckDto> checks) {
         List<String> notRun = new ArrayList<>();
         for (RuntimeInsightCheckDto check : checks) {
             if (!"EVALUATED".equals(check.status())) {
                 notRun.add(
                         check.kind() + ": " + check.status() + (check.reason() == null ? "" : ", " + check.reason()));
+            } else {
+                String gaps = JudgedWithoutFinding.gaps(check.reason());
+                if (gaps != null) {
+                    notRun.add(check.kind() + ": EVALUATED, partly: " + gaps);
+                }
             }
         }
         return notRun;

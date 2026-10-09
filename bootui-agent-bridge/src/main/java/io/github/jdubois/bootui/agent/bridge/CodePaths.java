@@ -1211,6 +1211,9 @@ public final class CodePaths {
         /** The thread's side-effect aggregation table, created at its first aggregated record. */
         SideEffects.Table sideEffects;
 
+        /** The security-sinks sensor's deserialization state, created at the thread's first unfiltered read. */
+        SecuritySinks.Serial serial;
+
         /** The names the environment sensor recorded for the thread's current owner, created at its first read. */
         SideEffects.Seen environmentSeen;
 

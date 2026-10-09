@@ -169,14 +169,20 @@ class AgentClaimTests {
 
     @Test
     @SuppressWarnings("unchecked")
-    void
-            theDefaultClaimAsksForTheExecutorsInventoryCodePathsProcessesNetworkAndBlockingSensorsWithTheDefaultSkipListsAndRing() {
+    void theDefaultClaimAsksForTheDefaultSensorsWithTheDefaultSkipListsAndRing() {
         AgentClaim.claim(access, "app", "app@1", "dev", List.of());
 
         Map<String, Object> request = agent.requests.get(0);
         assertThat((List<String>) request.get("sensors"))
                 .containsExactly(
-                        "executors", "inventory", "code-paths", "processes", "network", "blocking", "resources");
+                        "executors",
+                        "inventory",
+                        "code-paths",
+                        "processes",
+                        "network",
+                        "files",
+                        "blocking",
+                        "resources");
         assertThat(request).containsEntry("ringCapacity", AgentSensorSettings.DEFAULT_RING_CAPACITY);
         assertThat((Map<String, Object>) request.get("executors"))
                 .containsEntry("skipTasks", AgentSensorSettings.DEFAULT_SKIP_TASKS)

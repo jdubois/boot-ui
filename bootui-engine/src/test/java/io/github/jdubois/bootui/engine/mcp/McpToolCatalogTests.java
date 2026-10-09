@@ -60,12 +60,18 @@ class McpToolCatalogTests {
                 "get_copilot_sessions",
                 "get_claude_code_sessions",
                 "get_vulnerabilities_report",
-                "get_live_activity",
-                "get_agent_status")) {
+                "get_live_activity")) {
             McpToolCatalog.Entry entry = McpToolCatalog.byName(name).orElseThrow();
             assertThat(entry.schema()).as(name).isEqualTo(McpToolSchema.QUERY_LIMIT);
             assertThat(entry.action()).as(name).isFalse();
         }
+        // The agent status lists every matching sensor, so it takes a query but no limit; the limit a 1.x CLI may
+        // still send is tolerated and ignored rather than rejected.
+        McpToolCatalog.Entry agentStatus =
+                McpToolCatalog.byName("get_agent_status").orElseThrow();
+        assertThat(agentStatus.schema()).isEqualTo(McpToolSchema.QUERY);
+        assertThat(agentStatus.schema().ignoredArgumentNames()).containsExactly("limit");
+        assertThat(McpToolCatalog.defaultLimit("get_agent_status")).isNull();
         assertThat(McpToolCatalog.defaultLimit("get_sql_traces")).isEqualTo(20);
         assertThat(McpToolCatalog.defaultLimit("get_startup_timeline")).isEqualTo(25);
         assertThat(McpToolCatalog.defaultLimit("get_log_tail")).isEqualTo(50);

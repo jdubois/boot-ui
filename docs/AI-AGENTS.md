@@ -273,12 +273,17 @@ user; BootUI's own panel and read-only gates still apply.
 
 - **Advisor scans (actions):** `architecture_scan`, `spring_scan`, `hibernate_scan`, `database_advisor_scan`,
   `memory_scan`, `security_scan`, `pentest_scan`, `rest_api_scan`, `graalvm_scan`, `crac_scan`, and
-  `vulnerabilities_scan`. Each runs the same scan as the panel's action button and returns the report DTO;
+  `vulnerabilities_scan`. Each runs the same scan as the panel's action button and answers with a
+  [compact summary](#compact-answers-from-scans-and-capture-controls) pointing at its cached report tool;
   `vulnerabilities_scan` additionally sends package names/versions to OSV.dev and, when EPSS is enabled, CVE ids to FIRST.
   Run it only with approval. Inspect `scan.status`, `scan.message`, `coverage`, and `scan.packagesSkipped`; partial or
   unknown evidence is not a clean result. `coverage.archivesFirstParty`/`firstPartyArchives` name the application's own
   module JARs, which are not a coverage gap. Fix candidates need compatibility checks, and EPSS is the highest available
   per-CVE probability, not a combined probability or severity. See [Vulnerabilities checks](VULNERABILITIES-CHECKS.md).
+  On Quarkus, `spring_scan`, `get_spring_report`, and `get_spring_rule_violations` run and read the Quarkus application
+  advisor (QA-* rules); they keep their Spring names, shared with Spring Boot, so published CLI binaries and agent
+  configurations keep working. A rule appears once per scan: in `results` when it found something, with any coverage
+  gap stated on the finding and in `evidence.limitations`, or in `analysisErrors` when it could not be evaluated.
 - **Cached advisor reports:** `get_architecture_report`, `get_spring_report`, `get_hibernate_report`,
   `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`,
   `get_rest_api_report`, `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report` return the last
@@ -341,7 +346,8 @@ user; BootUI's own panel and read-only gates still apply.
   `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`,
   `postgresql_read`, `mysql_read`, `analyze_heap_dump`, `trigger_devtools_livereload`, and `start_method_probe`. They never capture or download a heap dump,
   execute an HTTP probe, mutate a database, clear a cache, write GitHub state, restart a dev service, or run an agent
-  command.
+  command. The capture controls and the database reads answer
+  [compactly](#compact-answers-from-scans-and-capture-controls); the matching read tool returns the rows.
 - **Browser only, by design:** HTTP Probe (it sends requests the user composes), Profile resources and its JDK Flight
   Recorder results in Runtime Insights, enabling Hibernate statistics, the WebSockets capture switch, the Java agent's
   sensor switches, changing a logger level, and the other panel controls not listed above have no MCP tool or CLI
@@ -364,9 +370,11 @@ through MCP and the CLI:
    `PROPAGATED` unavailable, with the reason, unless the agent's `executors` sensor propagates for the application. It
    follows the same panel policy and masking as the browser. When both are retained, `buffers` also accompanies the
    journal result so its SQL grouping and exception ids remain available. The buffer profile includes a trace whose
-   values follow [Trace value exposure](features/diagnostics.md#trace-value-exposure). An unknown or evicted id returns
-   `source: "none"` and `available: false` with an `unavailableReason` naming both retention windows; that is an answer,
-   not a failure to retry.
+   values follow [Trace value exposure](features/diagnostics.md#trace-value-exposure). An id that neither the runtime
+   journal nor the HTTP-exchange buffer retains is a tool error naming both windows: it was evicted, cleared, or never
+   recorded, so pick a current id rather than retry. `source: "none"` with `available: false` and an
+   `unavailableReason` is kept for what another id cannot fix: the journal is off, the id's panel hides it, or the
+   request carried nothing to correlate. See [Unknown ids and unavailable capabilities](#unknown-ids-and-unavailable-capabilities).
 3. **Follow each exception.** When the `buffers` profile is present, its exceptions carry an `exceptionGroupId`; pass it to
    `get_exception_detail` (`bootui exceptions show <id> --json`) for the stack trace, cause chain, and recent
    occurrences.
@@ -391,16 +399,18 @@ read tools return short, stable facts rather than a dashboard:
 with the `bootui` `command` line, the MCP `tool` and its `arguments`, and `why`. The list names the lead observation's
 evidence (`get_runtime_insight`, call sites included), one request that shows it (`get_request_profile`), the kind a
 `limit` left out, and for an anonymous-access observation the security rules (`get_spring_security`, on Spring) and
-the route's mapping. An unknown or evicted observation id names `get_runtime_insights`, an unknown run id names
-`previous` and the runs still kept, and an `AMBIGUOUS` or `NOT_FOUND` impact names the candidates, `get_beans`, or
-`get_mappings`. Only tools the application advertises are named, so Quarkus is never told to call a Spring-only tool;
+the route's mapping. An `AMBIGUOUS` or `NOT_FOUND` impact names the candidates, `get_beans`, or `get_mappings`. An
+unknown or evicted observation id, and a run id no kept run has, are tool errors instead, whose message names
+`get_runtime_insights` or `previous` and the runs still kept. Only tools the application advertises are named, so Quarkus is never told to call a Spring-only tool;
 a named tool whose panel is disabled is still refused like any other call.
 Calling a tool without its required `id` fails with the message naming where the id comes from, such as `Missing
 required argument: id (an observation id from get_runtime_insights)`. In the panel, the change impact's `next` is
 always empty.
 
 `INSUFFICIENT`, `PARTIAL`, `NOT_APPLICABLE`, `UNAVAILABLE`, and `NOT_COMPARABLE` are not successes, and an empty list
-never means healthy: read `requests`, `checksNotRun`, and `limitations` first. `requests` counts completed HTTP
+never means healthy: read `requests`, `checksNotRun`, and `limitations` first. `checksNotRun` also lists a check that
+ran but left evidence out, as `<kind>: EVALUATED, partly: <what it could not see>`, such as changed methods the agent
+could not track; what a check judged and does not report, such as fast calls, is not listed. `requests` counts completed HTTP
 exchanges only. `requests: 0` means not exercised only when the limitations say so: an observation that names a
 request or execution, a limitation naming retained scheduled runs or consumed messages, or evicted events mean work
 ran that `requests` does not count. A run-level observation with no exemplar does not. If comparison's limitations
@@ -411,7 +421,16 @@ configuration comparability and restart timings are independent facts. The `diag
 with `get_runtime_insights`, calls it again with `all` or the route when nothing listed explains the issue, then one
 `get_request_profile`, and for a slow route whose time is in its handler,
 `get_code_paths` when the agent is attached, and it words a dependency reached or request input matched verbatim as a
-check to verify against source and configuration, never as a vulnerability verdict; the
+check to verify against source and configuration, never as a vulnerability verdict. That includes
+`request-input-in-sink` rows of the opt-in `security-sinks` sensor (`get_side_effects` with `query=security-sinks`),
+such as "request input reached this SQL text unchanged": the prompt asks the agent to check that the value is bound,
+escaped, or chosen from a fixed list. Its JDK rows are checks too: verify deserialization's input origin and
+`ObjectInputFilter`, an algorithm's security or non-security purpose, and certificate-chain and hostname validation;
+an application trust-manager class alone is not a trust-all verdict. Read each group's coverage and disabled reason.
+`assess_application` marks unrecorded checks unavailable, never clean, and suggests listing `security-sinks` in
+`bootui.agent.sensors` for these JDK checks. Request-input matching separately requires
+`bootui.agent.security-sinks.request-values=true`; the agent suggests it rather than setting it
+([the security-sinks sensor](features/java-agent.md#the-security-sinks-sensor)). The
 `verify_after_change` prompt starts with `get_code_inventory` and `changed` (see [Did my change run?](#did-my-change-run)),
 names `start_method_probe` as the next step when the edited method still did not run after the test that should reach
 it, calls `get_runtime_impact` on each changed method it names (`Class#method`), or on the changed symbol when it is
@@ -483,7 +502,7 @@ application methods a route spends its time in, from the agent's `code-paths` se
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_code_paths` | `bootui code paths [--query Q] [--limit N]` | At most `limit` (10) routes matching `query` (blank for every route; else a route, or part of a route or method), slowest warm median first, each with its warm requests, median and 95th percentile, `assemblyOnly`, and top methods by self time per request; for a single route, its method nodes with the most self time, each with `calls`: the SQL, REST client, cache, and AI calls it issued per request, by kind; then the excluded methods and limitations |
+| `get_code_paths` | `bootui code paths [--query Q] [--limit N]` | At most `limit` (10) routes matching `query` (blank for every route; else a route, or part of a route or of a method its requests ran, a route's first request included), slowest warm median first, each with its warm requests, median and 95th percentile, `assemblyOnly`, and top methods by self time per request; for a single route, its method nodes with the most self time, each with `calls`: the SQL, REST client, cache, and AI calls it issued per request, by kind; then the excluded methods and limitations |
 
 Like `get_code_inventory`, it is advertised only while the sensor records this run. Times are per warm request, each
 route's first recorded request kept apart. A node's `calls` are the recorded calls stamped with it: it was the innermost
@@ -530,9 +549,9 @@ reactive or asynchronous result, not the work that runs later.
 With the [BootUI agent](features/java-agent.md) attached, [Side Effects](features/java-agent.md#side-effects) lists the
 side-effect sensors and, in this version, the processes application code starts from the agent's `processes` sensor,
 its network from the `network` sensor: hosts and ports it connects to, datagrams it sends, and names the JVM resolves,
-each with the recognized client and whether any panel captured the work, and, opt-in, the files it opens, deletes, moves,
-and copies from the `files` sensor and the environment variables and system properties it reads from the `environment`
-sensor, the blocking calls started on an event loop from the `blocking` sensor, and, opt-in, the threads it starts and
+each with the recognized client and whether any panel captured the work, the files it opens, deletes, moves,
+and copies from the `files` sensor, and, opt-in, the environment variables and system properties it reads from the
+`environment` sensor, the blocking calls started on an event loop from the `blocking` sensor, and, opt-in, the threads it starts and
 the executors it creates from the `thread-activity` sensor, with those a request left running when it ended
 (`leftRunning`) and how many a request starts (`count` / `requests`), and, opt-in, the thread locals a request or a job
 left set on its pooled thread from the `thread-locals` sensor, named by the static field holding them, never their
@@ -621,8 +640,11 @@ Always verify each finding against source and effective configuration before edi
 
 These reads never rerun checks, import classes, query the database, or start a scan. A missing or replaced snapshot
 returns a known client failure (REST 409): **reread the cached report, not the scan tool**, then restart paging that
-report's scan ID. An unknown/non-finding rule returns REST 404. MCP exposes these as in-band `isError: true` failures
-with actionable messages, not internal errors. The CLI facade retains its existing tool-error mapping: unknown
+report's scan ID. A rule id outside the advisor's rule catalogue (a typo, a retired rule, or another advisor's rule)
+answers `Unknown advisor rule: ...`. A catalogue rule without a retained finding, whether it passed, was skipped, or
+failed (the report's `results` lists only violating rules, and its `analysisErrors` the failed ones), answers `Advisor rule has no findings
+in the current scan.`; both are REST 404. MCP exposes these as in-band `isError: true` failures whose text
+is that message, with no status code, not internal errors. The CLI facade retains its existing tool-error mapping: unknown
 rules are HTTP 400 (HTTP 404 is reserved for an unadvertised tool), and stale snapshots remain HTTP 409.
 
 MCP still refuses an oversized rendered response with JSON-RPC `-32003`. Retry the **same scan ID and offset**
@@ -705,6 +727,28 @@ property source enumerates under that literal name. Values are matched literally
 name and source its property source published. See the [Configuration panel](features/configuration.md#configuration)
 for the panel-side behavior.
 
+### Unknown ids and unavailable capabilities
+
+Every tool that takes an `id` follows one convention, on Spring MVC, WebFlux, and Quarkus alike:
+
+- **An unknown or expired id the caller supplied is a tool error.** MCP answers `isError: true` with a message naming
+  the id and where current ids come from; the CLI exits `1` with that message. This covers `get_exception_detail`,
+  `get_request_profile`, `get_runtime_insight`, `get_runtime_run_comparison` (a run id no kept run has),
+  `get_method_probe`, and the advisor `get_*_rule_violations` reads (an unknown rule or a stale `scanId`). Retrying the
+  same id cannot help; read the listing tool again.
+- **`available: false` with an `unavailableReason` means the capability is absent**, not that the id is wrong: the
+  panel's data source is off (the runtime journal, Runtime Insights), a dependency is missing, or DevTools LiveReload
+  is not running (`trigger_devtools_livereload`). The tool ran and that is its answer; the CLI exits `0`.
+- `get_runtime_impact` and `start_method_probe` take a code symbol rather than an id BootUI issued. An impact that
+  resolves to nothing answers `status: "NOT_FOUND"` (or `AMBIGUOUS`) with candidates and the calls that resolve it;
+  a probe on a method the agent cannot instrument is refused as an action.
+- A `query` is a search, not an id. A query that matches nothing, on `get_code_paths` or any other searchable tool,
+  answers `matched: 0` (with a limitation naming the call that lists everything, on `get_code_paths`), never a tool
+  error; `get_code_paths` answers `available: false` only when its agent evidence is absent.
+
+A panel that is disabled refuses its tools before they run (CLI exit `2`); a tool this application does not advertise
+answers with why its panel is unavailable.
+
 ### Agent-sized defaults
 
 An agent pays for every byte it reads, so the reads below answer with a short first page when the call gives no
@@ -714,10 +758,11 @@ An agent pays for every byte it reads, so the reads below answer with a short fi
 | Tool (command) | Default | `query` matches |
 | --- | --- | --- |
 | `get_sql_traces` (`bootui sql traces`) | 20 newest statements | SQL text, category, call site, error, request, trace, or execution id |
+| `get_rest_client_traces` (`bootui rest-client traces`) | 20 newest calls | Method, URI, host, path, status, client type, call site, error, request, trace, or execution id |
 | `get_startup_timeline` (`bootui startup`) | 25 slowest steps; a parent includes its children | Step name or tag value, such as a bean name |
 | `get_log_tail` (`bootui logs tail`) | 50 newest lines | Level, logger, thread, or message |
-| `get_copilot_sessions`, `get_claude_code_sessions` | 10 sessions | Id, model, working directory, status, or last activity |
-| `get_vulnerabilities_report` (`bootui vulnerabilities report`) | 10 dependencies, vulnerable first | Coordinates, severity, or an advisory id or alias |
+| `get_copilot_sessions`, `get_claude_code_sessions` | 10 sessions; the first read after startup parses the newest session files and can take seconds on a large session directory | Id, model, working directory, status, or last activity |
+| `get_vulnerabilities_report` (`bootui vulnerabilities report`) | 10 dependencies, vulnerable first, each with at most 5 advisories without details | Coordinates, severity, or an advisory id or alias; an exact `group:artifact` lists all its advisories, an exact advisory id or alias returns it whole |
 | `get_live_activity` (`bootui activity`) | 25 newest entries | An entry type (`SQL`, `EXCEPTION`, ...), a severity (`SLOW`, `WARN`, `ERROR`), or text such as a route |
 | `get_config`, `get_beans`, `get_metrics`, `get_conditions`, `get_threads`, `get_http_exchanges` | 25 rows | As before; `get_conditions` pages positive then negative matches and also narrows `unconditionalClasses` and `exclusions` |
 
@@ -727,10 +772,70 @@ matched. A filtered read searches the newest entries the feed returns (up to 5,0
 `bootui.activity.max-entries` from Spring's panel buffers); when older retained entries were not searched, `hasMore` is
 true and a warning names the window, so no match there does not mean the route never ran. `get_config` leaves
 out `propertySuggestions`, the browser's completion list of every known property. `get_agent_status` and
-`get_side_effects` summarize each sensor (state, reason, counters, runtime switch) without its hooks, and Side Effects
+`get_side_effects` summarize each sensor (state, reason, counters, runtime switch) without its hooks; `get_agent_status`
+lists every matching sensor and takes no `limit`, ignoring one sent by an older CLI. Side Effects
 lists the fixed limitations of a sensor's rows only for sensors with listed rows; query a sensor id, such as
 `executors`, for its hooks (and, from agent status, its self-test steps). A 1.x CLI, which knows these commands without the newer
 options, keeps working and gets the same first page.
+
+### Compact answers from scans and capture controls
+
+An active scan and a capture control change state; the agent then reads what it needs. So they answer with a compact
+summary or acknowledgement, and the browser's endpoints keep returning the full panel report.
+
+Every active scan (`architecture_scan`, `spring_scan`, `hibernate_scan`, `memory_scan`, `security_scan`,
+`rest_api_scan`, `database_advisor_scan`, `pentest_scan`, `graalvm_scan`, `crac_scan`, `vulnerabilities_scan`)
+answers with the same summary:
+
+| Field | Meaning |
+| --- | --- |
+| `reportTool` | The tool that reads the cached report this scan produced, without scanning again |
+| `detailsTool` | The tool that pages a rule's retained violations; `null` for an advisor without one |
+| `scan`, `evidence` | The scan status and the advisor's coverage, as the report carries them |
+| `findingsFound`, `severityCounts` | The report's whole counts; dismissed findings are excluded |
+| `topFindings` | At most 10 rows, most severe first, then most frequent: `id`, `title`, `severity`, `count`. A row is a rule or a check, and `count` its violations or findings |
+| `moreFindings` | The rows left out of `topFindings`; `0` means every rule or check with a finding is listed |
+| `violationDetails` | The rule advisors' `scanId` and retention, for [paging violations](#reading-retained-advisor-violations) |
+
+A vulnerability row is a vulnerable dependency: `id` is its coordinates, `title` its most severe advisory, and `count`
+its advisory count. So for `vulnerabilities_scan`, `findingsFound` counts vulnerable dependencies while
+`severityCounts` counts advisories, as the Vulnerabilities report does. The summary adds the inventory's
+`dependencies`, `scanningEnabled`, and `coverage`.
+`postgresql_read` and `mysql_read` grade nothing, so they answer with the read's `status`, `message`, `readAt`,
+`truncated`, and each database's status and sections (`id`, `status`, `reason`, `rowCount`, `truncated`); read the
+rows with `get_postgresql_report` or `get_mysql_report`.
+
+The capture controls — `pause_*`, `resume_*` and `clear_*` for SQL Trace, Transactions, and REST Client Trace, plus
+`clear_exceptions` and `clear_traces` — all answer with one acknowledgement:
+
+```json
+{"action":"paused","available":true,"unavailableReason":null,"capturing":false,"retained":200,"capacity":200,"totalCaptured":872}
+```
+
+`action` is `paused`, `resumed`, or `cleared`; `capturing` is the recording state after it; `retained` counts the
+entries still held (exception groups for Exceptions), `0` after a clear; `capacity` is the panel's retention limit.
+
+A clear empties the retained window and nothing else. These counters keep their meaning across a clear, in the
+browser, the MCP tools, and the CLI alike:
+
+| Counter | Panels | Counts | After a clear |
+| --- | --- | --- | --- |
+| `totalCaptured` | SQL Trace, Transactions, REST Client Trace | Entries recorded since startup, shown as "captured since startup" | Kept: it is a lifetime count |
+| `stats.evicted`, and `retention.evicted` on SQL Trace and REST Client Trace | SQL Trace, Transactions, REST Client Trace | Entries dropped since startup because the buffer was full | Kept |
+| `stats`, `entries`, `topStatements`, `topCalls` | SQL Trace, Transactions, REST Client Trace | The retained window | Reset |
+| `totalExceptions`, `groups` | Exceptions | Occurrences in the retained groups | Reset |
+| `retained`, `traces` | Traces | The retained traces | Reset |
+
+Exceptions and Traces keep no lifetime count, so their acknowledgement's `totalCaptured` is `null`.
+
+Every tool response, report tools included, obeys `bootui.mcp.max-response-bytes` (4 MiB by default). A response that
+does not fit is refused with JSON-RPC `-32003` rather than truncated, so the agent never mistakes a cut report for a
+complete one. Report tools stay well below it: a rule advisor's report keeps at most 10 (or 20) sample violations per
+rule and pages the rest with its `get_*_rule_violations` tool; `get_vulnerabilities_report` lists `limit` dependencies,
+each with at most 5 advisories (active and most severe first) without their OSV `details` and with at most 3
+references and symbols, so `limit` bounds the whole answer; its `advisories` object counts what was left out, an exact
+`group:artifact` query lists all of one dependency's advisories, and an exact advisory id or alias returns that
+advisory whole. The PostgreSQL and MySQL reports cap each section's rows and flag the cut with `truncated`.
 
 ### Safety model
 
@@ -868,9 +973,13 @@ When you do not know which panel to investigate first, ask your coding agent for
 The BootUI skill — installed [on its own](#install-the-bootui-agent-skill) or through the
 [Claude Code plugin](#install-the-bootui-claude-code-plugin) — teaches this workflow through MCP, the CLI, or the plain
 HTTP command-line endpoint. MCP clients with prompt support can select **`assess_application`** instead. BootUI advertises
-four argument-free prompts: `diagnose_runtime_issue` for a focused runtime failure, `verify_after_change` to run the tests,
+four prompts: `diagnose_runtime_issue` for a focused runtime failure, `verify_after_change` to run the tests,
 compare with the previous run, and stop, `review_application` for a focused
-advisor review, and `assess_application` for a broader assessment and approval-gated plan. Clients without prompt support
+advisor review, and `assess_application` for a broader assessment and approval-gated plan. Each declares optional
+string arguments that focus it: `symptom` and `route` for `diagnose_runtime_issue`, `change` and `route` for
+`verify_after_change`, `focus` for `review_application`, and `goal` for `assess_application`. A supplied value is
+appended to the prompt as context to verify (at most 500 characters each); without arguments the prompt is unchanged,
+and an undeclared or non-string argument is refused with `-32602`. Clients without prompt support
 can use the skill and the request above; there is no `bootui assess` command or new assessment tool.
 
 ### What the assessment does
@@ -971,8 +1080,9 @@ With the agent connected and the repository open in your editor, ask it:
 
 ### 4. What the agent sees
 
-The agent calls `hibernate_scan` over MCP and gets back the same report the
-[Hibernate panel](features/advisors.md#hibernate) shows. Among the findings is a real
+The agent calls `hibernate_scan` over MCP and gets back a summary of the scan, whose `topFindings` rank the violated
+rules, then reads the same report the [Hibernate panel](features/advisors.md#hibernate) shows with
+`get_hibernate_report`. Among the findings is a real
 [`HIB-FETCH-001`](HIBERNATE-CHECKS.md#hib-fetch-001-eager-fetching-should-stay-explicit-and-bounded) (severity
 `HIGH`, 3 violations), one of whose `sampleViolations` names
 [`SampleOrder.customer`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/src/main/java/io/github/jdubois/bootui/sample/advisor/hibernate/SampleOrder.java):
@@ -988,14 +1098,15 @@ join or entity graph where a use case needs it up front.
 
 ### 6. Verify
 
-The agent re-runs `hibernate_scan`. `HIB-FETCH-001`'s `violationCount` drops from 3 to 2, and its `sampleViolations`
+The agent re-runs `hibernate_scan`, whose summary counts `HIB-FETCH-001` at 2 instead of 3, then reads
+`get_hibernate_report`: the rule's `violationCount` is 2, and its `sampleViolations`
 no longer mention `SampleOrder#customer` — confirmed against the actually running app, not by re-reading the source.
 `HIB-FETCH-001` itself does **not** disappear from the report: `SampleAppPreferences#enabledFeatures` and
 `SampleOrder#details` are separate, intentional eager-fetch fixtures the same rule also catches, so the rule keeps
 firing until those are fixed too. Confirm just the one violation is gone from a terminal with:
 
 ```bash
-bootui hibernate scan --json \
+bootui hibernate scan > /dev/null && bootui hibernate report --json \
   | jq '.results[] | select(.id == "HIB-FETCH-001") | .sampleViolations[] | select(contains("SampleOrder#customer"))'
 ```
 

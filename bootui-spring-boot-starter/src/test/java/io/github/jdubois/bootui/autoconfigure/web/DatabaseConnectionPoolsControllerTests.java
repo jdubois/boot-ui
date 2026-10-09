@@ -34,6 +34,7 @@ class DatabaseConnectionPoolsControllerTests {
         HikariPoolDto pool = new HikariPoolDto(
                 "dataSource",
                 "HikariPool-1",
+                "HikariCP",
                 "jdbc:postgresql://******@localhost:5432/demo",
                 "******",
                 "org.postgresql.Driver",
@@ -54,7 +55,8 @@ class DatabaseConnectionPoolsControllerTests {
         mvc(service)
                 .perform(get("/bootui/api/database-connection-pools/pools"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.hikariPresent").value(true))
+                .andExpect(jsonPath("$.poolLibraryPresent").value(true))
+                .andExpect(jsonPath("$.pools[0].implementation").value("HikariCP"))
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.pools[0].beanName").value("dataSource"))
                 .andExpect(jsonPath("$.pools[0].jdbcUrl").value("jdbc:postgresql://******@localhost:5432/demo"))

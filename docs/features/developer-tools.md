@@ -61,6 +61,11 @@ makes outbound calls to OSV.dev.
 `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`, `get_rest_api_report`,
 `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report`.
 
+**Cached per-rule violations** — `get_architecture_rule_violations`, `get_spring_rule_violations`,
+`get_hibernate_rule_violations`, `get_database_advisor_rule_violations`, `get_memory_rule_violations`,
+`get_security_rule_violations`, and `get_rest_api_rule_violations` page the details a cached report retained, without
+scanning again. On Quarkus, the `spring` tools run and read the Quarkus application advisor.
+
 **Runtime Insights reads** — `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
 `get_runtime_run_comparison`: the [Runtime Insights](overview.md#runtime-insights) report, one observation, change
 impact, and the run comparison, compacted for agents, with `INSUFFICIENT` and `NOT_COMPARABLE` never read as success.

@@ -81,6 +81,7 @@ const EXECUTOR_COUNTERS = [
   ['ambiguous', 'Ambiguous', 'tasks submitted more than once by different owners, left unowned'],
   ['stale', 'Stale', 'tasks received under an earlier claim, never reopened after a restart'],
   ['refused', 'Refused', 'snapshots the bridge refused because they held more than strings and numbers'],
+  ['overflow', 'Over the limit', 'tasks received from owned work while 32,768 were already pending, left unowned'],
   ['virtualSkipped', 'Virtual threads skipped', 'virtual-thread continuations, which keep their own context'],
   ['periodicSkipped', 'Periodic tasks skipped', 'repeating scheduled tasks, which are never propagated'],
   ['skippedTasks', 'Wrappers skipped', 'tasks already carrying their context (bootui.agent.executors.skip-tasks)'],
@@ -99,6 +100,7 @@ const THREAD_COUNTERS = [
   ['ambiguous', 'Ambiguous', 'threads started more than once by different owners, left unowned'],
   ['stale', 'Stale', 'threads started under an earlier claim, never reopened after a restart'],
   ['refused', 'Refused', 'snapshots the bridge refused because they held more than strings and numbers'],
+  ['overflow', 'Over the limit', 'threads started from owned work while 32,768 were already pending, left unowned'],
   [
     'libraryThreadsSkipped',
     'Library threads skipped',
@@ -432,10 +434,11 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
         <section class="card mb-4" aria-labelledby="java-agent-opt-in-title">
           <div class="card-body p-4">
             <h3 id="java-agent-opt-in-title" class="h6 fw-bold mb-1">
-              <i class="bi bi-toggles me-2" aria-hidden="true"></i>Opt-in sensors
+              <i class="bi bi-toggles me-2" aria-hidden="true"></i>Runtime switches
             </h3>
             <p class="small text-muted mb-3">
-              Sensors off by default, switched on or off here for this application without a restart. A switch overrides
+              Sensors switched on or off here for this application without a restart, each with why it is on or off by
+              default. A switch overrides
               <code>bootui.agent.sensors</code> until this JVM ends, across DevTools restarts and Quarkus live reloads.
             </p>
             <ul v-if="toggles.length" class="list-unstyled mb-0 java-agent-toggles">
@@ -444,7 +447,7 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
               </li>
             </ul>
             <p v-else class="small text-muted mb-0" data-testid="java-agent-toggles-unavailable">
-              The opt-in sensors can be switched once the BootUI agent is attached and this application holds its claim.
+              These sensors can be switched once the BootUI agent is attached and this application holds its claim.
             </p>
           </div>
         </section>

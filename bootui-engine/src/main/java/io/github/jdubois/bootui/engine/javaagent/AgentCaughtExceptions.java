@@ -432,6 +432,21 @@ public final class AgentCaughtExceptions implements RuntimeEventPublisher, Consu
                 "unresolved", unresolved.get());
     }
 
+    /**
+     * How many times the agent left an exception handler uninstrumented because the JVM already holds its 16,384 handler
+     * sites, whose catches go unseen: a handler retransformed again counts again, so this says whether any were, not how
+     * many; {@code 0} when none, or when the bridge does not count them.
+     */
+    public long sitesOverLimit() {
+        try {
+            Long over = AgentBridgeAccess.number(
+                    AgentBridgeAccess.map(access.status(), AgentSensorSettings.CAUGHT_EXCEPTIONS), "sitesOverLimit");
+            return over == null ? 0L : over;
+        } catch (RuntimeException ex) {
+            return 0L;
+        }
+    }
+
     // ---- losses -----------------------------------------------------------------------------------------------------
 
     /**

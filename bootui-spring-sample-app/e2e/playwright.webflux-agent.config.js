@@ -19,7 +19,7 @@ const MAVEN_REPO = process.env.BOOTUI_MAVEN_REPO_LOCAL
 const REPO_ARG = MAVEN_REPO ? ` -Dmaven.repo.local=${MAVEN_REPO}` : ''
 const WEBSERVER_TIMEOUT = Number(process.env.BOOTUI_WEBSERVER_TIMEOUT || 240_000)
 
-// The default sensors (resources and blocking named whatever their default), the opt-in files, environment,
+// The default sensors (files, resources, and blocking named whatever their default), the opt-in environment,
 // thread-activity, thread-locals, and security-sinks sensors (with request-value matching), whose Side Effects seeds the
 // side-effects spec asserts (M5-5c to M5-5g, M5-6b), and the opt-in caught-exceptions sensor, whose Exceptions panel
 // seeds the caught-exceptions spec asserts (M5-6a2).

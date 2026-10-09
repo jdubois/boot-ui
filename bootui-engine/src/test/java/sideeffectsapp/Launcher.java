@@ -34,4 +34,32 @@ public final class Launcher {
         SideEffects.processStarted(
                 token, builder.command(), null, new IOException("error=2, No such file or directory"));
     }
+
+    /** MD5 asked for here, as the security-sinks advice on {@code MessageDigest.getInstance} reports it. */
+    public static void md5() {
+        io.github.jdubois.bootui.agent.bridge.SecuritySinks.digest("MD5");
+    }
+
+    /** SHA-1 asked for by a library on this method's behalf. */
+    public static void sha1ThroughLibrary() {
+        sideeffectslibrary.Digests.sha1();
+    }
+
+    /** An unfiltered outermost read of {@code stream} resolving {@code classes}, then ending, thrown or not. */
+    public static void deserialize(java.io.ObjectInputStream stream, boolean thrown, Class<?>... classes) {
+        long token = io.github.jdubois.bootui.agent.bridge.SecuritySinks.reading(stream, 0L);
+        for (Class<?> type : classes) {
+            io.github.jdubois.bootui.agent.bridge.SecuritySinks.resolved(type);
+        }
+        io.github.jdubois.bootui.agent.bridge.SecuritySinks.read(
+                token, thrown ? new java.io.InvalidClassException("refused") : null);
+    }
+
+    /** {@code SSLContext.init} given {@code managers}. */
+    public static void trust(Object... managers) {
+        io.github.jdubois.bootui.agent.bridge.SecuritySinks.sslInit(managers);
+    }
+
+    /** A trust manager of the application. */
+    public static final class TrustAll {}
 }

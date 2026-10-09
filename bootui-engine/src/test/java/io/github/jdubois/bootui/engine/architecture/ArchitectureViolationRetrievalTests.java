@@ -7,6 +7,7 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
+import io.github.jdubois.bootui.engine.advisor.AdvisorRuleRefusals;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import io.github.jdubois.bootui.engine.architecture.cyclefixtures.alpha.Alpha;
 import io.github.jdubois.bootui.engine.architecture.cyclefixtures.beta.Beta;
@@ -186,10 +187,18 @@ class ArchitectureViolationRetrievalTests {
                 packages -> classes,
                 ArchitecturePlatform.SPRING,
                 CLOCK,
-                List.of(new NoSelfInvocationOfProxiedMethodsRule(), new NoGenericExceptionsRule()));
+                List.of(
+                        new NoSelfInvocationOfProxiedMethodsRule(),
+                        new NoGenericExceptionsRule(),
+                        new FreeOfPackageCyclesRule()));
         scanner.setViolationRetentionLimit(() -> 12);
         ArchitectureReport first = scanner.scan();
         assertThat(first.violationDetails().total()).isEqualTo(45);
+        AdvisorRuleRefusals.assertKnownAndUnknownRulesAreToldApart(
+                List.of("ARCH-SPRING-004", "ARCH-CODE-002", "ARCH-PKG-001"),
+                first.results().stream().map(evaluated -> evaluated.id()).toList(),
+                first.violationDetails().scanId(),
+                (asked, scan) -> scanner.ruleViolations(asked, scan, 0, 1));
         assertThat(first.violationDetails().retained()).isEqualTo(12);
         assertThat(first.violationDetails().truncated()).isTrue();
         assertThat(first.results())

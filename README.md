@@ -6,7 +6,7 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6db33f?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Quarkus](https://img.shields.io/badge/Quarkus-3.40.1_LTS-4695EB?logo=quarkus&logoColor=white)](https://quarkus.io/)
 
-BootUI adds an embedded, local-only developer console to your application. It runs on **Spring Boot 4** (servlet or
+BootUI adds an embedded, local-only developer console to your application. It runs on **Spring Boot** (servlet or
 WebFlux) and **Quarkus**, serving the same Vue UI and REST contract (`/bootui` and `/bootui/api/**` by default,
 configurable with `bootui.path` / `bootui.api-path`) from a shared,
 framework-neutral engine — add the Spring Boot starter (one for both stacks) or the Quarkus extension and BootUI
@@ -69,7 +69,7 @@ curl -fsSL https://www.julien-dubois.com/boot-ui/install.sh | sh
 
 ```bash
 bootui beans --query dataSource
-bootui hibernate scan --json | jq '.findings[]'
+bootui hibernate scan --json | jq '.topFindings[]'
 ```
 
 It needs no MCP client and no agent, prints exact JSON when piped, and exits `2` when a panel's own policy

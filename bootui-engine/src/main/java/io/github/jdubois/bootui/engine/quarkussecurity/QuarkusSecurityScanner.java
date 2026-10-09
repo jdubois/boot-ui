@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
+import io.github.jdubois.bootui.engine.support.DetailText;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import io.github.jdubois.bootui.spi.QuarkusSecurityPermission;
 import io.github.jdubois.bootui.spi.QuarkusSecuritySnapshot;
@@ -42,7 +43,11 @@ public final class QuarkusSecurityScanner {
     private final Supplier<QuarkusSecuritySnapshot> snapshotSupplier;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
-    private final AdvisorScanState<SecurityReport> state = new AdvisorScanState<>(SecurityReport::withViolationDetails);
+    /** The synthetic id of an analysisErrors entry when the observation itself failed. */
+    static final String ANALYSIS_RULE_ID = "QS-ANALYSIS";
+
+    private final AdvisorScanState<SecurityReport> state =
+            new AdvisorScanState<>(SecurityReport::withViolationDetails, QuarkusSecurityScanner::ruleCatalog);
 
     private QuarkusSecurityScanner(Supplier<QuarkusSecuritySnapshot> snapshotSupplier, Clock clock) {
         this.snapshotSupplier = snapshotSupplier;
@@ -102,6 +107,7 @@ public final class QuarkusSecurityScanner {
         List<SecurityRuleResultDto> violations = evaluation.findings();
         List<String> policyLabels = snap.permissions().stream()
                 .map(QuarkusSecurityScanner::policyLabel)
+                .distinct()
                 .toList();
         List<SecurityRuleResultDto> errors = snap.evidence().failures().stream()
                 .map(QuarkusSecurityScanner::error)
@@ -119,8 +125,41 @@ public final class QuarkusSecurityScanner {
                 evaluation.evidence());
     }
 
-    private static String policyLabel(QuarkusSecurityPermission p) {
-        return "HTTP permission declaration → " + (p.knownPolicy() ? "supported policy" : "custom policy");
+    /**
+     * One HTTP permission, identified by its name, paths, methods and policy, for example
+     * {@code admin: /admin, /admin/* → policy admin-role (all methods)}. Names and policy names that are not plain
+     * identifiers are replaced with a placeholder, and paths and methods are flattened and bounded, so configuration
+     * text is never echoed unchecked.
+     */
+    static String policyLabel(QuarkusSecurityPermission p) {
+        String paths = p.paths() == null || p.paths().isBlank()
+                ? "/*"
+                : DetailText.sanitize(String.join(", ", p.paths().split("\\s*,\\s*")), 160);
+        String methods = p.methods() == null || p.methods().isBlank()
+                ? "all methods"
+                : DetailText.sanitize(String.join(", ", p.methods().split("\\s*,\\s*")), 80);
+        StringBuilder label = new StringBuilder()
+                .append(identifier(p.name(), "unnamed permission"))
+                .append(": ")
+                .append(paths)
+                .append(" → policy ")
+                .append(identifier(p.policy(), "(name omitted)"))
+                .append(" (")
+                .append(methods);
+        if (!p.knownPolicy()) {
+            label.append(", custom policy not analysed");
+        }
+        if ("jaxrs".equals(p.appliesTo())) {
+            label.append(", JAX-RS only");
+        }
+        if (p.shared()) {
+            label.append(", shared");
+        }
+        return label.append(')').toString();
+    }
+
+    private static String identifier(String value, String placeholder) {
+        return value != null && value.length() <= 64 && value.matches("[A-Za-z0-9_-]+") ? value : placeholder;
     }
 
     private SecurityReport report(
@@ -128,9 +167,16 @@ public final class QuarkusSecurityScanner {
         return report(status, message, scannedAt, policyLabels, raw, List.of());
     }
 
+    /** The rule ids detail reads know: every check, plus the analysis entry {@link #error} lists in analysisErrors. */
+    private static List<String> ruleCatalog() {
+        List<String> catalog = new java.util.ArrayList<>(QuarkusSecurityChecks.ruleIds());
+        catalog.add(ANALYSIS_RULE_ID);
+        return catalog;
+    }
+
     private static SecurityRuleResultDto error(String message) {
         return new SecurityRuleResultDto(
-                "QS-ANALYSIS",
+                ANALYSIS_RULE_ID,
                 "Quarkus security observation failed",
                 "Analysis",
                 "INFO",

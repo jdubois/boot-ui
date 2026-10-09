@@ -69,13 +69,14 @@ import io.github.jdubois.bootui.core.dto.TransactionRecordingRequest;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsAgentView;
 import io.github.jdubois.bootui.engine.mcp.McpAgentViews;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
+import io.github.jdubois.bootui.engine.mcp.McpControlAcks;
+import io.github.jdubois.bootui.engine.mcp.McpScanSummaries;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
 import io.github.jdubois.bootui.engine.memory.MemoryAgentViews;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -190,7 +191,7 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "architecture_scan",
                     McpToolDescriptions.spring("architecture_scan"),
-                    args -> architectureBean.scan()));
+                    args -> McpScanSummaries.architecture(architectureBean.scan())));
             registry.add(tool(
                     "get_architecture_report",
                     McpToolDescriptions.spring("get_architecture_report"),
@@ -201,7 +202,10 @@ public class BootUiMcpTools {
                     "get_spring_rule_violations",
                     McpToolDescriptions.spring("get_spring_rule_violations"),
                     args -> springBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
-            registry.add(tool("spring_scan", McpToolDescriptions.spring("spring_scan"), args -> springBean.scan()));
+            registry.add(tool(
+                    "spring_scan",
+                    McpToolDescriptions.spring("spring_scan"),
+                    args -> McpScanSummaries.spring(springBean.scan())));
             registry.add(tool(
                     "get_spring_report", McpToolDescriptions.spring("get_spring_report"), args -> springBean.spring()));
         }
@@ -210,8 +214,10 @@ public class BootUiMcpTools {
                     "get_hibernate_rule_violations",
                     McpToolDescriptions.spring("get_hibernate_rule_violations"),
                     args -> hibernateBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
-            registry.add(
-                    tool("hibernate_scan", McpToolDescriptions.spring("hibernate_scan"), args -> hibernateBean.scan()));
+            registry.add(tool(
+                    "hibernate_scan",
+                    McpToolDescriptions.spring("hibernate_scan"),
+                    args -> McpScanSummaries.hibernate(hibernateBean.scan())));
             registry.add(tool(
                     "get_hibernate_report",
                     McpToolDescriptions.spring("get_hibernate_report"),
@@ -222,7 +228,10 @@ public class BootUiMcpTools {
                     "get_memory_rule_violations",
                     McpToolDescriptions.spring("get_memory_rule_violations"),
                     args -> memoryBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
-            registry.add(tool("memory_scan", McpToolDescriptions.spring("memory_scan"), args -> memoryBean.scan()));
+            registry.add(tool(
+                    "memory_scan",
+                    McpToolDescriptions.spring("memory_scan"),
+                    args -> McpScanSummaries.memory(memoryBean.scan())));
             registry.add(tool(
                     "get_memory_report", McpToolDescriptions.spring("get_memory_report"), args -> memoryBean.memory()));
         }
@@ -231,16 +240,20 @@ public class BootUiMcpTools {
                     "get_security_rule_violations",
                     McpToolDescriptions.spring("get_security_rule_violations"),
                     args -> securityBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
-            registry.add(
-                    tool("security_scan", McpToolDescriptions.spring("security_scan"), args -> securityBean.scan()));
+            registry.add(tool(
+                    "security_scan",
+                    McpToolDescriptions.spring("security_scan"),
+                    args -> McpScanSummaries.security(securityBean.scan())));
             registry.add(tool(
                     "get_security_report",
                     McpToolDescriptions.spring("get_security_report"),
                     args -> securityBean.security()));
         }
         if (pentestingBean != null) {
-            registry.add(
-                    tool("pentest_scan", McpToolDescriptions.spring("pentest_scan"), args -> pentestingBean.scan()));
+            registry.add(tool(
+                    "pentest_scan",
+                    McpToolDescriptions.spring("pentest_scan"),
+                    args -> McpScanSummaries.pentest(pentestingBean.scan())));
             registry.add(tool(
                     "get_pentest_report",
                     McpToolDescriptions.spring("get_pentest_report"),
@@ -251,23 +264,30 @@ public class BootUiMcpTools {
                     "get_rest_api_rule_violations",
                     McpToolDescriptions.spring("get_rest_api_rule_violations"),
                     args -> restApiBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
-            registry.add(
-                    tool("rest_api_scan", McpToolDescriptions.spring("rest_api_scan"), args -> restApiBean.scan()));
+            registry.add(tool(
+                    "rest_api_scan",
+                    McpToolDescriptions.spring("rest_api_scan"),
+                    args -> McpScanSummaries.restApi(restApiBean.scan())));
             registry.add(tool(
                     "get_rest_api_report",
                     McpToolDescriptions.spring("get_rest_api_report"),
                     args -> restApiBean.restApi()));
         }
         if (graalvmBean != null) {
-            registry.add(
-                    tool("graalvm_scan", McpToolDescriptions.spring("graalvm_scan"), args -> graalvmBean.scan(false)));
+            registry.add(tool(
+                    "graalvm_scan",
+                    McpToolDescriptions.spring("graalvm_scan"),
+                    args -> McpScanSummaries.graalvm(graalvmBean.scan(false))));
             registry.add(tool(
                     "get_graalvm_report",
                     McpToolDescriptions.spring("get_graalvm_report"),
                     args -> graalvmBean.graalvm()));
         }
         if (cracBean != null) {
-            registry.add(tool("crac_scan", McpToolDescriptions.spring("crac_scan"), args -> cracBean.scan()));
+            registry.add(tool(
+                    "crac_scan",
+                    McpToolDescriptions.spring("crac_scan"),
+                    args -> McpScanSummaries.crac(cracBean.scan())));
             registry.add(
                     tool("get_crac_report", McpToolDescriptions.spring("get_crac_report"), args -> cracBean.crac()));
         }
@@ -279,7 +299,7 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "database_advisor_scan",
                     McpToolDescriptions.spring("database_advisor_scan"),
-                    args -> databaseAdvisorBean.scan()));
+                    args -> McpScanSummaries.databaseAdvisor(databaseAdvisorBean.scan())));
             registry.add(tool(
                     "get_database_advisor_report",
                     McpToolDescriptions.spring("get_database_advisor_report"),
@@ -287,14 +307,19 @@ public class BootUiMcpTools {
         }
         if (postgresqlBean != null) {
             registry.add(tool(
-                    "postgresql_read", McpToolDescriptions.spring("postgresql_read"), args -> postgresqlBean.read()));
+                    "postgresql_read",
+                    McpToolDescriptions.spring("postgresql_read"),
+                    args -> McpScanSummaries.postgresql(postgresqlBean.read())));
             registry.add(tool(
                     "get_postgresql_report",
                     McpToolDescriptions.spring("get_postgresql_report"),
                     args -> postgresqlBean.postgresql()));
         }
         if (mysqlBean != null) {
-            registry.add(tool("mysql_read", McpToolDescriptions.spring("mysql_read"), args -> mysqlBean.read()));
+            registry.add(tool(
+                    "mysql_read",
+                    McpToolDescriptions.spring("mysql_read"),
+                    args -> McpScanSummaries.mysql(mysqlBean.read())));
             registry.add(tool(
                     "get_mysql_report", McpToolDescriptions.spring("get_mysql_report"), args -> mysqlBean.report()));
         }
@@ -302,7 +327,7 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "vulnerabilities_scan",
                     McpToolDescriptions.spring("vulnerabilities_scan"),
-                    args -> vulnerabilitiesBean.scan()));
+                    args -> McpScanSummaries.vulnerabilities(vulnerabilitiesBean.scan())));
             registry.add(tool(
                     "get_vulnerabilities_report",
                     McpToolDescriptions.spring("get_vulnerabilities_report"),
@@ -400,7 +425,7 @@ public class BootUiMcpTools {
                     args -> exceptionsBean.detail(args.id())));
             registry.add(tool("clear_exceptions", McpToolDescriptions.spring("clear_exceptions"), args -> {
                 exceptionsBean.clear();
-                return Map.of("cleared", true);
+                return McpControlAcks.exceptionsCleared(exceptionsBean.list());
             }));
         }
         if (securityLogsBean != null) {
@@ -415,15 +440,19 @@ public class BootUiMcpTools {
                     McpToolDescriptions.spring("get_sql_traces"),
                     args -> McpAgentViews.sqlTraces(sqlTraceBean.trace(), args.query(), args.limit())));
             registry.add(tool(
-                    "clear_sql_traces", McpToolDescriptions.spring("clear_sql_traces"), args -> sqlTraceBean.clear()));
+                    "clear_sql_traces",
+                    McpToolDescriptions.spring("clear_sql_traces"),
+                    args -> McpControlAcks.sqlTrace(McpControlAcks.CLEARED, sqlTraceBean.clear())));
             registry.add(tool(
                     "pause_sql_trace_recording",
                     McpToolDescriptions.spring("pause_sql_trace_recording"),
-                    args -> sqlTraceBean.recording(new SqlTraceRecordingRequest(false))));
+                    args -> McpControlAcks.sqlTrace(
+                            McpControlAcks.PAUSED, sqlTraceBean.recording(new SqlTraceRecordingRequest(false)))));
             registry.add(tool(
                     "resume_sql_trace_recording",
                     McpToolDescriptions.spring("resume_sql_trace_recording"),
-                    args -> sqlTraceBean.recording(new SqlTraceRecordingRequest(true))));
+                    args -> McpControlAcks.sqlTrace(
+                            McpControlAcks.RESUMED, sqlTraceBean.recording(new SqlTraceRecordingRequest(true)))));
         }
         if (transactionsBean != null) {
             registry.add(tool(
@@ -433,22 +462,26 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "clear_transactions",
                     McpToolDescriptions.spring("clear_transactions"),
-                    args -> transactionsBean.clear()));
+                    args -> McpControlAcks.transactions(McpControlAcks.CLEARED, transactionsBean.clear())));
             registry.add(tool(
                     "pause_transaction_recording",
                     McpToolDescriptions.spring("pause_transaction_recording"),
-                    args -> transactionsBean.recording(new TransactionRecordingRequest(false))));
+                    args -> McpControlAcks.transactions(
+                            McpControlAcks.PAUSED,
+                            transactionsBean.recording(new TransactionRecordingRequest(false)))));
             registry.add(tool(
                     "resume_transaction_recording",
                     McpToolDescriptions.spring("resume_transaction_recording"),
-                    args -> transactionsBean.recording(new TransactionRecordingRequest(true))));
+                    args -> McpControlAcks.transactions(
+                            McpControlAcks.RESUMED,
+                            transactionsBean.recording(new TransactionRecordingRequest(true)))));
         }
         if (tracesBean != null) {
             registry.add(tool(
                     "get_traces", McpToolDescriptions.spring("get_traces"), args -> tracesBean.list(args.limit())));
             registry.add(tool("clear_traces", McpToolDescriptions.spring("clear_traces"), args -> {
                 tracesBean.clear();
-                return Map.of("cleared", true);
+                return McpControlAcks.tracesCleared(tracesBean.list(1));
             }));
         }
         if (logTailBean != null) {
@@ -664,19 +697,23 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "get_rest_client_traces",
                     McpToolDescriptions.spring("get_rest_client_traces"),
-                    args -> restClientTraceBean.trace()));
+                    args -> McpAgentViews.restClientTraces(restClientTraceBean.trace(), args.query(), args.limit())));
             registry.add(tool(
                     "clear_rest_client_traces",
                     McpToolDescriptions.spring("clear_rest_client_traces"),
-                    args -> restClientTraceBean.clear()));
+                    args -> McpControlAcks.restClientTrace(McpControlAcks.CLEARED, restClientTraceBean.clear())));
             registry.add(tool(
                     "pause_rest_client_recording",
                     McpToolDescriptions.spring("pause_rest_client_recording"),
-                    args -> restClientTraceBean.recording(new RestClientTraceRecordingRequest(false))));
+                    args -> McpControlAcks.restClientTrace(
+                            McpControlAcks.PAUSED,
+                            restClientTraceBean.recording(new RestClientTraceRecordingRequest(false)))));
             registry.add(tool(
                     "resume_rest_client_recording",
                     McpToolDescriptions.spring("resume_rest_client_recording"),
-                    args -> restClientTraceBean.recording(new RestClientTraceRecordingRequest(true))));
+                    args -> McpControlAcks.restClientTrace(
+                            McpControlAcks.RESUMED,
+                            restClientTraceBean.recording(new RestClientTraceRecordingRequest(true)))));
         }
         AiController aiBean = ai.getIfAvailable();
         if (aiBean != null) {
@@ -713,7 +750,8 @@ public class BootUiMcpTools {
             registry.add(tool(
                     "trigger_devtools_livereload",
                     McpToolDescriptions.spring("trigger_devtools_livereload"),
-                    args -> devToolsBean.triggerLiveReload().getBody()));
+                    args -> McpAgentViews.devToolsAction(
+                            devToolsBean.triggerLiveReload().getBody())));
         }
         DevServicesController devServicesBean = devServices.getIfAvailable();
         if (devServicesBean != null) {

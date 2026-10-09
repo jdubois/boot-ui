@@ -53,6 +53,11 @@ test.describe('Java Agent view (Quarkus)', () => {
         await expect(row).toHaveCount(1)
         await expect(row).toContainText('passed')
       }
+      // The opt-in security-sinks sensor's runtime switch, configured on in this suite, with why it is off by default.
+      const sinks = page.getByTestId('agent-sensor-toggle-security-sinks')
+      await expect(sinks.getByRole('switch', {name: /security-sinks/})).toBeChecked()
+      await expect(sinks).toContainText('Configured: on')
+      await expect(sinks).toContainText('bootui.agent.security-sinks.request-values=true')
     } else {
       await expect(page.getByRole('heading', {name: 'Not attached'})).toBeVisible()
       await expect(page.getByText('This JVM runs without the BootUI agent')).toBeVisible()
@@ -63,7 +68,7 @@ test.describe('Java Agent view (Quarkus)', () => {
       await expect(regions.nth(2)).toHaveAttribute('aria-labelledby', 'java-agent-about-title')
       await expect(page.getByRole('heading', {name: 'What the Java agent adds'})).toBeVisible()
       await expect(page.getByRole('region', {name: 'Sensors'})).toHaveCount(0)
-      await expect(page.getByRole('region', {name: 'Opt-in sensors'})).toHaveCount(0)
+      await expect(page.getByRole('region', {name: 'Runtime switches'})).toHaveCount(0)
     }
 
     const tabs = page.getByRole('tab')

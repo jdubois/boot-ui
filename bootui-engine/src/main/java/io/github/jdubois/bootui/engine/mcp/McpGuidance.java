@@ -13,7 +13,13 @@ public final class McpGuidance {
                 + "smallest relevant read tool. Before relying on a tool or observation that needs the BootUI agent "
                 + "(Code Paths, Code Inventory, Side Effects, method probes), call get_agent_status once to learn "
                 + "whether it is attached and which sensors record; NOT_APPLICABLE because it requires the BootUI "
-                + "agent means not measured, never healthy or nothing to worry about. For why a route is slow or what "
+                + "agent means not measured, never healthy or nothing to worry about. A get_side_effects "
+                + "security-sinks row (request-input-in-sink) says a request's value reached SQL text, a command, a "
+                + "file path, or an outbound URL unchanged: it is a check to perform, never a vulnerability verdict, "
+                + "and an absent row is not evidence of safety. The same applies to deserialization without an "
+                + "ObjectInputFilter, weak algorithms, and trust-manager or hostname-verifier rows: check the input's "
+                + "origin and filtering, the algorithm's purpose, and certificate and hostname validation in source "
+                + "and effective configuration. Read each group's coverage first. For why a route is slow or what "
                 + "a change did, start with "
                 + "get_runtime_insights and get_runtime_run_comparison; before editing a bean, class, method "
                 + "(Class#method), repository, or table, call get_runtime_impact with its name to learn which routes "
@@ -61,10 +67,35 @@ public final class McpGuidance {
                                 + "dependency or its affected code was loaded or reached, or that request input "
                                 + "appeared verbatim in SQL, a command, a file path, or an outbound URL, treat it as a "
                                 + "check to perform, never as a vulnerability verdict: verify against source and "
-                                + "effective configuration before calling it actionable. Correlate trace ids, "
+                                + "effective configuration before calling it actionable. A request-input-in-sink row "
+                                + "from get_side_effects with the query security-sinks reads, for instance, \"request "
+                                + "input reached this SQL text unchanged\": check that the value is bound as a "
+                                + "parameter, escaped, or chosen from a fixed list, a command argument or file path "
+                                + "validated, an outbound URL unable to change its host; a row seen in one request "
+                                + "so far is weaker evidence. "
+                                + "The same security-sinks query lists deserialization without an ObjectInputFilter, "
+                                + "weak algorithms, and trust managers or hostname verifiers installed by application "
+                                + "or library code: check the deserialized input's origin and filtering, whether an "
+                                + "algorithm serves security or a non-security checksum, and whether certificate "
+                                + "chains and hostnames are validated. An application trust-manager class alone "
+                                + "does not prove it accepts every certificate. Read each group's coverage and "
+                                + "disabled reason before interpreting an absent row; these facts are checks to "
+                                + "perform, never vulnerability verdicts. "
+                                + "Correlate trace ids, "
                                 + "request paths, SQL timings, and log timestamps. Separate observed evidence from "
                                 + "hypotheses, note missing telemetry, and propose the smallest fix plus a verification "
-                                + "step. Do not expose sensitive runtime data."),
+                                + "step. Do not expose sensitive runtime data.",
+                        List.of(
+                                new McpPrompt.Argument(
+                                        "symptom",
+                                        "What the user observed, such as a failing request, an error message, or a"
+                                                + " slowdown.",
+                                        "The symptom the user reports"),
+                                new McpPrompt.Argument(
+                                        "route",
+                                        "The route, job, or listener involved, such as GET /api/orders/{id}: pass it"
+                                                + " as the query of get_runtime_insights and get_live_activity.",
+                                        "The route, job, or listener involved"))),
                 new McpPrompt(
                         "verify_after_change",
                         "Verify a change by comparing the run after the tests with the previous one, then stop.",
@@ -103,7 +134,18 @@ public final class McpGuidance {
                                 + " whether a repeat is gone. Report"
                                 + " comparability first: NOT_COMPARABLE or INSUFFICIENT is not a pass. Do not edit"
                                 + " code from a latency row, and do not treat a missing observation as proof that a"
-                                + " behavior is gone."),
+                                + " behavior is gone.",
+                        List.of(
+                                new McpPrompt.Argument(
+                                        "change",
+                                        "A short summary of the change to verify, such as the methods, beans, or"
+                                                + " tables it touched.",
+                                        "The change to verify"),
+                                new McpPrompt.Argument(
+                                        "route",
+                                        "The route or test the change should affect: run it before comparing, and"
+                                                + " pass it as the query of get_runtime_insights.",
+                                        "The route or test the change should affect"))),
                 new McpPrompt(
                         "review_application",
                         "Review application structure and configuration with BootUI advisors before proposing changes.",
@@ -114,11 +156,22 @@ public final class McpGuidance {
                                 + "memory_scan may trigger a full GC and pentest_scan performs bounded loopback probes. "
                                 + "Validate each advisor finding against source and effective configuration, discard "
                                 + "false positives, prioritize by impact and confidence, and recommend focused changes "
-                                + "with concrete verification steps."),
+                                + "with concrete verification steps.",
+                        List.of(new McpPrompt.Argument(
+                                "focus",
+                                "The area to review, such as security, persistence, REST API design, or"
+                                        + " configuration: run only the advisors relevant to it.",
+                                "The area the user wants reviewed"))),
                 new McpPrompt(
                         "assess_application",
                         "Assess available application capabilities, propose an evidence-backed plan, and wait for approval.",
-                        assessmentWorkflow(framework)));
+                        assessmentWorkflow(framework),
+                        List.of(new McpPrompt.Argument(
+                                "goal",
+                                "The user's assessment goal, such as production readiness or a performance"
+                                        + " review; without it, the assessment states a general application-health"
+                                        + " goal.",
+                                "The user's goal"))));
     }
 
     private static String assessmentWorkflow(String framework) {
@@ -137,6 +190,13 @@ public final class McpGuidance {
                 recording metadata only; read-only policy refuses it). Do not run controls,
                 generate traffic, install integrations, or loosen disabled/read-only policy to improve coverage.
                 Native-image or CRaC readiness is optional unless relevant to the user's goal.
+                The BootUI agent's security-sinks sensor is opt-in: bootui.agent.sensors lists security-sinks to
+                record its JDK checks for deserialization without an ObjectInputFilter, weak algorithms, and trust
+                managers or hostname verifiers. These checks do not need request-value matching. To also check request
+                input reaching SQL text, a command, a file path, or an outbound URL unchanged (request-input-in-sink),
+                separately enable bootui.agent.security-sinks.request-values=true. Read each group's coverage and
+                disabled reason; mark an unrecorded check unavailable rather than clean. Suggest the needed settings,
+                but do not change them yourself.
 
                 Discover and collect
                 Confirm the application URL/API mount, framework, profiles, and instance/start identity when

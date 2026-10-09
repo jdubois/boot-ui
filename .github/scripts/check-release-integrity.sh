@@ -144,6 +144,17 @@ fi
 if ! grep -Fxq -- "$CENTRAL_SMOKE" "$WORKFLOW"; then
   report_error "missing Maven Central consumer smoke tests ('${CENTRAL_SMOKE#"${CENTRAL_SMOKE%%[![:space:]]*}"}' on a line of its own)"
 fi
+require_literal 'const path = "plugins/bootui/plugin.json";' 'portable plugin manifest path'
+require_literal 'plugin.version = process.argv[1];' 'portable plugin release version update'
+require_literal 'fs.writeFileSync(path, JSON.stringify(plugin, null, 2) + "\n");' \
+  'portable plugin release version write'
+require_literal 'fs.readFileSync("plugins/bootui/plugin.json", "utf8")' \
+  'portable plugin immutable version read'
+require_literal 'if (plugin.version !== process.argv[1]) {' 'portable plugin release version verification'
+require_literal 'python3 .github/scripts/assemble_central_bundle.py "$LOCAL_REPO" "$VERSION" target/central-bundle.zip' \
+  'Central bundle assembled from the installed release'
+require_literal 'python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip' \
+  'Central Portal bundle upload'
 
 smoke_test_step="$(
   sed -n '/- name: Smoke test published distributions/,/- name: Decide documentation redeploy/p' "$WORKFLOW"
@@ -529,6 +540,14 @@ require_order '- name: Check release workflow integrity' '- name: Set up JDK 17'
   'release integrity must be checked before importing signing credentials or preparing a version'
 require_order './mvnw -B -ntp -Prelease clean verify' 'git commit -m "Release $TAG"' \
   'release verification must happen before the release commit'
+require_order './mvnw -B -ntp versions:set' 'plugin.version = process.argv[1];' \
+  'the portable plugin version must be updated after release version validation'
+require_order 'fs.writeFileSync(path, JSON.stringify(plugin, null, 2) + "\n");' './mvnw -B -ntp -Prelease clean verify' \
+  'the portable plugin version must be written before release verification and sealing'
+require_order '- name: Checkout immutable release' 'if (plugin.version !== process.argv[1]) {' \
+  'the portable plugin version must be read from the immutable release checkout'
+require_order 'if (plugin.version !== process.argv[1]) {' '- name: Publish to Maven Central' \
+  'the portable plugin version must be verified before publication'
 require_order 'REMOTE_SOURCE_SHA=' 'git tag -s "$TAG"' \
   'the source branch advancement guard must run before tag creation'
 require_order 'git commit -m "Release $TAG"' 'git tag -s "$TAG"' \

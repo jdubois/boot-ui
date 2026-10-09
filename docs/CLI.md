@@ -5,7 +5,7 @@ application one question and prints the answer — no browser, no MCP client, no
 
 ```console
 $ bootui beans --query dataSource
-$ bootui hibernate scan --json | jq '.findings[] | select(.severity == "HIGH")'
+$ bootui hibernate scan --json | jq '.topFindings[] | select(.severity == "HIGH")'
 $ bootui http exchanges --limit 20
 ```
 
@@ -137,12 +137,22 @@ When output is piped, or with `--json`, the CLI prints exactly the bytes the app
 the MCP tool returns, unmodified. That is the form to parse:
 
 ```bash
-bootui security scan --json | jq -r '.results[] | "\(.severity)\t\(.name)"'
+bootui security scan --json | jq -r '.topFindings[] | "\(.severity)\t\(.title)"'
 ```
 
-Advisor scans differ in how they name that array — `pentest scan` reports `findings`, the rule-based
-advisors report `results` — so check the shape with `bootui <command> --json | jq keys` before writing a
-filter. What every scan does share is `severityCounts`, which is what the [CI](#in-ci) gate below uses.
+Every scan command answers with the same compact summary: `findingsFound`, `severityCounts`, at most ten
+`topFindings` (`id`, `title`, `severity`, `count`, most severe first), `moreFindings` for the rest, and
+`reportTool`, the MCP name of the report that holds the rest (`get_security_report`, which `bootui security report`
+prints without scanning again).
+Reports differ in how they name their finding array — `pentest report` has `findings`, the rule-based advisors
+`results` — so check the shape with `bootui <command> --json | jq keys` before filtering one. What every scan and
+report shares is `severityCounts`, which is what the [CI](#in-ci) gate below uses.
+
+The capture controls (`sql pause`, `tx clear`, `rest-client resume`, `exceptions clear`, `traces clear`, ...)
+answer with a one-line acknowledgement — `action`, `available`, `unavailableReason`, `capturing`, `retained`,
+`capacity`, and `totalCaptured`, the entries recorded since startup, which a clear does not reset — and the
+matching read command (`sql traces`, `tx list`, ...) prints the rows. See
+[Compact answers from scans and capture controls](AI-AGENTS.md#compact-answers-from-scans-and-capture-controls).
 
 Search commands such as `bootui config --query` share a `page` envelope instead, where `total` counts everything
 the panel can see *before* the query is applied and `matched` counts what the query kept. A large `total` beside
@@ -151,7 +161,7 @@ See [Reading a bounded result](AI-AGENTS.md#reading-a-bounded-result) for the fu
 name matching that lets `bootui config --query bootui.mcp.enabled` find a value supplied as `BOOTUI_MCP_ENABLED`.
 
 Large reads answer with a short first page when no `--limit` is given, such as the newest 20 statements for
-`bootui sql traces` or 25 entries for `bootui activity`, and `page.hasMore` says when rows were left out: narrow
+`bootui sql traces`, the newest 20 calls for `bootui rest-client traces`, or 25 entries for `bootui activity`, and `page.hasMore` says when rows were left out: narrow
 `--query` or raise `--limit`. [Agent-sized defaults](AI-AGENTS.md#agent-sized-defaults) lists each command's default.
 A 1.x CLI keeps calling these commands, without the newer options, and gets the same short first page.
 
@@ -208,9 +218,11 @@ verify every finding before changing code.
 Such gaps remain explicit in diagnostics; increasing the retention budget does not manufacture missing identities.
 
 Only the latest completed snapshot is kept. A stale ID or no completed snapshot is HTTP 409: reread the
-cached `… report`, obtain its ID, and restart detail paging, **not** `… scan`. An unknown/non-finding rule
-is REST/MCP client error 404; the CLI facade preserves its existing mapping to HTTP 400 so an unknown rule is
-not mistaken for an unavailable command. Both exit `1` with the application's message. A missing scan ID is
+cached `… report`, obtain its ID, and restart detail paging, **not** `… scan`. A rule id outside the advisor's
+rule catalogue answers `Unknown advisor rule: ...`, and a catalogue rule without findings (passed, skipped, or failed)
+answers `Advisor rule has no findings in the current scan.`; both are REST/MCP client error 404, and the CLI facade preserves its
+existing mapping to HTTP 400 so an unknown rule is not mistaken for an unavailable command. Both exit `1` with the
+application's message. A missing scan ID is
 rejected before a detail read. Dismissal leaves the snapshot ID and its details intact.
 
 MCP also has a rendered-byte limit: `-32003` means retry the same offset and scan ID with a smaller limit,
@@ -230,8 +242,9 @@ A command whose tool this application does not advertise exits `1` and says why:
 'get_kafka_activity'." followed by the panel's own reason, such as a missing library or the Java agent, or the stacks
 that do offer it. It is not `2`, because no panel policy refused it; nothing here can serve it.
 
-A tool that runs and rejects what you asked for — `bootui exceptions show` on an id that is not in the
-buffer, say — exits `1` and prints the application's own message. That is the same code as a usage error
+A tool that runs and rejects what you asked for — `bootui exceptions show`, `bootui request-profile`,
+`bootui insights show`, `bootui insights compare`, or `bootui probe show` on an id that is unknown or no longer
+retained, say — exits `1` and prints the application's own message, which names where current ids come from. That is the same code as a usage error
 because it is the same kind of mistake: the command exists and BootUI was willing to run it, but the
 request was wrong, so retrying it unchanged cannot help.
 
@@ -342,8 +355,10 @@ The result is a selection: `source: "journal"` has a `journal` timeline and touc
 message executions; `source: "buffers"` has the legacy HTTP-exchange `buffers` profile, with N+1 groups, call sites,
 and exception `exceptionGroupId` values for `bootui exceptions show`. When both are retained for an HTTP request,
 `source` is `journal` and both fields are populated; read `buffers` for the richer HTTP details. The journal is consulted
-first, then the buffer. Both respect panel visibility and exposure policy. An id neither retains still exits `0`, with
-`source: "none"`, `available: false`, and an `unavailableReason` naming both windows.
+first, then the buffer. Both respect panel visibility and exposure policy. An id neither retains exits `1` with a
+message naming both windows, like any other unknown id. `source: "none"` with `available: false` and an
+`unavailableReason` (exit `0`) remains for what another id cannot fix: the runtime journal is off, the id's panel hides
+it, or the request carried nothing to correlate.
 
 The command is `request-profile`, at the top level, because `bootui activity` is itself a command and a command path
 cannot also be the parent of another. It is unavailable, and exits `2`, when the Live Activity panel is disabled. See
@@ -399,11 +414,12 @@ The CLI is designed for a job that starts the application, asks it something, an
 
 Three details make that work as a gate rather than as a job that merely looks green.
 
-**Gate on `severityCounts`, not on the finding array.** Every scan command reports `severityCounts` as
-`[{"severity": …, "count": …}]`, so one expression works for all of them. The array of findings themselves is
-*not* uniform — `pentest scan` calls it `findings`, the rule-based advisors call it `results` — so a filter
-written against the wrong name does not report zero findings, it aborts with `Cannot iterate over null` and
-fails the build for a reason that has nothing to do with the application.
+**Gate on `severityCounts`, not on a finding array.** Every scan command reports `severityCounts` as
+`[{"severity": …, "count": …}]`, so one expression works for all of them. A scan's `topFindings` lists at most ten
+findings, and the report commands do not name their array uniformly — `pentest report` calls it `findings`, the
+rule-based advisors call it `results` — so a filter written against the wrong name does not report zero findings,
+it aborts with `Cannot iterate over null` and fails the build for a reason that has nothing to do with the
+application.
 
 **Capture the exit code instead of letting it abort the step.** A step runs under `bash -e`, so a bare
 `bootui …` that exits non-zero skips the rest of the script, including the shutdown. The `|| status=$?` form
@@ -434,7 +450,7 @@ exposes a tool is still what `bootui tools` says.
 | Command | MCP tool | Arguments | Kind | Stacks |
 | --- | --- | --- | --- | --- |
 | `bootui activity` | `get_live_activity` | `--query`, `--limit` | read | all |
-| `bootui agent status` | `get_agent_status` | `--query`, `--limit` | read | all |
+| `bootui agent status` | `get_agent_status` | `--query` | read | all |
 | `bootui ai overview` | `get_ai_overview` | — | read | all |
 | `bootui architecture report` | `get_architecture_report` | — | read | all |
 | `bootui architecture violations` | `get_architecture_rule_violations` | `<id> --scan-id <scanId> [--offset N] [--limit N]` | read | all |
@@ -509,7 +525,7 @@ exposes a tool is still what `bootui tools` says.
 | `bootui rest-client clear` | `clear_rest_client_traces` | — | action | all |
 | `bootui rest-client pause` | `pause_rest_client_recording` | — | action | all |
 | `bootui rest-client resume` | `resume_rest_client_recording` | — | action | all |
-| `bootui rest-client traces` | `get_rest_client_traces` | — | read | all |
+| `bootui rest-client traces` | `get_rest_client_traces` | `--query`, `--limit` | read | all |
 | `bootui scheduled` | `get_scheduled_tasks` | — | read | all |
 | `bootui security config` | `get_spring_security` | — | read | Spring MVC, WebFlux |
 | `bootui security logs` | `get_security_logs` | `--limit` | read | all |

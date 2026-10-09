@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.agent;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
+import io.github.jdubois.bootui.agent.bridge.SecuritySinks;
 import io.github.jdubois.bootui.agent.bridge.SideEffects;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -45,15 +46,16 @@ import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatchers;
 
 /**
- * The side-effect sensors (PLAN-v2 §5.16, M5-5): one transformer for every JDK side-effect hook but thread-activity's,
- * which has its own, installed with the hooks of the sensors the claim asks for, each hook delegating to the bridge ({@link SideEffectsAdvice}), and one mask
+ * The side-effect sensors (PLAN-v2 §5.16, M5-5): one transformer for every JDK side-effect hook but thread-activity's
+ * and security-sinks', which have their own ({@link #GROUP_MASKS}), so switching one never retransforms the others'
+ * classes nor pauses their recording, installed with the hooks of the sensors the claim asks for, each hook delegating to the bridge ({@link SideEffectsAdvice}), and one mask
  * in the bridge saying which sensors record ({@link SideEffects#enable}). {@value SideEffects#PROCESSES} hooks {@code
  * ProcessBuilder.start(Redirect[])}; {@value SideEffects#NETWORK} (M5-5b) hooks {@code Socket.connect}, {@code
  * SocketChannelImpl.connect}, {@code blockingConnect}, and {@code finishConnect}, {@code DatagramChannelImpl.send},
  * {@code DatagramSocket.send}, and {@code InetAddress.getAddressesFromNameService}; {@value SideEffects#FILES} (M5-5d)
  * hooks the private {@code open} methods of {@code FileInputStream} and {@code FileOutputStream}, its core hooks, and of
  * {@code RandomAccessFile}, the {@code Files} methods that open, delete, move, and copy, and {@code FileChannel.open};
- * the opt-in {@value SideEffects#ENVIRONMENT} (M5-5d) hooks {@code System.getenv(String)}, {@code System.getenv()}, and
+ * the {@value SideEffects#ENVIRONMENT} sensor (M5-5d) hooks {@code System.getenv(String)}, {@code System.getenv()}, and
  * {@code System.getProperty}, all core; {@value SideEffects#BLOCKING} (M5-5c) hooks every public {@code
  * LockSupport.park*} method, its core hook, whose advice returns at entry off event loops (its call-site hooks on
  * {@code Thread.sleep} and {@code Object.wait} are a visit of {@link ApplicationMethodsSensor}).
@@ -95,6 +97,12 @@ final class SideEffectsSensor {
     /** The feature release a hook's type first exists in: below it, the hook is unsupported, never failed. */
     static final String SINCE_21 = "21";
 
+    static final String MESSAGE_DIGEST = "java.security.MessageDigest";
+    static final String CIPHER = "javax.crypto.Cipher";
+    static final String OBJECT_INPUT_STREAM = "java.io.ObjectInputStream";
+    static final String SSL_CONTEXT = "javax.net.ssl.SSLContext";
+    static final String HTTPS_URL_CONNECTION = "javax.net.ssl.HttpsURLConnection";
+
     static final String CORE = "core";
     static final String OPTIONAL = "optional";
 
@@ -133,7 +141,37 @@ final class SideEffectsSensor {
         {"ThreadPoolExecutor.shutdown", THREAD_POOL, "record", SideEffects.THREAD_ACTIVITY, CORE},
         {"ThreadPoolExecutor.shutdownNow", THREAD_POOL, "record", SideEffects.THREAD_ACTIVITY, CORE},
         {"ForkJoinPool.shutdown", FORK_JOIN_POOL, "record", SideEffects.THREAD_ACTIVITY, OPTIONAL},
-        {"ThreadPerTaskExecutor.shutdown", PER_TASK, "record", SideEffects.THREAD_ACTIVITY, OPTIONAL, SINCE_21}
+        {"ThreadPerTaskExecutor.shutdown", PER_TASK, "record", SideEffects.THREAD_ACTIVITY, OPTIONAL, SINCE_21},
+        // The security-sinks sensor's JDK checks are optional to the sensor, whose request-value matching needs none of
+        // them: a group whose core hook fails is switched off alone (CHECK_CORE), its other hooks staying installed but
+        // returning at their group's check.
+        {"MessageDigest.getInstance", MESSAGE_DIGEST, "record", SideEffects.SECURITY_SINKS, OPTIONAL},
+        {"Cipher.getInstance", CIPHER, "record", SideEffects.SECURITY_SINKS, OPTIONAL},
+        {"ObjectInputStream.readObject", OBJECT_INPUT_STREAM, "record", SideEffects.SECURITY_SINKS, OPTIONAL},
+        {"ObjectInputStream.resolveClass", OBJECT_INPUT_STREAM, "record", SideEffects.SECURITY_SINKS, OPTIONAL},
+        {"SSLContext.init", SSL_CONTEXT, "record", SideEffects.SECURITY_SINKS, OPTIONAL},
+        {
+            "HttpsURLConnection.setDefaultHostnameVerifier",
+            HTTPS_URL_CONNECTION,
+            "record",
+            SideEffects.SECURITY_SINKS,
+            OPTIONAL
+        },
+        {
+            "HttpsURLConnection.setDefaultSSLSocketFactory",
+            HTTPS_URL_CONNECTION,
+            "record",
+            SideEffects.SECURITY_SINKS,
+            OPTIONAL
+        }
+    };
+
+    /**
+     * The security-sinks sensor's check groups ({@link SecuritySinks#GROUP_IDS}, by bit index): each group's core hooks,
+     * whose self-test failure switches that group off alone; its other hooks stay installed and return at its check.
+     */
+    static final String[][] CHECK_CORE = {
+        {"ObjectInputStream.readObject"}, {"MessageDigest.getInstance", "Cipher.getInstance"}, {"SSLContext.init"}
     };
 
     /** The side-effect sensors, in status order. */
@@ -143,7 +181,8 @@ final class SideEffectsSensor {
         SideEffects.FILES,
         SideEffects.ENVIRONMENT,
         SideEffects.BLOCKING,
-        SideEffects.THREAD_ACTIVITY
+        SideEffects.THREAD_ACTIVITY,
+        SideEffects.SECURITY_SINKS
     };
 
     /** The variable and property the environment self-test reads, which no one sets. */
@@ -170,15 +209,35 @@ final class SideEffectsSensor {
     private final boolean privileged;
     /** Hooks left out of the transformer: only ever non-empty in BootUI's own mutation tests. */
     private final Set<String> omitted;
+    /** BootUI's own tests' hook, {@link AgentTestHook#NONE} in the published jar. */
+    private final AgentTestHook testHook;
 
     private final TransformStats stats = new TransformStats();
-    /** The transformer of every side-effect sensor but thread-activity. */
-    private volatile ResettableClassFileTransformer transformer;
+    /** The shared transformer group: every side-effect sensor but thread-activity and security-sinks. */
+    static final int REST = 0;
+
     /**
-     * The thread-activity sensor's own transformer (M5-5e), so switching another sensor never retransforms {@code
+     * The thread-activity sensor's own group (M5-5e), so switching another sensor never retransforms {@code
      * java.lang.Thread} and the executors again, nor drops what the sensor waits to check.
      */
-    private volatile ResettableClassFileTransformer threadTransformer;
+    static final int THREADS = 1;
+
+    /**
+     * The security-sinks sensor's own group (M5-6b2), so its runtime switch (M5-14) never pauses the other sensors nor
+     * retransforms their JDK classes.
+     */
+    static final int SINKS = 2;
+
+    /** Each transformer group's sensors, by group index: disjoint, and every sensor bit in one of them. */
+    static final int[] GROUP_MASKS = {
+        ~(SideEffects.MASK_THREADS | SideEffects.MASK_SECURITY_SINKS),
+        SideEffects.MASK_THREADS,
+        SideEffects.MASK_SECURITY_SINKS
+    };
+
+    /** Each group's installed transformer, by group index, {@code null} when not installed. */
+    private final ResettableClassFileTransformer[] transformers =
+            new ResettableClassFileTransformer[GROUP_MASKS.length];
     /** The sensors the installed transformers carry the hooks of. */
     private volatile int installedMask;
     /** The sensors the current claim asks for. */
@@ -191,20 +250,20 @@ final class SideEffectsSensor {
     private final Set<String> failedHooks = new LinkedHashSet<String>();
     /** Why each failed sensor failed. */
     private final Map<String, String> sensorErrors = new LinkedHashMap<String, String>();
+    /** Why each hook that failed its self-test failed: its result and its step's outcome. */
+    private final Map<String, String> hookErrors = new LinkedHashMap<String, String>();
 
     /**
-     * Each transformer group's state and last self-test verdict: every sensor but thread-activity's, and thread-activity's
-     * own, so a job on one group never changes what the other reports or records.
+     * Each transformer group's state and last self-test verdict, by group index, so a job on one group never changes
+     * what another reports or records. Written by the worker, read by status.
      */
-    private volatile String restState = "off";
+    private final String[] states = {"off", "off", "off"};
 
-    private volatile String threadState = "off";
-    private volatile boolean restPassed;
-    private volatile boolean threadPassed;
-    /** Each group's last install and self-test durations, {@code [shared, thread-activity]}, -1 until measured. */
-    private final long[] installMillis = {-1L, -1L};
+    private final boolean[] passed = new boolean[GROUP_MASKS.length];
+    /** Each group's last install and self-test durations, by group index, -1 until measured. */
+    private final long[] installMillis = {-1L, -1L, -1L};
 
-    private final long[] selfTestMillis = {-1L, -1L};
+    private final long[] selfTestMillis = {-1L, -1L, -1L};
     private volatile String selfTestError;
     private volatile Map<String, String> selfTest = new LinkedHashMap<String, String>();
     private volatile Map<String, String> selfTestSteps = new LinkedHashMap<String, String>();
@@ -213,10 +272,12 @@ final class SideEffectsSensor {
     private int pending;
     private boolean exitWorkerStarted;
 
-    SideEffectsSensor(Instrumentation instrumentation, boolean privileged, Set<String> omitted) {
+    SideEffectsSensor(
+            Instrumentation instrumentation, boolean privileged, Set<String> omitted, AgentTestHook testHook) {
         this.instrumentation = instrumentation;
         this.privileged = privileged;
         this.omitted = omitted;
+        this.testHook = testHook == null ? AgentTestHook.NONE : testHook;
     }
 
     /** A claim asking for the side-effect sensors of {@code mask}: installs their hooks and self-tests them. */
@@ -266,43 +327,63 @@ final class SideEffectsSensor {
         return worker == null && pending == 0;
     }
 
-    /**
-     * The transformer groups of {@code mask}, as group masks: {@code ~MASK_THREADS} for the shared transformer's sensors,
-     * {@code MASK_THREADS} for thread-activity's own.
-     */
+    /** The transformer groups of {@code mask}, as the union of their group masks ({@link #GROUP_MASKS}). */
     static int groups(int mask) {
-        return ((mask & SideEffects.MASK_THREADS) != 0 ? SideEffects.MASK_THREADS : 0)
-                | ((mask & ~SideEffects.MASK_THREADS) != 0 ? ~SideEffects.MASK_THREADS : 0);
+        int groups = 0;
+        for (int group : GROUP_MASKS) {
+            if ((mask & group) != 0) {
+                groups |= group;
+            }
+        }
+        return groups;
+    }
+
+    /** The index of the group sensor {@code bit} belongs to. */
+    static int group(int bit) {
+        for (int i = 0; i < GROUP_MASKS.length; i++) {
+            if ((bit & GROUP_MASKS[i]) != 0) {
+                return i;
+            }
+        }
+        return REST;
     }
 
     /** Sets the state of the groups {@code groups} (group masks). */
     private void state(int groups, String value) {
-        if ((groups & ~SideEffects.MASK_THREADS) != 0) {
-            restState = value;
+        synchronized (states) {
+            for (int i = 0; i < GROUP_MASKS.length; i++) {
+                if ((groups & GROUP_MASKS[i]) != 0) {
+                    states[i] = value;
+                }
+            }
         }
-        if ((groups & SideEffects.MASK_THREADS) != 0) {
-            threadState = value;
+    }
+
+    /** The state of group {@code group}. */
+    private String state(int group) {
+        synchronized (states) {
+            return states[group];
         }
     }
 
     /** Sets the self-test verdict of the groups {@code groups} (group masks). */
     private void passed(int groups, boolean value) {
-        if ((groups & ~SideEffects.MASK_THREADS) != 0) {
-            restPassed = value;
-        }
-        if ((groups & SideEffects.MASK_THREADS) != 0) {
-            threadPassed = value;
+        synchronized (passed) {
+            for (int i = 0; i < GROUP_MASKS.length; i++) {
+                if ((groups & GROUP_MASKS[i]) != 0) {
+                    passed[i] = value;
+                }
+            }
         }
     }
 
     /** Sets a duration of the groups {@code groups} (group masks), in {@code durations}. */
     private static void millis(long[] durations, int groups, long value) {
         synchronized (durations) {
-            if ((groups & ~SideEffects.MASK_THREADS) != 0) {
-                durations[0] = value;
-            }
-            if ((groups & SideEffects.MASK_THREADS) != 0) {
-                durations[1] = value;
+            for (int i = 0; i < GROUP_MASKS.length; i++) {
+                if ((groups & GROUP_MASKS[i]) != 0) {
+                    durations[i] = value;
+                }
             }
         }
     }
@@ -310,37 +391,68 @@ final class SideEffectsSensor {
     /** The duration of the group of sensor {@code bit}, in {@code durations}. */
     private static long millis(long[] durations, int bit) {
         synchronized (durations) {
-            return durations[(bit & SideEffects.MASK_THREADS) != 0 ? 1 : 0];
+            return durations[group(bit)];
         }
     }
 
     /** Whether every group of the sensors {@code mask} passed its last self-test. */
     private boolean passed(int mask) {
-        int groups = groups(mask);
-        return ((groups & ~SideEffects.MASK_THREADS) == 0 || restPassed)
-                && ((groups & SideEffects.MASK_THREADS) == 0 || threadPassed);
+        synchronized (passed) {
+            for (int i = 0; i < GROUP_MASKS.length; i++) {
+                if ((mask & GROUP_MASKS[i]) != 0 && !passed[i]) {
+                    return false;
+                }
+            }
+            return true;
+        }
     }
 
     /** The groups installed and passing their last self-test, whose hooks need no new test. */
     private int settled() {
-        return (transformer != null && restPassed ? ~SideEffects.MASK_THREADS : 0)
-                | (threadTransformer != null && threadPassed ? SideEffects.MASK_THREADS : 0);
+        int settled = 0;
+        for (int i = 0; i < GROUP_MASKS.length; i++) {
+            if (transformer(i) != null && passed(GROUP_MASKS[i])) {
+                settled |= GROUP_MASKS[i];
+            }
+        }
+        return settled;
     }
 
-    /** Whether either transformer is installed. */
+    private ResettableClassFileTransformer transformer(int group) {
+        synchronized (transformers) {
+            return transformers[group];
+        }
+    }
+
+    /** Whether any group's transformer is installed. */
     private boolean installed() {
-        return transformer != null || threadTransformer != null;
+        for (int i = 0; i < GROUP_MASKS.length; i++) {
+            if (transformer(i) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The ids of the side-effect sensors in {@code mask}, in status order. */
+    private static Set<String> sensorIds(int mask) {
+        Set<String> ids = new LinkedHashSet<String>();
+        for (String id : SENSORS) {
+            if ((mask & SideEffects.bit(id)) != 0) {
+                ids.add(id);
+            }
+        }
+        return ids;
     }
 
     /** The groups whose installed transformer carries other hooks than {@code mask} asks for: reinstalled. */
     private int stale(int mask) {
         int stale = 0;
-        if (transformer != null && (installedMask & ~SideEffects.MASK_THREADS) != (mask & ~SideEffects.MASK_THREADS)) {
-            stale |= ~SideEffects.MASK_THREADS;
-        }
-        if (threadTransformer != null
-                && (installedMask & SideEffects.MASK_THREADS) != (mask & SideEffects.MASK_THREADS)) {
-            stale |= SideEffects.MASK_THREADS;
+        for (int i = 0; i < GROUP_MASKS.length; i++) {
+            int group = GROUP_MASKS[i];
+            if (transformer(i) != null && (installedMask & group) != (mask & group)) {
+                stale |= group;
+            }
         }
         return stale;
     }
@@ -378,7 +490,7 @@ final class SideEffectsSensor {
                 int mask = effective();
                 int before = installedMask;
                 // Only the transformer whose sensors changed is removed: switching files never retransforms
-                // java.lang.Thread, nor switching thread-activity the files' classes.
+                // java.lang.Thread, nor switching thread-activity or security-sinks the files' classes.
                 int stale = (job & RELEASE) != 0 ? -1 : (job & INSTALL) != 0 ? stale(mask) : 0;
                 boolean installing = (job & INSTALL) != 0 && mask != 0;
                 // The groups this job changes, as group masks: on a failure, only they are marked and disabled.
@@ -392,6 +504,7 @@ final class SideEffectsSensor {
                         // Only the groups not installed and passing are installed and self-tested: the other keeps
                         // its verdict and goes on recording, never tested again by another group's job.
                         int untested = groups(mask) & ~settled();
+                        testHook.installingSideEffects(sensorIds(mask & untested));
                         install(mask);
                         if ((mask & untested) != 0) {
                             selfTest(mask & untested, 1);
@@ -415,15 +528,17 @@ final class SideEffectsSensor {
 
     /** Installs the transformer of each group of {@code mask} not installed yet; returns their sensors. */
     int install(int mask) {
-        int rest = mask & ~SideEffects.MASK_THREADS;
-        int threads = mask & SideEffects.MASK_THREADS;
-        if ((rest == 0 || transformer != null) && (threads == 0 || threadTransformer != null)) {
+        int installing = 0;
+        for (int i = 0; i < GROUP_MASKS.length; i++) {
+            if ((mask & GROUP_MASKS[i]) != 0 && transformer(i) == null) {
+                installing |= GROUP_MASKS[i];
+            }
+        }
+        if (installing == 0) {
             return 0;
         }
         int fresh = 0;
         long started = System.nanoTime();
-        int installing = (rest != 0 && transformer == null ? ~SideEffects.MASK_THREADS : 0)
-                | (threads != 0 && threadTransformer == null ? SideEffects.MASK_THREADS : 0);
         passed(installing, false);
         state(installing, "installing");
         millis(selfTestMillis, installing, -1L);
@@ -431,15 +546,16 @@ final class SideEffectsSensor {
         startExitWorker();
         Set<String> left = leftOut();
         try {
-            if (rest != 0 && transformer == null) {
-                transformer = installed(new InstallAction(rest, left));
-                installedMask |= rest;
-                fresh |= rest;
-            }
-            if (threads != 0 && threadTransformer == null) {
-                threadTransformer = installed(new InstallAction(threads, left));
-                installedMask |= threads;
-                fresh |= threads;
+            for (int i = 0; i < GROUP_MASKS.length; i++) {
+                int sensors = mask & GROUP_MASKS[i];
+                if (sensors != 0 && transformer(i) == null) {
+                    ResettableClassFileTransformer installed = installed(new InstallAction(sensors, left));
+                    synchronized (transformers) {
+                        transformers[i] = installed;
+                    }
+                    installedMask |= sensors;
+                    fresh |= sensors;
+                }
             }
         } finally {
             long elapsed = System.nanoTime() - started;
@@ -496,30 +612,31 @@ final class SideEffectsSensor {
 
     /** Removes the transformers of the groups in {@code groups}, restoring the classes they transformed. */
     void reset(int groups) {
-        ResettableClassFileTransformer rest = null;
-        ResettableClassFileTransformer threads = null;
-        int removed = groups;
+        ResettableClassFileTransformer[] removed = new ResettableClassFileTransformer[GROUP_MASKS.length];
+        boolean any = false;
         synchronized (this) {
-            if ((groups & ~SideEffects.MASK_THREADS) != 0) {
-                rest = transformer;
-                transformer = null;
-                installedMask &= SideEffects.MASK_THREADS;
+            synchronized (transformers) {
+                for (int i = 0; i < GROUP_MASKS.length; i++) {
+                    if ((groups & GROUP_MASKS[i]) != 0) {
+                        removed[i] = transformers[i];
+                        transformers[i] = null;
+                        installedMask &= ~GROUP_MASKS[i];
+                        any |= removed[i] != null;
+                    }
+                }
             }
-            if ((groups & SideEffects.MASK_THREADS) != 0) {
-                threads = threadTransformer;
-                threadTransformer = null;
-                installedMask &= ~SideEffects.MASK_THREADS;
-            }
-            passed(removed, false);
+            passed(groups, false);
         }
-        if (rest == null && threads == null) {
-            state(removed, stuck ? "release-failed" : "released");
+        if (!any) {
+            state(groups, stuck ? "release-failed" : "released");
             return;
         }
         long started = System.nanoTime();
-        boolean restored;
+        boolean restored = true;
         try {
-            restored = restore(rest) & restore(threads);
+            for (ResettableClassFileTransformer transformer : removed) {
+                restored &= restore(transformer);
+            }
         } finally {
             stats.retransformedFor(System.nanoTime() - started);
         }
@@ -533,7 +650,7 @@ final class SideEffectsSensor {
             state(-1, "release-failed");
             return;
         }
-        state(removed, "released");
+        state(groups, "released");
     }
 
     private boolean restore(ResettableClassFileTransformer installed) {
@@ -748,6 +865,9 @@ final class SideEffectsSensor {
         if ((mask & SideEffects.MASK_THREADS) != 0) {
             threadActivity(types, visits, left);
         }
+        if ((mask & SideEffects.MASK_SECURITY_SINKS) != 0) {
+            securitySinksVisits(types, visits, left);
+        }
         AgentBuilder builder = stats.configure(new AgentBuilder.Default())
                 .assureReadEdgeTo(instrumentation, SideEffects.class)
                 .ignore(ElementMatchers.not(ElementMatchers.<TypeDescription>namedOneOf(types.toArray(new String[0]))));
@@ -825,6 +945,75 @@ final class SideEffectsSensor {
                                         .and(ElementMatchers.takesArguments(0)))));
     }
 
+    /**
+     * The security-sinks sensor's JDK checks (M5-6b2): {@code MessageDigest.getInstance}, every overload; {@code
+     * Cipher.getInstance(String)} and {@code (String, Provider)}, not {@code (String, String)}, which calls the latter
+     * on JDK 17 to 26, so a request is seen once; {@code ObjectInputStream.readObject()} and {@code readUnshared()}, one
+     * hook, and {@code resolveClass};
+     * {@code SSLContext.init}; and the two static defaults of {@code HttpsURLConnection}.
+     */
+    private static void securitySinksVisits(List<String> types, List<ExecutorSensor.Visit> visits, Set<String> left) {
+        types.add(MESSAGE_DIGEST);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "MessageDigest.getInstance",
+                        Advice.to(SideEffectsAdvice.DigestGetInstance.class)
+                                .on(ElementMatchers.named("getInstance")
+                                        .and(ElementMatchers.isStatic())
+                                        .and(ElementMatchers.takesArgument(0, String.class))
+                                        .and(ElementMatchers.takesArguments(1)
+                                                .or(ElementMatchers.takesArguments(String.class, String.class))
+                                                .or(ElementMatchers.takesArguments(
+                                                        String.class, java.security.Provider.class))))));
+        types.add(CIPHER);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "Cipher.getInstance",
+                        Advice.to(SideEffectsAdvice.CipherGetInstance.class)
+                                .on(ElementMatchers.named("getInstance")
+                                        .and(ElementMatchers.isStatic())
+                                        .and(ElementMatchers.takesArguments(String.class)
+                                                .or(ElementMatchers.takesArguments(
+                                                        String.class, java.security.Provider.class))))));
+        types.add(OBJECT_INPUT_STREAM);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "ObjectInputStream.readObject",
+                        Advice.to(SideEffectsAdvice.ReadObject.class)
+                                .on(ElementMatchers.namedOneOf("readObject", "readUnshared")
+                                        .and(ElementMatchers.isPublic())
+                                        .and(ElementMatchers.takesArguments(0))))
+                .and(
+                        "ObjectInputStream.resolveClass",
+                        Advice.to(SideEffectsAdvice.ResolveClass.class)
+                                .on(ElementMatchers.named("resolveClass")
+                                        .and(ElementMatchers.takesArguments(java.io.ObjectStreamClass.class)))));
+        types.add(SSL_CONTEXT);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "SSLContext.init",
+                        Advice.to(SideEffectsAdvice.SslContextInit.class)
+                                .on(ElementMatchers.named("init")
+                                        .and(ElementMatchers.takesArguments(
+                                                javax.net.ssl.KeyManager[].class,
+                                                javax.net.ssl.TrustManager[].class,
+                                                java.security.SecureRandom.class)))));
+        types.add(HTTPS_URL_CONNECTION);
+        visits.add(new ExecutorSensor.Visit(left)
+                .and(
+                        "HttpsURLConnection.setDefaultHostnameVerifier",
+                        Advice.to(SideEffectsAdvice.DefaultHostnameVerifier.class)
+                                .on(ElementMatchers.named("setDefaultHostnameVerifier")
+                                        .and(ElementMatchers.isStatic())
+                                        .and(ElementMatchers.takesArguments(1))))
+                .and(
+                        "HttpsURLConnection.setDefaultSSLSocketFactory",
+                        Advice.to(SideEffectsAdvice.DefaultSocketFactory.class)
+                                .on(ElementMatchers.named("setDefaultSSLSocketFactory")
+                                        .and(ElementMatchers.isStatic())
+                                        .and(ElementMatchers.takesArguments(1)))));
+    }
+
     // ---- self-test -----------------------------------------------------------------------------------------------
 
     void selfTest(int mask, int round) {
@@ -855,6 +1044,9 @@ final class SideEffectsSensor {
             if ((mask & SideEffects.MASK_THREADS) != 0) {
                 threadActivitySteps(steps, privileged);
             }
+            if ((mask & SideEffects.MASK_SECURITY_SINKS) != 0) {
+                securitySinksSteps(steps, privileged);
+            }
         } finally {
             hits = SideEffects.endSelfTest();
         }
@@ -883,6 +1075,9 @@ final class SideEffectsSensor {
             }
         }
         if (failed.isEmpty()) {
+            if ((mask & SideEffects.MASK_SECURITY_SINKS) != 0) {
+                checkGroups(results, left);
+            }
             SideEffects.enable(mask);
             selfTest = results;
             passed(tested, true);
@@ -892,6 +1087,10 @@ final class SideEffectsSensor {
         String error = "self-test failed for " + failed + " " + steps;
         synchronized (this) {
             failedHooks.addAll(failed);
+            for (String hook : failed) {
+                String step = steps.get(hook);
+                hookErrors.put(hook, results.get(hook) + (step == null ? "" : " (" + step + ")"));
+            }
             failedSensors |= failedNow;
             for (String id : SENSORS) {
                 if ((failedNow & SideEffects.bit(id)) != 0) {
@@ -906,7 +1105,7 @@ final class SideEffectsSensor {
         } else {
             AgentBridge.message("the BootUI agent left side-effect hooks out after their self-test failed: " + error);
         }
-        // Only the transformer carrying a failed hook is reinstalled; the other group tested now passed.
+        // Only the transformer carrying a failed hook is reinstalled; the other groups tested now passed.
         int groups = groups(hit);
         // The verdict before the transformer's removal, which takes a while: status reports it at once, the sensors
         // that did not fail reading as installing again.
@@ -933,7 +1132,7 @@ final class SideEffectsSensor {
             selfTest(fresh != 0 ? fresh : lost, round + 1);
             return;
         }
-        // Out of rounds: only the groups still failing are off for good; the other group keeps recording.
+        // Out of rounds: only the groups still failing are off for good; the other groups keep recording.
         if (lost != 0) {
             synchronized (this) {
                 failedSensors |= lost;
@@ -946,6 +1145,196 @@ final class SideEffectsSensor {
             SideEffects.disable(lost, error);
         }
         state(groups, "self-test-failed");
+    }
+
+    /**
+     * Switches the security-sinks sensor's check groups: on when every core hook of the group passed its self-test, off
+     * with the failure otherwise, alone, so request-value matching and the other groups still run.
+     */
+    private void checkGroups(Map<String, String> results, Set<String> left) {
+        Map<String, String> errors;
+        synchronized (this) {
+            errors = new LinkedHashMap<String, String>(hookErrors);
+        }
+        String[] reasons = new String[CHECK_CORE.length];
+        int on = checkGroups(results, left, errors, reasons);
+        for (int group = 0; group < CHECK_CORE.length; group++) {
+            if (reasons[group] != null) {
+                AgentBridge.message("the BootUI agent switched the security-sinks checks "
+                        + SecuritySinks.GROUP_IDS[group] + " off: " + reasons[group]);
+            }
+        }
+        SecuritySinks.groups(on, reasons);
+    }
+
+    /**
+     * The check groups whose every core hook ({@link #CHECK_CORE}) passed its self-test and was not left out, as group
+     * bits; {@code reasons}, by group index, receives why each other group is off, from {@code errors} by hook.
+     */
+    static int checkGroups(
+            Map<String, String> results, Set<String> left, Map<String, String> errors, String[] reasons) {
+        int on = 0;
+        for (int group = 0; group < CHECK_CORE.length; group++) {
+            List<String> failed = new ArrayList<String>();
+            for (String hook : CHECK_CORE[group]) {
+                if (left.contains(hook) || !"passed".equals(results.get(hook))) {
+                    String error = errors.get(hook);
+                    failed.add(hook + ": " + (error != null ? error : results.getOrDefault(hook, "not-run")));
+                }
+            }
+            if (failed.isEmpty()) {
+                on |= 1 << group;
+            } else {
+                reasons[group] = "self-test failed for " + failed;
+            }
+        }
+        return on;
+    }
+
+    /**
+     * The security-sinks sensor's JDK checks, each hook run once without I/O and without changing any JVM-wide state:
+     * a digest and a cipher asked for by a null or empty name, which the JDK refuses before reading any configuration;
+     * {@code init} on an {@code SSLContext} of the agent's own whose engine does nothing; each {@code HttpsURLConnection}
+     * default set to null, which the JDK refuses before setting anything; and {@code readObject} and {@code
+     * resolveClass} on a stream no constructor ran for ({@link #deserializationStep}).
+     */
+    static void securitySinksSteps(Map<String, String> steps, boolean privileged) {
+        steps.put("MessageDigest.getInstance", expectRefused(() -> {
+            try {
+                java.security.MessageDigest.getInstance((String) null);
+            } finally {
+                try {
+                    java.security.MessageDigest.getInstance(null, "SUN");
+                } catch (Exception expected) {
+                    // Refused before the provider is looked up.
+                }
+                try {
+                    java.security.MessageDigest.getInstance(null, (java.security.Provider) null);
+                } catch (Exception expected) {
+                    // Refused before the provider is read.
+                }
+            }
+        }));
+        steps.put("Cipher.getInstance", expectRefused(() -> {
+            try {
+                javax.crypto.Cipher.getInstance("");
+            } finally {
+                try {
+                    javax.crypto.Cipher.getInstance("", (java.security.Provider) null);
+                } catch (Exception expected) {
+                    // Refused before the provider is read.
+                }
+            }
+        }));
+        steps.put("SSLContext.init", sslContextStep());
+        steps.put("HttpsURLConnection.setDefaultHostnameVerifier", expectRefused(() -> {
+            javax.net.ssl.HttpsURLConnection.setDefaultHostnameVerifier(null);
+        }));
+        steps.put("HttpsURLConnection.setDefaultSSLSocketFactory", expectRefused(() -> {
+            javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(null);
+        }));
+        String deserialization = deserializationStep(privileged);
+        steps.put("ObjectInputStream.readObject", deserialization);
+        steps.put("ObjectInputStream.resolveClass", deserialization);
+    }
+
+    /** {@code init} on the agent's own {@code SSLContext}, whose engine does nothing: no provider, no random source. */
+    static String sslContextStep() {
+        try {
+            new javax.net.ssl.SSLContext(new NoOpSslContextSpi(), null, "TLS") {}.init(null, null, null);
+            return "ok";
+        } catch (Throwable ex) {
+            return "error: " + ex;
+        }
+    }
+
+    /**
+     * Runs {@code readObject} and {@code resolveClass} on an {@code ObjectInputStream} no constructor ran for. Building
+     * any {@code ObjectInputStream} fixes the JVM-wide deserialization filter factory for the JVM's life (JDK 17 to 26:
+     * both constructors call {@code ObjectInputFilter.Config.getSerialFilterFactorySingleton()}), after which an
+     * application's own {@code Config.setSerialFilterFactory} would throw: so the stream is allocated through {@code
+     * sun.reflect.ReflectionFactory}, running only {@code Object}'s constructor, as serialization libraries do. Its
+     * fields are null: {@code readObject} throws once its advice ran, and {@code resolveClass} reads none of them.
+     */
+    static String deserializationStep(boolean privileged) {
+        PrivilegedAction<String> action = () -> {
+            try {
+                Class<?> factoryType = Class.forName("sun.reflect.ReflectionFactory");
+                Object factory = factoryType.getMethod("getReflectionFactory").invoke(null);
+                java.lang.reflect.Constructor<?> constructor = (java.lang.reflect.Constructor<?>) factoryType
+                        .getMethod("newConstructorForSerialization", Class.class, java.lang.reflect.Constructor.class)
+                        .invoke(factory, SelfTestStream.class, Object.class.getDeclaredConstructor());
+                SelfTestStream stream = (SelfTestStream) constructor.newInstance();
+                try {
+                    stream.readObject();
+                    return "error: readObject read from a stream without input";
+                } catch (Exception | Error expected) {
+                    // The stream has no input: the hook ran first.
+                }
+                if (stream.resolve(java.io.ObjectStreamClass.lookup(Integer.class)) != Integer.class) {
+                    return "error: resolveClass did not resolve java.lang.Integer";
+                }
+                return "ok";
+            } catch (Throwable ex) {
+                return "not-exercised: no ObjectInputStream could be made without fixing the JVM's filter factory: "
+                        + ex;
+            }
+        };
+        return privileged ? (String) AgentThreads.privileged(action) : action.run();
+    }
+
+    /** The deserialization self-test's stream: its constructor never runs ({@link #deserializationStep}). */
+    static final class SelfTestStream extends java.io.ObjectInputStream {
+
+        SelfTestStream() throws IOException {
+            super();
+        }
+
+        Class<?> resolve(java.io.ObjectStreamClass description) throws IOException, ClassNotFoundException {
+            return resolveClass(description);
+        }
+    }
+
+    /** An {@code SSLContext} engine that does nothing: the {@code init} self-test's. */
+    static final class NoOpSslContextSpi extends javax.net.ssl.SSLContextSpi {
+
+        @Override
+        protected void engineInit(
+                javax.net.ssl.KeyManager[] keyManagers,
+                javax.net.ssl.TrustManager[] trustManagers,
+                java.security.SecureRandom random) {
+            // Nothing: no provider, no random source.
+        }
+
+        @Override
+        protected javax.net.ssl.SSLSocketFactory engineGetSocketFactory() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        protected javax.net.ssl.SSLServerSocketFactory engineGetServerSocketFactory() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        protected javax.net.ssl.SSLEngine engineCreateSSLEngine() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        protected javax.net.ssl.SSLEngine engineCreateSSLEngine(String host, int port) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        protected javax.net.ssl.SSLSessionContext engineGetServerSessionContext() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        protected javax.net.ssl.SSLSessionContext engineGetClientSessionContext() {
+            throw new UnsupportedOperationException();
+        }
     }
 
     /**
@@ -1368,7 +1757,7 @@ final class SideEffectsSensor {
      * transformer carries another set.
      */
     private String sensorState(int bit) {
-        String current = (bit & SideEffects.MASK_THREADS) != 0 ? threadState : restState;
+        String current = state(group(bit));
         if ((wantedMask & bit) == 0 && !current.contains("release-failed")) {
             // Switched off, or asked for by an earlier claim only: its hooks are not in the transformer.
             return "released";
