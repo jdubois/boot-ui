@@ -1,7 +1,10 @@
 <script setup>
 import {computed, inject, ref, useId} from 'vue'
-import {apiFetch} from '../../api.js'
-import {formatLoadError} from '../../utils/loadError.js'
+import {
+  diagnosticActionError,
+  getDiagnosticAcknowledgement,
+  isJavaAgentReport
+} from '../../utils/diagnosticAcknowledgement.js'
 
 // The runtime switch of one BootUI agent sensor (docs/PLAN-v2.md M5-14), shared by the Java Agent and Side
 // Effects panels. The endpoint belongs to the Java Agent panel (`POST api/java-agent/sensors/{id}`), so that panel's
@@ -68,20 +71,18 @@ async function flip(event) {
   busy.value = true
   failure.value = null
   try {
-    const res = await apiFetch(`api/java-agent/sensors/${encodeURIComponent(props.toggle.id)}`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({enabled: target})
-    })
-    const body = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      failure.value = body.error || body.reason || body.message || `HTTP ${res.status}`
-      emit('stale')
-      return
-    }
+    const body = await getDiagnosticAcknowledgement(
+      `api/java-agent/sensors/${encodeURIComponent(props.toggle.id)}`,
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enabled: target})
+      },
+      isJavaAgentReport
+    )
     emit('switched', body)
   } catch (e) {
-    failure.value = formatLoadError(e, `Could not switch the ${props.toggle.id} sensor`)
+    failure.value = diagnosticActionError(e, `Could not switch the ${props.toggle.id} sensor`)
     emit('stale')
   } finally {
     busy.value = false

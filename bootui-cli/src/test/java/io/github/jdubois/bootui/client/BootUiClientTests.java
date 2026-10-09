@@ -13,9 +13,14 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Exercises the transport against a real loopback HTTP server rather than a mocked {@code HttpClient}, so
@@ -53,7 +58,7 @@ class BootUiClientTests {
                 body));
         byte[] payload = responseBody.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", contentType);
-        exchange.sendResponseHeaders(status, payload.length == 0 ? -1 : payload.length);
+        exchange.sendResponseHeaders(status, status == 204 || payload.length == 0 ? -1 : payload.length);
         exchange.getResponseBody().write(payload);
         exchange.close();
     }
@@ -95,6 +100,62 @@ class BootUiClientTests {
             assertThat(tool.arguments()).containsExactly("query", "limit");
             assertThat(tool.refused()).isFalse();
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "null",
+                "[]",
+                "{}",
+                "{\"status\":\"UP\"}",
+                "{\"enabled\":true,\"tools\":[]}",
+                "{\"serverName\":true,\"enabled\":true,\"tools\":[]}",
+                "{\"serverName\":\"other\",\"enabled\":true,\"tools\":[]}",
+                "{\"serverName\":\"bootui\",\"tools\":[]}",
+                "{\"serverName\":\"bootui\",\"enabled\":null,\"tools\":[]}",
+                "{\"serverName\":\"bootui\",\"enabled\":\"false\",\"tools\":[]}",
+                "{\"serverName\":\"bootui\",\"enabled\":0,\"tools\":[]}",
+                "{\"serverName\":\"bootui\",\"enabled\":true}",
+                "{\"serverName\":\"bootui\",\"enabled\":true,\"tools\":null}",
+                "{\"serverName\":\"bootui\",\"enabled\":true,\"tools\":{}}",
+                "{\"serverName\":\"bootui\",\"enabled\":false,\"tools\":[{\"name\":\"get_beans\"}]}"
+            })
+    void rejectsDocumentsThatAreNotBootUiCatalogs(String body) {
+        responseBody = body;
+
+        assertThatThrownBy(() -> client().catalog())
+                .isInstanceOf(BootUiClientException.class)
+                .hasMessageContaining("BootUI command-line catalog");
+    }
+
+    @Test
+    void acceptsTheDisabledOneTwentyCatalogWithoutRequiringCountersOrNewToolFields() {
+        responseBody = """
+                {"enabled":false,"serverName":"bootui","serverVersion":"1.20.0","endpoint":"/custom/api/cli",
+                 "maxResults":200,"callCount":0,"totalLatencyMillis":0,"capacityRefusals":0,"timeouts":0,
+                 "toolCount":0,"tools":[]}
+                """;
+
+        BootUiCatalog catalog = client().catalog();
+
+        assertThat(catalog.enabled()).isFalse();
+        assertThat(catalog.serverVersion()).isEqualTo("1.20.0");
+        assertThat(catalog.endpoint()).isEqualTo("/custom/api/cli");
+        assertThat(catalog.tools()).isEmpty();
+    }
+
+    @Test
+    void acceptsTheStableEnvelopeWithUnknownFieldsAndEvolvingToolMetadata() {
+        responseBody = """
+                {"serverName":"bootui","enabled":true,"future":{"status":"ready"},
+                 "tools":[{"name":"future_tool","schema":"FUTURE_SCHEMA","futureArgument":42}]}
+                """;
+
+        BootUiCatalog catalog = client().catalog();
+
+        assertThat(catalog.enabled()).isTrue();
+        assertThat(catalog.tool("future_tool").schema()).isEqualTo("FUTURE_SCHEMA");
     }
 
     @Test
@@ -173,7 +234,7 @@ class BootUiClientTests {
         assertThat(outcomeFor(404)).isEqualTo(ToolOutcome.UNKNOWN_TOOL);
         assertThat(outcomeFor(409)).isEqualTo(ToolOutcome.BUSY);
         assertThat(outcomeFor(429)).isEqualTo(ToolOutcome.BUSY);
-        assertThat(outcomeFor(503)).isEqualTo(ToolOutcome.ENDPOINT_DISABLED);
+        assertThat(outcomeFor(503)).isEqualTo(ToolOutcome.SERVER_ERROR);
         assertThat(outcomeFor(504)).isEqualTo(ToolOutcome.TIMED_OUT);
         assertThat(outcomeFor(500)).isEqualTo(ToolOutcome.SERVER_ERROR);
     }
@@ -244,6 +305,47 @@ class BootUiClientTests {
         assertThatThrownBy(() -> client().invoke("get_overview"))
                 .isInstanceOf(BootUiClientException.class)
                 .hasMessageContaining("is not JSON");
+    }
+
+    @ParameterizedTest
+    @MethodSource("missingToolResponses")
+    void rejectsSuccessfulToolResponsesWithoutJson(int httpStatus, String body) {
+        status = httpStatus;
+        responseBody = body;
+
+        assertThatThrownBy(() -> client().invoke("get_overview"))
+                .isInstanceOf(BootUiClientException.class)
+                .hasMessageContaining("does not contain JSON");
+    }
+
+    private static Stream<Arguments> missingToolResponses() {
+        return Stream.of(Arguments.of(200, ""), Arguments.of(200, " \t\r\n "), Arguments.of(204, ""));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "{}", "[]", "{\"futurePayload\":{\"value\":42}}"})
+    void successfulToolJsonRemainsOpaqueIncludingLiteralNull(String body) {
+        responseBody = body;
+
+        ToolResult result = client().invoke("get_overview");
+
+        assertThat(result.successful()).isTrue();
+        assertThat(result.rawBody()).isEqualTo(body);
+        assertThat(result.payload().isMissing()).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "<html>Service unavailable</html>", "{\"error\":\"disabled\"}"})
+    void serviceUnavailableDoesNotEstablishEndpointDisablement(String body) {
+        status = 503;
+        responseBody = body;
+
+        ToolResult result = client().invoke("get_overview");
+
+        assertThat(result.outcome()).isEqualTo(ToolOutcome.SERVER_ERROR);
+        assertThat(result.status()).isEqualTo(503);
+        assertThat(result.rawBody()).isEqualTo(body);
+        assertThat(requests).hasSize(1);
     }
 
     @Test

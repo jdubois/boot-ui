@@ -825,6 +825,10 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 - **Transactional-event fallback is immediate execution.** Spring listeners running without a transaction no longer
   produce false writes-after-commit findings ([Runtime Insights](docs/features/overview.md#runtime-insights)).
+- **Diagnostic state stays current.** Late reads cannot undo sensor switches or repopulate old activity queries,
+  and invalid action replies report an unknown outcome ([Live Activity](docs/features/overview.md#live-activity)).
+- **CLI failures are not successful answers or policy skips.** Empty tool replies, wrong targets, and outages now
+  fail explicitly; endpoint disablement requires a valid disabled catalog ([CLI](docs/CLI.md#exit-codes)).
 - **MCP correlation ids cannot exceed the response budget.** An unanswerable request gets bodyless HTTP `413` before
   any tool runs; normal replies keep their ids and wire shape ([AI agents](docs/AI-AGENTS.md#protocol-eras)).
 - **Quarkus advisor rules report one outcome per scan.** A rule with findings and incomplete coverage, such as

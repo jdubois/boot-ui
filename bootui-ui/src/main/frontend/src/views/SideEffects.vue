@@ -163,6 +163,7 @@ const sensorReports = ref({})
 const sensorErrors = ref({})
 const sensorLoading = ref({})
 const now = ref(Date.now())
+let summaryVersion = 0
 
 const available = computed(() => summary.value?.available === true)
 // The sensors' runtime switches belong to the Java Agent panel, shown only while it is enabled and available (M5-14).
@@ -187,11 +188,9 @@ function onSensorSwitched(report) {
 }
 
 /** Reads the summary again once any refresh in flight ended, so a switch is never skipped by one. */
-async function refreshAfterSwitch() {
-  for (let attempt = 0; attempt < 20 && loading.value; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
-  await load()
+function refreshAfterSwitch() {
+  summaryVersion++
+  return loadAfterCurrent()
 }
 const activeGroup = computed(() => GROUPS.find((group) => group.id === activeTab.value) ?? GROUPS[0])
 
@@ -216,7 +215,10 @@ const relativeTimer = setInterval(() => {
   now.value = Date.now()
 }, 30_000)
 
-onBeforeUnmount(() => clearInterval(relativeTimer))
+onBeforeUnmount(() => {
+  summaryVersion++
+  clearInterval(relativeTimer)
+})
 
 function groupIdFor(label) {
   return (
@@ -241,9 +243,12 @@ function canLoadSensor(sensor) {
 }
 
 async function fetchSummary() {
+  const version = summaryVersion
   error.value = null
   try {
-    summary.value = await getJson('api/side-effects')
+    const loaded = await getJson('api/side-effects')
+    if (version !== summaryVersion) return
+    summary.value = loaded
     lastFetched.value = Date.now()
     // Keep the active tab's rows on screen while they refresh, so an auto-refresh updates them in place rather than
     // blanking every table to "Loading…"; other tabs' rows are dropped and fetched again when their tab is opened.
@@ -254,11 +259,12 @@ async function fetchSummary() {
       await loadGroupSensors(activeTab.value, {force: true})
     }
   } catch (e) {
+    if (version !== summaryVersion) return
     error.value = describeLoadError(e, 'Unable to load Side Effects')
   }
 }
 
-const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchSummary, {
+const {autoRefresh, loading, initialLoading, load, loadAfterCurrent} = useAutoRefresh(fetchSummary, {
   enabled: manifestAvailable
 })
 

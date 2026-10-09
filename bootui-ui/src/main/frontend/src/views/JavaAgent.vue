@@ -1,5 +1,5 @@
 <script setup>
-import {computed, ref} from 'vue'
+import {computed, onBeforeUnmount, ref} from 'vue'
 import {getJson} from '../api.js'
 import {formatMillis, formatNumber} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
@@ -17,6 +17,9 @@ const {manifestAvailable, manifestUnavailableReason} = usePanelState(props)
 const report = ref(null)
 const error = ref(null)
 const lastFetched = ref(null)
+let reportVersion = 0
+
+onBeforeUnmount(() => reportVersion++)
 
 const STATE_DETAILS = {
   NOT_ATTACHED: {
@@ -233,24 +236,36 @@ function hookInstalled(hook) {
 }
 
 async function fetchReport() {
+  const version = reportVersion
   error.value = null
   try {
-    report.value = await getJson('api/java-agent')
+    const loaded = await getJson('api/java-agent')
+    if (version !== reportVersion) return
+    report.value = loaded
     lastFetched.value = Date.now()
   } catch (e) {
+    if (version !== reportVersion) return
     error.value = describeLoadError(e, 'Unable to load Java Agent status')
   }
 }
 
-const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchReport, {
+const {autoRefresh, loading, initialLoading, load, loadAfterCurrent} = useAutoRefresh(fetchReport, {
   enabled: manifestAvailable
 })
 
 const toggles = computed(() => report.value?.toggles ?? [])
 
 function onSensorSwitched(updated) {
+  reportVersion++
   report.value = updated
+  error.value = null
   lastFetched.value = Date.now()
+  if (loading.value) loadAfterCurrent()
+}
+
+function onSensorStale() {
+  reportVersion++
+  return loadAfterCurrent()
 }
 
 // Without an attached agent, what the agent adds and the setup open the panel, and the sections that describe an
@@ -451,7 +466,7 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
             </p>
             <ul v-if="toggles.length" class="list-unstyled mb-0 java-agent-toggles">
               <li v-for="toggle in toggles" :key="toggle.id">
-                <AgentSensorToggle :toggle="toggle" @switched="onSensorSwitched" @stale="load" />
+                <AgentSensorToggle :toggle="toggle" @switched="onSensorSwitched" @stale="onSensorStale" />
               </li>
             </ul>
             <p v-else class="small text-muted mb-0" data-testid="java-agent-toggles-unavailable">

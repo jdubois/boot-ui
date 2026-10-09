@@ -393,6 +393,8 @@ every `bootui.activity.persistence.flush-interval` (5 seconds by default).
 
 With persistence on, the panel gains a **Load older** button, the type/severity/free-text filters become real database
 queries instead of filtering only what is on screen, and a "· persisted history" note appears next to the subtitle.
+Changing a query or feed source discards its older pages; a late page from the previous query cannot add rows or
+replace the current cursor. Switching between durable and in-memory storage also resets that history.
 
 The backing table (`bootui.activity.persistence.table-name`, default `bootui_activity`) is created on first use.
 Several instances can safely share one table: each tags its rows with an `instanceId` (defaulting to `HOSTNAME`) and
@@ -420,6 +422,10 @@ the existing datasource** action checks it, creates the table, and hot-switches 
 entries and no restart. It is confirmation-gated like every other state-changing action. The switch is **runtime-only**:
 nothing is written to disk, so a restart reverts to in-memory unless the property is also set in configuration. With no
 `DataSource` present, the button links to the setup documentation instead.
+
+The datasource switch and **Clear recording** report success only after a valid JSON acknowledgement. An empty,
+malformed, or unrecognized acknowledgement reports an unknown outcome and re-reads the feed or journal status,
+keeping the previous local evidence if that read fails. The browser never automatically repeats either action.
 
 With persistence off, no persistence subscriber, flush scheduler, or database connection is created. The bounded
 in-memory feed and runtime journal still retain diagnostic data.
