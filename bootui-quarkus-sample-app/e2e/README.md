@@ -5,7 +5,7 @@
 analogue of [`bootui-spring-sample-app/e2e`](../../bootui-spring-sample-app/e2e) and exist to prove that the **one
 shared Vue UI** works end to end against the **Quarkus** adapter, not just Spring Boot.
 
-The suite is deliberately focused rather than a 1:1 copy of the ~40 Spring specs. Per-panel UI logic is
+The suite is deliberately focused rather than a 1:1 copy of the Spring specs. Per-panel UI logic is
 already covered by the Spring e2e suite (same Vue code) and the Quarkus API/response contract is covered
 by the `bootui-quarkus-integration-tests` `@QuarkusTest` modules. What only a browser against a live
 Quarkus backend can prove is what these tests cover:

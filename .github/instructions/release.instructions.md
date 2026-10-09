@@ -29,10 +29,11 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
   published module must declare the plugin too. Both parents stay in the publication reactor and in `excludeArtifacts`.
 - Sample apps, integration tests, coverage, and conformance must retain `maven.deploy.skip=true`, remain in the Central
   plugin's `excludeArtifacts` list, and stay outside the publication-only reactor in `release.yml`.
-- The consumer smoke tests live in `.github/scripts/consumer-smoke-tests.sh` and run three times:
-  `stage-release-candidate.sh` stages the exact Central bundle (assembled the same way, unsigned, never uploaded) as a file repository
-  inside the pre-tag verification build and again from the immutable tagged checkout before publication, and the
-  script then runs against Maven Central after publication. Every run requires each resolved BootUI file to come from
+- The consumer smoke tests live in `.github/scripts/consumer-smoke-tests.sh`. Normal preparation runs them against the
+  exact unsigned candidate bundle staged as a file repository by `stage-release-candidate.sh`, before the release
+  commit and tag. Tag-entry or `skip_build` runs without successful pre-tag smoke stage and test from the immutable
+  tagged checkout before publication instead; a passed pre-tag smoke is not rerun after tagging. The script runs
+  against Maven Central after publication, including `resume_after_publish` recovery. Every run requires each resolved BootUI file to come from
   the source under test and the consumers to resolve exactly the published coordinates. `build.yml`'s
   `release-candidate` job runs the staged smoke on every change.
 - `bootui-agent-bridge` is built but never published: `bootui-agent` shades it in and declares it, like Byte Buddy,

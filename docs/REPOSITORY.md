@@ -8,7 +8,8 @@
 - `bootui-spring-boot-starter`: the Spring MVC/WebFlux adapter and its starter (auto-configuration, endpoints, safety,
   and the bundled UI). It brings no web stack; the application's own web starter decides.
 - `bootui-ui`: Vue 3 frontend packaged into `META-INF/resources/bootui/`.
-- `bootui-conformance`: shared HTTP contract suite and golden panel manifests for all adapters.
+- `bootui-conformance`: non-published HTTP test support and golden panel manifests for all adapters. Its reusable
+  runners use JDK `HttpClient`, Jackson 2, JUnit and AssertJ without any host-framework dependency.
 - `bootui-coverage`: aggregated coverage report (built by the `coverage` profile only).
 - `bootui-cli`: the `bootui` command-line interface, generated from the engine's MCP tool catalog, and the
   dependency-free client it is built on (package `io.github.jdubois.bootui.client`, nothing outside the JDK; picocli is
@@ -19,7 +20,7 @@
   consumers; it stays dormant until a BootUI application claims it.
 - `bootui-spring-sample-app`: Spring MVC sample app + Playwright e2e coverage.
 - `bootui-spring-webflux-sample-app`: Spring WebFlux sample app.
-- `bootui-quarkus-parent`: shared Quarkus LTS BOM and plugin management.
+- `bootui-quarkus-parent`: shared Quarkus platform BOM and plugin management.
 - `bootui-quarkus`: Quarkus runtime adapter.
 - `bootui-quarkus-deployment`: Quarkus build-time wiring module.
 - `bootui-quarkus-integration-tests`: Quarkus `@QuarkusTest` suites.
@@ -37,7 +38,9 @@ When these are updated, refresh matching documentation references in the same pu
 `.github/instructions/{spring-adapter,quarkus-adapter}.instructions.md`). All Quarkus modules inherit
 `bootui-quarkus-parent`, which imports the Quarkus BOM closer than the root parent imports Spring Boot's BOM. This keeps
 the two frameworks' shared transitive dependencies isolated while giving the extension, tests, and sample app one
-Quarkus LTS version.
+Quarkus build baseline. The published extension also supports the older Quarkus 3.33 LTS line: its
+`requiresQuarkusCore` range and `build.yml`'s `quarkus-lts` job pin that separately. The root build currently uses
+Quarkus 3.40.1; it is not the name of the older LTS compatibility target.
 
 ## Published artifacts
 
@@ -80,4 +83,7 @@ stay in the repository-only `workshop/` directory; `workshop/PLAN.md` preserves 
 
 GitHub Pages is deployed by `.github/workflows/pages.yml` from the `main` branch. In the repository settings, set
 **Pages > Build and deployment > Source** to **GitHub Actions**. The workflow builds VuePress with the `/boot-ui/` base
-path and publishes the site at <https://www.julien-dubois.com/boot-ui/>.
+path and publishes the site at <https://www.julien-dubois.com/boot-ui/> only when the release-line gate permits it.
+The Release workflow also dispatches it at the immutable tag of a newest-major release. Merging the unreleased v2 line
+into `main` builds the site but does not upload or deploy it before that line is published; older-major maintenance
+releases do not replace the newest-major site. See [Releasing 2.0](V2-RELEASE.md).

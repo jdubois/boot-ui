@@ -1,13 +1,11 @@
 # Known limitations of BootUI 2.0
 
 BootUI 2.0 adds exact correlation, the runtime journal, Runtime Insights, the change loop, and the optional BootUI Java
-agent ([v2 plan](PLAN-v2.md)). This page lists what 2.0 does not do, or does only in part, so you can tell a gap from a
-healthy result. Every gap below is also reported in the product itself: an unavailable panel, check, or column says so
-with its reason, and is never shown as empty or zero.
+agent. This page lists what the delivered code does not do, or does only in part, so you can tell a gap from a healthy
+result. Unavailable panels, checks, and measurements report their reason; an empty result is not proof of complete
+coverage or safety.
 
-The final scope is recorded in the [release sign-off](V2-VALIDATION-REPORT.md#release-sign-off) of the validation
-report. Until 2.0.0 is released, items marked **planned** describe work that is still in progress on the `v2` branch
-and **may not be in 2.0**: whatever is not merged when 2.0.0 is cut ships in a later 2.x release.
+Items marked **deferred** are not implemented in the current code. They are not promises for a later release.
 
 ## Runtime Insights
 
@@ -16,14 +14,15 @@ and **may not be in 2.0**: whatever is not merged when 2.0.0 is cut ships in a l
   `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `framework-warnings-by-route`, and
   `anonymous-data-reach` only with **Show all routes**, a search, or an agent query naming them. Every row stays
   reachable, and any row is a fact to verify against the code before acting on it.
-- **Agent-backed observations stay in their own panels before 2.0.0**, such as Side Effects, rather than in Runtime
-  Insights.
+- **Side Effects rows stay in their own panel**, not a dedicated Runtime Insights observation kind. Their keys also
+  feed run comparison. Runtime Insights does use other agent evidence, such as `changed-code-not-executed`,
+  `work-after-response`, and synchronous handler timing.
 - **Kafka Streams processing is not recorded** on any stack. Producer sends and listener executions are. Runtime
   Insights names this first among its limitations whenever Kafka Streams is on the classpath, as it does R2DBC.
 - **Non-JDBC data stores are not recorded** on any stack: Redis, MongoDB, and similar commands do not enter the journal,
   so `repeated-selects` and the runtime model do not cover them.
 - **Many narrower observations are deferred** until after 2.0, such as retry amplification, cache effectiveness, pool
-  pressure by route, and virtual-thread pinning. See the [v2 plan](PLAN-v2.md), §5.10.
+  pressure by route, and virtual-thread pinning.
 
 ## Spring WebFlux
 
@@ -78,8 +77,8 @@ See [Quarkus design notes](QUARKUS-SUPPORT.md) for the panel-by-panel detail.
   call finished, cancels another local client's in-flight `tools/call` that uses the same id; that call's progress
   stream then ends with no response. Two calls in flight with the same id are never cancelled. BootUI does not add an
   `Mcp-Session-Id`, which would change MCP 2025-06-18's bytes. See [AI agents](AI-AGENTS.md#protocol-eras).
-- **Only `architecture_scan` and `vulnerabilities_scan` report progress**; every other tool finishes in about a second
-  and answers with one JSON response.
+- **Only `architecture_scan` and `vulnerabilities_scan` report progress**. Other tools return one JSON response;
+  scans, database collection, and first-time session parsing can still take seconds or reach the execution timeout.
 
 ## The BootUI Java agent
 
@@ -107,14 +106,15 @@ application's own code did. See [Java Agent](features/java-agent.md).
   previous run;
 - the Exceptions panel's **Caught in application code** section, with the agent's opt-in `caught-exceptions` sensor;
 - `request-input-in-sink` as opt-in Security sinks rows: request input reaching SQL text, a command, a file path, or
-  an outbound URL unchanged, with query and path parameters;
+  an outbound URL unchanged, with query and path parameters; matching additionally requires the separate
+  `bootui.agent.security-sinks.request-values=true` startup setting;
 - the opt-in Security sinks JDK checks: deserialization without a filter, weak algorithms, and trust managers and
   hostname verifiers; the panels switch the `security-sinks` sensor on and off at run time too, and its request-value
   matching turns on with its own transformer, so when that transformer fails to install or its self-test fails, matching
   is off too;
 - agent guidance in the MCP instructions and prompts, and the scripted "did my change run?" agent investigation.
 
-**Planned, may not be in 2.0:**
+**Deferred, not implemented:**
 
 - caught exceptions as evidence of `errors-behind-2xx`;
 - the rest of security sinks: form values in `request-input-in-sink`, and outbound URLs opened through `HttpClient` or
@@ -124,7 +124,14 @@ application's own code did. See [Java Agent](features/java-agent.md).
 
 **Limits of the agent itself:**
 
-- JVM mode only, attached with `-javaagent` or an opt-in self-attach; it is unavailable in a GraalVM native image.
+- JVM mode only, normally attached with `-javaagent`; the jar also has an `agentmain` entry point for an external
+  attach client, but BootUI offers no self-attach property or panel control. It is unavailable in a GraalVM native image.
+- Executor and thread snapshot registries each retain at most 32,768 application entries across all generations plus
+  64 reserved self-test markers. Overflow leaves new submissions unowned. If a refused task object is later submitted
+  under another owner after capacity becomes available, an earlier run can use that later snapshot; status warns once
+  executor overflow occurred. `overflow` and `neverApplied` remain cumulative after sensor disable, until JVM exit.
+- A method `NOT_TRACKED` is unknown, never evidence that it was not executed. A metadata probe is conclusive only
+  after it became `active` and covered the whole reproduction window; starting one requires separate approval.
 - It appends itself to the bootstrap class path, so class data sharing, AppCDS, and AOT caches stop applying outside
   the boot loader and HotSpot prints a warning. A development tool: never attach it to a production or AOT-cached JVM.
 

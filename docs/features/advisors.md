@@ -25,14 +25,14 @@ reads remain available in read-only mode. Older reports without retrieval metada
 
 Each report has additive `violationDetails` metadata:
 
-| Field | Meaning |
-| --- | --- |
-| `scanId` | Opaque identity of the latest published scan; `null` before a completed scan. |
-| `total` | Concrete violations counted across all rules, before dismissal. |
-| `retained` | Number of sanitized detail entries retained across those rules. |
-| `retentionLimit` | Effective per-advisor limit frozen for this scan. |
-| `truncated` | Some counted details are missing from the retained index. |
-| `locationNotes` | Why some [violation locations](#violation-locations) carry no source path; empty otherwise. |
+| Field            | Meaning                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------- |
+| `scanId`         | Opaque identity of the latest published scan; `null` before a completed scan.               |
+| `total`          | Concrete violations counted across all rules, before dismissal.                             |
+| `retained`       | Number of sanitized detail entries retained across those rules.                             |
+| `retentionLimit` | Effective per-advisor limit frozen for this scan.                                           |
+| `truncated`      | Some counted details are missing from the retained index.                                   |
+| `locationNotes`  | Why some [violation locations](#violation-locations) carry no source path; empty otherwise. |
 
 Only the latest snapshot is retained. While another scan is running, detail reads still refer to the previous
 completed snapshot; publishing its replacement changes the ID. Dismiss/restore changes neither the ID nor retained
@@ -67,15 +67,15 @@ GET <api>/<advisor>/rules/<encoded-rule-id>/violations?scanId=<encoded-scan-id>&
 The same read route is available on each advisor's supported MVC, WebFlux, and Quarkus stacks. These names identify
 the corresponding MCP read tool and generated CLI path:
 
-| Advisor / REST root | MCP tool | CLI command |
-| --- | --- | --- |
-| `architecture` | `get_architecture_rule_violations` | `architecture violations` |
-| `hibernate` | `get_hibernate_rule_violations` | `hibernate violations` |
-| `spring` | `get_spring_rule_violations` | `spring violations` |
-| `rest-api` | `get_rest_api_rule_violations` | `rest-api violations` |
-| `memory` | `get_memory_rule_violations` | `memory violations` |
-| `security` | `get_security_rule_violations` | `security violations` |
-| `database-advisor` | `get_database_advisor_rule_violations` | `db violations` |
+| Advisor / REST root | MCP tool                               | CLI command               |
+| ------------------- | -------------------------------------- | ------------------------- |
+| `architecture`      | `get_architecture_rule_violations`     | `architecture violations` |
+| `hibernate`         | `get_hibernate_rule_violations`        | `hibernate violations`    |
+| `spring`            | `get_spring_rule_violations`           | `spring violations`       |
+| `rest-api`          | `get_rest_api_rule_violations`         | `rest-api violations`     |
+| `memory`            | `get_memory_rule_violations`           | `memory violations`       |
+| `security`          | `get_security_rule_violations`         | `security violations`     |
+| `database-advisor`  | `get_database_advisor_rule_violations` | `db violations`           |
 
 For example, after an explicitly requested Architecture scan:
 
@@ -130,15 +130,15 @@ of the listed violations has one, as for every other advisor and for reports fro
 counts, severities, ordering, scan ID, dismissals, evidence, and score are unchanged by locations, so a client that
 reads only `sampleViolations` and `violations` sees exactly what it saw before.
 
-| Field | Meaning |
-| --- | --- |
-| `className` | JVM binary class name, such as `com.example.Outer$Inner` or a Kotlin `OrderUtilsKt` file facade. |
+| Field        | Meaning                                                                                                    |
+| ------------ | ---------------------------------------------------------------------------------------------------------- |
+| `className`  | JVM binary class name, such as `com.example.Outer$Inner` or a Kotlin `OrderUtilsKt` file facade.           |
 | `memberName` | Method, constructor (`<init>`), or field name; `null` for the class itself or a compiler-generated member. |
-| `kind` | `CLASS`, `METHOD`, `CONSTRUCTOR`, or `FIELD`. |
-| `sourceFile` | The source file name the class file records; a Kotlin facade or companion names its declaring `.kt` file. |
-| `line` | A positive line in that file, or `null` when unknown or not verifiable. |
-| `sourcePath` | The absolute local source path resolved during the scan, or `null`. |
-| `precision` | `LINE` when a line is known, `MEMBER` when only the member is, otherwise `CLASS`. |
+| `kind`       | `CLASS`, `METHOD`, `CONSTRUCTOR`, or `FIELD`.                                                              |
+| `sourceFile` | The source file name the class file records; a Kotlin facade or companion names its declaring `.kt` file.  |
+| `line`       | A positive line in that file, or `null` when unknown or not verifiable.                                    |
+| `sourcePath` | The absolute local source path resolved during the scan, or `null`.                                        |
+| `precision`  | `LINE` when a line is known, `MEMBER` when only the member is, otherwise `CLASS`.                          |
 
 Where locations come from:
 
@@ -195,11 +195,11 @@ unchecked work passed. No coverage percentage, confidence weight, or combined pe
 
 The backend's `evidence` object is the sole eligibility authority, and it exposes no completion or findings counters:
 
-| Field | Meaning |
-| --- | --- |
-| `usable` | At least one applicable check completed, or a genuine known-severity finding was observed, before filtering or dismissal. Genuine INFO and NONE findings can establish usability; informational missing-evidence notices and UNKNOWN-only vulnerability data cannot. |
-| `coverageComplete` | Applicable evidence is complete. Checks that do not apply are neutral; missing required observations and failures leave coverage incomplete. |
-| `limitations` | An immutable, bounded, sanitized list of explanations for incomplete coverage. |
+| Field              | Meaning                                                                                                                                                                                                                                                              |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `usable`           | At least one applicable check completed, or a genuine known-severity finding was observed, before filtering or dismissal. Genuine INFO and NONE findings can establish usability; informational missing-evidence notices and UNKNOWN-only vulnerability data cannot. |
+| `coverageComplete` | Applicable evidence is complete. Checks that do not apply are neutral; missing required observations and failures leave coverage incomplete.                                                                                                                         |
+| `limitations`      | An immutable, bounded, sanitized list of explanations for incomplete coverage.                                                                                                                                                                                       |
 
 The browser never reconstructs applicability from rule IDs, finding lists, or dependency details. MySQL and Oracle
 checks on a PostgreSQL-only application therefore stay neutral skipped diagnostics rather than becoming incomplete
@@ -261,7 +261,7 @@ Scorecard score visible and shows the conflict as a warning. Different scanners 
 ### Dismissing findings
 
 Any finding can be dismissed when it does not apply to your project. **Dismiss** moves the rule into a collapsed
-*Dismissed rules* list and removes it from the panel's finding count, severity bars, and known-findings score, in both
+_Dismissed rules_ list and removes it from the panel's finding count, severity bars, and known-findings score, in both
 the panel and the Scorecard. You can restore it at any time from that list.
 
 Dismissal changes penalties. It does not change application safety, observed evidence, or missing coverage.
@@ -342,8 +342,8 @@ Generic rules are weaker than project-authored ArchUnit tests, so treat this pan
 a project-specific ArchUnit suite rather than replacing it.
 
 > **Not available in GraalVM native images.** The advisor scans compiled `.class` files via ArchUnit's
-> `ClassFileImporter`, which is incompatible with a native executable; the panel is automatically hidden when the
-> application is detected to be running as a native image.
+> `ClassFileImporter`, which is incompatible with a native executable; the panel moves to the sidebar's
+> _Disabled / unavailable_ group and explains why.
 
 ::: details On Quarkus
 
@@ -412,16 +412,17 @@ can be attributed to exactly one declared handler, that panel links straight to 
 unmatched failures stay unlinked.
 
 ::: details Three cases reported as unresolved rather than guessed
+
 - An advice that implements `Ordered` chooses its position at runtime, so its whole precedence group is ambiguous.
 - A Spring handler without `@ResponseBody` (directly or via `@RestControllerAdvice`) renders a view rather than a body,
   so its body category is unresolved instead of read from the return type.
 - On Quarkus only `@Provider`-annotated `ExceptionMapper`s are listed, because an unregistered implementation never
   participates in exception resolution.
-:::
+  :::
 
 > **Not available in GraalVM native images.** The advisor scans compiled `.class` files via ArchUnit's
-> `ClassFileImporter`, which is incompatible with a native executable; the panel is automatically hidden when the
-> application is detected to be running as a native image.
+> `ClassFileImporter`, which is incompatible with a native executable; the panel moves to the sidebar's
+> _Disabled / unavailable_ group and explains why.
 
 ## Spring
 
@@ -493,6 +494,7 @@ forwards to is a bean of its own, so the pool inside a `LazyConnectionDataSource
 resolved targets, named `beanName[lookupKey]`.
 
 ::: details The generic structural checks
+
 - A missing primary key, excluding framework-generated one-row identifier tables (Hibernate's `next_val` sequence
   emulation and Spring Batch's `*_SEQ` tables).
 - A physical foreign key without a known complete leading-column access path, as a contextual review.
@@ -502,7 +504,7 @@ resolved targets, named `beanName[lookupKey]`.
 - Duplicate foreign-key constraints.
 - A narrow auto-generated primary key.
 - A MySQL invisible, MariaDB ignored or Oracle invisible index that writes still maintain.
-:::
+  :::
 
 ### Bounded, honest scans
 
@@ -519,12 +521,12 @@ cannot see, a truncated scan, and every skipped or errored rule are reported as 
 diagnostics — never as passing checks, and never counted as findings. Credentials in a JDBC URL or a
 driver error message are always redacted.
 
-| Status     | Meaning                          |
-| ---------- | -------------------------------- |
-| `SCANNED`  | Everything was read completely   |
-| `PARTIAL`  | Something was not read           |
+| Status     | Meaning                                     |
+| ---------- | ------------------------------------------- |
+| `SCANNED`  | Everything was read completely              |
+| `PARTIAL`  | Something was not read                      |
 | `ERROR`    | Discovery failed or no schema could be read |
-| `DISABLED` | Successful discovery found no datasource |
+| `DISABLED` | Successful discovery found no datasource    |
 
 A catalog query blocked by restricted privileges makes its rule report `SKIPPED` with that reason instead of silently
 reporting no findings.
@@ -589,6 +591,7 @@ Hibernate panel uses. This half is skipped (with a clear reason, not silently dr
 Hibernate metamodel is unavailable.
 
 ::: details What the cross-reference checks
+
 - An explicit association without a matching physical foreign-key constraint, excluding `NO_CONSTRAINT`.
 - An explicit declared table or column name not observed in complete scoped metadata.
 - Supported nondefault nullability declaration mismatches, not guessed Java-to-JDBC type mappings.
@@ -601,7 +604,7 @@ Hibernate metamodel is unavailable.
 - An explicitly named `@Id` declaring `GenerationType.IDENTITY` whose PostgreSQL/MySQL/MariaDB column reports no
   auto-increment, identity, default or generated value.
 
-Only entities with an *explicit* `@Table(name = ...)` are cross-referenced — entities relying on the default naming
+Only entities with an _explicit_ `@Table(name = ...)` are cross-referenced — entities relying on the default naming
 strategy are skipped rather than guessed. Even explicit names remain logical names subject to a physical naming
 strategy: these are declaration-versus-observation reviews, not effective runtime-mapping validation.
 Matching honors a declared `catalog`/`schema`, and a mapped name that matches
@@ -675,17 +678,17 @@ unavailable instead of reporting a clean result. Three platform differences are 
 
 **The Quarkus property-key mapping**
 
-| Spring / native Hibernate key                     | Quarkus equivalent                                                  |
-| ------------------------------------------------- | ------------------------------------------------------------------- |
-| `ddl-auto` / `hbm2ddl.auto`                       | `quarkus.hibernate-orm.schema-management.strategy` (*)              |
-| `show-sql`                                        | `quarkus.hibernate-orm.log.sql`                                     |
-| `format_sql`                                      | `quarkus.hibernate-orm.log.format-sql`                             |
-| `batch_size`                                      | `quarkus.hibernate-orm.jdbc.statement-batch-size`                   |
-| `default_batch_fetch_size`                        | `quarkus.hibernate-orm.fetch.batch-size`                            |
-| `jdbc.time_zone`                                  | `quarkus.hibernate-orm.jdbc.timezone`                               |
-| `generate_statistics`                             | `quarkus.hibernate-orm.statistics`                                  |
-| `query.in_clause_parameter_padding`               | `quarkus.hibernate-orm.query.in-clause-parameter-padding`           |
-| `query.fail_on_pagination_over_collection_fetch`  | `quarkus.hibernate-orm.query.fail-on-pagination-over-collection-fetch` |
+| Spring / native Hibernate key                            | Quarkus equivalent                                                           |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `ddl-auto` / `hbm2ddl.auto`                              | `quarkus.hibernate-orm.schema-management.strategy` (*)                       |
+| `show-sql`                                               | `quarkus.hibernate-orm.log.sql`                                              |
+| `format_sql`                                             | `quarkus.hibernate-orm.log.format-sql`                                       |
+| `batch_size`                                             | `quarkus.hibernate-orm.jdbc.statement-batch-size`                            |
+| `default_batch_fetch_size`                               | `quarkus.hibernate-orm.fetch.batch-size`                                     |
+| `jdbc.time_zone`                                         | `quarkus.hibernate-orm.jdbc.timezone`                                        |
+| `generate_statistics`                                    | `quarkus.hibernate-orm.statistics`                                           |
+| `query.in_clause_parameter_padding`                      | `quarkus.hibernate-orm.query.in-clause-parameter-padding`                    |
+| `query.fail_on_pagination_over_collection_fetch`         | `quarkus.hibernate-orm.query.fail-on-pagination-over-collection-fetch`       |
 | `cache.use_query_cache` / `cache.use_second_level_cache` | `quarkus.hibernate-orm.second-level-caching-enabled` (single unified toggle) |
 
 (*) In Quarkus 3.33.3.1, explicitly configured deprecated `quarkus.hibernate-orm.database.generation` takes precedence.
@@ -873,7 +876,7 @@ returns them from `GET /v1/vulns/{id}`, so the scanner keeps a defensive detail-
 small bounded concurrency (up to 10 at a time), with a configured advisory-detail cap. Request timeouts are not a
 whole-scan deadline; a total elapsed-time budget and retry policy remain deferred. A single detail fetch that fails
 (network hiccup, rate limiting) does not abort the whole scan: it is counted, the scan
-degrades to `PARTIAL`, and every advisory that *did* fetch is kept.
+degrades to `PARTIAL`, and every advisory that _did_ fetch is kept.
 
 ::: details Pagination, batching, and result validation
 OSV's `/v1/querybatch` endpoint returns a `next_page_token` per query when pagination is needed; upstream pagination
@@ -985,12 +988,12 @@ a finding's severity, score, counts, or Scorecard penalty: a class not loaded ye
 another. Without the agent, or while the Code Inventory panel, whose evidence it is, is disabled, the column is absent
 and the table says why.
 
-| Reach | Meaning |
-| --- | --- |
-| **Named class loaded** | A class the advisory names loaded from this dependency's own jar. Names come from the advisory's structured OSV fields when it has any, else from fully qualified class names in its summary and details, marked *from the advisory text*: those may name a proof of concept's classes, so this is "a class the advisory mentions loaded", never "the vulnerable code ran". |
-| **Loaded** | Classes of the jar loaded, with how many in this run and the route of the request that first loaded one (while HTTP Exchanges is visible). A jar loaded only before this run (an earlier DevTools or live-reload run, or before the agent's claim), or only by BootUI's own work, still reads as loaded, with that said. |
-| **Not loaded yet** | No class of the jar loaded in this JVM, and the evidence could have shown it. |
-| **Unknown** | The evidence cannot tell, with why: the agent's class-load recorder is not running or has not finished walking the classes already loaded, it saw more jars than it counts, the jar was not found or holds no classes (a starter, native code), classes of one of its packages were defined without a code-source location, a loaded jar with no Maven metadata and the artifact's name, or a shaded jar, may be this dependency, the jar serves web resources (WebJars, mvnpm), or the agent never records the artifact's classes (Byte Buddy, BootUI's own). |
+| Reach                  | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Named class loaded** | A class the advisory names loaded from this dependency's own jar. Names come from the advisory's structured OSV fields when it has any, else from fully qualified class names in its summary and details, marked _from the advisory text_: those may name a proof of concept's classes, so this is "a class the advisory mentions loaded", never "the vulnerable code ran".                                                                                                                                                                                    |
+| **Loaded**             | Classes of the jar loaded, with how many in this run and the route of the request that first loaded one (while HTTP Exchanges is visible). A jar loaded only before this run (an earlier DevTools or live-reload run, or before the agent's claim), or only by BootUI's own work, still reads as loaded, with that said.                                                                                                                                                                                                                                       |
+| **Not loaded yet**     | No class of the jar loaded in this JVM, and the evidence could have shown it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **Unknown**            | The evidence cannot tell, with why: the agent's class-load recorder is not running or has not finished walking the classes already loaded, it saw more jars than it counts, the jar was not found or holds no classes (a starter, native code), classes of one of its packages were defined without a code-source location, a loaded jar with no Maven metadata and the artifact's name, or a shaded jar, may be this dependency, the jar serves web resources (WebJars, mvnpm), or the agent never records the artifact's classes (Byte Buddy, BootUI's own). |
 
 ::: details How reach is decided
 The agent keeps, per jar, a bounded set of 64-bit hashes of the class names it defined (8,192 per jar, 65,536 in all;
@@ -1011,7 +1014,7 @@ and about one in five names a class in its text.
 
 ### Coverage
 
-A coordinate-based inventory can only scan what it can name, so the panel also reports what it *couldn't*. Alongside the
+A coordinate-based inventory can only scan what it can name, so the panel also reports what it _couldn't_. Alongside the
 inventory, BootUI takes a census of the application's real archives — the `BOOT-INF/lib/`/`WEB-INF/lib/` entries of a
 repackaged JAR or WAR, or JARs exposed through `java.class.path` and local application-classloader URLs when running
 exploded — and attributes each to a resolved coordinate. Both Spring MVC and WebFlux support the container layout
@@ -1025,11 +1028,11 @@ Archive counts and package counts answer different questions. An SBOM with 520 r
 queried. The SBOM alone does not establish complete archive coverage. The provider reports one of three states,
 subject to the discovery limitations below:
 
-| `coverage.status` | Meaning |
-| --- | --- |
-| `COMPLETE` | The provider reports every enumerated archive identified or first-party; this is not independent verification of the runtime inventory. |
-| `INCOMPLETE` | Some archives were neither; they are counted and named, and the panel warns that they were not scanned. |
-| `UNAVAILABLE` | Neither the classpath nor the application classloader exposes enumerable archives (for example under a native image), so coverage is unknown rather than claimed. |
+| `coverage.status` | Meaning                                                                                                                                                           |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `COMPLETE`        | The provider reports every enumerated archive identified or first-party; this is not independent verification of the runtime inventory.                           |
+| `INCOMPLETE`      | Some archives were neither; they are counted and named, and the panel warns that they were not scanned.                                                           |
+| `UNAVAILABLE`     | Neither the classpath nor the application classloader exposes enumerable archives (for example under a native image), so coverage is unknown rather than claimed. |
 
 When coverage is incomplete the panel shows an "Unidentified JARs" metric and a warning naming the gap
 ("139 of 325 JARs could not be identified and were not scanned"), with a collapsible list of the archive names and a
@@ -1041,7 +1044,7 @@ that is still unidentified — reading only its manifest and entry names, stream
 without extracting it — before reporting it:
 
 - **First-party module JARs.** A multi-module build packages each sibling module (`cart.jar`, `order.jar`, …) next to
-  its dependencies. An archive with at least one class, whose *every* class lives in the application's base packages
+  its dependencies. An archive with at least one class, whose _every_ class lives in the application's base packages
   (the `@SpringBootApplication` packages the Architecture advisor analyzes), is counted in `coverage.archivesFirstParty`
   and named in `coverage.firstPartyArchives` (at most 200, with `firstPartyArchivesTruncated`) instead of as
   unidentified. It is not scanned: it is the application, not a dependency. The check fails closed. An archive stays
@@ -1116,6 +1119,6 @@ of them:
   today (adding one would need POM/Maven-plugin integration, a much larger change), so this is deferred rather than
   shipped as a Quarkus-only asymmetry.
 - **Evidence is bounded, not exhaustive.** Distinct advisory IDs can count the same underlying CVE more than once;
-  alias-cluster merging would change dismissal semantics and is deferred. Full CVSS provenance, CVSS v4 calculation,
+  alias-cluster merging would change dismissal semantics and is deferred. Full CVSS provenance,
   selected EPSS CVE/date/model fields, cross-request date pinning, and a whole-scan deadline are also deferred.
   Browser version sorting remains lexical for same-package rows rather than sharing the server's Maven ordering.

@@ -41,7 +41,8 @@ The alternative is pointing the plugin at the repository root (`"source": "./"`)
 was measured: it copies the entire monorepo — 396 MB from a working tree with `node_modules` and
 `bootui-ui` build output, tens of MB from a clean clone — into the user's plugin cache, **once per
 version**. Since the plugin is versioned by commit SHA, every push to `main` would land another full
-copy of the Java sources on every user's disk. The curated directory installs 36 KB.
+copy of the Java sources on every user's disk. The curated directory carries only the skill, manifests, connection
+configuration, and plugin README; its size grows with that payload, not with the Java sources or build output.
 
 ## Plugin versions and release tags
 

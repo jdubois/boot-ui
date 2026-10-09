@@ -29,7 +29,7 @@ BootUI currently targets:
 
 Maturity is stated honestly: the **Spring Boot servlet adapter is complete** (all panels). The **Spring Boot WebFlux
 adapter** reuses the same engine and serves the large majority of panels unmodified or over a rebuilt reactive capture
-layer, including **Live Activity** (all nine signal types merge identically to the servlet adapter — see
+layer, including **Live Activity** (all ten panel-buffer signal types merge identically to the servlet adapter — see
 `docs/WEBFLUX-SUPPORT.md` §6.4), the raw Spring Security panel, the WebFlux-native 26-rule Security advisor, and REST
 Client capture over instrumented `WebClient` instances; HTTP Sessions is not applicable to a reactive,
 container-session-free stack — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter**
@@ -67,7 +67,7 @@ Make a running Spring Boot or Quarkus application understandable in minutes.
 - Kubernetes workflow management.
 - Hosted dashboards.
 - User accounts, roles, and identity-provider integration. BootUI uses one lightweight bearer token
-  for non-loopback API access; it is not an application user-management system.
+  for API access from untrusted sources; it is not an application user-management system.
 - Full APM/tracing replacement. BootUI's telemetry capture is dev-only, bounded in memory, and never forwards data
   anywhere.
 - Upgrade automation.
@@ -139,11 +139,13 @@ Cloud Config apps still start. It can be disabled with `bootui.force-web=false`.
 
 ### 4.2 URL
 
-Default UI URL inside the host Spring Boot application:
+Default UI URL inside the host Spring Boot or Quarkus application:
 
 ```text
-http://localhost:${server.port}/bootui
+http://localhost:<application-port>/bootui
 ```
+
+The application port is `server.port` on Spring and `quarkus.http.port` on Quarkus.
 
 `/bootui` is the backward-compatible default, not a fixed mount. Set `bootui.path` to move the shell, assets, APIs,
 filters, streams, downloads, action routes, MCP bridge, startup banner, and SPA runtime base together:
@@ -251,7 +253,7 @@ This should integrate with the project's startup banner convention.
 The first screen should show:
 
 - Application name.
-- Spring Boot version.
+- Framework name and version (Spring Boot or Quarkus).
 - Java version.
 - Active profiles.
 - Server port and management port.
@@ -299,7 +301,7 @@ Purpose: give a fast summary of the running application.
 Data:
 
 - Application name.
-- Spring Boot version.
+- Framework name and version (Spring Boot or Quarkus).
 - Java version.
 - JVM vendor and runtime.
 - Active profiles.
@@ -631,9 +633,19 @@ Features:
   sensors, retransformation status, counters, messages, warnings, and setup snippets. The `JavaAgentReport` fields are
   `state`, `reason`, `agentVersion`, `bootUiVersion`, `protocol`, `expectedProtocol`, `jdk`, `loadMode`, `jarPath`,
   `startupMicros`, `claim`, `heldBy`, `sensors`, `retransformation`, `counters`, `messages`, `warnings`, and `setup`.
-- Show each installed `executors` or opt-in `threads` sensor's state, hooks, self-test, transformed types, and
-  counters. When none is installed, say: "No sensor installed: the agent installs the sensors this application asks for
+- Show each installed sensor's state, hooks, self-test, transformed types, and available counters. Executor/thread
+  propagation, inventory, and code-paths sensors expose their dedicated counter records; Side Effects and caught
+  exceptions expose their detailed observations through their own panels. When none is installed, say:
+  "No sensor installed: the agent installs the sensors this application asks for
   when it claims the agent (bootui.agent.sensors)."
+- Bound executor and started-thread propagation independently: each weak identity registry retains at most 32,768
+  application entries across all claim generations plus 64 reserved self-test entries, with a separate 32,768-entry
+  current-claim admission cap. Earlier-generation entries remain until consumed or reclaimed so shared tasks stay
+  ambiguous; disabling the thread sensor clears its pending entries. `pending` is the current retained-entry count;
+  `overflow` and `neverApplied` are cumulative since agent
+  startup and survive a runtime sensor disable/re-enable. Overflow means a submission was not recorded, not that
+  every later execution is certainly unowned: if the same task object is admitted later, the earlier execution can
+  take its snapshot. The Java Agent panel warns about that historical shared-task ambiguity.
 - While the state is `NOT_ATTACHED`, open on the setup snippets with the steps to attach the agent, followed by what a
   Java agent is, which features need it, what works without it, and its cost; leave out the sections that describe an
   attached agent. Every other state shows the agent's diagnosis first and the setup snippets last.
@@ -969,9 +981,9 @@ Acceptance criteria:
 - `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`,
   `blocking`, and `resources`; `threads`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and
   `security-sinks` remain opt-in.
-  The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
-  fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
-  the accepted ids.
+  All fourteen sensor ids listed here ship in this version, including all nine Side Effects sensors; no placeholder
+  sensor ids remain. An unknown id fails the application's start, on Spring and Quarkus alike, while the BootUI agent
+  is attached, with a message naming the accepted ids.
 
 ### 5.8 Startup Timeline
 
@@ -1575,16 +1587,16 @@ Data sources:
   behave identically. Gated by `bootui.cache.activity-capture-enabled` (default `true`) and the Cache panel's own
   `bootui.panels.cache.enabled`; bounded by `bootui.cache.activity-max-events` (default 500). Cache keys are never
   captured raw — only a short SHA-256 hash (`CacheActivityRecorder.hashKey`) — so no application data leaves the process
-  even under full value exposure. Correlation to the owning request is trace-id-based on both adapters; the servlet
-  adapter additionally falls back to serving-thread tiering (like `SQL`), while WebFlux relies solely on the
-  OpenTelemetry-backed trace id provider already used for its other capture points. Quarkus does not capture cache
+  even under full value exposure. Both Spring adapters stamp BootUI's request id with or without tracing;
+  optional unambiguous trace-id evidence provides another exact tier. WebFlux never infers ownership from its shared
+  event-loop thread. Quarkus does not capture cache
   accesses (`quarkus-cache`'s built-in interceptors cast the resolved cache to an internal, non-public `AbstractCache`
   type, leaving no comparable runtime interception seam for a Spring-style decorator), so the `CACHE` event type and the
   `cacheHitRatioPercent` KPI are Spring-only for now; see `docs/QUARKUS-SUPPORT.md`.
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `REST_CLIENT`, `EXCEPTION`, `SECURITY`, `SCHEDULED`, `MESSAGING`, `MAIL`,
+- The panel-buffer merge is a stream of `REQUEST`, `SQL`, `REST_CLIENT`, `EXCEPTION`, `SECURITY`, `SCHEDULED`, `MESSAGING`, `MAIL`,
   `FAULT_TOLERANCE`, and (Spring servlet/WebFlux only) `CACHE` entries normalized to a common shape (timestamp, type, severity,
   one-line summary, optional duration and correlation id), sorted newest-first and capped by
   `bootui.activity.max-entries`. The journal feed adds the journal's own entry types, such as `TRANSACTION`, `LOG`,
@@ -1592,12 +1604,12 @@ Features:
   `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
   method/path), so the client can nest correlated SQL, REST, exceptions, security events, cache accesses, and captured
   email chronologically under the request that produced them; the server list stays flat (KPIs, filters, and the
-  sparkline are unaffected) and entries without a precise request correlation have a null `parentId` — a
-  `SCHEDULED` or `MESSAGING` entry always has a null `parentId` since neither has a single owning request (a
-  background-thread execution and an unattributed message flow, respectively). The one exception to "`parentId` always
-  points at a `REQUEST`": an `EXCEPTION` entry with no owning HTTP request falls back to a serving-thread + time-window
-  join against captured `@Scheduled` executions, so a scheduled task's failure nests under its `SCHEDULED` entry
-  instead. A `CACHE` entry's summary is
+  sparkline are unaffected). Scheduled runs and consumed messages are top-level executions of their own. Producer
+  messages carrying an exact owner id nest under that request or execution; SQL, REST calls and exceptions carrying
+  an execution id can also nest under a scheduled run or consumed message. Without an exact id, the buffer merge can
+  use an unambiguous trace id; an exception without an owning request additionally has the conservative scheduled-run
+  serving-thread/time-window fallback. Unattributed entries keep a null `parentId`. The journal-first feed uses its
+  stamped owners instead of reconstructing these buffer relationships. A `CACHE` entry's summary is
   `"<HIT|MISS|PUT|EVICT|CLEAR> <cacheName>"`, its detail is `"key <hash>"` when a key was involved (omitted for
   whole-cache `CLEAR`), and a `MISS` is flagged `WARN` severity (all other operations `OK`). A `REQUEST` entry that was
   correlated to a Spring Security audit
@@ -1624,8 +1636,8 @@ Features:
   configuration are not captured.
   Only metadata is captured; the message value/payload is never captured or masked, since it is an arbitrary
   application payload with no generic masking strategy. Raw exception messages are never retained; failed operations
-  use generic failure text. Kafka entries are always top-level by design — no request-parent correlation is attempted,
-  since a message has no single owning request.
+  use generic failure text. A produced message can nest under its exact request/execution owner; a consumed message
+  is a top-level execution anchoring the work its listener records.
   The listener-id field is intentionally honest about framework limits: on Spring it currently carries the listener
   container factory bean name (the resolved per-`@KafkaListener` id is not exposed at the factory-wide interception
   point), while on Quarkus it carries the channel name. Controlled by `bootui.kafka.enabled`,
@@ -1638,7 +1650,8 @@ Features:
   truncated SHA-256 correlation-ID hash. Quarkus leaves producer exchange, consumer queue, and producer duration
   unavailable because its callbacks do not expose them, and records an outgoing message only when
   `OutgoingRabbitMQMetadata` is already attached. Message bodies, arbitrary headers, raw correlation IDs, and exception
-  messages are never retained; failures use generic text. RabbitMQ entries are always top-level, like Kafka.
+  messages are never retained; failures use generic text. Published messages can nest under their exact owner;
+  consumed messages anchor their own execution, like Kafka.
   Controlled by `bootui.rabbitmq.enabled`, `bootui.rabbitmq.capture-correlation-id`,
   `bootui.rabbitmq.max-entries`, and `bootui.rabbitmq.max-correlation-id-length`.
 - JMS producer/consumer capture: on Spring MVC and WebFlux only, classpath-gated post-processors wrap application-owned
@@ -1790,7 +1803,8 @@ Acceptance criteria:
   actions (Flyway migrate/clean, Liquibase update, Cache clear).
 - Sources that are absent or disabled (through their own `bootui.panels.*` toggles) simply drop out of the stream; when
   no source is available the panel returns a stable unavailable report.
-- SQL↔request correlation is presented as approximate and never fabricates trace-id links that do not exist.
+- Exact request/execution-id and unambiguous trace-id matches are distinguished from approximate fallback
+  correlation; unavailable tiers and unattributed work stay explicit.
 - With `bootui.activity.persistence.enabled=false` (the default), behavior, response shape, and the merged in-memory
   feed are unchanged from before persistence existed; no additional bean, thread, or connection is created.
 - With persistence enabled, the backing table is created automatically if absent, entries survive a restart, a failed
@@ -2139,9 +2153,9 @@ Acceptance criteria:
 - Retention is failure-preserving: `bootui.rest-client-trace.reserved-share-percent` (default 25) of the buffer is
   reserved for the most recent failed, `4xx`/`5xx`, and slow calls, routine calls are evicted first, and the report's
   `retention` object states the kept, reserved, and evicted counts.
-- Recent calls surface in Live Activity as `REST_CLIENT` entries. Every stack first matches BootUI's request id; Spring
-  MVC then uses trace-id-first/serving-thread-second correlation, and Quarkus and WebFlux use the trace id only because
-  neither reactive runtime has a thread-per-request model.
+- Recent calls surface in Live Activity as `REST_CLIENT` entries. Every stack first matches the stamped request or
+  execution owner; an unambiguous trace id supplies another exact tier. Quarkus and WebFlux never infer ownership from
+  an event-loop thread. Each profile/report states its supported tiers and leaves unplaceable work unattributed.
 - The dedicated panel is available on Spring MVC, Spring WebFlux, and Quarkus. Quarkus keeps it visible whenever the optional capability
   is present (proxies are initialized lazily), renders a no-proxy message until instrumentation occurs, and refreshes via
   its JAX-RS SSE stream. On WebFlux only `WebClient` instances are instrumented.
@@ -2436,9 +2450,12 @@ Out of scope for the current release surface:
 
 Acceptance criteria:
 
-- When Flyway is not on the classpath, the API endpoint is not registered.
+- On Spring, absent Flyway classes prevent the typed provider and controller from registering. Quarkus keeps the
+  neutral resource/service wired and reports Flyway unavailable when its capability is absent, without linking the
+  optional Flyway provider.
 - When Flyway is present but no `Flyway` beans exist, the panel shows a clear empty state.
-- Opening the panel only reads already-computed migration metadata; no Flyway command is executed as a side effect.
+- Opening the panel reads migration metadata through the configured Flyway integration (`info().all()` on Spring),
+  which can query its schema-history table; it does not execute `migrate`, `clean` or another schema-changing action.
 - Mutating Flyway actions require browser confirmation and a non-read-only app and panel.
 - Mutating Flyway actions are blocked while Spring Modulith module-aware Flyway is active so BootUI does not bypass
   Spring Modulith's migration strategy or target the wrong module-specific history table.
@@ -2467,7 +2484,9 @@ Out of scope for the current release surface:
 
 Acceptance criteria:
 
-- When Liquibase is not on the classpath, the API endpoint is not registered.
+- On Spring, absent Liquibase classes prevent the typed provider and controller from registering. Quarkus keeps the
+  neutral resource/service wired and reports Liquibase unavailable when its capability is absent, without linking the
+  optional Liquibase provider.
 - When Liquibase is present but no `SpringLiquibase` beans exist, the panel shows a clear empty state.
 - Opening the panel only reads changelog and history metadata; no Liquibase update command is executed as a side effect.
 - Mutating Liquibase actions require browser confirmation and a non-read-only app and panel.
@@ -2532,8 +2551,8 @@ Availability:
 - Hibernate cross-reference checks are skipped with an explicit reason when either the physical schema or Hibernate
   metamodel is unavailable; their absence does not prevent the generic JDBC rules from running.
 - Spring MVC, Spring WebFlux, and Quarkus use the same shared rule engine and report contract. Quarkus discovers
-  datasources through CDI and names multiple datasources positionally (`default`, `datasource-2`, ...) because the
-  adapter intentionally avoids an Agroal-specific qualifier dependency.
+  datasources through CDI and reads configured names from Agroal's `@DataSource` qualifier reflectively, without an
+  Agroal API dependency. Unqualified sources use positional fallback names (`default`, `datasource-2`, ...).
 
 Out of scope for the current release surface:
 
@@ -2554,7 +2573,7 @@ Acceptance criteria:
 - The panel never executes DDL or queries application rows, and findings are presented as deterministic review prompts
   rather than automatic tuning instructions.
 - Equivalent inputs produce the same findings and report shape on Spring MVC, Spring WebFlux, and Quarkus, subject only
-  to the documented Quarkus datasource-naming difference.
+  to each adapter's native datasource names.
 
 ### 5.17.5 Transactions Panel
 
@@ -2614,8 +2633,9 @@ Acceptance criteria:
 - `POST /bootui/api/transactions/recording` and `POST /bootui/api/transactions/clear` are blocked by global read-only
   mode and `bootui.panels.transactions.read-only`; clearing additionally requires explicit browser confirmation.
 - Spring MVC and Spring WebFlux expose the same report and action contract, with equivalent SSE change semantics.
-- R2DBC-only WebFlux applications and Quarkus return an explained unavailable state rather than a silently empty
-  transaction list; the Quarkus adapter does not advertise the `get_transactions` MCP tool.
+- R2DBC-only WebFlux applications can capture boundaries from a configurable reactive transaction manager, but SQL
+  and connection counts remain JDBC-only and do not prove that no database work occurred. Without a configurable
+  manager the panel is unavailable. Quarkus reports the panel not applicable and does not advertise `get_transactions`.
 
 ### 5.17.6 SQL Trace Rankings and Request Attribution
 
@@ -2989,6 +3009,9 @@ BootUI/
 ├── bootui-conformance/
 ├── bootui-ui/
 ├── bootui-cli/
+├── bootui-agent-bridge/
+├── bootui-agent/
+├── bootui-coverage/
 ├── bootui-spring-boot-starter/
 ├── bootui-spring-sample-app/
 ├── bootui-spring-webflux-sample-app/
@@ -3017,6 +3040,11 @@ Shared modules:
   outcome mapping, and an opaque JSON tree. The client reaches nothing outside the JDK, not even BootUI's DTOs or
   picocli, so it stays version-compatible with applications it was not built against; picocli is an optional
   dependency of `bootui-cli`, so tooling that depends on it for the client gets no dependency at all.
+- `bootui-agent-bridge`: the JDK-only bootstrap contract, shaded into `bootui-agent` and never published separately.
+  The engine locates it through bootstrap-loader method handles, never a production dependency.
+- `bootui-agent`: the optional development-time `-javaagent` jar; it shades its bridge and Byte Buddy, and remains
+  dormant until an active BootUI application claims it.
+- `bootui-coverage`: the non-published coverage aggregate, built only with the `coverage` profile.
 
 Spring Boot modules:
 
@@ -3129,7 +3157,7 @@ Initial endpoints:
 
 | Endpoint                                     | Method | Purpose                                                                                |
 | -------------------------------------------- | ------ | -------------------------------------------------------------------------------------- |
-| `/bootui/api/overview`                       | GET    | App, runtime, Spring Boot, profile, BootUI status, and the current run                 |
+| `/bootui/api/overview`                       | GET    | App, runtime, framework name/version, profiles, BootUI status, and the current run    |
 | `/bootui/api/panels`                         | GET    | Panel availability, enabled state, and read-only state                                 |
 | `/bootui/api/github`                         | GET    | Local GitHub origin metadata and the latest cached dashboard snapshot                  |
 | `/bootui/api/github/refresh`                 | POST   | Explicit bounded GitHub API refresh for project metrics and quotas                     |
@@ -3172,6 +3200,7 @@ Initial endpoints:
 | `/bootui/api/log-tail/recent`                    | GET    | Recent log lines                                                                       |
 | `/bootui/api/log-tail/stream`                    | GET    | Log stream over Server-Sent Events                                                     |
 | `/bootui/api/exceptions`                         | GET    | Bounded exception groups with status and occurrence summaries                         |
+| `/bootui/api/exceptions/caught`                  | GET    | Caught-in-application-code outcomes from the opt-in `caught-exceptions` sensor and runtime journal; unavailable without their evidence, never proof of swallowed errors from silence |
 | `/bootui/api/exceptions/{id}`                    | GET    | One exception group's detail: stack frames, causes, and retained occurrences          |
 | `/bootui/api/exceptions/{id}/status`             | POST   | Set an exception group's triage status (`{"status": ...}`)                            |
 | `/bootui/api/exceptions`                         | DELETE | Clear retained exception groups when not read-only                                    |
@@ -3258,14 +3287,14 @@ Initial endpoints:
 | `/bootui/api/copilot/dashboard`                 | GET    | Sanitized GitHub Copilot CLI activity dashboard                                        |
 | `/bootui/api/copilot/**`                     | GET    | Sanitized GitHub Copilot CLI session dashboard, token usage, explorer, raw reveal, SSE |
 | `/bootui/api/claude-code/dashboard`             | GET    | Sanitized Claude Code activity dashboard                                               |
-| `/bootui/api/claude-code/**`                 | GET    | Sanitized Claude Code project-log dashboard, token usage, explorer, raw reveal, SSE    |
+| `/bootui/api/claude-code/**`                 | GET    | Sanitized Claude Code project-log dashboard, token usage, explorer and SSE; raw reveal can be opted into on Spring but is always disabled on Quarkus |
 | `/bootui/api/mcp-server`                     | GET    | MCP Server panel status (enabled state, configured mode, transport, advertised tools)  |
 | `/bootui/api/mcp-server/toggle`              | POST   | Enable/disable the MCP server at runtime, overriding `bootui.mcp.enabled`               |
 | `/bootui/api/mcp`                            | POST | Local-only MCP JSON-RPC 2.0 transport (served only while the server is enabled; status lives at `/bootui/api/mcp-server`) |
 | `/bootui/api/cli`                            | GET    | Command-line endpoint status and the tool catalog this instance exposes                 |
 | `/bootui/api/cli/tools/{name}`               | POST   | Invoke one tool by name and return its payload directly, with the outcome in the HTTP status |
 | `/bootui/api/java-agent`                     | GET    | BootUI Java agent attachment, claim, setup, and sensor status                            |
-| `/bootui/api/java-agent/sensors/{id}`        | POST   | Switch an opt-in agent sensor on or off at run time (`{"enabled": true}`), until the JVM ends |
+| `/bootui/api/java-agent/sensors/{id}` | POST | Switch `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, or `security-sinks` on or off at run time (`{"enabled": true}`), until the JVM ends; `files` is on by default |
 | `/bootui/api/code-inventory`                 | GET    | Code Inventory summary: methods executed of tracked, changes since the previous run, dependency counts |
 | `/bootui/api/code-inventory/changes`         | GET    | Paged methods changed or added since the previous run, each executed or not in this run  |
 | `/bootui/api/code-inventory/methods`         | GET    | Paged application methods by `package`, `class`, and `status`, with package and class counts |
@@ -3274,6 +3303,11 @@ Initial endpoints:
 | `/bootui/api/code-paths/route`               | GET    | One route's call tree, paged by `depth`, `offset`, and `limit`, with callers and reach per method |
 | `/bootui/api/code-paths/requests/{requestId}` | GET   | One request's call tree while the run keeps it                                           |
 | `/bootui/api/code-paths/beans`               | GET    | Beans at runtime: observed calls between beans beside the declared dependencies          |
+| `/bootui/api/code-paths/probes`              | GET    | Current run's bounded method probes and recorded invocations                            |
+| `/bootui/api/code-paths/probes`              | POST   | Start one bounded method probe (the browser confirms first), optionally with browser-only argument/return shapes; blocked by Code Paths/global read-only policy |
+| `/bootui/api/code-paths/probes/{id}`         | GET    | One method probe; unknown ids return 404                                                |
+| `/bootui/api/code-paths/probes/{id}/stop`    | POST   | Stop a probe and remove its advice; same action policy as start                         |
+| `/bootui/api/code-paths/probes/{id}`         | DELETE | Alias for stopping a method probe, not deleting its recorded evidence                   |
 | `/bootui/api/side-effects`                   | GET    | Side Effects summary: sensor coverage, frequent rows, dropped records, hooks, limitations |
 | `/bootui/api/side-effects/sensor`            | GET    | One side-effect sensor's rows, most frequent first, paged by `offset` and `limit`       |
 | `/bootui/api/rest-client-trace`              | GET    | Latest REST Client report and retained outbound HTTP calls                              |
@@ -3332,7 +3366,7 @@ Initial properties:
 | `bootui.api-path`                            | `<bootui.path>/api`                     | Optional normalized application-relative API base path used by controllers, filters, MCP, OTLP, streams, and downloads. |
 | `bootui.allow-non-localhost`                 | `false`                                 | Explicitly allow non-loopback requests.                                                           |
 | `bootui.allowed-hosts`                       | _(empty)_                               | Extra `Host` header values accepted by the loopback filter (DNS-rebinding allow-list).            |
-| `bootui.authentication.token`                | _(generated)_                           | Access token required by non-loopback API callers. A generated token is logged once at startup when remote access is configured; configured tokens are never logged. |
+| `bootui.authentication.token`                | _(generated)_                           | Access token required by API callers outside the shared trusted-source policy. A generated token is logged once at startup when remote access is configured; configured tokens are never logged. |
 | `bootui.mask-secrets`                        | `true`                                  | Mask secret-like config values.                                                                   |
 | `bootui.expose-values`                       | `MASKED`                                | One of `MASKED`, `METADATA_ONLY`, `FULL`.                                                         |
 | `bootui.read-only`                           | `false`                                 | Disable all browser-triggered actions while keeping read-only panel data visible.                 |
@@ -3392,7 +3426,7 @@ Initial properties:
 | `bootui.claude-code.max-sessions`            | `100`                                   | Maximum recent sessions returned by the Claude Code session explorer.                             |
 | `bootui.claude-code.max-parsed-sessions`     | `100`                                   | Maximum recent Claude Code JSONL files parsed and retained in memory.                             |
 | `bootui.claude-code.stream-debounce`         | `400ms`                                 | Debounce window before refreshing parsed Claude Code sessions and notifying stream subscribers.   |
-| `bootui.claude-code.allow-raw-reveal`        | `false`                                 | Allows opt-in raw Claude Code JSONL reveal; disabled by default because logs can include content. |
+| `bootui.claude-code.allow-raw-reveal`        | `false`                                 | Allows opt-in raw Claude Code JSONL reveal on Spring; Quarkus always disables it. Logs can include content. |
 | `bootui.mcp.enabled`                         | `OFF`                                   | Initial state of the local-only MCP server for AI agents. `OFF`/`AUTO` start it disabled; `ON` starts it enabled. The MCP Server panel can toggle it at runtime, overriding this value. |
 | `bootui.mcp.max-results`                     | `200`                                   | Maximum items returned by paginated MCP read tools (config, beans, mappings, logs, traces, etc.). |
 | `bootui.mcp.max-payload-bytes`               | `1048576`                               | Maximum incoming JSON-RPC request bytes, enforced before full body materialization. |
@@ -3417,7 +3451,9 @@ Rules:
 - Bind to local development only.
 - Reject non-loopback requests by default.
 - When non-loopback access is explicitly enabled, leave the static SPA shell public but require a
-  bearer token for every `/bootui/api/**` request. Local loopback API requests require no token. The
+  bearer token for API callers outside `LocalhostGuard`'s trusted-source policy. Loopback, configured
+  `bootui.trusted-proxies` CIDRs, and a gateway trusted by `bootui.trust-container-gateway` bypass token authentication;
+  `bootui.allow-non-localhost=true` alone does not make a source trusted. Host and cross-site-write checks still apply. The
   SPA exchanges the startup token for an HTTP-only, same-site session cookie so SSE and downloads work;
   programmatic clients use the standard HTTP bearer authorization scheme.
 - Validate the `Host` header against the built-in loopback names plus `bootui.allowed-hosts` to defend against
@@ -3557,7 +3593,7 @@ Design rules:
   before: an absent `MCP-Protocol-Version` header means `2025-06-18`, and any value other than `2025-06-18` or
   `2026-07-28`, or a repeated header, is `400`/`-32600`; `2026-07-28` without the modern `_meta` is a malformed modern
   request, `400`/`-32602` echoing the request id. The header is judged after the body is read, and the envelope fields
-  `jsonrpc`, `method`, and `params.name` count only when they are strings, so both stacks answer a `null` or numeric
+  `jsonrpc`, `method`, and `params.name` count only when they are strings, so all three stacks answer a `null` or numeric
   field with the same client error. A modern request is validated (a string or integer id, never `null`, fractional, or another type, and present unless
   the method is a `notifications/` one, so a modern `tools/call` never runs unanswered; judged for any request with a
   non-2025-06-18 or non-string `_meta` version, or a lone `2026-07-28` header; version type, header agreement, supported version,

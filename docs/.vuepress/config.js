@@ -24,7 +24,7 @@ export default defineUserConfig({
   pagePatterns: ['**/*.md', '!JVM-TUNING-CHECKS.md', '!validation/**', '!.vuepress', '!node_modules'],
   lang: 'en-US',
   title: 'BootUI',
-  description: 'A local-only developer console for Spring Boot 4 and Quarkus applications.',
+  description: 'A local-only developer console for Spring Boot and Quarkus applications.',
   head: [
     ['link', {rel: 'icon', type: 'image/svg+xml', href: `${siteBase}favicon.svg`}],
     ['meta', {name: 'theme-color', content: '#198754'}],
@@ -34,7 +34,7 @@ export default defineUserConfig({
       'meta',
       {
         property: 'og:description',
-        content: 'A local-only developer console for Spring Boot 4 and Quarkus applications.'
+        content: 'A local-only developer console for Spring Boot and Quarkus applications.'
       }
     ]
   ],

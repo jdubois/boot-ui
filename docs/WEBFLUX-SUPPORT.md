@@ -17,7 +17,8 @@ status where they don't.
 ## 2. Current status
 
 The WebFlux adapter serves the large majority of the panel surface — the same 65-panel manifest the servlet adapter
-reports, including the action-capable **Java Agent** and **Side Effects** panels with their runtime sensor switches,
+reports, including the action-capable **Java Agent** panel with its runtime sensor switches, the view-only
+**Side Effects** panel whose sensor controls use the Java Agent policy,
 the view-only **Code Inventory** panel, and **Code Paths** with its method probes, minus the one panel
 (**HTTP Sessions**, §6.7) that stays unavailable for stack reasons. Every available
 action-capable panel behaves identically to the servlet adapter, behind the same shared `LocalhostGuard` write floor.
@@ -209,24 +210,24 @@ were already framework-neutral in practice, not just in the engine underneath th
 [^side-effects-reactive]: The shared `SideEffectsController` and engine service: available while the BootUI agent is
     armed for the run and the bridge supports Side Effects. The WebFlux adapter records a process attributed through
     the request's context when it starts on a thread carrying BootUI's context, captured at the start since the
-    request scope's owner slot is not yet filled on the schedulers Reactor restores the context on (pending for the
-    hot sensors of later slices); otherwise the row is attributed under its thread family. The `network` sensor
-    (M5-5b) records connects, datagrams, and lookups the same way; a WebClient's connect on a Reactor Netty event loop
+    request scope's owner slot is not filled on the schedulers Reactor restores the context on; otherwise the row is
+    attributed under its thread family. The `network` sensor records connects, datagrams, and lookups the same way;
+    a WebClient's connect on a Reactor Netty event loop
     is unowned and captured by a REST client call at the same time. The `files` and the opt-in `environment` sensors
-    (M5-5d) capture the owner when no slot names one, too. The `blocking` sensor (M5-5c) records too: the WebFlux
+    capture the owner when no slot names one, too. The `blocking` sensor records too: the WebFlux
     adapter registers Reactor Netty's event loops with it from the first request each serves, and, for a WebClient built
     from Spring Boot's `WebClient.Builder` with REST client tracing on, from the first response each delivers; Reactor's `parallel` and `boundedElastic` threads are never event loops. The opt-in
-    `thread-activity` sensor (M5-5e) records too, capturing the owner the same way; a request's end, which it checks
+    `thread-activity` sensor records too, capturing the owner the same way; a request's end, which it checks
     for what the request left running, is when its filter chain terminates. Reactor's and Reactor Netty's own threads
-    are a library's. The `resources` sensor (M5-5g), on by default, hears the same request end, whether `thread-activity` is on
-    or not. The opt-in `thread-locals` sensor (M5-5f) never scans an event loop: a Reactor schedule hook scans
+    are a library's. The `resources` sensor, on by default, hears the same request end, whether `thread-activity` is on
+    or not. The opt-in `thread-locals` sensor never scans an event loop: a Reactor schedule hook scans
     around each task a `boundedElastic` worker (or another scheduler's) runs, owned once Reactor's automatic context
     propagation makes a request's context current inside it, so it needs `spring.reactor.context-propagation=auto`, the
     default, and platform threads: with
     `spring.threads.virtual.enabled` on Java 21 and later, `boundedElastic` runs on virtual threads, never scanned. The
-    other sensor groups are listed as not available in this version. The opt-in `security-sinks` sensor's JDK checks
+    nine Side Effects sensor groups all ship in this version. The opt-in `security-sinks` sensor's JDK checks
     (deserialization without a filter, weak algorithms, trust managers) record on WebFlux as on Spring MVC; its request-value
-    matching (M5-6b1) holds the query parameters WebFlux already parsed and reads the path variables from the exchange
+    matching holds the query parameters WebFlux already parsed and reads the path variables from the exchange
     once its handler mapping set them, at the request's first check; it never subscribes to the form data, so form
     values are not matched on WebFlux. SQL text is not checked with R2DBC, which SQL Trace does not capture; file paths,
     commands, and WebClient URLs are, on a thread carrying the request's context.
@@ -415,19 +416,20 @@ another scheduler joins the context Reactor restores there.
 
 ### 6.4 Rebuilt as a merge over already-reactive signals (1 panel)
 
-Live Activity needed no new *capture* pipeline for any of its **nine** merged signal types — they were all already
+Live Activity needed no new *capture* pipeline for any of its **ten** panel-buffer signal types — they were all already
 captured reactively or by framework-neutral engine buffers. By default (`bootui.activity.feed-source=journal`) the feed
-renders the runtime journal's retained events, as on every stack; the merge below serves the `buffers` source, and the
-feed when the journal is disabled.
+renders the runtime journal's retained events, as on every stack. The merge below serves the fallback when
+`bootui.runtime-journal.enabled=false`, or an explicit diagnostic `?source=buffers` request. Configuring
+`bootui.activity.feed-source=buffers` is no longer supported and fails startup; the property accepts only `journal`.
 
 | Panel         | Reactive source                                                                                                          |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Live Activity | `ReactiveLiveActivityController`, merging `HttpExchangesController` (requests), `SqlTraceRecorder` (SQL), `ExceptionStore` (exceptions), `ReactiveSecurityLogsController` (security), `CacheActivityRecorder` (cache), `ScheduledTaskRunStore` (scheduled tasks), `KafkaActivityRecorder`/`RabbitActivityRecorder`/`JmsActivityRecorder` (messaging), `EmailCaptureService`/`EmailController` (mail), and `RestClientTraceRecorder` (REST/WebClient calls) via the shared engine `LiveActivityAssembler`, with the per-request profile served by the shared `ExecutionProfileAssembler` with trace-id-only capabilities, which include the exact request-id tier (REST client calls and cache accesses included; the serving-thread and time-window tiers reported unavailable; a request is profileable when it carries a request id or a trace id) — the same classes the Quarkus adapter uses; refreshed over `ReactiveBootUiChangeStream`, signaled by a new lightweight `ReactiveActivitySignalFilter` `WebFilter` after each non-BootUI request completes. |
+| Live Activity | `ReactiveLiveActivityController` merges requests, SQL, exceptions, security, cache, scheduled tasks, messaging, mail, REST client calls and fault-tolerance events through `LiveActivityAssembler`. The journal-first path also shows journal-only types, including transactions, logs and ORM observations. `ExecutionProfileAssembler` supplies exact request-id and optional trace-id profiles; serving-thread/time-window tiers are unavailable. The shared `ReactiveBootUiChangeStream` refreshes on source changes and completed application requests. |
 
-::: details Where each of the nine signals comes from
+::: details Where each of the ten panel-buffer signals comes from
 
 The original four — HTTP Exchanges, SQL Trace, Exceptions, and Security Logs — are already captured reactively by the
-panels in §6.2/§6.3. The five newer entry types added by the Live Activity event-type extension workstream (see
+panels in §6.2/§6.3. The six additional entry types (see
 [Live Activity](features/overview.md#feed-types)) reuse the same framework-neutral engine buffers regardless of
 stack, because their capture wiring (`BootUiEngineConfiguration`) is gated purely on classpath/bean presence, never on
 `ConditionalOnWebApplication`:
@@ -439,6 +441,8 @@ stack, because their capture wiring (`BootUiEngineConfiguration`) is gated purel
   buffers, fed by the same template/listener-factory `BeanPostProcessor` wrapping the servlet adapter uses.
 - REST/WebClient calls are read from the same `RestClientTraceRecorder` fed by `BootUiEngineConfiguration`'s
   `WebClientCustomizer`; capture is active on both stacks, and the standalone panel is now wired reactively too (§6.3).
+- Fault-tolerance events come from the shared `FaultToleranceEventRecorder`, fed by Resilience4j and optional Spring
+  Retry observations; the reactive Live Activity stream subscribes to that recorder too.
 
 The servlet adapter's `LiveActivityController` additionally depends on two things with no reactive equivalent. One is a
 `ServletRequestHandledEvent` listener, which exists purely as an SSE-refresh trigger, not a data source. The other is a

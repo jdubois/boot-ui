@@ -48,8 +48,9 @@ applyTo: ".github/workflows/**,.github/scripts/**,.github/dependabot.yml,Dockerf
   Java 21 and 25 with a focused build, the BootUI agent's forked-JVM tests, the Spring sample's agent integration
   tests, and the whole Spring MVC browser suite with the agent attached (`agent-e2e`), plus a non-blocking Java 27 early-warning lane that stays `continue-on-error` until Spring Boot and Quarkus
   document support for it. Keep new checks on the baseline workflow unless they are genuinely JDK-specific.
-- Quarkus/Hibernate build-time augmentation is gated to the JDKs the shared Quarkus LTS platform supports. Preserve the
-  JDK skip profile and the matrix gating rather than widening a job onto an unsupported JDK.
+- Quarkus/Hibernate build-time augmentation has an explicit JDK gate (currently 17 through 27), separate from the
+  platform's officially supported JDKs and older-LTS compatibility job. Preserve the JDK skip profile and matrix gating
+  rather than widening a job without verifying augmentation on the new JDK.
 - `build.yml`'s `quarkus-lts` job runs the extension, built on the pinned platform, through every Quarkus integration
   module on the older supported LTS release, then the extension's own tests compiled against it. Its matrix version,
   `requiresQuarkusCore` in `bootui-quarkus/pom.xml`, and the release `docs/setup/quarkus.md` names change together; a

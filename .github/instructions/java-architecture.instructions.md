@@ -10,7 +10,9 @@ applyTo: "**/*.java,pom.xml,**/pom.xml"
 - Preserve the package direction `io.github.jdubois.bootui.core..` <- `io.github.jdubois.bootui.engine..` and
   `io.github.jdubois.bootui.spi..` <- adapters. The core package lives in `bootui-engine` and depends only on the JDK
   and itself; `CoreBoundaryArchitectureTests` enforces this. Core, engine, conformance, and UI must not depend on
-  Spring, Quarkus, servlet/JAX-RS APIs, or either Jackson generation.
+  Spring, Quarkus, or servlet/JAX-RS APIs. Core and engine must not depend on either Jackson generation;
+  `bootui-conformance` deliberately uses Jackson 2, JUnit and AssertJ in compile scope because its black-box
+  HTTP test-support classes live in `src/main` for the sample and integration-test runners.
 - DTOs are annotation-free immutable records in `io.github.jdubois.bootui.core.dto`, one record per file. They must serialize identically with Spring Boot's Jackson 3 and Quarkus' Jackson 2.
 - Keep the engine framework-, DI-, and JSON-free. Parse external JSON in an adapter and pass neutral records to the engine.
 - Put reusable behavior in an engine feature package and expose framework integration through neutral SPI ports in `io.github.jdubois.bootui.spi`.

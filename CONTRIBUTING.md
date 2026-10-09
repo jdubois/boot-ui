@@ -17,8 +17,8 @@ participating you are expected to uphold this code.
   `frontend-maven-plugin` when you run the build. You do not need to install
   Node manually.
 - **Framework targets**. The Spring MVC and WebFlux adapters target Spring Boot
-  4.0+; the Quarkus adapter targets the LTS version declared by
-  `quarkus.platform.version` in the root `pom.xml`. BootUI does not support
+  4.0+; the Quarkus build baseline is declared by `quarkus.platform.version` in the root `pom.xml`, while
+  `requiresQuarkusCore` and the `quarkus-lts` CI job pin compatibility with the older 3.33 LTS line. BootUI does not support
   Spring Boot 3.x.
 
 ## Project layout
@@ -36,7 +36,7 @@ bootui-agent-bridge/                 JDK-only agent/engine contract, shaded into
 bootui-agent/                        The optional `-javaagent` jar, dormant until BootUI claims it
 bootui-spring-sample-app/            Reference Spring MVC app + Playwright e2e
 bootui-spring-webflux-sample-app/    Reference Spring WebFlux app
-bootui-quarkus-parent/               Shared Quarkus LTS BOM and plugin management
+bootui-quarkus-parent/               Shared Quarkus platform BOM and plugin management
 bootui-quarkus/                      Quarkus runtime adapter
 bootui-quarkus-deployment/           Quarkus deployment/build-time wiring
 bootui-quarkus-integration-tests/    Quarkus @QuarkusTest suites
@@ -57,7 +57,7 @@ When updating compatibility text in docs (README, `docs/SETUP.md`, `docs/feature
 `AGENTS.md`, and `.github/instructions/{spring-adapter,quarkus-adapter}.instructions.md`),
 reference those properties and refresh any explicit version strings in the same PR.
 All Quarkus modules, including the non-published sample app, inherit the Quarkus platform through
-`bootui-quarkus-parent`; keep its LangChain4j BOM compatible with that shared LTS line.
+`bootui-quarkus-parent`; keep its LangChain4j BOM compatible with the shared platform and the supported older LTS line.
 
 ## Build
 
@@ -333,7 +333,8 @@ and the leg never fails the build.
 
 The agent overhead benchmark (`AgentOverheadBenchmarkIT`) measures the BootUI agent's cumulative cost against
 [PLAN-v2.md](docs/PLAN-v2.md) §8's budget: the Spring sample's executable jar, BootUI on in both configurations, without
-the agent and with every default sensor claimed (`executors`, `inventory`, `code-paths`), on the same route and load as
+the agent and with every default sensor claimed (`executors`, `inventory`, `code-paths`, `processes`, `network`,
+`files`, `blocking`, `resources`), on the same route and load as
 the capture overhead benchmark. It runs the configurations in pairs whose order alternates and reports each pair's
 throughput ratio and their median to `target/agent-overhead/`. The budget is 10 %. `bootui.benchmark.passes` sets the
 number of pairs (3 by default), `bootui.benchmark.agent.sensors` claims other sensors than the defaults (for example
@@ -362,9 +363,17 @@ only, each default side-effect sensor's own share against the same agent without
 fifteen pairs each but `network`'s nine, and the opt-in `environment`'s against the default sensors, on a route adding
 fifty `System.getProperty` reads per request (`spring-mvc-environment-ab`), fifteen pairs. The load generator
 shares the processors with the sample and single pairs vary by more than ten points. That job records the report in its
-summary, warns above the 10 % budget, and fails only above 30 %: a clear regression, not noise. The first CI runs measured
+summary; its median alarm warns above the 10 % budget and fails above 30 %: a clear regression, not noise. The first CI runs measured
 a median of about 17 % (pairs from 9 to 22 %), above the budget, so a gate at the budget, or at twice it, would fail
-on noise alone; tighten the gate once the overhead is back under budget.
+on noise alone. Those initial measurements are historical; the budget enforcement added since then is described below.
+
+The 30 % alarm is not the only gate. The extra legs also enforce budgets for sensors that ship on by default:
+`AgentOverheadBenchmarkIT`'s `bootui.benchmark.agent.enforce-when-default` and `...gate=interval` enforce the
+10 % cumulative budget and the 3 % increment for `files` when the lower bound of the median's 95 % interval exceeds
+the budget. `resources` has its own increment/cumulative checks. Opt-in `environment`, `caught-exceptions`,
+`thread-activity`, `thread-locals`, request-value matching and security-sinks JDK checks have dedicated A/B and cumulative
+legs; their default-sensor enforcement activates only if the named sensor joins the defaults. A green alarm-only
+opt-in leg is not proof that its 3 % or 10 % budget passed.
 
 The journal capture budget benchmark (`JournalCaptureBudgetBenchmarkTest`) times the application thread's path into
 the runtime journal, with one and eight producers, the stack walk that keeps a statement's application frames, and the
@@ -686,6 +695,12 @@ reach Central; `check-central-bundle.py` refuses any other coordinate or file an
 any POM that is not flattened. Every signature must verify and be by the pinned
 release key before the upload; the workflow also checks the build's signatures before
 the tag.
+
+Normal version preparation stages the exact unsigned candidate bundle and runs the consumer smoke tests before the
+release commit and tag. A tag-entry or `skip_build` run that did not pass that smoke stages and tests from the immutable
+tagged checkout before uploading instead; successful pre-tag smoke is not rerun after tagging. After publication,
+the consumers resolve the same seven coordinates from Maven Central. `resume_after_publish` skips staging/upload and
+continues with availability, published-consumer smoke and eligible tag-pinned documentation deployment.
 
 It does not run `deploy` through the Sonatype Central Publishing plugin: under
 Maven 3.10 that plugin stages resolver bookkeeping (`maven-metadata-local.xml`) in

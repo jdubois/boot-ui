@@ -25,7 +25,7 @@ Concretely:
 2. **One data contract.** The immutable `record` DTOs in `bootui-engine`'s core package are the contract; both backends
    emit identical JSON at the configured API path (`/bootui/api/**` by default).
 3. **One engine.** Advisor rule engines, scanners, the OSV scanner, the OTLP/telemetry store, JVM/MXBean readers, the
-   dependency catalog, secret masking, scoring, and the MCP server move into a shared, Spring-free engine module.
+   dependency catalog, secret masking, scoring, and the MCP server live in the shared, Spring-free engine module.
 4. **Thin per-framework adapters.** Spring and Quarkus each provide: a web binding (Spring MVC controllers vs JAX-RS /
    Vert.x routes), implementations of a small portability SPI, a safety-filter binding, and an activation hook.
 
@@ -35,7 +35,8 @@ Concretely:
 - **Integrating into Quarkus's built-in Dev UI** (`/q/dev`). BootUI keeps its own standalone console (`/bootui/` by
   default). Quarkus Dev UI uses build-time Lit web components; reusing our Vue UI is what keeps the UI shared.
 - **100% panel parity.** A curated subset ships on Quarkus (§5). Spring-only panels are dropped or replaced.
-- **Spring Boot 3.x / Gradle** — unchanged, still out of scope.
+- **Spring Boot 3.x compatibility or a dedicated Gradle plugin.** The extension remains consumable as an ordinary
+  dependency from either Maven or Gradle.
 
 ## 2. Why this is feasible — evidence from the current codebase
 
@@ -44,11 +45,11 @@ The repository already separates "what the data means" (framework-neutral) from 
 
 | Observation                                       | Evidence                                                                                                                                                                                                |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The DTO layer has **zero** Spring coupling        | The core DTO package (`io.github.jdubois.bootui.core`): 320 Java files, 311 DTOs, `0` files import `org.springframework`                                                                                |
+| The DTO layer has **zero** Spring coupling        | The JDK-only core package (`io.github.jdubois.bootui.core`) lives inside `bootui-engine`; `CoreBoundaryArchitectureTests` forbids every external dependency, including Spring                                                                                |
 | The UI is already framework-agnostic              | `bootui-ui` uses only relative `fetch('api/…')` calls; no framework knowledge                                                                                                                           |
 | The UI already gates panels on backend capability | `App.vue` fetches `/bootui/api/panels`, builds a `panelLookup`, and renders unavailable panels into a separate group                                                                                    |
 | The advisor **engines** are framework-neutral    | `bootui-engine` advisor packages contain no Spring imports; framework collection and base-package discovery live in the adapters                                                                        |
-| Hibernate analysis already uses neutral APIs      | `HibernateScanner` consumes `jakarta.persistence.EntityManagerFactory` / `Metamodel`, which Quarkus also provides                                                                                       |
+| Hibernate analysis uses neutral observations      | `JpaMetamodelReader` is the engine's sole optional Jakarta Persistence reader; `HibernateScanner` consumes the neutral model and adapter observations, not Hibernate ORM types                                                                                       |
 | Safety decision logic is already Spring-free      | `CidrRange` and `ContainerGatewayDetector` carry no Spring dependency; only `LocalhostOnlyFilter` / `PanelAccessFilter` bind to `jakarta.servlet`                                                       |
 | Several data sources are framework-neutral today  | OSV scanner, OTLP receiver + `TelemetryStore`, `DependencyCatalog` (reads the CycloneDX SBOM + `META-INF/maven/*/pom.properties` + `java.class.path`), JVM MXBean readers, GitHub `HttpClient`, Copilot/Claude log readers   |
 
@@ -66,6 +67,10 @@ SHARED (framework-neutral, built once, reused by both backends)
                                  framework-neutral services, advisors, and io.github.jdubois.bootui.spi ports
   bootui-conformance             Shared HTTP contract suite and golden panel manifests
   bootui-ui                      Vue 3 SPA, built once
+  bootui-cli                     CLI and dependency-free client; runnable all classifier
+  bootui-agent-bridge            JDK-only bootstrap contract, shaded into the agent and never published separately
+  bootui-agent                   Optional development-time -javaagent jar
+  bootui-coverage                Non-published coverage aggregate (coverage profile only)
 
 SPRING ADAPTER
   bootui-spring-boot-starter         Shared Spring MVC/WebFlux auto-configuration, endpoints, SPI implementations,
@@ -74,7 +79,7 @@ SPRING ADAPTER
   bootui-spring-webflux-sample-app   Spring WebFlux demo/conformance app
 
 QUARKUS ADAPTER
-  bootui-quarkus-parent              Shared Quarkus LTS BOM and plugin management
+  bootui-quarkus-parent              Shared Quarkus platform BOM and plugin management
   bootui-quarkus                     Runtime JAX-RS/Vert.x resources, SPI implementations, and safety filters
   bootui-quarkus-deployment          Build-time wiring, capability gates, and production-dark activation
   bootui-quarkus-integration-tests   Docker-free @QuarkusTest conformance and smoke tests
@@ -83,8 +88,9 @@ QUARKUS ADAPTER
 
 Dependency direction is one-way: inside `bootui-engine`, the engine and SPI packages depend on the JDK-only
 `io.github.jdubois.bootui.core` package, never the reverse; both adapters depend on the shared modules;
-the shared modules never depend on Spring, Quarkus, servlet, JAX-RS, Vert.x, or either framework's JSON library. The
-neutral SPI remains the `io.github.jdubois.bootui.spi` package inside `bootui-engine`.
+the shared runtime modules never depend on Spring, Quarkus, servlet, JAX-RS, Vert.x, or either framework's JSON library.
+`bootui-conformance` is test support, not a runtime distribution: it uses Jackson 2 to inspect HTTP JSON, without a
+host-framework dependency. The neutral SPI remains the `io.github.jdubois.bootui.spi` package inside `bootui-engine`.
 
 ```
 bootui-engine: core package ◄── engine and SPI packages ◄── Spring and Quarkus adapters
@@ -106,36 +112,38 @@ Spring:   @RestController BeansController ─┐
 Quarkus:  @Path JAX-RS resource ───────────┘         (calls an SPI provider for raw data)
 ```
 
-Most BootUI controllers are already shaped this way (e.g. `ArchitectureController` → `ArchitectureScanner`,
-`VulnerabilitiesController` → `DependencyProvider`/`OsvVulnerabilityScanner`). The refactor extracts the scanner/service
-into `bootui-engine` and leaves a ~10-line binding in each framework module.
+BootUI controllers follow this direction (e.g. `ArchitectureController` → `ArchitectureScanner`,
+`VulnerabilitiesController` → `DependencyProvider`/`OsvVulnerabilityScanner`). Collection and policy live in the engine;
+the adapter binds framework requests and observations, including streaming and exception mapping where needed.
 
 ## 4. The portability SPI (the `io.github.jdubois.bootui.spi` package in `bootui-engine`)
 
-Small interfaces the shared engine calls; each framework implements them. Names are illustrative.
+These are current ports from `bootui-engine/src/main/java/io/github/jdubois/bootui/spi`, not proposed interface names.
+They carry neutral observations rather than framework, transport, or JSON types.
 
 | SPI interface                  | Purpose                                                              | Spring implementation                                       | Quarkus implementation                       |
 | ------------------------------ | -------------------------------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------- |
-| `EnvironmentProvider`          | Property values, property sources, active profiles; config overrides | `ConfigurableEnvironment` + `BootUiOverridesPropertySource` | SmallRye `Config` + `ConfigSource`           |
-| `AppInfoProvider`              | Framework name/version, main class, banner text                      | `SpringBootVersion`, `Environment`                          | Quarkus version, `@QuarkusMain`              |
+| `ConfigProvider`               | Maskable property entries, sources and profile metadata              | `SpringConfigProvider` over `ConfigurableEnvironment`       | `QuarkusConfigProvider` over SmallRye Config |
+| `BeanProvider`                 | Bean inventory and dependency edges                                 | `SpringBeanProvider` over Actuator                         | `QuarkusBeanProvider` over Arc plus captured injection edges |
 | `BasePackageProvider`          | Application base packages for advisors                               | `AutoConfigurationPackages`                                 | Jandex index / configured root               |
 | `HealthProvider`               | Health components & status                                           | Actuator `HealthEndpoint`                                   | SmallRye Health                              |
-| `MeterRegistrySupplier`        | The Micrometer registry                                              | bean lookup                                                 | bean lookup (**same `MeterRegistry` API**)   |
 | `LoggerProvider`               | List / get / set log levels                                          | Actuator `LoggersEndpoint`                                  | JBoss LogManager                             |
-| `MappingProvider`              | HTTP route inventory                                                 | Actuator `MappingsEndpoint`                                 | Vert.x `Router` / RESTEasy registry          |
+| `MappingProvider`              | HTTP route inventory                                                 | Actuator `MappingsEndpoint`                                 | `QuarkusMappingProvider` over captured Jandex declarations |
 | `ScheduledTaskProvider`        | Scheduled jobs                                                       | `ScheduledTaskHolder`                                       | quarkus-scheduler `Scheduler`                |
-| `EntityManagerFactoryProvider` | EMFs + metamodel (Hibernate advisor)                                 | `ObjectProvider<EntityManagerFactory>`                      | Arc `EntityManagerFactory`                   |
-| `MigrationProvider`            | Flyway / Liquibase instances                                         | beans                                                       | Arc (`quarkus-flyway` / `quarkus-liquibase`) |
-| `DataSourcePoolProvider`       | Connection-pool stats                                                | HikariCP MXBeans                                            | Agroal metrics                               |
+| `HibernateStatisticsProvider`  | Neutral Hibernate statistics snapshots and explicit runtime enable   | `SpringHibernateStatisticsProvider`                       | `QuarkusHibernateStatisticsProvider` |
+| `FlywayProvider`, `LiquibaseProvider` | Neutral migration snapshots and explicit actions               | `SpringFlywayProvider`, `SpringLiquibaseProvider`           | `QuarkusFlywayProvider`, `QuarkusLiquibaseProvider` |
+| `ConnectionPoolProvider`       | Connection-pool configuration and stats                              | `SpringConnectionPoolProvider` (HikariCP)                  | `QuarkusAgroalConnectionPoolProvider` |
+| `DatabaseAdvisorDataSourceProvider` | Named JDBC datasource discovery                                | `SpringDatabaseAdvisorDataSourceProvider`                 | `QuarkusDatabaseAdvisorDataSourceProvider` |
 | `CacheProvider`                | Cache managers, tiers & native stats                                 | Spring `CacheManager`                                       | quarkus-cache (Caffeine, no stats API)       |
-| `RequestCaptureSource`         | Live request feed (Live Activity)                                    | `ServletRequestHandledEvent`                                | Vert.x filter                                |
-| `HttpExchangeProvider`         | Recent HTTP exchanges                                                | Actuator `HttpExchangeRepository`                           | Vert.x filter buffer                         |
-| `AuditEventProvider`           | Security audit events (Security Logs)                                | Actuator `AuditEventRepository`                             | CDI security events                          |
-| `SqlTraceSource`               | Captured SQL statements                                              | datasource-proxy                                            | Agroal / JDBC interceptor                    |
-| `KafkaActivityRecorder`        | Kafka messaging capture (Live Activity + the Kafka panel)           | `KafkaTemplate` / `@KafkaListener` `BeanPostProcessor` wrap | SmallRye `Outgoing`/`IncomingInterceptor`    |
-| `RabbitActivityRecorder`       | RabbitMQ messaging capture (Live Activity + the RabbitMQ panel)     | `RabbitTemplate` / `AbstractRabbitListenerContainerFactory` wrap | SmallRye `Outgoing`/`IncomingInterceptor` |
-| `LogCaptureSource`             | Tailed log lines (Log Tail)                                          | logback appender                                            | JBoss LogManager handler                     |
-| `LocalhostGuardBinding`        | Feeds request metadata to the shared guard                           | servlet `Filter`                                            | Vert.x handler                               |
+| `ErrorContractProvider`        | Declared exception-handler contract                                  | `SpringErrorContractProvider`                              | `QuarkusErrorContractProvider` over build-time capture |
+| `FaultTolerancePolicyProvider` | Policy declarations and observable runtime state                    | Resilience4j and Spring Retry providers                    | `QuarkusFaultTolerancePolicyProvider` |
+| `WebSocketMetadataProvider`, `WebSocketSessionProvider` | Endpoint topology and available session metadata | Servlet/reactive bindings, with reactive session tracking unavailable | Quarkus WebSockets Next providers |
+| `ExposurePolicy`, `McpPanelPolicy` | Live value-exposure and tool/panel access policy                 | Spring bindings                                            | Quarkus bindings |
+
+Other seams are explicit suppliers or shared engine buffers, not phantom SPI interfaces: Micrometer uses a
+`Supplier<MeterRegistry>`, Hibernate entity discovery supplies neutral models, and HTTP, security, SQL, messaging and
+log capture feed the engine's journal/recorders. `LocalhostGuard` consumes neutral request/config records from servlet,
+reactive, or Vert.x filters; the framework adapters own those bindings.
 
 The framework-neutral safety **decision** (loopback check, `Host`/allowed-hosts validation, `Origin`/`Sec-Fetch-Site`
 CSRF defense) is extracted into a shared `LocalhostGuard` in `bootui-engine`, reusing the existing `CidrRange` /
@@ -207,10 +215,10 @@ Logic lives entirely in `bootui-engine`; the Quarkus adapter adds at most a triv
 | `Metrics`                                             | Micrometer — same API                                                             |
 | `Hibernate` advisor                                   | Same 72-rule registry/report contract; unit-specific native observations and explicit incomplete scans; Spring Data query rules are inapplicable without verified JPA repository metadata |
 | `Hibernate Statistics`                                | Standalone Database-section panel over `org.hibernate.stat.Statistics`, gated on the same Hibernate ORM capability as the advisor; its runtime-enable action has the same read-only and cross-site-write protection as Spring |
-| `Database` advisor                                    | Shared database advisor rule engine over the application's JDBC datasources, discovered by the Quarkus `DataSourceProvider` from Agroal (see the appendix). See [DATABASE-ADVISOR-CHECKS.md](DATABASE-ADVISOR-CHECKS.md) |
+| `Database` advisor                                    | Shared rule engine over application JDBC datasources discovered by `QuarkusDatabaseAdvisorDataSourceProvider`, with reflected Agroal names and positional fallback (see the appendix). See [DATABASE-ADVISOR-CHECKS.md](DATABASE-ADVISOR-CHECKS.md) |
 | `PostgreSQL`                                          | Read-only runtime view of the application's own PostgreSQL database (live `pg_stat_activity` sessions plus the `pg_stat_*`/`pg_catalog` statistics tables) via the shared `PostgresInsightService`; the Quarkus adapter adds only the same `DataSource` discovery supplier the Database advisor uses. Available only when a PostgreSQL datasource is configured (an Agroal datasource plus a `postgresql` `db-kind` or a PostgreSQL JDBC URL, read from configuration without opening a connection); any other database reports SKIPPED/empty if reached. The read is user-triggered (`POST /bootui/api/postgresql/read`), single-flighted, row- and wall-clock-bounded, and never runs on page load |
 | `MySQL`                                              | Shared JDBC operational engine and sanitized cache; default/named MySQL datasource required. Explicit blocking read only, no SQL during discovery or cached GET. See [MySQL](features/database.md#mysql). |
-| `Vulnerabilities`                                     | Classpath SBOM/Maven metadata + OSV                                               |
+| `Vulnerabilities`                                     | Build-time application dependency model + explicit OSV lookup                    |
 | `HTTP Probe`                                          | Local HTTP probing                                                                |
 | `AI Framework`                                        | —                                                                                 |
 | `Traces`                                              | OTLP — a standard; Quarkus/LangChain4j export it                                  |
@@ -218,12 +226,18 @@ Logic lives entirely in `bootui-engine`; the Quarkus adapter adds at most a triv
 | `GitHub`                                              | `HttpClient`                                                                      |
 | `Code Inventory`                                      | The shared `CodeInventoryService`: the BootUI agent's inventory sensor, the scan of the application's class files (Quarkus dev mode's `target/classes` through the application class loader), and the run history kept across live reloads. Detector-gated: available while the agent's inventory sensor records this start, in dev and test mode only; otherwise unavailable with the Java Agent panel's reason. Declared dependencies come from the build-time application model (`QuarkusDependencyProvider`) |
 | `Code Paths`                                          | The shared `CodePathsService`: route trees from the BootUI agent's code-paths sensor, and method probes, its only actions, refused by `bootui.panels.code-paths.read-only`. Detector-gated: available while the sensor records this start, in dev and test mode only; otherwise unavailable with the Java Agent panel's reason. A resource method on a worker that returns a plain value is timed as executed; one on the event loop, one returning `Uni`, `Multi`, `CompletionStage`, or a publisher, and one Quarkus cannot identify are marked assembly only and kept out of `route-time-breakdown`'s handler split. A blocking method's tree starts at its first bean call on the worker. The REST client stamps a call where its request filter runs, on the thread that issues it; Beans at runtime reads ArC's beans and their injection points |
-| `Side Effects`                                        | The shared `SideEffectsService`: side-effect rows from the BootUI agent's side-effect bridge. Detector-gated like Code Paths: available while the agent is armed for this start and the bridge supports Side Effects, in dev and test mode only; otherwise unavailable with the Java Agent panel's reason. `processes` (M5-5a), `network` (M5-5b), `blocking` (M5-5c), `files` (M5-5d), and the opt-in `environment` (M5-5d), `thread-activity` (M5-5e), and `thread-locals` (M5-5f) record, the adapter registering Vert.x event loops with `blocking` from the first request each routes, ending each request for `thread-activity` when its response body ended, and scanning a blocking resource method's worker, a managed executor's task, and a scheduled run for `thread-locals`, never a Vert.x event loop, and the opt-in `security-sinks` (M5-6b), whose JDK checks (deserialization without a filter, weak algorithms, trust managers) record on Quarkus as on Spring, and with `bootui.agent.security-sinks.request-values=true`: the decoded query parameters and RESTEasy Reactive's matched path parameters are held at the resource method's request filter and removed on the response's end handler, so SQL text, commands, file paths, and REST client URLs reached on the event loop or a worker are checked; form values are not held yet; the other sensor groups are listed as not available in this version |
+| `Side Effects`                                        | The shared `SideEffectsService`, view-only and detector-gated while the agent is armed with Side Effects support in dev/test. All nine sensors ship: `processes`, `network`, `blocking`, `files`, and `resources` by default; `environment`, `thread-activity`, `thread-locals`, and `security-sinks` opt-in. Vert.x event loops are registered from their first request; response-body end drives thread/resource end checks. Thread-local scans cover blocking resource workers, managed executor tasks, and scheduled runs, never event loops. Security-sinks JDK checks record as on Spring; separate startup opt-in `bootui.agent.security-sinks.request-values=true` holds decoded query and matched path parameters until response end to check SQL text, commands, file paths and REST client URLs. Form values are not held. Runtime sensor controls use the Java Agent panel's policy, not a Side Effects read-only switch |
 | `Copilot`, `Claude Code`                              | Read `~/.copilot` / `~/.claude`                                                   |
 | `Pentesting`                                          | Shared 77-check engine (see below)                                                |
 | `MCP Server`                                          | **Implemented** — full JSON-RPC bridge (see below)                                |
 | `Command Line`                                        | Shared `CliService`; the Quarkus resource only routes                             |
 | `Dev Services`                                        | **Implemented** — Quarkus-native concept (see below)                             |
+
+Claude Code raw JSONL reveal is always disabled on Quarkus, even when
+`bootui.claude-code.allow-raw-reveal=true`; Spring can opt into it. Code Inventory also retains a configuration
+asymmetry: Quarkus passes its limits through shared `CodeInventorySettings`, which normalizes nonpositive
+class/timeout limits to defaults, while Spring's property setters reject them. These differences do not change the
+sanitized report contract.
 
 Pentesting uses the shared 77-check engine and report contract. Its thin Quarkus collector supplies only the live port
 and `quarkus.http.root-path`: Quarkus CORS, OIDC, management, and HTTP/TLS configuration is reviewed by the Security
@@ -247,8 +261,9 @@ panel and is not claimed beyond the native-image tests that exercise that capabi
 **Command-line endpoint** (`/bootui/api/cli`) is served at full parity with Spring MVC and Spring WebFlux: a CDI
 producer builds the shared engine `CliService` over the same `QuarkusMcpTools` registry and `QuarkusMcpPanelPolicy`, and
 a thin JAX-RS resource maps the outcome onto HTTP status codes. It is enabled by default (`bootui.cli.enabled`), needs
-no MCP toggle, and is pinned to the Spring stacks by the shared CLI conformance suite. The 89 tools in the Quarkus
-catalog are a subset of the 105 Spring MVC declares, including `enable_agent_sensor` and `disable_agent_sensor`
+no MCP toggle, and is pinned to the Spring stacks by the shared CLI conformance suite. Before runtime availability
+filtering, the registries declare 105 tools on Spring MVC, 104 on WebFlux, and 89 on Quarkus. Quarkus includes
+`enable_agent_sensor` and `disable_agent_sensor`
 (`bootui agent sensor enable|disable <id>`). These bounded actions require user approval and use the Java Agent panel's
 enabled/read-only policy and the same engine switch as REST. A running application advertises only those tools whose
 backing panel is available, so the catalog a client reads at runtime is authoritative.
@@ -280,7 +295,7 @@ Same DTO and UX; the Quarkus adapter implements the relevant SPI against a Quark
 | `Architecture` advisor | Shared ArchUnit registry; generic rules run unchanged, Spring-only annotation rules no-op, and Jakarta-based/platform-sensitive rules use Quarkus semantics |
 | `Beans`               | **Implemented** — → Arc/CDI `BeanManager.getBeans(...)`, with resolved injection edges captured after Arc build-time validation and overlaid on the retained runtime inventory; defining resources and Spring Conditions evidence remain unavailable |
 | `Scorecard`           | Panel available; the scoring dashboard aggregates the advisor endpoints client-side, and `GET /bootui/api/overview` reports the Quarkus version + shell chrome |
-| `Java Agent`          | **Implemented** — shared Java agent status service; Quarkus claims from a `STATIC_INIT` recorder in dev/test with the build-time `bootui.agent.sensors` and `bootui.agent.executors.*`, and the application archive's bean-defining and `@Path` classes for the `code-paths` sensor, refines and attaches the engine's executor propagation on startup, and disarms on shutdown; production launch mode never claims it. Vert.x threads (`vert.x-`) are skipped: Quarkus carries the request's context across them itself. Its one action switches an opt-in sensor at run time (M5-14), refused by `bootui.panels.java-agent.read-only`; the switch survives live reloads, though `bootui.agent.sensors` itself is build-time |
+| `Java Agent`          | **Implemented** — shared status service; Quarkus claims from a `STATIC_INIT` recorder in dev/test with build-time `bootui.agent.sensors` and `bootui.agent.executors.*`, and the application's bean-defining and `@Path` classes for Code Paths. It refines propagation on startup and disarms on shutdown; production never claims it. Vert.x threads (`vert.x-`) are skipped because Quarkus carries their context itself. Runtime actions switch `threads`, `files`, `environment`, `thread-activity`, `thread-locals` and `security-sinks`, refused by Java Agent/global read-only policy. `files` is on by default; the other switchable sensors are opt-in. Switches survive live reload, but `bootui.agent.sensors` itself is build-time |
 
 ::: details Fault Tolerance fidelity
 
@@ -314,7 +329,7 @@ The DTO and UI are reused; the Quarkus adapter rebuilds the capture/source on th
 | `DB Connection Pools` | **Implemented** — reads **Agroal** metrics instead of HikariCP MXBeans via `QuarkusAgroalConnectionPoolProvider` (the sole importer of `io.agroal.*`, gated on the `AGROAL` capability). Agroal→Hikari mapping: active←activeCount, idle←availableCount, total←active+idle, pending←awaitingCount; acquisition/idle/max-lifetime timeouts map across; each pool reports `implementation: "Agroal"`, and `validationTimeoutMs`, `keepaliveTimeMs` and `readOnly` are `null` (rendered "—"), since Agroal has no such accessor. Requires `quarkus.datasource.jdbc.metrics.enabled=true` for live counts — configuration still renders without metrics, but the snapshot is null and the pool is marked unavailable with a specific reason. Read-only: no write gate |
 | `SQL Trace`           | **Implemented** — two complementary feeders into the shared `SqlTraceRecorder`: an `@Alternative` Agroal `DataSource` wrap (manual JDBC, gated on Agroal) **and** a `@PersistenceUnitExtension` Hibernate `StatementInspector` (ORM SQL, which bypasses the wrapped DataSource; gated on Hibernate). Statement text/type/category/N+1 full-fidelity; per-statement duration/rows/params are best-effort for ORM SQL (the StatementInspector SPI has no execution-end hook). Call-site capture (`bootui.sql-trace.capture-call-site`, default `true`) runs once at the shared `SqlTraceRecorder.record(...)` choke point both feeders call into, so it is byte-identical to Spring on both feeders with no extra per-feeder code. `clear`/`recording` behind the `LocalhostGuard` write floor. Statement rankings and request-route attribution (`GET /bootui/api/sql-trace/insights`) run on the same framework-neutral `SqlTraceInsightsService` as both Spring stacks, with request evidence read from the engine's own `HttpExchangeBuffer`. **Two honest fidelity gaps:** correlation is `TRACE_ID` + `TIME_WINDOW` only — the Vert.x event loop gives no reliable thread-per-request anchor, exactly as for Live Activity above — and RESTEasy Reactive exposes no per-request route template to the adapter, so the route key is resolved *after the fact* against the application's own declared JAX-RS mappings (read from the Mappings panel's build-time `QuarkusMappingProvider`, so no new route enumeration is introduced): a captured path is labelled `ROUTE_TEMPLATE` only when exactly one declaration matches it segment for segment and is strictly the most literal match, and falls back to a **masked path** (identifier-looking segments replaced with `{value}`, query string discarded) otherwise. That fallback matters for privacy as much as for grouping — masking alone cannot tell a word-shaped path parameter such as `/api/users/alice` from a fixed segment, and the declared template can. Both are declared in the payload (`supportedCorrelations`, `routeSource`) so the UI states them instead of silently degrading |
 | `REST Client`         | **Implemented** — when `Capability.REST_CLIENT_REACTIVE` is present, a generated `RestClientListener` service-provider entry attaches `QuarkusRestClientTraceFilter` to every REST Client Reactive proxy and feeds the shared `RestClientTraceRecorder`. The listener type is excluded and no provider entry is generated when the optional extension is absent, so an app without REST Client starts without linking the optional API. Listener lookup is lazy through the running Arc container because Quarkus constructs proxies after CDI startup. The filter runs after application request filters and before application response filters, captures metadata only (never payloads or arbitrary headers), strips URI user-info/fragments, masks sensitive path/query values before storage, and isolates all capture failures from application calls. Real `4xx`/`5xx` responses are successful transports; Quarkus's status `0` callback records a pre-response transport failure with a null HTTP status. The active trace id is snapshotted in the request filter because the response callback can run after OpenTelemetry detaches its context; application call-site attribution is likewise best-effort after that reactive handoff. `clear`/`recording` are behind the shared write and panel read-only gates; SSE and Live Activity update on each mutation/call. Manifest availability is capability-driven because proxies initialize lazily; the report remains honest until one has been instrumented. |
-| `Live Activity`       | **Implemented** — by default (`bootui.activity.feed-source=journal`) renders the runtime journal's retained events, as on Spring; the `buffers` source, also used when the journal is disabled, merges the nine captured signals into the shared feed, with trace-id-based request correlation, a red **N+1** badge from the shared `SqlTraceGrouping`, SmallRye Kafka/RabbitMQ messaging capture, captured `MAIL` events, an optional durable JDBC persistence backend, and the Live flow service map. Cache (`CACHE`) events are **not** captured on Quarkus. See the details blocks below the table. |
+| `Live Activity`       | **Implemented** — by default (`bootui.activity.feed-source=journal`) renders the runtime journal's retained events, as on Spring. The panel-buffer merge is used only when the journal is disabled or by diagnostic `?source=buffers`; configuring `bootui.activity.feed-source=buffers` fails startup. It has exact request-id correlation with or without tracing, optional trace-id correlation, a red **N+1** badge from `SqlTraceGrouping`, SmallRye Kafka/RabbitMQ capture, captured `MAIL` events, optional durable JDBC persistence, and the Live flow service map. Cache (`CACHE`) events are **not** captured on Quarkus. See the details blocks below the table. |
 | `HTTP Exchanges`      | **Implemented** — buffer exchanges via a Vert.x filter instead of Actuator's repository, into the engine's failure-preserving `HttpExchangeBuffer`: BootUI's own requests are never recorded, so the hidden-self count stays `0`, and `bootui.http-exchanges.reserved-share-percent` of the buffer keeps recent `5xx` and slow exchanges (the shared `bootui.activity.request-slow-threshold-ms`, also used for `SLOW` Live Activity severity). Route rankings (`GET /bootui/api/http-exchanges/routes`) run on the shared `HttpRouteSummaryService`, and their window reports the buffer's capacity and evictions; with no runtime route template, routes resolve from the declared JAX-RS mappings (`DECLARED_MAPPING`), matched under `quarkus.http.root-path` and `quarkus.rest.path`, then a masked path, exactly as SQL Trace attributes them here. A prefix from `@ApplicationPath` alone is not known at runtime |
 | `Exceptions`          | **Implemented** — captured into the shared `ExceptionStore` by **three** feeders, deduped across feeders across the whole cause chain; BootUI's own frames self-filtered. `QuarkusExceptionLogHandler` (a `java.util.logging` handler) catches logged throwables, and `QuarkusExceptionCaptureFilter` (a Vert.x failure handler) catches unhandled web failures; Quarkus logs an unhandled request failure synchronously (`QuarkusErrorHandler`) before the Vert.x failure handler's late `addBodyEndHandler` callback runs, so the log handler is normally the feeder the store's dedup keeps for that case; it resolves the owning request's method/path itself from the CDI-current `CurrentVertxRequest`, so both feeders carry full web context. Neither feeder, however, observes an exception that a custom `jakarta.ws.rs.ext.ExceptionMapper`/`@ServerExceptionMapper` resolves without logging it — RESTEasy Reactive never calls `RoutingContext.fail(...)` once a mapper has produced a response, so that class of failure (Quarkus's analogue of a Spring `@ExceptionHandler`) was invisible. `QuarkusPreMappingExceptionCaptureHandler` closes that gap: it is installed via the RESTEasy Reactive `PreExceptionMapperHandlerBuildItem` build item (the same first-party extension point Quarkus's own OpenTelemetry extension uses to attach exception info to the active span before mapping), which Quarkus guarantees runs for **every** exception about to be resolved by any mapper, mapped or not — so it is now normally the earliest, and hence dedup-winning, feeder for any exception dispatched through the JAX-RS chain, while the other two feeders remain the safety net for logged-but-unmapped failures and non-JAX-RS Vert.x routes. Being a build-time `ServerRestHandler` instance (not a CDI bean), it resolves `ExceptionStore`/`TraceIdProvider` lazily per invocation via `Arc.container()`, matching Quarkus's own `AttachExceptionHandler` precedent. This brings Quarkus to parity with Spring's `BootUiExceptionHandlerResolver` (a `HandlerExceptionResolver` at `HIGHEST_PRECEDENCE` that captures every `@ExceptionHandler`-resolved exception the same way). The `handler` field (the JAX-RS resource class + method serving the request, e.g. `MyResource#doSomething`, matching Spring's `HandlerMethod`-derived format) is resolved the same way by `QuarkusResourceHandlers`, reading RESTEasy Reactive's current-request state (`CurrentRequestManager`/`ResteasyReactiveResourceInfo`, the same mechanism `quarkus-rest-jackson` itself uses for per-method `@JsonView` resolution) — populated/cleared in lockstep with the `CurrentVertxRequest` above, so it survives the same event-loop→worker hop. The Open/Acknowledged/Resolved triage workflow and regression auto-reopen (a `Resolved` group that fires again flips back to `Open` and increments a `regressionCount`) live entirely in the shared `ExceptionStore`/`ExceptionsService`, so they are identical on Quarkus; `ExceptionsResource` exposes the same `POST /bootui/api/exceptions/{id}/status` with the same validation/status codes as Spring's `ExceptionsController`, behind the same `LocalhostGuard` write floor. The **Caught in application code** section (`GET /bootui/api/exceptions/caught`) is shared too, with the JBoss LogManager's coverage (`QuarkusLogCoverage`): a logger with `use-parent-handlers=false` and handlers of its own makes every caught exception unknown rather than not logged, and the limitations name it |
 | `Security Logs`       | **Implemented** — captures Quarkus CDI security events into the shared `SecurityEventBuffer` via `QuarkusSecurityEventCapture` (a `@Observes SecurityEvent` observer), which replaces Spring's `AuditEventRepository`. Gated on `quarkus-security` (the observer is excluded by the deployment processor when no security extension is present, R2) and `quarkus.security.events.enabled=true` (panel reports unavailable with a clear message when events are disabled). Honest partial: Quarkus fires events only for authentication success/failure and authorization failure — no logout or session events (no Quarkus equivalent). SSE `/stream` ticks on each capture. Read-only (no write endpoints) |
@@ -326,8 +341,9 @@ The DTO and UI are reused; the Quarkus adapter rebuilds the capture/source on th
 
 ::: details Live Activity — signals, trace-id correlation, and the N+1 badge
 
-The feed merges nine captured signals: HTTP requests (via the Vert.x exchange buffer), SQL trace, REST Client calls,
-exceptions, security events, scheduled-task runs, Kafka messaging, RabbitMQ messaging, and captured email. SQL
+The panel-buffer feed merges nine activity entry types: HTTP requests (via the Vert.x exchange buffer), SQL trace,
+REST Client calls, exceptions, security events, scheduled-task runs, messaging (Kafka/RabbitMQ), captured email and
+fault-tolerance events. SQL
 contributes only when a datasource is configured (a clean warning otherwise), and the security/REST/messaging sources
 honor their own availability and panel-enabled gates. Scheduled-task runs are captured by
 `QuarkusScheduledTaskRunRecorder`, a CDI observer of the scheduler's own `SuccessfulExecution`/`FailedExecution` events
@@ -335,8 +351,9 @@ honor their own availability and panel-enabled gates. Scheduled-task runs are ca
 `JobInstrumenter` SPI is already claimed by `quarkus-opentelemetry`. `REQUEST` and `SCHEDULED` entries are `SLOW` at or
 above `bootui.activity.request-slow-threshold-ms` (1,000 ms by default), the same threshold as both Spring stacks.
 
-**Signal-to-request correlation is trace-id-based, gated on `quarkus-opentelemetry`.** Spring's thread-per-request anchor
-is unportable on the Vert.x event loop. Instead the adapter stamps the active server span's trace id at each capture
+**Exact request-id correlation does not require tracing.** Spring's thread-per-request anchor is unportable on the
+Vert.x event loop, so BootUI uses the request/execution ids its capture points stamp. Optional distributed-trace
+correlation additionally stamps the active server span's trace id at each capture
 point (HTTP filter, REST Client recorder, SQL recorder, exception store, and the CDI `SecurityEvent` observer) via a
 capability-gated `QuarkusOtelTraceIdSource`. The engine `LiveActivityAssembler` then nests REST/SQL/exception/security/
 email entries under the request sharing that trace id — OTel `Context` propagates across the event-loop→worker hop,
@@ -358,7 +375,7 @@ aggregation are byte-identical across adapters.
 
 **Captured email (`MAIL`).** `LiveActivityResource` reads the same framework-neutral `EmailCaptureService` the standalone
 Email panel uses directly, with no separate Quarkus capture instrumentation, and feeds its merged SSE stream identically
-to Spring, nesting as a `REQUEST` child via the same trace-id join.
+to Spring, nesting first by BootUI's request id and then by an unambiguous trace id.
 
 **Cache (`CACHE`) is not captured on Quarkus.** The Spring servlet and WebFlux adapters feed a `CacheActivityRecorder` by
 decorating `CacheManager` beans, but `quarkus-cache`'s built-in interceptors cast the resolved cache to an internal,
@@ -375,8 +392,9 @@ done by two `@ApplicationScoped` interceptors — `QuarkusKafkaProducerCapture` 
 `QuarkusKafkaConsumerCapture` (`IncomingInterceptor`) — that read Kafka record metadata into the shared, framework-neutral
 `KafkaActivityRecorder`. This is the same buffer and the same `bootui.kafka.*` keys/defaults as Spring
 (`enabled`/`capture-key` `true`, `max-entries` `200`, `max-key-length` `16`), with capture disabled whenever the
-dedicated Kafka panel is disabled. The resource merges those `MESSAGING` entries into the feed (top-level, no request
-correlation) through the shared `KafkaActivityEntries` mapping, so both adapters render byte-identical entries.
+dedicated Kafka panel is disabled. The resource merges `MESSAGING` entries through the shared `KafkaActivityEntries`
+mapping: producer messages can nest under their exact request/execution owner; consumed messages are top-level
+executions anchoring their listener's recorded work.
 
 **RabbitMQ follows the same SmallRye pattern.** `QuarkusRabbitProducerCapture`/`QuarkusRabbitConsumerCapture` feed the
 shared `RabbitActivityRecorder`, are class-presence-gated on `quarkus-messaging-rabbitmq`, stop capture whenever the
@@ -403,40 +421,25 @@ panel as available even though Reactive Messaging capture is not wired.
 
 ::: details Why the per-request profiler (`GET /bootui/api/activity/request/{id}`) is reduced on Quarkus
 
-Spring's `/activity/request/{id}` profiler is a Symfony-style join across SQL, exceptions, security audit events, REST
-client calls, cache accesses, the distributed trace, and timing for one request — not CPU/flame-graph sampling. Every
-adapter builds it with the shared engine `ExecutionProfileAssembler`; on Spring MVC, `LiveActivityCorrelator` adds the
-servlet-only evidence behind a **tiered** correlation strategy: (1) a trace id (the strongest, most precise signal),
-then, for signals without a unique one, (2) HTTP method+path+time-window+thread heuristics for exceptions, (3)
-serving-thread correlation for SQL, REST client calls, and cache accesses, and (4) time-window+principal for security
-events.
+`/activity/request/{id}` is a join of retained SQL, exceptions, security events, REST client calls, distributed-trace
+detail and request timing, not CPU/flame-graph sampling. Every adapter uses the shared `ExecutionProfileAssembler`.
+Its strongest tier is BootUI's exact `REQUEST_ID`, with or without tracing. `PROPAGATED` follows work recorded in
+executor tasks while the attached agent's executors sensor propagates for this application, under the configured
+handoff window. An unambiguous `TRACE_ID` is another tier; a trace shared by requests never guesses an owner, while
+each request keeps its own id-stamped signals.
 
-Tiers 2-4 key on **serving-thread identity**. A servlet request runs start-to-finish on one worker thread that serves
-only one request at a time, so SQL, exceptions, and security events observed on that thread within its time window
-belong to it exactly, even with no distributed tracing at all (`threadMatched` is a first-class field on
-`RequestProfileSecurityDto`/carried by `RequestProfileExceptionDto`'s `thread`). Quarkus's Vert.x event-loop-plus-worker
-model has no equivalent "the one thread that served this request" identity — handling can hop across the event loop and
-one or more worker threads. Tiers 2-4 therefore have nothing to key on and are **not ported** (investigated and correctly
-ruled out as infeasible; see the PR that shipped the first, trace-id-only version of this profiler).
+Quarkus and WebFlux deliberately report `SERVING_THREAD` and `TIME_WINDOW` unavailable: shared event loops and worker
+hops cannot identify one request that way. Spring MVC offers those fallback tiers when the required servlet evidence
+exists. Quarkus also reports cache accesses unavailable because it has no capture seam. Source availability and
+panel-enabled policy still apply to every section, and notes disclose uncorrelated or incomplete evidence.
+`threadMatched` is false on Quarkus; `principalMatched` compares the retained principals without inventing thread
+ownership.
 
-Tier 1, however, **is** portable and **is now implemented**. The same trace-id stamping that powers the
-`LiveActivityAssembler` nesting above feeds the shared engine `ExecutionProfileAssembler` — the same class that serves
-the profile on Spring MVC and Spring WebFlux — with trace-id-only capabilities, which also include the exact
-`REQUEST_ID` tier. When the requested exchange carries BootUI's request id or a trace id, the
-endpoint gathers every SQL statement, security event, and REST Client Reactive call carrying its request id, then every
-signal sharing its exact trace id, including exceptions, and returns `available: true` with
-`sqlCorrelationApproximate: false` and `approximate: false` (both matches are exact, unlike Spring's time-window
-heuristics) plus a `notes` entry disclosing that this is a reduced profile. `correlationTiers` reports the serving-thread and time-window tiers unavailable, and the cache
-section reports that Quarkus has no cache-access capture seam. `threadMatched` always reports `false` (Quarkus has no thread-identity concept), while
-`principalMatched` on `RequestProfileSecurityDto` **is** honestly computed by comparing principals. Ambiguous trace ids
-(shared by more than one captured request, such as an application calling its own endpoint through a REST client)
-render an `available: true` profile with empty correlated lists plus notes counting the signals left unattributed,
-never a hard failure or cross-request leak. The request id still decides first, so such a request keeps its own
-stamped signals. Only when the exchange carries neither id does the endpoint return `available: false` with a clear
-reason (`RequestProfileDto.unavailable(...)`) rather than fabricating a partial result. In the main feed,
-`LiveActivityResource` marks a request entry `profileable` through the engine's shared
-`LiveActivityAssembler.withExactProfiles`: `true` when its exchange carries either id, `false` otherwise. Spring WebFlux
-uses the same rule, and Spring MVC is unaffected.
+A retained Quarkus exchange carrying a request id or trace id is profileable. With neither id, the endpoint returns
+an explained unavailable result; an exchange no longer in the buffer is unavailable too. The separate
+`/activity/request/{id}/journal` endpoint reads the journal's exact owner timeline, measured resources and GC overlap,
+subject to the journal's retention and measurement coverage. `get_request_profile` selects journal evidence when it
+is available and otherwise uses the retained-signal profile.
 
 :::
 
@@ -667,9 +670,9 @@ instance — remain captured.
 | --------------------------------------------------------------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------- |
 | DTOs (`bootui-engine` core package)                                                                                   | ✅ 100%          | Already Spring-free                                                              |
 | Vue UI (`bootui-ui`)                                                                                                  | ✅ 100%          | Built once; panel set driven by `/api/panels` manifest                           |
-| Advisor engines, OSV, OTLP/telemetry, dependency catalog, JVM readers, scoring, MCP, secret masking (`bootui-engine`) | ✅ majority      | Today 80–90% Spring-free; refactor extracts the few coupled files behind the SPI |
-| Web binding                                                                                                           | ❌ per-framework | Thin controllers/resources (~10 lines each) delegating to shared services        |
-| Data-source SPI impls                                                                                                 | ❌ per-framework | ~15–20 small adapter classes per framework                                       |
+| Advisor engines, OSV, OTLP/telemetry, dependency catalog, JVM readers, scoring, MCP, secret masking (`bootui-engine`) | ✅ framework-neutral | `EngineBoundaryArchitectureTests` forbids host-framework, transport and JSON dependencies; optional JPA/OTel access is concentrated and gated |
+| Web binding                                                                                                           | ❌ per-framework | Controllers/resources bind requests, streams and errors to shared services        |
+| Data-source SPI impls                                                                                                 | ❌ per-framework | Native collectors and capability gates over the neutral ports in §4               |
 | Safety binding & activation                                                                                           | ❌ per-framework | Shared decision logic; per-framework request plumbing                            |
 
 The Quarkus-specific code is concentrated in the SPI implementations, the thin web layer, and the extension plumbing —
@@ -711,11 +714,13 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 
 ### 8.2 Dev loop & CI
 
-- **Run:** `./mvnw -pl bootui-quarkus-sample-app -am quarkus:dev` starts Quarkus dev mode and serves the console at
+- **Run:** first `./mvnw -pl bootui-quarkus-sample-app -am install`, then
+  `./mvnw -pl bootui-quarkus-sample-app quarkus:dev` starts Quarkus dev mode and serves the console at
   `http://localhost:8082/bootui` — the analogue of the Spring sample app's `spring-boot:run` smoke-test path. The sample
   app defaults to 8082, not 8080, so it can run alongside the Spring servlet sample app (8080) and the Spring WebFlux
   sample app (8081) for the cross-service trace demo (see `bootui-spring-sample-app/README.md`). Quarkus live reload
-  replaces DevTools for the inner loop. (`-am` builds the upstream `bootui-quarkus` extension first.)
+  replaces DevTools for the inner loop. Use the same isolated Maven repository for both commands; do not apply the
+  application launch goal to upstream parent/library modules with `-am`.
 - **e2e:** a `bootui-quarkus-sample-app/e2e/` Playwright project mirrors `bootui-spring-sample-app/e2e/`, with one spec per
   supported panel plus `quarkus-advisor.spec.js` / `cache.spec.js`; drop specs only for the panels genuinely not shipped
   on Quarkus (`conditions`, `startup`, `spring-security`, `data`, `http-sessions`, `graalvm`, `crac`, `devtools`) covered
@@ -724,8 +729,10 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
   per-panel availability.) Reuse the existing `fixtures.js` / `app-shell.spec.js` patterns. To honor the "as much common
   code as possible" goal, factor the panel-agnostic Playwright helpers into a shared library both suites import, rather
   than copying them.
-- **CI:** add a job mirroring the existing Spring e2e job in `.github/workflows/build.yml` — build the extension + sample
-  app, `npx playwright install --with-deps chromium`, then `npm test` — so **both** platforms are gated on every build.
+- **CI:** `build.yml` already runs Quarkus Playwright as separate default and agent-attached matrix legs, alongside
+  the Spring MVC, WebFlux and custom-path suites. It builds the extension/sample, restores locked npm dependencies,
+  installs Chromium through the shared cached installer, and runs the corresponding npm script. Agent legs follow
+  the agent-path/label gate for pull requests into `v2`; the default suite runs on every build.
 - **Screenshots:** the docs screenshots in `docs/images/bootui-*.webp` are captured from the Spring sample app and stay
   the canonical set. The Quarkus sample app's e2e can reuse `scripts/capture-docs-screenshots.mjs` if/when the docs add
   Quarkus-specific imagery; otherwise it is test-only.
@@ -752,17 +759,17 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 - **Build-time augmentation effort.** A Quarkus extension (runtime + deployment + `@BuildStep`s) is more involved than a
   Spring auto-configuration. Phase 0/1 should validate the route + dev-mode wiring early.
 - **Reactive capture fidelity.** Vert.x-based request/exchange/SQL capture must be verified to match the servlet panels'
-  detail (timing, headers, correlation). Correlation is now resolved via the OpenTelemetry trace id: Live Activity nests
-  SQL/exceptions/security events under their request, and stamps `securedPrincipal`, when `quarkus-opentelemetry` is
-  present. The per-request profile drill-down is now implemented too, but in reduced form (request id and trace id only). Spring's
+  detail (timing, headers, correlation). Live Activity nests id-stamped SQL/exceptions/security events with or without
+  tracing; an optional OpenTelemetry trace supplies another tier. The request profile includes those exact ids and
+  the agent's propagated tier when available, but not servlet-only fallbacks. Spring's
   time-window/thread-based tiers lean on servlet thread-per-request serving-thread identity that the Vert.x model has no
   equivalent for, so they remain deliberately unported (§5.3 has the detailed reasoning).
 - **Module naming & coordinates.** New shared/adapter modules keep `com.julien-dubois.bootui:*` coordinates and
   `io.github.jdubois.bootui.*` packages; the Quarkus extension follows Quarkus's `runtime` / `deployment` convention.
 - **Docs & checks.** The Quarkus application advisor is backed by `docs/QUARKUS-ADVISOR-CHECKS.md` and the Quarkus
   Security advisor by `docs/QUARKUS-CHECKS.md`, mirroring the existing
-  `*-CHECKS.md` files; `docs/features/` would gain a per-platform availability note; and the contributor docs
-  (`CONTRIBUTING.md`, AI instructions) would document the second sample app and its e2e suite.
+  `*-CHECKS.md` files. The feature guides already carry platform-specific availability, and `CONTRIBUTING.md` and
+  the path-scoped instructions document the Quarkus sample and its e2e suite.
 
 ## 11. Appendix — full panel disposition
 
@@ -776,11 +783,11 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | JVM Tuning          | as-is       | Port    | JVM flags reader                 | —                                           |
 | Heap Dump           | as-is       | Port    | HotSpotDiagnostic reader         | —                                           |
 | Threads             | as-is       | Port    | ThreadMXBean reader              | —                                           |
-| Metrics             | as-is       | Port    | Micrometer reader                | `MeterRegistrySupplier`                     |
-| Hibernate           | as-is       | Port    | Hibernate advisor engine         | `EntityManagerFactoryProvider`              |
+| Metrics             | as-is       | Port    | Micrometer reader                | Native `Supplier<MeterRegistry>` bean lookup |
+| Hibernate           | as-is       | Port    | Hibernate advisor engine         | Optional `JpaMetamodelReader` plus native unit observations |
 | Hibernate Statistics | as-is      | Port    | `HibernateStatisticsService`     | `HibernateStatisticsProvider` (same Hibernate ORM capability gate as the Hibernate advisor) |
-| Database            | as-is       | Port    | Database advisor rule engine     | `DataSourceProvider` (Agroal `@DataSource` qualifier names read reflectively, positional fallback; SQL Trace wrapper de-duplicated to its physical pool; `javax.sql.DataSource` is unconditional, no capability gating) |
-| PostgreSQL          | as-is       | Port    | `PostgresInsightService`         | `DataSourceProvider` (reused from the Database advisor); available only when a PostgreSQL datasource is configured (`db-kind=postgresql` or a PostgreSQL JDBC URL) alongside an Agroal datasource |
+| Database            | as-is       | Port    | Database advisor rule engine     | `QuarkusDatabaseAdvisorDataSourceProvider` (Agroal qualifier names read reflectively, positional fallback; SQL Trace wrapper de-duplicated to its physical pool; the JDK `javax.sql.DataSource` needs no capability gate) |
+| PostgreSQL          | as-is       | Port    | `PostgresInsightService`         | Reuses Database Advisor datasource discovery; requires a PostgreSQL declaration (`db-kind=postgresql` or a PostgreSQL JDBC URL) alongside JDBC capability |
 | MySQL               | as-is       | Port    | `MySqlInsightService`            | Reused JDBC datasource discovery; MySQL declaration plus JDBC capability, not a reactive client alone. Shared cached report and explicit blocking read. |
 | Vulnerabilities     | as-is       | Port    | OSV scanner + dependency catalog | —                                           |
 | Pentesting          | as-is       | Port    | Pentesting engine                | Synthetic probes only; QS-* owns Quarkus config; Spring inventory unavailable |
@@ -791,7 +798,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | GitHub              | as-is       | Port    | GitHub `HttpClient` service      | —                                           |
 | Code Inventory      | as-is       | Port    | `CodeInventoryService`           | Available while the BootUI agent's inventory sensor records this start (dev/test) |
 | Code Paths          | as-is       | Port    | `CodePathsService`               | Available while the BootUI agent's code-paths sensor records this start (dev/test); reactive and event-loop endpoints are assembly only |
-| Side Effects        | as-is       | Port    | `SideEffectsService`             | Available while the BootUI agent is armed for this start and the bridge supports Side Effects (dev/test); records processes, network, and files, and, opt-in, environment reads and request input reaching a sink |
+| Side Effects        | as-is       | Port    | `SideEffectsService`             | Armed agent in dev/test; all nine sensors ship with the defaults and opt-ins described in §5.1; view-only, with runtime sensor buttons guarded by Java Agent policy |
 | Copilot             | as-is       | Port    | CLI log reader                   | —                                           |
 | Claude Code         | as-is       | Port    | CLI log reader                   | —                                           |
 | MCP Server          | as-is       | Port    | BootUI MCP server                | —                                           |
@@ -799,23 +806,23 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Dev Services        | as-is       | Port    | Dev Services model               | Quarkus Dev Services source                 |
 | Scorecard           | equiv       | Adapt   | Client-side dashboard + `OverviewDto` | `QuarkusApplicationInfo` (chrome; scoring is client-side) |
 | Health              | equiv       | Adapt   | Health mapper                    | `HealthProvider` → SmallRye Health          |
-| Configuration       | equiv       | Adapt   | Config mapper + masking          | `EnvironmentProvider` → SmallRye Config     |
+| Configuration       | equiv       | Adapt   | Config mapper + masking          | `ConfigProvider` → SmallRye Config          |
 | Loggers             | equiv       | Adapt   | Logger mapper                    | `LoggerProvider` → JBoss LogManager         |
-| Mappings            | equiv       | Adapt   | Mapping mapper                   | `MappingProvider` → Vert.x/RESTEasy         |
-| Flyway              | equiv       | Adapt   | Flyway mapper                    | `MigrationProvider` → quarkus-flyway        |
-| Liquibase           | equiv       | Adapt   | Liquibase mapper                 | `MigrationProvider` → quarkus-liquibase     |
+| Mappings            | equiv       | Adapt   | Mapping mapper                   | `MappingProvider` → captured Jandex JAX-RS declarations |
+| Flyway              | equiv       | Adapt   | Flyway mapper                    | `FlywayProvider` → quarkus-flyway           |
+| Liquibase           | equiv       | Adapt   | Liquibase mapper                 | `LiquibaseProvider` → quarkus-liquibase     |
 | Scheduled Tasks     | equiv       | Adapt   | Scheduled mapper                 | `ScheduledTaskProvider` → quarkus-scheduler |
 | Fault Tolerance     | equiv       | Adapt   | `FaultToleranceService` + DTO    | `FaultTolerancePolicyProvider` → SmallRye Fault Tolerance (Jandex-scanned declarations, MicroProfile config overrides, live named-breaker state) |
 | Java Agent          | equiv       | Adapt   | Java agent status service        | Quarkus claims from a `STATIC_INIT` recorder in dev/test; production never claims |
 | Architecture        | equiv       | Adapt   | ArchUnit engine                  | `BasePackageProvider` (rules run unmodified) |
 | REST API            | **done**    | Rebuild | REST conventions engine          | JAX-RS handler-model builder                |
-| Database Connection Pools | **done**    | Rebuild | Pool model                       | `DataSourcePoolProvider` → Agroal           |
-| SQL Trace           | **done**    | Rebuild | SQL trace model                  | `SqlTraceSource` → Agroal/JDBC              |
-| Live Activity       | **done**    | Rebuild | Activity model                   | `RequestCaptureSource` → Vert.x; request-id and OTel trace-id correlation + reduced profile drill-down; optional JDBC persistence backend via `QuarkusActivityCapture` (unconditional producers, identical to Spring); Kafka and RabbitMQ messaging capture via SmallRye `Outgoing`/`IncomingInterceptor` feeding the shared transport recorders; captured email (`MAIL`) reuses the shared `EmailCaptureService` directly, no separate capture needed |
-| HTTP Exchanges      | **done**    | Rebuild | Exchange model                   | `HttpExchangeProvider` → Vert.x             |
+| Database Connection Pools | **done**    | Rebuild | Pool model                       | `ConnectionPoolProvider` → Agroal           |
+| SQL Trace           | **done**    | Rebuild | `SqlTraceRecorder`               | Agroal/JDBC wrapper plus Hibernate statement inspector |
+| Live Activity       | **done**    | Rebuild | Journal + activity model         | Vert.x request capture; exact request-id and optional OTel trace-id correlation; journal-first feed, buffer fallback, optional JDBC persistence through `QuarkusActivityCapture`; shared messaging/mail recorders |
+| HTTP Exchanges      | **done**    | Rebuild | `HttpExchangeBuffer`             | Vert.x HTTP capture filter                  |
 | Exceptions          | **done**    | Rebuild | Exception model                   | log handler + Vert.x failure handler + `PreExceptionMapperHandlerBuildItem` |
-| Security Logs       | **done**    | Rebuild | Audit model                      | `AuditEventProvider` → CDI events           |
-| Log Tail            | **done**    | Rebuild | Log tail model                   | `LogCaptureSource` → JBoss LogManager       |
+| Security Logs       | **done**    | Rebuild | `SecurityEventBuffer`            | CDI security-event observer                 |
+| Log Tail            | **done**    | Rebuild | `LogTailBuffer`                  | JBoss LogManager handler                    |
 | Email               | **done**    | Rebuild | Email capture service            | CDI `@Observes SentMail` observer → quarkus-mailer |
 | Kafka               | **done**    | Rebuild | `KafkaActivityRecorder`          | SmallRye `Outgoing`/`IncomingInterceptor` (`Capability.KAFKA`-gated); same recorder as Live Activity |
 | RabbitMQ            | **done**    | Rebuild | `RabbitActivityRecorder`         | SmallRye `Outgoing`/`IncomingInterceptor` (`quarkus-messaging-rabbitmq` class-presence-gated); same recorder as Live Activity |
@@ -824,7 +831,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | WebSockets          | **done**    | Rebuild | `WebSocketService`               | Build-time Jandex capture of `@WebSocket` endpoints into a synthetic `QuarkusWebSockets` bean plus live `OpenConnections`/`@Open`/`@Closed` session tracking (`quarkus-websockets-next` class-presence-gated, absent-extension type exclusion); metadata only — no message-interception SPI, so no frame capture |
 | Spring              | **done**    | Replace | Scanning engine                  | new `Quarkus` advisor ruleset               |
 | Cache               | **done**    | Replace | Cache model                      | `CacheProvider` → quarkus-cache             |
-| Beans               | **done**    | Adapt   | Beans service                    | `BeanProvider` → Arc (build-time; low fidelity) |
+| Beans               | **done**    | Adapt   | Beans service                    | `BeanProvider` → live Arc inventory plus captured injection edges; no defining resources or Spring Conditions |
 | Profile Diff        | **done**    | Adapt   | Config service                   | `ConfigProvider` → SmallRye profiles        |
 | Security            | **done**    | Replace | Quarkus security ruleset         | Quarkus-native checks (OIDC/auth/TLS/CORS/annotations); see QUARKUS-CHECKS.md |
 | GraalVM             | **done**    | Drop    | —                                | Quarkus native-first; `NOT_APPLICABLE`      |
