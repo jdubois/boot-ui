@@ -2,10 +2,36 @@
 import {expect, test} from '../tests/fixtures.js'
 
 /**
+ * @param {string} url
+ * @param {string} route
+ */
+function matchesCodePathsRoute(url, route) {
+  const destination = new URL(new URL(url, 'http://localhost').hash.slice(1), 'http://localhost')
+  return destination.pathname === '/code-paths' && destination.searchParams.get('route') === route
+}
+
+/**
  * Runtime Insights on WebFlux (docs/PLAN-v2.md §5.5). WebFlux marks no request phases, so a route's breakdown names its
  * time around the calls as unattributed, and the observations needing a phase or a servlet say why they do not apply.
  */
 test.describe('Runtime Insights on Spring WebFlux', () => {
+  test('decodes Code Paths route identity independently of query encoding', () => {
+    const route = 'GET /api/greetings/{name}'
+    for (const query of ['GET+/api/greetings/{name}', 'GET+%2Fapi%2Fgreetings%2F%7Bname%7D']) {
+      expect(matchesCodePathsRoute(`#/code-paths?route=${query}`, route)).toBe(true)
+    }
+    const reservedRoute = 'GET /api/greetings/{name}?label=A+B&C=#fragment%25'
+    expect(
+      matchesCodePathsRoute(
+        `http://localhost/bootui/#/code-paths?route=${encodeURIComponent(reservedRoute)}`,
+        reservedRoute
+      )
+    ).toBe(true)
+    expect(matchesCodePathsRoute(`#/runtime-insights?route=${encodeURIComponent(route)}`, route)).toBe(false)
+    expect(matchesCodePathsRoute('#/code-paths?route=GET+/api/greetings/other', route)).toBe(false)
+    expect(matchesCodePathsRoute('#/code-paths', route)).toBe(false)
+  })
+
   test('lists a route time breakdown and the checks that do not apply on WebFlux', async ({
     page,
     request,
@@ -31,7 +57,12 @@ test.describe('Runtime Insights on Spring WebFlux', () => {
     await expect(deepDives.getByRole('heading', {name: 'Performance deep dives'})).toBeVisible()
     const codePathsLink = deepDives.getByRole('link', {name: /Open GET .* in Code Paths/})
     if (agentAttached) {
-      await expect(codePathsLink).toHaveAttribute('href', /#\/code-paths\?route=GET\+\/api\/greetings\/%7Bname%7D$/)
+      await expect
+        .poll(async () => {
+          const href = await codePathsLink.getAttribute('href')
+          return href !== null && matchesCodePathsRoute(href, 'GET /api/greetings/{name}')
+        })
+        .toBe(true)
     } else {
       await expect(codePathsLink).toHaveCount(0)
       await expect(deepDives.locator('.insight-agent-tip')).toContainText('method-level timing')
@@ -49,7 +80,7 @@ test.describe('Runtime Insights on Spring WebFlux', () => {
     await page.getByRole('tab', {name: /^Findings/}).click()
     if (agentAttached) {
       await codePathsLink.click()
-      await expect(page).toHaveURL(/#\/code-paths\?route=GET\+\/api\/greetings\/%7Bname%7D$/)
+      await expect(page).toHaveURL((url) => matchesCodePathsRoute(url.href, 'GET /api/greetings/{name}'))
       await expect(page.locator('.code-paths-route', {hasText: 'GET /api/greetings/{name}'})).toHaveAttribute(
         'aria-expanded',
         'true'
