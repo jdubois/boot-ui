@@ -100,6 +100,17 @@ require_literal '-pl .,bootui-core,bootui-engine,bootui-spring-autoconfigure,boo
   'publication-only Maven reactor'
 require_literal 'bootui-cli/${VERSION}/bootui-cli-${VERSION}-all.jar' \
   'runnable CLI uber-jar availability check'
+require_literal 'const path = "plugins/bootui/plugin.json";' 'portable plugin manifest path'
+require_literal 'plugin.version = process.argv[1];' 'portable plugin release version update'
+require_literal 'fs.writeFileSync(path, JSON.stringify(plugin, null, 2) + "\n");' \
+  'portable plugin release version write'
+require_literal 'fs.readFileSync("plugins/bootui/plugin.json", "utf8")' \
+  'portable plugin immutable version read'
+require_literal 'if (plugin.version !== process.argv[1]) {' 'portable plugin release version verification'
+require_literal 'python3 .github/scripts/assemble_central_bundle.py "$LOCAL_REPO" "$VERSION" target/central-bundle.zip' \
+  'Central bundle assembled from the installed release'
+require_literal 'python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip' \
+  'Central Portal bundle upload'
 require_literal 'create_spring_smoke_project "$MVC_SMOKE_DIR" "bootui-spring-boot-starter" "8080"' \
   'standalone Spring MVC consumer smoke project'
 require_literal 'create_spring_smoke_project "$WEBFLUX_SMOKE_DIR" "bootui-spring-boot-starter-reactive" "8081"' \
@@ -125,6 +136,17 @@ availability_step="$(
 readonly availability_step
 if grep -Fq 'bootui-agent-bridge/' <<<"$availability_step"; then
   report_error 'bootui-agent-bridge is never published and must not be polled on Maven Central'
+fi
+
+# Under Maven 3.10, central-publishing-maven-plugin stages POM-less resolver bookkeeping that Central
+# rejects, so publication installs the release and uploads a bundle assembled from it instead.
+publish_step="$(
+  sed -n '/- name: Publish to Maven Central/,/- name: Wait for Maven Central availability/p' "$WORKFLOW" |
+    sed -e ':join' -e '/\\$/N' -e 's/\\\n[[:space:]]*/ /' -e 't join'
+)"
+readonly publish_step
+if grep -Eq 'mvnw[^#]* deploy( |$)' <<<"$publish_step"; then
+  report_error 'Maven Central publication must upload the assembled bundle, not run the Maven deploy phase'
 fi
 
 excluded_artifacts="$(
@@ -176,6 +198,14 @@ require_order '- name: Check release workflow integrity' '- name: Set up JDK 17'
   'release integrity must be checked before importing signing credentials or preparing a version'
 require_order './mvnw -B -ntp -Prelease clean verify' 'git commit -m "Release $TAG"' \
   'release verification must happen before the release commit'
+require_order './mvnw -B -ntp versions:set' 'plugin.version = process.argv[1];' \
+  'the portable plugin version must be updated after release version validation'
+require_order 'fs.writeFileSync(path, JSON.stringify(plugin, null, 2) + "\n");' './mvnw -B -ntp -Prelease clean verify' \
+  'the portable plugin version must be written before release verification and sealing'
+require_order '- name: Checkout immutable release' 'if (plugin.version !== process.argv[1]) {' \
+  'the portable plugin version must be read from the immutable release checkout'
+require_order 'if (plugin.version !== process.argv[1]) {' '- name: Publish to Maven Central' \
+  'the portable plugin version must be verified before publication'
 require_order 'REMOTE_SOURCE_SHA=' 'git tag -s "$TAG"' \
   'the source branch advancement guard must run before tag creation'
 require_order 'git commit -m "Release $TAG"' 'git tag -s "$TAG"' \
@@ -188,6 +218,8 @@ require_order '- name: Resolve immutable release' '- name: Checkout immutable re
   'the signed tag must be resolved before checking out the publication SHA'
 require_order '- name: Checkout immutable release' '- name: Publish to Maven Central' \
   'the immutable release SHA must be checked out before Maven Central publication'
+require_order 'python3 .github/scripts/assemble_central_bundle.py' 'python3 .github/scripts/publish_central_bundle.py' \
+  'the Central bundle must be assembled before it is uploaded'
 require_order '- name: Publish to Maven Central' '- name: Wait for Maven Central availability' \
   'Maven Central availability polling must follow publication'
 require_order '- name: Wait for Maven Central availability' '- name: Smoke test published distributions' \

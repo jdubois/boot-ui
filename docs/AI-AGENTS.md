@@ -4,7 +4,8 @@ BootUI can expose its advisor findings and runtime diagnostics to a local AI cod
 your running application before proposing a fix and verify the fix afterwards. It works with GitHub Copilot, Claude
 Code, and any other client that speaks the [Model Context Protocol](https://modelcontextprotocol.io) (MCP).
 
-This page covers installing the agent [skill](#install-the-bootui-agent-skill) or the
+This page covers installing the agent [skill](#install-the-bootui-agent-skill), the
+[Cursor plugin](#install-the-bootui-cursor-plugin), or the
 [Claude Code plugin](#install-the-bootui-claude-code-plugin), connecting an agent to the MCP server, choosing between
 that and the [CLI](CLI.md), a worked example that fixes Hibernate findings, and how BootUI pairs with
 [Coffilot](https://www.julien-dubois.com/coffilot/).
@@ -61,30 +62,61 @@ application from the [command line](CLI.md) or the
 [MCP server](#connect-an-agent-to-the-bootui-mcp-server), turn advisor findings into focused fixes, and verify
 those fixes.
 
-With GitHub CLI 2.90 or later, inspect the skill before installing it:
+Install the canonical skill in any [Agent Skills](https://agentskills.io)-compatible coding agent:
 
 ```bash
-gh skill preview jdubois/boot-ui bootui
+npx skills add https://github.com/jdubois/boot-ui/tree/main/skills/bootui
+```
+
+The interactive installer detects supported agents and lets you select where to install the skill. Like any
+third-party skill, review its instructions before installation.
+
+With GitHub CLI 2.90 or later, GitHub Copilot users can inspect the skill before installing it:
+
+```bash
+gh skill preview jdubois/boot-ui skills/bootui
 ```
 
 Then install it for the current project:
 
 ```bash
-gh skill install jdubois/boot-ui bootui
+gh skill install jdubois/boot-ui skills/bootui
 ```
 
 The skill works with Copilot cloud agent, Copilot CLI, the GitHub Copilot app, Copilot code review, and agent mode in
-supported IDEs. Like any third-party skill, review its instructions before installation. You can also copy
-`skills/bootui` into a project's `.github/skills` directory manually.
+supported IDEs. You can also copy `skills/bootui` into a project's `.github/skills` directory manually.
 
-Agents that read skills from a project directory rather than from GitHub can install the same skill with:
+Cursor and Claude Code users should prefer their plugin, which installs this skill and wires up the MCP server in one
+step.
 
-```bash
-npx skills add jdubois/boot-ui
-```
+Repository-wide skill searches may show both `skills/bootui` and `plugins/bootui/skills/bootui`. Install
+`skills/bootui`: it is the canonical consumer skill. The second result is an identical copy kept inside the portable
+plugin because plugin clients install a self-contained directory and cannot follow a reference to the canonical file
+outside it. A build test prevents the two copies from drifting.
 
-Claude Code users should prefer the [plugin](#install-the-bootui-claude-code-plugin), which installs this skill and
-wires up the MCP server in one step.
+## Install the BootUI Cursor plugin
+
+BootUI ships an [Agent Plugins](https://agent-plugins.org) payload that Cursor loads as a plugin. It bundles the same
+agent skill and registers the local MCP endpoint, so it is the preferred Cursor setup once the plugin is available in
+the Cursor Marketplace:
+
+1. Open **Customize** in Cursor.
+2. Find **BootUI**, select **Install**, and choose user or project scope.
+3. Confirm that the `bootui` skill and MCP server appear.
+
+BootUI must already be running in your application, and its MCP server must be enabled with
+`bootui.mcp.enabled=ON` or from `/bootui/#/mcp-server`. The bundled connection points at
+`http://127.0.0.1:8080/bootui/api/mcp`.
+
+If the application uses another port or a custom [`bootui.api-path`](PROPERTIES.md), disable the bundled BootUI MCP
+server in **Customize** and use the manual `~/.cursor/mcp.json` entry below with the correct URL. Do the same for an
+application reached from a container or another host, adding its `Authorization` bearer token to your local
+configuration. Agent Plugins does not expand environment variables in remote URLs, and the portable plugin deliberately
+ships no credentials.
+
+Agent Plugins names BootUI's transport `streamable-http`; Claude Code and VS Code call the same transport `http`, while
+Cursor's personal MCP configuration omits the type. This is only client vocabulary: BootUI has always accepted
+JSON-RPC over Streamable HTTP at `POST /bootui/api/mcp`.
 
 ## Install the BootUI Claude Code plugin
 
@@ -155,7 +187,8 @@ explicitly enabled, which requires authentication.
    claude mcp add --transport http bootui http://127.0.0.1:8080/bootui/api/mcp
    ```
 
-   Cursor (`~/.cursor/mcp.json`) keys a remote server on `url` and takes no `type`:
+   Cursor users should prefer the [plugin](#install-the-bootui-cursor-plugin). For a manual setup or an endpoint that
+   differs from the plugin default, `~/.cursor/mcp.json` keys a remote server on `url` and takes no `type`:
 
    ```json
    {

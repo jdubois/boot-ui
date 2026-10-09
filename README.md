@@ -4,10 +4,9 @@
 [![CodeQL](https://github.com/jdubois/boot-ui/actions/workflows/codeql.yml/badge.svg)](https://github.com/jdubois/boot-ui/actions/workflows/codeql.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.x-6db33f?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
-[![Quarkus](https://img.shields.io/badge/Quarkus-3.33_LTS-4695EB?logo=quarkus&logoColor=white)](https://quarkus.io/)
-[![Java](https://img.shields.io/badge/Java-17-orange?logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/17/)
+[![Quarkus](https://img.shields.io/badge/Quarkus-3.40.1_LTS-4695EB?logo=quarkus&logoColor=white)](https://quarkus.io/)
 
-BootUI adds an embedded, local-only developer console to your application. It runs on **Spring Boot 4** (servlet or
+BootUI adds an embedded, local-only developer console to your application. It runs on **Spring Boot** (servlet or
 WebFlux) and **Quarkus**, serving the same Vue UI and REST contract (`/bootui` and `/bootui/api/**` by default,
 configurable with `bootui.path` / `bootui.api-path`) from a shared,
 framework-neutral engine — add the matching Spring Boot starter or the Quarkus extension and BootUI activates only in
@@ -31,11 +30,27 @@ Read the documentation at <https://www.julien-dubois.com/boot-ui/>.
 ## Use with AI agents
 
 BootUI exposes a local, opt-in [Model Context Protocol](https://modelcontextprotocol.io) server so AI coding agents
-(GitHub Copilot, Claude Code, …) can run its advisors and read runtime diagnostics while fixing your code. Install the
-agent skill with `gh skill install jdubois/boot-ui bootui`, or, in Claude Code, add this repository as a plugin
-marketplace with `/plugin marketplace add jdubois/boot-ui` to get the skill and the MCP server in one step. It also pairs
-with [Coffilot](https://github.com/jdubois/coffilot), a GitHub Copilot canvas extension that builds, runs, and scans your
-app from the GitHub Copilot App's side panel. See the [AI agents guide](https://www.julien-dubois.com/boot-ui/ai-agents).
+(GitHub Copilot, Claude Code, …) can run its advisors and read runtime diagnostics while fixing your code.
+
+Install the BootUI skill in any [Agent Skills](https://agentskills.io)-compatible coding agent:
+
+```bash
+npx skills add https://github.com/jdubois/boot-ui/tree/main/skills/bootui
+```
+
+The interactive installer detects supported agents and installs the canonical consumer skill. Native integrations are
+also available:
+
+| Agent | Native installation |
+| ----- | ------------------- |
+| GitHub Copilot | `gh skill install jdubois/boot-ui skills/bootui` |
+| Claude Code | `/plugin marketplace add jdubois/boot-ui`, then `/plugin install bootui@bootui` |
+| Cursor | Find **BootUI** on [Cursor Directory](https://cursor.directory/plugins/bootui) |
+
+The Cursor and Claude Code plugins install the skill and configure the MCP server together. BootUI also pairs with
+[Coffilot](https://github.com/jdubois/coffilot), a GitHub Copilot canvas extension that builds, runs, and scans your
+app from the GitHub Copilot App's side panel. See the [AI agents guide](https://www.julien-dubois.com/boot-ui/ai-agents)
+for preview, configuration, and safety details.
 
 ## Use from a terminal
 

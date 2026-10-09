@@ -7,6 +7,34 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-10-08
+
+BootUI 1.21.0 makes agent setup easier with a portable plugin for Cursor and other compatible clients, a canonical
+cross-agent skill installer, and refreshed Quarkus LTS support.
+
+### Added
+
+- **Portable agent plugin and Copilot cloud setup.** Cursor and other Agent Plugins clients can install the BootUI skill
+  and local MCP connection together, while repository sessions gain ready-to-use Copilot cloud setup
+  ([#1341](https://github.com/jdubois/boot-ui/pull/1341),
+  [#1293](https://github.com/jdubois/boot-ui/pull/1293)).
+
+### Changed
+
+- **Simpler skill installation and discovery.** The cross-agent installer is now the primary path, GitHub Copilot uses
+  the canonical skill directory, and Agent Finder is documented as the main discovery channel
+  ([#1348](https://github.com/jdubois/boot-ui/pull/1348),
+  [#1338](https://github.com/jdubois/boot-ui/pull/1338),
+  [#1333](https://github.com/jdubois/boot-ui/pull/1333)).
+- **Quarkus 3.40.1 LTS.** The compatibility platform moves to the latest LTS micro release
+  ([#1324](https://github.com/jdubois/boot-ui/pull/1324)).
+
+### Fixed
+
+- **Quarkus LTS compatibility.** The extension accepts Quarkus 3.33 LTS again, and REST client registration stays
+  compatible with it while supporting the newer 3.40 service-provider path
+  ([#1335](https://github.com/jdubois/boot-ui/pull/1335), [#1368](https://github.com/jdubois/boot-ui/pull/1368)).
+
 ## [1.20.0] - 2026-10-05
 
 BootUI 1.20.0 makes request evidence easier to hand to agents and easier to trust in the UI. It adds richer request

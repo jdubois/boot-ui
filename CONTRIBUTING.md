@@ -523,19 +523,28 @@ regenerated.
 
 ## Publishing
 
-Maven Central publication uses the `release` Maven profile:
+Maven Central publication uses the `release` Maven profile, which attaches source JARs
+and an empty placeholder Javadoc JAR (Maven Central requires the file but not its
+content; BootUI's public surface is its HTTP, MCP, and CLI contract rather than a
+Java API) and signs artifacts with GPG. The **Release** workflow installs the
+publication reactor with that profile, assembles the Central bundle from the
+installed, signed files with `.github/scripts/assemble_central_bundle.py`, and
+uploads it through the Central Portal Publisher API with
+`.github/scripts/publish_central_bundle.py`, which reads the Portal user token from
+`MAVEN_CENTRAL_USERNAME` and `MAVEN_CENTRAL_PASSWORD`:
 
 ```bash
-./mvnw -B -ntp -Prelease clean deploy
+./mvnw -B -ntp -Prelease clean install -pl <publication reactor> -am
+python3 .github/scripts/assemble_central_bundle.py ~/.m2/repository VERSION target/central-bundle.zip
+python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip bootui-VERSION true
 ```
 
-The release profile attaches source JARs and an empty placeholder Javadoc JAR
-(Maven Central requires the file but not its content; BootUI's public surface is
-its HTTP, MCP, and CLI contract rather than a Java API), signs artifacts with GPG,
-and publishes through the Sonatype Central Publishing plugin using the `central`
-server from `~/.m2/settings.xml`. The sample app is not deployed. By default,
-Central uploads are published automatically; set `-Dcentral.autoPublish=false`
-to stage for manual publishing instead.
+It does not run `deploy` through the Sonatype Central Publishing plugin: under
+Maven 3.10 that plugin stages resolver bookkeeping (`maven-metadata-local.xml`) in
+directories without a POM, and Central rejects the bundle. The sample app is not
+published. Uploads are published automatically by default; pass `false` as the last
+argument (the workflow's `auto_publish` input) to stop at validation for a manual
+publish in the Central Portal.
 
 To prepare and publish a release, run the **Release** GitHub Actions workflow
 from `main`, or from an older major's maintenance branch such as `1.x` (no other

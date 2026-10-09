@@ -3,7 +3,7 @@
 ## 1. Overview
 
 BootUI is a **local-only developer console** that adds an embedded, safe introspection and explanation layer to a
-running application. It runs on **Spring Boot 4 (servlet or WebFlux) and Quarkus** from a single codebase: each stack
+running application. It runs on **Spring Boot (servlet or WebFlux) and Quarkus** from a single codebase: each stack
 ships a thin adapter — a Spring Boot starter (`bootui-spring-boot-starter` for servlet, `bootui-spring-boot-starter-reactive`
 for WebFlux) or a Quarkus extension — over a shared, framework-neutral engine, so all three serve the
 **same Vue UI** and the **same `/bootui/api/**` REST contract**. It is inspired by Quarkus Dev UI, .NET Aspire Dashboard,
@@ -22,6 +22,9 @@ button to run IntelliJ's selected run configuration. Dependency installation doe
 reload the build, or start the application; build edits are undoable and require explicit confirmation.
 It neither runs scanners nor sends data to an AI provider. It is not a published Marketplace plugin or part of the
 1.x runtime release.
+
+Product descriptions, taglines, and directory listings use "Spring Boot and Quarkus" without version numbers.
+Explicit versions belong in compatibility requirements, dependency baselines, migration guidance, and historical notes.
 
 ## 1.1 Target platform
 
@@ -97,7 +100,7 @@ BootUI activates only in development contexts.
 
 Default activation rules:
 
-- Enabled when the `bootui-spring-boot-starter` dependency is present in a Spring Boot 4 application and at least one of
+- Enabled when the `bootui-spring-boot-starter` dependency is present in a Spring Boot application and at least one of
   these is true:
   - `spring-boot-devtools` is present.
   - Active profile is `dev` or `local`.
@@ -143,7 +146,7 @@ Cloud Config apps still start. It can be disabled with `bootui.force-web=false`.
 
 ### 4.2 URL
 
-Default UI URL inside the host Spring Boot 4 application:
+Default UI URL inside the host Spring Boot application:
 
 ```text
 http://localhost:${server.port}/bootui

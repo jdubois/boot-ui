@@ -7,7 +7,7 @@
     <parent>
         <groupId>com.julien-dubois.bootui</groupId>
         <artifactId>bootui-quarkus-parent</artifactId>
-        <version>1.20.0</version>
+        <version>1.21.0</version>
         <relativePath>../bootui-quarkus-parent/pom.xml</relativePath>
     </parent>
 
@@ -359,6 +359,9 @@
                         </goals>
                         <configuration>
                             <deployment>${project.groupId}:bootui-quarkus-deployment:${project.version}</deployment>
+                            <!-- The plugin's default is the build platform's own minor, which would make Quarkus refuse the
+                                 extension on the older LTS line it supports (docs/setup/quarkus.md). -->
+                            <requiresQuarkusCore>[3.33,)</requiresQuarkusCore>
                         </configuration>
                     </execution>
                 </executions>

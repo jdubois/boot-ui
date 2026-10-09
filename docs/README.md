@@ -1,7 +1,7 @@
 ---
 home: true
 heroText: BootUI
-tagline: A local-only developer console for Spring Boot 4 and Quarkus applications.
+tagline: A local-only developer console for Spring Boot and Quarkus applications.
 actions:
   - text: Explore features
     link: /features
@@ -46,18 +46,38 @@ showcaseVideo: true
 | Goal | Documentation |
 | ---- | ------------- |
 | Run the full demo locally | [Try the sample app](TRY-SAMPLE-APP.md) |
-| Add BootUI to a Spring Boot 4 or Quarkus app | [Setup](SETUP.md) |
+| Add BootUI to a Spring Boot or Quarkus app | [Setup](SETUP.md) |
 | Explore every panel | [Features](features/README.md) |
 | Configure activation, safety, panels, and actions | [Properties](PROPERTIES.md) |
 | Drive BootUI from an AI coding agent | [AI agents](AI-AGENTS.md) |
 | Ask a running application from a terminal or CI | [Command line](CLI.md) |
+
+## Install the BootUI agent skill
+
+Give your coding agent BootUI's installation, runtime-diagnostics, advisor, and safety guidance:
+
+```bash
+npx skills add https://github.com/jdubois/boot-ui/tree/main/skills/bootui
+```
+
+The interactive installer detects Agent Skills-compatible coding agents and installs the canonical BootUI skill.
+Native integrations are also available:
+
+| Agent | Native installation |
+| ---- | ------- |
+| GitHub Copilot | `gh skill install jdubois/boot-ui skills/bootui` |
+| Claude Code | `/plugin marketplace add jdubois/boot-ui`, then `/plugin install bootui@bootui` |
+| Cursor | Find **BootUI** on [Cursor Directory](https://cursor.directory/plugins/bootui) |
+
+The Cursor and Claude Code plugins also configure BootUI's local MCP server. Read [AI agents](AI-AGENTS.md) to preview
+the skill, connect another MCP client, or configure a non-default application port.
 
 ## How BootUI works
 
 Your application serves the console at `/bootui/` and its JSON API at `/bootui/api/**`. The Vue UI is packaged inside
 the jar, so your build needs no Node.js and no npm.
 
-The same console runs on Spring Boot 4 (servlet or WebFlux) and on Quarkus. A shared, framework-neutral engine serves
+The same console runs on Spring Boot (servlet or WebFlux) and on Quarkus. A shared, framework-neutral engine serves
 an identical REST contract on all three.
 
 BootUI is a development tool and stays one by default. It activates only in development, rejects non-loopback callers,

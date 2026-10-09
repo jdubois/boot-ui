@@ -6,7 +6,7 @@
 
     <groupId>com.julien-dubois.bootui</groupId>
     <artifactId>bootui-parent</artifactId>
-    <version>1.20.0</version>
+    <version>1.21.0</version>
     <packaging>pom</packaging>
 
     <name>BootUI Parent</name>
@@ -71,7 +71,7 @@
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <spring-boot.version>4.1.1</spring-boot.version>
         <!-- Latest Quarkus LTS, shared by the extension, integration tests, and sample app. -->
-        <quarkus.platform.version>3.33.3.3</quarkus.platform.version>
+        <quarkus.platform.version>3.40.1</quarkus.platform.version>
         <!-- Neither Resilience4j nor Spring Retry is managed by the Spring Boot 4.1 BOM, so both are
              pinned here and shared by the optional autoconfigure dependencies and the sample apps. -->
         <resilience4j.version>2.4.0</resilience4j.version>
@@ -79,14 +79,16 @@
         <!-- testcontainers version is managed by the Spring Boot BOM (2.0.x) -->
         <!-- opentelemetry-proto remains on -alpha as the upstream project does not publish stable releases yet -->
         <opentelemetry-proto.version>1.10.0-alpha</opentelemetry-proto.version>
-        <!-- Flyway 12.x has only verified H2 through 2.3.232; keep migration-backed samples on that version. -->
-        <flyway-verified-h2.version>2.3.232</flyway-verified-h2.version>
+        <!-- H2 for the migration-backed sample and integration modules. Flyway 12.x verifies H2 only through
+             2.3.232 and logs an advisory warning on newer releases, but 2.5.252 is validated here: the Spring MVC,
+             WebFlux, and Quarkus migration suites all apply their migrations and assert the Flyway panel contract. -->
+        <sample-h2.version>2.5.252</sample-h2.version>
         <frontend-maven-plugin.version>2.0.2</frontend-maven-plugin.version>
         <central-publishing-maven-plugin.version>0.11.0</central-publishing-maven-plugin.version>
         <cyclonedx-maven-plugin.version>2.9.3</cyclonedx-maven-plugin.version>
         <native-build-tools-plugin.version>1.1.14</native-build-tools-plugin.version>
         <picocli.version>4.7.7</picocli.version>
-        <archunit.version>1.5.0</archunit.version>
+        <archunit.version>1.5.1</archunit.version>
         <!-- Test-scope only: compiles the engine's Kotlin advisor fixtures. No BootUI module ships Kotlin. -->
         <kotlin.version>2.4.10</kotlin.version>
         <!-- Compile Kotlin in-process: with a per-worktree .m2 every build gets a differently-classpathed daemon that is
@@ -102,7 +104,7 @@
         <maven-shade-plugin.version>3.6.2</maven-shade-plugin.version>
         <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
         <palantir-java-format.version>2.94.0</palantir-java-format.version>
-        <spotless-maven-plugin.version>3.10.2</spotless-maven-plugin.version>
+        <spotless-maven-plugin.version>3.10.3</spotless-maven-plugin.version>
         <node.version>v24.18.0</node.version>
         <npm.version>11.17.0</npm.version>
         <frontend.test.command>run test</frontend.test.command>

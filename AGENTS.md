@@ -1,11 +1,14 @@
 # BootUI repository instructions
 
-BootUI is a local-only developer console delivered from one codebase through three request stacks: Spring Boot 4 MVC,
-Spring Boot 4 WebFlux, and Quarkus. All three serve the same Vue UI and stable JSON contract through a
+BootUI is a local-only developer console delivered from one codebase through three request stacks: Spring Boot MVC,
+Spring Boot WebFlux, and Quarkus. All three serve the same Vue UI and stable JSON contract through a
 framework-neutral engine. The same diagnostics are reachable without a browser through MCP tools and the published
 `bootui-cli` command-line interface, which builds on the dependency-free `bootui-client`.
 
 ## Authoritative context
+
+- In product descriptions, taglines, and directory listings, say "Spring Boot and Quarkus" without version numbers.
+  Keep explicit versions in compatibility requirements, dependency baselines, migration guidance, and historical notes.
 
 - Read `docs/SPECIFICATION.md`, `docs/PLAN.md`, `docs/features/`, `docs/WEBFLUX-SUPPORT.md`, and
   `docs/QUARKUS-SUPPORT.md` before changing public behavior, panel availability, or visible UI.
@@ -36,6 +39,9 @@ framework-neutral engine. The same diagnostics are reachable without a browser t
 ## Delivery workflow
 
 - Make focused changes and update directly coupled tests and documentation.
+- Before accepting any npm package version, direct or transitive, verify that it has been published on npm for at
+  least seven full days. This supply-chain waiting period also applies to lockfile-only and Dependabot updates;
+  Dependabot's configured cooldown is not sufficient evidence for transitive packages.
 - Use the Maven Wrapper and existing npm scripts. Run the smallest targeted validation that proves the change, then the
   required conformance or browser suite for public cross-adapter or UI behavior.
 - Before committing or publishing a PR, format touched areas and pass the corresponding checks:

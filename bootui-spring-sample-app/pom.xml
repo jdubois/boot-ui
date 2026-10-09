@@ -7,7 +7,7 @@
     <parent>
         <groupId>com.julien-dubois.bootui</groupId>
         <artifactId>bootui-parent</artifactId>
-        <version>1.20.0</version>
+        <version>1.21.0</version>
     </parent>
 
     <artifactId>bootui-spring-sample-app</artifactId>
@@ -176,7 +176,7 @@
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
-            <version>${flyway-verified-h2.version}</version>
+            <version>${sample-h2.version}</version>
             <scope>runtime</scope>
         </dependency>
         <dependency>
