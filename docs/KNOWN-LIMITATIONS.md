@@ -108,13 +108,16 @@ application's own code did. See [Java Agent](features/java-agent.md).
 - the Exceptions panel's **Caught in application code** section, with the agent's opt-in `caught-exceptions` sensor;
 - `request-input-in-sink` as opt-in Security sinks rows: request input reaching SQL text, a command, a file path, or
   an outbound URL unchanged, with query and path parameters;
+- the opt-in Security sinks JDK checks: deserialization without a filter, weak algorithms, and trust managers and
+  hostname verifiers; request-value matching now turns on with the side-effect sensors' transformer, so when that
+  transformer fails to install or its self-test fails, matching is off too;
 - agent guidance in the MCP instructions and prompts, and the scripted "did my change run?" agent investigation.
 
 **Planned, may not be in 2.0:**
 
 - caught exceptions as evidence of `errors-behind-2xx`;
-- the rest of security sinks: form values in `request-input-in-sink`, outbound URLs opened through `HttpClient` or
-  `URL.openConnection`, deserialization without a filter, weak algorithms, and trust managers;
+- the rest of security sinks: form values in `request-input-in-sink`, and outbound URLs opened through `HttpClient` or
+  `URL.openConnection`;
 - side effects in change impact, and methods no longer executed on routes exercised in both runs;
 - dynamic access recording.
 

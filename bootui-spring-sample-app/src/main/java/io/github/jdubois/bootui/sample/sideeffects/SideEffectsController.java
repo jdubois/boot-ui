@@ -34,6 +34,7 @@ public class SideEffectsController {
     private final ReportWriter reports;
     private final SampleCatalog catalog;
     private final BenchmarkIo benchmarkIo;
+    private final BenchmarkChecks benchmarkChecks;
 
     public SideEffectsController(
             JavaVersionReporter reporter,
@@ -42,7 +43,8 @@ public class SideEffectsController {
             Environment environment,
             ReportWriter reports,
             SampleCatalog catalog,
-            BenchmarkIo benchmarkIo) {
+            BenchmarkIo benchmarkIo,
+            BenchmarkChecks benchmarkChecks) {
         this.reporter = reporter;
         this.licenses = licenses;
         this.restClients = restClients;
@@ -50,6 +52,7 @@ public class SideEffectsController {
         this.reports = reports;
         this.catalog = catalog;
         this.benchmarkIo = benchmarkIo;
+        this.benchmarkChecks = benchmarkChecks;
     }
 
     /** Writes a report outside the temporary directory and reads a system property (M5-5d's seed). */
@@ -89,6 +92,16 @@ public class SideEffectsController {
             @RequestParam(name = "term", defaultValue = "console") String term,
             @RequestParam(name = "tag", defaultValue = "sample") String tag) {
         benchmarkIo.read();
+        return catalog.searchProducts(term);
+    }
+
+    /**
+     * The agent overhead benchmark's JDK checks route (M5-6b2): the product search plus the security-sinks hooks' fast
+     * paths and one weak path ({@link BenchmarkChecks}).
+     */
+    @GetMapping("/benchmark-checks")
+    public List<ProductSummary> benchmarkChecks(@RequestParam(name = "term", defaultValue = "console") String term) {
+        benchmarkChecks.touch();
         return catalog.searchProducts(term);
     }
 

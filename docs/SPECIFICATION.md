@@ -796,7 +796,9 @@ Data sources:
   and `resources` sensors record by default, and `environment`, `thread-activity`, and `thread-locals` when opted in.
   `security-sinks` records, when opted in with `bootui.agent.security-sinks.request-values=true`, request input
   reaching SQL text, a command, a file path, or an outbound URL unchanged: the redacted sink, the parameter's name, and a
-  sentence stating the fact.
+  sentence stating the fact; opted in alone, its JDK checks record deserialization without an `ObjectInputFilter`,
+  weak `MessageDigest` and `Cipher` algorithms (application and library requests apart), the application's trust
+  managers and known library trust-all trust managers, and default hostname verifiers and SSL socket factories.
 - Each request's end, which the adapters mark once its response is complete (Spring MVC once an async request's
   context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended), for the
   `thread-activity` sensor to check what the request left running and the `resources` sensor what it left open, each

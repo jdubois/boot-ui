@@ -108,6 +108,33 @@ class ActionReferenceTests(unittest.TestCase):
             self.assertIn("generated.lock.yml", result.stderr)
             self.assertIn("Non-allowlisted action", result.stderr)
 
+    def test_shared_matrix_steps_are_checked_at_the_anchor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workflow = Path(directory) / "workflow.yml"
+            for action, expected in (
+                ("actions/checkout@v7", 0),
+                ("actions/github-script@main", 1),
+            ):
+                with self.subTest(action=action):
+                    workflow.write_text(
+                        "jobs:\n"
+                        "  agent-overhead-legs:\n"
+                        "    steps: &agent-overhead-leg-steps\n"
+                        f"      - uses: {action}\n"
+                        "  agent-overhead-extra-legs:\n"
+                        "    steps: *agent-overhead-leg-steps\n",
+                        encoding="utf-8",
+                    )
+                    result = subprocess.run(
+                        ["bash", str(SCRIPT), str(workflow)],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    self.assertEqual(result.returncode, expected, result.stderr)
+                    if expected:
+                        self.assertIn("Non-allowlisted action", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

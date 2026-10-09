@@ -222,7 +222,8 @@ were already framework-neutral in practice, not just in the engine underneath th
     propagation makes a request's context current inside it, so it needs `spring.reactor.context-propagation=auto`, the
     default, and platform threads: with
     `spring.threads.virtual.enabled` on Java 21 and later, `boundedElastic` runs on virtual threads, never scanned. The
-    other sensor groups are listed as not available in this version. The opt-in `security-sinks` sensor's request-value
+    other sensor groups are listed as not available in this version. The opt-in `security-sinks` sensor's JDK checks
+    (deserialization without a filter, weak algorithms, trust managers) record on WebFlux as on Spring MVC; its request-value
     matching (M5-6b1) holds the query parameters WebFlux already parsed and reads the path variables from the exchange
     once its handler mapping set them, at the request's first check; it never subscribes to the form data, so form
     values are not matched on WebFlux. SQL text is not checked with R2DBC, which SQL Trace does not capture; file paths,
