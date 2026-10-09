@@ -27,14 +27,14 @@ BootUI currently targets:
 Maturity is stated honestly: the **Spring Boot servlet adapter is complete** (all panels). The **Spring Boot WebFlux
 adapter** reuses the same engine and serves the large majority of panels unmodified or over a rebuilt reactive capture
 layer, including **Live Activity** (all nine signal types merge identically to the servlet adapter — see
-`docs/WEBFLUX-SUPPORT.md` §6.4), plus the raw Spring Security panel and the WebFlux-native 26-rule Security advisor; the
-raw Spring Security panel, the WebFlux-native 26-rule Security advisor, and REST Client capture over instrumented
-`WebClient` instances; HTTP Sessions is not applicable to a reactive,
-container-session-free stack — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter
-is being built out**, with panels lighting up as the shared engine grows; see `docs/QUARKUS-SUPPORT.md` for the
-current per-platform status.
+`docs/WEBFLUX-SUPPORT.md` §6.4), the raw Spring Security panel, the WebFlux-native 26-rule Security advisor, and REST
+Client capture over instrumented `WebClient` instances; HTTP Sessions is not applicable to a reactive,
+container-session-free stack — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter**
+serves most panels over the same engine; panels with no Quarkus equivalent (such as Conditions, Startup Timeline, Spring
+Data, Spring Security, Spring DevTools, GraalVM, and CRaC) are reported not applicable and JMS is not yet available — see
+`docs/QUARKUS-SUPPORT.md` for the current per-panel status.
 
-Out of scope for the current 1.x line:
+Out of scope for the current release line:
 
 - Spring Boot 3.x compatibility.
 - Spring Framework 6 / Boot 3 compatibility shims.
@@ -124,11 +124,13 @@ When BootUI is active, the starter should contribute low-precedence Actuator def
 `beans`, `conditions`, `configprops`, `env`, `loggers`, `mappings`, `metrics`, `startup`, and `scheduledtasks`. Host
 applications can override those `management.*` settings explicitly.
 
-BootUI's panels are served by Spring MVC and require a servlet web application. Because the starter ships Spring MVC and
-an embedded servlet container, BootUI also supports non-web (command-line) applications: when BootUI is active and the
-host is configured as non-web (`spring.main.web-application-type=none`), the starter forces a servlet web application so
-the console can be served. This only happens while BootUI is active (development contexts by default), never overrides an
-explicitly reactive application, never runs without an embedded servlet container on the classpath, and never touches
+On Spring, BootUI's panels are served by the application's own Spring MVC or Spring WebFlux stack; the starter brings
+neither. BootUI also supports non-web (command-line) applications that have Spring MVC and an embedded servlet container
+on the classpath: when BootUI is active and the host is configured as non-web
+(`spring.main.web-application-type=none`), the starter forces a servlet web application so the console can be served.
+This only happens while BootUI is active (development contexts by default), never overrides an explicitly reactive
+application, never runs without Spring MVC's `DispatcherServlet` and an embedded servlet container (Tomcat, Jetty, or
+Undertow) on the classpath, and never touches
 Spring Cloud's transient non-web bootstrap context (detected via its `"bootstrap"` marker property source) so Spring
 Cloud Config apps still start. It can be disabled with `bootui.force-web=false`.
 
@@ -231,7 +233,7 @@ BootUI is available at http://localhost:8080/bootui
 On Spring the scheme follows `server.ssl.enabled`: when TLS is enabled the banner uses
 `https://` instead of `http://`. The port and context path are resolved from
 `local.server.port` (falling back to `server.port`, then `8080`) and
-`server.servlet.context-path`.
+`server.servlet.context-path` (`spring.webflux.base-path` on WebFlux), followed by the normalized `bootui.path`.
 
 The Quarkus adapter logs the same line at startup, gated by the same `bootui.show-banner`
 key. Because the console is a local developer tool there, the Quarkus banner always uses
@@ -257,8 +259,9 @@ The first screen should show:
 ### 4.5 Expensive action admission
 
 Explicit expensive scans use one framework-neutral single-flight admission per scanner/service instance. Architecture,
-REST API, Spring/Quarkus application, Hibernate, Memory, Security, Pentesting, GraalVM, CRaC, and Vulnerabilities/OSV
-scans are protected independently; unrelated scanners can still run concurrently. Heap Dump capture, analysis, and
+REST API, Spring/Quarkus application, Database, Hibernate, Memory, Security, Pentesting, GraalVM, CRaC, and
+Vulnerabilities/OSV scans, and the PostgreSQL and MySQL reads, are protected independently; unrelated scanners can still
+run concurrently. Heap Dump capture, analysis, and
 delete share one admission because they operate on the same files, histogram, and status.
 
 A duplicate request never waits or repeats the work. MVC, WebFlux, and Quarkus return `409 Conflict` with the same JSON
@@ -575,17 +578,11 @@ Features:
 - Show configured level and effective level.
 - Set level at runtime.
 - Clear configured level.
-- Preset common packages:
-  - application base package.
-  - `org.springframework`.
-  - `org.springframework.web`.
-  - `org.springframework.security`.
-  - `org.hibernate.SQL`.
 
 Acceptance criteria:
 
 - Runtime level changes work when Actuator supports them.
-- UI clearly states changes are runtime-only and not persisted.
+- Level changes apply at runtime only and are not persisted.
 
 ### 5.7.1 Spring DevTools Controls
 
@@ -634,6 +631,9 @@ Features:
 - Show each installed `executors` or opt-in `threads` sensor's state, hooks, self-test, transformed types, and
   counters. When none is installed, say: "No sensor installed: the agent installs the sensors this application asks for
   when it claims the agent (bootui.agent.sensors)."
+- While the state is `NOT_ATTACHED`, open on the setup snippets with the steps to attach the agent, followed by what a
+  Java agent is, which features need it, what works without it, and its cost; leave out the sections that describe an
+  attached agent. Every other state shows the agent's diagnosis first and the setup snippets last.
 - Offer copyable setup snippets for Maven download (`maven-download`, **Download the agent**), Spring Boot Maven plugin
   `agents` (`maven-plugin`), Gradle Kotlin/Groovy `bootRun` (`gradle-kotlin`, `gradle-groovy`), Quarkus dev mode
   `-Djvm.args` (`quarkus-dev`), Surefire/Failsafe `@{argLine}` (`surefire`) for JaCoCo coexistence, IntelliJ VM options
@@ -644,7 +644,7 @@ Features:
 Acceptance criteria:
 
 - The panel is always available on Spring MVC, Spring WebFlux, and Quarkus. Its one action switches an opt-in sensor
-  (`threads`, `files`, `environment`, `thread-activity`) on or off at run time (`docs/PLAN-v2.md` M5-14): refused by
+  (`threads`, `files`, `environment`, `thread-activity`, `thread-locals`) on or off at run time: refused by
   `bootui.panels.java-agent.read-only` and `bootui.read-only`, offered only while this application's claim is armed.
 - `GET /bootui/api/java-agent`, `get_agent_status`, and `bootui agent status` return the same `JavaAgentReport`.
 - Spring claims from `BootUiAgentClaimEnvironmentPostProcessor` (registered in `META-INF/spring.factories`) once BootUI activation is resolved, refines after context
@@ -751,13 +751,13 @@ Features:
 - `GET /bootui/api/code-paths`, `/code-paths/route?route=` (paged by `depth`, `offset`, and `limit`),
   `/code-paths/requests/{requestId}`, and `/code-paths/beans`; `get_code_paths` and `bootui code paths` take `query` (a
   route, or part of a route or method) and `limit`.
-- **Method probes** (`docs/PLAN-v2.md` M5-8), the panel's only actions: **Probe this method** on a selected tree method,
+- **Method probes**, the panel's only actions: **Probe this method** on a selected tree method,
   or **Probe in Code Paths** from Code Inventory's changed methods, after a confirmation, retransforms that one method
   (`binary.Class#name`, with its descriptor for an overloaded one) and records its next 20 invocations, for at most 60
   seconds, five probes at once: each invocation's duration, thread kind, request id, outcome (returned, or the thrown
   exception's type), and calling frame (the first frame of the application's packages above the method, past proxies
   and interceptors). Metadata only by default: never an argument or a return value. Started with **Record argument and
-  return shapes** (`"recordShapes": true`, D44), a probe also records the shapes of the first nine arguments, at entry,
+  return shapes** (`"recordShapes": true`), a probe also records the shapes of the first nine arguments, at entry,
   and of the return value: runtime types, nullness, and, by exact JDK class, collection, map, and array sizes and
   `Optional` presence, read without calling any application method; a string's length, a `char[]` or `byte[]` length,
   and an enum constant's name are shown under `bootui.expose-values=FULL` only, no shape under `METADATA_ONLY`, and MCP,
@@ -771,7 +771,7 @@ Features:
   `{"method": ..., "recordShapes": true}` starts one (400 for a method that cannot be probed, 409 when refused:
   unavailable, five running, already probed, or shapes unavailable), `GET /code-paths/probes/{id}` reads one (404 when unknown), and `POST /code-paths/probes/{id}/stop`
   or `DELETE /code-paths/probes/{id}` stops one. `start_method_probe` (`bootui probe start <method>`) and
-  `get_method_probe` (`bootui probe show <id>`) are the agent tools, with metadata only in every exposure mode (D24).
+  `get_method_probe` (`bootui probe show <id>`) are the agent tools, with metadata only in every exposure mode.
 
 Acceptance criteria:
 
@@ -792,15 +792,17 @@ Purpose: answer "Which processes, hosts, and other side effects did this route o
 
 Data sources:
 
-- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes` (M5-5a), `network` (M5-5b), and
-  `blocking` (M5-5c) sensors record by default, and `files` and `environment` (M5-5d), `thread-activity` (M5-5e), and
-  `thread-locals` (M5-5f) when opted in. `security-sinks` (M5-6b) records, when opted in with
-  `bootui.agent.security-sinks.request-values=true`, request input reaching SQL text, a command, a file path, or an
-  outbound URL unchanged: the redacted sink, the parameter's name, and a sentence stating the fact. The `resources`
-  sensor is still listed but reports `not-available` with reason `Not available in this version.`
+- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes`, `network`, `files`, `blocking`,
+  and `resources` sensors record by default, and `environment`, `thread-activity`, and `thread-locals` when opted in.
+  `security-sinks` records, when opted in with `bootui.agent.security-sinks.request-values=true`, request input
+  reaching SQL text, a command, a file path, or an outbound URL unchanged: the redacted sink, the parameter's name, and a
+  sentence stating the fact; opted in alone, its JDK checks record deserialization without an `ObjectInputFilter`,
+  weak `MessageDigest` and `Cipher` algorithms (application and library requests apart), the application's trust
+  managers and known library trust-all trust managers, and default hostname verifiers and SSL socket factories.
 - Each request's end, which the adapters mark once its response is complete (Spring MVC once an async request's
   context completed, Spring WebFlux when the chain terminates, Quarkus when the response body ended), for the
-  `thread-activity` sensor to check what the request left running.
+  `thread-activity` sensor to check what the request left running and the `resources` sensor what it left open, each
+  whether or not the other is on.
 - The runtime journal's REST client events, and the SQL Trace, messaging, and Email panels' availability, decide
   whether a panel captured a network connection's work.
 - The event loops each adapter registers with the agent's `blocking` sensor: Reactor Netty's on Spring WebFlux and for a
@@ -919,7 +921,7 @@ Acceptance criteria:
   route, and, with `environment` opted in, a read of `sample.report.title`; the report's contents and the property's
   value never appear. The counterexamples: `GET /api/side-effects/scratch`'s file is under `$TMPDIR`, and
   `GET /api/side-effects/log`'s JDK logging handler file is grouped apart as logging.
-- The opt-in `thread-activity` sensor (M5-5e) records `Thread.start`, `VirtualThread.start`, the `ThreadPoolExecutor`,
+- The opt-in `thread-activity` sensor records `Thread.start`, `VirtualThread.start`, the `ThreadPoolExecutor`,
   `ForkJoinPool`, and thread-per-task executors' creations and shutdowns, a pool's own workers being its executor's
   row. The **Threads and leaks** tab shows rows by attribution, kind (`thread`, `virtual thread`, `executor`), target
   (the started thread's family or the executor's class), call site, and origin (`application`, `library`, `jdk`, the
@@ -930,7 +932,7 @@ Acceptance criteria:
   the counterexamples `GET /api/thread-activity/joined` (a thread joined before the response) and
   `GET /api/thread-activity/closed-pool` (an executor shut down in `finally`) are never left running, and neither is a
   library's or the server's own pool.
-- The opt-in `thread-locals` sensor (M5-5f) hooks nothing: when a request's or a job's scope on a pooled platform thread
+- The opt-in `thread-locals` sensor hooks nothing: when a request's or a job's scope on a pooled platform thread
   opens and closes (a Spring MVC request on its worker, a request's task on a pool's own worker, Spring WebFlux work
   Reactor's context propagation runs on `boundedElastic`, a Quarkus blocking resource method or managed executor task
   on its worker, a scheduled run), it scans the thread's thread-local maps, and a thread local with a value at the close
@@ -947,8 +949,18 @@ Acceptance criteria:
   `GET /api/thread-locals/cache`'s `withInitial` date format is `left set (with initial value)`. The Quarkus sample's
   `ScheduledTenant`, on when `side-effects-seed.scheduled-every` sets its period, leaves `TenantContext.JOB` set from a
   scheduled run: a row of scope `execution` with no request.
-- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, and `blocking`;
-  `threads`, `files`, `environment`, `thread-activity`, and `thread-locals` remain opt-in.
+- The `resources` sensor (M5-5g, D46), on by default (D47), tracks the streams, channels, and sockets the `files` and
+  `network` sensors record opening (sockets and file streams, both by default) for a request or a job with an application frame on the
+  stack, and the JDK's close methods. The **Threads and leaks** tab shows rows by attribution, resource kind (`file input
+  stream`, `file output stream`, `random access file`, `file channel`, `socket`, `socket channel`), target (the masked
+  path pattern or host and port), call site, and origin (`Opened by the application`, or `Opened by a library the
+  application called`), with how many were still open 250 ms after their request's response completed and closed after
+  it (a hand-off, as a pool's connection), and how many the collector reclaimed without `close()`, the leak. With the
+  agent, the three samples' `GET /api/resources/leaked-stream` shows a `file input
+  stream` reclaimed without `close()`; the counterexamples `GET /api/resources/closed-stream` (try-with-resources) shows
+  nothing, and `GET /api/resources/pooled-client` (the JDK `HttpClient`'s pool) never a reclaim.
+- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`,
+  `blocking`, and `resources`; `threads`, `environment`, `thread-activity`, and `thread-locals` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
   the accepted ids.
@@ -1262,7 +1274,7 @@ Features:
   their provenance (`advisorySymbolSource`): `OSV` from the matching `affected[]` entries' `ecosystem_specific` or
   `database_specific` `imports[].symbols`, `affected_functions`, or `symbols`; else `ADVISORY_TEXT` from fully qualified
   class names in the summary and details; else an explicit `NONE`.
-- Runtime reach (PLAN-v2 §5.15, M5-9a): with the BootUI agent's `inventory` sensor recording this run, both
+- Runtime reach: with the BootUI agent's `inventory` sensor recording this run, both
   `GET {api}/vulnerabilities` and `POST {api}/vulnerabilities/scan`, and so `get_vulnerabilities_report` and
   `vulnerabilities_scan`, carry `runtimeReach` on the report (`available`, `unavailableReason`, `generation`, `note`,
   and `incompleteReason`, said once when no dependency can be shown as not loaded),
@@ -1434,7 +1446,8 @@ Purpose: stream recent local application log lines in the browser.
 
 Data sources:
 
-- BootUI Logback appender installed when Logback is on the classpath.
+- BootUI Logback appender installed when Logback is on the classpath (Spring Boot).
+- A `java.util.logging` handler attached to the root JBoss LogManager logger (Quarkus).
 
 Features:
 
@@ -1448,7 +1461,7 @@ Features:
 
 Acceptance criteria:
 
-- The panel is classpath-gated and unavailable when Logback is absent.
+- On Spring Boot, the panel is classpath-gated and unavailable when Logback is absent.
 - Log events are shaped into stable DTOs before reaching the browser.
 - The snapshot, the SSE stream and its replayed backlog, `get_log_tail`, and `bootui logs tail` apply the same rule on
   every stack, and a runtime exposure change applies to the next snapshot and streamed line without a restart.
@@ -1528,6 +1541,10 @@ reverse-chronological activity stream, plus a Symfony-style per-request profiler
 
 Data sources:
 
+- By default (`bootui.activity.feed-source=journal`) the feed renders the runtime journal's retained events, nesting
+  every child under its request or execution by id; when the journal is disabled or not recording, the panel buffers
+  serve the feed instead. `?source=buffers` on one request selects the merge of the panels' own buffers described
+  below; the property's `buffers` value was removed in 2.0.0 and fails startup with a message naming `journal`.
 - Reuses the existing HTTP Exchanges, SQL Trace, REST Client, Exceptions, Security Logs, Email, and Health controllers/DTOs. The panel adds
   no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
   bounds are inherited unchanged from each source panel.
@@ -1559,10 +1576,11 @@ Data sources:
 
 Features:
 
-- Merged stream of `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `SCHEDULED`, `MESSAGING`, `MAIL`, and (Spring
-  servlet/WebFlux only) `CACHE` and `REST_CLIENT` entries normalized to a common shape (timestamp, type, severity,
+- Merged stream of `REQUEST`, `SQL`, `REST_CLIENT`, `EXCEPTION`, `SECURITY`, `SCHEDULED`, `MESSAGING`, `MAIL`,
+  `FAULT_TOLERANCE`, and (Spring servlet/WebFlux only) `CACHE` entries normalized to a common shape (timestamp, type, severity,
   one-line summary, optional duration and correlation id), sorted newest-first and capped by
-  `bootui.activity.max-entries`. The `since` cursor allows incremental polling. Each entry also carries an optional
+  `bootui.activity.max-entries`. The journal feed adds the journal's own entry types, such as `TRANSACTION`, `LOG`,
+  `AI`, `ORM`, `WEBSOCKET`, `APP_EVENT`, `MARKER`, and, with the BootUI agent, `ASYNC`. The `since` cursor allows incremental polling. Each entry also carries an optional
   `parentId` referencing the `REQUEST` entry it was precisely correlated to (by trace id, serving thread, or request
   method/path), so the client can nest correlated SQL, REST, exceptions, security events, cache accesses, and captured
   email chronologically under the request that produced them; the server list stays flat (KPIs, filters, and the
@@ -1674,7 +1692,8 @@ Features:
   its Exceptions group, so a profile reaches the group's detail through `GET /bootui/api/exceptions/{id}` or
   `get_exception_detail`. The `get_request_profile` MCP tool and `bootui request-profile <id>` CLI command instead
   select the journal's retained request or scheduled/message execution profile first, and this HTTP-exchange DTO as
-  fallback; `source: "none"` reports when neither retains the id.
+  fallback. An id neither retains is a tool error (CLI exit `1`); `source: "none"` with `available: false` reports a
+  journal that is off or an id that cannot be profiled.
 - **Copy profile** and **Copy for AI** in the profile drawer, and **Copy for AI** in an Exceptions detail, render one
   Markdown document through a single shared frontend helper, built only from DTOs the browser holds or loads through
   existing read endpoints, so identical DTOs produce identical text on every adapter. Captured strings are escaped, and
@@ -1734,8 +1753,8 @@ Features:
   `ActivityStore`/`BufferedActivityStore`/`JdbcActivityStore`/`ActivityStoreFactory` engine machinery, every
   `bootui.activity.persistence.*` key, and the wire contract are identical on both adapters, and the `ActivityStore` and
   `ActivityPersistenceSettings` beans are always produced (persistence disabled is just `enabled() == false`, matching
-  the Spring `@ConditionalOnProperty` default). One narrower, pre-existing divergence carries over: Quarkus's baseline
-  (persistence-disabled) feed has no server-side `type`/`severity`/`since` filtering — unlike Spring's separate
+  the Spring `@ConditionalOnProperty` default). One narrower, pre-existing divergence carries over: with the `buffers`
+  feed source, Quarkus's baseline (persistence-disabled) feed has no server-side `type`/`severity`/`since` filtering — unlike Spring's separate
   `LiveActivityService`, the shared engine `LiveActivityAssembler` Quarkus's resource calls has none — so on Quarkus
   those filters take effect only once persistence is enabled and the query is served from the `ActivityStore`; the KPI
   strip stays computed from the full, unfiltered live merge either way on both adapters.
@@ -1911,7 +1930,7 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   cached until the journal records more or a panel's enablement changes. Eligibility follows the observation's unit,
   not just its request count: a heap-growth check that examined collections is evaluated even with zero requests,
   whether it observed growth or a stable heap.
-  Each kind's external validation ([PLAN-v2.md](PLAN-v2.md) M4-20, recorded once in the engine's `ExternalValidation`)
+  Each kind's external validation (recorded once in the engine's `ExternalValidation`)
   decides whether its rows are listed by default, and is never exposed: no check, row, limitation, MCP or CLI text
   names it or a plan identifier, which `UserFacingPlanJargonTests` and the UI's `userFacingText.test.js` enforce.
   `PASSED` (`errors-behind-2xx`, `changed-code-not-executed`) and `NOT_VALIDATED` (kinds silent or never exercised on
@@ -1919,9 +1938,9 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   `connections-per-request`, `ai-usage-by-route`, each folded into the panel showing the same evidence, which links to
   its rows), `UNDER_SAMPLED` (`repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`,
   `framework-warnings-by-route`, `anonymous-data-reach`), `NOT_LISTED` (`gc-inflated-latency`, `heap-growth-after-gc`,
-  reached from the Memory panel), and `NOT_JUDGED` (any kind added after M4-20, D36) are not.
+  reached from the Memory panel), and `NOT_JUDGED` (any kind added after the external validation) are not.
   Every observation carries `listed`, whether the panel's and the agents' default list shows it, and, when it does
-  not, `unlistedReason` (M4-19, M4-20): for a kind that is not listed, where its evidence is shown (the panel it is
+  not, `unlistedReason`: for a kind that is not listed, where its evidence is shown (the panel it is
   folded into, the Memory panel, its own panel, or the full list, a search, or a query naming it), or else the kind's own rule. Within the kinds, a `route-time-breakdown` is prominent with a warm median of 20 ms or more, authorization
   taking 20 % of the warm time, or a median of 50 authorization decisions a request; `exception-hotspots` collapses the
   groups seen only behind 4xx responses into one counted row, unless (nearly) every request to their route, at least
@@ -1944,7 +1963,7 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   narrows the answer to that method's mapped routes (`observedFrom=HANDLER_MAPPING`); the class alone still includes
   the whole bean (`observedFrom=STRUCTURE`). With the BootUI agent's `code-paths` sensor, any application method is a
   symbol: `Class#method`, `Class.method(...)`, or `METHOD fq.Class#method`, with Java parameter types or a JVM
-  descriptor naming one overload (M5-7a, [PLAN-v2.md](PLAN-v2.md) §5.17). Its observed routes
+  descriptor naming one overload ([PLAN-v2.md](PLAN-v2.md) §5.17). Its observed routes
   (`observedFrom=ROUTE_TREES`) are those whose requests' own call trees ran it, at any depth, from each route's tree
   amended by late fragments, or Code Inventory's first-request route, never composed from `INVOKES` edges; each carries
   `executedRequests` and `partial`. `methods` lists the method keys it names, `methodStatus` what Code Inventory says,
@@ -1960,20 +1979,20 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   contains the text, with their kind and class and the total matched: an exact name first, then a name or a route's
   path starting with it, then a class starting with it. It reads only the run's model, and answers `available=false`
   with the reason when the journal is disabled.
-- `GET /bootui/api/runtime-insights/comparison[?run=<runId>]` compares the current run with the newest kept run that
-  served HTTP requests (the newest kept run when none did), or the chosen one ([PLAN-v2.md](PLAN-v2.md) §5.8). Its status is `COMPARED`, `INSUFFICIENT` when no route served 3 requests
+- `GET /bootui/api/runtime-insights/comparison[?run=<runId>]` compares the current run with the newest kept run, even one
+  that served no HTTP request, or the chosen one ([PLAN-v2.md](PLAN-v2.md) §5.8). Its status is `COMPARED`, `INSUFFICIENT` when no route served 3 requests
   in both runs, `NOT_COMPARABLE` with the database, profile, or cache difference first, `NO_PREVIOUS_RUN` with the
   reason, or `UNAVAILABLE`. Behavior rows come first (statements, REST and AI calls, cache misses, and tokens per
   request; new statements, exceptions, and routes; status-class shares; allocation), then the runtime model's added and
   removed edges, the restart cost compared only between two restarts, and the warm latency last, labelled noisy. Each
   list holds at most 200 rows. `codeChanges`, shown first, lists with the BootUI agent the methods Code Inventory found
   changed or added since the previous run, not run yet first, each with its status and the routes whose call trees ran
-  it, with the change counts, removed methods counted only (M5-7a). It is `null` without the agent, and
+  it, with the change counts, removed methods counted only. It is `null` without the agent, and
   `available=false` with the reason while the inventory sensor or the Code Inventory panel cannot answer, or against a
   run other than the previous one. `sideEffects`, next, lists with the agent the side-effect keys (sensor, kind,
   masked target, and route, execution, or startup owner) new, gone, or whose owner this run did not exercise, from the
   `network`, `files`, `processes`, and `environment` sensors, each sensor `COMPARED`, `PARTIAL`, or `NOT_COMPARED`
-  with the reason when it did not record the whole of both runs (M5-7b); `null` without the agent.
+  with the reason when it did not record the whole of both runs; `null` without the agent.
 - `GET /bootui/api/runtime-insights/resource-profile` returns the **Profile resources** session ([PLAN-v2.md](PLAN-v2.md)
   §5.11): `IDLE`, `RUNNING`, `COMPLETED`, `FAILED`, or `UNAVAILABLE` with the reason, such as a runtime without JFR or a
   journal that does not record the `resources` source, and the last session's results. Reading it starts nothing.
@@ -2055,14 +2074,18 @@ Data sources:
   delegating to the real sender — pass-through by default, so application behaviour is unchanged.
 - An optional, explicitly opt-in `bootui.email.dev-trap=true` mode records messages without ever handing them to the
   real sender (a MailDev/GreenMail-style trap), off by default so BootUI never silently swallows application mail.
+- On Quarkus, a CDI observer of the `SentMail` event `quarkus-mailer` fires after each send feeds the same
+  `EmailCaptureService`. There is no dev trap there; Quarkus's own mock-mail mode decides whether mail is sent.
 
 Acceptance criteria:
 
-- Available only when a `JavaMailSender` bean is present (e.g. `spring-boot-starter-mail`); otherwise the panel reports
-  a clear unavailable reason instead of an empty list.
-- Recipients, subject, and body text are masked by default and only revealed under `bootui.expose-values=FULL`,
-  exactly like every other BootUI panel; attachment metadata (name/type/size, never contents) is never masked since it
-  carries no message content.
+- Available only when a `JavaMailSender` bean is present (e.g. `spring-boot-starter-mail`) on Spring, or when
+  `quarkus-mailer` is present on Quarkus; otherwise the panel reports a clear unavailable reason instead of an empty
+  list.
+- Recipients, subject, and body text are revealed by default, because email content is ordinary application data rather
+  than a credential. With `bootui.email.mask-content=true` they are masked and only revealed under
+  `bootui.expose-values=FULL`; attachment metadata (name/type/size, never contents) is never masked since it carries no
+  message content.
 - Messages are listed newest-first from a bounded ring buffer sized by `bootui.email.max-entries` (default 100, oldest
   evicted first); a message's HTML body renders in a sandboxed iframe (no script execution, no same-origin access) and
   each message can be downloaded as a `.eml` file.
@@ -2111,10 +2134,10 @@ Acceptance criteria:
 - Recent calls surface in Live Activity as `REST_CLIENT` entries. Every stack first matches BootUI's request id; Spring
   MVC then uses trace-id-first/serving-thread-second correlation, and Quarkus and WebFlux use the trace id only because
   neither reactive runtime has a thread-per-request model.
-- The dedicated panel is available on Spring MVC and Quarkus. Quarkus keeps it visible whenever the optional capability
+- The dedicated panel is available on Spring MVC, Spring WebFlux, and Quarkus. Quarkus keeps it visible whenever the optional capability
   is present (proxies are initialized lazily), renders a no-proxy message until instrumentation occurs, and refreshes via
-  its JAX-RS SSE stream. WebFlux captures calls for Live Activity but still has no dedicated panel.
-- On the servlet adapter, `/bootui/api/panels` additionally requires that at least one `RestClient`, `RestTemplate`,
+  its JAX-RS SSE stream. On WebFlux only `WebClient` instances are instrumented.
+- On the Spring adapters, `/bootui/api/panels` additionally requires that at least one `RestClient`, `RestTemplate`,
   or `WebClient` has actually been instrumented (mirroring how Kafka/Email/Cache report against their own beans): an
   application that never builds one of the three reports the panel unavailable rather than available-with-an-empty-
   buffer, since the recorder bean backing the panel is registered unconditionally and so is never itself a useful
@@ -2227,9 +2250,9 @@ Purpose: answer "Which security filter chains and authorization rules apply?"
 
 Data sources:
 
-- Spring Security `FilterChainProxy`.
+- Spring Security `FilterChainProxy` (Spring MVC) or ordered `SecurityWebFilterChain` beans (Spring WebFlux).
 - Authentication provider and user-details-service beans.
-- Spring MVC request mappings when available.
+- Spring MVC or annotated WebFlux request mappings when available.
 
 Features:
 
@@ -2258,8 +2281,8 @@ Data sources:
 
 Features:
 
-- List detected Spring Data repositories, grouped by store module (JPA, JDBC, MongoDB, Redis, R2DBC, Cassandra, Neo4j,
-  generic).
+- List detected Spring Data repositories, grouped by store module (JPA, JDBC, MongoDB, R2DBC, Redis, Cassandra, Neo4j,
+  Elasticsearch, Couchbase, Spring Data Commons, generic).
 - For each repository, show:
   - Repository interface name and package.
   - Domain type and ID type.
@@ -2557,20 +2580,20 @@ Features:
 
 Availability:
 
-- Spring MVC and Spring WebFlux capture boundaries from configurable blocking transaction managers. BootUI contributes
-  its listener through Spring Boot's transaction-manager customization and completes registration for user-defined
-  managers after singleton initialization.
+- Spring MVC and Spring WebFlux capture boundaries from configurable transaction managers, blocking and reactive. BootUI
+  contributes its listener through Spring Boot's transaction-manager customization and completes registration for
+  user-defined managers after singleton initialization. The listener pairs each boundary's callbacks by the transaction
+  execution Spring passes them, so a reactive transaction that completes on another thread than it began is recorded
+  once, without a thread-bound parent or isolation.
 - The panel returns a clear unavailable report when transaction capture is disabled, no
   `ConfigurableTransactionManager` is present, or capture is otherwise not configured.
-- A WebFlux application backed only by `ReactiveTransactionManager` (R2DBC) is explicitly unavailable because Spring's
-  transaction-execution listener hook exists only on the blocking transaction-manager SPI.
 - Transactions are not applicable on Quarkus. Narayana JTA and the CDI `@Transactional` interceptor expose no comparable
   per-boundary listener without invasive interception, so the Quarkus adapter reports the panel unavailable rather than
   providing lower-fidelity capture.
 
 Out of scope for the current release surface:
 
-- Capturing R2DBC-only transaction boundaries or adding an invasive Quarkus transaction interceptor.
+- Adding an invasive Quarkus transaction interceptor.
 - Changing transaction propagation, isolation, rollback rules, or application transaction-manager configuration.
 - Retaining an unbounded transaction history or recording application payloads and SQL parameter values.
 
@@ -2872,6 +2895,7 @@ Data sources:
 - Spring Boot service connection metadata when available.
 - Spring Boot Docker Compose startup service snapshot when available.
 - Testcontainers beans that are present in the application context.
+- Quarkus Dev Services started for the application (Quarkus).
 
 Features:
 
@@ -2885,6 +2909,7 @@ Features:
   - Kafka.
   - Elasticsearch.
   - Neo4j.
+  - Zipkin.
 - Show source:
   - Docker Compose.
   - Testcontainers.
@@ -3065,8 +3090,9 @@ Detail reads require the report's nonblank `scanId`; offset defaults to zero and
 Malformed/fractional/overflowing inputs, negative offsets, and nonpositive limits are rejected. Responses contain
 `scanId`, `ruleId`, full `violationCount`, `retainedCount`, `truncated`, `violations`,
 `page: {total, matched, offset, limit, returned, hasMore}`, and `locations`. Page totals count retained entries; a
-terminal page does not prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Unknown/non-finding
-rules return 404; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
+terminal page does not prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Ids outside the
+advisor's rule catalogue (`Unknown advisor rule: ...`) and catalogue rules without findings, whether passed, skipped, or
+failed (`Advisor rule has no findings in the current scan.`), both return 404 with those distinct messages; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
 retrievable. Reads obey panel availability, enabled and safety policy, but are allowed in read-only mode, and never
 rescan or collect new observations.
 
@@ -3137,6 +3163,10 @@ Initial endpoints:
 | `/bootui/api/log-tail/recent`                    | GET    | Recent log lines                                                                       |
 | `/bootui/api/log-tail/stream`                    | GET    | Log stream over Server-Sent Events                                                     |
 | `/bootui/api/exceptions`                         | GET    | Bounded exception groups with status and occurrence summaries                         |
+| `/bootui/api/exceptions/{id}`                    | GET    | One exception group's detail: stack frames, causes, and retained occurrences          |
+| `/bootui/api/exceptions/{id}/status`             | POST   | Set an exception group's triage status (`{"status": ...}`)                            |
+| `/bootui/api/exceptions`                         | DELETE | Clear retained exception groups when not read-only                                    |
+| `/bootui/api/exceptions/stream`                  | GET    | Exceptions change notifications over Server-Sent Events (re-fetch trigger)            |
 | `/bootui/api/http-exchanges`                     | GET    | Recent application HTTP request/response metadata                                      |
 | `/bootui/api/http-exchanges/routes`              | GET    | Route performance rankings over the retained HTTP exchanges                            |
 | `/bootui/api/traces`                         | GET    | Recent local trace summaries                                                           |
@@ -3184,7 +3214,19 @@ Initial endpoints:
 | `/bootui/api/graalvm`                        | GET    | Latest GraalVM native-image readiness report                                           |
 | `/bootui/api/graalvm/scan`                   | POST   | Run explicit native-image readiness checks                                             |
 | `/bootui/api/graalvm/metadata`               | GET    | Download generated reachability metadata scaffold                                      |
+| `/bootui/api/graalvm/scan/progress`          | GET    | Progress of the running GraalVM readiness scan                                         |
+| `/bootui/api/graalvm/scan/cancel`            | POST   | Cancel the running GraalVM readiness scan                                              |
+| `/bootui/api/graalvm/install`                | POST   | Write the reachability metadata scaffold into the project when running from an exploded build |
+| `/bootui/api/graalvm/dockerfile`             | GET    | Download a tailored native-image `Dockerfile-native`                                   |
+| `/bootui/api/graalvm/dockerfile/install`     | POST   | Write `Dockerfile-native` into the project when running from an exploded build         |
+| `/bootui/api/graalvm/install/all`            | POST   | Write both the metadata scaffold and `Dockerfile-native`                               |
 | `/bootui/api/crac`                            | GET    | Latest CRaC checkpoint/restore readiness report                                        |
+| `/bootui/api/crac/scan`                       | POST   | Run explicit CRaC readiness checks                                                     |
+| `/bootui/api/crac/dockerfile`                 | GET    | Download a tailored `Dockerfile-crac`                                                  |
+| `/bootui/api/crac/entrypoint`                 | GET    | Download the matching `checkpoint-and-run.sh` entrypoint                               |
+| `/bootui/api/crac/dockerfile/install`         | POST   | Write `Dockerfile-crac` into the project when running from an exploded build           |
+| `/bootui/api/crac/entrypoint/install`         | POST   | Write `checkpoint-and-run.sh` into the project when running from an exploded build     |
+| `/bootui/api/crac/install/all`                | POST   | Write both CRaC container assets                                                       |
 | `/bootui/api/flyway/migrations`              | GET    | Flyway migration state and action availability per database                            |
 | `/bootui/api/flyway/migrate`                 | POST   | Run pending Flyway migrations only when confirmed, not read-only, and not Modulith-managed |
 | `/bootui/api/flyway/clean`                   | POST   | Clean Flyway-managed schemas only when confirmed, allowed by Flyway, not read-only, and not Modulith-managed |
@@ -3196,10 +3238,14 @@ Initial endpoints:
 | `/bootui/api/spring-security/explain`        | GET    | Best-effort chain match for a method/path                                              |
 | `/bootui/api/spring-security/endpoints`      | GET    | Best-effort per-endpoint authorization report                                          |
 | `/bootui/api/security-logs`                  | GET    | Recent Spring Boot audit/security events                                               |
+| `/bootui/api/security-logs/stream`           | GET    | Security Logs change notifications over Server-Sent Events (re-fetch trigger)          |
 | `/bootui/api/security`               | GET    | Latest Spring Security Advisor report                                                  |
 | `/bootui/api/security/scan`          | POST   | Run explicit Spring Security hardening checks                                          |
 | `/bootui/api/pentesting`                        | GET    | Latest local OWASP hygiene report                                                      |
 | `/bootui/api/pentesting/scan`                   | POST   | Run explicit bounded loopback OWASP hygiene checks                                    |
+| `/bootui/api/dismissed-rules`                   | GET    | Advisor rules and findings dismissed in `.bootui/boot-ui.yml`                          |
+| `/bootui/api/dismissed-rules/{ruleId}`          | POST   | Dismiss one advisor rule or finding                                                    |
+| `/bootui/api/dismissed-rules/{ruleId}`          | DELETE | Restore one dismissed advisor rule or finding                                          |
 | `/bootui/api/copilot/dashboard`                 | GET    | Sanitized GitHub Copilot CLI activity dashboard                                        |
 | `/bootui/api/copilot/**`                     | GET    | Sanitized GitHub Copilot CLI session dashboard, token usage, explorer, raw reveal, SSE |
 | `/bootui/api/claude-code/dashboard`             | GET    | Sanitized Claude Code activity dashboard                                               |
@@ -3234,6 +3280,7 @@ Initial endpoints:
 | `/bootui/api/transactions`                   | GET    | Current bounded transaction-boundary snapshot and aggregate statistics                 |
 | `/bootui/api/activity`                       | GET    | Merged Live Activity stream and KPI summary (params: `type`, `severity`, `since`, `limit`, plus `q`, `until`, `cursor`, `pageSize` when persistence is enabled; `source` (`buffers` or `journal`) overrides `bootui.activity.feed-source`, and the journal's feed also takes `route`, `run`, `requestId`, and `noRequest`) |
 | `/bootui/api/activity/stream`                | GET    | Live Activity change notifications over Server-Sent Events (re-fetch trigger)           |
+| `/bootui/api/activity/service-map`           | GET    | Live Flow service map of observed and configured dependencies (`ServiceMapReport`)      |
 | `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, auth, REST client calls, cache accesses, and trace for one HTTP exchange |
 | `/bootui/api/activity/request/{id}/journal`  | GET    | One request as the runtime journal recorded it: its work on one timeline, the collections that completed while it ran, its CPU time and allocated bytes, how it compares with its route's p50 and p95, and the tables, transactions, caches, messages, hosts, and log templates it touched |
 | `/bootui/api/activity/use-existing-datasource` | POST | Hot-switch Live Activity from in-memory to the existing `DataSource` (confirmation-gated) |
@@ -3244,14 +3291,20 @@ Initial endpoints:
 | `/bootui/api/runtime-insights/insights/{id}` | GET    | One observation by its stable id, with up to 20 evidence rows and how many were left out; an unknown id answers unavailable |
 | `/bootui/api/runtime-insights/impact`        | GET    | `?symbol=<symbol>`: for a route, bean, class, method (`Class#method`, read from the route trees with the BootUI agent), repository, table, cache, or host, the routes that ran through it in this run, those that did not, and those sharing a resource with it; `AMBIGUOUS`, `NOT_FOUND`, or `UNAVAILABLE` with the reason |
 | `/bootui/api/runtime-insights/impact/symbols` | GET   | `?query=<text>`: at most 20 routes, beans, repositories, tables, caches, hosts, and events of the run's model matching the text, best first, each with its kind, for the change impact box |
-| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the newest kept run (including listener-only or idle runs), or `?run=<runId>`: with the BootUI agent, the code changes since the previous run first and the side effects new or gone outside the JVM, then route/execution behavior, new and gone fingerprints and edges from shared sources, adjacent-restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, `NO_PREVIOUS_RUN`, or `UNAVAILABLE` with the reason |
+| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the application's newest kept run (including listener-only or idle runs; another application sharing the JVM is never compared), or `?run=<runId>`: with the BootUI agent, the code changes since the previous run first and the side effects new or gone outside the JVM, then route/execution behavior, new and gone fingerprints and edges from shared sources, adjacent-restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, `NO_PREVIOUS_RUN`, or `UNAVAILABLE` with the reason |
 | `/bootui/api/runtime-insights/resource-profile` | GET | The **Profile resources** session's state and the last session's CPU samples, allocation, and hot frames by route; starts nothing |
 | `/bootui/api/runtime-insights/resource-profile` | POST | Start a JFR session bounded by `bootui.resources.jfr.max-duration` |
 | `/bootui/api/runtime-insights/resource-profile/stop` | POST | End the running session now and return its results |
 | `/bootui/api/email`                          | GET    | Captured outgoing email summaries and content-policy status                             |
+| `/bootui/api/email/{id}`                     | GET    | One captured email with its bodies and attachment metadata                              |
+| `/bootui/api/email/{id}/eml`                 | GET    | Download one captured email as a `.eml` file                                            |
+| `/bootui/api/email`                          | DELETE | Clear captured emails when not read-only                                                |
 | `/bootui/api/kafka`                          | GET    | Bounded Kafka producer and consumer activity                                            |
+| `/bootui/api/kafka`                          | DELETE | Clear retained Kafka activity when not read-only                                        |
 | `/bootui/api/rabbitmq`                       | GET    | Bounded RabbitMQ publisher and consumer activity                                        |
+| `/bootui/api/rabbitmq`                       | DELETE | Clear retained RabbitMQ activity when not read-only                                     |
 | `/bootui/api/jms`                            | GET    | Bounded JMS producer and consumer activity                                              |
+| `/bootui/api/jms`                            | DELETE | Clear retained JMS activity when not read-only                                          |
 
 ### 6.5 Configuration properties
 
@@ -3288,6 +3341,8 @@ Initial properties:
 | `bootui.http-exchanges.reserved-share-percent` | `25`                                  | Share of the HTTP exchange buffer reserved for recent `5xx` and slow exchanges; `0` disables it.   |
 | `bootui.email.max-entries`                   | `100`                                   | Maximum outgoing emails retained in memory for the Email panel; oldest evicted first.              |
 | `bootui.email.dev-trap`                      | `false`                                 | Capture outgoing email without handing it to the real mail transport (MailDev/GreenMail-style trap). |
+| `bootui.email.mask-content`                  | `false`                                 | Mask captured recipients, subject, and bodies unless `bootui.expose-values=FULL`.                  |
+| `bootui.email.max-body-length`               | `200000`                                | Maximum characters retained per captured text/HTML body.                                           |
 | `bootui.vulnerabilities.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
 | `bootui.vulnerabilities.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
 | `bootui.vulnerabilities.max-packages`           | `500`                                   | Maximum packages sent in one OSV batch query; the excess is reported as `scan.packagesSkipped`.   |
@@ -3450,16 +3505,18 @@ Design rules:
     `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
     `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
     `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_agent_status`, `get_code_inventory`,
-    `get_code_paths`, `get_method_probe`, `get_devtools_status`,
-    `get_code_paths`, `get_side_effects`, `get_devtools_status`,
+    `get_code_paths`, `get_method_probe`, `get_side_effects`, `get_devtools_status`,
     `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, `get_claude_code_sessions`,
     `get_hibernate_statistics`, and `get_websockets`.
+  - Advisor violation pages: `get_architecture_rule_violations`, `get_spring_rule_violations`,
+    `get_hibernate_rule_violations`, `get_database_advisor_rule_violations`, `get_memory_rule_violations`,
+    `get_security_rule_violations`, and `get_rest_api_rule_violations` (see Advisor violation pages above).
   - Bounded actions: `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
     `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
     `resume_transaction_recording`, `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`,
     `resume_rest_client_recording`, `postgresql_read`, `mysql_read`, `analyze_heap_dump`, `trigger_devtools_livereload`,
     and `start_method_probe`, which retransforms one application method for at most 20 invocations or 60 seconds and
-    needs the user's separate approval (D24: refused by read-only policy, metadata only in every exposure mode).
+    needs the user's separate approval (refused by read-only policy, metadata only in every exposure mode).
 
   MySQL (§5.17.8) exposes cached read `get_mysql_report` and action `mysql_read`, both
   argument-free, on MVC/WebFlux/Quarkus with a supported JDBC datasource. The generated CLI equivalents are
@@ -3487,30 +3544,48 @@ Design rules:
   `2026-07-28`, or a repeated header, is `400`/`-32600`; `2026-07-28` without the modern `_meta` is a malformed modern
   request, `400`/`-32602` echoing the request id. The header is judged after the body is read, and the envelope fields
   `jsonrpc`, `method`, and `params.name` count only when they are strings, so both stacks answer a `null` or numeric
-  field with the same client error. A modern request is validated (version type, header agreement, supported version,
+  field with the same client error. A modern request is validated (a string or integer id, never `null`, fractional, or another type, and present unless
+  the method is a `notifications/` one, so a modern `tools/call` never runs unanswered; judged for any request with a
+  non-2025-06-18 or non-string `_meta` version, or a lone `2026-07-28` header; version type, header agreement, supported version,
   client capabilities, `Mcp-Method`, `Mcp-Name` with Base64 decoding, progress token type) with `400` and `-32602`,
   `-32020`, or `-32022` carrying `data.supported`. The modern era has `server/discover` but no `initialize` or `ping`,
   answers an unknown method with `404`, adds `resultType`, `_meta` server identity, and cache hints (`ttlMs: 60000`,
   `cacheScope: "private"`) on discovery and list results, and moves BootUI's server errors to `-31000`..`-31003` because
   MCP 2026-07-28 reserves `-32000`..`-32099`. Era selection precedes the disabled short-circuit, so a malformed modern
   request is a `400` even while the server is off. The CLI facade and the engine keep the legacy codes.
-- **Request-scoped progress (modern only).** A modern `tools/call` with a string or integer `_meta.progressToken`, to a
-  tool whose operation reports measured phases through the engine's `OperationProgress` (today `architecture_scan`),
+- **Request-scoped progress (both eras).** A `tools/call` with a string or integer `_meta.progressToken`, to a
+  tool whose operation reports measured phases through the engine's `OperationProgress` (`architecture_scan` and `vulnerabilities_scan`),
   from a client whose `Accept` explicitly lists `text/event-stream`, answers on a `text/event-stream` POST response with
   `X-Accel-Buffering: no`: rate-limited `notifications/progress` (burst 8, then one per 250 ms, coalescing to the
-  newest, flushed before the end) and exactly one final response, after which the stream closes. Events are `data:`
+  newest, flushed before the end, each dropped when it would exceed `bootui.mcp.max-response-bytes`) and exactly one
+  final response, after which the stream closes; a string progress token is at most 128 characters (refused when
+  modern, ignored when legacy). Events are `data:`
   lines with no ids; keep-alive comments every 2 seconds, so Spring MVC, which only notices a closed stream when a write
-  fails, does so within about 4 seconds; WebFlux and Quarkus notice it at once. Closing the stream cancels the call:
+  fails, does so within about 4 seconds; WebFlux and Quarkus notice it at once. Closing a modern stream cancels the call:
   nothing more is written, the tool is interrupted and stops at its next step, and its concurrency permit is released
-  exactly once, when the tool has returned and the stream is written. A cancelled call is counted in the `/mcp-server`
-  status's `cancellations`, apart from `timeouts`, and a cancelled blocking call answers `-32800` ("MCP request
-  cancelled"); the status also lists `supportedProtocolVersions`. The execution timeout stays absolute, and a call
+  exactly once, when the tool has returned and the stream is written. Only a streamed call is cancelled by a
+  disconnect, including one whose client left before the stream started; a blocking JSON call runs to its end, its
+  timeout, or a legacy `notifications/cancelled`. A cancelled call is counted in the `/mcp-server` status's `cancellations`, apart from `timeouts` (and in
+  `callCount`), while a server fault during writing is reported as a fault; the status also lists
+  `supportedProtocolVersions`. The execution timeout stays absolute, and a call
   that timed out before its stream opened still ends with the timeout response. Each event is one line of compact JSON
   regardless of the application's mapper configuration, built through one engine helper that refuses a line break. A
   writer blocked on a client that stops reading keeps the permit (WebFlux emits only on subscriber demand) and gives up
   10 seconds after the execution timeout on every stack; Quarkus then resets the response. Spring MVC falls back to
-  one JSON response when the request cannot go async. Everything else, every refusal, and every legacy request is one
-  JSON response; there is still no `GET` stream, live push, resource, or `subscriptions/listen`.
+  one JSON response when the request cannot go async. A legacy stream ends with a legacy final response, and closing it
+  does not cancel the call, because MCP 2025-06-18 says "Disconnection SHOULD NOT be interpreted as the client
+  cancelling its request": the tool runs on within the timeout (a client gone before the stream starts releases the
+  call, since nothing began). A legacy `notifications/cancelled` naming an in-flight
+  `tools/call` id (matched by value) is answered `202` and cancels it; a cancelled stream closes without a final
+  response and a cancelled blocking call answers `-32800`. Unknown, finished, or malformed cancellations are ignored.
+  With no sessions in MCP 2025-06-18, any local caller that passes the transport checks can cancel a request whose id
+  it knows, including by accident: a late cancellation from one client can cancel another client's in-flight call with
+  the same id, whose stream then ends with no response (an accepted limitation; an `Mcp-Session-Id` would change the
+  legacy bytes). Ids two in-flight calls share are never cancelled, fractional ids are matched by
+  their double value only when it is whole, non-zero, and below 2^53, the `reason` is only logged at debug level, and the in-flight registry holds at
+  most one entry per permit in use, removed before that permit is released. A legacy request is never rejected
+  because of its token, and one without a usable token answers byte for byte as before. Everything else and every
+  refusal is one JSON response; there is still no `GET` stream, live push, resource, or `subscriptions/listen`.
 - **Agent guidance.** Initialization instructions direct agents to establish overview/health context, prefer the smallest
   relevant read, correlate exception and trace identifiers, verify advisor findings before changing code, and account for
   active scan costs (`memory_scan` may trigger a full GC; `pentest_scan` sends bounded loopback probes). Tool descriptions

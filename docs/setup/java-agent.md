@@ -37,14 +37,16 @@ or for Quarkus dev mode:
 ```
 
 Scope `JAVA_TOOL_OPTIONS` to one command; never export it in a shell. Never add the agent to a production,
-native-image, or AOT-cached JVM: Quarkus production mode reports it `DISABLED` and never claims it.
+native-image, or AOT-cached JVM: Quarkus production mode reports it `DISABLED` and never claims it, and neither does
+Spring when `bootui.enabled=ON` forces BootUI on in a disabled profile such as `prod`, unless
+`bootui.agent.allow-in-disabled-profiles=true`.
 
 ## 3. Check that it is armed
 
 Restart the application, then run `bootui agent status` or reopen the panel. `ARMED` means this application claimed the
 agent and its sensors record; the report lists each sensor. Any other state comes with its reason; see
 [Status states](../features/java-agent.md#status-states). The default sensors are `executors`, `inventory`,
-`code-paths`, `processes`, `network`, and `blocking`; `bootui.agent.sensors` adds the opt-in ones.
+`code-paths`, `processes`, `network`, `files`, `blocking`, and `resources`; `bootui.agent.sensors` adds the opt-in ones.
 
 ## 4. Answer "did my change run?"
 
@@ -56,8 +58,12 @@ the edit:
    request and route that ran it.
 3. Run the test or send the request that should reach a `NEVER_EXECUTED` method, then read the inventory again.
 4. Still `NEVER_EXECUTED`? Start a method probe on it (`bootui probe start <method>`, or **Probe in Code Paths** on the
-   method in the Code Inventory panel), rerun the same test or request, and read `bootui probe show <id>`. No
-   invocation means that path never reaches the method: the wrong route, the wrong bean, or never wired. A probe is an
+   method in the Code Inventory panel), wait until `bootui probe show <id>` says `active`, rerun the same test or
+   request within its 60-second window, and read it again. With the probe active before the rerun and still active
+   after it, or ended only after the rerun finished, `invocations` at 0 means that path never reaches the method: the
+   wrong route, the wrong bean, or never wired; a probe that never became active, failed, or ended before the rerun
+   finished is inconclusive. A
+   probe is an
    action: read-only policy refuses it, and it records metadata only, never argument or return values; argument and
    return shapes are opt-in, in the panel only.
 

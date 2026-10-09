@@ -199,10 +199,6 @@ public final class AgentBridge {
             // The side-effect sensors' ring and intern table, before any of their hooks records for the run.
             SideEffects.claimed(next);
         }
-        // Request-value matching (M5-6b1) runs under a claim asking for the security-sinks sensor. Until its hooks and
-        // self-test land (M5-6b2), which enable it from the side-effect sensors' enable path, the claim itself turns it
-        // on.
-        RequestValues.sensor(next.hasSensor(SideEffects.SECURITY_SINKS), next.generation);
         CodePaths.refresh();
         // A probe never outlives the run that started it (PLAN-v2 M5-8).
         MethodProbes.claimed(next.generation);
@@ -219,8 +215,8 @@ public final class AgentBridge {
      * (PLAN-v2 M5-14): an override, never written anywhere, dropped once the application's own sensors agree with it. The
      * switches travel with the slot's claims, each claim in the same slot taking its predecessor's, and are kept by
      * {@link SlotSwitches} while another slot's claim, or none, is current.
-     * Only the opt-in {@code threads}, {@code files}, {@code environment}, {@code thread-activity}, and {@code thread-locals}
-     * can be switched
+     * Only {@code threads}, {@code files}, {@code environment}, {@code thread-activity}, and {@code thread-locals} can be
+     * switched, whether the application's sensors ask for them or not
      * ({@link #switchable}), since
      * the agent installs and removes them without a new claim. The claim keeps its generation and token; its {@code sensorsRevision} grows by one, which orders the
      * switches the agent receives. Re-enabling {@code threads} after it failed in this run is refused: its bridge
@@ -270,10 +266,11 @@ public final class AgentBridge {
     }
 
     /**
-     * Whether {@code sensor} can be switched at run time: only the opt-in {@code threads}, {@code files},
+     * Whether {@code sensor} can be switched at run time: only {@code threads}, {@code files},
      * {@code environment}, {@code thread-activity}, and {@code thread-locals}, which the agent installs and removes
-     * without a new claim ({@code thread-locals} transforms nothing: its scan is enabled or disabled). Never a default sensor, nor
-     * {@code blocking}, whose call-site visit is installed with the application methods' transformer at the claim (M5-5c),
+     * without a new claim ({@code thread-locals} transforms nothing: its scan is enabled or disabled), whether on by
+     * default or not. Never {@code executors}, {@code inventory}, {@code code-paths}, {@code processes},
+     * {@code network}, or {@code resources}, nor {@code blocking}, whose call-site visit is installed with the application methods' transformer at the claim (M5-5c),
      * nor {@code caught-exceptions}, whose visit is installed with the claim only.
      */
     static boolean switchable(String sensor) {

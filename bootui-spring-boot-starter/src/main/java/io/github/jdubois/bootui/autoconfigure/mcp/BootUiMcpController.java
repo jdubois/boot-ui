@@ -106,8 +106,9 @@ public class BootUiMcpController {
 
     /**
      * Answers on a request-scoped {@code text/event-stream}. The servlet response is put in async mode so the
-     * container thread returns at once, and only the call's writer thread writes to it; a container-reported error,
-     * timeout, or completion (the client went away) cancels the call, which MCP 2026-07-28 requires.
+     * container thread returns at once, and only the call's writer thread writes to it. A container-reported error,
+     * timeout, or completion means the client went away: MCP 2026-07-28 makes that a cancellation, and MCP 2025-06-18
+     * does not ({@link McpStreamingCall#clientClosed()} decides).
      */
     private void stream(
             HttpServletRequest servletRequest, HttpServletResponse servletResponse, BootUiMcpService.Stream stream) {
@@ -124,18 +125,18 @@ public class BootUiMcpController {
             async.addListener(new AsyncListener() {
                 @Override
                 public void onComplete(AsyncEvent event) {
-                    call.cancel();
+                    call.clientClosed();
                 }
 
                 @Override
                 public void onTimeout(AsyncEvent event) {
-                    call.cancel();
+                    call.clientClosed();
                     complete(async, closed);
                 }
 
                 @Override
                 public void onError(AsyncEvent event) {
-                    call.cancel();
+                    call.clientClosed();
                     complete(async, closed);
                 }
 
@@ -145,7 +146,10 @@ public class BootUiMcpController {
             call.start(new McpStreamSink() {
                 @Override
                 public void progress(McpProgressToken token, ProgressEvent event) throws IOException {
-                    write(output, McpProtocol.sseDataFrame(service.renderProgress(token, event)));
+                    String json = service.renderProgress(token, event);
+                    if (json != null) {
+                        write(output, McpProtocol.sseDataFrame(json));
+                    }
                 }
 
                 @Override
@@ -155,7 +159,7 @@ public class BootUiMcpController {
 
                 @Override
                 public void complete(McpDispatchOutcome outcome) throws IOException {
-                    write(output, McpProtocol.sseDataFrame(service.renderFinal(stream.id(), outcome)));
+                    write(output, McpProtocol.sseDataFrame(service.renderFinal(stream.id(), call.era(), outcome)));
                 }
 
                 @Override

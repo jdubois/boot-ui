@@ -534,6 +534,70 @@ describe('Side Effects panel', () => {
     expect(apart.text()).toContain('holder not resolved (java.lang.ThreadLocal)')
   })
 
+  it('shows resources rows with their origin, hand-offs apart from resources reclaimed without close()', async () => {
+    const leaked = row({
+      sensor: 'resources',
+      kind: 'file input stream',
+      target: './reports/report-{n}.csv',
+      callSite: 'demo.ReportService#read',
+      insideMethod: null,
+      origin: 'application',
+      location: 'working-directory',
+      count: 3,
+      requests: 3,
+      leftRunning: 1,
+      failed: 2,
+      completed: 0,
+      exemplarRequestIds: ['00000000000000ee']
+    })
+    const pooled = row({
+      sensor: 'resources',
+      kind: 'socket',
+      target: 'localhost:5432',
+      callSite: 'demo.OwnerRepository#find',
+      insideMethod: null,
+      origin: 'library',
+      count: 1,
+      requests: 1,
+      leftRunning: 1,
+      failed: 0,
+      completed: 1
+    })
+    ;({wrapper} = mountPanel({
+      'api/side-effects/sensor?sensor=resources&offset=0&limit=50': sensorReport('resources', [leaked, pooled]),
+      'api/side-effects': summary({
+        sensors: {resources: {state: 'recording', rows: 2, occurrences: 4}}
+      })
+    }))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Threads and leaks')
+      .trigger('click')
+    await flushPromises()
+
+    const table = wrapper
+      .findAll('.side-effects-table')
+      .find((candidate) => candidate.text().includes('./reports/report-{n}.csv'))
+    const headers = table.findAll('thead th').map((th) => th.text())
+    expect(headers).toEqual(
+      expect.arrayContaining([
+        'Resource',
+        'Resources',
+        'Open after request',
+        'Closed after request',
+        'Reclaimed without close()'
+      ])
+    )
+    const rows = table.findAll('tbody tr')
+    expect(rows[0].findAll('td')).toHaveLength(headers.length)
+    expect(table.text()).toContain('Opened by the application')
+    expect(table.text()).toContain('Opened by a library the application called')
+    expect(table.findAll('.side-effects-reclaimed').map((badge) => badge.text())).toEqual(['2'])
+    expect(table.findAll('.side-effects-left-open').map((badge) => badge.text())).toEqual(['1', '1'])
+    expect(wrapper.get('.side-effects-resources-note').text()).toContain('a leak')
+  })
+
   it('says why blocking is not applicable on a stack without event loops', async () => {
     ;({wrapper} = mountPanel({
       'api/side-effects/sensor?sensor=blocking&offset=0&limit=50': sensorReport('blocking', []),
@@ -840,7 +904,50 @@ describe('Side Effects panel', () => {
     expect(table.text()).not.toContain('Failed')
   })
 
-  it('explains that the files sensor is opt-in, and not the processes sensor', async () => {
+  it('shows JDK check rows with their origin, and groups what libraries requested apart', async () => {
+    const own = row({
+      sensor: 'security-sinks',
+      kind: 'weak digest',
+      target: 'MD5',
+      origin: 'application',
+      callSite: 'com.example.UserService#hash',
+      detail:
+        'Weak algorithm MD5 requested by application code at `com.example.UserService#hash`. MD5 and SHA-1 remain fine for checksums and ETags; check that this one protects no password, signature, or token.',
+      count: 3
+    })
+    const library = row({
+      sensor: 'security-sinks',
+      kind: 'weak digest',
+      target: 'MD5',
+      origin: 'library',
+      location: 'org.springframework.util.DigestUtils#md5',
+      callSite: 'com.example.EtagService#tag',
+      detail:
+        'Weak algorithm MD5 requested by library code `org.springframework.util.DigestUtils#md5` for application frame `com.example.EtagService#tag`.',
+      count: 9
+    })
+    ;({wrapper} = mountPanel({
+      'api/side-effects/sensor?sensor=security-sinks&offset=0&limit=50': sensorReport('security-sinks', [own, library]),
+      'api/side-effects': summary({sensors: {'security-sinks': {state: 'recording', reason: null}}})
+    }))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Security sinks')
+      .trigger('click')
+    await flushPromises()
+
+    const tables = wrapper.findAll('.side-effects-table')
+    expect(tables).toHaveLength(2)
+    expect(tables[0].text()).toContain('Sink (value redacted) or check')
+    expect(tables[0].text()).toContain('Application')
+    expect(tables[0].text()).toContain('requested by application code')
+    expect(wrapper.get('.side-effects-apart summary').text()).toBe('Requested by libraries (1), grouped apart')
+    expect(tables[1].text()).toContain('org.springframework.util.DigestUtils#md5')
+    expect(wrapper.text().toLowerCase()).not.toContain('vulnerab')
+  })
+
+  it('explains that the files sensor is on by default when left out, and not the processes sensor', async () => {
     ;({wrapper} = mountPanel({
       'api/side-effects': summary({
         sensors: {
@@ -866,7 +973,7 @@ describe('Side Effects panel', () => {
     const notes = wrapper.findAll('.side-effects-state-note').map((note) => note.text())
     const files = notes.find((note) => note.includes('does not include files'))
     const processes = notes.find((note) => note.includes('does not include processes'))
-    expect(files).toContain('It is opt-in: add files to bootui.agent.sensors')
+    expect(files).toContain('It is on by default, but not in this configuration: add files to bootui.agent.sensors')
     expect(files).toContain('path patterns')
     expect(processes).not.toContain('opt-in')
   })
@@ -929,6 +1036,53 @@ describe('Side Effects panel', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="agent-sensor-toggle-environment"]').exists()).toBe(false)
     expect(wrapper.get('.side-effects-state-note').text()).not.toContain('switch it on')
+  })
+
+  it('points a default sensor switched off at run time back at its switch, not at the property', async () => {
+    const toggle = {
+      id: 'files',
+      configured: true,
+      enabled: false,
+      overridden: true,
+      state: 'off',
+      optInReason: 'On by default: it records the files the application opens.',
+      available: true,
+      unavailableReason: null
+    }
+    const panels = ref({panels: [{id: 'java-agent', enabled: true, available: true, readOnly: false}]})
+    ;({wrapper} = mountPanel(
+      {
+        'api/side-effects': summary({
+          sensors: {
+            files: {
+              state: 'not-claimed',
+              reason: "Switched off at run time: this application's bootui.agent.sensors includes files.",
+              toggle
+            }
+          }
+        }),
+        'api/side-effects/sensor?sensor=files&offset=0&limit=50': sensorReport('files', []),
+        'api/side-effects/sensor?sensor=processes&offset=0&limit=50': sensorReport('processes', [])
+      },
+      {},
+      panels
+    ))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Files and processes')
+      .trigger('click')
+    await flushPromises()
+
+    const control = wrapper.get('[data-testid="agent-sensor-toggle-files"]')
+    expect(control.get('input[role="switch"]').element.checked).toBe(false)
+    expect(control.text()).toContain('On by default')
+    const note = wrapper
+      .findAll('.side-effects-state-note')
+      .map((each) => each.text())
+      .find((text) => text.includes('Switched off at run time'))
+    expect(note).toContain('switch it on above to record again for this JVM')
+    expect(note).not.toContain('bootui.agent.sensors to record')
   })
 
   it('shows a switch’s answer at once and reads the summary again', async () => {

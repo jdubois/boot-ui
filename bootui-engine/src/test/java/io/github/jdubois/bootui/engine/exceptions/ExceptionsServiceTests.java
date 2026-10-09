@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
+import io.github.jdubois.bootui.engine.mcp.McpControlAcks;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -38,6 +39,28 @@ class ExceptionsServiceTests {
         assertThat(report.totalExceptions()).isEqualTo(1);
         assertThat(report.groups()).hasSize(1);
         assertThat(report.groups().get(0).message()).isEqualTo("boom");
+    }
+
+    @Test
+    void clearResetsTheRetainedOccurrenceCount() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        store.record(new IllegalStateException("boom"), "main", "GET", "/x", "Handler#x", "web");
+        store.record(new IllegalStateException("boom"), "main", "GET", "/x", "Handler#x", "web");
+        ExceptionsService service = new ExceptionsService(policy(ValueExposure.FULL, true));
+        assertThat(service.report(store).totalExceptions()).isEqualTo(2);
+
+        store.clear();
+
+        // totalExceptions counts the occurrences in the retained groups, so it is not a lifetime count.
+        ExceptionsReport report = service.report(store);
+        assertThat(report.totalExceptions()).isZero();
+        assertThat(report.groups()).isEmpty();
+        assertThat(McpControlAcks.exceptionsCleared(report))
+                .containsEntry("action", "cleared")
+                .containsEntry("capturing", true)
+                .containsEntry("retained", 0)
+                .containsEntry("capacity", 100)
+                .containsEntry("totalCaptured", null);
     }
 
     @Test

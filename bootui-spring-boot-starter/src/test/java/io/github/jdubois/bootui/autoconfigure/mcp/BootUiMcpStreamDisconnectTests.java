@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.mcp;
 
+import io.github.jdubois.bootui.engine.mcp.McpStreamingCall;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -25,8 +27,25 @@ class BootUiMcpStreamDisconnectTests {
     private BootUiMcpService service;
 
     @Test
+    void theStreamWritesTheSameRawBytesAsEveryStack() throws Exception {
+        SUPPORT.assertFrames(port);
+    }
+
+    @Test
     void closingTheStreamCancelsTheCall() throws Exception {
-        SUPPORT.closeAfterFirstEventCancels(port, service);
+        // Spring MVC only notices a failed write: within two keep-alives.
+        SUPPORT.closeAfterFirstEventCancels(
+                port, service, Duration.ofMillis(2 * McpStreamingCall.HEARTBEAT_MILLIS + 1000));
+    }
+
+    @Test
+    void closingALegacyStreamDoesNotCancelButNotificationsCancelledDoes() throws Exception {
+        SUPPORT.legacyCloseRunsOnUntilNotificationsCancelled(port, service);
+    }
+
+    @Test
+    void notificationsCancelledStopsALegacyBlockingCall() throws Exception {
+        SUPPORT.legacyBlockingCallIsCancelledByNotification(port, service);
     }
 
     @SpringBootConfiguration

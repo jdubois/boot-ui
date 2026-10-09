@@ -40,8 +40,10 @@ through development values, or switch the application's profiles. Multiple activ
 profiles are not treated as proof of a future production deployment.
 
 Production declarations can produce useful findings while coverage remains incomplete.
-`PARTIAL` reports retain those findings and explain unavailable evidence in
-`analysisErrors`; `ERROR` means no applicable evidence could be inspected.
+`PARTIAL` reports retain those findings. Each rule has exactly one outcome per scan: a rule with findings is listed in
+`results`, and its incomplete coverage is stated in its description ("Coverage is incomplete: ...") and in
+`evidence.limitations`; a rule that could not be evaluated and found nothing is listed in `analysisErrors`. `ERROR`
+means no applicable evidence could be inspected.
 Skipped/unknown checks are not counted as successfully evaluated. Dismissing a finding
 does not remove coverage errors or turn an incomplete scan into a complete one.
 Retired rule IDs are never reused, and existing dismissals of surviving IDs still apply.
@@ -66,7 +68,9 @@ unrecognized configuration values, and exception messages are not exposed.
 
 ### QA-CDI-004 - Public field on a normal-scoped bean
 
-**MEDIUM.** A resolved application class bean whose effective scope is a **normal scope** — `@ApplicationScoped`,
+- **Severity**: MEDIUM
+
+A resolved application class bean whose effective scope is a **normal scope** — `@ApplicationScoped`,
 `@RequestScoped`, `@SessionScoped` or a custom normal scope, including scopes assigned by stereotypes and Quarkus
 REST's automatic `@RequestScoped` for resources with REST parameter fields — declares or inherits a non-static public
 field that is not an injection point or a REST parameter/`@Context` field.
@@ -86,7 +90,9 @@ holds a second object. To limit noise, final primitives and immutable value type
 
 ### QA-CDI-002 - Public state on a singleton REST resource
 
-**MEDIUM.** An actual application REST resource resolved as `@Singleton` — the Quarkus REST default — exposes a
+- **Severity**: MEDIUM
+
+An actual application REST resource resolved as `@Singleton` — the Quarkus REST default — exposes a
 public, potentially mutable instance field that is not injected. Singletons have no client proxy, so the field is
 shared by concurrent requests. Final immutable values, atomics and concurrent collections are excluded; REST parameter
 and `@Context` fields are excluded. Normal-scoped resources are reported once under QA-CDI-004 instead, and the
@@ -95,9 +101,11 @@ resource-specific rule does not also charge the same field under QA-CDI-003.
 Keep request-specific data in method-local variables or parameters, and expose shared state only as an immutable
 value or an encapsulated operation. This is not a claim that concurrent mutation was observed.
 
-### QA-CDI-003 - Public mutable state on a singleton bean
+### QA-CDI-003 - Public state on a singleton bean
 
-**LOW.** A resolved `@Singleton` application class bean, including a scope assigned by the framework, exposes a
+- **Severity**: LOW
+
+A resolved `@Singleton` application class bean, including a scope assigned by the framework, exposes a
 public, potentially mutable instance field that is not an injection point. CDI allows public fields on this
 pseudo-scope. Public final immutable values, atomics and concurrent collections are excluded. Scope annotations on a
 producer class do not establish the scope of the object returned by a producer.
@@ -116,23 +124,29 @@ and [Quarkus REST scope handling](https://github.com/quarkusio/quarkus/blob/3.33
 
 ## Configuration and production declarations
 
-### QA-CFG-002 - Production SQL logging
+### QA-CFG-002 - SQL logging in observed production configuration
 
-**MEDIUM.** Observed production configuration enables Hibernate SQL logging on a
+- **Severity**: MEDIUM
+
+Observed production configuration enables Hibernate SQL logging on a
 default or named persistence unit. Review production log volume and the sensitivity of
 SQL text. SQL logging does **not** automatically enable bind-parameter logging, which
 has separate settings; SQL literals may nevertheless contain application data.
 
-### QA-CFG-003 - Verbose production root logging
+### QA-CFG-003 - Verbose root logging in observed production configuration
 
-**MEDIUM.** The observed production root log level is `DEBUG`, `TRACE`, or `ALL`.
+- **Severity**: MEDIUM
+
+The observed production root log level is `DEBUG`, `TRACE`, or `ALL`.
 Review whether that verbosity is intended for the deployment; `INFO` or `WARN` is often
 a more appropriate baseline. BootUI does not infer a measured slowdown or an actual
 secret disclosure from the level alone.
 
-### QA-CFG-004 - Deprecated Hibernate schema property
+### QA-CFG-004 - Legacy schema-generation property
 
-**LOW.** A configured default/named/profile variant of the `quarkus.hibernate-orm.database.generation` group,
+- **Severity**: LOW
+
+A configured default/named/profile variant of the `quarkus.hibernate-orm.database.generation` group,
 deprecated for removal since Quarkus 3.22, is declared: `database.generation`, `database.generation.create-schemas`
 or `database.generation.halt-on-error`. One finding is reported per persistence unit and profile prefix, however many
 legacy keys it declares. Migrate each key to its replacement — `schema-management.strategy`,
@@ -143,9 +157,11 @@ On Quarkus **3.33.3.1**, an explicitly configured legacy property takes preceden
 the new property. Remove or migrate the old declaration rather than assuming a new
 `schema-management.strategy=none` has overridden it.
 
-### QA-CFG-005 - Production bind-parameter logging
+### QA-CFG-005 - Bind-parameter logging in observed production configuration
 
-**HIGH.** Hibernate ORM is present and the production view of `quarkus.hibernate-orm.log.bind-parameters` or its
+- **Severity**: HIGH
+
+Hibernate ORM is present and the production view of `quarkus.hibernate-orm.log.bind-parameters` or its
 deprecated alias `quarkus.hibernate-orm.log.bind-param` is true. Quarkus ORs both global flags and forces the
 `org.hibernate.orm.jdbc.bind` logger to TRACE, so every bound value — personal data, credentials or tokens — can be
 written to the logs. There is no per-persistence-unit key; a quoted unit variant is ignored.
@@ -160,9 +176,10 @@ observed, so the rule always reports incomplete coverage in development mode.
 
 Remove the production declaration and enable bind logging only temporarily outside production.
 
-### QA-PROD-002 - Production schema creation, alteration or dropping
+### QA-PROD-002 - Automatic schema changes in observed production configuration
 
-**CRITICAL** for `drop` or `drop-and-create`; **HIGH** for `create` or `update`.
+- **Severity**: HIGH for `create` or `update`; CRITICAL for `drop` or `drop-and-create`
+
 The rule distinguishes the actual schema actions and includes named persistence units.
 
 Quarkus sends this value through the **Jakarta** schema-action setting. Its `create`
@@ -175,9 +192,11 @@ destructive action.
 Prefer reviewed migrations or the deployment's existing schema-management process.
 The advisor does not require that migration tooling run inside the application.
 
-### QA-PROD-003 - Observed in-memory production datasource
+### QA-PROD-003 - In-memory storage in observed production configuration
 
-**MEDIUM.** A supported JDBC URL explicitly selects in-memory storage. H2, HSQLDB or
+- **Severity**: MEDIUM
+
+A supported JDBC URL explicitly selects in-memory storage. H2, HSQLDB or
 Derby **database kind alone is not evidence of volatile storage**: file-backed and
 server-backed databases are valid. URL matching uses storage-mode forms, not an
 incidental `mem` substring elsewhere in the URL.
@@ -197,24 +216,30 @@ and [build-time bind-parameter logging](https://github.com/quarkusio/quarkus/blo
 
 ## HTTP and clients
 
-### QA-WEB-001 - Application HTTP compression disabled
+### QA-WEB-001 - Application-server compression is disabled
 
-**INFO.** Compression is disabled by the framework default. An explicit
+- **Severity**: INFO
+
+Compression is disabled by the framework default. An explicit
 `quarkus.http.enable-compression=false` records a deliberate decision, for example edge compression, and suppresses
 this prompt, as SPRING-WEB-001 does on Spring. The setting is fixed at build time, so in development mode a visible
 `%prod.` declaration is preferred and labelled as such. Enabling compression may help suitable payloads, but is not
 universally necessary. Upstream compression, client negotiation, response media types and workload are not inspected.
 
-### QA-WEB-002 - Explicit zero shutdown timeout
+### QA-WEB-002 - HTTP request-draining timeout is zero
 
-**LOW.** `quarkus.shutdown.timeout=0` disables HTTP request-draining grace; zero does not mean waiting without
+- **Severity**: LOW
+
+`quarkus.shutdown.timeout=0` disables HTTP request-draining grace; zero does not mean waiting without
 limit. Set a **positive duration**, for example `10s`, if requests should be allowed to finish. Removing the override
 is not equivalent: the framework default also leaves draining disabled, which is why the behaviourally identical
 default is only the INFO prompt QA-WEB-004. This does not promise completion of every scheduled or messaging operation.
 
-### QA-WEB-003 - Managed REST-client timer disabled
+### QA-WEB-003 - Registered REST client timer is disabled
 
-**MEDIUM.** A registered client's effective connect or read timer is zero.
+- **Severity**: MEDIUM
+
+A registered client's effective connect or read timer is zero.
 The native Quarkus configuration interceptors resolve quoted FQCN, `configKey`,
 MicroProfile `/mp-rest/` aliases, profiles and configuration-source priority.
 Client-specific values override the global fallback as the framework specifies;
@@ -229,9 +254,11 @@ duration in milliseconds. Arbitrary programmatic/custom client settings are not 
 Quarkus REST Client registrations are supported; an installed Classic REST client
 extension produces incomplete coverage, not a claim that no clients exist.
 
-### QA-WEB-004 - HTTP request draining not configured
+### QA-WEB-004 - HTTP request draining is not configured
 
-**INFO.** The shutdown timeout is known to be absent. Quarkus request-draining grace is
+- **Severity**: INFO
+
+The shutdown timeout is known to be absent. Quarkus request-draining grace is
 opt-in, so configure a positive `quarkus.shutdown.timeout` if required. Development mode never drains, even with a
 positive timeout, so a visible `%prod.quarkus.shutdown.timeout` declaration is preferred over the active value for both
 shutdown rules, and both report incomplete production coverage unless `prod` is the sole active profile.
@@ -246,9 +273,11 @@ and [zero connect-timer semantics](https://github.com/netty/netty/blob/netty-4.1
 
 ## Virtual threads
 
-### QA-PERF-002 - Potential synchronized virtual-thread pinning
+### QA-PERF-002 - Synchronized virtual-thread entry method on JDK 21–23
 
-**LOW.** On the **running JDK 21-23**, an identified Quarkus REST virtual-thread entry
+- **Severity**: LOW
+
+On the **running JDK 21-23**, an identified Quarkus REST virtual-thread entry
 implementation is also declared `synchronized`. The native-resolved implementation,
 not a superclass/interface declaration supplying REST annotations, determines this flag.
 Review blocking work performed while holding

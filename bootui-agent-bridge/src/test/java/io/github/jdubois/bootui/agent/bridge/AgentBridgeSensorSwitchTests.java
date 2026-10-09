@@ -105,7 +105,16 @@ class AgentBridgeSensorSwitchTests {
         calls.clear();
 
         for (String sensor : new String[] {
-            "executors", "inventory", "code-paths", "processes", "network", "blocking", "caught-exceptions", "x", null
+            "executors",
+            "inventory",
+            "code-paths",
+            "processes",
+            "network",
+            "blocking",
+            "resources",
+            "caught-exceptions",
+            "x",
+            null
         }) {
             Map<String, Object> result = AgentBridge.switchSensor(token, sensor, true);
             assertThat(result.get("status")).as(sensor).isEqualTo(AgentBridge.FAILED);

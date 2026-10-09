@@ -52,6 +52,33 @@ class QuarkusRequestCorrelationTest {
     }
 
     @Test
+    void theRequestLineFollowsTheRequestAndIsHiddenOffItsContext() throws Exception {
+        Context duplicated = VertxContext.createNewDuplicatedContext(vertx.getOrCreateContext());
+        CompletableFuture<String> onEventLoop = new CompletableFuture<>();
+        CompletableFuture<String> onWorker = new CompletableFuture<>();
+        CompletableFuture<String> cleared = new CompletableFuture<>();
+
+        duplicated.runOnContext(ignored -> {
+            QuarkusRequestCorrelation.attach(CorrelationContext.forRequest("r1"), "GET", "/api/sample/boom");
+            onEventLoop.complete(String.valueOf(QuarkusRequestCorrelation.currentRequestLine()));
+            try (BootUiCorrelation.Scope scope = BootUiCorrelation.openCleared()) {
+                cleared.complete(String.valueOf(QuarkusRequestCorrelation.currentRequestLine()));
+            }
+            duplicated
+                    .executeBlocking(() -> String.valueOf(QuarkusRequestCorrelation.currentRequestLine()))
+                    .onComplete(result -> onWorker.complete(result.result()));
+        });
+
+        String expected = new QuarkusRequestCorrelation.RequestLine("GET", "/api/sample/boom").toString();
+        assertThat(onEventLoop.get(10, TimeUnit.SECONDS)).isEqualTo(expected);
+        assertThat(onWorker.get(10, TimeUnit.SECONDS)).isEqualTo(expected);
+        assertThat(cleared.get(10, TimeUnit.SECONDS)).isEqualTo("null");
+        assertThat(QuarkusRequestCorrelation.attach(CorrelationContext.forRequest("r2"), "GET", "/x"))
+                .isFalse();
+        assertThat(QuarkusRequestCorrelation.currentRequestLine()).isNull();
+    }
+
+    @Test
     void offAVertxContextNothingIsAttachedAndTheThreadScopeDecides() {
         CorrelationContext request = CorrelationContext.forRequest("r1");
 

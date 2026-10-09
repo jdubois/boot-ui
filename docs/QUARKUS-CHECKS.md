@@ -31,6 +31,12 @@ intentionally have framework-native rules on both stacks; Spring-only concepts (
 `FilterChainProxy`, method-security proxies) are not evaluated here, and Quarkus-only concepts below
 are not evaluated on Spring.
 
+The report's `filterChains` list (shared with Spring, where it names filter chains) holds one entry per enabled
+`quarkus.http.auth.permission.<name>` block: its name, paths, methods and policy, for example
+`admin: /admin, /admin/* → policy admin-role (all methods)`, plus `JAX-RS only`, `shared`, or
+`custom policy not analysed` when they apply. A name or policy name that is not a plain identifier is replaced by a
+placeholder, and identical entries are listed once.
+
 ## Availability and bounds
 
 Known-findings scores follow the same [score eligibility policy](features/advisors.md#score-eligibility) as Spring.

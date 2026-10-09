@@ -32,6 +32,46 @@ class McpEraResolverTests {
     }
 
     @Test
+    void aLegacyRequestKeepsAValidProgressTokenAndIgnoresAnInvalidOne() {
+        McpRequestMeta token =
+                new McpRequestMeta(Field.ABSENT, null, Field.ABSENT, Field.VALID, McpProgressToken.of("t"));
+        assertThat(resolve("tools/call", token, headers(List.of(), List.of(), List.of())))
+                .isEqualTo(new Serve(McpEra.LEGACY, null, McpProgressToken.of("t")));
+        assertThat(resolve("tools/call", token, headers(List.of(LEGACY), List.of(), List.of())))
+                .isEqualTo(new Serve(McpEra.LEGACY, LEGACY, McpProgressToken.of("t")));
+        McpRequestMeta invalid = new McpRequestMeta(Field.ABSENT, null, Field.ABSENT, Field.INVALID, null);
+        assertThat(resolve("tools/call", invalid, headers(List.of(), List.of(), List.of())))
+                .as("a legacy request is never refused or changed for its token")
+                .isEqualTo(new Serve(McpEra.LEGACY, null, null));
+    }
+
+    @Test
+    void aStringTokenLongerThanTheBoundIsRefusedWhenModernAndIgnoredWhenLegacy() {
+        String longest = "t".repeat(McpProgressToken.MAX_TEXT_LENGTH);
+        McpRequestMeta fits =
+                new McpRequestMeta(Field.ABSENT, null, Field.ABSENT, Field.VALID, McpProgressToken.of(longest));
+        assertThat(fits.progressTokenValue()).isEqualTo(McpProgressToken.of(longest));
+
+        McpRequestMeta tooLong =
+                new McpRequestMeta(Field.ABSENT, null, Field.ABSENT, Field.VALID, McpProgressToken.of(longest + "t"));
+        assertThat(tooLong.progressToken()).isEqualTo(Field.INVALID);
+        assertThat(tooLong.progressTokenValue()).isNull();
+        assertThat(resolve("tools/call", tooLong, headers(List.of(), List.of(), List.of())))
+                .as("legacy: ignored, so the call answers with one JSON response as before")
+                .isEqualTo(new Serve(McpEra.LEGACY, null, null));
+
+        McpRequestMeta modern = new McpRequestMeta(
+                Field.VALID, MODERN, Field.VALID, Field.VALID, McpProgressToken.of("t".repeat(2_048)));
+        assertThat(resolveCall(modern, headers(List.of(MODERN), List.of("tools/call"), List.of("get_overview"))))
+                .isEqualTo(modernRejection(McpProtocol.INVALID_PARAMS, McpProtocol.PROGRESS_TOKEN_TYPE_MESSAGE));
+        assertThat(new McpRequestMeta(
+                                Field.ABSENT, null, Field.ABSENT, Field.VALID, McpProgressToken.of(Long.MAX_VALUE))
+                        .progressToken())
+                .as("integers are always short")
+                .isEqualTo(Field.VALID);
+    }
+
+    @Test
     void aModernHeaderWithoutModernMetaIsAMalformedModernRequest() {
         assertThat(resolve(
                         "tools/list", McpRequestMeta.NONE, headers(List.of(MODERN), List.of("tools/list"), List.of())))

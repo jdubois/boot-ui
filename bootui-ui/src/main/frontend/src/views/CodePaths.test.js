@@ -3,6 +3,30 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import CodePaths from './CodePaths.vue'
 
+const router = vi.hoisted(() => ({state: null, replace: null}))
+
+vi.mock('vue-router', async (original) => {
+  const {reactive: makeReactive} = await import('vue')
+  router.state = makeReactive({path: '/code-paths', query: {}})
+  router.replace = vi.fn(({query}) => {
+    router.state.query = query
+    return Promise.resolve()
+  })
+  const resolve = ({path, query}) => {
+    const search = new URLSearchParams(query).toString()
+    const fullPath = search ? `${path}?${search}` : path
+    return {fullPath, href: `#${fullPath}`}
+  }
+  return {...(await original()), useRoute: () => router.state, useRouter: () => ({replace: router.replace, resolve})}
+})
+
+/** The query the panel last wrote into the URL. */
+function urlQuery() {
+  const hash = window.location.hash
+  const question = hash.indexOf('?')
+  return question < 0 ? {} : Object.fromEntries(new URLSearchParams(hash.slice(question + 1)))
+}
+
 const RouterLinkStub = {
   props: ['to'],
   template: '<a class="router-link-stub" :data-to="JSON.stringify(to)"><slot /></a>'
@@ -152,9 +176,28 @@ describe('Code Paths panel', () => {
     wrapper?.unmount()
     wrapper = null
     vi.unstubAllGlobals()
+    router.state.query = {}
+    router.replace.mockClear()
+    window.history.replaceState(null, '', '#/')
   })
 
-  it('ranks the routes by warm median and opens the slowest route as an indented tree', async () => {
+  function routeRows() {
+    return wrapper.findAll('.code-paths-route-row')
+  }
+
+  async function openRoute(name) {
+    await routeRows()
+      .find((row) => row.get('.code-paths-route-name').text() === name)
+      .get('.code-paths-route')
+      .trigger('click')
+    await flushPromises()
+  }
+
+  function treeRows() {
+    return wrapper.findAll('.code-paths-tree tbody tr')
+  }
+
+  it('lists the routes slowest warm median first, closed until one is opened', async () => {
     let fetch
     ;({wrapper, fetch} = mountPanel({
       'api/code-paths/route?route=GET /api/stream': streamTree,
@@ -165,55 +208,257 @@ describe('Code Paths panel', () => {
 
     expect(wrapper.get('#code-paths-headline').text()).toBe('2 routes with a call tree')
     expect(wrapper.get('.code-paths-status').text()).toContain('1 without a route')
-    const rows = wrapper.findAll('.code-paths-routes tbody tr')
+    expect(wrapper.get('#code-paths-routes-heading').text()).toContain('2 routes, slowest warm median first.')
+    const rows = routeRows()
     expect(rows).toHaveLength(2)
-    expect(rows[0].text()).toContain('GET /api/quote')
+    expect(rows[0].get('.code-paths-route-name').text()).toBe('GET /api/quote')
+    expect(rows[0].get('.code-paths-verb').text()).toBe('GET')
     expect(rows[0].text()).toContain('SlowPricingService.quote')
-    expect(rows[0].text()).toContain('52.4')
+    expect(rows[0].get('.code-paths-route-median').text()).toContain('52.4 ms')
+    expect(rows[0].get('.code-paths-route-counts').text()).toContain('first request 180 ms')
+    expect(rows[0].find('.code-paths-route-bar-top').exists()).toBe(true)
     expect(rows[1].find('.code-paths-assembly').text()).toBe('Assembly only')
-    expect(rows[0].get('button').attributes('aria-pressed')).toBe('true')
-    expect(fetch.mock.calls.map(([url]) => decodeURIComponent(String(url)))).toContain(
-      'api/code-paths/route?route=GET /api/quote&depth=33&limit=500'
-    )
-
-    const tree = wrapper.findAll('.code-paths-tree tbody tr')
-    expect(tree.map((row) => row.find('td').text())).toEqual([
-      'Request',
-      'QuoteController.quotehandler',
-      'SlowPricingService.quotehandler',
-      'Executor workAsync, shown apart'
-    ])
-    expect(tree[2].get('.code-paths-indent').attributes('style')).toContain('padding-inline-start: 2.2rem')
-    expect(tree[2].get('.code-paths-share-value').text()).toBe('97.9 %')
-    expect(tree[1].find('.code-paths-share-bar-top').exists()).toBe(true)
-    expect(tree[3].classes()).toContain('code-paths-async')
-    expect(tree[2].get('.code-paths-median').text()).toBe('≈ 50.0')
-    expect(wrapper.get('.code-paths-tree thead').text()).toContain('Median (≈ ms)')
-    expect(wrapper.get('.code-paths-tree-summary').text()).toContain('first recorded request 180 ms, kept apart')
-    expect(wrapper.get('.code-paths-tree-summary').text()).toContain('approximate (≈), from log2 buckets')
-    expect(wrapper.get('.code-paths-routes thead').text()).toContain('First request (ms)')
-    expect(wrapper.get('.code-paths-tree thead').text()).toContain('Share of the handler')
-    expect(wrapper.get('.code-paths-exemplars').text()).toContain('00000000000000ab')
-    expect(wrapper.find('.code-paths-assembly-note').exists()).toBe(false)
+    expect(rows.map((row) => row.get('.code-paths-route').attributes('aria-expanded'))).toEqual(['false', 'false'])
+    // Nothing is read for a route until it is opened.
+    expect(fetch.mock.calls.some(([url]) => String(url).includes('api/code-paths/route'))).toBe(false)
+    expect(wrapper.find('.code-paths-tree').exists()).toBe(false)
   })
 
-  it('shows a method’s callers and the routes that reach it, and follows a route', async () => {
-    ;({wrapper} = mountPanel({
+  it('opens a route’s call tree under its row as an indented treegrid', async () => {
+    let fetch
+    ;({wrapper, fetch} = mountPanel({
       'api/code-paths/route?route=GET /api/stream': streamTree,
       'api/code-paths/route?route=GET /api/quote': quoteTree,
       'api/code-paths': summary
     }))
     await flushPromises()
+    await openRoute('GET /api/quote')
 
-    const method = wrapper.findAll('.code-paths-method').find((button) => button.text() === 'SlowPricingService.quote')
-    await method.trigger('click')
-    expect(method.attributes('aria-pressed')).toBe('true')
-    const detail = wrapper.get('.code-paths-method-detail')
+    expect(fetch.mock.calls.map(([url]) => decodeURIComponent(String(url)))).toContain(
+      'api/code-paths/route?route=GET /api/quote&depth=33&limit=500'
+    )
+    const row = routeRows()[0]
+    expect(row.classes()).toContain('open')
+    expect(row.get('.code-paths-route').attributes('aria-expanded')).toBe('true')
+    expect(row.get('.code-paths-route').attributes('aria-controls')).toBe(
+      row.get('.code-paths-route-detail').attributes('id')
+    )
+    expect(wrapper.get('#code-paths-tree-heading').text()).toBe('GET /api/quote')
+    expect(urlQuery()).toEqual({route: 'GET /api/quote'})
+
+    const grid = wrapper.get('.code-paths-tree')
+    expect(grid.attributes('role')).toBe('treegrid')
+    const tree = treeRows()
+    expect(tree.map((entry) => entry.find('td').text())).toEqual([
+      'Request',
+      'QuoteController.quote, on the hot pathhandler',
+      'SlowPricingService.quote, on the hot pathhandler',
+      'Executor workAsync, shown apart'
+    ])
+    expect(tree.map((entry) => entry.attributes('aria-level'))).toEqual(['1', '2', '3', '2'])
+    expect(tree[0].attributes('aria-expanded')).toBe('true')
+    expect(tree[2].attributes('aria-expanded')).toBeUndefined()
+    expect(tree[2].get('.code-paths-guides').attributes('style')).toContain('--code-paths-guides: 2')
+    expect(tree[2].get('.code-paths-share-value').text()).toBe('97.9 %')
+    expect(tree[1].find('.code-paths-share-bar-top').exists()).toBe(true)
+    expect(tree[2].classes()).toContain('code-paths-node-hot')
+    expect(tree[3].classes()).toContain('code-paths-async')
+    expect(tree[3].classes()).not.toContain('code-paths-node-hot')
+    expect(tree[2].get('.code-paths-median').text()).toBe('≈ 50.0')
+    expect(grid.get('thead').text()).toContain('Median (≈ ms)')
+    expect(grid.get('thead').text()).toContain('Share of the handler')
+    expect(wrapper.get('.code-paths-tree-summary').text()).toContain('first recorded request 180 ms, kept apart')
+    expect(wrapper.get('.code-paths-tree-summary').text()).toContain('own time, 51.2 ms of it in the handler')
+    expect(wrapper.get('.code-paths-tree-summary').text()).toContain('approximate (≈), from log2 buckets')
+    expect(wrapper.get('.code-paths-exemplars').text()).toContain('00000000000000ab')
+    expect(wrapper.find('.code-paths-assembly-note').exists()).toBe(false)
+
+    await routeRows()[0].get('.code-paths-route').trigger('click')
+    expect(wrapper.find('.code-paths-tree').exists()).toBe(false)
+    expect(urlQuery()).toEqual({})
+    // The URL is replaced in place: a router navigation would remount the panel, as panels are keyed on the full path.
+    expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  it('filters the routes by path, HTTP method, or Java method, and sorts them', async () => {
+    ;({wrapper} = mountPanel({
+      'api/code-paths/route?route=GET /api/quote': quoteTree,
+      'api/code-paths': summary
+    }))
+    await flushPromises()
+
+    await wrapper.get('.code-paths-route-search').setValue('stream')
+    expect(routeRows().map((row) => row.get('.code-paths-route-name').text())).toEqual(['GET /api/stream'])
+    expect(wrapper.get('#code-paths-routes-heading').text()).toContain('1 of 2 routes')
+
+    await wrapper.get('.code-paths-route-search').setValue('pricingservice')
+    expect(routeRows().map((row) => row.get('.code-paths-route-name').text())).toEqual(['GET /api/quote'])
+
+    await wrapper.get('.code-paths-route-search').setValue('nothing-like-it')
+    expect(wrapper.get('.code-paths-route-none').text()).toContain('No route matches “nothing-like-it”.')
+    await wrapper.get('.code-paths-route-none button').trigger('click')
+    expect(routeRows()).toHaveLength(2)
+
+    await wrapper.get('#code-paths-route-sort').setValue('route')
+    expect(wrapper.get('#code-paths-routes-heading').text()).toContain('by path')
+    expect(routeRows().map((row) => row.get('.code-paths-route-name').text())).toEqual([
+      'GET /api/quote',
+      'GET /api/stream'
+    ])
+    await wrapper.get('#code-paths-route-sort').setValue('requests')
+    expect(routeRows()[0].get('.code-paths-route-name').text()).toBe('GET /api/quote')
+  })
+
+  it('moves between the routes with the arrow keys', async () => {
+    ;({wrapper} = mountPanel({'api/code-paths': summary}))
+    await flushPromises()
+    const toggles = wrapper.findAll('.code-paths-route')
+    toggles[0].element.focus = vi.fn()
+    toggles[1].element.focus = vi.fn()
+
+    await toggles[0].trigger('keydown', {key: 'ArrowDown'})
+    expect(toggles[1].element.focus).toHaveBeenCalled()
+    await toggles[1].trigger('keydown', {key: 'Home'})
+    expect(toggles[0].element.focus).toHaveBeenCalled()
+  })
+
+  it('opens the route and method a link names, and keeps them across a refresh', async () => {
+    router.state.query = {route: 'GET /api/quote', method: QUOTE}
+    let fetch
+    ;({wrapper, fetch} = mountPanel({
+      'api/code-paths/route?route=GET /api/quote': quoteTree,
+      'api/code-paths': summary
+    }))
+    await flushPromises()
+
+    expect(wrapper.get('#code-paths-tree-heading').text()).toBe('GET /api/quote')
+    expect(wrapper.get('.code-paths-node-selected').text()).toContain('SlowPricingService.quote')
+    expect(wrapper.get('.code-paths-method-detail').text()).toContain(QUOTE)
+    const reads = fetch.mock.calls.length
+
+    await wrapper.get('button[aria-label="Refresh panel"]').trigger('click')
+    await flushPromises()
+
+    expect(fetch.mock.calls.length).toBeGreaterThan(reads)
+    expect(wrapper.get('#code-paths-tree-heading').text()).toBe('GET /api/quote')
+    expect(wrapper.get('.code-paths-node-selected').text()).toContain('SlowPricingService.quote')
+    expect(wrapper.find('.code-paths-method-detail').exists()).toBe(true)
+  })
+
+  it('opens the route a probed method runs in, from another panel’s Probe link', async () => {
+    router.state.query = {probe: QUOTE}
+    ;({wrapper} = mountPanel({
+      'api/code-paths/probes': {available: true, probes: [], limitations: [], maxActive: 5, shapesAvailable: true},
+      'api/code-paths/route?route=GET /api/quote': quoteTree,
+      'api/code-paths': summary
+    }))
+    await flushPromises()
+
+    expect(wrapper.get('#code-paths-tree-heading').text()).toBe('GET /api/quote')
+    expect(wrapper.get('.code-paths-node-selected').text()).toContain('SlowPricingService.quote')
+    expect(wrapper.get('#code-paths-probe-target').text()).toContain(QUOTE)
+  })
+
+  it('offers a probe on a linked method no route reaches, in the Method probes card', async () => {
+    const other = 'shop.Unrouted#run()V'
+    router.state.query = {probe: other}
+    ;({wrapper} = mountPanel({
+      'api/code-paths/probes': {available: true, probes: [], limitations: [], maxActive: 5, shapesAvailable: true},
+      'api/code-paths': summary
+    }))
+    await flushPromises()
+
+    expect(wrapper.find('.code-paths-tree').exists()).toBe(false)
+    const card = wrapper.get('.code-paths-probes')
+    expect(card.get('#code-paths-probe-target').text()).toContain(other)
+    expect(card.find('.code-paths-probe-start').exists()).toBe(true)
+  })
+
+  /** Holds every tree read until the test settles it. */
+  function mountWithHeldTrees() {
+    const held = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        const path = decodeURIComponent(String(url))
+        if (!path.includes('api/code-paths/route')) return Promise.resolve(jsonResponse(summary))
+        const body = path.includes('GET /api/stream') ? streamTree : quoteTree
+        return new Promise((resolve) => {
+          held.push({
+            answer: () => resolve(jsonResponse(body)),
+            fail: () => resolve({ok: false, status: 500, json: () => Promise.resolve({message: 'boom'})})
+          })
+        })
+      })
+    )
+    wrapper = mount(CodePaths, {global: {stubs: {RouterLink: RouterLinkStub}}})
+    return held
+  }
+
+  async function selectStreamThenQuote() {
+    await routeRows()[1].get('.code-paths-route').trigger('click')
+    await routeRows()[0].get('.code-paths-route').trigger('click')
+    await flushPromises()
+  }
+
+  it('keeps the newest route’s tree when an older route answers last', async () => {
+    const held = mountWithHeldTrees()
+    await flushPromises()
+    await selectStreamThenQuote()
+    expect(held).toHaveLength(2)
+
+    held[1].answer()
+    await flushPromises()
+    held[0].answer()
+    await flushPromises()
+
+    expect(wrapper.get('#code-paths-tree-heading').text()).toBe('GET /api/quote')
+    expect(wrapper.get('.code-paths-tree').text()).toContain('SlowPricingService.quote')
+    expect(wrapper.get('.code-paths-tree').text()).not.toContain('StreamService.prices')
+  })
+
+  it('does not show an older route’s failure under the newer route', async () => {
+    const held = mountWithHeldTrees()
+    await flushPromises()
+    await selectStreamThenQuote()
+
+    held[1].answer()
+    await flushPromises()
+    held[0].fail()
+    await flushPromises()
+
+    expect(wrapper.get('#code-paths-tree-heading').text()).toBe('GET /api/quote')
+    expect(wrapper.find('.code-paths-route-detail .alert-danger').exists()).toBe(false)
+    expect(wrapper.get('.code-paths-tree').text()).toContain('SlowPricingService.quote')
+  })
+
+  it('shows a method’s detail and Probe this method under its row, and follows a route', async () => {
+    ;({wrapper} = mountPanel({
+      'api/code-paths/probes': {available: true, probes: [], limitations: [], maxActive: 5, shapesAvailable: true},
+      'api/code-paths/route?route=GET /api/stream': streamTree,
+      'api/code-paths/route?route=GET /api/quote': quoteTree,
+      'api/code-paths': summary
+    }))
+    await flushPromises()
+    await openRoute('GET /api/quote')
+
+    const methodRow = treeRows().find((row) => row.text().includes('SlowPricingService.quote'))
+    await methodRow.trigger('click')
+    await flushPromises()
+    expect(methodRow.attributes('aria-selected')).toBe('true')
+    expect(urlQuery()).toEqual({route: 'GET /api/quote', method: QUOTE})
+    expect(window.location.hash.startsWith('#/code-paths?')).toBe(true)
+    const rows = treeRows()
+    const detailRow = rows[rows.findIndex((row) => row.element === methodRow.element) + 1]
+    expect(detailRow.classes()).toContain('code-paths-detail-row')
+    const detail = detailRow.get('.code-paths-method-detail')
     expect(detail.get('.code-paths-callers').text()).toBe('QuoteController.quote')
     expect(detail.get('.code-paths-reach').text()).toContain('GET /api/stream')
-    // The selected method is the one Probe this method offers (M5-8).
-    expect(wrapper.get('#code-paths-probe-target').text()).toBe(QUOTE)
-    expect(wrapper.find('.code-paths-probe-start').exists()).toBe(true)
+    expect(detail.get('.code-paths-method-stats').text()).toContain('Self50.1 ms')
+    // The probe action sits in the method's detail, not in the card below the routes.
+    expect(detail.get('#code-paths-probe-target').text()).toContain(QUOTE)
+    expect(detail.find('.code-paths-probe-start').exists()).toBe(true)
+    expect(wrapper.get('.code-paths-probes').find('.code-paths-probe-start').exists()).toBe(false)
 
     await detail
       .findAll('.code-paths-reach button')
@@ -228,6 +473,7 @@ describe('Code Paths panel', () => {
     )
     expect(wrapper.get('.code-paths-tree thead').text()).toContain('Share of the request')
     expect(wrapper.find('.code-paths-method-detail').exists()).toBe(false)
+    expect(wrapper.find('.code-paths-probe-start').exists()).toBe(false)
   })
 
   it('shows the SQL, REST, cache, and AI calls a method issued under it', async () => {
@@ -251,16 +497,18 @@ describe('Code Paths panel', () => {
       'api/code-paths': summary
     }))
     await flushPromises()
+    await openRoute('GET /api/quote')
 
-    const rows = wrapper.findAll('.code-paths-tree tbody tr')
+    const rows = treeRows()
     expect(rows).toHaveLength(6)
     const calls = wrapper.findAll('.code-paths-call')
     expect(calls).toHaveLength(2)
     expect(rows[3].classes()).toContain('code-paths-call')
-    expect(calls[0].find('td').text()).toBe('SQL statements, issued while SlowPricingService.quote was open')
+    expect(calls[0].attributes('aria-level')).toBe('4')
+    expect(calls[0].find('td').text()).toContain('SQL statements')
+    expect(calls[0].find('td').text()).toContain(', issued while SlowPricingService.quote was open')
     expect(calls[0].findAll('td')[1].text()).toBe('6')
     expect(calls[0].findAll('td')[2].text()).toBe('12.5')
-    expect(calls[0].get('.code-paths-indent').attributes('style')).toContain('padding-inline-start: 3.3rem')
     expect(calls[0].get('.code-paths-call-label').attributes('title')).toBe(
       'Issued while SlowPricingService.quote was the innermost instrumented method open on their thread'
     )

@@ -38,6 +38,7 @@ public final class McpToolGuide {
     private static final Map<String, Map<String, Object>> EXAMPLES = Map.ofEntries(
             Map.entry("get_live_activity", args("query", "SQL", "limit", 20)),
             Map.entry("get_sql_traces", args("query", "orders")),
+            Map.entry("get_rest_client_traces", args("query", "503")),
             Map.entry("get_startup_timeline", args("limit", 10)),
             Map.entry("get_log_tail", args("query", "WARN")),
             Map.entry("get_copilot_sessions", args("limit", 5)),
@@ -114,13 +115,18 @@ public final class McpToolGuide {
             Map.entry(
                     "get_sql_traces",
                     "text in the SQL, category, call site, or error, or a request, trace, or execution id"),
+            Map.entry(
+                    "get_rest_client_traces",
+                    "a method, URI, host, path, status, client type, call site, or error, or a request, trace, or"
+                            + " execution id"),
             Map.entry("get_startup_timeline", "a step name or tag value, such as a bean name"),
             Map.entry("get_log_tail", "a level, logger, thread, or text in the message"),
             Map.entry("get_copilot_sessions", "a session id, model, working directory, status, or last activity"),
             Map.entry("get_claude_code_sessions", "a session id, model, working directory, status, or last activity"),
             Map.entry(
                     "get_vulnerabilities_report",
-                    "group:artifact coordinates, a severity, or an advisory id or alias such as a CVE"),
+                    "group:artifact coordinates, a severity, or an advisory id or alias such as a CVE; an exact"
+                            + " group:artifact lists all its advisories, an exact advisory id or alias returns it whole"),
             Map.entry(
                     "get_runtime_insights",
                     "empty (the default list), all (every observation), new, security, diff, latency, an observation"
@@ -132,8 +138,8 @@ public final class McpToolGuide {
             Map.entry("get_code_paths", "empty (the slowest routes), or a route or method name"),
             Map.entry(
                     "get_side_effects",
-                    "a sensor id such as processes, network, files, environment, blocking, thread-activity, or"
-                            + " thread-locals, which also lists its hooks, not captured (outbound calls no panel"
+                    "a sensor id such as processes, network, files, environment, blocking, thread-activity,"
+                            + " thread-locals, or resources, which also lists its hooks, not captured (outbound calls no panel"
                             + " captured), or part of a route, target, client, or call site"));
 
     private McpToolGuide() {}

@@ -34,15 +34,16 @@ See [WebFlux design notes](WEBFLUX-SUPPORT.md) for the panel-by-panel detail.
   report `UNAVAILABLE`, and no SQL time appears in `route-time-breakdown`. R2DBC capture is deferred until after 2.0.
 - **`route-time-breakdown` has no handler or response phase.** It times authentication and the recorded calls; the
   rest of a request's time is reported as unattributed, never as application code.
-- **Transactions are blocking only.** `transaction-across-remote-call` and `split-transaction-writes` read blocking
-  transactions; a `ReactiveTransactionManager` is not captured.
+- **A reactive transaction has no thread-bound context.** A `ReactiveTransactionManager`'s transactions are recorded
+  without a parent transaction or isolation level, and `transaction-across-remote-call` and `split-transaction-writes`
+  place one in a request only when its pipeline carried the request's context to the thread it began on.
 - **`lazy-sql-after-handler` does not apply**, and WebSocket frames and the HTTP Sessions panel are unavailable.
 
 ## Quarkus
 
 See [Quarkus design notes](QUARKUS-SUPPORT.md) for the panel-by-panel detail.
 
-- **54 of the 64 panels ship.** GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring Security,
+- **55 of the 65 panels ship.** GraalVM, CRaC, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring Security,
   Spring DevTools, and Transactions do not apply to Quarkus; JMS is not available yet.
 - **No transaction capture.** SQL statements carry no transaction id, and `transaction-across-remote-call` and
   `split-transaction-writes` are unavailable.
@@ -70,6 +71,16 @@ See [Quarkus design notes](QUARKUS-SUPPORT.md) for the panel-by-panel detail.
 - **CPU on virtual threads** is not read by the per-request scope readings; use the opt-in JFR attribution (**Profile
   resources**) for it.
 
+## MCP
+
+- **A legacy cancellation can reach another client's call.** MCP 2025-06-18 over HTTP has no sessions, and clients
+  number their request ids from 0 per connection. A late `notifications/cancelled` from one client, sent after its own
+  call finished, cancels another local client's in-flight `tools/call` that uses the same id; that call's progress
+  stream then ends with no response. Two calls in flight with the same id are never cancelled. BootUI does not add an
+  `Mcp-Session-Id`, which would change MCP 2025-06-18's bytes. See [AI agents](AI-AGENTS.md#protocol-eras).
+- **Only `architecture_scan` and `vulnerabilities_scan` report progress**; every other tool finishes in about a second
+  and answers with one JSON response.
+
 ## The BootUI Java agent
 
 The agent is optional: without it, every 2.0 feature that does not name it works. With it, BootUI records what the
@@ -84,23 +95,31 @@ application's own code did. See [Java Agent](features/java-agent.md).
   `changed-code-not-executed`;
 - **Code Paths**: route trees, component-boundary timing, and the handler split of `route-time-breakdown`;
 - change impact by method, and a run comparison led by code changes;
-- metadata-only method probes: invocations, durations, outcomes, and request ids, never arguments or return values;
+- metadata-only method probes: invocations, durations, outcomes, and request ids, never arguments or return values,
+  with optional argument and return shapes, shown in the panel only: types and sizes, plus an enum constant's name and
+  a string's length under `FULL`;
 - runtime reach in the Vulnerabilities panel;
-- the **Side Effects** panel with its `processes` sensor and the opt-in `files` and `environment` sensors;
-- the Exceptions panel's **Caught in application code** section, with the agent's opt-in `caught-exceptions` sensor.
+- the **Side Effects** panel with the default `network` (outbound hosts), `processes`, `files`, `blocking`, and
+  `resources` (streams and sockets a request left open, `resource-not-closed`) sensors, and the opt-in `environment`, `thread-activity` (threads per request), and `thread-locals` (`thread-local-left-set`)
+  sensors; `files`, `environment`, `thread-activity`, and `thread-locals` are switched on and off at run time from the
+  Java Agent and Side Effects panels;
+- side effects in the run comparison: hosts, file patterns, processes, and variable names new or gone since the
+  previous run;
+- the Exceptions panel's **Caught in application code** section, with the agent's opt-in `caught-exceptions` sensor;
 - `request-input-in-sink` as opt-in Security sinks rows: request input reaching SQL text, a command, a file path, or
-  an outbound URL unchanged, with query and path parameters, not yet form values.
+  an outbound URL unchanged, with query and path parameters;
+- the opt-in Security sinks JDK checks: deserialization without a filter, weak algorithms, and trust managers and
+  hostname verifiers; request-value matching now turns on with the side-effect sensors' transformer, so when that
+  transformer fails to install or its self-test fails, matching is off too;
+- agent guidance in the MCP instructions and prompts, and the scripted "did my change run?" agent investigation.
 
 **Planned, may not be in 2.0:**
 
-- the remaining Side Effects sensors: hosts, threads, thread locals, blocking calls, and leaked streams, with
-  `thread-local-left-set`;
-- caught exceptions as evidence of `errors-behind-2xx`; and the rest of security sinks: deserialization without a
-  filter, weak algorithms, trust managers, and form values in `request-input-in-sink`;
-- side effects in change impact and run comparison, and methods no longer executed on routes exercised in both runs;
-- argument and return shapes in method probes;
-- dynamic access recording;
-- the remaining agent tools and agent guidance, and the eleventh scripted agent investigation ("did my change run?").
+- caught exceptions as evidence of `errors-behind-2xx`;
+- the rest of security sinks: form values in `request-input-in-sink`, and outbound URLs opened through `HttpClient` or
+  `URL.openConnection`;
+- side effects in change impact, and methods no longer executed on routes exercised in both runs;
+- dynamic access recording.
 
 **Limits of the agent itself:**
 

@@ -24,6 +24,34 @@ class McpGuidanceTests {
 
     @ParameterizedTest
     @ValueSource(strings = {"Spring Boot", "Quarkus"})
+    void everyPromptDeclaresOnlyOptionalArgumentsThatFocusItAndRendersWithoutThem(String framework) {
+        assertThat(McpGuidance.prompts(framework))
+                .extracting(prompt -> prompt.arguments().stream()
+                        .map(McpPrompt.Argument::name)
+                        .toList())
+                .containsExactly(
+                        java.util.List.of("symptom", "route"),
+                        java.util.List.of("change", "route"),
+                        java.util.List.of("focus"),
+                        java.util.List.of("goal"));
+        assertThat(McpGuidance.prompts(framework)).allSatisfy(prompt -> {
+            assertThat(prompt.render(java.util.Map.of()))
+                    .as("a client that sends no argument gets the prompt unchanged")
+                    .isEqualTo(prompt.text());
+            assertThat(prompt.arguments()).allSatisfy(argument -> {
+                assertThat(argument.description()).isNotBlank();
+                assertThat(argument.label()).isNotBlank();
+            });
+        });
+        McpPrompt diagnose = McpGuidance.prompts(framework).get(0);
+        assertThat(diagnose.render(java.util.Map.of("symptom", "checkout answers 500")))
+                .startsWith(diagnose.text())
+                .endsWith("- The symptom the user reports: checkout answers 500")
+                .contains("verify it against BootUI evidence");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Spring Boot", "Quarkus"})
     void verificationStartsFromTheChangedMethodsOfCodeInventory(String framework) {
         assertThat(McpGuidance.instructions(framework)).contains("get_code_inventory", "get_agent_status");
         assertThat(McpGuidance.prompts(framework))
@@ -53,7 +81,13 @@ class McpGuidanceTests {
                                     "the next step is a method probe",
                                     "separate approval",
                                     "get_method_probe",
-                                    "no invocations is evidence that path never reaches the method");
+                                    "invocations at 0 is evidence that path never reaches the",
+                                    "within its 60-second window",
+                                    "until its state is active",
+                                    "is inconclusive, not evidence");
+                    assertThat(text.indexOf("until its state is active"))
+                            .as("the probe is active before the candidate is rerun")
+                            .isLessThan(text.indexOf("rerun the candidate test or request"));
                     assertThat(text.indexOf("if it still did not run"))
                             .isGreaterThanOrEqualTo(0)
                             .isLessThan(text.indexOf("start_method_probe"));
@@ -109,7 +143,36 @@ class McpGuidanceTests {
                         "is opt-in",
                         "bootui.agent.sensors lists security-sinks",
                         "bootui.agent.security-sinks.request-values=true",
-                        "mark it unavailable rather than clean");
+                        "unavailable rather than clean");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Spring Boot", "Quarkus"})
+    void jdkSecuritySinkFactsRequireVerificationAndDoNotRequireRequestValueMatching(String framework) {
+        assertThat(McpGuidance.instructions(framework))
+                .contains(
+                        "deserialization without an ObjectInputFilter",
+                        "weak algorithms",
+                        "trust-manager or hostname-verifier",
+                        "Read each group's coverage first",
+                        "never a vulnerability verdict");
+        assertThat(McpGuidance.prompts(framework))
+                .filteredOn(prompt -> prompt.name().equals("diagnose_runtime_issue"))
+                .singleElement()
+                .satisfies(prompt -> assertThat(prompt.text())
+                        .contains(
+                                "deserialized input's origin and filtering",
+                                "non-security checksum",
+                                "certificate chains and hostnames are validated",
+                                "does not prove it accepts every certificate",
+                                "disabled reason",
+                                "never vulnerability verdicts"));
+        assertThat(assessment(framework))
+                .contains(
+                        "These checks do not need request-value matching",
+                        "separately enable bootui.agent.security-sinks.request-values=true",
+                        "unrecorded check unavailable rather than clean",
+                        "do not change them yourself");
     }
 
     @ParameterizedTest

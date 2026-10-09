@@ -10,8 +10,10 @@ backed by the Quarkus build of the framework-neutral engine.
   (`quarkus.platform.version`, currently the `3.40.1` LTS release)
 - Maven or Gradle (or their local wrappers)
 
-The extension's core, REST client, production-guard, and Hibernate JVM integration fixtures have also passed with
-Quarkus **3.33.4 LTS** and **3.39.5**. Quarkus 3.39 is the most recently released non-LTS line, but
+The extension also supports the previous LTS line, 3.33. Every build runs the published build of the extension through
+all of its Quarkus integration fixtures on Quarkus **3.33.4 LTS**, and runs the extension's own tests compiled against
+it. Its core, REST client, production-guard, and Hibernate JVM fixtures have also passed with Quarkus 3.39.5. Quarkus
+3.39 is the most recently released non-LTS line, but
 [its upstream support ended when 3.40 shipped](https://quarkus.io/releases/).
 
 ## Add the extension
@@ -24,7 +26,7 @@ Quarkus **3.33.4 LTS** and **3.39.5**. Quarkus 3.39 is the most recently release
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-quarkus</artifactId>
-  <version>1.20.0</version>
+  <version>1.21.0</version>
 </dependency>
 ```
 
@@ -32,12 +34,12 @@ Quarkus **3.33.4 LTS** and **3.39.5**. Quarkus 3.39 is the most recently release
 
 ```groovy
 // Groovy DSL (build.gradle)
-implementation 'com.julien-dubois.bootui:bootui-quarkus:1.20.0'
+implementation 'com.julien-dubois.bootui:bootui-quarkus:1.21.0'
 ```
 
 ```kotlin
 // Kotlin DSL (build.gradle.kts)
-implementation("com.julien-dubois.bootui:bootui-quarkus:1.20.0")
+implementation("com.julien-dubois.bootui:bootui-quarkus:1.21.0")
 ```
 
 :::

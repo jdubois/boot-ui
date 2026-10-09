@@ -1,15 +1,15 @@
 <script setup>
-import {computed, ref, watch} from 'vue'
+import {computed, ref} from 'vue'
 import {getJson} from '../api.js'
 import {formatMillis, formatNumber} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
-import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
 import PanelHeader from './components/PanelHeader.vue'
 import AgentSensorToggle from './components/AgentSensorToggle.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
-import PanelTabs from './components/PanelTabs.vue'
+import JavaAgentAbout from './components/JavaAgentAbout.vue'
+import JavaAgentSetup from './components/JavaAgentSetup.vue'
 import UnavailableState from './components/UnavailableState.vue'
 
 const props = defineProps(panelProps)
@@ -17,9 +17,6 @@ const {manifestAvailable, manifestUnavailableReason} = usePanelState(props)
 const report = ref(null)
 const error = ref(null)
 const lastFetched = ref(null)
-const activeSnippetId = ref(null)
-const copyBlocked = ref(false)
-const {copiedKey, copyToClipboard} = useCopyToClipboard(2000)
 
 const STATE_DETAILS = {
   NOT_ATTACHED: {
@@ -27,7 +24,7 @@ const STATE_DETAILS = {
     icon: 'bi-plug',
     tone: 'neutral',
     reason:
-      'This JVM runs without the BootUI agent. Attach it with one of the setup snippets below; BootUI works without it.'
+      'This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets below.'
   },
   DORMANT: {
     label: 'Dormant',
@@ -84,6 +81,7 @@ const EXECUTOR_COUNTERS = [
   ['ambiguous', 'Ambiguous', 'tasks submitted more than once by different owners, left unowned'],
   ['stale', 'Stale', 'tasks received under an earlier claim, never reopened after a restart'],
   ['refused', 'Refused', 'snapshots the bridge refused because they held more than strings and numbers'],
+  ['overflow', 'Over the limit', 'tasks received from owned work while 32,768 were already pending, left unowned'],
   ['virtualSkipped', 'Virtual threads skipped', 'virtual-thread continuations, which keep their own context'],
   ['periodicSkipped', 'Periodic tasks skipped', 'repeating scheduled tasks, which are never propagated'],
   ['skippedTasks', 'Wrappers skipped', 'tasks already carrying their context (bootui.agent.executors.skip-tasks)'],
@@ -102,6 +100,7 @@ const THREAD_COUNTERS = [
   ['ambiguous', 'Ambiguous', 'threads started more than once by different owners, left unowned'],
   ['stale', 'Stale', 'threads started under an earlier claim, never reopened after a restart'],
   ['refused', 'Refused', 'snapshots the bridge refused because they held more than strings and numbers'],
+  ['overflow', 'Over the limit', 'threads started from owned work while 32,768 were already pending, left unowned'],
   [
     'libraryThreadsSkipped',
     'Library threads skipped',
@@ -246,9 +245,9 @@ function onSensorSwitched(updated) {
   lastFetched.value = Date.now()
 }
 
-const snippets = computed(() => report.value?.setup?.snippets ?? [])
-const activeSnippet = computed(() => snippets.value.find((snippet) => snippet.id === activeSnippetId.value) ?? null)
-const copiedActiveSnippet = computed(() => copiedKey.value === copyKey(activeSnippet.value))
+// Without an attached agent, the setup and what the agent adds open the panel, and the sections that describe an
+// attached agent are left out. Every other state keeps the agent's own diagnosis first and the setup last.
+const notAttached = computed(() => report.value?.state === 'NOT_ATTACHED')
 const stateDetail = computed(() => STATE_DETAILS[report.value?.state] ?? STATE_DETAILS.UNAVAILABLE)
 const stateLabel = computed(() => {
   if (report.value?.state === 'HELD') {
@@ -303,43 +302,9 @@ const counterStats = computed(() => {
   ]
 })
 
-watch(
-  snippets,
-  (items) => {
-    if (!items.length) {
-      activeSnippetId.value = null
-      return
-    }
-    if (!items.some((snippet) => snippet.id === activeSnippetId.value)) {
-      activeSnippetId.value = items[0].id
-    }
-  },
-  {immediate: true}
-)
-
-function copyKey(snippet) {
-  return snippet ? `java-agent-${snippet.id}` : null
-}
-
-async function copyActiveSnippet() {
-  copyBlocked.value = false
-  if (!activeSnippet.value) return
-  const copied = await copyToClipboard(activeSnippet.value.text, copyKey(activeSnippet.value))
-  copyBlocked.value = !copied
-}
-
-function selectSnippet(id) {
-  activeSnippetId.value = id
-  copyBlocked.value = false
-}
-
 function formatTimestamp(epochMillis) {
   if (!epochMillis) return '—'
   return new Date(epochMillis).toLocaleString()
-}
-
-function languageLabel(language) {
-  return {xml: 'XML', kotlin: 'Kotlin', groovy: 'Groovy', shell: 'Shell', text: 'Text'}[language] ?? language ?? 'Text'
 }
 
 function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
@@ -382,244 +347,252 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
         </div>
       </section>
 
-      <div class="row g-4 mb-4">
-        <div class="col-xl-7">
-          <section class="card h-100" aria-labelledby="java-agent-facts-title">
-            <div class="card-body p-4">
-              <h3 id="java-agent-facts-title" class="h6 fw-bold mb-3">
-                <i class="bi bi-info-circle me-2" aria-hidden="true"></i>Versions & runtime facts
-              </h3>
-              <dl class="java-agent-facts mb-0">
-                <template v-for="fact in facts" :key="fact.label">
-                  <dt :class="{'java-agent-facts__wide': fact.wide}">{{ fact.label }}</dt>
-                  <dd :class="{'java-agent-facts__wide': fact.wide}">
-                    <code v-if="fact.code" class="bootui-break-anywhere">{{ fact.value }}</code>
-                    <span v-else>{{ fact.value }}</span>
-                  </dd>
-                </template>
-              </dl>
-            </div>
-          </section>
-        </div>
+      <template v-if="notAttached">
+        <JavaAgentSetup class="mb-4" :setup="report.setup" :attached="false" />
+        <JavaAgentAbout class="mb-4" />
+      </template>
 
-        <div class="col-xl-5">
-          <section v-if="report.claim" class="card h-100" aria-labelledby="java-agent-claim-title">
-            <div class="card-body p-4">
-              <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-                <h3 id="java-agent-claim-title" class="h6 fw-bold mb-0">
-                  <i class="bi bi-person-lock me-2" aria-hidden="true"></i>Current claim
+      <template v-else>
+        <div class="row g-4 mb-4">
+          <div class="col-xl-7">
+            <section class="card h-100" aria-labelledby="java-agent-facts-title">
+              <div class="card-body p-4">
+                <h3 id="java-agent-facts-title" class="h6 fw-bold mb-3">
+                  <i class="bi bi-info-circle me-2" aria-hidden="true"></i>Versions & runtime facts
                 </h3>
-                <div class="d-flex flex-wrap gap-1">
-                  <span :class="['badge', badgeClass(report.claim.armed).class]">
-                    {{ badgeClass(report.claim.armed).label }}
-                  </span>
-                  <span
-                    v-if="report.claim.armed"
-                    :class="['badge', badgeClass(!report.claim.abandoned, 'Active', 'Abandoned').class]"
-                  >
-                    {{ badgeClass(!report.claim.abandoned, 'Active', 'Abandoned').label }}
-                  </span>
+                <dl class="java-agent-facts mb-0">
+                  <template v-for="fact in facts" :key="fact.label">
+                    <dt :class="{'java-agent-facts__wide': fact.wide}">{{ fact.label }}</dt>
+                    <dd :class="{'java-agent-facts__wide': fact.wide}">
+                      <code v-if="fact.code" class="bootui-break-anywhere">{{ fact.value }}</code>
+                      <span v-else>{{ fact.value }}</span>
+                    </dd>
+                  </template>
+                </dl>
+              </div>
+            </section>
+          </div>
+
+          <div class="col-xl-5">
+            <section v-if="report.claim" class="card h-100" aria-labelledby="java-agent-claim-title">
+              <div class="card-body p-4">
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                  <h3 id="java-agent-claim-title" class="h6 fw-bold mb-0">
+                    <i class="bi bi-person-lock me-2" aria-hidden="true"></i>Current claim
+                  </h3>
+                  <div class="d-flex flex-wrap gap-1">
+                    <span :class="['badge', badgeClass(report.claim.armed).class]">
+                      {{ badgeClass(report.claim.armed).label }}
+                    </span>
+                    <span
+                      v-if="report.claim.armed"
+                      :class="['badge', badgeClass(!report.claim.abandoned, 'Active', 'Abandoned').class]"
+                    >
+                      {{ badgeClass(!report.claim.abandoned, 'Active', 'Abandoned').label }}
+                    </span>
+                  </div>
+                </div>
+                <dl class="row small mb-3">
+                  <dt class="col-5 text-muted fw-normal">Generation</dt>
+                  <dd class="col-7">{{ formatNumber(report.claim.generation) }}</dd>
+                  <dt class="col-5 text-muted fw-normal">Owner</dt>
+                  <dd class="col-7">
+                    <code class="bootui-break-anywhere">{{ report.claim.owner }}</code>
+                  </dd>
+                  <dt class="col-5 text-muted fw-normal">Application</dt>
+                  <dd class="col-7">
+                    <code class="bootui-break-anywhere">{{ report.claim.application }}</code>
+                  </dd>
+                  <dt class="col-5 text-muted fw-normal">Mode</dt>
+                  <dd class="col-7">{{ report.claim.mode }}</dd>
+                  <dt class="col-5 text-muted fw-normal">Armed since</dt>
+                  <dd class="col-7">{{ formatTimestamp(report.claim.armedAt) }}</dd>
+                </dl>
+                <div>
+                  <div class="text-muted small mb-2">Packages</div>
+                  <ul v-if="report.claim.packages?.length" class="list-inline mb-0">
+                    <li v-for="pkg in report.claim.packages" :key="pkg" class="list-inline-item mb-1">
+                      <code class="java-agent-package">{{ pkg }}</code>
+                    </li>
+                  </ul>
+                  <p v-else class="text-muted small mb-0">No package prefixes.</p>
                 </div>
               </div>
-              <dl class="row small mb-3">
-                <dt class="col-5 text-muted fw-normal">Generation</dt>
-                <dd class="col-7">{{ formatNumber(report.claim.generation) }}</dd>
-                <dt class="col-5 text-muted fw-normal">Owner</dt>
-                <dd class="col-7">
-                  <code class="bootui-break-anywhere">{{ report.claim.owner }}</code>
-                </dd>
-                <dt class="col-5 text-muted fw-normal">Application</dt>
-                <dd class="col-7">
-                  <code class="bootui-break-anywhere">{{ report.claim.application }}</code>
-                </dd>
-                <dt class="col-5 text-muted fw-normal">Mode</dt>
-                <dd class="col-7">{{ report.claim.mode }}</dd>
-                <dt class="col-5 text-muted fw-normal">Armed since</dt>
-                <dd class="col-7">{{ formatTimestamp(report.claim.armedAt) }}</dd>
-              </dl>
-              <div>
-                <div class="text-muted small mb-2">Packages</div>
-                <ul v-if="report.claim.packages?.length" class="list-inline mb-0">
-                  <li v-for="pkg in report.claim.packages" :key="pkg" class="list-inline-item mb-1">
-                    <code class="java-agent-package">{{ pkg }}</code>
-                  </li>
-                </ul>
-                <p v-else class="text-muted small mb-0">No package prefixes.</p>
+            </section>
+
+            <section v-else class="card h-100" aria-labelledby="java-agent-no-claim-title">
+              <div class="card-body p-4 text-muted small">
+                <h3 id="java-agent-no-claim-title" class="h6 fw-bold text-body mb-2">
+                  <i class="bi bi-person-dash me-2" aria-hidden="true"></i>No active claim
+                </h3>
+                No application in this JVM holds the agent’s claim.
               </div>
-            </div>
-          </section>
-
-          <section v-else class="card h-100" aria-labelledby="java-agent-no-claim-title">
-            <div class="card-body p-4 text-muted small">
-              <h3 id="java-agent-no-claim-title" class="h6 fw-bold text-body mb-2">
-                <i class="bi bi-person-dash me-2" aria-hidden="true"></i>No active claim
-              </h3>
-              No application in this JVM holds the agent’s claim.
-            </div>
-          </section>
+            </section>
+          </div>
         </div>
-      </div>
 
-      <section class="card mb-4" aria-labelledby="java-agent-opt-in-title">
-        <div class="card-body p-4">
-          <h3 id="java-agent-opt-in-title" class="h6 fw-bold mb-1">
-            <i class="bi bi-toggles me-2" aria-hidden="true"></i>Opt-in sensors
-          </h3>
-          <p class="small text-muted mb-3">
-            Sensors off by default, switched on or off here for this application without a restart. A switch overrides
-            <code>bootui.agent.sensors</code> until this JVM ends, across DevTools restarts and Quarkus live reloads.
-          </p>
-          <ul v-if="toggles.length" class="list-unstyled mb-0 java-agent-toggles">
-            <li v-for="toggle in toggles" :key="toggle.id">
-              <AgentSensorToggle :toggle="toggle" @switched="onSensorSwitched" @stale="load" />
-            </li>
-          </ul>
-          <p v-else class="small text-muted mb-0" data-testid="java-agent-toggles-unavailable">
-            The opt-in sensors can be switched once the BootUI agent is attached and this application holds its claim.
-          </p>
-        </div>
-      </section>
+        <section class="card mb-4" aria-labelledby="java-agent-opt-in-title">
+          <div class="card-body p-4">
+            <h3 id="java-agent-opt-in-title" class="h6 fw-bold mb-1">
+              <i class="bi bi-toggles me-2" aria-hidden="true"></i>Runtime switches
+            </h3>
+            <p class="small text-muted mb-3">
+              Sensors switched on or off here for this application without a restart, each with why it is on or off by
+              default. A switch overrides
+              <code>bootui.agent.sensors</code> until this JVM ends, across DevTools restarts and Quarkus live reloads.
+            </p>
+            <ul v-if="toggles.length" class="list-unstyled mb-0 java-agent-toggles">
+              <li v-for="toggle in toggles" :key="toggle.id">
+                <AgentSensorToggle :toggle="toggle" @switched="onSensorSwitched" @stale="load" />
+              </li>
+            </ul>
+            <p v-else class="small text-muted mb-0" data-testid="java-agent-toggles-unavailable">
+              These sensors can be switched once the BootUI agent is attached and this application holds its claim.
+            </p>
+          </div>
+        </section>
 
-      <section class="card mb-4" aria-labelledby="java-agent-sensors-title">
-        <div class="card-body p-4">
-          <h3 id="java-agent-sensors-title" class="h6 fw-bold mb-3">
-            <i class="bi bi-broadcast-pin me-2" aria-hidden="true"></i>Sensors
-          </h3>
-          <template v-if="report.sensors?.length">
-            <div class="table-responsive">
-              <table class="table table-sm align-middle mb-0">
-                <thead>
-                  <tr>
-                    <th scope="col">Sensor</th>
-                    <th scope="col">State</th>
-                    <th scope="col">This claim</th>
-                    <th scope="col">Self-test</th>
-                    <th scope="col" class="text-end">Instrumented types</th>
-                    <th scope="col" class="text-end">Retransformed</th>
-                    <th scope="col">Failures</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="sensor in report.sensors" :key="sensor.id">
-                    <td>
-                      <code>{{ sensor.id }}</code>
-                    </td>
-                    <td>{{ sensorState(sensor) }}</td>
-                    <td>
-                      <span v-if="sensor.active" class="text-success-emphasis">active</span>
-                      <span v-else class="text-muted">inactive</span>
-                    </td>
-                    <td>
-                      <span v-if="sensor.selfTestPassed" class="text-success-emphasis">passed</span>
-                      <span v-else-if="sensor.selfTestError" class="text-danger-emphasis">{{
-                        sensor.selfTestError
-                      }}</span>
-                      <span v-else class="text-muted">not run</span>
-                    </td>
-                    <td class="text-end">{{ formatNumber(sensor.instrumentedTypes) }}</td>
-                    <td class="text-end">{{ sensorRetransformation(sensor) }}</td>
-                    <td>
-                      <span v-if="!sensor.failures?.length" class="text-muted">—</span>
-                      <ul v-else class="mb-0 ps-3">
-                        <li v-for="failure in sensor.failures" :key="failure">{{ failure }}</li>
-                      </ul>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <template v-for="sensor in sensorsWithHooks" :key="`hooks-${sensor.id}`">
-              <h4 :id="`java-agent-hooks-${sensor.id}`" class="h6 small text-muted mt-4 mb-2">
-                <code>{{ sensor.id }}</code> hooks
-              </h4>
+        <section class="card mb-4" aria-labelledby="java-agent-sensors-title">
+          <div class="card-body p-4">
+            <h3 id="java-agent-sensors-title" class="h6 fw-bold mb-3">
+              <i class="bi bi-broadcast-pin me-2" aria-hidden="true"></i>Sensors
+            </h3>
+            <template v-if="report.sensors?.length">
               <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0" :aria-labelledby="`java-agent-hooks-${sensor.id}`">
+                <table class="table table-sm align-middle mb-0">
                   <thead>
                     <tr>
-                      <th scope="col">Hook</th>
-                      <th scope="col">Role</th>
-                      <th scope="col">Installed</th>
+                      <th scope="col">Sensor</th>
+                      <th scope="col">State</th>
+                      <th scope="col">This claim</th>
                       <th scope="col">Self-test</th>
-                      <th scope="col" class="text-end">Fired</th>
+                      <th scope="col" class="text-end">Instrumented types</th>
+                      <th scope="col" class="text-end">Retransformed</th>
+                      <th scope="col">Failures</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="hook in sensor.hooks" :key="hook.id">
+                    <tr v-for="sensor in report.sensors" :key="sensor.id">
                       <td>
-                        <code :title="hook.type">{{ hook.id }}</code>
+                        <code>{{ sensor.id }}</code>
                       </td>
-                      <td>{{ hookRole(sensor, hook) }}</td>
-                      <td>{{ hookInstalled(hook) }}</td>
-                      <td>{{ hook.selfTest }}</td>
-                      <td class="text-end">{{ formatNumber(hook.fired) }}</td>
+                      <td>{{ sensorState(sensor) }}</td>
+                      <td>
+                        <span v-if="sensor.active" class="text-success-emphasis">active</span>
+                        <span v-else class="text-muted">inactive</span>
+                      </td>
+                      <td>
+                        <span v-if="sensor.selfTestPassed" class="text-success-emphasis">passed</span>
+                        <span v-else-if="sensor.selfTestError" class="text-danger-emphasis">{{
+                          sensor.selfTestError
+                        }}</span>
+                        <span v-else class="text-muted">not run</span>
+                      </td>
+                      <td class="text-end">{{ formatNumber(sensor.instrumentedTypes) }}</td>
+                      <td class="text-end">{{ sensorRetransformation(sensor) }}</td>
+                      <td>
+                        <span v-if="!sensor.failures?.length" class="text-muted">—</span>
+                        <ul v-else class="mb-0 ps-3">
+                          <li v-for="failure in sensor.failures" :key="failure">{{ failure }}</li>
+                        </ul>
+                      </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
-              <template v-if="sensor.executors || sensor.inventory || sensor.codePaths">
-                <p v-if="sensorDisabledReason(sensor)" class="alert alert-warning small mt-3 mb-0" role="note">
-                  {{ sensor.inventory || sensor.codePaths ? 'Recording' : 'Propagation' }} is disabled for this claim:
-                  {{ sensorDisabledReason(sensor) }}
-                </p>
-                <h4 :id="`java-agent-counters-${sensor.id}`" class="h6 small text-muted mt-4 mb-2">Counters</h4>
-                <dl
-                  class="row small mb-0 java-agent-counters"
-                  :data-sensor="sensor.id"
-                  :aria-labelledby="`java-agent-counters-${sensor.id}`"
-                >
-                  <template v-for="counter in sensorCounters(sensor)" :key="counter.key">
-                    <dt class="col-sm-4 col-lg-3">
-                      {{ counter.label }} <span class="fw-normal">{{ formatNumber(counter.value) }}</span>
-                    </dt>
-                    <dd class="col-sm-8 col-lg-9 text-muted">{{ counter.explanation }}</dd>
-                  </template>
-                </dl>
+              <template v-for="sensor in sensorsWithHooks" :key="`hooks-${sensor.id}`">
+                <h4 :id="`java-agent-hooks-${sensor.id}`" class="h6 small text-muted mt-4 mb-2">
+                  <code>{{ sensor.id }}</code> hooks
+                </h4>
+                <div class="table-responsive">
+                  <table class="table table-sm align-middle mb-0" :aria-labelledby="`java-agent-hooks-${sensor.id}`">
+                    <thead>
+                      <tr>
+                        <th scope="col">Hook</th>
+                        <th scope="col">Role</th>
+                        <th scope="col">Installed</th>
+                        <th scope="col">Self-test</th>
+                        <th scope="col" class="text-end">Fired</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="hook in sensor.hooks" :key="hook.id">
+                        <td>
+                          <code :title="hook.type">{{ hook.id }}</code>
+                        </td>
+                        <td>{{ hookRole(sensor, hook) }}</td>
+                        <td>{{ hookInstalled(hook) }}</td>
+                        <td>{{ hook.selfTest }}</td>
+                        <td class="text-end">{{ formatNumber(hook.fired) }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <template v-if="sensor.executors || sensor.inventory || sensor.codePaths">
+                  <p v-if="sensorDisabledReason(sensor)" class="alert alert-warning small mt-3 mb-0" role="note">
+                    {{ sensor.inventory || sensor.codePaths ? 'Recording' : 'Propagation' }} is disabled for this claim:
+                    {{ sensorDisabledReason(sensor) }}
+                  </p>
+                  <h4 :id="`java-agent-counters-${sensor.id}`" class="h6 small text-muted mt-4 mb-2">Counters</h4>
+                  <dl
+                    class="row small mb-0 java-agent-counters"
+                    :data-sensor="sensor.id"
+                    :aria-labelledby="`java-agent-counters-${sensor.id}`"
+                  >
+                    <template v-for="counter in sensorCounters(sensor)" :key="counter.key">
+                      <dt class="col-sm-4 col-lg-3">
+                        {{ counter.label }} <span class="fw-normal">{{ formatNumber(counter.value) }}</span>
+                      </dt>
+                      <dd class="col-sm-8 col-lg-9 text-muted">{{ counter.explanation }}</dd>
+                    </template>
+                  </dl>
+                </template>
               </template>
             </template>
-          </template>
-          <p v-else class="text-muted small mb-0">
-            No sensor installed: the agent installs the sensors this application asks for when it claims the agent
-            (bootui.agent.sensors).
-          </p>
-        </div>
-      </section>
+            <p v-else class="text-muted small mb-0">
+              No sensor installed: the agent installs the sensors this application asks for when it claims the agent
+              (bootui.agent.sensors).
+            </p>
+          </div>
+        </section>
 
-      <div v-if="report.retransformation || report.counters" class="row g-4 mb-4">
-        <div v-if="report.retransformation" class="col-lg-7">
-          <section class="card h-100" aria-labelledby="java-agent-retransform-title">
-            <div class="card-body p-4">
-              <h3 id="java-agent-retransform-title" class="h6 fw-bold mb-3">
-                <i class="bi bi-arrow-repeat me-2" aria-hidden="true"></i>Class transformation
-              </h3>
-              <p class="small text-muted mb-3">
-                All sensors since the JVM started, summed: transformers stay installed across claims, and sensors
-                install one after another, so the time is aggregate work rather than a wall-clock interval.
-              </p>
-              <div class="java-agent-strip">
-                <div v-for="stat in retransformationStats" :key="stat.label" class="java-agent-stat">
-                  <div class="java-agent-stat__value">{{ stat.value }}</div>
-                  <div class="java-agent-stat__label">{{ stat.label }}</div>
+        <div v-if="report.retransformation || report.counters" class="row g-4 mb-4">
+          <div v-if="report.retransformation" class="col-lg-7">
+            <section class="card h-100" aria-labelledby="java-agent-retransform-title">
+              <div class="card-body p-4">
+                <h3 id="java-agent-retransform-title" class="h6 fw-bold mb-3">
+                  <i class="bi bi-arrow-repeat me-2" aria-hidden="true"></i>Class transformation
+                </h3>
+                <p class="small text-muted mb-3">
+                  All sensors since the JVM started, summed: transformers stay installed across claims, and sensors
+                  install one after another, so the time is aggregate work rather than a wall-clock interval.
+                </p>
+                <div class="java-agent-strip">
+                  <div v-for="stat in retransformationStats" :key="stat.label" class="java-agent-stat">
+                    <div class="java-agent-stat__value">{{ stat.value }}</div>
+                    <div class="java-agent-stat__label">{{ stat.label }}</div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </section>
-        </div>
-        <div v-if="report.counters" class="col-lg-5">
-          <section class="card h-100" aria-labelledby="java-agent-counters-title">
-            <div class="card-body p-4">
-              <h3 id="java-agent-counters-title" class="h6 fw-bold mb-3">
-                <i class="bi bi-speedometer2 me-2" aria-hidden="true"></i>Counters
-              </h3>
-              <div class="java-agent-strip java-agent-strip--compact">
-                <div v-for="stat in counterStats" :key="stat.label" class="java-agent-stat">
-                  <div class="java-agent-stat__value">{{ stat.value }}</div>
-                  <div class="java-agent-stat__label">{{ stat.label }}</div>
+            </section>
+          </div>
+          <div v-if="report.counters" class="col-lg-5">
+            <section class="card h-100" aria-labelledby="java-agent-counters-title">
+              <div class="card-body p-4">
+                <h3 id="java-agent-counters-title" class="h6 fw-bold mb-3">
+                  <i class="bi bi-speedometer2 me-2" aria-hidden="true"></i>Counters
+                </h3>
+                <div class="java-agent-strip java-agent-strip--compact">
+                  <div v-for="stat in counterStats" :key="stat.label" class="java-agent-stat">
+                    <div class="java-agent-stat__value">{{ stat.value }}</div>
+                    <div class="java-agent-stat__label">{{ stat.label }}</div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </section>
+            </section>
+          </div>
         </div>
-      </div>
+      </template>
 
       <div v-if="report.warnings?.length || report.messages?.length" class="row g-4 mb-4">
         <div v-if="report.warnings?.length" class="col-lg-6">
@@ -646,76 +619,7 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
         </div>
       </div>
 
-      <section class="card java-agent-setup" aria-labelledby="java-agent-setup-title">
-        <div class="card-body p-4">
-          <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
-            <div>
-              <h3 id="java-agent-setup-title" class="h6 fw-bold mb-2">
-                <i class="bi bi-wrench-adjustable-circle me-2" aria-hidden="true"></i>Setup snippets
-              </h3>
-              <dl class="row small mb-0">
-                <dt class="col-sm-4 text-muted fw-normal">Agent jar</dt>
-                <dd class="col-sm-8">
-                  <code class="bootui-break-anywhere">{{ report.setup?.jarPath ?? '—' }}</code>
-                </dd>
-                <dt class="col-sm-4 text-muted fw-normal">Jar found</dt>
-                <dd class="col-sm-8">
-                  <span :class="['badge', report.setup?.jarFound ? 'text-bg-success' : 'text-bg-secondary']">
-                    {{ report.setup?.jarFound ? 'Found' : 'Not found' }}
-                  </span>
-                </dd>
-                <dt class="col-sm-4 text-muted fw-normal">Build tool</dt>
-                <dd class="col-sm-8">{{ report.setup?.buildTool ?? 'UNKNOWN' }}</dd>
-              </dl>
-            </div>
-            <button
-              type="button"
-              class="btn btn-sm"
-              :class="copiedActiveSnippet ? 'btn-success' : 'btn-outline-secondary'"
-              :disabled="!activeSnippet"
-              :title="copiedActiveSnippet ? 'Copied!' : 'Copy snippet'"
-              @click="copyActiveSnippet"
-            >
-              <i :class="['bi', copiedActiveSnippet ? 'bi-check-lg' : 'bi-clipboard', 'me-1']" aria-hidden="true"></i>
-              {{ copiedActiveSnippet ? 'Copied!' : 'Copy' }}
-            </button>
-            <span class="visually-hidden" aria-live="polite">
-              {{ copiedActiveSnippet && activeSnippet ? `${activeSnippet.label} snippet copied` : '' }}
-            </span>
-          </div>
-
-          <div v-if="snippets.length" class="java-agent-snippets">
-            <PanelTabs
-              class="mb-3"
-              :tabs="snippets"
-              :selected="activeSnippetId"
-              id-prefix="java-agent"
-              label="Java agent setup snippets"
-              @select="selectSnippet"
-            />
-            <div
-              v-for="snippet in snippets"
-              v-show="snippet.id === activeSnippetId"
-              :id="`java-agent-panel-${snippet.id}`"
-              :key="`${snippet.id}-panel`"
-              role="tabpanel"
-              class="java-agent-snippet-panel"
-              :aria-labelledby="`java-agent-tab-${snippet.id}`"
-              tabindex="0"
-            >
-              <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                <h4 class="h6 mb-0">{{ snippet.label }}</h4>
-                <span class="badge text-bg-secondary">{{ languageLabel(snippet.language) }}</span>
-              </div>
-              <pre class="java-agent-code rounded p-3 mb-0"><code>{{ snippet.text }}</code></pre>
-            </div>
-          </div>
-          <p v-else class="text-muted small mb-0">No setup snippets were returned for this runtime.</p>
-          <p v-if="copyBlocked" class="alert alert-warning small mt-3 mb-0">
-            The browser blocked clipboard access, so nothing was copied. Select the snippet text and copy it manually.
-          </p>
-        </div>
-      </section>
+      <JavaAgentSetup v-if="!notAttached" :setup="report.setup" />
     </template>
 
     <UnavailableState v-else-if="!error" icon="bi-plug-fill" message="Java Agent status is unavailable." />
@@ -732,7 +636,7 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
   align-items: flex-start;
   border: 1px solid var(--java-agent-banner-border);
   border-radius: var(--bootui-radius-lg);
-  box-shadow: 0 0.25rem 0.75rem rgba(15, 23, 42, 0.05);
+  box-shadow: var(--bootui-shadow-sm);
   color: var(--java-agent-banner-text);
   display: flex;
   gap: 1rem;
@@ -843,20 +747,6 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
 .java-agent-stat__label {
   color: var(--bootui-text-muted);
   font-size: 0.78rem;
-}
-
-.java-agent-snippet-panel:focus-visible {
-  outline: 0.18rem solid color-mix(in srgb, var(--bootui-blue) 35%, transparent);
-  outline-offset: 0.2rem;
-}
-
-.java-agent-code {
-  background: var(--bs-dark);
-  color: var(--bs-light);
-  font-size: 0.85rem;
-  max-height: 26rem;
-  overflow: auto;
-  white-space: pre;
 }
 
 .min-width-0 {

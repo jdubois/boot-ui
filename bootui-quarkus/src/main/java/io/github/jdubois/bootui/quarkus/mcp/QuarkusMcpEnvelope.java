@@ -27,6 +27,7 @@ import io.github.jdubois.bootui.engine.mcp.McpPrompt;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpRequest;
 import io.github.jdubois.bootui.engine.mcp.McpRequestHeaders;
+import io.github.jdubois.bootui.engine.mcp.McpRequestKey;
 import io.github.jdubois.bootui.engine.mcp.McpRequestMeta;
 import io.github.jdubois.bootui.engine.mcp.McpRequestMeta.Field;
 import io.github.jdubois.bootui.engine.mcp.McpStreamingCall;
@@ -36,6 +37,7 @@ import io.github.jdubois.bootui.engine.mcp.McpToolInputSchema;
 import io.github.jdubois.bootui.engine.progress.ProgressEvent;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -111,7 +113,7 @@ public class QuarkusMcpEnvelope {
     }
 
     /**
-     * Like {@link #exchange(JsonNode, McpRequestHeaders, boolean)}, but a modern progress call from a client whose
+     * Like {@link #exchange(JsonNode, McpRequestHeaders, boolean)}, but a progress call, in either era, from a client whose
      * {@code Accept} lists {@code text/event-stream} may answer with a {@link Stream}.
      */
     public Reply exchange(JsonNode request, McpRequestHeaders headers, boolean enabled, boolean acceptsEventStream) {
@@ -133,6 +135,23 @@ public class QuarkusMcpEnvelope {
         return reply.body() == null && reply.stream() == null ? new Reply(202, null) : reply;
     }
 
+    /** The JSON type of a request id, which the engine judges per era. */
+    private static McpExchange.IdShape idShape(JsonNode id) {
+        if (id == null) {
+            return McpExchange.IdShape.ABSENT;
+        }
+        if (id.isNull()) {
+            return McpExchange.IdShape.NULL;
+        }
+        if (id.isTextual()) {
+            return McpExchange.IdShape.STRING;
+        }
+        if (id.isIntegralNumber()) {
+            return McpExchange.IdShape.INTEGER;
+        }
+        return id.isNumber() ? McpExchange.IdShape.FRACTIONAL : McpExchange.IdShape.INVALID;
+    }
+
     /** The neutral envelope fields of {@code request}; the decisions are {@link McpExchange}'s. */
     private static McpExchange.Envelope envelope(JsonNode request) {
         if (request == null || !request.isObject()) {
@@ -147,11 +166,7 @@ public class QuarkusMcpEnvelope {
                 false,
                 true,
                 jsonrpc != null && McpProtocol.JSONRPC_VERSION.equals(text(jsonrpc)),
-                id == null || id.isNull()
-                        ? McpExchange.IdShape.ABSENT_OR_NULL
-                        : id.isTextual() || id.isNumber()
-                                ? McpExchange.IdShape.STRING_OR_NUMBER
-                                : McpExchange.IdShape.INVALID,
+                idShape(id),
                 params == null || params.isObject(),
                 method != null && method.isTextual() ? method.asText() : null,
                 name != null && name.isTextual() ? name.asText() : null,
@@ -212,7 +227,10 @@ public class QuarkusMcpEnvelope {
         }
         return response;
     }
-    /** One {@code notifications/progress} of a stream, as compact JSON. */
+    /**
+     * One {@code notifications/progress} of a stream, as compact JSON, or {@code null} when it would exceed {@code
+     * bootui.mcp.max-response-bytes}: the transport then sends nothing for that event.
+     */
     public String renderProgress(McpProgressToken token, ProgressEvent event) {
         ObjectNode params = JsonNodeFactory.instance.objectNode();
         if (token.isText()) {
@@ -229,7 +247,13 @@ public class QuarkusMcpEnvelope {
         notification.put("jsonrpc", McpProtocol.JSONRPC_VERSION);
         notification.put("method", McpProtocol.PROGRESS_NOTIFICATION);
         notification.set("params", params);
-        return notification.toString();
+        String compact = notification.toString();
+        if (McpExchange.progressFits(
+                compact.getBytes(java.nio.charset.StandardCharsets.UTF_8).length, maxResponseBytes)) {
+            return compact;
+        }
+        dispatcher.runtimeStats().recordProgressDropped();
+        return null;
     }
 
     /** Integral values render as integers so every stack writes the same bytes. */
@@ -261,11 +285,6 @@ public class QuarkusMcpEnvelope {
             return error(id, era, McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE)
                     .toString();
         }
-    }
-
-    /** {@link #renderFinal(JsonNode, McpEra, McpDispatchOutcome)} for a modern stream. */
-    public String renderFinal(JsonNode id, McpDispatchOutcome outcome) {
-        return renderFinal(id, McpEra.MODERN, outcome);
     }
 
     /** Parse raw request bytes into a Jackson node. */
@@ -322,7 +341,9 @@ public class QuarkusMcpEnvelope {
         String requestedProtocolVersion = text(params.path("protocolVersion"));
         String toolName = text(params.path("name"));
         JsonNode arguments = params.get("arguments");
-        ParsedArguments parsedArguments = parseArguments(arguments);
+        boolean prompt = "prompts/get".equals(method);
+        ParsedArguments parsedArguments = prompt ? ParsedArguments.empty() : parseArguments(arguments);
+        PromptArguments promptArguments = prompt ? parsePromptArguments(arguments) : PromptArguments.NONE;
         return new McpRequest(
                 jsonrpc,
                 method,
@@ -333,11 +354,88 @@ public class QuarkusMcpEnvelope {
                 parsedArguments.limit(),
                 parsedArguments.id(),
                 parsedArguments.names(),
-                parsedArguments.error(),
+                prompt ? promptArguments.error() : parsedArguments.error(),
                 parsedArguments.scanId(),
                 parsedArguments.offset(),
                 serve.era(),
-                serve.progressToken());
+                serve.progressToken(),
+                // Only a call that can be cancelled, or a cancellation, needs the key.
+                "tools/call".equals(method) ? requestKey(id) : null,
+                "notifications/cancelled".equals(method) ? requestKey(params.get("requestId")) : null,
+                "notifications/cancelled".equals(method) ? cancelReason(params.get("reason")) : null,
+                promptArguments.values());
+    }
+
+    /**
+     * The string values of {@code prompts/get.params.arguments}: MCP prompt arguments are strings, so any other value
+     * is reported as an argument error rather than coerced.
+     */
+    private static PromptArguments parsePromptArguments(JsonNode arguments) {
+        if (arguments == null || arguments.isNull()) {
+            return PromptArguments.NONE;
+        }
+        if (!arguments.isObject()) {
+            return new PromptArguments(Map.of(), McpProtocol.PROMPT_ARGUMENTS_OBJECT_MESSAGE);
+        }
+        Map<String, String> values = new LinkedHashMap<>();
+        for (Map.Entry<String, JsonNode> argument : arguments.properties()) {
+            if (!argument.getValue().isTextual()) {
+                return new PromptArguments(
+                        Map.of(), McpProtocol.invalidArgumentTypeMessage(argument.getKey(), "a string"));
+            }
+            values.put(argument.getKey(), argument.getValue().asText());
+        }
+        return new PromptArguments(values, null);
+    }
+
+    private record PromptArguments(Map<String, String> values, String error) {
+        private static final PromptArguments NONE = new PromptArguments(Map.of(), null);
+    }
+
+    /**
+     * The canonical key of a JSON-RPC id, so a cancellation finds its request by value; {@code null} for an id that has
+     * none, which then simply cannot be cancelled: anything but a string, an integer, or a fractional number whose
+     * double value is whole, non-zero, and below 2^53.
+     */
+    static String requestKey(JsonNode id) {
+        if (id == null) {
+            return null;
+        }
+        if (id.isTextual()) {
+            return McpRequestKey.text(id.asText());
+        }
+        if (id.isIntegralNumber()) {
+            return McpRequestKey.number(id.decimalValue());
+        }
+        if (!id.isFloatingPointNumber()) {
+            return null;
+        }
+        if (id.isBigDecimal()) {
+            // Read exactly (an application mapper may read floats as BigDecimal): a whole value below 2^53 only.
+            java.math.BigDecimal exact = id.decimalValue();
+            if (exact.signum() == 0
+                    || exact.stripTrailingZeros().scale() > 0
+                    || exact.abs().compareTo(java.math.BigDecimal.valueOf(MAX_EXACT_DOUBLE)) >= 0) {
+                return null;
+            }
+            return McpRequestKey.number(exact);
+        }
+        // A fractional id read as a double is matched by that double: a whole, non-zero value below 2^53 finds that
+        // integer (7.0 finds 7, and so does an id within double rounding of 7); a fraction, zero (1e-400 underflows to
+        // it), infinity, or a larger value has no key and cannot be cancelled. A BigDecimal node above is exact.
+        double value = id.doubleValue();
+        if (!Double.isFinite(value) || value != Math.rint(value) || value == 0 || Math.abs(value) >= MAX_EXACT_DOUBLE) {
+            return null;
+        }
+        return McpRequestKey.number(java.math.BigDecimal.valueOf((long) value));
+    }
+
+    /** The largest magnitude below which every whole double is exact: 2^53. */
+    private static final double MAX_EXACT_DOUBLE = 9_007_199_254_740_992d;
+
+    /** The {@code reason} of a cancellation when it is a string; only ever logged. */
+    private static String cancelReason(JsonNode reason) {
+        return reason != null && reason.isTextual() ? reason.asText() : null;
     }
 
     private static ParsedArguments parseArguments(JsonNode arguments) {
@@ -419,7 +517,7 @@ public class QuarkusMcpEnvelope {
             return result(id, era, renderPromptsList(r), true);
         }
         if (outcome instanceof PromptGetResult r) {
-            return result(id, era, renderPrompt(r.prompt()), false);
+            return result(id, era, renderPrompt(r), false);
         }
         if (outcome instanceof ToolCallError e) {
             return result(id, era, toolError(e.message()), false);
@@ -492,16 +590,24 @@ public class QuarkusMcpEnvelope {
             ObjectNode node = JsonNodeFactory.instance.objectNode();
             node.put("name", prompt.name());
             node.put("description", prompt.description());
-            node.set("arguments", JsonNodeFactory.instance.arrayNode());
+            ArrayNode arguments = JsonNodeFactory.instance.arrayNode();
+            for (McpPrompt.Argument argument : prompt.arguments()) {
+                ObjectNode declared = JsonNodeFactory.instance.objectNode();
+                declared.put("name", argument.name());
+                declared.put("description", argument.description());
+                declared.put("required", false);
+                arguments.add(declared);
+            }
+            node.set("arguments", arguments);
             array.add(node);
         }
         result.set("prompts", array);
         return result;
     }
 
-    private static ObjectNode renderPrompt(McpPrompt prompt) {
+    private static ObjectNode renderPrompt(PromptGetResult prompt) {
         ObjectNode result = JsonNodeFactory.instance.objectNode();
-        result.put("description", prompt.description());
+        result.put("description", prompt.prompt().description());
         ArrayNode messages = JsonNodeFactory.instance.arrayNode();
         ObjectNode message = JsonNodeFactory.instance.objectNode();
         message.put("role", "user");

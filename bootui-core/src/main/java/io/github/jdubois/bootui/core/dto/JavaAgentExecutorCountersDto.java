@@ -10,6 +10,8 @@ package io.github.jdubois.bootui.core.dto;
  * @param ambiguous tasks submitted more than once by different owners, which are left unowned
  * @param stale tasks keyed under an earlier claim, which are not reopened
  * @param refused snapshots the bridge refused because they held other values than strings and numbers
+ * @param overflow owned tasks received while the bridge already held its limit of pending tasks (32,768), which run
+ *     unowned
  * @param virtualSkipped virtual-thread continuations, which run their own thread's context
  * @param periodicSkipped periodic scheduled tasks, which are never propagated
  * @param skippedTasks tasks left alone because their class is in {@code bootui.agent.executors.skip-tasks}
@@ -28,6 +30,7 @@ public record JavaAgentExecutorCountersDto(
         long ambiguous,
         long stale,
         long refused,
+        long overflow,
         long virtualSkipped,
         long periodicSkipped,
         long skippedTasks,
@@ -45,6 +48,7 @@ public record JavaAgentExecutorCountersDto(
             long ambiguous,
             long stale,
             long refused,
+            long overflow,
             long virtualSkipped,
             long periodicSkipped,
             long skippedTasks,
@@ -58,6 +62,7 @@ public record JavaAgentExecutorCountersDto(
                 ambiguous,
                 stale,
                 refused,
+                overflow,
                 virtualSkipped,
                 periodicSkipped,
                 skippedTasks,

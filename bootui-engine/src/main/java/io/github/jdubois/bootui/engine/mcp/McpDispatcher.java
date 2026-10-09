@@ -15,6 +15,7 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolsListResult;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.progress.OperationCancelledException;
 import io.github.jdubois.bootui.engine.progress.OperationProgress;
+import io.github.jdubois.bootui.engine.support.BootUiThreads;
 import io.github.jdubois.bootui.spi.McpPanelPolicy;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,10 +28,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
@@ -57,7 +58,12 @@ import org.slf4j.LoggerFactory;
 public final class McpDispatcher {
 
     private static final Logger log = LoggerFactory.getLogger(McpDispatcher.class);
-    private static final ExecutorService TOOL_EXECUTOR = Executors.newCachedThreadPool(new McpToolThreadFactory());
+    /**
+     * JVM-wide, so its workers keep nothing of the application that first used them; each call runs with its
+     * dispatcher's {@link #applicationLoader} instead.
+     */
+    private static final ExecutorService TOOL_EXECUTOR =
+            Executors.newCachedThreadPool(BootUiThreads.daemonFactory("bootui-mcp-tool-", BootUiThreads.ENGINE_LOADER));
 
     private final Supplier<List<McpTool>> toolSupplier;
     private final List<McpPrompt> prompts;
@@ -66,9 +72,19 @@ public final class McpDispatcher {
     private final String instructions;
     private final int maxResults;
     private final Semaphore toolCallSemaphore;
+    private final int maxConcurrentCalls;
     private final McpFailureReporter failureReporter;
     private final long executionTimeoutMillis;
     private final McpRuntimeStats runtimeStats;
+    private final McpInFlightCalls inFlight = new McpInFlightCalls();
+    /**
+     * The application's context class loader when the dispatcher was created, at its startup: tools and stream writers
+     * run with it, never with the loader of a pooled worker's first caller, which a restart may have discarded.
+     */
+    private final ClassLoader applicationLoader = Thread.currentThread().getContextClassLoader();
+
+    private static final System.Logger CANCELLATION_LOG = System.getLogger(McpDispatcher.class.getName());
+    private static final int MAX_LOGGED_LENGTH = 200;
     private final Function<String, String> panelUnavailableReason;
 
     /**
@@ -196,7 +212,8 @@ public final class McpDispatcher {
         this.serverVersion = serverVersion == null ? "dev" : serverVersion;
         this.instructions = instructions;
         this.maxResults = Math.max(1, maxResults);
-        this.toolCallSemaphore = new Semaphore(Math.max(1, maxConcurrentCalls));
+        this.maxConcurrentCalls = Math.max(1, maxConcurrentCalls);
+        this.toolCallSemaphore = new Semaphore(this.maxConcurrentCalls);
         this.failureReporter = Objects.requireNonNull(failureReporter, "failureReporter");
         this.executionTimeoutMillis = Math.max(1, executionTimeoutMillis);
         this.runtimeStats = new McpRuntimeStats();
@@ -238,9 +255,17 @@ public final class McpDispatcher {
         return serverVersion;
     }
 
-    /** Concurrency permits not held by a running or pending tool call. */
-    int availableCallPermits() {
+    /**
+     * Concurrency permits not held by a running or pending tool call; {@link #maxConcurrentCalls()} when the server is
+     * idle. Exposed for tests that prove a permit is released exactly once.
+     */
+    public int availableCallPermits() {
         return toolCallSemaphore.availablePermits();
+    }
+
+    /** The {@code bootui.mcp.max-concurrent-calls} bound, floored at 1. */
+    public int maxConcurrentCalls() {
+        return maxConcurrentCalls;
     }
 
     /** Operational counters exposed by the MCP Server panel. */
@@ -290,6 +315,7 @@ public final class McpDispatcher {
         return switch (method) {
             case "initialize" -> initialize(request);
             case "ping" -> new PingResult();
+            case "notifications/cancelled" -> cancelInFlight(request);
             default -> dispatchShared(request, method, cancellation);
         };
     }
@@ -324,7 +350,7 @@ public final class McpDispatcher {
     }
 
     /**
-     * Starts a {@code tools/call} that may answer on a request-scoped event stream. Only a modern call with a progress
+     * Starts a {@code tools/call} that may answer on a request-scoped event stream. Only a call, in either era, with a progress
      * token, to a tool that {@linkplain McpTool#reportsProgress() reports progress}, from a client that accepts
      * {@code text/event-stream}, and that passes every validation and policy gate and gets a concurrency permit, is
      * {@link McpCallStart.Stream streamed}. Everything else, including every refusal, is the same {@link
@@ -344,7 +370,6 @@ public final class McpDispatcher {
      */
     public McpCallStart start(McpRequest request, boolean acceptsEventStream, McpCancellation cancellation) {
         if (request == null
-                || request.era() != McpEra.MODERN
                 || request.progressToken() == null
                 || request.notification()
                 || !acceptsEventStream
@@ -366,15 +391,32 @@ public final class McpDispatcher {
                 return new McpCallStart.Immediate(
                         new ProtocolError(McpProtocol.SERVER_AT_CAPACITY, McpProtocol.RATE_LIMITED_MESSAGE));
             }
-            return new McpCallStart.Stream(new McpStreamingCall(
+            AtomicReference<McpInFlightCalls.Registration> registration = new AtomicReference<>();
+            Runnable unregister = () -> {
+                McpInFlightCalls.Registration registered = registration.getAndSet(null);
+                if (registered != null) {
+                    registered.close();
+                }
+            };
+            McpStreamingCall streaming = new McpStreamingCall(
                     call.tool(),
                     call.arguments(),
                     request.progressToken(),
+                    request.era(),
+                    unregister,
                     executionTimeoutMillis,
                     toolCallSemaphore,
                     runtimeStats,
                     failureReporter,
-                    TOOL_EXECUTOR));
+                    TOOL_EXECUTOR,
+                    applicationLoader);
+            if (tracked(request)) {
+                registration.set(inFlight.register(request.requestKey(), streaming::cancel));
+                if (streaming.finished()) {
+                    unregister.run();
+                }
+            }
+            return new McpCallStart.Stream(streaming);
         } catch (RuntimeException | Error failure) {
             failureReporter.report("dispatching a request", failure);
             return new McpCallStart.Immediate(
@@ -394,7 +436,74 @@ public final class McpDispatcher {
             runtimeStats.recordCapacityRefusal();
             return new ProtocolError(McpProtocol.SERVER_AT_CAPACITY, McpProtocol.RATE_LIMITED_MESSAGE);
         }
-        return invokeBlocking(((PreparedCall) prepared).tool(), ((PreparedCall) prepared).arguments(), cancellation);
+        McpTool tool = ((PreparedCall) prepared).tool();
+        McpArguments arguments = ((PreparedCall) prepared).arguments();
+        AtomicReference<McpInFlightCalls.Registration> registration = new AtomicReference<>();
+        if (tracked(request)) {
+            registration.set(inFlight.register(request.requestKey(), cancellation::cancel));
+        }
+        // Removed before the permit is released, by whichever side releases it, so entries never outnumber permits.
+        Runnable unregister = () -> {
+            McpInFlightCalls.Registration registered = registration.getAndSet(null);
+            if (registered != null) {
+                registered.close();
+            }
+        };
+        try {
+            return invokeBlocking(tool, arguments, cancellation, unregister);
+        } finally {
+            unregister.run();
+        }
+    }
+
+    /**
+     * {@code true} for a legacy {@code tools/call} with an id: MCP 2025-06-18 cancels one with {@code
+     * notifications/cancelled}, so it is registered by id while it holds a permit.
+     */
+    private static boolean tracked(McpRequest request) {
+        return request.era() == McpEra.LEGACY && request.requestKey() != null && "tools/call".equals(request.method());
+    }
+
+    /**
+     * A legacy {@code notifications/cancelled}: cancels the one in-flight {@code tools/call} with that id. MCP 2025-06-18
+     * lets a receiver ignore an unknown or finished id, and so does an id two callers share. BootUI has no sessions,
+     * so any local caller that passes the endpoint's checks can cancel a call by its id. Sent with an id, it is not a
+     * notification and is answered as an unknown method.
+     */
+    private McpDispatchOutcome cancelInFlight(McpRequest request) {
+        if (!request.notification()) {
+            return new ProtocolError(McpProtocol.METHOD_NOT_FOUND, "Unknown method: " + request.method());
+        }
+        boolean cancelled = inFlight.cancel(request.cancelledRequestKey());
+        if (CANCELLATION_LOG.isLoggable(System.Logger.Level.DEBUG)) {
+            CANCELLATION_LOG.log(
+                    System.Logger.Level.DEBUG,
+                    "MCP notifications/cancelled for request " + loggable(request.cancelledRequestKey())
+                            + (cancelled ? " cancelled it" : " matched no single in-flight call")
+                            + (request.cancelReason() == null ? "" : ": " + loggable(request.cancelReason())));
+        }
+        return new NoResponse();
+    }
+
+    /** A client-supplied value fit for a log line: control characters replaced, and at most 200 characters. */
+    static String loggable(String value) {
+        if (value == null) {
+            return "(none)";
+        }
+        StringBuilder safe = new StringBuilder(Math.min(value.length(), MAX_LOGGED_LENGTH + 1));
+        for (int i = 0; i < value.length() && safe.length() < MAX_LOGGED_LENGTH; i++) {
+            char c = value.charAt(i);
+            safe.append(Character.isISOControl(c) || Character.getType(c) == Character.FORMAT ? '?' : c);
+        }
+        if (value.length() > MAX_LOGGED_LENGTH) {
+            safe.append('…');
+        }
+        return safe.toString();
+    }
+
+    /** The legacy calls registered for cancellation right now. */
+    int inFlightCalls() {
+        return inFlight.size();
     }
 
     /**
@@ -419,6 +528,7 @@ public final class McpDispatcher {
         }
         TreeSet<String> unexpectedArguments = new TreeSet<>(request.argumentNames());
         unexpectedArguments.removeAll(tool.schema().argumentNames());
+        unexpectedArguments.removeAll(tool.schema().ignoredArgumentNames());
         if (!unexpectedArguments.isEmpty()) {
             return new ProtocolError(
                     McpProtocol.INVALID_PARAMS,
@@ -465,7 +575,8 @@ public final class McpDispatcher {
      * running, {@code 2} abandoned while running (the tool thread releases when it returns), {@code 3} done or abandoned
      * before it started (released by whoever moved it there).
      */
-    private McpDispatchOutcome invokeBlocking(McpTool tool, McpArguments arguments, McpCancellation cancellation) {
+    private McpDispatchOutcome invokeBlocking(
+            McpTool tool, McpArguments arguments, McpCancellation cancellation, Runnable unregister) {
         long startedAt = System.nanoTime();
         AtomicInteger invocationState = new AtomicInteger(0);
         OperationProgress progress = new OperationProgress(null);
@@ -475,10 +586,17 @@ public final class McpDispatcher {
                 if (!invocationState.compareAndSet(0, 1)) {
                     return null;
                 }
+                Thread worker = Thread.currentThread();
+                ClassLoader idleLoader = worker.getContextClassLoader();
+                if (applicationLoader != null) {
+                    worker.setContextClassLoader(applicationLoader);
+                }
                 try {
                     return OperationProgress.runWith(progress, () -> tool.invoke(arguments));
                 } finally {
+                    worker.setContextClassLoader(idleLoader);
                     int previous = invocationState.getAndSet(3);
+                    unregister.run();
                     toolCallSemaphore.release();
                     if (previous == 1) {
                         runtimeStats.recordCall(System.nanoTime() - startedAt);
@@ -486,6 +604,7 @@ public final class McpDispatcher {
                 }
             });
         } catch (RuntimeException | Error failure) {
+            unregister.run();
             toolCallSemaphore.release();
             runtimeStats.recordCall(System.nanoTime() - startedAt);
             throw failure;
@@ -501,15 +620,15 @@ public final class McpDispatcher {
             return new ToolCallResult(invocation.get(executionTimeoutMillis, TimeUnit.MILLISECONDS));
         } catch (TimeoutException ex) {
             runtimeStats.recordTimeout();
-            abandon(invocationState, invocation, progress, startedAt);
+            abandon(invocationState, invocation, progress, startedAt, unregister);
             return new ProtocolError(McpProtocol.TOOL_TIMEOUT, McpProtocol.TOOL_TIMEOUT_MESSAGE);
         } catch (CancellationException ex) {
             runtimeStats.recordCancellation();
-            abandon(invocationState, invocation, progress, startedAt);
+            abandon(invocationState, invocation, progress, startedAt, unregister);
             return new McpDispatchOutcome.Cancelled();
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            abandon(invocationState, invocation, progress, startedAt);
+            abandon(invocationState, invocation, progress, startedAt, unregister);
             throw new IllegalStateException("Interrupted while invoking MCP tool", ex);
         } catch (ExecutionException ex) {
             Throwable cause = ex.getCause();
@@ -534,7 +653,13 @@ public final class McpDispatcher {
 
     /** Gives up waiting for a call: stops the tool and settles its permit and call count (see {@link #invokeBlocking}). */
     private void abandon(
-            AtomicInteger invocationState, Future<Object> invocation, OperationProgress progress, long startedAt) {
+            AtomicInteger invocationState,
+            Future<Object> invocation,
+            OperationProgress progress,
+            long startedAt,
+            Runnable unregister) {
+        // The call is answered: it can no longer be cancelled by id, even if its tool still holds the permit.
+        unregister.run();
         progress.cancel();
         int previous = invocationState.getAndUpdate(state -> state < 2 ? (state == 0 ? 3 : 2) : state);
         invocation.cancel(true);
@@ -574,11 +699,24 @@ public final class McpDispatcher {
         if (name == null || name.isEmpty()) {
             return new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_PROMPT_NAME_MESSAGE);
         }
-        return prompts.stream()
-                .filter(prompt -> prompt.name().equals(name))
+        McpPrompt prompt = prompts.stream()
+                .filter(candidate -> candidate.name().equals(name))
                 .findFirst()
-                .<McpDispatchOutcome>map(PromptGetResult::new)
-                .orElseGet(() -> new ProtocolError(McpProtocol.INVALID_PARAMS, "Unknown prompt: " + name));
+                .orElse(null);
+        if (prompt == null) {
+            return new ProtocolError(McpProtocol.INVALID_PARAMS, "Unknown prompt: " + name);
+        }
+        if (request.argumentsError() != null) {
+            return new ProtocolError(McpProtocol.INVALID_PARAMS, request.argumentsError());
+        }
+        TreeSet<String> unexpected = new TreeSet<>(request.promptArguments().keySet());
+        unexpected.removeAll(prompt.argumentNames());
+        if (!unexpected.isEmpty()) {
+            return new ProtocolError(
+                    McpProtocol.INVALID_PARAMS,
+                    McpProtocol.unknownPromptArgumentMessage(name, unexpected.first(), prompt.argumentNames()));
+        }
+        return new PromptGetResult(prompt, prompt.render(request.promptArguments()));
     }
 
     /**
@@ -618,17 +756,5 @@ public final class McpDispatcher {
                 .filter(tool -> tool.name().equals(name))
                 .findFirst()
                 .orElse(null);
-    }
-
-    private static final class McpToolThreadFactory implements ThreadFactory {
-
-        private int sequence;
-
-        @Override
-        public synchronized Thread newThread(Runnable task) {
-            Thread thread = new Thread(task, "bootui-mcp-tool-" + ++sequence);
-            thread.setDaemon(true);
-            return thread;
-        }
     }
 }

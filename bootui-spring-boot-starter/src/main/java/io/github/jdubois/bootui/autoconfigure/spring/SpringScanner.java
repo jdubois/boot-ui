@@ -36,7 +36,10 @@ final class SpringScanner {
     private final Supplier<SpringContext> contextSupplier;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
-    private final AdvisorScanState<SpringReport> scanState = new AdvisorScanState<>(SpringReport::withViolationDetails);
+    private final AdvisorScanState<SpringReport> scanState = new AdvisorScanState<>(
+            SpringReport::withViolationDetails,
+            () -> AdvisorScanState.ruleIds(
+                    SpringRuleRegistry.activeRules(), rule -> rule.definition().id()));
 
     SpringScanner(ConfigurableListableBeanFactory beanFactory, Environment environment, boolean reactive, Clock clock) {
         this(() -> SpringInventory.discover(beanFactory, environment, reactive), clock);

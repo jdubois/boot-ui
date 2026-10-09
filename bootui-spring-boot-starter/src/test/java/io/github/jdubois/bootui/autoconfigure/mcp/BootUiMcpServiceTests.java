@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.conformance.McpCodecParity;
+import io.github.jdubois.bootui.conformance.McpCompactAnswerContract;
 import io.github.jdubois.bootui.conformance.McpModernParity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpFailureReporter;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpRequestHeaders;
+import io.github.jdubois.bootui.engine.mcp.McpRequestKey;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
 import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
@@ -147,6 +149,92 @@ class BootUiMcpServiceTests {
         assertThat(retry.path("result").path("isError").asBoolean()).isFalse();
         assertThat(retry.has("error")).isFalse();
         assertThat(received.get()).isEqualTo(new McpArguments(null, 1, "RULE-1", "scan-1", 22));
+    }
+
+    @Test
+    void compactAnswersStayFarBelowTheReportsTheyReplaceWhileReportsPageUnderTheByteBudget() {
+        properties.getMcp().setMaxResponseBytes(McpCompactAnswerContract.MAX_RESPONSE_BYTES);
+        BootUiMcpService compact = new BootUiMcpService(
+                McpCompactAnswerContract.tools(), properties, objectMapper, "1.2.3", (operation, failure) -> {
+                    throw new AssertionError("Unexpected server failure: " + operation, failure);
+                });
+        for (String tool : List.of("vulnerabilities_scan", "hibernate_scan", "pause_sql_trace_recording")) {
+            JsonNode reply = compact.handle(objectMapper.readTree(McpCompactAnswerContract.call(tool, "{}")));
+            assertThat(reply.has("error")).as(tool).isFalse();
+            assertThat(objectMapper.writeValueAsString(reply).length())
+                    .as(tool)
+                    .isLessThan(McpCompactAnswerContract.COMPACT_BYTES);
+        }
+
+        JsonNode vulnerabilities = compact.handle(
+                        objectMapper.readTree(McpCompactAnswerContract.call("vulnerabilities_scan", "{}")))
+                .path("result")
+                .path("structuredContent");
+        assertThat(vulnerabilities.path("reportTool").asString()).isEqualTo("get_vulnerabilities_report");
+        assertThat(vulnerabilities.path("topFindings").size()).isEqualTo(10);
+        assertThat(vulnerabilities.path("moreFindings").asInt())
+                .isEqualTo(McpCompactAnswerContract.VULNERABLE_DEPENDENCIES - 10);
+        assertThat(vulnerabilities.path("topFindings").get(0).path("id").asString())
+                .isEqualTo("org.example:library-0:1.0.0");
+
+        JsonNode hibernate = compact.handle(
+                        objectMapper.readTree(McpCompactAnswerContract.call("hibernate_scan", "{}")))
+                .path("result")
+                .path("structuredContent");
+        assertThat(hibernate.path("detailsTool").asString()).isEqualTo("get_hibernate_rule_violations");
+        assertThat(hibernate.path("violationDetails").path("scanId").asString()).isEqualTo("scan-1");
+        assertThat(hibernate.path("topFindings").get(0).path("severity").asString())
+                .isEqualTo("HIGH");
+        assertThat(hibernate.toString()).doesNotContain("sampleViolations", "recommendation");
+
+        JsonNode paused = compact.handle(
+                        objectMapper.readTree(McpCompactAnswerContract.call("pause_sql_trace_recording", "{}")))
+                .path("result")
+                .path("structuredContent");
+        assertThat(paused.toString())
+                .isEqualTo("{\"action\":\"paused\",\"available\":true,\"unavailableReason\":null,"
+                        + "\"capturing\":false,\"retained\":200,\"capacity\":200,\"totalCaptured\":872}");
+
+        JsonNode report =
+                compact.handle(objectMapper.readTree(McpCompactAnswerContract.call("get_hibernate_report", "{}")));
+        assertThat(report.has("error")).isFalse();
+        assertThat(objectMapper.writeValueAsString(report).length())
+                .isGreaterThan(McpCompactAnswerContract.COMPACT_BYTES);
+
+        JsonNode defaultPage = compact.handle(
+                objectMapper.readTree(McpCompactAnswerContract.call("get_vulnerabilities_report", "{}")));
+        assertThat(defaultPage.has("error")).isFalse();
+        assertThat(objectMapper.writeValueAsString(defaultPage).length())
+                .isLessThan(McpCompactAnswerContract.VULNERABILITY_PAGE_BYTES);
+        assertThat(defaultPage
+                        .path("result")
+                        .path("structuredContent")
+                        .path("advisories")
+                        .path("omitted")
+                        .asInt())
+                .isPositive();
+        JsonNode advisory = compact.handle(objectMapper.readTree(
+                        McpCompactAnswerContract.call("get_vulnerabilities_report", "{\"query\":\"GHSA-3-7\"}")))
+                .path("result")
+                .path("structuredContent")
+                .path("dependencies")
+                .get(0)
+                .path("vulnerabilities");
+        boolean whole = false;
+        for (JsonNode each : advisory) {
+            whole |= each.path("id").asString().equals("GHSA-3-7")
+                    && each.path("details").asString().length() > 1000;
+        }
+        assertThat(whole).as("an exact advisory id returns that advisory whole").isTrue();
+        JsonNode page = compact.handle(
+                objectMapper.readTree(McpCompactAnswerContract.call("get_vulnerabilities_report", "{\"limit\":1}")));
+        assertThat(page.has("error")).isFalse();
+        assertThat(page.path("result")
+                        .path("structuredContent")
+                        .path("page")
+                        .path("hasMore")
+                        .asBoolean())
+                .isTrue();
     }
 
     @Test
@@ -327,7 +415,13 @@ class BootUiMcpServiceTests {
         assertThat(prompts.get(2).path("name").asString()).isEqualTo("review_application");
         assertThat(prompts.get(3).path("name").asString()).isEqualTo("assess_application");
         assertThat(prompts.get(0).path("arguments").isArray()).isTrue();
-        assertThat(prompts.get(0).path("arguments")).hasSize(0);
+        assertThat(prompts.get(0).path("arguments"))
+                .extracting(argument -> argument.path("name").asString())
+                .containsExactly("symptom", "route");
+        assertThat(prompts.get(0).path("arguments")).allSatisfy(argument -> {
+            assertThat(argument.path("required").asBoolean(true)).isFalse();
+            assertThat(argument.path("description").asString()).isNotBlank();
+        });
 
         JsonNode prompt = service.handle(request("prompts/get", 4, params("name", "diagnose_runtime_issue")));
         assertThat(prompt.path("result").path("messages").get(0).path("role").asString())
@@ -339,6 +433,36 @@ class BootUiMcpServiceTests {
                         .path("text")
                         .asString())
                 .contains("get_live_activity", "Separate observed evidence from hypotheses");
+
+        ObjectNode withArguments = params("name", "diagnose_runtime_issue");
+        withArguments
+                .putObject("arguments")
+                .put("symptom", "checkout answers 500")
+                .put("route", "POST /api/orders");
+        assertThat(service.handle(request("prompts/get", 6, withArguments))
+                        .path("result")
+                        .path("messages")
+                        .get(0)
+                        .path("content")
+                        .path("text")
+                        .asString())
+                .contains("Separate observed evidence from hypotheses")
+                .endsWith("- The symptom the user reports: checkout answers 500\n"
+                        + "- The route, job, or listener involved: POST /api/orders");
+        ObjectNode unknownArgument = params("name", "diagnose_runtime_issue");
+        unknownArgument.putObject("arguments").put("sympton", "typo");
+        assertThat(service.handle(request("prompts/get", 7, unknownArgument))
+                        .path("error")
+                        .path("message")
+                        .asString())
+                .contains("sympton", "route", "symptom");
+        ObjectNode nonString = params("name", "diagnose_runtime_issue");
+        nonString.putObject("arguments").put("symptom", 5);
+        assertThat(service.handle(request("prompts/get", 8, nonString))
+                        .path("error")
+                        .path("code")
+                        .asInt())
+                .isEqualTo(-32602);
 
         JsonNode assessment = service.handle(request("prompts/get", 5, params("name", "assess_application")));
         assertThat(assessment
@@ -391,6 +515,84 @@ class BootUiMcpServiceTests {
         JsonNode response = service.handle(callRequest("get_overview", 6));
 
         assertThat(response.path("result").path("isError").asBoolean()).isFalse();
+    }
+
+    @Test
+    void aLegacyRequestWithoutAUsableTokenAnswersTheSameBytesAsWithoutMeta() throws Exception {
+        String withoutMeta = "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"tools/call\","
+                + "\"params\":{\"name\":\"architecture_scan\",\"arguments\":{}}}";
+        Object[][] cases = {
+            // a progress tool with a token, from a client that does not accept a stream
+            {"architecture_scan", "\"t\"", false},
+            // an unusable token from a client that accepts a stream
+            {"architecture_scan", "{}", true},
+            {"architecture_scan", "null", true},
+            {"architecture_scan", "1.5", true},
+            // a token for a tool that does not report progress
+            {"get_overview", "7", true},
+        };
+        for (Object[] each : cases) {
+            String base = withoutMeta.replace("architecture_scan", (String) each[0]);
+            String withToken =
+                    base.replace("\"arguments\":{}", "\"arguments\":{},\"_meta\":{\"progressToken\":" + each[1] + "}");
+            BootUiMcpService.Reply expected =
+                    service.exchange(objectMapper.readTree(base), McpRequestHeaders.NONE, true, (boolean) each[2]);
+            BootUiMcpService.Reply actual =
+                    service.exchange(objectMapper.readTree(withToken), McpRequestHeaders.NONE, true, (boolean) each[2]);
+
+            assertThat(actual.stream()).as(withToken).isNull();
+            assertThat(actual.status()).isEqualTo(expected.status());
+            assertThat(actual.body().toString())
+                    .as(withToken)
+                    .isEqualTo(expected.body().toString());
+        }
+    }
+
+    @Test
+    void requestKeysMatchNumericIdsByValueOnlyWhenExact() throws Exception {
+        // Integers by value, whole doubles below 2^53 like their integer, everything else unkeyed (so never cancelled).
+        assertThat(key("7")).isEqualTo(McpRequestKey.number(new java.math.BigDecimal("7")));
+        assertThat(key("7.0")).isEqualTo(key("7"));
+        assertThat(key("1e2")).isEqualTo(key("100"));
+        // The default mapper reads a fraction as a double: an id within double rounding of 7 is 7.
+        assertThat(key("7.0000000000000000001")).isEqualTo(key("7"));
+        assertThat(key("123456789012345678901234567890"))
+                .isEqualTo(McpRequestKey.number(new java.math.BigDecimal("123456789012345678901234567890")));
+        assertThat(key("0")).isEqualTo(McpRequestKey.number(java.math.BigDecimal.ZERO));
+        assertThat(key("\"7\"")).isEqualTo(McpRequestKey.text("7"));
+        for (String unkeyed :
+                List.of("1e-400", "0.0", "7.5", "1e400", "-1e400", "9007199254740992.0", "true", "null")) {
+            assertThat(key(unkeyed)).as(unkeyed).isNull();
+        }
+
+        ObjectMapper exact = tools.jackson.databind.json.JsonMapper.builder()
+                .enable(tools.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+                .build();
+        // Read as BigDecimal, values stay exact: 7.0000000000000000001 is not 7, and 1e-400 is not 0.
+        assertThat(BootUiMcpService.requestKey(exact.readTree("7.00"))).isEqualTo(key("7"));
+        for (String unkeyed : List.of("7.0000000000000000001", "1e-400", "1e999999999")) {
+            assertThat(BootUiMcpService.requestKey(exact.readTree(unkeyed)))
+                    .as(unkeyed)
+                    .isNull();
+        }
+    }
+
+    private String key(String json) throws Exception {
+        return BootUiMcpService.requestKey(objectMapper.readTree(json));
+    }
+
+    @Test
+    void aNonFiniteNumericIdIsServedLikeAnyOtherId() throws Exception {
+        for (String method : List.of("tools/call", "tools/list", "ping")) {
+            JsonNode request = objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1e400,\"method\":\"" + method
+                    + "\",\"params\":{\"name\":\"get_overview\",\"arguments\":{}}}");
+
+            JsonNode response = service.handle(request);
+
+            assertThat(response.path("error").path("code").asInt())
+                    .as(method + " " + response)
+                    .isNotEqualTo(McpProtocol.INTERNAL_ERROR);
+        }
     }
 
     @Test
@@ -751,6 +953,64 @@ class BootUiMcpServiceTests {
     }
 
     @Test
+    void progressTokensAndProgressEventsStayWithinTheResponseBound() throws Exception {
+        BootUiProperties bounded = new BootUiProperties();
+        bounded.getMcp().setMaxResponseBytes(512);
+        BootUiMcpService small = new BootUiMcpService(
+                new BootUiMcpTools(List.of(new McpTool(
+                        "architecture_scan",
+                        "Run the architecture advisor.",
+                        McpToolSchema.NONE,
+                        BootUiPanels.ARCHITECTURE,
+                        true,
+                        args -> java.util.Map.of("findings", List.of())))),
+                bounded,
+                objectMapper,
+                "1.2.3");
+        String token = "t".repeat(2_048);
+
+        // Legacy: an oversized token is ignored, so the call answers as before, with one JSON response.
+        BootUiMcpService.Reply legacy = small.exchange(
+                objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":"
+                        + "{\"name\":\"architecture_scan\",\"arguments\":{},\"_meta\":{\"progressToken\":\"" + token
+                        + "\"}}}"),
+                McpRequestHeaders.NONE,
+                true,
+                true);
+        assertThat(legacy.stream()).isNull();
+        assertThat(legacy.body().path("result").path("isError").asBoolean()).isFalse();
+
+        // Modern: refused before anything runs.
+        BootUiMcpService.Reply modern = small.exchange(
+                objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":"
+                        + "{\"name\":\"architecture_scan\",\"arguments\":{},\"_meta\":{"
+                        + "\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
+                        + "\"io.modelcontextprotocol/clientCapabilities\":{},\"progressToken\":\"" + token + "\"}}}"),
+                new McpRequestHeaders(List.of("2026-07-28"), List.of("tools/call"), List.of("architecture_scan")),
+                true,
+                true);
+        assertThat(modern.stream()).isNull();
+        assertThat(modern.status()).isEqualTo(400);
+        assertThat(modern.body().path("error").path("message").asString())
+                .isEqualTo(McpProtocol.PROGRESS_TOKEN_TYPE_MESSAGE);
+
+        // A progress event that would not fit the bound is dropped, never sent past it.
+        String longest = "t".repeat(io.github.jdubois.bootui.engine.mcp.McpProgressToken.MAX_TEXT_LENGTH);
+        io.github.jdubois.bootui.engine.progress.ProgressEvent event =
+                new io.github.jdubois.bootui.engine.progress.ProgressEvent(1, 2.0, "Evaluating architecture rules");
+        assertThat(small.renderProgress(io.github.jdubois.bootui.engine.mcp.McpProgressToken.of(longest), event))
+                .hasSizeLessThanOrEqualTo(512);
+        BootUiProperties tiny = new BootUiProperties();
+        tiny.getMcp().setMaxResponseBytes(100);
+        BootUiMcpService tinyService = new BootUiMcpService(new BootUiMcpTools(List.of()), tiny, objectMapper, "1.2.3");
+        assertThat(tinyService.renderProgress(io.github.jdubois.bootui.engine.mcp.McpProgressToken.of(longest), event))
+                .isNull();
+        assertThat(tinyService.dispatcher().runtimeStats().snapshot().progressDropped())
+                .as("a dropped progress event is counted")
+                .isEqualTo(1);
+    }
+
+    @Test
     void streamFramesAreTheSameBytesOnEveryStack() throws Exception {
         assertThat(service.renderProgress(
                         io.github.jdubois.bootui.engine.mcp.McpProgressToken.of("tok"),
@@ -766,12 +1026,14 @@ class BootUiMcpServiceTests {
                         + "{\"progressToken\":9,\"progress\":1.5,\"message\":\"Working\"}}");
         assertThat(service.renderFinal(
                         objectMapper.readTree("7"),
+                        io.github.jdubois.bootui.engine.mcp.McpEra.MODERN,
                         new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError(
                                 McpProtocol.TOOL_TIMEOUT, McpProtocol.TOOL_TIMEOUT_MESSAGE)))
                 .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":7,\"error\":{\"code\":-31002,"
                         + "\"message\":\"MCP tool execution timed out\"}}");
         assertThat(service.renderFinal(
                         objectMapper.readTree("7"),
+                        io.github.jdubois.bootui.engine.mcp.McpEra.MODERN,
                         new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult(
                                 java.util.Map.of("name", "demo"))))
                 .isEqualTo(
@@ -779,6 +1041,23 @@ class BootUiMcpServiceTests {
                                 + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
                                 + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
                                 + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}");
+
+        // A legacy (MCP 2025-06-18) stream ends with a legacy response: legacy codes, no resultType, no _meta.
+        assertThat(service.renderFinal(
+                        objectMapper.readTree("\"r\""),
+                        io.github.jdubois.bootui.engine.mcp.McpEra.LEGACY,
+                        new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError(
+                                McpProtocol.TOOL_TIMEOUT, McpProtocol.TOOL_TIMEOUT_MESSAGE)))
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":\"r\",\"error\":{\"code\":-32002,"
+                        + "\"message\":\"MCP tool execution timed out\"}}");
+        assertThat(service.renderFinal(
+                        objectMapper.readTree("7"),
+                        io.github.jdubois.bootui.engine.mcp.McpEra.LEGACY,
+                        new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult(
+                                java.util.Map.of("name", "demo"))))
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{"
+                        + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
+                        + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false}}");
     }
 
     private BootUiMcpService.Reply modern(String method, int id, String name, boolean enabled) {

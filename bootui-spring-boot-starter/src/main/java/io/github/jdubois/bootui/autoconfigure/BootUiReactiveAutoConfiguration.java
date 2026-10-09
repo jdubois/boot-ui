@@ -100,6 +100,7 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aot.AotDetector;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
@@ -682,9 +683,21 @@ public class BootUiReactiveAutoConfiguration {
     static class ReactiveCorrelationPropagationConfiguration {
 
         @Bean
-        SmartInitializingSingleton bootUiCorrelationThreadLocalAccessorRegistration() {
+        CorrelationAccessorRegistration bootUiCorrelationThreadLocalAccessorRegistration() {
             BootUiCorrelationThreadLocalAccessor.register();
-            return () -> {};
+            return new CorrelationAccessorRegistration();
+        }
+
+        /** Unregisters the JVM-wide accessor when this context closes, so it does not outlive the application. */
+        static final class CorrelationAccessorRegistration implements SmartInitializingSingleton, DisposableBean {
+
+            @Override
+            public void afterSingletonsInstantiated() {}
+
+            @Override
+            public void destroy() {
+                BootUiCorrelationThreadLocalAccessor.unregister();
+            }
         }
 
         /**
@@ -874,7 +887,7 @@ public class BootUiReactiveAutoConfiguration {
     /**
      * Duplicates {@link BootUiAutoConfiguration#bootUiTransactionExecutionListener}: no stack-specific
      * dependency. Spring Boot's standard transaction-manager customization registers this listener
-     * against every configurable blocking transaction manager.
+     * against every configurable transaction manager, blocking or reactive.
      */
     @Bean
     @ConditionalOnProperty(prefix = "bootui.transactions", name = "enabled", matchIfMissing = true)

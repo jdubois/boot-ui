@@ -136,14 +136,7 @@ public final class TransactionAcrossRemoteCall implements Observation {
             }
         }
         return new Evaluation(
-                eligible,
-                findings,
-                fast == 0
-                        ? null
-                        : InsightText.counted(fast, "transactional method")
-                                + " kept a transaction open only across calls under "
-                                + InsightText.millis(MIN_CALL_NANOS)
-                                + " ms, so " + (fast == 1 ? "it is" : "they are") + " not reported.");
+                eligible, findings, fast == 0 ? null : JudgedWithoutFinding.fastTransactions(fast, MIN_CALL_NANOS));
     }
 
     private Finding finding(String route, String method, Method found, long eligible, InsightsSnapshot snapshot) {
@@ -193,7 +186,8 @@ public final class TransactionAcrossRemoteCall implements Observation {
         limitations.add("A call is placed in a transaction by time within its request; parallel work of the same"
                 + " request on another thread could be placed too.");
         if (snapshot.stack() == InsightsStack.SPRING_WEBFLUX) {
-            limitations.add("Only blocking transactions are recorded; a reactive transaction is not.");
+            limitations.add("A reactive transaction belongs to a request only when its pipeline carried the request's"
+                    + " context to the thread it began on.");
         }
         return new Finding(
                 route + ":" + InsightText.stableHash(method),

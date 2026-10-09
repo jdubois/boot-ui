@@ -11,6 +11,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import java.net.URL;
 import java.time.Duration;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -92,5 +93,31 @@ class BootUiQuarkusMappedExceptionCaptureTest {
                 .as("the mapper-handled failure must also surface as an EXCEPTION entry in the Live Activity " + "feed")
                 .isNotNull();
         assertThat(exceptionEntry.path("method").asText(null)).isEqualTo("GET");
+    }
+
+    /**
+     * Content negotiation fails on the event loop, in RESTEasy Reactive's class routing, before a resource method is
+     * matched and before a request scope is active. The group must still name the request it belongs to.
+     */
+    @Test
+    void earlyRoutingFailureOnTheEventLoopKeepsItsRequestMethodAndPath() {
+        Response probeCall = probe().get("/it/mapped-boom", Map.of("Accept", "application/xml"));
+        assertThat(probeCall.status())
+                .as("no representation matches the Accept header")
+                .isEqualTo(406);
+
+        JsonNode group = null;
+        for (JsonNode candidate : probe().get("/bootui/api/exceptions").json().path("groups")) {
+            if ("jakarta.ws.rs.NotAcceptableException"
+                    .equals(candidate.path("exceptionClassName").asText())) {
+                group = candidate;
+            }
+        }
+        assertThat(group).as("the 406 must surface as an exception group").isNotNull();
+        assertThat(group.path("lastRequestId").asText(null))
+                .as("the failure is correlated to its request")
+                .isNotBlank();
+        assertThat(group.path("lastRequestMethod").asText(null)).isEqualTo("GET");
+        assertThat(group.path("lastRequestPath").asText(null)).isEqualTo("/it/mapped-boom");
     }
 }

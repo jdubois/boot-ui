@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -883,6 +884,7 @@ public abstract class AbstractBootUiApiConformanceTest {
             Response scanned = probe.request("POST", api("/" + panel + "/scan"), stateChangingHeaders(probe), "");
             assertThat(scanned.status()).as(panel + " scan").isEqualTo(200);
             JsonNode report = scanned.json();
+            assertOneOutcomePerRule(panel, report);
             JsonNode metadata = report.path("violationDetails");
             String scanId = metadata.path("scanId").asText();
             assertThat(scanId).as(panel + " snapshot identifier").isNotBlank();
@@ -934,6 +936,24 @@ public abstract class AbstractBootUiApiConformanceTest {
             assertThat(probe.get(api("/" + panel)).json().path("violationDetails"))
                     .isEqualTo(metadata);
         }
+    }
+
+    /**
+     * A rule has exactly one outcome per scan: an id listed in {@code results} is never also listed in
+     * {@code analysisErrors}, whichever advisor and stack produced the report. Incomplete coverage of a rule that did
+     * find something belongs in the finding and the evidence limitations, not in a second, contradictory entry.
+     */
+    private static void assertOneOutcomePerRule(String panel, JsonNode report) {
+        Set<String> findings = new HashSet<>();
+        report.path("results").forEach(result -> findings.add(result.path("id").asText()));
+        List<String> errors = new ArrayList<>();
+        report.path("analysisErrors")
+                .forEach(error -> errors.add(error.path("id").asText()));
+        assertThat(errors)
+                .as(panel + " analysisErrors must not repeat a rule listed in results")
+                .allSatisfy(id -> assertThat(findings)
+                        .as(panel + " rule " + id + " is both a result and an analysis error")
+                        .doesNotContain(id));
     }
 
     /**
@@ -1954,12 +1974,13 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     /**
-     * The runtime switch of an opt-in agent sensor ({@code docs/PLAN-v2.md} M5-14) without the BootUI agent: the report
-     * offers no switch, an opt-in sensor answers 409 with the reason, and any other sensor or a body without
+     * The runtime switch of an agent sensor ({@code docs/PLAN-v2.md} M5-14) without the BootUI agent: the report offers
+     * no switch, a switchable sensor such as {@code environment} answers 409 with the reason, and a sensor installed with
+     * the claim only, such as {@code executors}, or a body without
      * {@code enabled} answers 400, each with the canonical {@code error} body; a read-only panel refuses it first with 403.
      */
     @Test
-    void anOptInSensorCannotBeSwitchedWithoutTheAgentAndOtherSensorsNever() {
+    void aSwitchableSensorCannotBeSwitchedWithoutTheAgentAndOtherSensorsNever() {
         assumeTrue(isPanelUsableInLiveManifest("java-agent"), "java-agent panel is not available in this environment");
         assumeTrue(bootstrapAgentBridgeAbsent(), "this JVM runs with the BootUI agent attached");
         assertThat(probe().get(api("/java-agent")).json().path("toggles").size())
@@ -2170,9 +2191,10 @@ public abstract class AbstractBootUiApiConformanceTest {
                             "blocking",
                             "thread-activity",
                             "thread-locals",
+                            "resources",
                             "security-sinks")
                     .contains(sensor.path("id").asText())) {
-                // Shipped sensors (M5-5a to M5-5f, M5-6b): unavailable with the Java Agent panel's reason without the
+                // Shipped sensors (M5-5a to M5-5g, M5-6b): unavailable with the Java Agent panel's reason without the
                 // agent.
                 assertThat(sensor.path("state").asText()).isEqualTo("unavailable");
                 assertThat(sensor.path("reason").asText()).startsWith("Requires the BootUI agent");

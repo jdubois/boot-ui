@@ -74,6 +74,7 @@ public class ReactiveBootUiMcpServerController {
                 stats.timeouts(),
                 stats.responseLimitRefusals(),
                 stats.cancellations(),
+                stats.progressDropped(),
                 toolInfos.size(),
                 toolInfos);
     }

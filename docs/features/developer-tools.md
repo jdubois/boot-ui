@@ -30,7 +30,10 @@ Point your client at the loopback HTTP endpoint of the running application:
 }
 ```
 
-The panel shows the transport, the protocol revision, and the `bootui.mcp.max-results` cap, alongside a ready-to-use
+The panel shows the transport, the protocol revisions the endpoint serves (MCP 2026-07-28 and 2025-06-18), the
+`bootui.mcp.max-results` cap, and how many tool calls ran, timed out, or were cancelled (any call a cancellation
+reached while it ran, such as a client closing its progress stream), and, when there are any, how many progress
+notifications were dropped for exceeding `bootui.mcp.max-response-bytes`, alongside a ready-to-use
 configuration for this running application. There is one tab per client, because clients do not agree on a shape:
 **VS Code** uses a `servers` block in `.vscode/mcp.json`, **Claude Code** uses a
 `claude mcp add --transport http` command, **Cursor** uses an `mcpServers` entry keyed on `url` with no `type` in
@@ -57,6 +60,11 @@ makes outbound calls to OSV.dev.
 **Cached advisor reports** — `get_architecture_report`, `get_spring_report`, `get_hibernate_report`,
 `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`, `get_rest_api_report`,
 `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report`.
+
+**Cached per-rule violations** — `get_architecture_rule_violations`, `get_spring_rule_violations`,
+`get_hibernate_rule_violations`, `get_database_advisor_rule_violations`, `get_memory_rule_violations`,
+`get_security_rule_violations`, and `get_rest_api_rule_violations` page the details a cached report retained, without
+scanning again. On Quarkus, the `spring` tools run and read the Quarkus application advisor.
 
 **Runtime Insights reads** — `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
 `get_runtime_run_comparison`: the [Runtime Insights](overview.md#runtime-insights) report, one observation, change

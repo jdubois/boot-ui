@@ -114,6 +114,49 @@ test.describe('Side Effects view', () => {
     await expect(page.locator('main')).toContainText('Request input reached this')
   })
 
+  test('shows the JDK checks as facts: a weak digest, an unfiltered read, a trust manager (M5-6b2)', async ({
+    page,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, "Security sinks' JDK checks need the BootUI agent")
+    const checkRows = async () =>
+      (
+        (await (await page.request.get('/bootui/api/side-effects/sensor?sensor=security-sinks&limit=500')).json())
+          .rows ?? []
+      ).filter((row) => row.callSite?.includes('SecurityCheckSeeds'))
+    for (const path of [
+      '/api/sinks/checks/digest',
+      '/api/sinks/checks/deserialize',
+      '/api/sinks/checks/trust-manager'
+    ]) {
+      expect((await page.request.get(path)).ok()).toBeTruthy()
+    }
+    await expect
+      .poll(async () => new Set((await checkRows()).map((row) => row.kind)).size, {timeout: 30_000})
+      .toBeGreaterThanOrEqual(3)
+    const rows = await checkRows()
+    const digest = rows.find((row) => row.kind === 'weak digest')
+    expect(digest.target).toBe('MD5')
+    expect(digest.origin).toBe('application')
+    expect(digest.detail).toContain('Weak algorithm MD5 requested by application code')
+    const read = rows.find((row) => row.kind === 'deserialization without a filter')
+    expect(read.target).toContain('Cart')
+    expect(read.count).toBe(1)
+    expect(read.detail).toContain('java.util.ArrayList')
+    const trust = rows.find((row) => row.kind === 'trust manager')
+    expect(trust.target).toContain('DelegatingTrustManager')
+    // The counterexamples: SHA-256, AES/GCM/NoPadding, and the filtered read show nothing.
+    expect(rows.some((row) => ['SHA-256', 'AES/GCM/NoPadding'].includes(row.target))).toBe(false)
+    expect(rows.filter((row) => row.kind === 'deserialization without a filter')).toHaveLength(1)
+    for (const row of rows) {
+      expect(row.detail).not.toMatch(/vulnerab|injection/i)
+    }
+
+    await page.goto('/bootui/#/side-effects')
+    await page.getByRole('tab', {name: /Security sinks/}).click()
+    await expect(page.locator('main')).toContainText('Deserialization without an ObjectInputFilter')
+  })
+
   test('says the blocking sensor is not applicable on Spring MVC, which runs no event loop', async ({
     openView,
     page,
@@ -250,6 +293,58 @@ test.describe('Side Effects view', () => {
     await expect(
       page.locator('.side-effects-table tbody tr').filter({hasText: 'TenantContext.CURRENT'}).first()
     ).toContainText('set during the request')
+  })
+
+  test('shows a stream a request never closed, never one it closed nor a pooled connection as a leak', async ({
+    openView,
+    page,
+    agentAttached
+  }) => {
+    test.skip(!agentAttached, 'the resources sensor needs the BootUI agent')
+    // The resources seeds (M5-5g): a FileInputStream dropped without close(), reclaimed by the collector, with a stream
+    // closed in try-with-resources and the JDK HttpClient's pooled connection, handed off, as counterexamples.
+    for (const path of ['leaked-stream', 'closed-stream', 'pooled-client']) {
+      expect((await page.request.get(`/api/resources/${path}`)).ok()).toBeTruthy()
+    }
+    const rows = async () =>
+      (await (await page.request.get('/bootui/api/side-effects/sensor?sensor=resources&limit=500')).json()).rows ?? []
+    const seeded = (list, path) => list.filter((candidate) => candidate.attribution === `GET /api/resources/${path}`)
+    await expect
+      .poll(
+        async () => {
+          await page.request.get('/api/resources/collect')
+          return seeded(await rows(), 'leaked-stream').find((candidate) => candidate.failed > 0)?.failed ?? 0
+        },
+        {timeout: 60_000}
+      )
+      .toBeGreaterThan(0)
+    const all = await rows()
+    const leaked = seeded(all, 'leaked-stream').find((candidate) => candidate.failed > 0)
+    expect(leaked.kind).toBe('file input stream')
+    expect(leaked.origin).toBe('application')
+    expect(leaked.target).toMatch(/\$TMPDIR\/bootui-resource-/)
+    expect(leaked.callSite).toMatch(/ResourceSeeds#leakStream$/)
+    expect(seeded(all, 'closed-stream')).toEqual([])
+    // The JDK HttpClient connects on the request's thread and pools the connection: tracked, handed off, never a leak.
+    await expect
+      .poll(async () => seeded(await rows(), 'pooled-client').some((candidate) => candidate.leftRunning > 0), {
+        timeout: 30_000
+      })
+      .toBe(true)
+    for (const pooled of seeded(await rows(), 'pooled-client')) {
+      expect(pooled.failed).toBe(0)
+      expect(pooled.origin).toBe('library')
+      expect(pooled.kind).toMatch(/^socket/)
+    }
+
+    await openView('side-effects', 'Side Effects')
+    await page.getByRole('tab', {name: /Threads and leaks/}).click()
+    const row = page
+      .locator('.side-effects-table tbody tr')
+      .filter({hasText: 'GET /api/resources/leaked-stream'})
+      .filter({hasText: 'file input stream'})
+    await expect(row.first()).toContainText('Opened by the application')
+    await expect(row.first().locator('.side-effects-reclaimed')).toBeVisible()
   })
 })
 

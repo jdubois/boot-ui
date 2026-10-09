@@ -25,6 +25,10 @@ const {copiedKey, copyToClipboard} = useCopyToClipboard(2000)
 const enabled = computed(() => status.value?.enabled === true)
 const actionTools = computed(() => (status.value?.tools ?? []).filter((tool) => tool.action))
 const readTools = computed(() => (status.value?.tools ?? []).filter((tool) => !tool.action))
+const protocolVersions = computed(() => {
+  const versions = status.value?.supportedProtocolVersions
+  return Array.isArray(versions) && versions.length ? versions : [status.value?.protocolVersion].filter(Boolean)
+})
 
 const endpointUrl = computed(() => {
   const path = getBootUiApiPath() + '/mcp'
@@ -234,9 +238,16 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus, {enabled: manif
                 </dd>
                 <dt class="col-5 text-muted fw-normal">Transport</dt>
                 <dd class="col-7">{{ status.transport }}</dd>
-                <dt class="col-5 text-muted fw-normal">Protocol</dt>
-                <dd class="col-7">
-                  <code>{{ status.protocolVersion }}</code>
+                <dt class="col-5 text-muted fw-normal">Protocols</dt>
+                <dd class="col-7" data-testid="mcp-protocols">
+                  <span v-for="(version, index) in protocolVersions" :key="version"
+                    ><code>{{ version }}</code
+                    ><span v-if="index < protocolVersions.length - 1">, </span></span
+                  >
+                  <div v-if="protocolVersions.length > 1" class="text-muted">
+                    Clients on <code>{{ protocolVersions[0] }}</code> can follow long scans' progress and cancel them by
+                    closing the call.
+                  </div>
                 </dd>
                 <dt class="col-5 text-muted fw-normal">Server</dt>
                 <dd class="col-7">
@@ -246,6 +257,20 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus, {enabled: manif
                 <dd class="col-7">{{ status.toolCount }}</dd>
                 <dt class="col-5 text-muted fw-normal">Max results</dt>
                 <dd class="col-7">{{ status.maxResults }}</dd>
+                <dt class="col-5 text-muted fw-normal">Tool calls</dt>
+                <dd class="col-7" data-testid="mcp-call-stats">
+                  {{ status.callCount ?? 0 }}
+                  <span class="text-muted"
+                    >· {{ status.timeouts ?? 0 }} timed out · {{ status.cancellations ?? 0 }} cancelled</span
+                  >
+                </dd>
+                <template v-if="status.progressDropped > 0">
+                  <dt class="col-5 text-muted fw-normal">Progress dropped</dt>
+                  <dd class="col-7" data-testid="mcp-progress-dropped">
+                    {{ status.progressDropped }}
+                    <span class="text-muted">over <code>bootui.mcp.max-response-bytes</code></span>
+                  </dd>
+                </template>
               </dl>
             </div>
           </div>

@@ -103,6 +103,10 @@ public final class CaughtExceptionsReader {
             limitations.add("The agent's executors sensor does not record handoffs, so work a request handed over"
                     + " cannot be followed and no caught exception is known not logged.");
         }
+        if (current.sitesOverLimit() > 0) {
+            limitations.add("Some exception handlers were left uninstrumented: the agent instruments at most 16,384"
+                    + " handlers per JVM, so what they catch is not seen.");
+        }
         if (current.lossUnaccounted()) {
             limitations.add("The attached agent does not count its losses: attach the agent of this BootUI version.");
         }

@@ -15,6 +15,7 @@ public final class SideEffectsCatalog {
     public static final String ENVIRONMENT_ID = "environment";
     public static final String THREAD_ACTIVITY_ID = "thread-activity";
     public static final String THREAD_LOCALS_ID = "thread-locals";
+    public static final String RESOURCES_ID = "resources";
 
     /** The bridge's sensor ids in records. */
     static final int RECORD_PROCESSES = 1;
@@ -34,6 +35,9 @@ public final class SideEffectsCatalog {
     /** The bridge's sensor id of {@code thread-locals} in records ({@code ThreadLocals}, M5-5f). */
     static final int RECORD_THREAD_LOCALS = 7;
 
+    /** The bridge's sensor id of {@code resources} in records ({@code Resources}, M5-5g). */
+    static final int RECORD_RESOURCES = 9;
+
     /** The bridge's sensor id of {@code security-sinks} in records (M5-6b). */
     static final int RECORD_SECURITY_SINKS = 8;
 
@@ -46,6 +50,44 @@ public final class SideEffectsCatalog {
     static final int KIND_SINK_COMMAND = 2;
     static final int KIND_SINK_FILE = 3;
     static final int KIND_SINK_URL = 4;
+
+    /**
+     * The security-sinks sensor's JDK checks (M5-6b2, {@code SecuritySinks.KIND_*}): a deserialization without a filter,
+     * a weak digest or cipher, a trust manager of the application, and a default hostname verifier or SSL socket factory
+     * the application installed.
+     */
+    static final int KIND_CHECK_DESERIALIZATION = 5;
+
+    static final int KIND_CHECK_WEAK_DIGEST = 6;
+    static final int KIND_CHECK_WEAK_CIPHER = 7;
+    static final int KIND_CHECK_TRUST_MANAGER = 8;
+    static final int KIND_CHECK_HOSTNAME_VERIFIER = 9;
+    static final int KIND_CHECK_SOCKET_FACTORY = 10;
+    static final int KIND_CHECK_TRUST_ALL = 11;
+
+    /** A JDK check's outcome bits ({@code SecuritySinks.ORIGIN_*}, {@code FLAG_ERROR}). */
+    static final int CHECK_APPLICATION = 1;
+
+    static final int CHECK_LIBRARY = 2;
+    static final int CHECK_ERROR = 4;
+
+    /** The marker the agent appends to a deserialization's classes past its bound. */
+    static final String MORE_CLASSES = "(more)";
+
+    /** What a JDK check row's kind says. */
+    public static final String DESERIALIZATION = "deserialization without a filter";
+
+    public static final String WEAK_DIGEST = "weak digest";
+    public static final String WEAK_CIPHER = "weak cipher";
+    public static final String TRUST_MANAGER = "trust manager";
+    public static final String HOSTNAME_VERIFIER = "default hostname verifier";
+    public static final String SOCKET_FACTORY = "default SSL socket factory";
+    public static final String TRUST_ALL = "trust-all trust manager";
+
+    /** Whether a record is one of the security-sinks sensor's JDK checks rather than a request-value match. */
+    static boolean check(int sensor, int kind) {
+        return sensor == RECORD_SECURITY_SINKS && kind >= KIND_CHECK_DESERIALIZATION && kind <= KIND_CHECK_TRUST_ALL;
+    }
 
     /** A security-sinks record's outcome bits ({@code RequestValues.POSITION_*} and {@code FLAG_*}). */
     static final int SINK_IN_LITERAL = 1;
@@ -103,6 +145,17 @@ public final class SideEffectsCatalog {
 
     static final int DETAIL_SUPPLIED = 2;
     static final int DETAIL_SUBCLASS = 4;
+
+    /** The resources sensor's kinds: open after its request, closed after it (handed off), reclaimed never closed. */
+    static final int KIND_RESOURCE_LEFT_OPEN = 40;
+
+    static final int KIND_RESOURCE_CLOSED_LATE = 41;
+    static final int KIND_RESOURCE_RECLAIMED = 42;
+
+    /** A resources record's detail: its origin, bits 0–1, its resource kind, bits 4–7, and its first report, bit 8. */
+    static final int RESOURCE_KIND_SHIFT = 4;
+
+    static final int DETAIL_FIRST_REPORT = 1 << 8;
 
     /** A thread-activity record's detail ({@code ThreadActivity}): its origin, bits 0–1, of 1, 2, or 3. */
     static final int DETAIL_ORIGIN = 3;
@@ -179,6 +232,15 @@ public final class SideEffectsCatalog {
     public static final String LEFT_SET_INHERITABLE = "left set (inheritable)";
     public static final String LEFT_SET_INITIAL_VALUE = "left set (with initial value)";
 
+    /** What a resources row's resource is. */
+    public static final String FILE_INPUT_STREAM = "file input stream";
+
+    public static final String FILE_OUTPUT_STREAM = "file output stream";
+    public static final String RANDOM_ACCESS_FILE = "random access file";
+    public static final String FILE_CHANNEL = "file channel";
+    public static final String SOCKET = "socket";
+    public static final String SOCKET_CHANNEL = "socket channel";
+
     public static final String NETWORK = "Network";
     public static final String FILES_AND_PROCESSES = "Files and processes";
     public static final String ENVIRONMENT = "Environment";
@@ -227,12 +289,18 @@ public final class SideEffectsCatalog {
                     "Thread locals left set after a request",
                     true,
                     RECORD_THREAD_LOCALS),
-            new Sensor("resources", THREADS_AND_LEAKS, "Streams and sockets left open", false, 0),
+            new Sensor(
+                    RESOURCES_ID,
+                    THREADS_AND_LEAKS,
+                    "Streams, channels, and sockets left open",
+                    true,
+                    RECORD_RESOURCES),
             new Sensor("blocking", BLOCKING, "Blocking calls started on an event loop", true, RECORD_BLOCKING),
             new Sensor(
                     SECURITY_SINKS_ID,
                     SECURITY_SINKS,
-                    "Request input reaching SQL, commands, file paths, and URLs",
+                    "Request input reaching SQL, commands, file paths, and URLs; deserialization without a filter, weak"
+                            + " algorithms, and trust managers",
                     true,
                     RECORD_SECURITY_SINKS));
 
@@ -269,6 +337,13 @@ public final class SideEffectsCatalog {
                 case KIND_SINK_COMMAND -> COMMAND;
                 case KIND_SINK_FILE -> FILE_PATH;
                 case KIND_SINK_URL -> OUTBOUND_URL;
+                case KIND_CHECK_DESERIALIZATION -> DESERIALIZATION;
+                case KIND_CHECK_WEAK_DIGEST -> WEAK_DIGEST;
+                case KIND_CHECK_WEAK_CIPHER -> WEAK_CIPHER;
+                case KIND_CHECK_TRUST_MANAGER -> TRUST_MANAGER;
+                case KIND_CHECK_HOSTNAME_VERIFIER -> HOSTNAME_VERIFIER;
+                case KIND_CHECK_SOCKET_FACTORY -> SOCKET_FACTORY;
+                case KIND_CHECK_TRUST_ALL -> TRUST_ALL;
                 default -> "sink";
             };
         }
@@ -288,6 +363,9 @@ public final class SideEffectsCatalog {
                 case KIND_THREAD_START, KIND_THREAD_LEFT_RUNNING -> THREAD;
                 default -> EXECUTOR;
             };
+        }
+        if (recordId == RECORD_RESOURCES) {
+            return "resource";
         }
         if (recordId == RECORD_BLOCKING) {
             return switch (kind) {
@@ -321,6 +399,25 @@ public final class SideEffectsCatalog {
     /** Whether a record of {@code recordId} and {@code kind} is a process's exit, not a new occurrence. */
     static boolean processExit(int recordId, int kind) {
         return recordId == RECORD_PROCESSES && kind == KIND_PROCESS_EXIT;
+    }
+
+    /** What a resources record's detail says its resource is. */
+    static String resourceKind(int detail) {
+        return switch ((detail >>> RESOURCE_KIND_SHIFT) & 0xF) {
+            case 1 -> FILE_INPUT_STREAM;
+            case 2 -> FILE_OUTPUT_STREAM;
+            case 3 -> RANDOM_ACCESS_FILE;
+            case 4 -> FILE_CHANNEL;
+            case 5 -> SOCKET;
+            case 6 -> SOCKET_CHANNEL;
+            default -> "resource";
+        };
+    }
+
+    /** Whether a resources row's resource is a file's, whose target is a path pattern, rather than a socket's. */
+    static boolean fileResource(int detail) {
+        int kind = (detail >>> RESOURCE_KIND_SHIFT) & 0xF;
+        return kind >= 1 && kind <= 4;
     }
 
     /** Whether a thread-activity record of {@code kind} starts or creates something, rather than following up. */

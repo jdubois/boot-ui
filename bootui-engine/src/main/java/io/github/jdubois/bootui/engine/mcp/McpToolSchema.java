@@ -11,7 +11,8 @@ import java.util.Set;
  * <p>The adapter renders the concrete JSON Schema from this enum so the engine stays JSON-free. The
  * kinds cover every BootUI tool: action and plain read tools take no arguments ({@link #NONE}),
  * paged reads accept an optional {@code limit} ({@link #LIMIT}), searchable reads accept an
- * optional {@code query} plus {@code limit} ({@link #QUERY_LIMIT}), and single-resource reads require
+ * optional {@code query} plus {@code limit} ({@link #QUERY_LIMIT}), filtered reads that list everything they match
+ * accept only {@code query} ({@link #QUERY}), and single-resource reads require
  * an exact {@code id} ({@link #ID}). Advisor detail reads additionally require a snapshot identifier
  * and accept an offset ({@link #RULE_VIOLATIONS}).
  */
@@ -22,6 +23,11 @@ public enum McpToolSchema {
     LIMIT(List.of("limit")),
     /** An optional {@code query} string plus the optional {@code limit}. */
     QUERY_LIMIT(List.of("query", "limit")),
+    /**
+     * An optional {@code query} string, for a read that always lists every item it matches. A {@code limit} is
+     * still accepted and ignored, because CLI binaries built before this schema existed send it for such a tool.
+     */
+    QUERY(List.of("query"), List.of("limit")),
     /** A required string {@code id} identifying one specific resource (e.g. an exception group id). */
     ID(List.of("id")),
     /** An optional resource id; omission selects the tool's documented default. */
@@ -31,8 +37,15 @@ public enum McpToolSchema {
 
     private final Set<String> argumentNames;
 
+    private final Set<String> ignoredArgumentNames;
+
     McpToolSchema(List<String> argumentNames) {
+        this(argumentNames, List.of());
+    }
+
+    McpToolSchema(List<String> argumentNames, List<String> ignoredArgumentNames) {
         this.argumentNames = Collections.unmodifiableSet(new LinkedHashSet<>(argumentNames));
+        this.ignoredArgumentNames = Collections.unmodifiableSet(new LinkedHashSet<>(ignoredArgumentNames));
     }
 
     /**
@@ -44,5 +57,13 @@ public enum McpToolSchema {
      */
     public Set<String> argumentNames() {
         return argumentNames;
+    }
+
+    /**
+     * Arguments a call may carry without being rejected, although this schema neither advertises nor uses them: they
+     * keep a client built against an earlier schema of the same tool working.
+     */
+    public Set<String> ignoredArgumentNames() {
+        return ignoredArgumentNames;
     }
 }

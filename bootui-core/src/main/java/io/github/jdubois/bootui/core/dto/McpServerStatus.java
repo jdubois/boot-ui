@@ -16,12 +16,14 @@ import java.util.List;
  * @param protocolVersion the MCP protocol revision a legacy client negotiates through {@code initialize}
  * @param supportedProtocolVersions every revision the endpoint serves, newest first (MCP 2026-07-28 and 2025-06-18)
  * @param maxResults the {@code bootui.mcp.max-results} cap applied to paginated read tools
- * @param callCount completed or timed-out tool calls since server startup
+ * @param callCount tool calls that ended since server startup, completed, timed out, or cancelled
  * @param totalLatencyMillis aggregate wall-clock latency of those calls
  * @param capacityRefusals calls refused because all execution slots were occupied
  * @param timeouts calls that exceeded the configured execution-time budget
  * @param responseLimitRefusals responses replaced because they exceeded the configured byte budget
- * @param cancellations request-scoped streams the client closed before the call ended, counted apart from timeouts
+ * @param cancellations calls cancelled before they ended, counted apart from timeouts: request-scoped streams the
+ *     client closed, and calls a cancellation reached while they ran
+ * @param progressDropped progress notifications not sent because each would exceed the configured byte budget
  * @param toolCount the number of tools currently advertised
  * @param tools the catalog of advertised tools
  */
@@ -42,6 +44,7 @@ public record McpServerStatus(
         long timeouts,
         long responseLimitRefusals,
         long cancellations,
+        long progressDropped,
         int toolCount,
         List<McpToolInfo> tools) {
 
@@ -71,13 +74,56 @@ public record McpServerStatus(
                 transport,
                 endpoint,
                 protocolVersion,
-                List.of(protocolVersion),
+                protocolVersion == null ? List.of() : List.of(protocolVersion),
                 maxResults,
                 0,
                 0,
                 0,
                 0,
                 0,
+                0,
+                0,
+                toolCount,
+                tools);
+    }
+
+    /** The status without the dropped-progress count, which then reads {@code 0}. */
+    public McpServerStatus(
+            boolean enabled,
+            String configuredMode,
+            boolean overridden,
+            String serverName,
+            String serverVersion,
+            String transport,
+            String endpoint,
+            String protocolVersion,
+            List<String> supportedProtocolVersions,
+            int maxResults,
+            long callCount,
+            long totalLatencyMillis,
+            long capacityRefusals,
+            long timeouts,
+            long responseLimitRefusals,
+            long cancellations,
+            int toolCount,
+            List<McpToolInfo> tools) {
+        this(
+                enabled,
+                configuredMode,
+                overridden,
+                serverName,
+                serverVersion,
+                transport,
+                endpoint,
+                protocolVersion,
+                supportedProtocolVersions,
+                maxResults,
+                callCount,
+                totalLatencyMillis,
+                capacityRefusals,
+                timeouts,
+                responseLimitRefusals,
+                cancellations,
                 0,
                 toolCount,
                 tools);

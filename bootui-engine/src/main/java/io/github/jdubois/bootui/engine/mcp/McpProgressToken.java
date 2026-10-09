@@ -11,6 +11,12 @@ import java.util.Objects;
  */
 public record McpProgressToken(String text, Long number) {
 
+    /**
+     * The longest string token BootUI accepts. Every progress notification echoes the token, so an unbounded one would
+     * let a client make each notification as large as it likes, past {@code bootui.mcp.max-response-bytes}.
+     */
+    public static final int MAX_TEXT_LENGTH = 128;
+
     public McpProgressToken {
         if ((text == null) == (number == null)) {
             throw new IllegalArgumentException("A progress token is exactly one of a string or an integer");

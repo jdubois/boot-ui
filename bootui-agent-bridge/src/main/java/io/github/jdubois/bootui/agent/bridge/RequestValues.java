@@ -12,9 +12,9 @@ import java.util.concurrent.atomic.LongAdder;
 
 /**
  * The request value holder of the {@code security-sinks} sensor's request-value matching (PLAN-v2 §5.16, M5-6b): the
- * query, path, and form parameter values of the requests running now, held only so a sink reached by the request (SQL
- * text, a command, a file path, an outbound URL) can be checked for one of them appearing verbatim, then forgotten when
- * the response completes. Opt-in (D37): an adapter pushes nothing unless {@code
+ * query and path parameter values of the requests running now (form values are planned: no adapter pushes them yet),
+ * held only so a sink reached by the request (SQL text, a command, a file path, an outbound URL) can be checked for one
+ * of them appearing verbatim, then forgotten when the response completes. Opt-in (D37): an adapter pushes nothing unless {@code
  * bootui.agent.security-sinks.request-values} is on and {@link #active()} answers true.
  *
  * <p><b>What it holds.</b> A preallocated table of {@value #ENTRIES} entries, one per request, each with at most
@@ -290,6 +290,11 @@ public final class RequestValues {
         }
         Claim claim = AgentBridge.current();
         return claim != null && claim.armed && claim.generation == sensor && claim.generation == tableGeneration;
+    }
+
+    /** The claim generation the sensor is on for, or {@link Long#MIN_VALUE}: what {@link SideEffects} last set. */
+    static long sensorGeneration() {
+        return sensorGeneration;
     }
 
     /**

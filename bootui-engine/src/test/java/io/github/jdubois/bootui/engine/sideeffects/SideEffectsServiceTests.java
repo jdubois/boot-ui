@@ -208,6 +208,7 @@ class SideEffectsServiceTests {
                                 "blocking",
                                 "thread-activity",
                                 "thread-locals",
+                                "resources",
                                 "security-sinks")
                         .contains(sensor.id()))
                 .allSatisfy(sensor -> {
@@ -305,7 +306,7 @@ class SideEffectsServiceTests {
     void agentsGetEverySensorsCoverageAndOnlyTheNamedSensorsHooks() {
         SideEffectsHookDto hook = new SideEffectsHookDto("connect", "java.net.Socket", true, true, "passed", 3);
         JavaAgentSensorToggleDto toggle =
-                new JavaAgentSensorToggleDto("files", false, false, false, "off", "Opt-in", true, null, null);
+                new JavaAgentSensorToggleDto("files", true, false, true, "off", "On by default", true, null, null);
         List<SideEffectsSensorDto> sensors = List.of(
                 new SideEffectsSensorDto(
                         "network", "Network", "Connects", SideEffectsSensorDto.RECORDING, null, 4, 9, 1, List.of(hook)),
@@ -381,15 +382,14 @@ class SideEffectsServiceTests {
     }
 
     @Test
-    void anUnknownSensorIdInTheSettingsIsRejectedAndOneThisVersionDoesNotShipAccepted() {
+    void anUnknownSensorIdInTheSettingsIsRejectedAndEverySensorThisVersionListsIsShipped() {
         assertThatThrownBy(() -> new AgentSensorSettings(List.of("executors", "proceses"), null, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("proceses")
                 .hasMessageContaining("processes")
-                .hasMessageContaining("not available in this version");
-        AgentSensorSettings planned = new AgentSensorSettings(List.of("executors", "resources"), null, null, null);
-        assertThat(planned.notAvailable()).containsExactly("resources");
-        assertThat(planned.notAvailableWarning()).contains("resources").contains("not available");
+                .hasMessageContaining("resources")
+                .hasMessageContaining("security-sinks");
+        assertThat(AgentSensorSettings.NOT_AVAILABLE_SENSORS).isEmpty();
         assertThat(AgentSensorSettings.defaults().notAvailableWarning()).isNull();
         assertThat(AgentSensorSettings.NOT_AVAILABLE_SENSORS)
                 .as("the catalog's sensors this version does not ship")

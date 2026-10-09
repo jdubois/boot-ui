@@ -24,6 +24,8 @@ import org.junit.jupiter.api.Test;
 class BootUiQuarkusMcpStreamDisconnectTest {
 
     static final McpStreamDisconnectContract CONTRACT = new McpStreamDisconnectContract();
+    static final io.github.jdubois.bootui.conformance.McpStreamFrameContract FRAMES =
+            new io.github.jdubois.bootui.conformance.McpStreamFrameContract();
 
     public static class DisconnectProfile implements QuarkusTestProfile {
 
@@ -47,7 +49,7 @@ class BootUiQuarkusMcpStreamDisconnectTest {
         @Singleton
         McpDispatcher dispatcher() {
             return new McpDispatcher(
-                    List.of(CONTRACT.tool()),
+                    List.of(CONTRACT.tool(), FRAMES.tool()),
                     List.of(),
                     new AllowAll(),
                     "test",
@@ -61,6 +63,11 @@ class BootUiQuarkusMcpStreamDisconnectTest {
         }
     }
 
+    @Test
+    void theStreamWritesTheSameRawBytesAsEveryStack() throws Exception {
+        FRAMES.assertFrames(baseUrl.getPort(), "/bootui/api/mcp", "test");
+    }
+
     @TestHTTPResource
     URL baseUrl;
 
@@ -69,7 +76,26 @@ class BootUiQuarkusMcpStreamDisconnectTest {
 
     @Test
     void closingTheStreamCancelsTheCall() throws Exception {
+        // Quarkus notices the close at once (the routing context's end handler), well before a keep-alive.
         CONTRACT.closeAfterFirstEventCancels(
+                baseUrl.getPort(),
+                "/bootui/api/mcp",
+                dispatcher,
+                java.time.Duration.ofMillis(
+                        io.github.jdubois.bootui.engine.mcp.McpStreamingCall.HEARTBEAT_MILLIS * 3 / 4));
+    }
+
+    @Test
+    void closingALegacyStreamDoesNotCancelButNotificationsCancelledDoes() throws Exception {
+        CONTRACT.legacyCloseRunsOnUntilNotificationsCancelled(
+                baseUrl.getPort(),
+                "/bootui/api/mcp",
+                () -> dispatcher.runtimeStats().snapshot());
+    }
+
+    @Test
+    void notificationsCancelledStopsALegacyBlockingCall() throws Exception {
+        CONTRACT.legacyBlockingCallIsCancelledByNotification(
                 baseUrl.getPort(),
                 "/bootui/api/mcp",
                 () -> dispatcher.runtimeStats().snapshot());

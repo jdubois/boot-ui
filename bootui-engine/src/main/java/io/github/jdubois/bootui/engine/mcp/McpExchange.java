@@ -20,12 +20,28 @@ public final class McpExchange {
 
     /** The shape of the request {@code id}, which decides both validity and what a refusal echoes. */
     public enum IdShape {
-        /** Absent or JSON {@code null}. */
-        ABSENT_OR_NULL,
-        /** A string or a number. */
-        STRING_OR_NUMBER,
+        /** No {@code id} member. */
+        ABSENT,
+        /** JSON {@code null}. */
+        NULL,
+        /** A string. */
+        STRING,
+        /** An integer. */
+        INTEGER,
+        /** A number with a fraction or an exponent, such as {@code 1.5} or {@code 1.0}. */
+        FRACTIONAL,
         /** Any other JSON type. */
-        INVALID
+        INVALID;
+
+        /** BootUI 1.x and MCP 2025-06-18 read an absent or {@code null} id the same way: a notification. */
+        boolean legacyNotification() {
+            return this == ABSENT || this == NULL;
+        }
+
+        /** MCP 2026-07-28 types a request id as a string or an integer. */
+        boolean modernRequestId() {
+            return this == STRING || this == INTEGER;
+        }
     }
 
     /** Which request id a refusal echoes. */
@@ -67,12 +83,12 @@ public final class McpExchange {
 
         /** A body that is neither an object nor an array (a JSON scalar, or nothing). */
         public static Envelope notAnObject(boolean batch) {
-            return new Envelope(batch, false, false, IdShape.ABSENT_OR_NULL, true, null, null, McpRequestMeta.NONE);
+            return new Envelope(batch, false, false, IdShape.ABSENT, true, null, null, McpRequestMeta.NONE);
         }
 
         /** {@code true} for a well-formed request without an id: it gets no response. */
         public boolean notification() {
-            return object && jsonrpcValid && id == IdShape.ABSENT_OR_NULL && method != null && !method.isBlank();
+            return object && jsonrpcValid && id.legacyNotification() && method != null && !method.isBlank();
         }
     }
 
@@ -94,6 +110,10 @@ public final class McpExchange {
                     McpProtocol.BATCH_NOT_SUPPORTED_MESSAGE,
                     IdEcho.NULL);
         }
+        Plan.Reject badModernId = checkModernId(envelope, headers);
+        if (badModernId != null) {
+            return badModernId;
+        }
         McpEraDecision decision = envelope.object()
                 ? McpEraResolver.resolve(
                         envelope.method(), envelope.notification(), envelope.bodyName(), envelope.meta(), headers)
@@ -114,6 +134,46 @@ public final class McpExchange {
         }
         Plan.Reject invalid = checkEnvelope(envelope, serve.era());
         return invalid != null ? invalid : new Plan.Dispatch(serve);
+    }
+
+    /**
+     * The refusal of a request that is not a BootUI 1.x request (its {@code _meta} names a protocol version other than
+     * MCP 2025-06-18, or one that is not a string, or its only {@code MCP-Protocol-Version} header is MCP 2026-07-28) but
+     * whose id MCP 2026-07-28 does not allow, or {@code null}. A modern request id is a string or an integer: {@code
+     * null}, fractional, and other ids are refused, and a request method sent without an id is refused rather than run
+     * as a notification, so a modern {@code tools/call} never runs without an answer. Only a {@code notifications/}
+     * method may omit its id. BootUI 1.x clients send none of these markers, so they answer exactly as before.
+     */
+    static Plan.Reject checkModernId(Envelope envelope, McpRequestHeaders headers) {
+        if (!envelope.object()
+                || !claimsModern(envelope, headers)
+                || "initialize".equals(envelope.method())
+                || envelope.id().modernRequestId()) {
+            return null;
+        }
+        if (envelope.id() == IdShape.ABSENT
+                && envelope.method() != null
+                && envelope.method().startsWith(McpProtocol.NOTIFICATION_METHOD_PREFIX)) {
+            return null;
+        }
+        String message = envelope.id() == IdShape.ABSENT
+                ? McpProtocol.MODERN_ID_REQUIRED_MESSAGE
+                : McpProtocol.MODERN_ID_TYPE_MESSAGE;
+        return Plan.Reject.of(McpEra.MODERN, 400, McpProtocol.INVALID_REQUEST, message, IdEcho.NULL);
+    }
+
+    /** Whether a request claims a protocol era BootUI 1.x never saw, so its id is judged by MCP 2026-07-28's rules. */
+    private static boolean claimsModern(Envelope envelope, McpRequestHeaders headers) {
+        McpRequestMeta.Field version = envelope.meta().protocolVersion();
+        if (version == McpRequestMeta.Field.INVALID) {
+            return true;
+        }
+        if (version == McpRequestMeta.Field.VALID
+                && !McpProtocol.KNOWN_VERSIONS.contains(envelope.meta().protocolVersionValue())) {
+            return true;
+        }
+        List<String> header = headers.protocolVersion();
+        return header.size() == 1 && McpProtocol.MODERN_VERSIONS.contains(header.get(0));
     }
 
     /**
@@ -154,6 +214,15 @@ public final class McpExchange {
                 McpProtocol.wireErrorCode(era, McpProtocol.RESPONSE_TOO_LARGE),
                 McpProtocol.RESPONSE_TOO_LARGE_MESSAGE,
                 IdEcho.AS_SENT);
+    }
+
+    /**
+     * Whether a rendered {@code notifications/progress} of {@code renderedBytes} bytes may be sent: every event of a
+     * stream obeys {@code bootui.mcp.max-response-bytes} too. One that does not fit is dropped rather than replaced,
+     * because progress is advisory and the final response still ends the stream.
+     */
+    public static boolean progressFits(long renderedBytes, int maxResponseBytes) {
+        return renderedBytes <= Math.max(1, maxResponseBytes);
     }
 
     /** The decision {@link #plan} makes for one request body. */

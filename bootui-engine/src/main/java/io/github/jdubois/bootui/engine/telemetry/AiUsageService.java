@@ -110,6 +110,7 @@ public final class AiUsageService {
                 telemetryEnabled,
                 springAi,
                 langChain4j,
+                frameworkDetected,
                 chats.size(),
                 totalIn,
                 totalOut,

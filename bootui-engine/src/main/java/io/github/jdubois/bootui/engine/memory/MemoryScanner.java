@@ -53,7 +53,10 @@ public final class MemoryScanner {
     private final Supplier<MemoryContext> contextSupplier;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
-    private final AdvisorScanState<MemoryReport> state = new AdvisorScanState<>(MemoryReport::withViolationDetails);
+    private final AdvisorScanState<MemoryReport> state = new AdvisorScanState<>(
+            MemoryReport::withViolationDetails,
+            () -> AdvisorScanState.ruleIds(
+                    MemoryRuleRegistry.activeRules(), rule -> rule.definition().id()));
 
     /**
      * Post-histogram GC counters from the previous scan, used as the lower bound of the recent-GC

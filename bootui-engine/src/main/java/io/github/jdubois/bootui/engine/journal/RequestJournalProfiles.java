@@ -52,6 +52,22 @@ public final class RequestJournalProfiles {
 
     static final String DISABLED = JournalActivityReports.DISABLED;
 
+    /** Why the journal has no profile of {@code requestId}: it records no such request or execution. */
+    static String notRetainedReason(String requestId) {
+        return "The runtime journal does not retain a visible completed request or execution " + requestId
+                + " (it may have been evicted or its source panel is disabled).";
+    }
+
+    /**
+     * Whether {@code profile} says the enabled journal records no request or execution {@code requestId}, as opposed
+     * to the journal being off or the request's panel hiding it.
+     */
+    public static boolean notRetained(RequestJournalProfileDto profile, String requestId) {
+        return profile != null
+                && !profile.available()
+                && notRetainedReason(requestId).equals(profile.unavailableReason());
+    }
+
     private final RuntimeJournal journal;
     private final JournalAggregates aggregates;
     private final JournalActivityFeed feed;
@@ -166,10 +182,7 @@ public final class RequestJournalProfiles {
             }
         }
         if (request == null) {
-            return RequestJournalProfileDto.unavailable(
-                    requestId,
-                    "The runtime journal does not retain a visible completed request or execution " + requestId
-                            + " (it may have been evicted or its source panel is disabled).");
+            return RequestJournalProfileDto.unavailable(requestId, notRetainedReason(requestId));
         }
         // The opening event names the unit's route, status, timing, and resources: the evidence of the panel owning
         // it, which every other surface withholds while that panel is off (docs/PLAN-v2.md §8).

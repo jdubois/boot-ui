@@ -8,12 +8,14 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.jdubois.bootui.conformance.McpCodecParity;
+import io.github.jdubois.bootui.conformance.McpCompactAnswerContract;
 import io.github.jdubois.bootui.conformance.McpModernParity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpRequestHeaders;
+import io.github.jdubois.bootui.engine.mcp.McpRequestKey;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
@@ -113,6 +115,88 @@ class QuarkusMcpEnvelopeTest {
         assertThat(retry.path("result").path("isError").asBoolean()).isFalse();
         assertThat(retry.has("error")).isFalse();
         assertThat(received.get()).isEqualTo(new McpArguments(null, 1, "RULE-1", "scan-1", 22));
+    }
+
+    @Test
+    void compactAnswersStayFarBelowTheReportsTheyReplaceWhileReportsPageUnderTheByteBudget() throws Exception {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        McpDispatcher dispatcher = new McpDispatcher(
+                McpCompactAnswerContract.tools(), List.of(), new AllowAllPolicy(), "1.2.3", "", 250, 20, diagnostics);
+        QuarkusMcpEnvelope compact = new QuarkusMcpEnvelope(
+                dispatcher, objectMapper, diagnostics, McpCompactAnswerContract.MAX_RESPONSE_BYTES);
+        for (String tool : List.of("vulnerabilities_scan", "hibernate_scan", "pause_sql_trace_recording")) {
+            JsonNode reply = compact.handle(objectMapper.readTree(McpCompactAnswerContract.call(tool, "{}")));
+            assertThat(reply.has("error")).as(tool).isFalse();
+            assertThat(objectMapper.writeValueAsString(reply).length())
+                    .as(tool)
+                    .isLessThan(McpCompactAnswerContract.COMPACT_BYTES);
+        }
+
+        JsonNode vulnerabilities = compact.handle(
+                        objectMapper.readTree(McpCompactAnswerContract.call("vulnerabilities_scan", "{}")))
+                .path("result")
+                .path("structuredContent");
+        assertThat(vulnerabilities.path("reportTool").asText()).isEqualTo("get_vulnerabilities_report");
+        assertThat(vulnerabilities.path("topFindings").size()).isEqualTo(10);
+        assertThat(vulnerabilities.path("moreFindings").asInt())
+                .isEqualTo(McpCompactAnswerContract.VULNERABLE_DEPENDENCIES - 10);
+
+        JsonNode hibernate = compact.handle(
+                        objectMapper.readTree(McpCompactAnswerContract.call("hibernate_scan", "{}")))
+                .path("result")
+                .path("structuredContent");
+        assertThat(hibernate.path("detailsTool").asText()).isEqualTo("get_hibernate_rule_violations");
+        assertThat(hibernate.path("violationDetails").path("scanId").asText()).isEqualTo("scan-1");
+        assertThat(hibernate.toString()).doesNotContain("sampleViolations", "recommendation");
+
+        JsonNode paused = compact.handle(
+                        objectMapper.readTree(McpCompactAnswerContract.call("pause_sql_trace_recording", "{}")))
+                .path("result")
+                .path("structuredContent");
+        assertThat(paused.toString())
+                .isEqualTo("{\"action\":\"paused\",\"available\":true,\"unavailableReason\":null,"
+                        + "\"capturing\":false,\"retained\":200,\"capacity\":200,\"totalCaptured\":872}");
+
+        JsonNode report =
+                compact.handle(objectMapper.readTree(McpCompactAnswerContract.call("get_hibernate_report", "{}")));
+        assertThat(report.has("error")).isFalse();
+        assertThat(objectMapper.writeValueAsString(report).length())
+                .isGreaterThan(McpCompactAnswerContract.COMPACT_BYTES);
+
+        JsonNode defaultPage = compact.handle(
+                objectMapper.readTree(McpCompactAnswerContract.call("get_vulnerabilities_report", "{}")));
+        assertThat(defaultPage.has("error")).isFalse();
+        assertThat(objectMapper.writeValueAsString(defaultPage).length())
+                .isLessThan(McpCompactAnswerContract.VULNERABILITY_PAGE_BYTES);
+        assertThat(defaultPage
+                        .path("result")
+                        .path("structuredContent")
+                        .path("advisories")
+                        .path("omitted")
+                        .asInt())
+                .isPositive();
+        JsonNode advisory = compact.handle(objectMapper.readTree(
+                        McpCompactAnswerContract.call("get_vulnerabilities_report", "{\"query\":\"GHSA-3-7\"}")))
+                .path("result")
+                .path("structuredContent")
+                .path("dependencies")
+                .get(0)
+                .path("vulnerabilities");
+        boolean whole = false;
+        for (JsonNode each : advisory) {
+            whole |= each.path("id").asText().equals("GHSA-3-7")
+                    && each.path("details").asText().length() > 1000;
+        }
+        assertThat(whole).as("an exact advisory id returns that advisory whole").isTrue();
+        JsonNode page = compact.handle(
+                objectMapper.readTree(McpCompactAnswerContract.call("get_vulnerabilities_report", "{\"limit\":1}")));
+        assertThat(page.has("error")).isFalse();
+        assertThat(page.path("result")
+                        .path("structuredContent")
+                        .path("page")
+                        .path("hasMore")
+                        .asBoolean())
+                .isTrue();
     }
 
     @Test
@@ -304,6 +388,103 @@ class QuarkusMcpEnvelopeTest {
         assertThat(response.path("error").path("code").asInt()).isEqualTo(McpProtocol.INVALID_PARAMS);
         assertThat(response.path("error").path("message").asText()).isEqualTo("Unknown tool: does_not_exist");
         assertThat(diagnostics.count()).isZero();
+    }
+
+    @Test
+    void aLegacyRequestWithoutAUsableTokenAnswersTheSameBytesAsWithoutMeta() throws Exception {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        McpDispatcher dispatcher = new McpDispatcher(
+                List.of(
+                        new McpTool(
+                                "architecture_scan",
+                                "Run the architecture advisor.",
+                                McpToolSchema.NONE,
+                                BootUiPanels.ARCHITECTURE,
+                                true,
+                                args -> java.util.Map.of("findings", List.of())),
+                        tool(args -> java.util.Map.of("name", "demo"))),
+                List.of(),
+                new AllowAllPolicy(),
+                "1.2.3",
+                "instructions",
+                50,
+                20,
+                diagnostics);
+        QuarkusMcpEnvelope envelope = new QuarkusMcpEnvelope(dispatcher, objectMapper, diagnostics);
+        String withoutMeta = "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"tools/call\","
+                + "\"params\":{\"name\":\"architecture_scan\",\"arguments\":{}}}";
+        Object[][] cases = {
+            // a progress tool with a token, from a client that does not accept a stream
+            {"architecture_scan", "\"t\"", false},
+            // an unusable token from a client that accepts a stream
+            {"architecture_scan", "{}", true},
+            {"architecture_scan", "null", true},
+            {"architecture_scan", "1.5", true},
+            // a token for a tool that does not report progress
+            {"get_overview", "7", true},
+        };
+        for (Object[] each : cases) {
+            String base = withoutMeta.replace("architecture_scan", (String) each[0]);
+            String withToken =
+                    base.replace("\"arguments\":{}", "\"arguments\":{},\"_meta\":{\"progressToken\":" + each[1] + "}");
+            QuarkusMcpEnvelope.Reply expected =
+                    envelope.exchange(objectMapper.readTree(base), McpRequestHeaders.NONE, true, (boolean) each[2]);
+            QuarkusMcpEnvelope.Reply actual = envelope.exchange(
+                    objectMapper.readTree(withToken), McpRequestHeaders.NONE, true, (boolean) each[2]);
+
+            assertThat(actual.stream()).as(withToken).isNull();
+            assertThat(actual.status()).isEqualTo(expected.status());
+            assertThat(actual.body().toString())
+                    .as(withToken)
+                    .isEqualTo(expected.body().toString());
+        }
+    }
+
+    @Test
+    void requestKeysMatchNumericIdsByValueOnlyWhenExact() throws Exception {
+        // Integers by value, whole doubles below 2^53 like their integer, everything else unkeyed (so never cancelled).
+        assertThat(key("7")).isEqualTo(McpRequestKey.number(new java.math.BigDecimal("7")));
+        assertThat(key("7.0")).isEqualTo(key("7"));
+        assertThat(key("1e2")).isEqualTo(key("100"));
+        // The default mapper reads a fraction as a double: an id within double rounding of 7 is 7.
+        assertThat(key("7.0000000000000000001")).isEqualTo(key("7"));
+        assertThat(key("123456789012345678901234567890"))
+                .isEqualTo(McpRequestKey.number(new java.math.BigDecimal("123456789012345678901234567890")));
+        assertThat(key("0")).isEqualTo(McpRequestKey.number(java.math.BigDecimal.ZERO));
+        assertThat(key("\"7\"")).isEqualTo(McpRequestKey.text("7"));
+        for (String unkeyed :
+                List.of("1e-400", "0.0", "7.5", "1e400", "-1e400", "9007199254740992.0", "true", "null")) {
+            assertThat(key(unkeyed)).as(unkeyed).isNull();
+        }
+
+        ObjectMapper exact = new ObjectMapper()
+                .enable(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+        // Read as BigDecimal, values stay exact: 7.0000000000000000001 is not 7, and 1e-400 is not 0.
+        assertThat(QuarkusMcpEnvelope.requestKey(exact.readTree("7.00"))).isEqualTo(key("7"));
+        for (String unkeyed : List.of("7.0000000000000000001", "1e-400", "1e999999999")) {
+            assertThat(QuarkusMcpEnvelope.requestKey(exact.readTree(unkeyed)))
+                    .as(unkeyed)
+                    .isNull();
+        }
+    }
+
+    private String key(String json) throws Exception {
+        return QuarkusMcpEnvelope.requestKey(objectMapper.readTree(json));
+    }
+
+    @Test
+    void aNonFiniteNumericIdIsServedLikeAnyOtherId() throws Exception {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        QuarkusMcpEnvelope envelope = envelope(tool(args -> java.util.Map.of("name", "demo")), diagnostics);
+        for (String method : List.of("tools/call", "tools/list", "ping")) {
+            JsonNode response = envelope.handle(objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1e400,\"method\":\""
+                    + method + "\",\"params\":{\"name\":\"get_overview\",\"arguments\":{}}}"));
+
+            assertThat(response.path("error").path("code").asInt())
+                    .as(method + " " + response)
+                    .isNotEqualTo(McpProtocol.INTERNAL_ERROR);
+        }
+        assertThat(diagnostics.count).hasValue(0);
     }
 
     @Test
@@ -519,6 +700,63 @@ class QuarkusMcpEnvelopeTest {
     }
 
     @Test
+    void progressTokensAndProgressEventsStayWithinTheResponseBound() throws Exception {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        McpDispatcher dispatcher = new McpDispatcher(
+                List.of(new McpTool(
+                        "architecture_scan",
+                        "Run the architecture advisor.",
+                        McpToolSchema.NONE,
+                        BootUiPanels.ARCHITECTURE,
+                        true,
+                        args -> java.util.Map.of("findings", List.of()))),
+                List.of(),
+                new AllowAllPolicy(),
+                "1.2.3",
+                "instructions",
+                50,
+                20,
+                diagnostics);
+        QuarkusMcpEnvelope small = new QuarkusMcpEnvelope(dispatcher, objectMapper, diagnostics, 512);
+        String token = "t".repeat(2_048);
+
+        QuarkusMcpEnvelope.Reply legacy = small.exchange(
+                objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":"
+                        + "{\"name\":\"architecture_scan\",\"arguments\":{},\"_meta\":{\"progressToken\":\"" + token
+                        + "\"}}}"),
+                McpRequestHeaders.NONE,
+                true,
+                true);
+        assertThat(legacy.stream()).isNull();
+        assertThat(legacy.body().path("result").path("isError").asBoolean()).isFalse();
+
+        QuarkusMcpEnvelope.Reply modern = small.exchange(
+                objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":"
+                        + "{\"name\":\"architecture_scan\",\"arguments\":{},\"_meta\":{"
+                        + "\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
+                        + "\"io.modelcontextprotocol/clientCapabilities\":{},\"progressToken\":\"" + token + "\"}}}"),
+                new McpRequestHeaders(List.of("2026-07-28"), List.of("tools/call"), List.of("architecture_scan")),
+                true,
+                true);
+        assertThat(modern.stream()).isNull();
+        assertThat(modern.status()).isEqualTo(400);
+        assertThat(modern.body().path("error").path("message").asText())
+                .isEqualTo(McpProtocol.PROGRESS_TOKEN_TYPE_MESSAGE);
+
+        String longest = "t".repeat(io.github.jdubois.bootui.engine.mcp.McpProgressToken.MAX_TEXT_LENGTH);
+        io.github.jdubois.bootui.engine.progress.ProgressEvent event =
+                new io.github.jdubois.bootui.engine.progress.ProgressEvent(1, 2.0, "Evaluating architecture rules");
+        assertThat(small.renderProgress(io.github.jdubois.bootui.engine.mcp.McpProgressToken.of(longest), event))
+                .hasSizeLessThanOrEqualTo(512);
+        QuarkusMcpEnvelope tiny = new QuarkusMcpEnvelope(dispatcher, objectMapper, diagnostics, 100);
+        assertThat(tiny.renderProgress(io.github.jdubois.bootui.engine.mcp.McpProgressToken.of(longest), event))
+                .isNull();
+        assertThat(dispatcher.runtimeStats().snapshot().progressDropped())
+                .as("a dropped progress event is counted")
+                .isEqualTo(1);
+    }
+
+    @Test
     void streamFramesAreTheSameBytesOnEveryStack() throws Exception {
         QuarkusMcpEnvelope envelope =
                 envelope(tool(args -> java.util.Map.of("name", "demo")), new RecordingFailureReporter());
@@ -536,12 +774,14 @@ class QuarkusMcpEnvelopeTest {
                         + "{\"progressToken\":9,\"progress\":1.5,\"message\":\"Working\"}}");
         assertThat(envelope.renderFinal(
                         objectMapper.readTree("7"),
+                        io.github.jdubois.bootui.engine.mcp.McpEra.MODERN,
                         new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError(
                                 McpProtocol.TOOL_TIMEOUT, McpProtocol.TOOL_TIMEOUT_MESSAGE)))
                 .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":7,\"error\":{\"code\":-31002,"
                         + "\"message\":\"MCP tool execution timed out\"}}");
         assertThat(envelope.renderFinal(
                         objectMapper.readTree("7"),
+                        io.github.jdubois.bootui.engine.mcp.McpEra.MODERN,
                         new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult(
                                 java.util.Map.of("name", "demo"))))
                 .isEqualTo(
@@ -549,6 +789,23 @@ class QuarkusMcpEnvelopeTest {
                                 + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
                                 + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false,"
                                 + "\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"bootui\",\"version\":\"1.2.3\"}}}}");
+
+        // A legacy (MCP 2025-06-18) stream ends with a legacy response: legacy codes, no resultType, no _meta.
+        assertThat(envelope.renderFinal(
+                        objectMapper.readTree("\"r\""),
+                        io.github.jdubois.bootui.engine.mcp.McpEra.LEGACY,
+                        new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError(
+                                McpProtocol.TOOL_TIMEOUT, McpProtocol.TOOL_TIMEOUT_MESSAGE)))
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":\"r\",\"error\":{\"code\":-32002,"
+                        + "\"message\":\"MCP tool execution timed out\"}}");
+        assertThat(envelope.renderFinal(
+                        objectMapper.readTree("7"),
+                        io.github.jdubois.bootui.engine.mcp.McpEra.LEGACY,
+                        new io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult(
+                                java.util.Map.of("name", "demo"))))
+                .isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{"
+                        + "\"content\":[{\"type\":\"text\",\"text\":\"{\\\"name\\\":\\\"demo\\\"}\"}],"
+                        + "\"structuredContent\":{\"name\":\"demo\"},\"isError\":false}}");
     }
 
     private QuarkusMcpEnvelope.Reply modern(
@@ -563,6 +820,56 @@ class QuarkusMcpEnvelopeTest {
                 request,
                 new McpRequestHeaders(List.of(version), List.of(method), name == null ? List.of() : List.of(name)),
                 enabled);
+    }
+
+    @Test
+    void promptArgumentsAreDeclaredAndRenderedIntoThePrompt() {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        McpDispatcher dispatcher = new McpDispatcher(
+                List.of(tool(args -> "ok")),
+                io.github.jdubois.bootui.engine.mcp.McpGuidance.prompts("Quarkus"),
+                new AllowAllPolicy(),
+                "1.2.3",
+                "instructions",
+                50,
+                20,
+                diagnostics);
+        QuarkusMcpEnvelope envelope = new QuarkusMcpEnvelope(dispatcher, objectMapper, diagnostics);
+        ObjectNode list = JsonNodeFactory.instance.objectNode();
+        list.put("jsonrpc", "2.0");
+        list.put("id", 60);
+        list.put("method", "prompts/list");
+        JsonNode declared =
+                envelope.handle(list).path("result").path("prompts").get(1).path("arguments");
+        assertThat(declared)
+                .extracting(argument -> argument.path("name").asText())
+                .containsExactly("change", "route");
+        assertThat(declared)
+                .allSatisfy(argument ->
+                        assertThat(argument.path("required").asBoolean(true)).isFalse());
+
+        ObjectNode get = JsonNodeFactory.instance.objectNode();
+        get.put("jsonrpc", "2.0");
+        get.put("id", 61);
+        get.put("method", "prompts/get");
+        ObjectNode params = get.putObject("params");
+        params.put("name", "verify_after_change");
+        params.putObject("arguments").put("change", "OrderService#total now rounds");
+        assertThat(envelope.handle(get)
+                        .path("result")
+                        .path("messages")
+                        .get(0)
+                        .path("content")
+                        .path("text")
+                        .asText())
+                .endsWith("- The change to verify: OrderService#total now rounds");
+
+        ((ObjectNode) params.path("arguments")).put("change", 5);
+        assertThat(envelope.handle(get).path("error").path("message").asText())
+                .isEqualTo(McpProtocol.invalidArgumentTypeMessage("change", "a string"));
+        params.putObject("arguments").put("goal", "x");
+        assertThat(envelope.handle(get).path("error").path("message").asText()).contains("goal", "change", "route");
+        assertThat(diagnostics.count()).isZero();
     }
 
     private QuarkusMcpEnvelope envelope(McpTool tool, RecordingFailureReporter diagnostics) {

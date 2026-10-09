@@ -67,7 +67,7 @@ public final class HibernateScanner {
             sourceLocations = HibernateSourceLocations::resolve;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private final AdvisorScanState<HibernateReport> violationState =
-            new AdvisorScanState<>(HibernateReport::withViolationDetails);
+            new AdvisorScanState<>(HibernateReport::withViolationDetails, this::ruleCatalog);
 
     /**
      * Compatibility factory for declaration-only discovery. The property callback is retained for
@@ -631,5 +631,10 @@ public final class HibernateScanner {
 
     private static boolean isViolation(HibernateRuleResultDto result) {
         return HibernateRuleSupport.VIOLATION.equals(result.status());
+    }
+
+    /** The ids of the rules this scanner runs, the catalogue its detail reads know. */
+    private List<String> ruleCatalog() {
+        return AdvisorScanState.ruleIds(rules, rule -> rule.definition().id());
     }
 }

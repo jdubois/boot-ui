@@ -29,6 +29,10 @@ Collection uses bounded, non-eager bean metadata. It does not create lazy beans,
 database connections, or probe remote services. Missing required evidence is unevaluated rather than a successful
 check, and inspection failures and invalid bindings are reported without raw exception messages or property values.
 
+Rules that mention *production-like* profile names (SPRING-PROFILE-002, SPRING-DATA-001 and SPRING-DATA-002) match an
+effective profile named `prod`, `production` or `staging`, or one that starts with `prod-` or ends with `-prod` or
+`-production`, ignoring case. Configured default profiles apply when no profile is active.
+
 Scheduler, cache-provider, and servlet OSIV gaps keep specific bounded explanations in both the inspected observations
 and the coverage limitations. A rule evaluation failure is identified separately from unavailable evidence, and
 neither exposes exception messages or raw settings. Independently observed findings survive incomplete registration or
@@ -64,7 +68,7 @@ findings from the score.
 
 ## Bean wiring
 
-### SPRING-WIRING-001 - Review bean definition overriding
+### SPRING-WIRING-001 - Review bean definition overriding permission
 
 - **Severity**: MEDIUM
 - **Detects**: The running bean factory permits bean-definition overriding. Programmatic factory configuration can differ from `spring.main.allow-bean-definition-overriding`; permission is not evidence that an override actually occurred.
@@ -78,7 +82,7 @@ findings from the score.
 - **Recommendation**: Prefer explicit dependency boundaries and keep circular-reference resolution disabled unless it is deliberately required.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/spring-application.html>
 
-### SPRING-WIRING-003 - Review JSON mapper candidate selection
+### SPRING-WIRING-003 - Review default JSON mapper selection
 
 - **Severity**: INFO
 - **Detects**: Multiple candidates within the same relevant mapper type have unresolved default candidate metadata. Jackson 2 `ObjectMapper` and Jackson 3 `JsonMapper` are separate groups: one of each is not an ambiguity. Candidate flags and aliases are considered; qualifiers, priorities and injection-point names prevent a blanket conclusion about injection.
@@ -90,53 +94,53 @@ findings from the score.
 - **Severity**: INFO
 - **Detects**: Async infrastructure is present and default executor candidate metadata is unresolved. Framework's `taskExecutor` fallback differs from Boot's `applicationTaskExecutor` integration and force mode. A custom `AsyncConfigurer` or qualified method can choose differently; the scan does not invoke it.
 - **Recommendation**: Review the default executor and explicit `@Async` qualifiers. Do not assume naming any executor `applicationTaskExecutor` resolves all consumers.
-- **Learn more**: <https://docs.spring.io/spring-framework/reference/integration/scheduling.html>
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
-### SPRING-WIRING-005 - Review DataSource candidate selection
+### SPRING-WIRING-005 - Review default DataSource selection
 
 - **Severity**: INFO
 - **Detects**: Multiple `DataSource` candidates have unresolved default candidate metadata. Multiple databases and qualified consumers are valid; bean counts do not prove failed or incorrect injection.
 - **Recommendation**: Review the intended default, candidate flags and qualified consumers. Add a primary only when a default is actually intended.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html>
 
-### SPRING-WIRING-006 - Review transaction-manager selection
+### SPRING-WIRING-006 - Review default imperative transaction manager
 
 - **Severity**: INFO
 - **Detects**: Multiple imperative `PlatformTransactionManager` candidates have unresolved default metadata. The XML convention `transactionManager` is not a universal override for Java `@EnableTransactionManagement`; custom configurers and qualifiers can determine selection. This inventory does not prove reactive transaction behavior.
 - **Recommendation**: Review the default/configurer or use explicit transaction-manager qualifiers where multiple managers are intentional.
-- **Learn more**: <https://docs.spring.io/spring-framework/reference/data-access/transaction.html>
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html>
 
-### SPRING-WIRING-007 - Prefer RestClient over RestTemplate
+### SPRING-WIRING-007 - Review RestTemplate migration
 
 - **Severity**: LOW
 - **Detects**: A `RestTemplate` bean is defined; this is not proof it is used. `RestTemplate` is in maintenance mode: Framework 7.0 (BootUI's baseline is 7.0.9) does not annotate it `@Deprecated`, but Framework 7.1 deprecates it for removal in 8.0 ([spring-framework#36574](https://github.com/spring-projects/spring-framework/issues/36574)).
 - **Recommendation**: Prefer an injected Boot `RestClient.Builder` when migrating so common settings and customizations are preserved. Retain `RestTemplate` where a dependency still requires it.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/integration/rest-clients.html#migrating-to-restclient>
 
-### SPRING-WIRING-008 - Avoid components in the default package
+### SPRING-WIRING-008 - Review default-package application beans
 
 - **Severity**: LOW
 - **Detects**: Non-eagerly resolvable application bean types in the unnamed package, including `@Bean` product types. A plain object in that package does not itself cause a classpath-wide component scan; that concern applies to a scan root there.
 - **Recommendation**: Prefer named packages and keep component-scan roots bounded. The Architecture advisor independently covers static application structure.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/using/structuring-your-code.html>
 
-### SPRING-WIRING-009 - Avoid public mutable fields on singleton beans
+### SPRING-WIRING-009 - Review public mutable singleton fields
 
 - **Severity**: LOW
 - **Detects**: Public mutable fields on singleton application beans, excluding injection points, configuration-bound fields, synthetic fields and accessor-backed Kotlin properties. Exposed mutable state warrants review but does not prove concurrent access or a data race.
 - **Recommendation**: Make the field private and expose an accessor if needed, mark it final and set it only from the constructor, or move truly per-request/per-call state out of the singleton (a method-local variable, a request-scoped bean, or immutable value types).
-- **Learn more**: <https://docs.spring.io/spring-framework/reference/core/beans/factory-scopes.html#beans-factory-scopes-singleton>
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/core/beans/factory-scopes.html>
 
 ## Configuration
 
-### SPRING-CONFIG-002 - Disable global debug or trace logging
+### SPRING-CONFIG-002 - Review broad verbose logging configuration
 
 - **Severity**: LOW
-- **Detects**: Configured debug/trace flags or broad verbose logger levels. These are configuration observations, not a measurement of current logger state or sensitive log contents. Boot's debug flag does not set every logger to DEBUG; profile names do not increase severity.
+- **Detects**: Configured `debug`/`trace` flags, or a `DEBUG`, `TRACE` or `ALL` level on the broad `root`, `web`, `sql`, `org.springframework` or `org.hibernate` loggers. These are configuration observations, not a measurement of current logger state or sensitive log contents. Boot's debug flag does not set every logger to DEBUG; profile names do not increase severity.
 - **Recommendation**: Remove the debug/trace flags and configure logging levels only for narrow packages that need them.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/logging.html>
 
-### SPRING-CONFIG-003 - Remove renamed or deleted Spring Boot 4 properties
+### SPRING-CONFIG-003 - Review renamed or removed Boot 4 properties
 
 - **Severity**: MEDIUM
 - **Detects**: Source-verified renamed/removed properties for Boot 4.1.1, including old server error and encoding keys, Undertow, HTTP clients, Mongo connection, health and metrics keys, tracing export, OTLP logging/tracing export, OpenTelemetry/Brave/Zipkin tracing keys, Wavefront (end-of-life), `server.use-forward-headers`, Redis sessions, Mongo session auto-configuration, RabbitMQ `retry.max-attempts` (now `retry.max-retries`, which counts retries after the first attempt), Kafka `retry.topic.backoff.random` (now the `jitter` duration), Jackson 2-era `spring.jackson.parser.*` / `spring.jackson.generator.*`, template-engine `*.enabled` switches, `spring.neo4j.pool.metrics-enabled`, Boot 4.1's removed `spring.data.redis.lettuce.cluster.refresh.adaptive`, and `spring.codec.max-in-memory-size` / `spring.codec.log-request-details` (now `spring.http.codecs.*`). Each entry was checked against Boot 4.1.1's configuration metadata (`level: error`) and the absence of a remaining source reader. A properties migrator or host integration can still translate a legacy key; the finding does not assert it has no effect everywhere.
@@ -144,14 +148,14 @@ findings from the score.
 - **Recommendation**: Update each key to its Spring Boot 4 equivalent (the spring-boot-properties-migrator module lists the replacements at startup) and remove keys for dropped features.
 - **Learn more**: <https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide>
 
-### SPRING-CONFIG-004 - Set spring.application.name
+### SPRING-CONFIG-004 - Consider a stable application name
 
 - **Severity**: INFO
 - **Detects**: `spring.application.name` is not set. This omits Boot's common application-name default; individual logging, metrics, tracing and discovery integrations can still have separately configured identities.
 - **Recommendation**: Set spring.application.name to a stable identifier for this service.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/spring-application.html>
 
-### SPRING-CONFIG-005 - Do not ignore missing config files
+### SPRING-CONFIG-005 - Review globally ignored missing configuration
 
 - **Severity**: MEDIUM
 - **Detects**: `spring.config.on-not-found=ignore` configures global tolerance of missing config data. The scan does not prove a file was missing.
@@ -181,14 +185,14 @@ findings from the score.
 
 ## Profiles and environment
 
-### SPRING-PROFILE-002 - Spring Boot DevTools should be scoped to development
+### SPRING-PROFILE-002 - Review DevTools packaging for production-like profiles
 
 - **Severity**: INFO
 - **Detects**: DevTools is on the classpath alongside production-like effective profile names. The naming heuristic is not proof of a production deployment, and classpath presence does not prove restart or live reload is enabled. Ordinary development use is expected.
 - **Recommendation**: Review packaging and actual activation if those profiles represent production. Maven `optional` controls transitive use, not by itself every packaging path; check the deployed artifact.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/using/devtools.html>
 
-### SPRING-PROFILE-003 - Keep profile-name validation enabled
+### SPRING-PROFILE-003 - Review disabled profile-name validation
 
 - **Severity**: INFO
 - **Detects**: `spring.profiles.validate=false` explicitly disables Boot's profile-name validation. This is a supported flexibility choice, not evidence that a profile name is invalid.
@@ -197,7 +201,7 @@ findings from the score.
 
 ## Performance and concurrency
 
-### SPRING-PERF-001 - Consider enabling virtual threads
+### SPRING-PERF-001 - Consider virtual threads for applicable blocking work
 
 - **Severity**: INFO
 - **Detects**: Java 21+ and applicable MVC or Boot task-execution evidence, without an explicit virtual-thread opt-out. A pure reactive HTTP path is not an opportunity to replace event loops.
@@ -211,21 +215,21 @@ findings from the score.
 - **Recommendation**: Review which tasks use the pool and why. CPU isolation and bounded concurrency can be intentional; do not remove a useful constraint merely to eliminate this prompt.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
-### SPRING-PERF-003 - Review the default async fallback
+### SPRING-PERF-003 - Review Framework default async fallback
 
 - **Severity**: LOW
 - **Detects**: The default async path has no resolvable executor and would use Framework's `SimpleAsyncTaskExecutor` fallback. Custom configurers, qualifiers and unresolved metadata are not guessed. Boot's ordinary core-size default of eight is not labeled unreviewed, and setting the virtual-thread property alone does not replace a Framework fallback.
 - **Recommendation**: Supply a deliberate executor for unqualified async work and review concurrency/admission policy. This does not prove every `@Async` method uses the default.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
-### SPRING-PERF-005 - Scheduler runs on a single thread
+### SPRING-PERF-005 - Review single-thread scheduler overlap
 
 - **Severity**: INFO
 - **Detects**: Known single-thread scheduler selection with multiple relevant registered application tasks. Native task outcome wrappers, Boot's scheduling-observation configurer and BootUI's observation-only configurer do not obscure that evidence. Application tasks are not excluded by a BootUI-like package name. For multiple tasks, the registrar's already-selected scheduler instance must agree with observable candidate selection before its native pool is read; no lazy scheduler supplier is invoked. Fewer than two registered tasks need no pool-size observation. Exact `SimpleAsyncTaskScheduler` selection is inapplicable to this pool check, not a missing thread-pool size. `@EnableScheduling` or an absent pool-size property alone does not establish selection; ambiguous/unobservable schedulers, qualifiers and custom configurers remain unknown.
 - **Recommendation**: Review whether tasks need to overlap and how delays affect other tasks. Deliberate serialization can be correct. Virtual threads do not universally solve fixed-delay scheduling, and changing fixed-delay to fixed-rate changes semantics.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
-### SPRING-PERF-006 - Bound the @Async executor queue
+### SPRING-PERF-006 - Review an unbounded default async queue
 
 - **Severity**: LOW
 - **Detects**: A positively identified default async executor has an observed effectively unbounded queue. By-type executor lookup considers primary metadata before the default-candidate fallback; an executor excluded from unqualified injection can still be selected by that lookup. An explicit `Integer.MAX_VALUE` is still unbounded; a bounded custom executor is not flagged merely because Boot properties are absent. Lazy/unobservable executor or custom selection remains unknown.
@@ -239,7 +243,7 @@ findings from the score.
 - **Recommendation**: Prefer JDK 24 or later (25 is LTS) for virtual threads. Otherwise load-test with JFR `jdk.VirtualThreadPinned` events and review libraries that block inside `synchronized`; the absence of events under light load does not prove safety. Disabling virtual threads is not required.
 - **Learn more**: <https://openjdk.org/jeps/491>
 
-### SPRING-CACHE-001 - Review concurrent-map cache bounds
+### SPRING-CACHE-001 - Review concurrent-map cache capacity
 
 - **Severity**: INFO
 - **Detects**: An exact known `ConcurrentMapCacheManager` lacks built-in capacity/expiry policy, including when wrapped by BootUI's own final cache-activity decorator. The same safe unwrapping retains `NoOpCacheManager` and `CaffeineCacheManager` provider identity and completion credit. NoOp stores nothing; a Caffeine pass means this concurrent-map-specific concern does not apply, **not** that every Caffeine configuration is bounded. No application delegate callback is invoked, and custom wrappers/implementations/subclasses remain unknown. A known concurrent-map finding is retained even when another provider remains unclassified.
@@ -253,30 +257,30 @@ findings from the score.
 - **Severity**: INFO
 - **Detects**: An applicable Boot-managed origin is not configured for compression, without an explicit opt-out. This does not establish whether responses reaching the client are compressed; custom server behavior and proxy/CDN compression differ.
 - **Recommendation**: If the edge does not already compress, evaluate `server.compression.enabled=true` against response sizes, content types and CPU cost. Explicit false suppresses this optional prompt.
-- **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html> (on WebFlux, <https://docs.spring.io/spring-boot/reference/web/reactive.html>)
 
-### SPRING-WEB-002 - Keep graceful shutdown enabled
+### SPRING-WEB-002 - Review immediate or zero-grace shutdown
 
 - **Severity**: MEDIUM
 - **Detects**: Applicable embedded-server configuration requests immediate shutdown or no positive lifecycle grace period. Boot 4's graceful default passes. Duration comparison preserves positive sub-millisecond values; malformed configuration is an error rather than a default.
 - **Recommendation**: Prefer graceful shutdown with an appropriate positive grace period where in-flight work should finish. The default 30 seconds applies per lifecycle phase, not necessarily to the entire shutdown.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/graceful-shutdown.html>
 
-### SPRING-WEB-003 - Consider enabling HTTP/2
+### SPRING-WEB-003 - Consider origin HTTP/2
 
 - **Severity**: INFO
 - **Detects**: An applicable Boot-managed origin is not configured for HTTP/2, without an explicit opt-out. This is not proof HTTP/2 is absent at the edge or that latency is suboptimal.
 - **Recommendation**: Evaluate origin HTTP/2 only where clients/topology benefit. Account for TLS `h2`, cleartext `h2c` behind suitable infrastructure, and edge termination. Explicit `server.http2.enabled=false` suppresses this optional prompt.
-- **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html> (on WebFlux, <https://docs.spring.io/spring-boot/reference/web/reactive.html>)
 
-### SPRING-WEB-004 - Review configured error-detail disclosure
+### SPRING-WEB-004 - Review configured fallback error details
 
 - **Severity**: MEDIUM
 - **Detects**: Application-configured `spring.web.error.*` settings request detail disclosure (`always` or caller-controlled `on-param`, in any spelling Boot's lenient enum binding accepts, or `include-exception=true`) in Boot's fallback error handling. This does not characterize every custom error response. Legacy `server.error.*` keys belong to SPRING-CONFIG-003.
 - **DevTools defaults ignored**: while a DevTools restart is active, DevTools adds a low-priority `devtools` property source that sets `include-binding-errors`, `include-message` and `include-stacktrace` to `always` for local development. Those defaults are not the application's configuration and are ignored, like BootUI's own Actuator defaults; an application value still wins and is still reported.
 - **Overlap**: The Security advisor's SEC-CONFIG-005 reviews the same settings, but only when Spring Security filter chains exist; this rule also covers applications without Spring Security.
 - **Recommendation**: Use `never` for stacktrace/message/binding-error details and false for exception inclusion where details must stay private. `on-param` is not an authorization boundary.
-- **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html> (on WebFlux, <https://docs.spring.io/spring-boot/reference/web/reactive.html>)
 
 ### SPRING-WEB-005 - Review Boot HTTP client timeout policy
 
@@ -285,7 +289,7 @@ findings from the score.
 - **Recommendation**: Check effective per-client connect/read/deadline behavior against dependency budgets, using `spring.http.clients.*`, relevant `spring.http.serviceclient.<name>.*` settings or deliberate code customization. No universal timeout value or infinite-wait claim is inferred.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/io/rest-client.html>
 
-### SPRING-WEB-007 - Tomcat thread cap is redundant with virtual threads
+### SPRING-WEB-007 - Review a Tomcat cap with a virtual executor
 
 - **Severity**: LOW
 - **Detects**: An explicit Tomcat thread cap alongside positively observed applicable virtual-thread executor configuration on a supporting JDK. A Tomcat factory type and a property alone do not prove the selected executor; custom/unknown routing and non-Tomcat servers are unevaluated.
@@ -301,24 +305,24 @@ findings from the score.
 
 ## Data and persistence
 
-### SPRING-JPA-001 - Review Open Session in View
+### SPRING-JPA-001 - Review servlet Open Session in View
 
 - **Severity**: MEDIUM
 - **Detects**: Observed servlet OSIV registration, including the interceptor actually adapted into an MVC handler mapping. Boot interceptor/configurer definitions alone are insufficient: custom MVC configuration can omit applying those configurers. Collection distinguishes observed presence, confirmed absence and unknown registration coverage. Absence requires inspection of native applied MVC/resource/WebSocket/Actuator handler mappings and servlet filter registration metadata, including native Spring Security filter-chain proxies. Native empty interceptor lists and completed null-returning mapping factories are known empty; lazy mappings, custom handler mappings, custom registration subclasses/initializers and unresolved filter targets suppress absence claims. `spring.jpa.open-in-view=false` alone is never proof of absence. Independently observed registrations still produce the existing MEDIUM finding when other coverage is incomplete. Custom mapping limits are stated, WebFlux is inapplicable, and an open persistence context does not itself prove a held JDBC connection or N+1 queries.
 - **Recommendation**: Review whether request-wide persistence access is intentional. Prefer explicit fetch boundaries (fetch joins, entity graphs, DTO projections) where appropriate; disable Boot OSIV with `spring.jpa.open-in-view=false` or adjust custom registrations separately.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.jpa-and-spring-data.open-entity-manager-in-view>
 
-### SPRING-DATA-001 - Avoid an in-memory database in production
+### SPRING-DATA-001 - Review in-memory JDBC with production-like profiles
 
 - **Severity**: MEDIUM
 - **Detects**: Supported datasource configuration provenance indicates an H2/HSQLDB/Derby memory subprotocol alongside production-like effective profile names. Configured default profiles apply when active profiles are absent. Naming is only a heuristic, and memory-looking query values in a durable URL are not memory databases. Unknown custom connection details are unevaluated; raw URLs are never shown.
 - **Recommendation**: Verify durability requirements and the actual datasource. Memory databases can be intentional; use durable storage where data must survive process termination.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.datasource.embedded>
 
-### SPRING-DATA-002 - Do not run production R2DBC on an in-memory database
+### SPRING-DATA-002 - Review in-memory R2DBC with production-like profiles
 
 - **Severity**: MEDIUM
-- **Detects**: Supported R2DBC memory-driver configuration with attributable factory evidence and production-like effective profile names. A configured URL with no relevant runtime provenance is insufficient; custom connection details remain unknown and URL values are not exposed.
+- **Detects**: A Boot R2DBC URL selecting H2 memory storage (`r2dbc:h2:mem:` or `r2dbc:pool:h2:mem:`) with attributable factory evidence and production-like effective profile names. A configured URL with no relevant runtime provenance is insufficient; custom connection details remain unknown and URL values are not exposed.
 - **Recommendation**: Verify the application's durability requirements and actual connection factory rather than inferring them from profile names.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.r2dbc.embedded>
 
@@ -328,21 +332,21 @@ The access-aware rules follow Boot 4.1.1: endpoint settings override global defa
 
 Host configuration is distinguished from BootUI's low-priority management defaults. The Security advisor's SEC-ACT-* rules review overlapping exposure, but that panel exists only when Spring Security filter chains are present; these rules keep Actuator exposure visible for applications without Spring Security. Exposure/access observations do not establish authorization or public reachability; a separate management port is not itself an access control, and disabling endpoint discovery does not disable routes.
 
-### SPRING-MGMT-001 - Avoid exposing all Actuator endpoints
+### SPRING-MGMT-001 - Review host wildcard Actuator exposure
 
 - **Severity**: MEDIUM
 - **Detects**: Host-configured wildcard web exposure with applicable endpoint evidence, respecting exclusion and access suppression. It is not proof every optional endpoint exists or that endpoints are public.
 - **Recommendation**: Prefer an explicit needed endpoint list and review access controls separately. Profile names and port equality do not increase severity.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html>
 
-### SPRING-MGMT-002 - Do not web-expose sensitive Actuator endpoints
+### SPRING-MGMT-002 - Review explicitly exposed sensitive Actuator endpoints
 
 - **Severity**: MEDIUM
 - **Detects**: Explicit host inclusion of observed sensitive diagnostic endpoints with readable access. Wildcards are handled by SPRING-MGMT-001; shutdown/heapdump by SPRING-MGMT-004. Missing optional endpoints and BootUI-contributed exposure are not host findings.
 - **Recommendation**: Review which diagnostics need web access and how that access is restricted. This rule does not assess endpoint authorization.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html>
 
-### SPRING-MGMT-003 - Do not always show Actuator values or health details
+### SPRING-MGMT-003 - Review Actuator values and health details
 
 - **Severity**: MEDIUM
 - **Detects**: Host-configured `show-values=always` or health `show-details=always` on applicable readable endpoints, in any spelling Boot's lenient enum binding accepts (for example `WHEN_AUTHORIZED` or `whenauthorized` are valid, not analysis errors). These settings govern disclosure to callers allowed to access the endpoint, not authorization itself; health details and raw configuration values are distinct.
@@ -350,7 +354,7 @@ Host configuration is distinguished from BootUI's low-priority management defaul
 - **Recommendation**: Prefer `never` when details are unnecessary, or `when-authorized` with deliberate endpoint roles and authorization configuration. Review sanitization separately.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.sanitization>
 
-### SPRING-MGMT-004 - Do not web-expose shutdown or heapdump endpoints
+### SPRING-MGMT-004 - Review granted heapdump or shutdown web access
 
 - **Severity**: HIGH
 - **Detects**: An observed shutdown endpoint has effective write access and web exposure, or an observed heapdump endpoint has read access and web exposure. Both default to `none` in Boot 4.1.1, so include/wildcard exposure alone is not sufficient. A read-only cap allows heapdump reads but not shutdown writes.
@@ -361,10 +365,10 @@ Host configuration is distinguished from BootUI's low-priority management defaul
 
 Both rules in this category are `SKIPPED` unconditionally on a servlet (Spring MVC) application; they only evaluate when the advisor detects a WebFlux `ReactiveWebApplicationContext`.
 
-### SPRING-REACTIVE-001 - Reactive endpoints alongside a blocking JDBC datasource
+### SPRING-REACTIVE-001 - Review reactive handlers alongside JDBC
 
 - **Severity**: INFO
-- **Detects**: This is a WebFlux application with Mono/Flux-returning handler methods, and a blocking JDBC DataSource is also configured. A blocking JDBC call made directly inside a reactive chain (instead of offloaded to a bounded scheduler) can block request processing and reduce concurrent capacity. Modeled after the Quarkus advisor's QA-RX-001, but deliberately coarser: this reflection-only scanner cannot see inside a handler method's body, so it cannot tell whether offloading is already done correctly. It is an app-level prompt to verify, not a per-endpoint finding.
+- **Detects**: This is a WebFlux application with Mono/Flux-returning handler methods, and a blocking JDBC DataSource is also configured. A blocking JDBC call made directly inside a reactive chain (instead of offloaded to a bounded scheduler) can block request processing and reduce concurrent capacity. Modeled after the Quarkus advisor's QA-RX-001 (since retired), but deliberately coarser: this reflection-only scanner cannot see inside a handler method's body, so it cannot tell whether offloading is already done correctly. It is an app-level prompt to verify, not a per-endpoint finding.
 - **Recommendation**: Offload blocking database calls, for example with `Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())`, or migrate to a reactive driver such as R2DBC; verify this per endpoint.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webflux/reactive-spring.html>
 

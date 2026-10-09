@@ -1,11 +1,13 @@
 <script setup>
-import {computed, ref} from 'vue'
-import {useRoute} from 'vue-router'
+import {computed, nextTick, ref, watch} from 'vue'
+import {useRoute, useRouter} from 'vue-router'
 import {getJson} from '../api.js'
-import {formatMillis, formatNumber, shortName} from '../utils/format.js'
+import {methodLabel, nodeKeys, splitRoute} from '../utils/codePaths.js'
+import {formatMillis, formatNumber} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
+import CodePathsTree from './components/CodePathsTree.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import PanelTabs from './components/PanelTabs.vue'
@@ -20,15 +22,35 @@ const TREE_DEPTH = 33
 const TREE_LIMIT = 500
 
 const route = useRoute()
+const router = useRouter()
 const summary = ref(null)
 const error = ref(null)
 const lastFetched = ref(null)
-const selectedRoute = ref(typeof route?.query?.route === 'string' ? route.query.route : null)
+// The route whose tree is open under its row, as Runtime Insights opens an observation: none until one is asked for.
+const selectedRoute = ref(queryString('route'))
 const tree = ref(null)
 const treeError = ref(null)
+// The selected tree node (see nodeKeys) and its method, whose detail opens under its row.
+const selectedKey = ref(null)
 const selectedMethod = ref(null)
+// A method to select once its route's tree arrives: the ?method= deep link, or a method another panel asked to probe.
+let pendingMethod = queryString('method') ?? queryString('probe')
 // A method another panel asked to probe, as Code Inventory's Probe links do.
-const requestedProbe = ref(typeof route?.query?.probe === 'string' ? route.query.probe : null)
+const requestedProbe = ref(queryString('probe'))
+const probeActionTarget = ref(null)
+const probesSection = ref(null)
+const routeList = ref(null)
+let firstLoad = true
+
+const SORTS = [
+  {id: 'median', label: 'Slowest warm median', caption: 'slowest warm median first'},
+  {id: 'p95', label: 'Slowest p95', caption: 'slowest p95 first'},
+  {id: 'requests', label: 'Most warm requests', caption: 'most warm requests first'},
+  {id: 'first', label: 'Slowest first request', caption: 'slowest first request first'},
+  {id: 'route', label: 'Route, A to Z', caption: 'by path'}
+]
+const search = ref('')
+const sortBy = ref('median')
 
 const TABS = [
   {id: 'routes', label: 'Routes', icon: 'bi-signpost-split'},
@@ -48,22 +70,50 @@ const httpExchangesDisabled = computed(
 const routes = computed(() => summary.value?.routes ?? [])
 const status = computed(() => summary.value?.status ?? null)
 
+function queryString(name) {
+  const value = route?.query?.[name]
+  return typeof value === 'string' && value ? value : null
+}
+
+// The open route and method live in the URL, so a reload or a shared link reopens them. The URL is replaced in place,
+// not through router.replace: panels are keyed on the route's full path, so a router navigation would remount this one
+// and lose its search, order, open branches, and focus. Vue Router's own history state is kept in step.
+function syncQuery() {
+  if (!router?.resolve || typeof window === 'undefined') return
+  const query = {...(route?.query ?? {})}
+  delete query.route
+  delete query.method
+  if (selectedRoute.value) query.route = selectedRoute.value
+  if (selectedRoute.value && selectedMethod.value) query.method = selectedMethod.value
+  const target = router.resolve({path: route?.path ?? '/code-paths', query})
+  const state = window.history.state
+  window.history.replaceState(state ? {...state, current: target.fullPath} : state, '', target.href)
+}
+
 async function fetchSummary() {
   error.value = null
   try {
     summary.value = await getJson('api/code-paths')
     lastFetched.value = Date.now()
     if (summary.value?.available) {
-      if (!selectedRoute.value || !routes.value.some((row) => row.route === selectedRoute.value)) {
-        selectedRoute.value = routes.value.find((row) => row.warmRequests > 0)?.route ?? routes.value[0]?.route ?? null
+      if (firstLoad && !selectedRoute.value && requestedProbe.value) {
+        selectedRoute.value =
+          routes.value.find((row) => row.topMethods?.some((method) => method.method === requestedProbe.value))?.route ??
+          null
+      }
+      if (selectedRoute.value && !routes.value.some((row) => row.route === selectedRoute.value)) {
+        // The route left the recording, as after a Clear recording: its row and tree are gone.
+        closeRoute()
       }
       if (selectedRoute.value) {
         await loadTree(selectedRoute.value)
-      } else {
-        tree.value = null
       }
       if (activeTab.value === 'beans') {
         await loadBeans()
+      }
+      if (firstLoad) {
+        firstLoad = false
+        revealArrival()
       }
     }
   } catch (e) {
@@ -75,100 +125,203 @@ const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchSummary
   enabled: manifestAvailable
 })
 
+// Only the newest tree read may land: an older route's answer arriving last must not fill the newer route's drawer.
+let treeRequest = 0
+
 async function loadTree(name) {
+  const request = ++treeRequest
   treeError.value = null
   try {
-    tree.value = await getJson(
+    const result = await getJson(
       `api/code-paths/route?route=${encodeURIComponent(name)}&depth=${TREE_DEPTH}&limit=${TREE_LIMIT}`
     )
+    if (request !== treeRequest) return
+    tree.value = result
+    applySelection(result)
   } catch (e) {
+    if (request !== treeRequest) return
     tree.value = null
     treeError.value = formatLoadError(e, `Unable to load the tree of ${name}`)
   }
 }
 
-async function selectRoute(name) {
-  if (selectedRoute.value === name && tree.value) return
-  selectedRoute.value = name
-  selectedMethod.value = null
+/** Keeps the selected node across a refresh while the tree still has it, and selects a method asked for by link. */
+function applySelection(result) {
+  const keys = nodeKeys(result?.nodes)
+  const methodNodes = (result?.nodes ?? []).filter((node) => node.kind === 'METHOD')
+  if (pendingMethod) {
+    const wanted = methodNodes.find((node) => node.method === pendingMethod)
+    pendingMethod = null
+    if (wanted) {
+      selectedKey.value = keys.get(wanted.id)
+      selectedMethod.value = wanted.method
+      return
+    }
+  }
+  if (selectedKey.value && !methodNodes.some((node) => keys.get(node.id) === selectedKey.value)) {
+    selectedKey.value = null
+    selectedMethod.value = null
+  }
+}
+
+function closeRoute() {
+  treeRequest++
+  selectedRoute.value = null
   tree.value = null
+  treeError.value = null
+  selectedKey.value = null
+  selectedMethod.value = null
+  probeActionTarget.value = null
+}
+
+async function openRoute(name) {
+  closeRoute()
+  selectedRoute.value = name
+  syncQuery()
   await loadTree(name)
 }
 
-/** A method key's short label, {@code SimpleClass.method}. */
-function methodLabel(key) {
-  if (!key) return '—'
-  const hash = key.indexOf('#')
-  if (hash < 0) return key
-  const paren = key.indexOf('(', hash)
-  return `${shortName(key.slice(0, hash))}.${key.slice(hash + 1, paren < 0 ? key.length : paren)}`
+function toggleRoute(name) {
+  if (selectedRoute.value === name) {
+    closeRoute()
+    syncQuery()
+    return
+  }
+  return openRoute(name)
 }
 
-function nodeLabel(node) {
-  switch (node.kind) {
-    case 'REQUEST':
-      return 'Request'
-    case 'ASYNC':
-      return 'Executor work'
-    case 'OTHER':
-      return 'Other methods'
-    default:
-      return methodLabel(node.method)
+/** Follows a route that reaches the selected method: opens it and brings its row to the reader. */
+async function followRoute(name) {
+  search.value = ''
+  const opened = openRoute(name)
+  await nextTick()
+  const row = document.getElementById(routeRowId(name))
+  row?.scrollIntoView?.({block: 'start'})
+  /** @type {HTMLElement | null | undefined} */
+  const toggle = row?.querySelector('.code-paths-route')
+  toggle?.focus({preventScroll: true})
+  await opened
+}
+
+function selectNode(selection) {
+  selectedKey.value = selection?.key ?? null
+  selectedMethod.value = selection?.method ?? null
+  syncQuery()
+}
+
+/** On arrival from a link, shows what it asked for: the open route, else the probe card for a method in no route. */
+async function revealArrival() {
+  await nextTick()
+  if (selectedRoute.value) {
+    document.getElementById(routeRowId(selectedRoute.value))?.scrollIntoView?.({block: 'start'})
+  } else if (requestedProbe.value) {
+    probesSection.value?.scrollIntoView?.({block: 'start'})
   }
 }
 
-function phaseLabel(phase) {
-  return {FILTERS: 'filters', HANDLER: 'handler', RESPONSE: 'response'}[phase] ?? null
-}
-
-const shareLabel = computed(() => (tree.value?.shareOf === 'request' ? 'Share of the request' : 'Share of the handler'))
-
-/** The largest share among the tree's nodes below the request, which the bars are drawn against. */
-const topShare = computed(() => {
-  let top = 0
-  for (const node of tree.value?.nodes ?? []) {
-    if (node.kind !== 'REQUEST' && node.share != null) top = Math.max(top, node.share)
+watch(
+  () => route?.query?.route,
+  (value) => {
+    if (typeof value === 'string' && value && value !== selectedRoute.value && available.value) openRoute(value)
   }
-  return top
-})
-
-const methodsByKey = computed(() => new Map((tree.value?.methods ?? []).map((method) => [method.method, method])))
-const selectedMethodDetail = computed(() =>
-  selectedMethod.value ? (methodsByKey.value.get(selectedMethod.value) ?? null) : null
 )
-
-function selectMethod(key) {
-  selectedMethod.value = selectedMethod.value === key ? null : key
-}
 
 /** The method Probe this method offers: the selected tree method, else the one another panel asked for. */
 const probeTarget = computed(() => selectedMethod.value ?? requestedProbe.value)
 
-function callerLabel(caller) {
-  if (caller === 'REQUEST') return 'The request itself'
-  if (caller === 'ASYNC') return 'Executor work'
-  return methodLabel(caller)
+function rankRoutes(rows, sort) {
+  const timed = (read) => (a, b) => (b.warmRequests ? 1 : 0) - (a.warmRequests ? 1 : 0) || read(b) - read(a)
+  const list = [...rows]
+  switch (sort) {
+    case 'p95':
+      return list.sort(timed((row) => row.p95Millis))
+    case 'requests':
+      return list.sort((a, b) => b.warmRequests - a.warmRequests)
+    case 'first':
+      return list.sort((a, b) => (b.firstRequestMillis ?? -1) - (a.firstRequestMillis ?? -1))
+    case 'route':
+      return list.sort(
+        (a, b) => splitRoute(a.route).path.localeCompare(splitRoute(b.route).path) || a.route.localeCompare(b.route)
+      )
+    default:
+      // The API already ranks routes by warm median.
+      return list
+  }
 }
 
-/** What a node's recorded calls of one kind are called, singular or plural by calls per request. */
-const CALL_LABELS = {
-  SQL: ['SQL statement', 'SQL statements', 'bi-database'],
-  REST: ['REST client call', 'REST client calls', 'bi-arrow-left-right'],
-  CACHE: ['Cache access', 'Cache accesses', 'bi-lightning-charge'],
-  AI: ['AI call', 'AI calls', 'bi-stars']
+const rankedRoutes = computed(() => rankRoutes(routes.value, sortBy.value))
+
+// While a route is open, a refresh keeps the rows where they were, new routes last, so the open drawer never moves
+// under the reader; closing it, or choosing a sort, ranks them again.
+const frozenOrder = ref(null)
+watch([selectedRoute, sortBy, available], () => {
+  frozenOrder.value = selectedRoute.value && available.value ? rankedRoutes.value.map((row) => row.route) : null
+})
+
+const orderedRoutes = computed(() => {
+  const ranked = rankedRoutes.value
+  if (!frozenOrder.value) return ranked
+  const position = new Map(frozenOrder.value.map((name, index) => [name, index]))
+  const rank = (row, index) => position.get(row.route) ?? frozenOrder.value.length + index
+  return ranked
+    .map((row, index) => ({row, at: rank(row, index)}))
+    .sort((a, b) => a.at - b.at)
+    .map((entry) => entry.row)
+})
+
+function searchText(row) {
+  const methods = (row.topMethods ?? []).map((method) => `${method.method} ${methodLabel(method.method)}`)
+  return `${row.route} ${methods.join(' ')}`.toLowerCase()
 }
 
-function callLabel(call) {
-  const labels = CALL_LABELS[call.kind] ?? [call.kind, call.kind]
-  return call.callsPerRequest === 1 ? labels[0] : labels[1]
+const visibleRoutes = computed(() => {
+  const terms = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (!terms.length) return orderedRoutes.value
+  // The open route stays listed, so a search never hides the drawer being read.
+  return orderedRoutes.value.filter(
+    (row) => row.route === selectedRoute.value || terms.every((term) => searchText(row).includes(term))
+  )
+})
+
+const routesHeading = computed(() => {
+  const count = search.value.trim()
+    ? `${formatNumber(visibleRoutes.value.length)} of ${formatNumber(routes.value.length)} routes`
+    : `${formatNumber(routes.value.length)} ${routes.value.length === 1 ? 'route' : 'routes'}`
+  return `${count}, ${sortCaption.value}. Open one to see where its time goes.`
+})
+
+const sortCaption = computed(() => SORTS.find((option) => option.id === sortBy.value)?.caption ?? '')
+
+/** The slowest warm median, which each route's bar is drawn against. */
+const slowestMedian = computed(() =>
+  Math.max(0, ...routes.value.filter((row) => row.warmRequests).map((row) => row.p50Millis))
+)
+
+function medianWidth(row) {
+  if (!row.warmRequests || !slowestMedian.value) return 0
+  return Math.max(2, Math.round((row.p50Millis / slowestMedian.value) * 100))
 }
 
-function callIcon(call) {
-  return CALL_LABELS[call.kind]?.[2] ?? 'bi-dot'
+function routeRowId(name) {
+  return `code-paths-route-${encodeURIComponent(name).replace(/[^A-Za-z0-9_-]/g, '_')}`
 }
 
-function callTitle(node) {
-  return `Issued while ${nodeLabel(node)} was the innermost instrumented method open on their thread`
+/** Up and Down move between the routes' toggles, as in a list; Home and End go to its ends. */
+function onRouteKeydown(event) {
+  const current = /** @type {HTMLElement} */ (event.target)
+  if (!current.classList?.contains('code-paths-route')) return
+  /** @type {HTMLElement[]} */
+  const toggles = [...(routeList.value?.querySelectorAll('.code-paths-route') ?? [])]
+  const index = toggles.indexOf(current)
+  const next = {
+    ArrowDown: toggles[index + 1],
+    ArrowUp: toggles[index - 1],
+    Home: toggles[0],
+    End: toggles[toggles.length - 1]
+  }[event.key]
+  if (!(event.key in {ArrowDown: 1, ArrowUp: 1, Home: 1, End: 1})) return
+  event.preventDefault()
+  next?.focus()
 }
 
 const hasCalls = computed(() => (tree.value?.nodes ?? []).some((node) => node.calls?.length))
@@ -198,11 +351,6 @@ const beanEdges = computed(() => {
   const edges = beans.value?.edges ?? []
   return notCalledOnly.value ? edges.filter((edge) => edge.declared && !edge.observed && edge.observable) : edges
 })
-
-function moreNodes(report) {
-  const page = report?.page
-  return page && page.hasMore ? page.matched - page.offset - page.returned : 0
-}
 </script>
 
 <template>
@@ -279,249 +427,171 @@ function moreNodes(report) {
           after its request.
         </UnavailableState>
 
-        <template v-else>
-          <section class="mb-4" aria-labelledby="code-paths-routes-heading">
-            <h3 id="code-paths-routes-heading" class="h6 text-muted mb-2">Routes by warm median</h3>
-            <div class="table-responsive">
-              <table class="table table-sm align-middle code-paths-table code-paths-routes">
-                <caption class="visually-hidden">
-                  Routes with a call tree, slowest warm median first
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Route</th>
-                    <th scope="col" class="text-end">Warm requests</th>
-                    <th scope="col" class="text-end">Median (ms)</th>
-                    <th scope="col" class="text-end">p95 (ms)</th>
-                    <th scope="col" class="text-end">First request (ms)</th>
-                    <th scope="col">Top method by self time</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="row in routes" :key="row.route" :class="{'table-active': row.route === selectedRoute}">
-                    <td>
-                      <button
-                        :aria-pressed="row.route === selectedRoute"
-                        class="btn btn-link p-0 text-start code-paths-route"
-                        type="button"
-                        @click="selectRoute(row.route)"
-                      >
-                        <code class="bootui-break-anywhere">{{ row.route }}</code>
-                      </button>
-                      <span v-if="row.assemblyOnly" class="badge text-bg-secondary ms-2 code-paths-assembly">
-                        Assembly only
-                      </span>
-                    </td>
-                    <td class="text-end">{{ formatNumber(row.warmRequests) }}</td>
-                    <td class="text-end">{{ row.warmRequests ? formatMillis(row.p50Millis) : '—' }}</td>
-                    <td class="text-end">{{ row.warmRequests ? formatMillis(row.p95Millis) : '—' }}</td>
-                    <td class="text-end">{{ formatMillis(row.firstRequestMillis) }}</td>
-                    <td>
-                      <template v-if="row.topMethods?.length">
-                        <code>{{ methodLabel(row.topMethods[0].method) }}</code>
-                        <span class="small text-muted ms-1">
-                          {{ formatMillis(row.topMethods[0].selfMillis) }} ms · {{ row.topMethods[0].share }} %
-                        </span>
-                      </template>
-                      <span v-else class="text-muted">—</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+        <section v-else class="mb-4" aria-labelledby="code-paths-routes-heading">
+          <div class="code-paths-route-tools">
+            <div class="code-paths-search">
+              <i class="bi bi-search code-paths-search-icon" aria-hidden="true"></i>
+              <input
+                v-model="search"
+                aria-controls="code-paths-route-list"
+                aria-label="Filter routes"
+                class="form-control code-paths-route-search"
+                placeholder="Filter by path, HTTP method, or Java method"
+                type="search"
+              />
             </div>
-          </section>
+            <label class="visually-hidden" for="code-paths-route-sort">Sort routes</label>
+            <select id="code-paths-route-sort" v-model="sortBy" class="form-select code-paths-route-sort">
+              <option v-for="option in SORTS" :key="option.id" :value="option.id">{{ option.label }}</option>
+            </select>
+          </div>
+          <h3 id="code-paths-routes-heading" class="small text-muted fw-normal mb-2" aria-live="polite">
+            {{ routesHeading }}
+          </h3>
 
-          <section v-if="selectedRoute" class="mb-4" aria-labelledby="code-paths-tree-heading">
-            <h3 id="code-paths-tree-heading" class="h5 fw-semibold mb-2">
-              <code class="bootui-break-anywhere">{{ selectedRoute }}</code>
-            </h3>
-            <div v-if="treeError" class="alert alert-danger" role="alert">{{ treeError }}</div>
-            <p v-else-if="!tree" class="small text-muted">Loading…</p>
-            <template v-else>
-              <div v-if="tree.assemblyOnly" class="alert alert-secondary small code-paths-assembly-note" role="note">
-                <strong>Assembly only.</strong> This route's handler ran on an event loop, returned a reactive or
-                asynchronous result, or BootUI could not tell where its work ran, so its tree times the handler's
-                assembly, not the work that ran later or elsewhere, and Runtime Insights does not split its handler by
-                method.
-              </div>
-              <p class="small mb-2 code-paths-tree-summary">
-                <strong>{{ formatNumber(tree.warmRequests) }}</strong> warm requests, mean
-                <strong>{{ formatMillis(tree.ownMillis) }} ms</strong> of their own time<template
-                  v-if="tree.handlerMillis != null"
-                >
-                  , <strong>{{ formatMillis(tree.handlerMillis) }} ms</strong> of it in the handler's application
-                  methods
-                </template>
-                <template v-if="tree.firstRequestMillis != null">
-                  · first recorded request {{ formatMillis(tree.firstRequestMillis) }} ms, kept apart</template
-                >. Times are per warm request; medians are approximate (≈), from log2 buckets.
-                <template v-if="hasCalls">
-                  SQL, REST client, cache, and AI rows under a method were issued while it was the innermost
-                  instrumented method open on their thread, and their time is part of its self time. A statement
-                  Hibernate flushes at commit runs after the @Transactional method returned, so it shows under the
-                  method that called it.
-                </template>
-              </p>
-              <p v-if="!tree.nodes.length" class="text-muted small">
-                Only the route's first recorded request, kept apart, was recorded: send it again to build its warm tree.
-              </p>
-              <div v-else class="table-responsive">
-                <table class="table table-sm align-middle code-paths-table code-paths-tree">
-                  <caption class="visually-hidden">
-                    The call tree of
-                    {{
-                      selectedRoute
-                    }}, each method under its caller
-                  </caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Method</th>
-                      <th scope="col" class="text-end">Calls per request</th>
-                      <th scope="col" class="text-end">Total (ms)</th>
-                      <th scope="col" class="text-end">Self (ms)</th>
-                      <th scope="col" class="text-end">
-                        <span title="Approximate: interpolated within log2 buckets of per-request time"
-                          >Median (≈ ms)</span
-                        >
-                      </th>
-                      <th scope="col" class="code-paths-share-column">{{ shareLabel }}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <template v-for="node in tree.nodes" :key="node.id">
-                      <tr
-                        :class="{
-                          'code-paths-async': node.async,
-                          'table-active': node.method && node.method === selectedMethod
-                        }"
+          <p v-if="!visibleRoutes.length" class="small text-muted code-paths-route-none">
+            No route matches “{{ search.trim() }}”.
+            <button class="btn btn-link btn-sm p-0 align-baseline" type="button" @click="search = ''">
+              Clear the filter
+            </button>
+          </p>
+          <ul
+            v-else
+            id="code-paths-route-list"
+            ref="routeList"
+            class="list-unstyled mb-0 code-paths-routes"
+            aria-labelledby="code-paths-routes-heading"
+            @keydown="onRouteKeydown"
+          >
+            <li
+              v-for="row in visibleRoutes"
+              :id="routeRowId(row.route)"
+              :key="row.route"
+              class="code-paths-route-row"
+              :class="{open: row.route === selectedRoute}"
+            >
+              <button
+                :aria-controls="`${routeRowId(row.route)}-detail`"
+                :aria-expanded="row.route === selectedRoute ? 'true' : 'false'"
+                class="code-paths-route bootui-keyboard-target"
+                type="button"
+                @click="toggleRoute(row.route)"
+              >
+                <span class="code-paths-route-main">
+                  <code class="code-paths-route-name"
+                    ><span class="code-paths-verb">{{ splitRoute(row.route).verb }}</span>
+                    {{ splitRoute(row.route).path }}</code
+                  >
+                  <span class="code-paths-route-meta">
+                    <span v-if="row.topMethods?.length" class="code-paths-route-top" :title="row.topMethods[0].method">
+                      <code>{{ methodLabel(row.topMethods[0].method) }}</code>
+                      {{ formatMillis(row.topMethods[0].selfMillis) }} ms · {{ row.topMethods[0].share }} %
+                    </span>
+                    <span v-else class="code-paths-route-top">No method took measurable time</span>
+                    <span class="code-paths-route-counts">
+                      <template v-if="row.warmRequests">
+                        {{ formatNumber(row.warmRequests) }} warm · p95 {{ formatMillis(row.p95Millis) }} ms
+                      </template>
+                      <template v-else>No warm request yet</template>
+                      <template v-if="row.firstRequestMillis != null">
+                        · first request {{ formatMillis(row.firstRequestMillis) }} ms</template
                       >
-                        <td>
-                          <div class="code-paths-indent" :style="{paddingInlineStart: `${node.depth * 1.1}rem`}">
-                            <button
-                              v-if="node.kind === 'METHOD'"
-                              :aria-pressed="node.method === selectedMethod"
-                              :title="node.method"
-                              class="btn btn-link p-0 text-start code-paths-method"
-                              type="button"
-                              @click="selectMethod(node.method)"
-                            >
-                              <code>{{ nodeLabel(node) }}</code>
-                            </button>
-                            <span v-else :class="{'fw-semibold': node.kind === 'REQUEST'}">{{ nodeLabel(node) }}</span>
-                            <span v-if="node.kind === 'ASYNC'" class="badge text-bg-info ms-2">Async, shown apart</span>
-                            <span v-else-if="node.async" class="badge text-bg-info ms-2">Async</span>
-                            <span v-if="phaseLabel(node.phase) && node.kind === 'METHOD'" class="small text-muted ms-2">
-                              {{ phaseLabel(node.phase) }}
-                            </span>
-                          </div>
-                        </td>
-                        <td class="text-end">{{ node.kind === 'REQUEST' ? '—' : node.callsPerRequest }}</td>
-                        <td class="text-end">{{ formatMillis(node.totalMillis) }}</td>
-                        <td class="text-end">{{ formatMillis(node.selfMillis) }}</td>
-                        <td class="text-end code-paths-median">
-                          <template v-if="node.p50Millis != null">≈ {{ formatMillis(node.p50Millis) }}</template>
-                          <span v-else class="text-muted">—</span>
-                        </td>
-                        <td>
-                          <span v-if="node.share != null && node.kind !== 'REQUEST'" class="code-paths-share">
-                            <span class="code-paths-share-track" aria-hidden="true">
-                              <span
-                                class="code-paths-share-bar"
-                                :class="{'code-paths-share-bar-top': node.share === topShare}"
-                                :style="{width: `${Math.min(100, node.share)}%`}"
-                              ></span>
-                            </span>
-                            <span class="code-paths-share-value">{{ node.share }} %</span>
-                          </span>
-                          <span v-else class="text-muted">—</span>
-                        </td>
-                      </tr>
-                      <tr
-                        v-for="call in node.calls ?? []"
-                        :key="`${node.id}-${call.kind}`"
-                        :class="{'code-paths-async': node.async}"
-                        class="code-paths-call"
-                      >
-                        <td>
-                          <div
-                            class="code-paths-indent"
-                            :style="{paddingInlineStart: `${((node.depth + 1) * 1.1).toFixed(1)}rem`}"
-                          >
-                            <span :title="callTitle(node)" class="code-paths-call-label">
-                              <i :class="['bi', callIcon(call), 'me-1']" aria-hidden="true"></i>{{ callLabel(call) }}
-                            </span>
-                            <span class="visually-hidden">, issued while {{ nodeLabel(node) }} was open</span>
-                          </div>
-                        </td>
-                        <td class="text-end">{{ call.callsPerRequest }}</td>
-                        <td class="text-end">
-                          <template v-if="call.totalMillis != null">{{ formatMillis(call.totalMillis) }}</template>
-                          <span v-else class="text-muted" title="Cache accesses carry no duration">—</span>
-                        </td>
-                        <td class="text-end text-muted">—</td>
-                        <td class="text-end text-muted">—</td>
-                        <td class="text-muted">—</td>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
-                <p v-if="moreNodes(tree)" class="small text-muted">
-                  {{ formatNumber(moreNodes(tree)) }} more nodes not shown.
-                </p>
-              </div>
+                    </span>
+                    <span v-if="row.assemblyOnly" class="badge text-bg-secondary code-paths-assembly">
+                      Assembly only
+                    </span>
+                  </span>
+                </span>
+                <span class="code-paths-route-time">
+                  <span class="code-paths-route-median">
+                    <template v-if="row.warmRequests">{{ formatMillis(row.p50Millis) }} ms</template>
+                    <template v-else>—</template>
+                    <span class="visually-hidden"> warm median</span>
+                  </span>
+                  <span class="code-paths-route-bar" aria-hidden="true">
+                    <span
+                      :class="{'code-paths-route-bar-top': row.warmRequests && row.p50Millis === slowestMedian}"
+                      :style="{width: `${medianWidth(row)}%`}"
+                    ></span>
+                  </span>
+                </span>
+                <i class="bi bi-chevron-down code-paths-route-chevron" aria-hidden="true"></i>
+              </button>
 
               <section
-                v-if="selectedMethodDetail"
-                class="card mb-3 code-paths-method-detail"
-                aria-labelledby="code-paths-method-heading"
+                v-if="row.route === selectedRoute"
+                :id="`${routeRowId(row.route)}-detail`"
+                class="code-paths-route-detail"
+                aria-labelledby="code-paths-tree-heading"
               >
-                <div class="card-body">
-                  <h4 id="code-paths-method-heading" class="h6 mb-1">
-                    <code>{{ methodLabel(selectedMethodDetail.method) }}</code>
-                  </h4>
-                  <p class="small text-muted bootui-break-anywhere mb-2">{{ selectedMethodDetail.method }}</p>
-                  <div class="row g-3 small">
-                    <div class="col-md-6">
-                      <h5 class="h6 small text-muted">Called by, in this route</h5>
-                      <ul class="mb-0 code-paths-callers">
-                        <li v-for="caller in selectedMethodDetail.callers" :key="caller">
-                          <code>{{ callerLabel(caller) }}</code>
-                        </li>
-                      </ul>
-                    </div>
-                    <div class="col-md-6">
-                      <h5 class="h6 small text-muted">Routes that reach it</h5>
-                      <ul class="mb-0 code-paths-reach">
-                        <li v-for="name in selectedMethodDetail.routes" :key="name">
-                          <button
-                            v-if="name !== selectedRoute"
-                            class="btn btn-link p-0 text-start"
-                            type="button"
-                            @click="selectRoute(name)"
-                          >
-                            <code>{{ name }}</code>
-                          </button>
-                          <code v-else>{{ name }}</code>
-                        </li>
-                      </ul>
-                    </div>
+                <h4 id="code-paths-tree-heading" class="visually-hidden">{{ row.route }}</h4>
+                <div v-if="treeError" class="alert alert-danger mb-0" role="alert">{{ treeError }}</div>
+                <p v-else-if="!tree" class="small text-muted mb-0" role="status">Loading the call tree…</p>
+                <template v-else>
+                  <div
+                    v-if="tree.assemblyOnly"
+                    class="alert alert-secondary small code-paths-assembly-note"
+                    role="note"
+                  >
+                    <strong>Assembly only.</strong> This route's handler ran on an event loop, returned a reactive or
+                    asynchronous result, or BootUI could not tell where its work ran, so its tree times the handler's
+                    assembly, not the work that ran later or elsewhere, and Runtime Insights does not split its handler
+                    by method.
                   </div>
-                </div>
-              </section>
-
-              <p v-if="tree.exemplarRequestIds?.length" class="small mb-0 code-paths-exemplars">
-                Slowest and failed requests kept:
-                <template v-for="(id, index) in tree.exemplarRequestIds" :key="id">
-                  <router-link :to="{path: '/activity', query: {request: id}}"
-                    ><code>{{ id }}</code></router-link
-                  ><template v-if="Number(index) < tree.exemplarRequestIds.length - 1">, </template>
+                  <p class="small mb-3 code-paths-tree-summary">
+                    <strong>{{ formatNumber(tree.warmRequests) }}</strong> warm requests, mean
+                    <strong>{{ formatMillis(tree.ownMillis) }} ms</strong> of their own time<template
+                      v-if="tree.handlerMillis != null"
+                      >, <strong>{{ formatMillis(tree.handlerMillis) }} ms</strong> of it in the handler's application
+                      methods</template
+                    >
+                    <template v-if="tree.firstRequestMillis != null">
+                      · first recorded request {{ formatMillis(tree.firstRequestMillis) }} ms, kept apart</template
+                    >.
+                    <span class="text-muted">
+                      Times are per warm request; medians are approximate (≈), from log2 buckets.
+                      <template v-if="hasCalls">
+                        SQL, REST client, cache, and AI rows under a method were issued while it was the innermost
+                        instrumented method open on their thread, and their time is part of its self time. A statement
+                        Hibernate flushes at commit runs after the @Transactional method returned, so it shows under the
+                        method that called it.
+                      </template>
+                    </span>
+                  </p>
+                  <p v-if="!tree.nodes.length" class="text-muted small mb-0">
+                    Only the route's first recorded request, kept apart, was recorded: send it again to build its warm
+                    tree.
+                  </p>
+                  <CodePathsTree
+                    v-else
+                    :tree="tree"
+                    :selected="selectedKey"
+                    @select="selectNode"
+                    @select-route="followRoute"
+                    @action-target="probeActionTarget = $event"
+                  />
+                  <p v-if="tree.exemplarRequestIds?.length" class="small mt-3 mb-0 code-paths-exemplars">
+                    Slowest and failed requests kept:
+                    <template v-for="(id, position) in tree.exemplarRequestIds" :key="id">
+                      <router-link :to="{path: '/activity', query: {request: id}}"
+                        ><code>{{ id }}</code></router-link
+                      ><template v-if="Number(position) < tree.exemplarRequestIds.length - 1">, </template>
+                    </template>
+                  </p>
                 </template>
-              </p>
-            </template>
-          </section>
-        </template>
+              </section>
+            </li>
+          </ul>
+        </section>
 
-        <MethodProbes :method="probeTarget" :read-only="readOnly" :read-only-reason="readOnlyReason" />
+        <div ref="probesSection" class="code-paths-probes-anchor">
+          <MethodProbes
+            :method="probeTarget"
+            :action-target="selectedMethod ? probeActionTarget : null"
+            :read-only="readOnly"
+            :read-only-reason="readOnlyReason"
+          />
+        </div>
 
         <section class="mb-4" aria-labelledby="code-paths-excluded-heading">
           <h3 id="code-paths-excluded-heading" class="h6 text-muted mb-2">Excluded methods</h3>
@@ -634,71 +704,193 @@ function moreNodes(report) {
   font-variant-numeric: tabular-nums;
 }
 
-.code-paths-route,
-.code-paths-method {
-  color: inherit;
-  text-decoration: none;
-}
-
-.code-paths-route:hover code,
-.code-paths-route:focus-visible code,
-.code-paths-method:hover code,
-.code-paths-method:focus-visible code {
-  text-decoration: underline;
-}
-
-.code-paths-indent {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.code-paths-async td {
-  background: var(--bs-tertiary-bg);
-}
-
-.code-paths-share-column {
-  width: 30%;
-}
-
-.code-paths-share {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.code-paths-share-track {
-  position: relative;
-  flex: 1 1 auto;
-  height: 0.6rem;
-  background: var(--bs-secondary-bg);
-  border-radius: var(--bootui-radius-xs);
-  overflow: hidden;
-}
-
-.code-paths-share-bar {
-  position: absolute;
-  inset: 0 auto 0 0;
-  min-width: 2px;
-  background: var(--bootui-text-muted);
-  border-radius: var(--bootui-radius-xs);
-}
-
-.code-paths-share-bar-top {
-  background: var(--bootui-green-dark);
-}
-
-.code-paths-share-value {
-  flex: 0 0 3.5rem;
-  text-align: end;
-}
-
 .code-paths-limitations summary {
   cursor: pointer;
 }
 
-.code-paths-call td {
-  color: var(--bs-secondary-color);
-  font-size: 0.875em;
+.code-paths-route-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.code-paths-search {
+  position: relative;
+  flex: 1 1 18rem;
+}
+
+.code-paths-search-icon {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0.85rem;
+  display: flex;
+  align-items: center;
+  color: var(--bootui-text-muted);
+  pointer-events: none;
+}
+
+.code-paths-route-search {
+  padding-inline-start: 2.3rem;
+}
+
+.code-paths-route-sort {
+  flex: 0 1 15rem;
+  width: auto;
+}
+
+.code-paths-routes {
+  background: var(--bootui-surface-solid);
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-lg);
+  box-shadow: var(--bootui-shadow-sm);
+  overflow: hidden;
+}
+
+.code-paths-route-row {
+  scroll-margin-top: 7rem;
+}
+
+.code-paths-route-row + .code-paths-route-row {
+  border-top: 1px solid var(--bootui-border);
+}
+
+.code-paths-route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 8.5rem auto;
+  align-items: center;
+  gap: 0.35rem 1.25rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 0;
+  background: transparent;
+  color: var(--bootui-text);
+  text-align: start;
+  transition: background-color 150ms ease;
+}
+
+.code-paths-route:focus-visible {
+  outline-offset: -2px;
+}
+
+.code-paths-route:hover,
+.code-paths-route-row.open .code-paths-route {
+  background: var(--bootui-nav-hover-bg);
+}
+
+.code-paths-route-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.code-paths-route-name {
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.code-paths-verb {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.code-paths-route-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.9rem;
+  color: var(--bootui-text-muted);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.code-paths-route-top {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-paths-route-time {
+  display: grid;
+  gap: 0.35rem;
+  justify-items: end;
+}
+
+.code-paths-route-median {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.code-paths-route-bar {
+  display: block;
+  width: 100%;
+  height: 0.3rem;
+  border-radius: var(--bootui-radius-pill);
+  background: var(--bootui-border-alt);
+  overflow: hidden;
+}
+
+.code-paths-route-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--bootui-text-muted);
+}
+
+.code-paths-route-bar > .code-paths-route-bar-top {
+  background: var(--bootui-green-dark);
+}
+
+.code-paths-route-chevron {
+  color: var(--bootui-text-muted);
+  transition: transform 150ms ease;
+}
+
+.code-paths-route-row.open .code-paths-route-chevron {
+  transform: rotate(180deg);
+}
+
+.code-paths-route-detail {
+  padding: 1rem 1.25rem 1.25rem;
+  border-top: 1px solid var(--bootui-border);
+}
+
+.code-paths-probes-anchor {
+  scroll-margin-top: 7rem;
+}
+
+@media (max-width: 575.98px) {
+  .code-paths-route {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .code-paths-route-time {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    justify-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .code-paths-route-chevron {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .code-paths-route-detail {
+    padding: 0.85rem 0.75rem 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .code-paths-route,
+  .code-paths-route-chevron {
+    transition: none;
+  }
 }
 </style>

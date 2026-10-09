@@ -11,6 +11,7 @@ public final class McpRuntimeStats {
     private final LongAdder timeouts = new LongAdder();
     private final LongAdder responseLimitRefusals = new LongAdder();
     private final LongAdder cancellations = new LongAdder();
+    private final LongAdder progressDropped = new LongAdder();
 
     void recordCall(long latencyNanos) {
         callCount.increment();
@@ -33,6 +34,11 @@ public final class McpRuntimeStats {
         responseLimitRefusals.increment();
     }
 
+    /** A progress notification not sent because it would exceed {@code bootui.mcp.max-response-bytes}. */
+    public void recordProgressDropped() {
+        progressDropped.increment();
+    }
+
     public Snapshot snapshot() {
         return new Snapshot(
                 callCount.sum(),
@@ -40,7 +46,8 @@ public final class McpRuntimeStats {
                 capacityRefusals.sum(),
                 timeouts.sum(),
                 responseLimitRefusals.sum(),
-                cancellations.sum());
+                cancellations.sum(),
+                progressDropped.sum());
     }
 
     public record Snapshot(
@@ -49,5 +56,6 @@ public final class McpRuntimeStats {
             long capacityRefusals,
             long timeouts,
             long responseLimitRefusals,
-            long cancellations) {}
+            long cancellations,
+            long progressDropped) {}
 }

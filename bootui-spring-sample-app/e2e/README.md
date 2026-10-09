@@ -114,13 +114,14 @@ npm run test:agent:opentelemetry-last
 npm run test:agent:jacoco
 ```
 
-To explore the sample with the agent attached by hand, against PostgreSQL, run
-`./bootui-spring-sample-app/run-local-agent.sh` from the repository root (see the sample's README).
+To explore the sample with the agent attached by hand, run `./bootui-spring-sample-app/run-local-agent.sh` from the
+repository root: the Docker-free `dev` profile with the agent's default sensors (see the sample's README).
 
 Set `SERVER_PORT` with `BOOTUI_AGENT_SAMPLE_PORT` to run it beside another sample.
 
 `playwright.webflux-agent.config.js` runs the whole WebFlux suite (`tests-webflux/`) against the reactive sample with the
-agent attached, plus `tests-webflux-agent/` (work after the response on a raw pool). Its Java Agent, Code Inventory, and
+agent attached, plus `tests-webflux-agent/` (work after the response on a raw pool, caught exceptions, change impact
+by a method the handler's subscription ran, and a metadata-only method probe started and stopped). Its Java Agent, Code Inventory, and
 Code Paths specs read the same `agentAttached` option and assert the armed claim with the three default sensors, the
 run's inventory, and the assembly-only route trees. Set `BOOTUI_WEBFLUX_AGENT_PORT` to run it beside another sample; it
 passes the port to the application too:

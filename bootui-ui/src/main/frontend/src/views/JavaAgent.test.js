@@ -69,7 +69,6 @@ describe('Java Agent panel', () => {
 
     expect(wrapper.text()).toContain('Not attached')
     expect(wrapper.text()).toContain('This JVM runs without the BootUI agent')
-    expect(wrapper.text()).toContain('No sensor installed: the agent installs the sensors this application asks for')
     expect(wrapper.text()).toContain('MAVEN')
     expect(wrapper.get('#java-agent-tab-maven-download').attributes('aria-selected')).toBe('true')
     expect(wrapper.get('#java-agent-tab-surefire').attributes('aria-selected')).toBe('false')
@@ -88,6 +87,81 @@ describe('Java Agent panel', () => {
     expect(wrapper.text()).toContain('Copied!')
     expect(fetch).toHaveBeenCalledWith('api/java-agent', {})
   })
+
+  it('opens on the setup and what the agent adds while it is not attached, without the attached-only sections', async () => {
+    wrapper = mountPanel({...baseReport, warnings: ['A stale agent jar is on the class path']})
+    await flushPromises()
+
+    const sections = wrapper.findAll('section').map((section) => section.attributes('aria-labelledby'))
+    expect(sections).toEqual([
+      'java-agent-state-title',
+      'java-agent-setup-title',
+      'java-agent-about-title',
+      'java-agent-warnings-title'
+    ])
+    expect(wrapper.get('#java-agent-setup-title').text()).toBe('Attach the agent')
+    const steps = wrapper.get('[data-testid="java-agent-setup-steps"]').findAll('li')
+    expect(steps).toHaveLength(3)
+    expect(steps[0].text()).toContain('Download the agent')
+    expect(steps[2].text()).toContain('Armed')
+    expect(steps[2].text()).toContain('the status above says why')
+
+    const about = wrapper.get('[aria-labelledby="java-agent-about-title"]')
+    expect(about.text()).toContain('A Java agent is a JAR the JVM loads at start-up')
+    expect(about.text()).toContain('does nothing on its own')
+    for (const feature of [
+      'Code Inventory',
+      'Code Paths',
+      'Side Effects',
+      'Caught exceptions',
+      'Thread pools',
+      'Vulnerabilities',
+      'Runtime Insights'
+    ]) {
+      expect(about.findAll('dt').map((term) => term.text())).toContain(feature)
+    }
+    expect(about.text()).toContain('claims it automatically when this application starts')
+    expect(about.text()).toContain('The other panels work without it')
+    expect(about.text()).not.toContain('Every other panel')
+    expect(about.text()).toContain('overhead budget of 10%')
+    expect(about.text().replace(/\s+/g, ' ')).toContain(
+      'has its own memory ceiling, apart from the runtime journal and the agent’s ring: about 68 MB by default, set ' +
+        'with bootui.runtime-journal.agent-evidence-max-bytes. It is a ceiling, not memory taken up front.'
+    )
+
+    const text = wrapper.text()
+    for (const absent of ['Versions & runtime facts', 'No active claim', 'Runtime switches', 'No sensor installed']) {
+      expect(text).not.toContain(absent)
+    }
+    expect(wrapper.findAll('[role="tablist"]')).toHaveLength(1)
+  })
+
+  it('skips the download step once the jar is found', async () => {
+    const snippets = baseReport.setup.snippets.filter((snippet) => snippet.id !== 'maven-download')
+    wrapper = mountPanel({...baseReport, setup: {...baseReport.setup, jarFound: true, snippets}})
+    await flushPromises()
+
+    const steps = wrapper.get('[data-testid="java-agent-setup-steps"]').findAll('li')
+    expect(steps).toHaveLength(2)
+    expect(steps[0].text()).toContain('-javaagent')
+  })
+
+  it.each(['DORMANT', 'UNAVAILABLE', 'DISABLED'])(
+    'keeps the diagnosis first and the setup snippets last when the state is %s',
+    async (state) => {
+      wrapper = mountPanel({...baseReport, state, reason: 'Some reason.'})
+      await flushPromises()
+
+      const sections = wrapper.findAll('section').map((section) => section.attributes('aria-labelledby'))
+      expect(sections[0]).toBe('java-agent-state-title')
+      expect(sections.at(-1)).toBe('java-agent-setup-title')
+      expect(sections).toContain('java-agent-sensors-title')
+      expect(sections).not.toContain('java-agent-about-title')
+      expect(wrapper.get('#java-agent-setup-title').text()).toBe('Setup snippets')
+      expect(wrapper.find('[data-testid="java-agent-setup-steps"]').exists()).toBe(false)
+      expect(wrapper.text()).toContain('No sensor installed: the agent installs the sensors this application asks for')
+    }
+  )
 
   it('shows an armed claim with packages and runtime counters', async () => {
     wrapper = mountPanel({
@@ -206,6 +280,7 @@ describe('Java Agent panel', () => {
             ambiguous: 0,
             stale: 0,
             refused: 0,
+            overflow: 4,
             virtualSkipped: 0,
             periodicSkipped: 2,
             skippedTasks: 5,
@@ -231,6 +306,8 @@ describe('Java Agent panel', () => {
     expect(text).toContain('Never applied 3')
     expect(text).toContain('pools whose workers started before the claim')
     expect(text).toContain('Periodic tasks skipped 2')
+    expect(text).toContain('Over the limit 4')
+    expect(text).toContain('while 32,768 were already pending')
     expect(text).not.toContain('No sensor installed')
     expect(wrapper.find('[aria-labelledby="java-agent-hooks-executors"]').exists()).toBe(true)
   })
@@ -269,6 +346,7 @@ describe('Java Agent panel', () => {
             ambiguous: 0,
             stale: 0,
             refused: 0,
+            overflow: 1,
             virtualSkipped: 0,
             periodicSkipped: 0,
             skippedTasks: 0,
@@ -290,6 +368,8 @@ describe('Java Agent panel', () => {
     expect(text).toContain('inactive')
     expect(text).toContain('Library threads skipped 6')
     expect(text).toContain('Pool workers skipped 2')
+    expect(text).toContain('Over the limit 1')
+    expect(text).toContain('threads started from owned work while 32,768 were already pending')
     expect(text).not.toContain('Periodic tasks skipped')
     expect(wrapper.find('[aria-labelledby="java-agent-hooks-threads"]').exists()).toBe(true)
   })
@@ -508,7 +588,7 @@ describe('Java Agent panel', () => {
   })
 
   it('says the opt-in switches need an armed claim, and lists them with their reasons once armed', async () => {
-    wrapper = mountPanel()
+    wrapper = mountPanel({...baseReport, state: 'DORMANT'})
     await flushPromises()
     expect(wrapper.get('[data-testid="java-agent-toggles-unavailable"]').text()).toContain(
       'once the BootUI agent is attached and this application holds its claim'
@@ -551,7 +631,7 @@ describe('Java Agent panel', () => {
     wrapper = mount(JavaAgent, {global: {provide: {panels}}})
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Opt-in sensors')
+    expect(wrapper.text()).toContain('Runtime switches')
     expect(wrapper.get('[data-testid="agent-sensor-toggle-threads"]').text()).toContain('retransforms java.lang.Thread')
     const environment = wrapper.get('[data-testid="agent-sensor-toggle-environment"]')
     expect(environment.get('input').element.checked).toBe(true)

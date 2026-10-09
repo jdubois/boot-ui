@@ -116,7 +116,16 @@ class BootUiAgentClaimEnvironmentPostProcessorTests {
         Map<String, Object> request = FakeBridge.REQUESTS.get(0);
         assertThat(request)
                 .containsEntry(
-                        "sensors", List.of("executors", "inventory", "code-paths", "processes", "network", "blocking"));
+                        "sensors",
+                        List.of(
+                                "executors",
+                                "inventory",
+                                "code-paths",
+                                "processes",
+                                "network",
+                                "files",
+                                "blocking",
+                                "resources"));
         assertThat(request).as("rounded up to a power of two").containsEntry("ringCapacity", 8192);
         assertThat((Map<String, Object>) request.get("executors"))
                 .containsEntry("skipTasks", List.of("com.acme.Wrapper"))
@@ -175,6 +184,46 @@ class BootUiAgentClaimEnvironmentPostProcessorTests {
 
         assertThat(FakeBridge.CALLS).containsExactly("release test:petclinic");
         assertThat(application.getInitializers()).hasSize(initializers);
+    }
+
+    @Test
+    void bootUiForcedOnInAProductionProfileReleasesTheAgentInsteadOfClaimingIt() {
+        SpringApplication application = new SpringApplication(SampleApplication.class);
+        int initializers = application.getInitializers().size();
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("bootui.enabled", "ON")
+                .withProperty("bootui.agent.mode", "dev")
+                .withProperty("spring.application.name", "petclinic");
+        environment.setActiveProfiles("prod");
+
+        withBridge.postProcessEnvironment(environment, application);
+
+        assertThat(FakeBridge.CALLS).containsExactly("release dev:petclinic");
+        assertThat(application.getInitializers()).hasSize(initializers);
+        assertThat(AgentProfileGuard.refusal(
+                        io.github.jdubois.bootui.autoconfigure.BootUiActivationCondition.resolve(
+                                environment, getClass().getClassLoader()),
+                        environment))
+                .contains("disabled profile 'prod'", AgentProfileGuard.ALLOW_IN_DISABLED_PROFILES + "=true");
+    }
+
+    @Test
+    void anExplicitOptInClaimsTheAgentInADisabledProfile() {
+        SpringApplication application = new SpringApplication(SampleApplication.class);
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("bootui.enabled", "ON")
+                .withProperty(AgentProfileGuard.ALLOW_IN_DISABLED_PROFILES, "true")
+                .withProperty("spring.application.name", "petclinic");
+        environment.setActiveProfiles("production");
+
+        withBridge.postProcessEnvironment(environment, application);
+
+        assertThat(FakeBridge.CALLS).containsExactly("claim");
+        assertThat(AgentProfileGuard.refusal(
+                        io.github.jdubois.bootui.autoconfigure.BootUiActivationCondition.resolve(
+                                environment, getClass().getClassLoader()),
+                        environment))
+                .isNull();
     }
 
     @Test

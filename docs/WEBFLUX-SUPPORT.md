@@ -16,15 +16,12 @@ status where they don't.
 
 ## 2. Current status
 
-The WebFlux adapter serves the large majority of the panel surface — the same 64-panel manifest the servlet adapter
-reports, including the view-only **Java Agent** and **Code Inventory** panels and **Code Paths** with its method probes, minus the one panel (**HTTP Sessions**, §6.7) that stays
-unavailable for stack reasons. Every available
 The WebFlux adapter serves the large majority of the panel surface — the same 65-panel manifest the servlet adapter
-reports, including the view-only **Java Agent**, **Code Inventory**, **Code Paths**, and **Side Effects** panels, minus
-the one panel (**HTTP Sessions**, §6.7) that stays unavailable for stack reasons. Every available
+reports, including the view-only **Java Agent**, **Code Inventory**, and **Side Effects** panels and **Code Paths** with
+its method probes, minus the one panel (**HTTP Sessions**, §6.7) that stays unavailable for stack reasons. Every available
 action-capable panel behaves identically to the servlet adapter, behind the same shared `LocalhostGuard` write floor.
 
-**R2DBC statements are not recorded** (D39). BootUI records SQL through a traced JDBC `DataSource`, so an application
+**R2DBC statements are not recorded.** BootUI records SQL through a traced JDBC `DataSource`, so an application
 that reaches its database through R2DBC shows no statements, connections, or SQL timings in the runtime journal: the
 SQL Trace panel stays empty, Runtime Insights names this first among its limitations, and its checks that read SQL
 report `UNAVAILABLE` rather than finding nothing. An application with both a traced JDBC pool and R2DBC sees only its
@@ -213,18 +210,20 @@ were already framework-neutral in practice, not just in the engine underneath th
     request scope's owner slot is not yet filled on the schedulers Reactor restores the context on (pending for the
     hot sensors of later slices); otherwise the row is attributed under its thread family. The `network` sensor
     (M5-5b) records connects, datagrams, and lookups the same way; a WebClient's connect on a Reactor Netty event loop
-    is unowned and captured by a REST client call at the same time. The opt-in `files` and `environment` sensors
+    is unowned and captured by a REST client call at the same time. The `files` and the opt-in `environment` sensors
     (M5-5d) capture the owner when no slot names one, too. The `blocking` sensor (M5-5c) records too: the WebFlux
     adapter registers Reactor Netty's event loops with it from the first request each serves, and, for a WebClient built
     from Spring Boot's `WebClient.Builder` with REST client tracing on, from the first response each delivers; Reactor's `parallel` and `boundedElastic` threads are never event loops. The opt-in
     `thread-activity` sensor (M5-5e) records too, capturing the owner the same way; a request's end, which it checks
     for what the request left running, is when its filter chain terminates. Reactor's and Reactor Netty's own threads
-    are a library's. The opt-in `thread-locals` sensor (M5-5f) never scans an event loop: a Reactor schedule hook scans
+    are a library's. The `resources` sensor (M5-5g), on by default, hears the same request end, whether `thread-activity` is on
+    or not. The opt-in `thread-locals` sensor (M5-5f) never scans an event loop: a Reactor schedule hook scans
     around each task a `boundedElastic` worker (or another scheduler's) runs, owned once Reactor's automatic context
     propagation makes a request's context current inside it, so it needs `spring.reactor.context-propagation=auto`, the
     default, and platform threads: with
     `spring.threads.virtual.enabled` on Java 21 and later, `boundedElastic` runs on virtual threads, never scanned. The
-    other sensor groups are listed as not available in this version. The opt-in `security-sinks` sensor's request-value
+    other sensor groups are listed as not available in this version. The opt-in `security-sinks` sensor's JDK checks
+    (deserialization without a filter, weak algorithms, trust managers) record on WebFlux as on Spring MVC; its request-value
     matching (M5-6b1) holds the query parameters WebFlux already parsed and reads the path variables from the exchange
     once its handler mapping set them, at the request's first check; it never subscribes to the form data, so form
     values are not matched on WebFlux. SQL text is not checked with R2DBC, which SQL Trace does not capture; file paths,
@@ -236,7 +235,8 @@ were already framework-neutral in practice, not just in the engine underneath th
     all, neither a recorded call nor authentication time, is insufficient rather than one unattributed span;
     `lazy-sql-after-handler` is not applicable. BootUI records
     JDBC, not R2DBC, so in an application without a traced `DataSource` the checks that read SQL report `UNAVAILABLE`
-    with that reason; only blocking transactions are placed. With the BootUI agent attached,
+    with that reason; a reactive transaction is placed in a request only when its pipeline carried the request's
+    context to the thread it began on. With the BootUI agent attached,
     `work-after-response` applies as on Spring MVC. Reactor's own schedulers already carry BootUI's context when
     `spring.reactor.context-propagation=auto`, so the agent's executors sensor then skips their `parallel-`,
     `boundedElastic-`, and `single-` threads; raw executors and `CompletableFuture` are propagated by the agent.
@@ -311,7 +311,7 @@ assets still target a JVM process and Spring's checkpoint lifecycle; they do not
 | Panel          | Reactive binding                                                                                          |
 | -------------- | ---------------------------------------------------------------------------------------------------------- |
 | HTTP Exchanges | `ReactiveHttpExchangeRepositoryConfiguration` supplies BootUI's failure-preserving `BootUiHttpExchangeRepository` and `BootUiHttpExchangesWebFilter`, a subclass of Actuator's reactive `HttpExchangesWebFilter`, instead of the servlet filter — same DTO, same UI, same capture semantics, including skipping BootUI's own requests below the WebFlux base path and the shared `bootui.activity.request-slow-threshold-ms`. Route rankings take the WebFlux handler pattern from `HttpExchangeTraceRegistry`, which `ReactiveHttpExchangeTraceFilter` fills only when OpenTelemetry is present, as it is with the BootUI starter. Without OpenTelemetry, a path is matched against the WebFlux routes the Mappings provider reads from Actuator's `dispatcherHandlers` descriptions, as on Spring MVC; a path no declared route matches falls back to a masked path, and the rankings state that limitation |
-| MCP Server     | `ReactiveBootUiMcpController` — same `BootUiMcpService`, `McpServerState`, and `McpProtocol` as the servlet `BootUiMcpController`; only the transport differs (`DataBuffer` payload assembly with the same `bootui.mcp.max-payload-bytes` limit, and tool execution offloaded to `Schedulers.boundedElastic()`) |
+| MCP Server     | `ReactiveBootUiMcpController` — same `BootUiMcpService`, `McpServerState`, and `McpProtocol` as the servlet `BootUiMcpController`; only the transport differs (`DataBuffer` payload assembly with the same `bootui.mcp.max-payload-bytes` limit, and tool execution offloaded to `Schedulers.boundedElastic()`); a modern progress call streams a `Flux<ServerSentEvent<String>>` whose cancelled subscription cancels the call |
 | Command Line   | `ReactiveBootUiCliController` — same `CliService` and the same `/bootui/api/cli` contract and statuses as the servlet `BootUiCliController`, with tool invocation offloaded to `Schedulers.boundedElastic()` because BootUI's tools call blocking diagnostics |
 
 ::: details REST API declared error contract needs no reactive binding
@@ -348,7 +348,7 @@ depended on `SseEmitter` (SQL Trace, Log Tail, Security Logs, Exceptions, REST C
 | Transactions  | `ReactiveTransactionsController` over `ReactiveBootUiChangeStream`, feeding the same `TransactionRecorder`. See the fidelity note below. |
 | Log Tail      | `ReactiveLogTailController` — same `LogTailBuffer`/Logback appender, SSE via `ReactiveBootUiChangeStream`.                |
 | Security Logs | `ReactiveSecurityLogsController` over a fallback `InMemoryAuditEventRepository` (Spring's audit-event bus is framework-neutral, so no reactive-specific capture code was needed). |
-| Exceptions    | `ReactiveExceptionsController` + new `ReactiveBootUiExceptionHandler` (a `WebExceptionHandler` at `HIGHEST_PRECEDENCE`, replacing the servlet `HandlerExceptionResolver`); see the fidelity note below. The **Caught in application code** section (`GET /exceptions/caught`, PLAN-v2 M5-6) is shared; a cancelled request, published with status 0 before the error handlers run, keeps its caught exceptions unknown, and a log written on a Reactor thread without a request id counts only on the catching thread. |
+| Exceptions    | `ReactiveExceptionsController` + new `ReactiveBootUiExceptionHandler` (a `WebExceptionHandler` at `HIGHEST_PRECEDENCE`, replacing the servlet `HandlerExceptionResolver`); see the fidelity note below. The **Caught in application code** section (`GET /exceptions/caught`) is shared; a cancelled request, published with status 0 before the error handlers run, keeps its caught exceptions unknown, and a log written on a Reactor thread without a request id counts only on the catching thread. |
 | Copilot       | `ReactiveCopilotController` over the same `AgentSessionStore`, SSE via `ReactiveBootUiChangeStream`.                      |
 | Claude Code   | `ReactiveClaudeCodeController` over the same `AgentSessionStore`, SSE via `ReactiveBootUiChangeStream`.                   |
 | REST Client   | `ReactiveRestClientTraceController` — same `RestClientTraceRecorder`, SSE via `ReactiveBootUiChangeStream`. See the fidelity note below. |
@@ -372,12 +372,19 @@ candidate list. Statement rankings are unaffected.
 
 **Transactions.** Capture is identical to the servlet adapter: BootUI contributes a `TransactionExecutionListener`
 through Spring Boot's standard transaction-manager customization and completes registration for user-defined
-`ConfigurableTransactionManager` beans after singleton initialization, observing any configurable blocking transaction
-manager a WebFlux application still uses (e.g. JDBC repositories behind a thread-blocking data access layer). *Fidelity
-gap, accepted:* a WebFlux application backed only by a `ReactiveTransactionManager` (R2DBC) has no
-`ConfigurableTransactionManager` bean to observe — Spring's transaction-execution listener hook exists solely on the
-blocking SPI — so the panel reports "No configurable PlatformTransactionManager bean is available" rather than silently
-showing an empty table.
+`ConfigurableTransactionManager` beans after singleton initialization. That covers the blocking transaction managers a
+WebFlux application still uses, such as `@Transactional` JDBC work run on a Reactor `boundedElastic` worker, and a
+`ReactiveTransactionManager` such as R2DBC's, which implements the same listener SPI: each callback names its
+transaction by the execution Spring passes to every callback of one boundary, so a reactive transaction that begins on
+one thread and commits on another is recorded once, with the right outcome. A reactive transaction has no thread-bound
+parent or JDBC isolation, so it is recorded as a new transaction with an `UNKNOWN` isolation. An application with no
+configurable transaction manager reports "No configurable transaction manager bean is available" rather than
+silently showing an empty table. The sample's `GET /api/sample/transaction-samples` runs a commit, a slow commit, and a
+rollback, which `WebFluxTransactionsIntegrationTest` and `tests-webflux/transactions.spec.js` check.
+Reactive support covers physical transaction begin/commit/rollback callbacks, not a complete reactive transaction
+hierarchy: parent relationships and nested/savepoint boundaries are not inferred. SQL and connection counts remain
+JDBC-only, matched by the begin thread and time window; they do not capture R2DBC statements or JDBC work moved to
+another thread. Zero counts therefore do not prove that a reactive transaction performed no database work.
 
 **Exceptions.** *Known fidelity gap, accepted, documented in code (`ReactiveBootUiExceptionHandler`'s Javadoc):* a
 `@RestController`'s own local `@ExceptionHandler` method consumes an exception *inside* the WebFlux dispatch pipeline,
@@ -400,14 +407,16 @@ fabricates a frame log or an empty capture buffer. There is likewise no reactive
 client is connected. Each message a `WebSocketHandler` receives is still an execution in the runtime journal: BootUI
 takes the place of WebFlux's own `WebSocketHandlerAdapter` (an application subclass is left alone) and opens a context
 around the synchronous delivery of each data message, so a blocking query in a `map` nests under it, while work moved to
-another scheduler joins the context Reactor restores there ([PLAN-v2.md](PLAN-v2.md) §5.18, M4-10).
+another scheduler joins the context Reactor restores there.
 
 :::
 
 ### 6.4 Rebuilt as a merge over already-reactive signals (1 panel)
 
 Live Activity needed no new *capture* pipeline for any of its **nine** merged signal types — they were all already
-captured reactively or by framework-neutral engine buffers.
+captured reactively or by framework-neutral engine buffers. By default (`bootui.activity.feed-source=journal`) the feed
+renders the runtime journal's retained events, as on every stack; the merge below serves the `buffers` source, and the
+feed when the journal is disabled.
 
 | Panel         | Reactive source                                                                                                          |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -489,7 +498,7 @@ overridable default (the same "library default, host always wins" pattern used f
 (`io.micrometer.context.ContextRegistry`, which Micrometer Tracing brings) is present — see §7 for how this was found.
 
 **BootUI's own request id.** `ReactiveRequestCorrelationFilter` gives every application request BootUI's request id
-(`docs/PLAN-v2.md` §5.1) with or without OpenTelemetry. It is an `HttpHandlerDecoratorFactory`, so it wraps WebFlux's
+with or without OpenTelemetry. It is an `HttpHandlerDecoratorFactory`, so it wraps WebFlux's
 exception handlers and the response commit as well as the filter chain. It writes the id into the Reactor context, and
 `BootUiCorrelationThreadLocalAccessor` exposes it to Micrometer context propagation, so the same `auto` mode restores it
 on every scheduler hop. As a WebFilter it also keeps it on the `ServerWebExchange`. BootUI's exchange repository stamps
@@ -656,8 +665,8 @@ scheduler hops a WebFlux request constantly makes (Netty event loop → `bounded
 JDBC → `parallel`), so `Span.current()` returned a valid span only by coincidence, on whichever thread a request
 happened to still be on. Every new trace-stamping capture point read `null`/an invalid span in practice despite being
 wired correctly. Fixed by having `BootUiActuatorDefaultsEnvironmentPostProcessor` contribute
-`spring.reactor.context-propagation=auto` as an overridable default whenever the application is reactive and the
-OpenTelemetry SDK is present. Confirmed by hitting the running sample app directly (`/api/notes`, `/api/sample/boom`)
+`spring.reactor.context-propagation=auto` as an overridable default whenever the application is reactive and
+Micrometer context propagation (`io.micrometer.context.ContextRegistry`) is present. Confirmed by hitting the running sample app directly (`/api/notes`, `/api/sample/boom`)
 and checking `/bootui/api/http-exchanges`, `/bootui/api/sql-trace`, `/bootui/api/exceptions`, and `/bootui/api/activity`
 for populated, correctly-nested (`parentId`) trace ids — none of which a unit test asserts.
 
@@ -666,17 +675,18 @@ for populated, correctly-nested (`parentId`) trace ids — none of which a unit 
 ## 8. Sample app & end-to-end testing
 
 - **`bootui-spring-webflux-sample-app`** is a minimal WebFlux app (Netty, `spring-boot-starter-webflux`, deliberately no
-  `spring-boot-starter-web`) with `notes`/`scheduling`/`greeting` packages, seeded with a scheduled task and an H2
-  datasource (Flyway + Liquibase migrations on separate baselined schemas) so the data-source-backed panels (Flyway,
+  `spring-boot-starter-web`) with `notes`/`scheduling`/`greeting`/`transactions` packages, seeded with a scheduled task
+  and an H2 datasource (Flyway + Liquibase migrations on separate baselined schemas) so the data-source-backed panels (Flyway,
   Liquibase, Database Connection Pools, SQL Trace, PostgreSQL) have something real to show or a truthful wrong-vendor
   skip.
 - **`bootui-conformance`** gained `expected-panels-webflux.json` — identical to `expected-panels-spring.json` except
   `platform: "spring-boot-reactive"`, itself evidence the shared-contract thesis holds even in the golden fixture — and
   the sample app's `WebFluxApiConformanceTest extends AbstractBootUiApiConformanceTest` reuses the entire shared HTTP
   contract suite for free, exactly as the Quarkus adapter does.
-- **`bootui-spring-sample-app/e2e/playwright.webflux.config.js`** and `tests-webflux/webflux-smoke.spec.js` are a second,
-  separate Playwright config and test directory (not a new npm project), so the default `npm test` run against the
-  servlet sample app is untouched. The WebFlux suite checks the platform manifest, navbar branding, a representative
+- **`bootui-spring-sample-app/e2e/playwright.webflux.config.js`** and `tests-webflux/` are a second, separate Playwright
+  config and test directory (not a new npm project), so the default `npm test` run against the servlet sample app is
+  untouched. Besides per-panel specs for the advisors, PostgreSQL, MySQL, Runtime Insights, and the Java agent panels,
+  `webflux-smoke.spec.js` checks the platform manifest, navbar branding, a representative
   sample of ported panels rendering cleanly (now including Live Activity and the MCP Server panel), that `http-sessions`
   shows its WebFlux-specific reason in both the sidebar and the panel alert, and that the Security advisor (`security`)
   is available and can be scanned.
@@ -705,6 +715,5 @@ sample app — but is easy to trip over when smoke-testing a freshly built react
 
 ## 10. Future work
 
-- Deeper Live Activity correlation for requests with no active tracing span at all (today: trace-id-primary only, now
-  matching the Quarkus adapter exactly since `Span.current()` is stamped unconditionally at every capture point — see
-  §6.4).
+- R2DBC statement capture (§2): BootUI records SQL through a traced JDBC `DataSource` only, so R2DBC statements are not
+  yet recorded.

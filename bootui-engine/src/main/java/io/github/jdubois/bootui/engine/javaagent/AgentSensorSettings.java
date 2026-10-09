@@ -13,9 +13,10 @@ import java.util.List;
  * ({@code bootui.agent.ring-capacity}).
  *
  * @param sensors the sensors to install: {@code executors}, {@code inventory}, {@code code-paths}, {@code processes},
- *     {@code network}, and {@code blocking}, and the opt-in {@code threads}, {@code files}, {@code environment},
- *     {@code thread-activity}, {@code caught-exceptions}, and {@code security-sinks}; the Side Effects sensors this
- *     version does not ship are accepted ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
+ *     {@code network}, {@code files}, {@code blocking}, and {@code resources}, and the opt-in {@code threads},
+ *     {@code environment}, {@code thread-activity}, {@code thread-locals}, {@code caught-exceptions}, and
+ *     {@code security-sinks}; the Side Effects sensors this version does not ship are accepted
+ *     ({@link #NOT_AVAILABLE_SENSORS}), and any other id is rejected
  * @param skipTasks task class-name prefixes the propagation sensors never propagate
  * @param skipThreads thread-name prefixes the propagation sensors never propagate to
  * @param maxHandoff how long a handoff's work is attributed to its request
@@ -61,15 +62,16 @@ public record AgentSensorSettings(
 
     /**
      * The Side Effects sensor recording the files the application reads and writes (M5-5d, §5.16), never contents: path
-     * patterns, with class loading, the JDK's own files, and logging appenders grouped apart; opt-in (D37), as its
-     * cumulative overhead on the benchmark's I/O route reached the 10 % budget.
+     * patterns, with class loading, the JDK's own files, and logging appenders grouped apart; on by default (D49), and
+     * switched off and on at run time (M5-14).
      */
     public static final String FILES = "files";
 
     /**
      * The Side Effects sensor recording the environment variables and system properties the application reads by name
-     * (M5-5d, §5.16), never their values; opt-in (D37), as it advises {@code System.getProperty}, which frameworks call
-     * often.
+     * (M5-5d, §5.16), never their values; opt-in (D49), and switched on and off at run time (M5-14). It advises
+     * {@code System.getProperty}: about 23–28 ns per read instead of 5–6 ns, which the overhead job measured at several
+     * percent on a route reading fifty properties per request.
      */
     public static final String ENVIRONMENT = "environment";
 
@@ -97,6 +99,15 @@ public record AgentSensorSettings(
     public static final String THREAD_LOCALS = "thread-locals";
 
     /**
+     * The Side Effects sensor reporting the streams, channels, and sockets a request's or a job's work opened and left
+     * open past the request's end, or that became unreachable while never closed (M5-5g, §5.16, D46), never their
+     * contents. It tracks what the {@code files} and {@code network} sensors record, so sockets and file streams by
+     * default, and advises the JDK's close methods. On by default (D47, an exception to D37):
+     * its same-runner A/B measured -0.5 % own and 6.9 % cumulative, within the 3 % and 10 % budgets.
+     */
+    public static final String RESOURCES = "resources";
+
+    /**
      * The sensor reporting the exceptions application code catches (M5-6a): opt-in until its overhead is measured
      * against the default sensors' budget (D21, D37).
      */
@@ -110,8 +121,16 @@ public record AgentSensorSettings(
     public static final String SECURITY_SINKS = "security-sinks";
 
     /** The Side Effects sensors this version ships. */
-    public static final List<String> SIDE_EFFECT_SENSORS =
-            List.of(PROCESSES, NETWORK, FILES, ENVIRONMENT, BLOCKING, THREAD_ACTIVITY, THREAD_LOCALS, SECURITY_SINKS);
+    public static final List<String> SIDE_EFFECT_SENSORS = List.of(
+            PROCESSES,
+            NETWORK,
+            FILES,
+            ENVIRONMENT,
+            BLOCKING,
+            THREAD_ACTIVITY,
+            THREAD_LOCALS,
+            SECURITY_SINKS,
+            RESOURCES);
 
     /** Every sensor id this version installs. */
     public static final List<String> KNOWN_SENSORS = List.of(
@@ -126,6 +145,7 @@ public record AgentSensorSettings(
             BLOCKING,
             THREAD_ACTIVITY,
             THREAD_LOCALS,
+            RESOURCES,
             CAUGHT_EXCEPTIONS,
             SECURITY_SINKS);
 
@@ -133,25 +153,29 @@ public record AgentSensorSettings(
      * The Side Effects sensors the panel lists but this version does not ship ({@code docs/PLAN-v2.md} §5.16):
      * {@code bootui.agent.sensors} accepts them, with a warning, and the panel reports them not available.
      */
-    public static final List<String> NOT_AVAILABLE_SENSORS = List.of("resources");
+    public static final List<String> NOT_AVAILABLE_SENSORS = List.of();
 
     /** The default {@code bootui.agent.sensors}. */
     public static final List<String> DEFAULT_SENSORS =
-            List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, BLOCKING);
+            List.of(EXECUTORS, INVENTORY, CODE_PATHS, PROCESSES, NETWORK, FILES, BLOCKING, RESOURCES);
 
     /**
-     * The sensors this version ships off by default, which the Java Agent and Side Effects panels switch on and off at
-     * run time ({@code docs/PLAN-v2.md} M5-14). {@code caught-exceptions} (M5-6a), also off by default, is not switched at
-     * run time: its visit of every application class is installed with the claim only.
+     * The sensors the Java Agent and Side Effects panels switch off and on at run time ({@code docs/PLAN-v2.md} M5-14),
+     * those the agent installs and removes without a new claim: the opt-in {@link #OPT_IN_SENSORS}, and {@code files},
+     * on by default (D49). The other default sensors are installed with the claim only, as is
+     * {@code caught-exceptions} (M5-6a), off by default, whose visit of every application class is.
      */
-    public static final List<String> OPT_IN_SENSORS =
+    public static final List<String> SWITCHABLE_SENSORS =
             List.of(THREADS, FILES, ENVIRONMENT, THREAD_ACTIVITY, THREAD_LOCALS);
 
+    /** The switchable sensors this version ships off by default. */
+    public static final List<String> OPT_IN_SENSORS = List.of(THREADS, ENVIRONMENT, THREAD_ACTIVITY, THREAD_LOCALS);
+
     /**
-     * Why {@code id}, one of {@link #OPT_IN_SENSORS}, is off by default, as the panels show it beside its switch; or
-     * {@code null} for any other sensor.
+     * Why {@code id}, one of {@link #SWITCHABLE_SENSORS}, is off, or on, by default, as the panels show it beside its
+     * switch; or {@code null} for any other sensor.
      */
-    public static String optInReason(String id) {
+    public static String defaultReason(String id) {
         if (id == null) {
             return null;
         }
@@ -160,11 +184,13 @@ public record AgentSensorSettings(
                 "Off by default: it retransforms java.lang.Thread, the riskiest JDK class to instrument, and a failed"
                         + " self-test leaves it off until the application restarts.";
             case FILES ->
-                "Off by default: with the default sensors, the agent's overhead on the benchmark's I/O route measured"
-                        + " about 10.6 %, over its 10 % budget.";
+                "On by default: it records the files the application opens, deletes, moves, and copies, as path"
+                        + " patterns, never their contents. Switch it off to stop recording them.";
             case ENVIRONMENT ->
-                "Off by default: it advises System.getProperty, which frameworks call often; a read takes about 23–28 ns"
-                        + " with it instead of 5–6 ns.";
+                "Off by default: it records the names of the environment variables and system properties the"
+                        + " application reads, never their values, but each System.getProperty call from application code"
+                        + " takes about 20 ns more with it. On a route reading fifty properties per request, that cost"
+                        + " 6.8 % of throughput, over its 3 % budget. Switch it on to see what the application reads.";
             case THREAD_ACTIVITY ->
                 "Off by default: on a route that starts a thread per request, it added about 11.5 % to the agent's"
                         + " overhead, 16.6 % with the default sensors, over the 3 % and 10 % budgets.";
@@ -215,8 +241,10 @@ public record AgentSensorSettings(
             if (!KNOWN_SENSORS.contains(sensor) && !NOT_AVAILABLE_SENSORS.contains(sensor)) {
                 throw new IllegalArgumentException("bootui.agent.sensors names an unknown sensor '" + sensor
                         + "': this version installs " + String.join(", ", KNOWN_SENSORS)
-                        + ", and Side Effects also lists " + String.join(", ", NOT_AVAILABLE_SENSORS)
-                        + ", which are not available in this version.");
+                        + (NOT_AVAILABLE_SENSORS.isEmpty()
+                                ? "."
+                                : ", and Side Effects also lists " + String.join(", ", NOT_AVAILABLE_SENSORS)
+                                        + ", which are not available in this version."));
             }
         }
         skipTasks = clean(skipTasks);
@@ -308,7 +336,7 @@ public record AgentSensorSettings(
         return sensors.contains(FILES);
     }
 
-    /** Whether the opt-in {@code environment} sensor is asked for. */
+    /** Whether the {@code environment} sensor is asked for. */
     public boolean environment() {
         return sensors.contains(ENVIRONMENT);
     }
@@ -326,6 +354,11 @@ public record AgentSensorSettings(
     /** Whether the {@code thread-locals} sensor is asked for. */
     public boolean threadLocals() {
         return sensors.contains(THREAD_LOCALS);
+    }
+
+    /** Whether the {@code resources} sensor is asked for. */
+    public boolean resources() {
+        return sensors.contains(RESOURCES);
     }
 
     /** Whether any Side Effects sensor is asked for. */

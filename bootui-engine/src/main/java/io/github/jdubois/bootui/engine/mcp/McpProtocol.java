@@ -1,8 +1,10 @@
 package io.github.jdubois.bootui.engine.mcp;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Protocol-level constants and canonical messages shared by both adapters' MCP transports.
@@ -183,7 +185,8 @@ public final class McpProtocol {
     public static final String META_CLIENT_CAPABILITIES_TYPE_MESSAGE =
             "_meta " + META_CLIENT_CAPABILITIES + " must be an object";
     /** Returned when a progress token is neither a string nor an integer. */
-    public static final String PROGRESS_TOKEN_TYPE_MESSAGE = "_meta progressToken must be a string or an integer";
+    public static final String PROGRESS_TOKEN_TYPE_MESSAGE =
+            "_meta progressToken must be an integer or a string of at most 128 characters";
 
     /**
      * The JSON-RPC error code to put on the wire for {@code era}: modern clients receive BootUI's server-defined codes
@@ -216,6 +219,14 @@ public final class McpProtocol {
     public static final String MISSING_JSONRPC_MESSAGE = "Request must include jsonrpc: \"2.0\"";
     /** Returned when a (non-notification) request omits {@code method}. */
     public static final String MISSING_METHOD_MESSAGE = "Missing 'method'";
+    /** Returned when a {@code prompts/get} names an argument the prompt does not declare. */
+    public static String unknownPromptArgumentMessage(String prompt, String argument, Collection<String> declared) {
+        return "Unknown argument for prompt " + prompt + ": " + argument + ". "
+                + (declared.isEmpty()
+                        ? "It takes no arguments."
+                        : "It takes " + String.join(", ", new TreeSet<>(declared)) + ".");
+    }
+
     /** Returned when the transport receives a batch request, which MCP Streamable HTTP forbids. */
     public static final String BATCH_NOT_SUPPORTED_MESSAGE =
             "JSON-RPC batch requests are not supported by MCP Streamable HTTP transport";
@@ -225,6 +236,8 @@ public final class McpProtocol {
     public static final String MISSING_TOOL_NAME_MESSAGE = "Missing tool name";
     /** Returned when a {@code prompts/get} request omits the prompt name. */
     public static final String MISSING_PROMPT_NAME_MESSAGE = "Missing prompt name";
+    /** Returned when {@code prompts/get.params.arguments} is present but is not a JSON object. */
+    public static final String PROMPT_ARGUMENTS_OBJECT_MESSAGE = "Prompt arguments must be an object";
     /** Reported in-band when a {@link McpToolSchema#ID} tool is called without a (non-blank) {@code id}. */
     public static final String MISSING_ID_ARGUMENT_MESSAGE = "Missing required argument: id";
     /** Returned when advisor detail retrieval is not tied to a completed snapshot. */
@@ -233,6 +246,13 @@ public final class McpProtocol {
     public static final String ARGUMENTS_OBJECT_MESSAGE = "Tool arguments must be an object";
     /** Returned when a JSON-RPC id is not a string, number, or null. */
     public static final String INVALID_ID_MESSAGE = "Request id must be a string, number, or null";
+    /** MCP 2026-07-28: a request id is a string or an integer, never {@code null} or a fraction. */
+    public static final String MODERN_ID_TYPE_MESSAGE = "Request id must be a string or an integer";
+    /** MCP 2026-07-28: only a notification may omit its id. */
+    public static final String MODERN_ID_REQUIRED_MESSAGE =
+            "A request needs an id; only notifications/ methods omit it";
+    /** The method prefix of a JSON-RPC notification in MCP. */
+    public static final String NOTIFICATION_METHOD_PREFIX = "notifications/";
     /** Returned when JSON-RPC params is present but is not an object. */
     public static final String PARAMS_OBJECT_MESSAGE = "Request params must be an object";
     /** Fallback in-band tool-error text when a tool fails without a message. */

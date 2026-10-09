@@ -303,12 +303,30 @@ because that scope would leak into whichever test the thread runs next. Close ev
 with try-with-resources.
 
 The capture overhead benchmark (`CaptureOverheadBenchmarkTest`) compares the Spring MVC sample app's throughput and
-latency with BootUI on and off. Timings depend on the machine, so it is opt-in and never a CI gate. It takes about
-three minutes and writes its report to `target/capture-overhead/`:
+latency with BootUI on and off; the runtime journal is on whenever BootUI is, so it does not isolate the journal's cost.
+Timings depend on the machine, so it is opt-in and never a CI gate. It takes about three minutes and writes its report
+to `target/capture-overhead/`:
 
 ```bash
 ./mvnw -B -ntp -pl bootui-spring-sample-app test -Dtest=CaptureOverheadBenchmarkTest -Dbootui.benchmark=true
 ```
+
+The runtime journal overhead benchmark (`JournalOverheadBenchmarkIT`) measures the journal's own cost against
+[PLAN-v2.md](docs/PLAN-v2.md) §2.2's 5 % target: the Spring sample's executable jar, BootUI on and no agent in both
+configurations, with the journal on and with `bootui.runtime-journal.enabled=false`, on the same route and load as the
+capture overhead benchmark. Like the agent overhead benchmark below, it runs the configurations in pairs whose order
+alternates and reports each pair's throughput ratio, their median, and the median's 95 % interval, with p99 latency, to
+`target/journal-overhead/spring-mvc-journal.md` and `.properties`. It only reports; `bootui.benchmark.passes` sets the
+number of pairs (3 by default):
+
+```bash
+./mvnw -B -ntp -pl bootui-spring-sample-app verify -Dbootui.benchmark=true -Dit.test=JournalOverheadBenchmarkIT \
+  -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+CI runs it with fifteen pairs as the runtime journal leg of `build.yml`'s `agent-overhead-extra-legs` matrix, on
+pushes, manual runs, and pull requests labelled `agent`; the `agent-overhead` job publishes the report to its summary,
+and the leg never fails the build.
 
 The agent overhead benchmark (`AgentOverheadBenchmarkIT`) measures the BootUI agent's cumulative cost against
 [PLAN-v2.md](docs/PLAN-v2.md) §8's budget: the Spring sample's executable jar, BootUI on in both configurations, without
@@ -322,7 +340,7 @@ the benchmark only reports. `bootui.benchmark.route=io` drives `/api/side-effect
 plus one outbound connect to a stub server the benchmark runs and one file read per request, so the side-effect sensors
 that hook connects and files are measured on a route that exercises them; `bootui.benchmark.route=threads` drives
 `/api/thread-activity/benchmark`, the same search plus one thread started and joined and one executor created and shut
-down per request, for the `thread-activity` sensor's A/B; `bootui.benchmark.agent.baseline-sensors`
+down per request, for the `thread-activity` sensor's A/B (the `resources` sensor's A/B uses the I/O route); `bootui.benchmark.agent.baseline-sensors`
 runs the other arm with the agent and those sensors instead of without the agent, an A/B of the sensors it leaves out;
 and `bootui.benchmark.report` names the report (`spring-mvc-agent` by default):
 
@@ -331,11 +349,15 @@ and `bootui.benchmark.report` names the report (`spring-mvc-agent` by default):
   -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-CI runs it in `build.yml`'s `agent-overhead` job with nine pairs on a four-processor runner, then on the I/O route with
-nine pairs: every default sensor against no agent (`spring-mvc-agent-io`) on every agent run, and, on pushes, manual
-runs, and pull requests labelled `agent` only, every default sensor against the same agent without `network`
-(`spring-mvc-network-ab`), the default sensors plus the opt-in `files` against the default sensors, fifteen pairs
-(`spring-mvc-files-ab`), and the default sensors plus `files` against no agent (`spring-mvc-agent-io-files`). The load generator
+CI runs each measurement as its own leg of `build.yml`'s `agent-overhead-legs` matrix (or `agent-overhead-extra-legs`
+for the measurements below that run only with the `agent` label), all at the same time on separate runners (each A/B
+alternates its arms on one runner), then gathers their reports and runs the checks in the `agent-overhead` job. It
+runs fifteen pairs on a four-processor runner, then on the I/O route with nine pairs: every default sensor against no
+agent (`spring-mvc-agent-io`) on every agent run, and, on pushes, manual runs, and pull requests labelled `agent`
+only, each default side-effect sensor's own share against the same agent without it: `network`
+(`spring-mvc-network-ab`), `blocking` (`spring-mvc-blocking-ab`), `files` on the I/O route (`spring-mvc-files-ab`),
+fifteen pairs each but `network`'s nine, and the opt-in `environment`'s against the default sensors, on a route adding
+fifty `System.getProperty` reads per request (`spring-mvc-environment-ab`), fifteen pairs. The load generator
 shares the processors with the sample and single pairs vary by more than ten points. That job records the report in its
 summary, warns above the 10 % budget, and fails only above 30 %: a clear regression, not noise. The first CI runs measured
 a median of about 17 % (pairs from 9 to 22 %), above the budget, so a gate at the budget, or at twice it, would fail
@@ -388,7 +410,7 @@ The Spring fixture's ASM 9.8 dependency must remain older than the reader so it 
 
 MySQL diagnostics require **real Oracle MySQL 8.4** evidence, not the existing MariaDB advisor tests or mocked JDBC
 rows. The tested fixture image is `mysql:8.4.6`. Spring uses Connector/J 9.7.0 with HikariCP 7.0.2; Quarkus uses
-Connector/J 9.6.0 with Agroal 3.0.1.
+Connector/J 9.7.0 with Agroal 3.2.1.
 MariaDB reached through MySQL Connector/J has no automated live coverage by design: the panel labels it unsupported, and
 it was checked manually on MariaDB 11.4 and 11.8. When a change touches collector SQL or session guards, recheck MariaDB
 manually against a disposable `mariadb` container started with `--performance-schema=ON`.
@@ -582,6 +604,12 @@ run its sample without `-am`:
 The Quarkus sample requires JDK 17 to 27 for augmentation and uses Dev
 Services, so Docker or Podman must be available.
 
+Each sample also has launchers that build it with the isolated `.m2`
+repository, then run it: `run-local.sh`, `run-local-agent.sh` (with the BootUI
+Java agent and its default sensors) and `run-local-all.sh` (with every sensor),
+for example `./bootui-spring-webflux-sample-app/run-local-agent.sh`. The Spring
+MVC sample has more; see its README.
+
 ## Front-end development
 
 The Vue source lives in `bootui-ui/src/main/frontend`. For a fast inner loop:
@@ -629,19 +657,35 @@ regenerated.
 
 ## Publishing
 
-Maven Central publication uses the `release` Maven profile:
+Maven Central publication uses the `release` Maven profile, which attaches source JARs
+and an empty placeholder Javadoc JAR (Maven Central requires the file but not its
+content; BootUI's public surface is its HTTP, MCP, and CLI contract rather than a
+Java API) and signs artifacts with GPG. The **Release** workflow installs the
+publication reactor with that profile, assembles the Central bundle from the
+installed, signed files with `.github/scripts/assemble_central_bundle.py`, and
+uploads it through the Central Portal Publisher API with
+`.github/scripts/publish_central_bundle.py`, which reads the Portal user token from
+`MAVEN_CENTRAL_USERNAME` and `MAVEN_CENTRAL_PASSWORD`:
 
 ```bash
-./mvnw -B -ntp -Prelease clean deploy
+./mvnw -B -ntp -Prelease clean install -pl <publication reactor> -am
+python3 .github/scripts/assemble_central_bundle.py ~/.m2/repository VERSION target/central-bundle.zip
+unzip -q target/central-bundle.zip -d target/central-bundle
+python3 .github/scripts/check-central-bundle.py target/central-bundle VERSION
+python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip bootui-VERSION true
 ```
 
-The release profile attaches source JARs and an empty placeholder Javadoc JAR
-(Maven Central requires the file but not its content; BootUI's public surface is
-its HTTP, MCP, and CLI contract rather than a Java API), signs artifacts with GPG,
-and publishes through the Sonatype Central Publishing plugin using the `central`
-server from `~/.m2/settings.xml`. The sample app is not deployed. By default,
-Central uploads are published automatically; set `-Dcentral.autoPublish=false`
-to stage for manual publishing instead.
+The assembler bundles only the eight published coordinates, so `bootui-agent-bridge`
+(shaded into `bootui-agent`) and both parent POMs, which the reactor installs, never
+reach Central; `check-central-bundle.py` refuses any other coordinate or file and
+any POM that is not flattened.
+
+It does not run `deploy` through the Sonatype Central Publishing plugin: under
+Maven 3.10 that plugin stages resolver bookkeeping (`maven-metadata-local.xml`) in
+directories without a POM, and Central rejects the bundle. The sample app is not
+published. Uploads are published automatically by default; pass `false` as the last
+argument (the workflow's `auto_publish` input) to stop at validation for a manual
+publish in the Central Portal.
 
 To prepare and publish a release, run the **Release** GitHub Actions workflow
 from `main`, or from an older major's maintenance branch such as `1.x` (no other

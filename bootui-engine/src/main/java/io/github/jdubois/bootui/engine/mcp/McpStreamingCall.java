@@ -4,6 +4,8 @@ import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ProtocolError;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.ToolCallResult;
 import io.github.jdubois.bootui.engine.progress.OperationProgress;
 import io.github.jdubois.bootui.engine.progress.ProgressEvent;
+import io.github.jdubois.bootui.engine.support.BootUiThreads;
+import java.io.IOException;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -11,7 +13,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -28,10 +29,16 @@ import java.util.concurrent.atomic.AtomicReference;
  * task</em> only changes the call's state. A slow or vanished client therefore never stalls a tool, the timeout
  * scheduler, or another call.
  *
+ * <p>The writer and timeout threads are JVM-wide and outlive a DevTools restart or a Quarkus live reload, so they are
+ * created with {@link BootUiThreads}: they keep nothing of the application that first used them. The tool and the
+ * writer run with the application class loader of their dispatcher as context class loader only while they work.
+ *
  * <p>The call ends exactly once, through one atomic transition: the tool completes (with a result or a failure), the
  * absolute {@code bootui.mcp.execution-timeout} expires (final {@code -32002}, which modern rendering moves to {@code
  * -31002}), or the client disconnects ({@link #cancel()}, after which nothing more is written). Progress never extends
- * the timeout. The concurrency permit is released exactly once, when both the tool and the writer are done: a tool
+ * the timeout. A legacy (MCP 2025-06-18) call is different in one respect only: a closed stream ({@link
+ * #clientClosed()}) stops the writer without cancelling, because that revision cancels only through {@code
+ * notifications/cancelled}. The concurrency permit is released exactly once, when both the tool and the writer are done: a tool
  * holds it until it really returns, and a writer blocked on a client that stopped reading holds it too, so {@code
  * bootui.mcp.max-concurrent-calls} also bounds stalled streams. A part that never started is done when the call ends.
  */
@@ -40,8 +47,12 @@ public final class McpStreamingCall {
     /** Spacing of SSE keep-alive comments; also bounds how late a closed socket is noticed on a quiet stream. */
     public static final long HEARTBEAT_MILLIS = 2_000;
 
+    private static final ExecutorService WRITERS = Executors.newCachedThreadPool(
+            BootUiThreads.daemonFactory("bootui-mcp-stream-", BootUiThreads.ENGINE_LOADER));
+    /** How long an idle timeout thread waits for the next call before it ends. */
+    private static final long TIMEOUT_THREAD_KEEP_ALIVE_SECONDS = 60;
+
     private static final ScheduledThreadPoolExecutor TIMEOUTS = timeouts();
-    private static final ExecutorService WRITERS = Executors.newCachedThreadPool(daemon("bootui-mcp-stream-"));
 
     private enum Lifecycle {
         CREATED,
@@ -61,10 +72,15 @@ public final class McpStreamingCall {
     private final McpTool tool;
     private final McpArguments arguments;
     private final McpProgressToken progressToken;
+    private final McpEra era;
+    private final Runnable onFinished;
     private final Semaphore permits;
     private final McpRuntimeStats stats;
     private final McpFailureReporter failureReporter;
     private final ExecutorService toolExecutor;
+    /** The application's context class loader, set on the tool and writer threads only while they run this call. */
+    private final ClassLoader applicationLoader;
+
     private final long createdAt = System.nanoTime();
 
     private final AtomicReference<Lifecycle> lifecycle = new AtomicReference<>(Lifecycle.CREATED);
@@ -74,11 +90,16 @@ public final class McpStreamingCall {
     private final AtomicInteger permitHolders = new AtomicInteger(2);
 
     private final AtomicBoolean writerClaimed = new AtomicBoolean();
+    /** A legacy client closed the stream: the writer stops, but the call runs on (MCP 2025-06-18). */
+    private volatile boolean clientGone;
+
     private final AtomicBoolean started = new AtomicBoolean();
     private final McpProgressOutbox outbox = new McpProgressOutbox(new McpProgressThrottle());
     private final OperationProgress progress;
     private final ScheduledFuture<?> timeoutTask;
     private volatile Future<?> toolFuture;
+    /** Set when the tool must stop: it may be read only after the tool's future is assigned, so neither side misses. */
+    private volatile boolean stopTool;
 
     McpStreamingCall(
             McpTool tool,
@@ -89,16 +110,55 @@ public final class McpStreamingCall {
             McpRuntimeStats stats,
             McpFailureReporter failureReporter,
             ExecutorService toolExecutor) {
+        this(
+                tool,
+                arguments,
+                progressToken,
+                McpEra.MODERN,
+                () -> {},
+                timeoutMillis,
+                permits,
+                stats,
+                failureReporter,
+                toolExecutor,
+                Thread.currentThread().getContextClassLoader());
+    }
+
+    McpStreamingCall(
+            McpTool tool,
+            McpArguments arguments,
+            McpProgressToken progressToken,
+            McpEra era,
+            Runnable onFinished,
+            long timeoutMillis,
+            Semaphore permits,
+            McpRuntimeStats stats,
+            McpFailureReporter failureReporter,
+            ExecutorService toolExecutor,
+            ClassLoader applicationLoader) {
         this.tool = Objects.requireNonNull(tool, "tool");
         this.arguments = Objects.requireNonNull(arguments, "arguments");
         this.progressToken = Objects.requireNonNull(progressToken, "progressToken");
+        this.era = Objects.requireNonNull(era, "era");
+        this.onFinished = Objects.requireNonNull(onFinished, "onFinished");
         this.permits = Objects.requireNonNull(permits, "permits");
         this.stats = Objects.requireNonNull(stats, "stats");
         this.failureReporter = Objects.requireNonNull(failureReporter, "failureReporter");
         this.toolExecutor = Objects.requireNonNull(toolExecutor, "toolExecutor");
+        this.applicationLoader = applicationLoader;
         this.progress = new OperationProgress(outbox::offer);
         // Scheduled before the adapter can fail to start the call, so the permit is released in every case.
         this.timeoutTask = TIMEOUTS.schedule(this::timeOut, Math.max(1, timeoutMillis), TimeUnit.MILLISECONDS);
+    }
+
+    /** The era of the request, which decides how its final response is rendered and what a closed stream means. */
+    public McpEra era() {
+        return era;
+    }
+
+    /** {@code true} once the call has ended and released its permit. */
+    boolean finished() {
+        return permitReleased.get();
     }
 
     /** The client's progress token, echoed by every notification of this call. */
@@ -125,24 +185,27 @@ public final class McpStreamingCall {
                 return;
             }
             try {
-                WRITERS.execute(() -> writeFinalOnly(sink, ended.outcome()));
+                WRITERS.execute(() -> BootUiThreads.runWithContextLoader(
+                        applicationLoader, () -> writeFinalOnly(sink, ended.outcome())));
             } catch (RuntimeException | Error rejected) {
                 sink.close();
             }
             return;
         }
         try {
-            WRITERS.execute(() -> write(sink));
+            WRITERS.execute(() -> BootUiThreads.runWithContextLoader(applicationLoader, () -> write(sink)));
         } catch (RuntimeException | Error failure) {
+            // Recorded before closing the sink, whose close path may report a disconnect and hide the fault.
+            fail(failure);
             sink.close();
             releasePart();
-            fail(failure);
             return;
         }
         try {
-            Future<?> future = toolExecutor.submit(this::runTool);
+            Future<?> future =
+                    toolExecutor.submit(() -> BootUiThreads.runWithContextLoader(applicationLoader, this::runTool));
             toolFuture = future;
-            if (endKind() == EndKind.CANCELLED || endKind() == EndKind.TIMED_OUT) {
+            if (stopTool) {
                 future.cancel(true);
             }
         } catch (RuntimeException | Error failure) {
@@ -151,8 +214,25 @@ public final class McpStreamingCall {
     }
 
     /**
-     * The client closed the response stream: MCP 2026-07-28 makes that the cancellation of this request. Stops
-     * writing at once, interrupts the tool, and is a no-op once the call has ended. Never blocks.
+     * The client closed the response stream. MCP 2026-07-28 makes that the cancellation of the request ({@link
+     * #cancel()}). MCP 2025-06-18 says the opposite: "Disconnection SHOULD NOT be interpreted as the client cancelling
+     * its request. To cancel, the client SHOULD explicitly send an MCP {@code CancelledNotification}." So a legacy call
+     * only stops writing and runs on, bounded by the execution timeout. A legacy call whose stream never started has not
+     * begun processing and has nowhere left to answer, so it is released at once like a modern one rather than held
+     * until the timeout. Never blocks.
+     */
+    public void clientClosed() {
+        if (era == McpEra.MODERN || !started.get()) {
+            cancel();
+        } else {
+            clientGone = true;
+            outbox.signal();
+        }
+    }
+
+    /**
+     * Cancels the request: a closed modern stream, or a legacy {@code notifications/cancelled}. Stops writing at once,
+     * interrupts the tool, and is a no-op once the call has ended. Never blocks.
      */
     public void cancel() {
         end(EndKind.CANCELLED, null);
@@ -165,6 +245,29 @@ public final class McpStreamingCall {
     private void fail(Throwable failure) {
         if (end(EndKind.COMPLETED, new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE))) {
             failureReporter.report("dispatching a request", failure);
+        }
+    }
+
+    /**
+     * A fault while writing the stream (not a client gone): it ends the call as a fault, reported even after the end,
+     * and stops a tool still running, whose result can no longer be delivered and which no timeout bounds any more.
+     */
+    private void failWriting(Throwable failure) {
+        if (end(EndKind.COMPLETED, new ProtocolError(McpProtocol.INTERNAL_ERROR, McpProtocol.INTERNAL_ERROR_MESSAGE))) {
+            failureReporter.report("dispatching a request", failure);
+        } else {
+            failureReporter.report("writing a stream", failure);
+        }
+        progress.cancel();
+        interruptTool();
+    }
+
+    /** Interrupts the tool, now or as soon as {@link #start} has submitted it. */
+    private void interruptTool() {
+        stopTool = true;
+        Future<?> future = toolFuture;
+        if (future != null) {
+            future.cancel(true);
         }
     }
 
@@ -218,10 +321,7 @@ public final class McpStreamingCall {
         if (before == Lifecycle.CREATED) {
             releasePart();
         } else if (kind != EndKind.COMPLETED) {
-            Future<?> future = toolFuture;
-            if (future != null) {
-                future.cancel(true);
-            }
+            interruptTool();
         }
         outbox.signal();
         return true;
@@ -229,8 +329,13 @@ public final class McpStreamingCall {
 
     private void releasePart() {
         if (permitHolders.decrementAndGet() == 0 && permitReleased.compareAndSet(false, true)) {
-            permits.release();
-            stats.recordCall(System.nanoTime() - createdAt);
+            // Unregistered and counted before the permit is free, so whoever sees the permit sees the call finished.
+            try {
+                onFinished.run();
+            } finally {
+                stats.recordCall(System.nanoTime() - createdAt);
+                permits.release();
+            }
         }
     }
 
@@ -241,14 +346,19 @@ public final class McpStreamingCall {
 
     private void write(McpStreamSink sink) {
         long nextHeartbeat = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(HEARTBEAT_MILLIS);
+        boolean completing = false;
         try {
             while (true) {
+                if (clientGone) {
+                    return;
+                }
                 End current = end.get();
                 if (current != null) {
                     if (current.kind() != EndKind.CANCELLED) {
                         for (ProgressEvent event : outbox.drainAll()) {
                             sink.progress(progressToken, event);
                         }
+                        completing = true;
                         sink.complete(current.outcome());
                     }
                     return;
@@ -260,16 +370,28 @@ public final class McpStreamingCall {
                     continue;
                 }
                 ProgressEvent event = outbox.take(untilHeartbeat);
-                if (event != null && endKind() != EndKind.CANCELLED) {
+                if (event != null && endKind() != EndKind.CANCELLED && !clientGone) {
                     sink.progress(progressToken, event);
                 }
             }
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            cancel();
-        } catch (Exception | Error writeFailure) {
-            // The client is gone or the stream broke: that is the cancellation of this request.
-            cancel();
+            clientClosed();
+        } catch (IOException writeFailure) {
+            // The client is gone or the stream broke: a modern call is cancelled, a legacy one runs on.
+            clientClosed();
+        } catch (RuntimeException | Error fault) {
+            // A server fault (a rendering bug, a refused frame) is not the client going away.
+            failWriting(fault);
+            End ended = end.get();
+            if (!completing && ended != null && ended.kind() != EndKind.CANCELLED) {
+                // The stream still answers once, with the -32603 the fault ended the call with.
+                try {
+                    sink.complete(ended.outcome());
+                } catch (Exception | Error unwritable) {
+                    // Nothing more can be written.
+                }
+            }
         } finally {
             sink.close();
             releasePart();
@@ -288,17 +410,12 @@ public final class McpStreamingCall {
     }
 
     private static ScheduledThreadPoolExecutor timeouts() {
-        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, daemon("bootui-mcp-timeout-"));
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(
+                1, BootUiThreads.daemonFactory("bootui-mcp-timeout-", BootUiThreads.ENGINE_LOADER));
         executor.setRemoveOnCancelPolicy(true);
+        // The idle thread ends; the last one stays while a timeout is pending.
+        executor.setKeepAliveTime(TIMEOUT_THREAD_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS);
+        executor.allowCoreThreadTimeOut(true);
         return executor;
-    }
-
-    private static ThreadFactory daemon(String prefix) {
-        AtomicInteger sequence = new AtomicInteger();
-        return task -> {
-            Thread thread = new Thread(task, prefix + sequence.incrementAndGet());
-            thread.setDaemon(true);
-            return thread;
-        };
     }
 }

@@ -29,9 +29,9 @@ were judged useful.
 ## Release sign-off
 
 **Not signed off.** This section is the release decision for 2.0.0 ([v2 plan](PLAN-v2.md) §4.3). M4-20's rerun fills
-every `TODO` below under its registered protocol, and the maintainer signs it off. Done is not passed: a measure that
+every pending cell below under its registered protocol, and the maintainer signs it off. Done is not passed: a measure that
 was run but missed its target is recorded as **Not met**, with its exception, never left out or rounded up. 2.0.0 is
-not released while any row reads `TODO`.
+not released while any cell is still pending.
 
 | Field | Value |
 | --- | --- |
@@ -70,6 +70,27 @@ One row per §2.2 measure. **Result** is the measured value; **Status** is **Met
 | After M3, global | Default-visible score ≥ 30 %, otherwise every kind missing its per-kind gate folds and Runtime Insights is presented as a Live Activity view | 10 of 31 default-visible facts on the seven applications (32.3 %) useful to both reviewers | Passed: no escalation |
 | After M3, holdouts | Holdout applications no more than 20 points below the tuned ones, with the same consequence | Tuned 35 % (7 of 20), holdouts 27.3 % (3 of 11): 7.7 points below; neither holdout is empty | Passed: no escalation |
 | Before 2.0.0, overhead | Journal throughput within 5 %; if missed, the journal ships disabled by default and the release notes say so | TODO | TODO |
+
+**Measuring the journal's overhead.** Both overhead rows, "Capture overhead, throughput" and "Before 2.0.0, overhead",
+read one measurement: `JournalOverheadBenchmarkIT`, a paired A/B on the Spring sample's executable jar with BootUI on
+and no agent in both arms, the journal on (its default) against `bootui.runtime-journal.enabled=false`, on the
+default route (`/api/sample/product-search?term=console`, sixteen concurrent clients, 10 s warm-up and 15 s measured
+per run), in pairs whose order alternates after one discarded run. Its result is the median paired throughput delta
+with its distribution-free 95 % interval, the pairs, and the median p99 latency in each arm. CI's runtime journal
+leg of `build.yml`'s `agent-overhead-extra-legs` matrix runs it with fifteen pairs on pushes to `v2`, manual runs, and
+pull requests labelled `agent`, and the `agent-overhead` job publishes the report to its summary and the
+`journal-overhead` artifact; it is report-only and never fails the
+build. `CaptureOverheadBenchmarkTest` compares BootUI on with BootUI off, so it does not measure the journal. To run it
+locally, after installing the reactor (`./mvnw -pl bootui-spring-sample-app -am -DskipTests install`):
+
+```bash
+./mvnw -B -ntp -pl bootui-spring-sample-app verify -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 \
+  -Dit.test=JournalOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+It writes `bootui-spring-sample-app/target/journal-overhead/spring-mvc-journal.md` and `spring-mvc-journal.properties`
+(`overheadPercent`, `lowOverheadPercent` and `highOverheadPercent` for the interval, `p99OnMillis`, `p99OffMillis`). Each
+run starts on a free port of its own. A loaded machine widens the interval.
 
 ### Per-kind gates
 
@@ -215,7 +236,14 @@ reads as healthy.
 | `changed-code-not-executed` and `work-after-response` | `NOT_APPLICABLE`, "This observation requires the BootUI agent's … sensor", in the panel and in `get_runtime_insights`'s checks not run | `AbstractBootUiApiConformanceTest#agentGatedRuntimeInsightsSayTheyNeedTheAgentWithoutIt`; `AbstractMcpConformanceTest#testMcpAgentToolsSayTheAgentIsNotAttachedAndTheOthersAreNotAdvertised`; `ChangedCodeNotExecutedTests`, `WorkAfterResponseTests#withoutTheAgentItDoesNotApply` | Holds, conformance tests added |
 | Run comparison: code changes and side-effect keys | No `codeChanges` or `sideEffects` section: the comparison is the one without the agent, as documented, never an empty section reading "nothing changed" | `AbstractBootUiApiConformanceTest#agentGatedRuntimeInsightsSayTheyNeedTheAgentWithoutIt` and the MCP test above; `RunSideEffectsSummaryTests#withoutTheAgentThereIsNoSideEffectsSectionAndAPreviousRunWithoutThemSaysSo`; `RunComparisonCodeChangesTests#withoutTheAgentTheComparisonIsUnchangedAndSaysCodeChangesNeedIt` | Holds, conformance tests added |
 | The journal's agent evidence | Retains nothing and lists no store | `AbstractBootUiApiConformanceTest#agentGatedRuntimeInsightsSayTheyNeedTheAgentWithoutIt` | Holds, test added |
-| `request-input-in-sink` and the `security-sinks` sensor | The sensor reads `unavailable` with the Java Agent panel's reason, as every Side Effects sensor without the agent, and lists no row | `AbstractBootUiApiConformanceTest#sideEffectsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent`, which covers its request-value matching (#1296); its JDK checks (#1302) had not merged when this pass ran | Holds for what is merged |
+| `request-input-in-sink` and the `security-sinks` sensor, including its JDK checks | The sensor reads `unavailable` with the Java Agent panel's reason, as every Side Effects sensor without the agent, and lists no row | `AbstractBootUiApiConformanceTest#sideEffectsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent`, after merging request-value matching (#1296) and JDK checks (#1302); the sensor's detached state applies to both families | Holds |
+
+The final guidance pass includes #1302's deserialization, weak-algorithm, and trust-manager/hostname-verifier facts
+in MCP instructions, `diagnose_runtime_issue`, the consumer skill, and `AI-AGENTS.md`, always as checks to perform.
+`assess_application` distinguishes the opt-in `security-sinks` sensor (JDK checks) from the separately enabled
+`bootui.agent.security-sinks.request-values` matching; `McpGuidanceTests` pins that distinction on both frameworks.
+Completing this checklist does not sign off 2.0: the ten-investigation target remains **Not met**, the refusal fixtures
+need a registered rerun, and the pre-release overhead rerun remains in M4-23's [release sign-off](#release-sign-off).
 
 <a id="rerun-results-provisional"></a>
 

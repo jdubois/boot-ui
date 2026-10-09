@@ -247,7 +247,7 @@ public class PanelsController {
             case BootUiPanels.TRANSACTIONS ->
                 availability(
                         beanPresent(ConfigurableTransactionManager.class),
-                        "No configurable PlatformTransactionManager bean is available");
+                        "No configurable transaction manager bean is available");
             case BootUiPanels.REST_CLIENT_TRACE ->
                 availability(restClientTraceAvailable(), restClientTraceUnavailableReason());
             case BootUiPanels.THREADS ->

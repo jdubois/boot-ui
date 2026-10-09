@@ -4,8 +4,9 @@ import {expect, test} from '../tests/fixtures.js'
 /**
  * The Java Agent view on Spring WebFlux. The default WebFlux suite runs the reactive sample without the agent and
  * asserts the not-attached state; the WebFlux agent suite (playwright.webflux-agent.config.js) sets the `agentAttached`
- * fixture option and asserts the armed claim with the three default sensors installed and self-tested instead. Both
- * check the setup snippets, their tabs, and Copy, which the panel offers in every state.
+ * fixture option and asserts the armed claim with the three default sensors installed and self-tested instead. Without
+ * the agent the setup and what the agent adds come first. Both check the setup snippets, their tabs, and Copy, which
+ * the panel offers in every state.
  */
 test.describe('Java Agent view on Spring WebFlux', () => {
   test('shows the agent status, setup snippets, copy, and API shape', async ({
@@ -57,9 +58,14 @@ test.describe('Java Agent view on Spring WebFlux', () => {
     } else {
       await expect(page.getByRole('heading', {name: 'Not attached'})).toBeVisible()
       await expect(page.getByText('This JVM runs without the BootUI agent')).toBeVisible()
-      await expect(
-        page.getByText('No sensor installed: the agent installs the sensors this application asks for')
-      ).toBeVisible()
+      // Without the agent, the setup and what the agent adds open the panel; the attached-only sections are left out.
+      const regions = page.locator('.java-agent-panel > section')
+      await expect(regions.nth(1)).toHaveAttribute('aria-labelledby', 'java-agent-setup-title')
+      await expect(page.getByRole('heading', {name: 'Attach the agent'})).toBeVisible()
+      await expect(regions.nth(2)).toHaveAttribute('aria-labelledby', 'java-agent-about-title')
+      await expect(page.getByRole('heading', {name: 'What the Java agent adds'})).toBeVisible()
+      await expect(page.getByRole('region', {name: 'Sensors'})).toHaveCount(0)
+      await expect(page.getByRole('region', {name: 'Runtime switches'})).toHaveCount(0)
     }
 
     const tabs = page.getByRole('tab')
