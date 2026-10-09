@@ -161,8 +161,10 @@ public final class TaskPropagation {
             }
             long generation = claim.generation;
             if (Thread.currentThread() == selfTestThread) {
+                if (TaskSnapshots.TASKS.putSelfTest(task, generation, SELF_TEST) == TaskSnapshots.REFUSED) {
+                    return NONE;
+                }
                 SELF_TEST_KEYED[hook].increment();
-                TaskSnapshots.TASKS.putSelfTest(task, generation, SELF_TEST);
                 return TOUCHED;
             }
             if (!claim.hasSensor(SENSOR) || generation == disabledGeneration) {

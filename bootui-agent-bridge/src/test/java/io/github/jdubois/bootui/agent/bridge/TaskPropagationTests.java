@@ -238,6 +238,41 @@ class TaskPropagationTests {
     }
 
     @Test
+    void exhaustedSelfTestHeadroomDoesNotReportARefusedTaskOrThreadAsKeyed() {
+        List<Object> held = new ArrayList<>();
+        long generation = AgentBridge.current().generation;
+        for (int i = 0; i < TaskSnapshots.MAX_PENDING + TaskSnapshots.SELF_TEST_RESERVE; i++) {
+            Object task = new Object();
+            Thread thread = new Thread();
+            held.add(task);
+            held.add(thread);
+            assertThat(TaskSnapshots.TASKS.putSelfTest(task, generation, TaskPropagation.SELF_TEST))
+                    .isEqualTo(TaskSnapshots.OWNED);
+            assertThat(TaskSnapshots.THREADS.putSelfTest(thread, generation, TaskPropagation.SELF_TEST))
+                    .isEqualTo(TaskSnapshots.OWNED);
+        }
+        Object task = new Object();
+        Thread thread = new Thread();
+        TaskPropagation.beginSelfTest();
+        ThreadPropagation.beginSelfTest();
+        try {
+            assertThat(TaskPropagation.submit(task, TaskPropagation.KEY_THREAD_POOL, false))
+                    .isEqualTo(TaskPropagation.NONE);
+            assertThat(ThreadPropagation.starting(thread, ThreadPropagation.KEY_THREAD_START))
+                    .isFalse();
+        } finally {
+            assertThat(TaskPropagation.endSelfTest().get("keyed").toString())
+                    .contains("ThreadPoolExecutor.addWorker=0");
+            assertThat(ThreadPropagation.endSelfTest().get("keyed").toString()).contains("Thread.start=0");
+        }
+        assertThat(TaskSnapshots.TASKS.peek(task)).isNull();
+        assertThat(TaskSnapshots.THREADS.peek(thread)).isNull();
+        assertThat(TaskSnapshots.TASKS.size()).isEqualTo(TaskSnapshots.MAX_PENDING + TaskSnapshots.SELF_TEST_RESERVE);
+        assertThat(TaskSnapshots.THREADS.size()).isEqualTo(TaskSnapshots.MAX_PENDING + TaskSnapshots.SELF_TEST_RESERVE);
+        assertThat(held).hasSize(2 * (TaskSnapshots.MAX_PENDING + TaskSnapshots.SELF_TEST_RESERVE));
+    }
+
+    @Test
     void anOwnedTaskCarriesTheSubmittingNodesStampToItsFragment() {
         AgentBridge.reset();
         AgentBridge.install(request -> Map.of("status", "ok"));

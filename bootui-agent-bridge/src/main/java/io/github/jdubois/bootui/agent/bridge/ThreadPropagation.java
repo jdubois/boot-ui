@@ -130,8 +130,11 @@ public final class ThreadPropagation {
                 return false;
             }
             if (selfTest) {
+                if (TaskSnapshots.THREADS.putSelfTest(thread, generation, TaskPropagation.SELF_TEST)
+                        == TaskSnapshots.REFUSED) {
+                    return false;
+                }
                 SELF_TEST_KEYED[hook].increment();
-                TaskSnapshots.THREADS.putSelfTest(thread, generation, TaskPropagation.SELF_TEST);
                 return true;
             }
             if (bootUi(started)) {

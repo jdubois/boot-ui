@@ -82,6 +82,54 @@ class TaskSnapshotsTests {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void capacityIsNotFreedUntilTheMapCompletesItsRemoval() throws Exception {
+        TaskSnapshots snapshots = new TaskSnapshots(1);
+        Object retained = new Object();
+        Object next;
+        int hash = System.identityHashCode(retained);
+        int bin = (hash ^ (hash >>> 16)) & 15;
+        do {
+            next = new Object();
+            hash = System.identityHashCode(next);
+        } while (((hash ^ (hash >>> 16)) & 15) == bin);
+        Object otherBinTask = next;
+        snapshots.put(retained, GENERATION, owner("old"), 0L);
+        java.lang.reflect.Field field = TaskSnapshots.class.getDeclaredField("snapshots");
+        field.setAccessible(true);
+        java.util.concurrent.ConcurrentHashMap<Object, TaskSnapshots.Entry> map =
+                (java.util.concurrent.ConcurrentHashMap<Object, TaskSnapshots.Entry>) field.get(snapshots);
+        TaskSnapshots.Take take = new TaskSnapshots.Take(snapshots);
+        java.util.concurrent.FutureTask<Integer> admission =
+                new java.util.concurrent.FutureTask<>(() -> snapshots.put(otherBinTask, GENERATION, owner("new"), 0L));
+        Thread submitter = new Thread(admission, "snapshot-admission-other-bin");
+
+        map.computeIfPresent(new TaskSnapshots.Lookup(retained), (key, entry) -> {
+            TaskSnapshots.Entry result = take.apply(key, entry);
+            assertThat(result).isNull();
+            // The callback has decided to remove, but the old physical entry still occupies its bin.
+            submitter.start();
+            try {
+                assertThat(admission.get(5, java.util.concurrent.TimeUnit.SECONDS))
+                        .isEqualTo(TaskSnapshots.REFUSED);
+            } catch (Exception ex) {
+                throw new AssertionError(ex);
+            }
+            assertThat(map).hasSize(1);
+            return result;
+        });
+
+        submitter.join(5000);
+        assertThat(submitter.isAlive()).isFalse();
+        assertThat(map).isEmpty();
+        take.releaseCapacity();
+        assertThat(snapshots.put(otherBinTask, GENERATION, owner("new"), 0L)).isEqualTo(TaskSnapshots.OWNED);
+        snapshots.release(otherBinTask);
+        assertThat(snapshots.retainedEntries.get()).isZero();
+        assertThat(snapshots.entries.get()).isZero();
+    }
+
+    @Test
     void selfTestMarkersHaveAFixedReserveBeyondTheApplicationEntryBound() {
         TaskSnapshots snapshots = new TaskSnapshots(1);
         Object retained = new Object();

@@ -115,6 +115,7 @@ final class TaskSnapshots {
         }
         Take take = new Take(this);
         snapshots.computeIfPresent(new Lookup(task), take);
+        take.releaseCapacity();
         return take.result;
     }
 
@@ -132,7 +133,9 @@ final class TaskSnapshots {
         if (snapshots.isEmpty() || snapshots.get(new Lookup(task)) == null) {
             return;
         }
-        snapshots.computeIfPresent(new Lookup(task), new Take(this));
+        Take take = new Take(this);
+        snapshots.computeIfPresent(new Lookup(task), take);
+        take.releaseCapacity();
     }
 
     boolean isEmpty() {
@@ -347,6 +350,7 @@ final class TaskSnapshots {
 
         private final TaskSnapshots owner;
         Object result;
+        private Entry removed;
 
         Take(TaskSnapshots owner) {
             this.owner = owner;
@@ -357,13 +361,20 @@ final class TaskSnapshots {
             result = existing.ambiguous ? AMBIGUOUS : existing;
             existing.pending--;
             if (existing.pending <= 0) {
-                owner.retainedEntries.decrementAndGet();
-                if (existing.counted) {
-                    owner.entries.decrementAndGet();
-                }
+                removed = existing;
                 return null;
             }
             return existing;
+        }
+
+        /** The map has completed the removal before another bin can reserve the freed slot. */
+        void releaseCapacity() {
+            if (removed != null) {
+                if (removed.counted) {
+                    owner.entries.decrementAndGet();
+                }
+                owner.retainedEntries.decrementAndGet();
+            }
         }
     }
 
