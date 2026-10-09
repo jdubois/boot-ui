@@ -1,12 +1,12 @@
 ---
 name: bootui
-description: Install, configure, and use BootUI in Spring Boot 4 or Quarkus applications; assess a running application, propose a prioritized action plan, and execute only approved fixes using runtime evidence. Use when asked to add or troubleshoot BootUI, assess application health, or investigate a slow or failing endpoint, exceptions, SQL, Hibernate, beans, mappings, configuration, health, metrics, logs, or traces; also for architecture, security, memory, database, REST, pentest, GraalVM, CRaC, or vulnerability scans, or connecting an AI agent to BootUI.
+description: Install, configure, and use BootUI in Spring Boot or Quarkus applications; assess a running application, propose a prioritized action plan, and execute only approved fixes using runtime evidence. Use when asked to add or troubleshoot BootUI, assess application health, or investigate a slow or failing endpoint, exceptions, SQL, Hibernate, beans, mappings, configuration, health, metrics, logs, or traces; also for architecture, security, memory, database, REST, pentest, GraalVM, CRaC, or vulnerability scans, or connecting an AI agent to BootUI.
 license: Apache-2.0
 ---
 
 # BootUI
 
-Use BootUI as a local, runtime-grounded source of information for Spring Boot 4 and Quarkus 3 applications. Keep it
+Use BootUI as a local, runtime-grounded source of information for Spring Boot and Quarkus applications. Keep it
 local-only, preserve its fail-closed defaults, and make the smallest application change that addresses the user's request.
 
 ## Establish the application context
@@ -18,7 +18,7 @@ Before changing anything:
    - Spring Boot servlet
    - Spring Boot WebFlux
    - Quarkus
-3. Confirm Java 17 or later and a supported framework version.
+3. Confirm Java 17 or later and a supported framework version (Spring Boot 4.x or Quarkus 3.x).
 4. Find the runnable module, active development profile, configured HTTP port, and existing BootUI dependency.
 5. Run the project's existing focused tests before and after changes when practical.
 
