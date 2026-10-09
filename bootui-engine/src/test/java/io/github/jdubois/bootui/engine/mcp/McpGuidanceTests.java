@@ -122,6 +122,61 @@ class McpGuidanceTests {
 
     @ParameterizedTest
     @ValueSource(strings = {"Spring Boot", "Quarkus"})
+    void requestInputInSinkIsACheckToPerformAndItsSensorIsOptIn(String framework) {
+        assertThat(McpGuidance.instructions(framework))
+                .contains(
+                        "security-sinks row (request-input-in-sink)",
+                        "check to perform, never a vulnerability verdict");
+        assertThat(McpGuidance.prompts(framework))
+                .filteredOn(prompt -> prompt.name().equals("diagnose_runtime_issue"))
+                .singleElement()
+                .satisfies(prompt -> assertThat(prompt.text())
+                        .contains(
+                                "request-input-in-sink",
+                                "request input reached this SQL text unchanged",
+                                "bound as a parameter",
+                                "seen in one request so far")
+                        .doesNotContain("vulnerable", "injection"));
+        assertThat(assessment(framework))
+                .contains(
+                        "security-sinks sensor",
+                        "is opt-in",
+                        "bootui.agent.sensors lists security-sinks",
+                        "bootui.agent.security-sinks.request-values=true",
+                        "unavailable rather than clean");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Spring Boot", "Quarkus"})
+    void jdkSecuritySinkFactsRequireVerificationAndDoNotRequireRequestValueMatching(String framework) {
+        assertThat(McpGuidance.instructions(framework))
+                .contains(
+                        "deserialization without an ObjectInputFilter",
+                        "weak algorithms",
+                        "trust-manager or hostname-verifier",
+                        "Read each group's coverage first",
+                        "never a vulnerability verdict");
+        assertThat(McpGuidance.prompts(framework))
+                .filteredOn(prompt -> prompt.name().equals("diagnose_runtime_issue"))
+                .singleElement()
+                .satisfies(prompt -> assertThat(prompt.text())
+                        .contains(
+                                "deserialized input's origin and filtering",
+                                "non-security checksum",
+                                "certificate chains and hostnames are validated",
+                                "does not prove it accepts every certificate",
+                                "disabled reason",
+                                "never vulnerability verdicts"));
+        assertThat(assessment(framework))
+                .contains(
+                        "These checks do not need request-value matching",
+                        "separately enable bootui.agent.security-sinks.request-values=true",
+                        "unrecorded check unavailable rather than clean",
+                        "do not change them yourself");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Spring Boot", "Quarkus"})
     void diagnosisNamesTheHandlersMethodsOfASlowRouteThroughCodePaths(String framework) {
         assertThat(McpGuidance.prompts(framework))
                 .filteredOn(prompt -> prompt.name().equals("diagnose_runtime_issue"))

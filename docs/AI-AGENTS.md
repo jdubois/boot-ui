@@ -421,7 +421,16 @@ configuration comparability and restart timings are independent facts. The `diag
 with `get_runtime_insights`, calls it again with `all` or the route when nothing listed explains the issue, then one
 `get_request_profile`, and for a slow route whose time is in its handler,
 `get_code_paths` when the agent is attached, and it words a dependency reached or request input matched verbatim as a
-check to verify against source and configuration, never as a vulnerability verdict; the
+check to verify against source and configuration, never as a vulnerability verdict. That includes
+`request-input-in-sink` rows of the opt-in `security-sinks` sensor (`get_side_effects` with `query=security-sinks`),
+such as "request input reached this SQL text unchanged": the prompt asks the agent to check that the value is bound,
+escaped, or chosen from a fixed list. Its JDK rows are checks too: verify deserialization's input origin and
+`ObjectInputFilter`, an algorithm's security or non-security purpose, and certificate-chain and hostname validation;
+an application trust-manager class alone is not a trust-all verdict. Read each group's coverage and disabled reason.
+`assess_application` marks unrecorded checks unavailable, never clean, and suggests listing `security-sinks` in
+`bootui.agent.sensors` for these JDK checks. Request-input matching separately requires
+`bootui.agent.security-sinks.request-values=true`; the agent suggests it rather than setting it
+([the security-sinks sensor](features/java-agent.md#the-security-sinks-sensor)). The
 `verify_after_change` prompt starts with `get_code_inventory` and `changed` (see [Did my change run?](#did-my-change-run)),
 names `start_method_probe` as the next step when the edited method still did not run after the test that should reach
 it, calls `get_runtime_impact` on each changed method it names (`Class#method`), or on the changed symbol when it is

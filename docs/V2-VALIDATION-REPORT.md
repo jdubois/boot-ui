@@ -149,6 +149,102 @@ protocol, with who accepted it and what the release notes say.
 | --- | --- | --- |
 | Maintainer | TODO | TODO |
 
+<a id="acceptance-pass-agent-detached"></a>
+
+## 2.0 acceptance pass, agent detached
+
+M5-10's final pass ([v2 plan](PLAN-v2.md) §4.1): every §5.1–§5.12 acceptance criterion, its evidence, and whether that
+evidence runs **with the BootUI agent detached**, the default. The detached legs are the Maven module tests (engine,
+Spring Boot starter, Quarkus extension, CLI), the three conformance runners (Spring MVC, Spring WebFlux, and Quarkus,
+each with its API, MCP, CLI, and custom-path suites), the correlation coverage scenarios, and the four browser suites
+(`npm test`, `npm run test:webflux`, and `npm run test:custom-path` on the Spring samples, `npm test` on the Quarkus
+sample). The agent-attached legs (`test:agent*`, the `bootui-agent` module's forked-JVM tests) are not counted as
+evidence here. Checked on `v2` at `e1b7c1207` on 2026-10-07; this feeds the [release sign-off](#release-sign-off).
+
+**Result.** 44 criteria; every one a test proves holds on the detached legs. 35 hold with tests that already existed; 5 lacked a direct
+test and hold with one this pass added (5.3-d, 5.3-e, 5.5-a, 5.6-b, 5.11-d); 1 holds as amended: since M4-24 folded
+`route-time-breakdown` into Live Activity, §5.5's demo reaches it through **Show all routes** (5.5-b); 3 are measured
+outside CI, by the local agent benchmark (5.6-c, **Not met**, and 5.6-d, both under [Success measures](#success-measures))
+and by an opt-in overhead benchmark (5.11-g). Of the agent-gated surfaces, the panels already had detached tests on every
+stack; their MCP tools and CLI commands, the agent-gated Runtime Insights checks, and the run comparison's agent
+sections had engine tests only, and now have conformance tests on the three stacks. No surface answered an error or an
+empty success. **Result** reads **Holds** (an existing detached test), **Holds, test added** (by this pass), **Holds,
+amended**, or **Measured outside CI**.
+
+### Criteria
+
+| # | Criterion | Evidence | Result |
+| --- | --- | --- | --- |
+| 5.1-a | The correlation scenario, with tracing off, Kafka sends, and a raw executor, enforces §2.2's floors on Spring MVC and Quarkus in every phase; WebFlux reports its coverage | `AbstractCorrelationCoverageTest#measuresRequestCorrelationCoverage` (conformance), run by `AbstractSpringCorrelationScenario`, `WebFluxCorrelationCoverageTest`, `BootUiQuarkusCorrelationCoverageTest`, and `BootUiQuarkusCorrelationCoverageWithoutTracingTest`; Quarkus Kafka sends by `QuarkusKafkaCaptureTests` | Holds |
+| 5.1-b | Contexts never leak across reused platform threads, virtual threads, Reactor schedulers, or Vert.x workers, including after async timeouts and cancellations | `CorrelationLeakGuard`, the JUnit extension every engine, Spring starter, and Quarkus test runs under; `BootUiCorrelationTests#virtualThreadsKeepTheirOwnContextAcrossUnmountsAndInheritNone`; M1-6g's Spring MVC async-timeout, WebFlux cancellation, and Vert.x worker tests | Holds |
+| 5.1-c | A DevTools restart and a Quarkus live reload each produce a new `runId` | `BootUiAutoConfigurationTests#eachContextStartIsANewRunOfTheSameInstanceCreatedEagerly` (Spring starter); `BootUiLiveReloadRunIdentityTest#aLiveReloadStartsANewRunOfTheSameInstance` (`QuarkusDevModeTest`) | Holds |
+| 5.1-d | Every new DTO field is nullable and additive; `BootUiApiContractCatalog` and the three conformance runners pass | `AbstractBootUiApiConformanceTest#availablePanelsMatchTheirDtoFamilyContracts`, run by `SpringApiConformanceTest`, `WebFluxApiConformanceTest`, and `BootUiQuarkusApiConformanceTest` | Holds |
+| 5.1-e | The request profiler no longer marks request-thread work approximate | `AbstractCorrelationCoverageTest#measuresRequestCorrelationCoverage` reads one profile per route on every stack; `ExecutionProfileAssemblerTests#profilesARequestWithoutATraceId` | Holds |
+| 5.2-a | The PoC scenario records every event with zero drops at default settings on all three stacks | `AbstractCorrelationCoverageTest#measuresRequestCorrelationCoverage`: journal parity, every request retained, no drop, on the three stacks | Holds |
+| 5.2-b | A burst beyond the queue drops and reports the drops, and a stalled dispatcher leaves request latency unaffected | `RuntimeJournalTests#aStalledDispatcherNeverBlocksTheApplicationThreadAndItsDropsAreCounted` | Holds |
+| 5.2-c | Aggregates reconcile with every event published, including evicted ones | `RuntimeJournalTests#listenersSeeEveryAcceptedEventIncludingThoseTheCountBoundEvicts`; `JournalConsistencyTests` | Holds |
+| 5.2-d | BootUI's own traffic and SQL never enter the journal | `RuntimeJournalTests#workOnBootUisOwnThreadsIsNeverRecorded` and `#theWorkOfBootUisOwnRequestsIsNeverRecordedWhereverTheAdapterSaysItRuns`; `WebFluxRuntimeJournalTest#requestsAndTheirSqlReachTheJournalAndFoldIntoTheMatchedRoute` (no `/bootui` route) | Holds |
+| 5.3-a | Request-thread SQL under its request: 100 %, with or without tracing | The correlation scenarios above, every phase, Quarkus also without OpenTelemetry | Holds |
+| 5.3-b | Security events under their request: 100 % of request-scoped events, by request id | The correlation scenarios above (M1-5b's security nesting floor) | Holds |
+| 5.3-c | Kafka sends under their request: 100 % of sends on a request thread | The Spring MVC correlation scenario's in-JVM broker route; `QuarkusKafkaCaptureTests` | Holds |
+| 5.3-d | Default history at 88 events per second: about 9.5 minutes when the count bound binds first; the oldest retained time always shown | `RuntimeJournalTests#theDefaultCountBoundKeepsAboutNineAndAHalfMinutesAt88EventsPerSecond` (568 s kept, oldest time reported) | Holds, test added |
+| 5.3-e | Loss with persistence on: none below the queue bound; drops counted | `JournalActivityCaptureTests#everyRequestBelowTheQueueBoundIsWrittenEvenOnceTheRetainedRowsEvictedIt` (2,500 requests written past a 1,000-row bound); drops counted by 5.2-b's test | Holds, test added |
+| 5.3-f | Parity with the 1.x feed: KPIs, ordering, SSE, clear and toggle, profiles, disabled sources | The correlation scenarios compare the journal's feed with the 1.x feed (`source=buffers`) on every stack (M2-8b, M2-8e2); `JournalActivityFeedTests#kpisAreComputedFromTheRetainedEvents`; `AbstractBootUiApiConformanceTest#liveActivityServesTheFeedRenderedFromTheJournalOnRequest` and `#runtimeJournalReportsOneShapeAndClearingItNeedsConfirmation`; the Live Activity browser specs on the three stacks | Holds |
+| 5.3-g | Existing Live Activity API consumers keep working: DTO changes are additive | `AbstractBootUiApiConformanceTest#availablePanelsMatchTheirDtoFamilyContracts` on the three stacks | Holds |
+| 5.4-a | Projections over 50,000 events and full aggregates stay within the read budget | `InsightsReadBudgetTests#aFullJournalIsProjectedAndEvaluatedWellWithinTheReadBudget`, `RuntimeModelReadBudgetTests#aFullJournalIsProjectedWellWithinTheReadBudget`: generously margined, and run by default rather than tagged | Holds |
+| 5.4-b | The PoC evidence, as a Java fixture builder, reproduces the PoC's findings that 2.0 keeps | `PocFixture`; `ChangeImpactFixtureTests#aChangeToOneRepositoryReachesTheSevenBeansAndTheRequestsThePocFound`; `RuntimeModelProjectionTests` | Holds |
+| 5.4-c | Two routes sharing only a table never get a path between their executions | `RuntimeModelProjectionTests#twoRoutesThatShareOnlyATableNeverReachEachOther` | Holds |
+| 5.5-a | Opening the panel or a profile starts no capture, scan, database read, or network call | `RuntimeInsightsReadPurityArchitectureTests`: Runtime Insights, the runtime model, and the request profile's assemblers depend on no network, JDBC, file, process, or scanning code, and only **Profile resources**' `start()` starts a JFR session | Holds, test added |
+| 5.5-b | The demo on each stack, tracing off, shows `route-time-breakdown` for the secured route, opens its evidence, and follows a deep link | `runtime-insights-demo.spec.js` on Spring MVC, WebFlux (`tests-webflux/`), and Quarkus: since M4-24 folded the kind, **Show all routes** reaches it, then its evidence and its request in Live Activity | Holds, amended |
+| 5.5-c | Every observation's unavailable state names its missing capability | `RuntimeInsightsAgentViewTests#anUnavailableReportOrObservationSaysWhyInsteadOfReturningAnEmptySuccess`; `RuntimeInsightsServiceTests#aPanelTheApplicationCannotServeIsReportedUnavailableRatherThanDisabled`; `AbstractMcpConformanceTest#testMcpRuntimeInsightsToolsAnswerCompactFactsThatSayWhyInsteadOfEmptySuccesses` | Holds |
+| 5.5-d | Seeded cases for every observation and the named counterexamples (public catalog read, intentional fallback, asynchronous client on an event loop, audit write on GET) | `ObservationHonestyHarnessTests#everyKindHasItsSeededCaseAndACounterexample` over `ObservationFixtures`, which model the samples' seeds; the samples' seed script `insights-demo.mjs`, which the demo specs run | Holds |
+| 5.6-a | Every tool moves in lockstep; `ToolManifestGeneratorTests` and `mcpToolCatalogIsDocumentedInEveryCanonicalToolList` pass | `ToolManifestGeneratorTests` (CLI); `BackendPanelCatalogConsistencyTest#mcpToolCatalogIsDocumentedInEveryCanonicalToolList` (conformance) | Holds |
+| 5.6-b | A 1.x CLI keeps its commands against a 2.0 application; new commands need a 2.x CLI | `OneXCliCompatibilityTests#everyToolTheLastOneXCliKnowsIsStillServedWithACompatibleSchemaItsActionAndItsStacks`: each of the 91 tools the 1.20.0 CLI bundles keeps its name, action flag, and stacks, accepts every argument its 1.x schema named and requires no new one; `ID` and `RULE_VIOLATIONS` schemas are unchanged | Holds, test added |
+| 5.6-c | The ten scripted investigations pass | The local agent benchmark, without the agent: 6 correct, 3 partial, 1 wrong ([Success measures](#success-measures)) | Measured outside CI: **Not met** |
+| 5.6-d | Five refusal fixtures that an agent fails by editing | The local agent benchmark; no agent edited code in the first run ([Agent investigations](#agent-investigations-1)); not rerun under `m4-20-protocol-2` | Measured outside CI |
+| 5.7-a | Spring uses the bean graph; Quarkus uses ArC injection edges and reports them unavailable, not empty, when it cannot read them | `StructureSnapshotsTests#eachRouteKeepsItsHandlerClassAndMethodAsSpringAndQuarkusDescribeThem`; `ChangeImpactServiceTests#aTableResolvesToTheRoutesThatAccessedItAndAmbiguousOrUnknownSymbolsAreNeverGuessed` (unreadable beans are unavailable with the reason) | Holds |
+| 5.7-b | Changing `ProductRepository` lists its observed routes, the unexercised route, and a route sharing `sample_products` | `ChangeImpactServiceTests#changingARepositoryListsItsObservedRoutesItsUnexercisedRouteAndARouteSharingItsTable`; `SpringRuntimeJournalTest#changingTheProductRepositoryListsTheRoutesThatRanThroughIt` | Holds |
+| 5.8-a | A query added to a route is reported with its fingerprint and the higher count after 3 requests, without any property | `RunComparisonTests#aQueryAddedToARouteIsReportedWithItsFingerprintAndTheHigherCountAfterThreeRequests` | Holds |
+| 5.8-b | Too few samples is `INSUFFICIENT`, never "no change" | `RunComparisonTests#fewerThanThreeRequestsOnEachSideIsInsufficientNeverNoChange` | Holds |
+| 5.8-c | H2 against PostgreSQL is `NOT_COMPARABLE`, the datasource difference first | `RunComparisonTests#switchingFromH2ToPostgresqlIsNotComparableWithTheDatabaseFirst` | Holds |
+| 5.9-a | Both seeded cases found on every stack with security; anonymous reads and authenticated writes produce no finding; intended public writes are facts | `AnonymousAccessObservationsTests#anonymousSuccessfulWritesAreReportedPerTableButNeverReadsAuthenticatedWritesOrUncheckedRequests`, `#intendedSignupWritesAreFactsWithAnExplicitVerificationNotAnExclusion`, `#anAnonymousSuccessIsReportedOnlyOnARouteWhoseRulesRestrictedAnotherRequest`; the demo specs on Spring MVC and Quarkus list the restricted-route case, and anonymous writes behind **Show all routes** | Holds |
+| 5.9-b | Anonymity counted only where authorization capture proves it; `INSUFFICIENT` with zero eligible requests; a missing source is `NOT_APPLICABLE` | `AnonymousAccessObservationsTests#unprovenAnonymityIsExcludedAndMakesTheCheckInsufficientOnEveryStackWithoutInventingFindings`, `#withoutTheAuthorizationSourceBothChecksSayWhyTheyCannotRun` | Holds |
+| 5.11-a | Scope arithmetic across thread hops, async redispatches, Reactor hops, and Vert.x worker dispatch | `SegmentMeterTests` (hops, re-entry, segments left open on another thread, scope-driven metering); `WebFluxRuntimeJournalTest#requestsAndTheirSqlReachTheJournalAndFoldIntoTheMatchedRoute` (summed across Reactor hops); `QuarkusRequestSegmentsTest`; `SpringRuntimeJournalTest#eachRequestCarriesItsMeasuredResourcesOrWhyTheJvmCouldNotMeasureThem` | Holds |
+| 5.11-b | Virtual threads report CPU and allocation as unavailable, never zero | `SegmentMeterTests#aVirtualThreadsSegmentIsUnavailableBecauseTheJvmDoesNotMeasureIt`; the Spring and WebFlux sample tests' virtual-thread branches | Holds |
+| 5.11-c | GC joins by id are exact with late and out-of-order notifications | `JournalAggregatesTests#gcPausesJoinTheirRequestsByIdWhetherTheirEventArrivesBeforeOrAfterTheRequest` | Holds |
+| 5.11-d | On G1, Parallel, Serial, ZGC, and Shenandoah, concurrent cycles never count as pauses | `GcEventSourceTests#everyCollectorsBeansAreClassifiedAndItsConcurrentCyclesAreNeverPauses`, over each collector's GarbageCollectorMXBean names; CI runs the JVM's default collector only | Holds, test added |
+| 5.11-e | Requests, thread families, and JVM internals sum to process CPU within 1 % per interval | `ResourceSamplerTests#requestsThreadFamiliesAndTheJvmsOwnWorkSumToTheProcessCpu` (exact sum); `SpringRuntimeJournalTest#theResourceSamplerSweepsAtTheConfiguredIntervalWithABalancedLedger` and its WebFlux twin | Holds |
+| 5.11-f | A synthetic JFR recording joins samples to the right request, including on a virtual thread | `JfrProfilerTests#aSessionJoinsEachRequestsSamplesToItsSegmentsOnPlatformAndVirtualThreads` | Holds |
+| 5.11-g | The overhead scenario measures scope readings on and off within its budget | `CaptureOverheadBenchmarkTest`, opt-in (`-Dbootui.benchmark=true`): 74.4 % with and 73.8 % without scope readings at M2-6, within noise; its pre-release rerun is the **Capture overhead** row of [Success measures](#success-measures) | Measured outside CI |
+| 5.12-a | The seeded `@Transactional` self-invocation is found; calls through the bean are not | `ProxyBypassTests#aTransactionalMethodWhoseStatementRanOutsideEveryTransactionWasBypassed`; the Spring MVC demo spec's **Proxy bypass** row | Holds |
+| 5.12-b | A synchronous cache miss whose SQL precedes its MISS, and a condition-skipped cache call, produce no cache bypass; other annotations on the method still count | `SpringProxyBoundariesTests#synchronousAndConditionalCachesAreNotJudgedButOtherBoundariesAndUnlessStillAre`, `#sqlBeforeASyncMissAndConditionSkippedSqlDoNotBecomeProxyBypasses` | Holds |
+| 5.12-c | Quarkus reports not applicable | `ProxyBypassTests#itDoesNotApplyOnQuarkusWithoutAResolverOrWhenTheResolverSaysWhy` | Holds |
+
+§5.10 lists what is deferred or cut after 2.0 and has no acceptance criteria.
+
+### Agent-gated surfaces without the agent
+
+Every surface that reads the agent's evidence must say so without it, never answer an error or an empty list that
+reads as healthy.
+
+| Surface | Without the agent | Evidence, on Spring MVC, Spring WebFlux, and Quarkus | Result |
+| --- | --- | --- | --- |
+| Java Agent panel, `get_agent_status`, `bootui agent status` | `NOT_ATTACHED` with the reason and setup snippets | `AbstractBootUiApiConformanceTest#theJavaAgentPanelReportsNotAttachedWithSetupSnippetsWhenTheJvmRunsWithoutTheAgent`; `AbstractMcpConformanceTest#testMcpAgentToolsSayTheAgentIsNotAttachedAndTheOthersAreNotAdvertised`; `AbstractCliConformanceTest#testCliAgentCommandsSayTheAgentIsNotAttachedAndTheOthersAreNotServed` | Holds, MCP and CLI tests added |
+| Code Paths, Code Inventory, and Side Effects panels and every read | The panel unavailable with `Requires the BootUI agent's … sensor`, every read its shape with `available: false` | `AbstractBootUiApiConformanceTest#codePathsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent`, `#codeInventoryIsUnavailableWithTheJavaAgentReasonWithoutTheAgent`, `#sideEffectsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent` | Holds |
+| `get_code_paths`, `get_code_inventory`, `get_side_effects`, `start_method_probe`, `get_method_probe`, and their CLI commands | Not advertised, as `verify_after_change` tells agents: calling one answers that it is not available because its panel requires the BootUI agent (MCP) or a 404 (CLI), never a result | `AbstractMcpConformanceTest#testMcpAgentToolsSayTheAgentIsNotAttachedAndTheOthersAreNotAdvertised`; `AbstractCliConformanceTest#testCliAgentCommandsSayTheAgentIsNotAttachedAndTheOthersAreNotServed` | Holds, tests added |
+| Caught exceptions | No `caughtInCode` summary; the section unavailable with the sensor's reason | `AbstractBootUiApiConformanceTest#caughtInApplicationCodeIsUnavailableWithoutTheAgent` | Holds |
+| `changed-code-not-executed` and `work-after-response` | `NOT_APPLICABLE`, "This observation requires the BootUI agent's … sensor", in the panel and in `get_runtime_insights`'s checks not run | `AbstractBootUiApiConformanceTest#agentGatedRuntimeInsightsSayTheyNeedTheAgentWithoutIt`; `AbstractMcpConformanceTest#testMcpAgentToolsSayTheAgentIsNotAttachedAndTheOthersAreNotAdvertised`; `ChangedCodeNotExecutedTests`, `WorkAfterResponseTests#withoutTheAgentItDoesNotApply` | Holds, conformance tests added |
+| Run comparison: code changes and side-effect keys | No `codeChanges` or `sideEffects` section: the comparison is the one without the agent, as documented, never an empty section reading "nothing changed" | `AbstractBootUiApiConformanceTest#agentGatedRuntimeInsightsSayTheyNeedTheAgentWithoutIt` and the MCP test above; `RunSideEffectsSummaryTests#withoutTheAgentThereIsNoSideEffectsSectionAndAPreviousRunWithoutThemSaysSo`; `RunComparisonCodeChangesTests#withoutTheAgentTheComparisonIsUnchangedAndSaysCodeChangesNeedIt` | Holds, conformance tests added |
+| The journal's agent evidence | Retains nothing and lists no store | `AbstractBootUiApiConformanceTest#agentGatedRuntimeInsightsSayTheyNeedTheAgentWithoutIt` | Holds, test added |
+| `request-input-in-sink` and the `security-sinks` sensor, including its JDK checks | The sensor reads `unavailable` with the Java Agent panel's reason, as every Side Effects sensor without the agent, and lists no row | `AbstractBootUiApiConformanceTest#sideEffectsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent`, after merging request-value matching (#1296) and JDK checks (#1302); the sensor's detached state applies to both families | Holds |
+
+The final guidance pass includes #1302's deserialization, weak-algorithm, and trust-manager/hostname-verifier facts
+in MCP instructions, `diagnose_runtime_issue`, the consumer skill, and `AI-AGENTS.md`, always as checks to perform.
+`assess_application` distinguishes the opt-in `security-sinks` sensor (JDK checks) from the separately enabled
+`bootui.agent.security-sinks.request-values` matching; `McpGuidanceTests` pins that distinction on both frameworks.
+Completing this checklist does not sign off 2.0: the ten-investigation target remains **Not met**, the refusal fixtures
+need a registered rerun, and the pre-release overhead rerun remains in M4-23's [release sign-off](#release-sign-off).
+
 <a id="rerun-results-provisional"></a>
 
 ## Rerun results

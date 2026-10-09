@@ -309,11 +309,16 @@ test.describe('Side Effects view on Spring WebFlux', () => {
     // idle window counts; lastSeen is when the park happened, not when it was flushed.
     const idleStart = Date.now() + 100
     await page.waitForTimeout(2_000)
+    // Read before the sensor's own request, so a park that request causes is outside the window.
+    const idleEnd = Date.now()
     const idle = await (await request.get(`${baseURL}/bootui/api/side-effects/sensor?sensor=blocking`)).json()
     expect(
       idle.rows.filter(
         (candidate) =>
-          candidate.kind === 'park' && /^reactor-http-/.test(candidate.target) && candidate.lastSeen >= idleStart
+          candidate.kind === 'park' &&
+          /^reactor-http-/.test(candidate.target) &&
+          candidate.lastSeen >= idleStart &&
+          candidate.lastSeen < idleEnd
       )
     ).toEqual([])
 

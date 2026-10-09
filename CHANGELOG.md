@@ -40,6 +40,8 @@ give the details.
 
 ### Added
 
+- **Agent guidance for security sinks.** MCP guidance, the skill, and the docs treat sink rows as checks to perform,
+  never vulnerability verdicts, and explain how to opt in ([#1336](https://github.com/jdubois/boot-ui/pull/1336)).
 - **Optional arguments for the MCP prompts.** `diagnose_runtime_issue`, `verify_after_change`, `review_application`, and
   `assess_application` accept a symptom, route, change, focus, or goal that focuses them ([AI agents](docs/AI-AGENTS.md#assess-an-application-and-approve-an-action-plan)).
 - **REST-client traces for agents take a query and a limit.** `get_rest_client_traces` (`bootui rest-client traces`)

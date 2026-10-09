@@ -275,8 +275,26 @@ and sockets a request or a job opened (files through `files`, on by default), by
 counts those the garbage collector reclaimed never closed, the leak, while `leftRunning` (still open after the
 request) and `completed` (closed after it) are a pool's or a cache's hand-off, never contents. Pass `--query
 not-captured` to list the outbound calls no panel shows (`capture: not-captured`), or `--query processes`, `network`,
-`files`, `blocking`, `thread-activity`, `thread-locals`, `resources`, a route, target,
+`files`, `blocking`, `thread-activity`, `thread-locals`, `resources`, `security-sinks`, a route, target,
 client, or call site to narrow it. The other sensor groups are listed as not available in this version.
+
+The opt-in `security-sinks` sensor reports `request-input-in-sink`: a query or path parameter's value that reached SQL
+text, a command, a file path, or an outbound URL unchanged, by parameter name and sink, never the value itself. It
+records only when `bootui.agent.sensors` lists `security-sinks` and `bootui.agent.security-sinks.request-values=true`;
+without both, no row is not evidence of safety, so say the check did not run. A row is a check to perform, never a
+vulnerability verdict: "request input reached this SQL text unchanged" asks you to confirm in source that the value is
+bound as a parameter, escaped, or chosen from a fixed list; a command argument or file path validated and kept in its
+directory; an outbound URL unable to change its host. A row seen in one request so far is weaker evidence. Do not turn
+the sensor on yourself: suggest the two properties to the user.
+
+With `security-sinks` listed in `bootui.agent.sensors`, its JDK checks run even without request-value matching:
+deserialization without an `ObjectInputFilter`, weak algorithms, and trust managers or hostname verifiers installed by
+application or library code. Treat these rows as checks to perform, never vulnerability verdicts: verify the
+deserialized input's origin and filtering, whether an algorithm protects security or serves a non-security checksum,
+and certificate-chain and hostname validation in source and effective configuration. An application's trust-manager
+class alone does not prove it accepts every certificate. Read each group's coverage and disabled reason first; a
+missing row from an unrecorded check means unavailable, not clean. `bootui.agent.security-sinks.request-values=true`
+separately enables the request-input matching above; it is not needed for these JDK checks.
 
 ### Read MySQL operational evidence
 

@@ -208,6 +208,8 @@ final class SideEffectsSensor {
     private final boolean privileged;
     /** Hooks left out of the transformer: only ever non-empty in BootUI's own mutation tests. */
     private final Set<String> omitted;
+    /** BootUI's own tests' hook, {@link AgentTestHook#NONE} in the published jar. */
+    private final AgentTestHook testHook;
 
     private final TransformStats stats = new TransformStats();
     /** The transformer of every side-effect sensor but thread-activity. */
@@ -253,10 +255,12 @@ final class SideEffectsSensor {
     private int pending;
     private boolean exitWorkerStarted;
 
-    SideEffectsSensor(Instrumentation instrumentation, boolean privileged, Set<String> omitted) {
+    SideEffectsSensor(
+            Instrumentation instrumentation, boolean privileged, Set<String> omitted, AgentTestHook testHook) {
         this.instrumentation = instrumentation;
         this.privileged = privileged;
         this.omitted = omitted;
+        this.testHook = testHook == null ? AgentTestHook.NONE : testHook;
     }
 
     /** A claim asking for the side-effect sensors of {@code mask}: installs their hooks and self-tests them. */
@@ -372,6 +376,17 @@ final class SideEffectsSensor {
         return transformer != null || threadTransformer != null;
     }
 
+    /** The ids of the side-effect sensors in {@code mask}, in status order. */
+    private static Set<String> sensorIds(int mask) {
+        Set<String> ids = new LinkedHashSet<String>();
+        for (String id : SENSORS) {
+            if ((mask & SideEffects.bit(id)) != 0) {
+                ids.add(id);
+            }
+        }
+        return ids;
+    }
+
     /** The groups whose installed transformer carries other hooks than {@code mask} asks for: reinstalled. */
     private int stale(int mask) {
         int stale = 0;
@@ -432,6 +447,7 @@ final class SideEffectsSensor {
                         // Only the groups not installed and passing are installed and self-tested: the other keeps
                         // its verdict and goes on recording, never tested again by another group's job.
                         int untested = groups(mask) & ~settled();
+                        testHook.installingSideEffects(sensorIds(mask & untested));
                         install(mask);
                         if ((mask & untested) != 0) {
                             selfTest(mask & untested, 1);
