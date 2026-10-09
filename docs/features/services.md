@@ -254,6 +254,11 @@ row in Live Activity, and Runtime Insights reads it like a listener. On Spring M
 received message, through BootUI's `WebSocketHandlerAdapter`; on Quarkus, each `@OnTextMessage` or `@OnBinaryMessage`
 call. `bootui.websockets.enabled=false` turns it off with the panel's capture.
 
+A retained, completed inbound handler can also be opened by execution id in a
+[journal-backed profile](overview.md#the-per-request-profiler), with its recorded SQL, exceptions, and other enabled-panel
+work. The WebSockets panel must remain enabled; missing or hidden anchors never produce a profile from children alone.
+This does not extend capture to later asynchronous completion or add frame/session support on any stack.
+
 Live session tracking is reported with the same honesty through `sessionTrackingSupported` and
 `sessionTrackingUnavailableReason`: Spring MVC and Quarkus observe connection lifecycle, while Spring WebFlux exposes no
 session registry, so its empty Sessions table says _not supported on this stack_ instead of implying nothing is

@@ -85,7 +85,7 @@ public class BootUiApplicationEventMulticaster extends SimpleApplicationEventMul
         }
         String phase = AppEventPayload.IMMEDIATE;
         if (TRANSACTIONS) {
-            String transactional = Transactional.classify(this, listener, type);
+            String transactional = Transactional.classify(this, listener, event, type);
             if (Transactional.DELEGATED.equals(transactional)) {
                 // Deferred to its phase, or skipped: the listener's own adapter decides, and the fate is recorded.
                 super.invokeListener(listener, event);
@@ -178,31 +178,45 @@ public class BootUiApplicationEventMulticaster extends SimpleApplicationEventMul
         /**
          * Classifies {@code listener} for the event being delivered: {@code null} when it is not transactional; {@link
          * #DELEGATED} when it is deferred to its phase, recorded again when it runs, or skipped for lack of a
-         * transaction, both recorded now; or its phase when it runs at once through {@code fallbackExecution}.
+         * transaction, both recorded now; or {@code IMMEDIATE} when it runs at once through {@code fallbackExecution}.
          */
         static String classify(
-                BootUiApplicationEventMulticaster multicaster, ApplicationListener<?> listener, String type) {
+                BootUiApplicationEventMulticaster multicaster,
+                ApplicationListener<?> listener,
+                ApplicationEvent event,
+                String type) {
             if (!(listener instanceof org.springframework.transaction.event.TransactionalApplicationListener<?> tal)) {
                 return null;
             }
             String name = name(listener);
             String phase = tal.getTransactionPhase().name();
             observe(multicaster, tal, name, phase);
-            if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()
-                    && org.springframework.transaction.support.TransactionSynchronizationManager
-                            .isActualTransactionActive()) {
+            if (transactionActive(event)) {
                 multicaster.record(
                         AppEventPayload.listener(type, name, phase, AppEventPayload.DEFERRED, null, -1), 0, false);
                 return DELEGATED;
             }
             if (fallback(listener)) {
-                return phase;
+                return AppEventPayload.IMMEDIATE;
             }
             multicaster.record(
                     AppEventPayload.listener(type, name, phase, AppEventPayload.SKIPPED_NO_TRANSACTION, null, -1),
                     0,
                     false);
             return DELEGATED;
+        }
+
+        private static boolean transactionActive(ApplicationEvent event) {
+            if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()
+                    && org.springframework.transaction.support.TransactionSynchronizationManager
+                            .isActualTransactionActive()) {
+                return true;
+            }
+            if (event.getSource() instanceof org.springframework.transaction.reactive.TransactionContext context) {
+                var manager = new org.springframework.transaction.reactive.TransactionSynchronizationManager(context);
+                return manager.isSynchronizationActive() && manager.isActualTransactionActive();
+            }
+            return false;
         }
 
         private static void observe(
