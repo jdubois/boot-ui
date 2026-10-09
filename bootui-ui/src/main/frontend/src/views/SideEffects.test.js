@@ -3,6 +3,8 @@ import {ref} from 'vue'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import SideEffects from './SideEffects.vue'
+import AgentSensorToggle from './components/AgentSensorToggle.vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 const RouterLinkStub = {
   props: ['to'],
@@ -1101,7 +1103,16 @@ describe('Side Effects panel', () => {
     let fetch
     const responses = {
       'api/overview': {},
-      'api/java-agent/sensors/environment': {state: 'ARMED', toggles: [on]},
+      'api/java-agent/sensors/environment': {
+        state: 'ARMED',
+        bootUiVersion: '2.0.0',
+        expectedProtocol: 1,
+        jdk: 'OpenJDK 17',
+        sensors: [],
+        toggles: [on],
+        messages: [],
+        warnings: []
+      },
       'api/side-effects/sensor?sensor=environment&offset=0&limit=50': sensorReport('environment', []),
       'api/side-effects': summary({
         sensors: {environment: {state: 'not-claimed', reason: 'Not claimed.', toggle: off}}
@@ -1133,6 +1144,73 @@ describe('Side Effects panel', () => {
     expect(summaries()).toBeGreaterThan(before)
     expect(wrapper.get('[data-testid="agent-sensor-toggle-environment"]').text()).toContain('Installing')
   })
+
+  it.each(['resolve', 'reject'])(
+    'discards a pre-switch summary and coalesces a required refresh after a slow read %ss with auto-refresh off',
+    async (settlement) => {
+      const off = {id: 'environment', enabled: false, configured: false, available: true, state: 'off'}
+      const on = {...off, enabled: true, overridden: true, state: 'installing'}
+      const before = summary({sensors: {environment: {state: 'not-claimed', toggle: off}}})
+      const after = summary({sensors: {environment: {state: 'recording', toggle: {...on, state: 'installed'}}}})
+      let finishRead
+      let failRead
+      const pending = new Promise((resolve, reject) => {
+        finishRead = resolve
+        failRead = reject
+      })
+      let finishFollowUp
+      const followUp = new Promise((resolve) => {
+        finishFollowUp = resolve
+      })
+      let reads = 0
+      const fetchMock = vi.fn((url) => {
+        if (url === 'api/side-effects') {
+          reads++
+          if (reads === 2) return pending
+          if (reads === 3) return followUp
+          return Promise.resolve(jsonResponse(before))
+        }
+        return Promise.resolve(jsonResponse(sensorReport('environment')))
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      wrapper = mount(SideEffects, {
+        global: {
+          stubs: {RouterLink: RouterLinkStub},
+          provide: {panels: ref({panels: [{id: 'java-agent', available: true}]})}
+        }
+      })
+      await flushPromises()
+      await wrapper
+        .findAll('[role="tab"]')
+        .find((tab) => tab.text() === 'Environment')
+        .trigger('click')
+      await flushPromises()
+      const header = wrapper.findComponent(PanelHeader)
+      header.vm.$emit('update:autoRefresh', false)
+      await flushPromises()
+      header.vm.$emit('refresh')
+      await flushPromises()
+      const control = wrapper.findComponent(AgentSensorToggle)
+      control.vm.$emit('switched', {toggles: [on]})
+      control.vm.$emit('switched', {toggles: [on]})
+      await vi.advanceTimersByTimeAsync(2_500)
+      await flushPromises()
+      expect(reads).toBe(2)
+      expect(control.get('input').element.checked).toBe(true)
+
+      if (settlement === 'resolve') finishRead(jsonResponse(before))
+      else failRead(new Error('Pre-switch summary failed'))
+      await flushPromises()
+
+      expect(reads).toBe(3)
+      expect(control.get('input').element.checked).toBe(true)
+      expect(wrapper.text()).not.toContain('Pre-switch summary failed')
+      finishFollowUp(jsonResponse(after))
+      await flushPromises()
+      expect(control.text()).toContain('Recording')
+      expect(reads).toBe(3)
+    }
+  )
 
   it('does not point at the switch while the Java Agent panel is read-only', async () => {
     const toggle = {

@@ -3,6 +3,8 @@ import {ref} from 'vue'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import JavaAgent from './JavaAgent.vue'
+import AgentSensorToggle from './components/AgentSensorToggle.vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 const baseReport = {
   state: 'NOT_ATTACHED',
@@ -18,6 +20,7 @@ const baseReport = {
   claim: null,
   heldBy: null,
   sensors: [],
+  toggles: [],
   retransformation: null,
   counters: null,
   messages: [],
@@ -736,6 +739,50 @@ describe('Java Agent panel', () => {
     expect(after.text()).toContain('Overridden')
     expect(after.text()).toContain('Installing')
   })
+
+  it.each(['switched', 'stale'])(
+    'supersedes an outstanding status read after a %s event with auto-refresh off',
+    async (event) => {
+      const off = {id: 'environment', enabled: false, configured: false, available: true, state: 'off'}
+      const before = {...baseReport, state: 'ARMED', toggles: [off]}
+      const after = {...before, toggles: [{...off, enabled: true, overridden: true, state: 'installed'}]}
+      let finishRead
+      const pending = new Promise((resolve) => {
+        finishRead = resolve
+      })
+      let finishFollowUp
+      const followUp = new Promise((resolve) => {
+        finishFollowUp = resolve
+      })
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(before))
+        .mockReturnValueOnce(pending)
+        .mockReturnValueOnce(followUp)
+      vi.stubGlobal('fetch', fetchMock)
+      wrapper = mount(JavaAgent, {
+        global: {provide: {panels: ref({panels: [{id: 'java-agent', available: true}]})}}
+      })
+      await flushPromises()
+      const header = wrapper.findComponent(PanelHeader)
+      header.vm.$emit('update:autoRefresh', false)
+      await flushPromises()
+      header.vm.$emit('refresh')
+      await flushPromises()
+      const control = wrapper.findComponent(AgentSensorToggle)
+      control.vm.$emit(event, after)
+      await flushPromises()
+      if (event === 'switched') expect(control.get('input').element.checked).toBe(true)
+      finishRead(jsonResponse(before))
+      await flushPromises()
+
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+      if (event === 'switched') expect(control.get('input').element.checked).toBe(true)
+      finishFollowUp(jsonResponse(after))
+      await flushPromises()
+      expect(control.get('input').element.checked).toBe(true)
+    }
+  )
 
   it('does not call the API when manifest availability says the panel is unavailable', async () => {
     const fetchMock = vi.fn()

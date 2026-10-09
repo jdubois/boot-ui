@@ -135,6 +135,10 @@ says so and how to turn it on. Switching it off wipes the values the holder keep
 stay until **Clear recording**, as every sensor's do. When the agent fails a switch the bridge already kept, the switch shows **Failed** with the agent's reason
 rather than installing.
 
+The switch's returned report takes precedence over a status read started before it. A required follow-up read waits
+for an outstanding read to settle, even with auto-refresh off. An empty, malformed, or unrecognized acknowledgement
+reports an unknown outcome and re-reads the current state; the browser never automatically repeats the switch.
+
 A switch is a runtime override, never written to any file. The bootstrap bridge keeps it for the application's slot
 (`mode:application`), so every DevTools restart and Quarkus live reload claims again with it applied, and a full JVM
 restart forgets it. A test run is another slot and never inherits a dev switch. A switch the configuration comes to
