@@ -122,7 +122,7 @@ function connectedDashboard() {
             state: 'open',
             packageName: 'com.sample:utils',
             ecosystem: 'maven',
-            manifestPath: 'bootui-core/pom.xml',
+            manifestPath: 'bootui-engine/pom.xml',
             severity: 'medium',
             ghsaId: 'GHSA-dddd-eeee-ffff',
             cveId: null,

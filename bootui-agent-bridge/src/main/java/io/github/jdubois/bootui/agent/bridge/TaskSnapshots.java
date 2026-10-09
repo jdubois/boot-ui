@@ -12,18 +12,18 @@ import java.util.function.BiFunction;
  * the executor queues, returns from {@code shutdownNow}, or passes to a rejection handler stays the application's own.
  * Each entry counts its pending submissions: a submission by another owner, or an unowned one, while any is pending makes
  * the entry ambiguous until the count drops to zero, so a run never takes another owner's snapshot. Payloads are flat
- * arrays of JDK values stamped with the claim generation, so the map can never pin a class loader. A new claim stops
- * counting the entries of earlier claims against the cap ({@link #releaseEarlierClaims}), so a backlog from before a
- * restart cannot hold it; they stay in the map, which keeps a task submitted across claims ambiguous, until their tasks
- * run, are released, or are reclaimed.
+ * arrays of JDK values stamped with the claim generation, so the map can never pin a class loader. Earlier-generation
+ * entries stop counting against the current claim's admission limit but remain in the map to keep shared tasks
+ * ambiguous; the total number of retained entries remains independently bounded.
  *
- * <p>Each registry holds at most {@link #MAX_PENDING} tasks of the current claim, admitted atomically: past that, a new owned submission is
- * refused, counted by its caller ({@link #overflowed()}), records nothing, and so runs unowned, exactly like an unowned submission of
- * a task with no entry. A submission of a task that already has an entry is never refused, so the ambiguity rules are
- * unchanged. As with an unowned first submission, a refused submission followed by an admitted one of the same task
- * object lets the first run take the admitted snapshot. Stale entries are expunged at most {@link #EXPUNGE_BATCH} at a
- * time on application threads, before the admission check, and fully when the status is read. No lambdas, no
- * synchronized.
+ * <p>Each registry retains at most {@link #MAX_PENDING} application entries plus {@link #SELF_TEST_RESERVE} self-test
+ * entries, and admits at most {@link #MAX_PENDING} application entries for the current claim, atomically. At either
+ * application-entry limit, a new owned submission is refused, counted by its caller
+ * ({@link #overflowed()}), records nothing, and so runs unowned, exactly like an unowned submission of a task with no
+ * entry. A submission of a task that already has an entry is never refused, so the ambiguity rules are unchanged. As
+ * with an unowned first submission, a refused submission followed by an admitted one of the same task object lets the
+ * first run take the admitted snapshot. Stale entries are expunged at most {@link #EXPUNGE_BATCH} at a time on
+ * application threads, before the admission check, and fully when the status is read. No lambdas, no synchronized.
  */
 final class TaskSnapshots {
 
@@ -35,6 +35,9 @@ final class TaskSnapshots {
 
     /** The most tasks a registry holds pending at once. */
     static final int MAX_PENDING = 32768;
+
+    /** Reserved map entries for hook self-tests when live application tasks fill the ordinary retention cap. */
+    static final int SELF_TEST_RESERVE = 64;
 
     /** The most reclaimed tasks one submission or release expunges, so an application thread does bounded work. */
     static final int EXPUNGE_BATCH = 64;
@@ -60,17 +63,17 @@ final class TaskSnapshots {
     private final LongAdder overflowCount = new LongAdder();
     private final int maxPending;
 
-    /** The entries in {@link #snapshots}: changed only where an entry is added to or removed from the map. */
+    /** Entries counted against the current-claim admission limit. */
     final AtomicInteger entries = new AtomicInteger();
+
+    /** Every retained map entry, including entries of earlier generations. */
+    final AtomicInteger retainedEntries = new AtomicInteger();
 
     TaskSnapshots(int maxPending) {
         this.maxPending = maxPending;
     }
 
-    /**
-     * Records a self-test marker, past the cap too, so a full registry can never fail the self-test; see {@link
-     * #put(Object, long, Object[], long)}.
-     */
+    /** Records a self-test marker past the application-entry cap, within its fixed reserved capacity. */
     int putSelfTest(Object task, long generation, Object[] payload) {
         return put(task, generation, payload, 0L, false);
     }
@@ -112,6 +115,7 @@ final class TaskSnapshots {
         }
         Take take = new Take(this);
         snapshots.computeIfPresent(new Lookup(task), take);
+        take.releaseCapacity();
         return take.result;
     }
 
@@ -129,7 +133,9 @@ final class TaskSnapshots {
         if (snapshots.isEmpty() || snapshots.get(new Lookup(task)) == null) {
             return;
         }
-        snapshots.computeIfPresent(new Lookup(task), new Take(this));
+        Take take = new Take(this);
+        snapshots.computeIfPresent(new Lookup(task), take);
+        take.releaseCapacity();
     }
 
     boolean isEmpty() {
@@ -156,36 +162,28 @@ final class TaskSnapshots {
         overflowCount.increment();
     }
 
-    /** Owned submissions refused because the registry already held {@code MAX_PENDING} tasks; they ran unowned. */
+    /** Owned submissions refused because either registry cap was full; they ran unowned. */
     long overflow() {
         return overflowCount.sum();
     }
 
     /**
-     * Drops every entry, as when the sensor is disabled, and keeps the counters, like the sensor's other counters. Each
-     * removal is counted, so the admission count stays exact while submissions race with it.
+     * Drops every entry, as when the sensor is disabled, without resetting cumulative counters. Each removal is counted,
+     * so admission counts stay exact while submissions race with it.
      */
     void clear() {
         for (Object key : snapshots.keySet()) {
             Entry removed = snapshots.remove(key);
-            if (removed != null && removed.counted) {
-                entries.decrementAndGet();
+            if (removed != null) {
+                retainedEntries.decrementAndGet();
+                if (removed.counted) {
+                    entries.decrementAndGet();
+                }
             }
         }
     }
 
-    /** Tests only: the entries counted against the cap, read from the map itself. */
-    int countedEntries() {
-        int counted = 0;
-        for (Entry entry : snapshots.values()) {
-            if (entry.counted) {
-                counted++;
-            }
-        }
-        return counted;
-    }
-
-    /** Tests only: drops every entry and the counters. */
+    /** Tests only: clears every entry and resets cumulative counters. */
     void reset() {
         clear();
         neverAppliedCount.reset();
@@ -193,8 +191,8 @@ final class TaskSnapshots {
     }
 
     /**
-     * Stops counting the entries of claims before {@code generation} against the cap; returns how many. A full scan, run
-     * once per claim, never on submission.
+     * Stops counting earlier-generation entries against the current-claim limit without removing them. A full scan runs
+     * once per claim, never on the submission path.
      */
     int releaseEarlierClaims(long generation) {
         Uncount uncount = new Uncount(this, generation);
@@ -216,6 +214,7 @@ final class TaskSnapshots {
         for (int i = 0; i < budget && (stale = queue.poll()) != null; i++) {
             Entry entry = snapshots.remove(stale);
             if (entry != null) {
+                retainedEntries.decrementAndGet();
                 if (entry.counted) {
                     entries.decrementAndGet();
                 }
@@ -250,7 +249,7 @@ final class TaskSnapshots {
         /** The code-paths stamp of the submitting node ({@code CodePaths.stamp()}), 0 when unknown. */
         long stamp;
 
-        /** Whether the entry counts against the cap: an earlier claim's entry no longer does once a new claim armed. */
+        /** Whether the entry counts against the current claim's admission limit. */
         boolean counted = true;
 
         Entry(long generation, Object[] payload, long stamp) {
@@ -282,9 +281,17 @@ final class TaskSnapshots {
         @Override
         public Entry apply(Object key, Entry existing) {
             if (existing == null) {
-                // Admitted atomically: returning null for an absent key adds nothing to the map.
+                // Self-test markers have a fixed reserve so a full application backlog cannot disable a healthy hook.
+                long totalLimit = (long) owner.maxPending + (capped ? 0 : SELF_TEST_RESERVE);
+                if (owner.retainedEntries.incrementAndGet() > totalLimit) {
+                    owner.retainedEntries.decrementAndGet();
+                    refused = true;
+                    return null;
+                }
+                // Application entries also have a current-claim limit; older claims are uncounted but remain retained.
                 if (owner.entries.incrementAndGet() > owner.maxPending && capped) {
                     owner.entries.decrementAndGet();
+                    owner.retainedEntries.decrementAndGet();
                     refused = true;
                     return null;
                 }
@@ -292,6 +299,7 @@ final class TaskSnapshots {
                     return new Entry(generation, payload, stamp);
                 } catch (Throwable ex) {
                     owner.entries.decrementAndGet();
+                    owner.retainedEntries.decrementAndGet();
                     throw ex;
                 }
             }
@@ -307,20 +315,7 @@ final class TaskSnapshots {
         }
     }
 
-    static final class Unowned implements BiFunction<Object, Entry, Entry> {
-
-        boolean touched;
-
-        @Override
-        public Entry apply(Object key, Entry existing) {
-            existing.pending++;
-            existing.ambiguous = true;
-            touched = true;
-            return existing;
-        }
-    }
-
-    /** Stops counting an earlier claim's entry against the cap, keeping it; runs inside the map's per-bin compute. */
+    /** Stops counting an earlier-generation entry against the current claim's admission limit, keeping it in the map. */
     static final class Uncount implements BiFunction<Object, Entry, Entry> {
 
         private final TaskSnapshots owner;
@@ -343,10 +338,24 @@ final class TaskSnapshots {
         }
     }
 
+    static final class Unowned implements BiFunction<Object, Entry, Entry> {
+
+        boolean touched;
+
+        @Override
+        public Entry apply(Object key, Entry existing) {
+            existing.pending++;
+            existing.ambiguous = true;
+            touched = true;
+            return existing;
+        }
+    }
+
     static final class Take implements BiFunction<Object, Entry, Entry> {
 
         private final TaskSnapshots owner;
         Object result;
+        private Entry removed;
 
         Take(TaskSnapshots owner) {
             this.owner = owner;
@@ -357,12 +366,20 @@ final class TaskSnapshots {
             result = existing.ambiguous ? AMBIGUOUS : existing;
             existing.pending--;
             if (existing.pending <= 0) {
-                if (existing.counted) {
-                    owner.entries.decrementAndGet();
-                }
+                removed = existing;
                 return null;
             }
             return existing;
+        }
+
+        /** The map has completed the removal before another bin can reserve the freed slot. */
+        void releaseCapacity() {
+            if (removed != null) {
+                if (removed.counted) {
+                    owner.entries.decrementAndGet();
+                }
+                owner.retainedEntries.decrementAndGet();
+            }
         }
     }
 

@@ -84,7 +84,7 @@ const EXECUTOR_COUNTERS = [
   [
     'overflow',
     'Over the limit',
-    'tasks received from owned work while 32,768 of this run were already pending, left unowned'
+    'tasks received from owned work when the snapshot retention limit was full, left unowned'
   ],
   ['virtualSkipped', 'Virtual threads skipped', 'virtual-thread continuations, which keep their own context'],
   ['periodicSkipped', 'Periodic tasks skipped', 'repeating scheduled tasks, which are never propagated'],
@@ -107,7 +107,7 @@ const THREAD_COUNTERS = [
   [
     'overflow',
     'Over the limit',
-    'threads started from owned work while 32,768 of this run were already pending, left unowned'
+    'threads started from owned work when the snapshot retention limit was full, left unowned'
   ],
   [
     'libraryThreadsSkipped',
@@ -253,7 +253,7 @@ function onSensorSwitched(updated) {
   lastFetched.value = Date.now()
 }
 
-// Without an attached agent, the setup and what the agent adds open the panel, and the sections that describe an
+// Without an attached agent, what the agent adds and the setup open the panel, and the sections that describe an
 // attached agent are left out. Every other state keeps the agent's own diagnosis first and the setup last.
 const notAttached = computed(() => report.value?.state === 'NOT_ATTACHED')
 const stateDetail = computed(() => STATE_DETAILS[report.value?.state] ?? STATE_DETAILS.UNAVAILABLE)
@@ -356,8 +356,8 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
       </section>
 
       <template v-if="notAttached">
-        <JavaAgentSetup class="mb-4" :setup="report.setup" :attached="false" />
         <JavaAgentAbout class="mb-4" />
+        <JavaAgentSetup class="mb-4" :setup="report.setup" :attached="false" />
       </template>
 
       <template v-else>
@@ -542,12 +542,12 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
                     {{ sensorDisabledReason(sensor) }}
                   </p>
                   <p
-                    v-if="sensor.id !== 'threads' && sensor.executors?.overflow > 0"
+                    v-if="sensor.id === 'executors' && sensor.executors?.overflow > 0"
                     class="alert alert-warning small mt-3 mb-0"
                     role="note"
                   >
-                    Tasks went over the limit since the agent started: meanwhile, a task object that several requests
-                    submitted, such as a shared lambda, may have run with another request’s context.
+                    Tasks went over the limit since the agent started. A task object that several requests submitted,
+                    such as a shared lambda, may have run with another request’s context.
                   </p>
                   <h4 :id="`java-agent-counters-${sensor.id}`" class="h6 small text-muted mt-4 mb-2">Counters</h4>
                   <dl

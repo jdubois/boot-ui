@@ -4,7 +4,7 @@
     "name": "Julien Dubois",
     "url": "https://github.com/jdubois"
   },
-  "description": "BootUI: a local-only developer console for Spring Boot 4 and Quarkus, driven from Claude Code.",
+  "description": "BootUI: a local-only developer console for Spring Boot and Quarkus, driven from Claude Code.",
   "plugins": [
     {
       "name": "bootui",

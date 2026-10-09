@@ -22,7 +22,7 @@ use the wrapper and repository's existing scripts rather than installing replace
 
 | Changed behavior | First useful scope | Additional evidence when affected |
 | --- | --- | --- |
-| Core helper or DTO | Relevant `bootui-core` tests | DTO collection invariants and serializer/HTTP contracts |
+| Core helper or DTO | Relevant `io.github.jdubois.bootui.core` tests in `bootui-engine` | DTO collection invariants and serializer/HTTP contracts |
 | Engine service, rule, or SPI | Relevant `bootui-engine` tests with fake inputs/providers | Adapter mappings/wiring; cross-stack conformance for extraction or contract changes |
 | Spring observations or configuration | Relevant `bootui-spring-boot-starter` tests | MVC and WebFlux context/absence tests and affected sample conformance runners |
 | Quarkus runtime/deployment integration | Relevant runtime/deployment unit tests | `base` and affected capability integration modules; production fixture for production gating |

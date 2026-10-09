@@ -44,4 +44,4 @@ applyTo: "bootui-spring-boot-starter/**,bootui-spring-sample-app/**,bootui-sprin
 - Runtime configuration overrides must preserve the persisted `.bootui/application-bootui.properties` flow and restart-caveat message.
 - Do not add `-am` to `spring-boot:run`; it applies the goal to parent and library modules without main classes.
 - For a focused Spring build use:
-  `./mvnw -pl bootui-core,bootui-spring-boot-starter,bootui-spring-sample-app,bootui-spring-webflux-sample-app -am install`.
+  `./mvnw -pl bootui-engine,bootui-spring-boot-starter,bootui-spring-sample-app,bootui-spring-webflux-sample-app -am install`.

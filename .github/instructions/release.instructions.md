@@ -5,19 +5,23 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
 # Release and publishing
 
 - Use `.github/workflows/release.yml` for version bumps. It must update Maven versions, `README.md`, `docs/SETUP.md`,
-  and every npm package and lock file.
+  every npm package and lock file, and `plugins/bootui/plugin.json`. The portable plugin version is part of the signed
+  release contents and must match the release version before publication. Leave `.claude-plugin/plugin.json` inside
+  the plugin version-free so Claude Code retains commit-SHA updates.
 - Keep `quarkus.platform.version` independent from the BootUI project version.
-- Exactly eight coordinates are published: `bootui-core`, `bootui-engine`, `bootui-ui`, `bootui-spring-boot-starter`
-  (the auto-configuration and the one Spring starter, for Spring MVC and WebFlux), `bootui-quarkus`,
-  `bootui-quarkus-deployment`, `bootui-cli` (the CLI and its dependency-free client package, plus the shaded `all`
-  classifier), and the `bootui-agent` `-javaagent` jar. The same list lives in `release.yml`'s availability poll,
+- Exactly seven coordinates are published: `bootui-engine` (with the core DTO package), `bootui-ui`,
+  `bootui-spring-boot-starter` (the auto-configuration and the one Spring starter, for Spring MVC and WebFlux),
+  `bootui-quarkus`, `bootui-quarkus-deployment`, `bootui-cli` (the CLI and its dependency-free client package, plus
+  the shaded `all` classifier), and the `bootui-agent` `-javaagent` jar. The same list lives in `release.yml`'s
+  availability poll,
   `check-central-bundle.py` (whose `PUBLISHED` the bundle assembler and the release tests read),
   `consumer-smoke-tests.sh`, and `check-release-integrity.sh`; change them together.
 - Publication never runs Maven's `deploy` phase: under Maven 3.10, `central-publishing-maven-plugin` stages resolver
   bookkeeping that Central rejects. `release.yml` installs the publication-only reactor, signed, then
   `assemble_central_bundle.py` bundles exactly the published coordinates from the local repository,
-  `check-central-bundle.py` checks the bundle, and `publish_central_bundle.py` uploads it through the Central Portal
-  API. The assembler's list is an allow-list, so the parents and `bootui-agent-bridge` never reach the bundle.
+  `check-central-bundle.py` checks the bundle, `verify-release-signatures.sh bundle` checks every signature in it, and
+  `publish_central_bundle.py` uploads it through the Central Portal API. The assembler's list is an allow-list, so
+  the parents and `bootui-agent-bridge` never reach the bundle.
 - Neither `bootui-parent` nor `bootui-quarkus-parent` is published. Each published module declares
   `flatten-maven-plugin` (configured in the root POM, `ossrh` mode), so its installed and published POM has no
   `<parent>`, resolved dependency versions, scopes, optional flags and exclusions, and the root's Central metadata.
@@ -71,9 +75,13 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
   major is at least the highest major among the stable tags on origin; an older-major patch skips the redeploy.
   `test_release_version_policy.py`, `test_release_line_gate.py`, and `test_release_integrity.py` cover these rules,
   the gate, and the guard.
-- Maven Central requires the matching public signing key to be available by fingerprint. Never expose signing secrets in
-  command arguments or logs. If macOS `gpg --send-keys` fails through dirmngr, use the HTTPS upload APIs for
-  `keys.openpgp.org` and `keyserver.ubuntu.com`.
+- Maven Central requires the matching public signing key to be available by fingerprint. `release.yml` pins that key's
+  primary fingerprint once, as the job's `RELEASE_KEY_FINGERPRINT`: right after the key is imported, a step refuses any
+  other key before anything is signed or tagged, and `verify-release-signatures.sh` requires every signature of the
+  verification build (before the tag, unless `skip_build`) and of the Central bundle (before the upload) to be by it.
+  Change the value only on a deliberate key rotation, in `release.yml` and `check-release-integrity.sh` together, after
+  publishing the new key. Never expose signing secrets in command arguments or logs. If macOS `gpg --send-keys` fails
+  through dirmngr, use the HTTPS upload APIs for `keys.openpgp.org` and `keyserver.ubuntu.com`.
 - A failed Central deployment may consume the coordinate. Drop the failed deployment before rerunning the existing
   signed tag. If publication succeeded but polling, smoke tests, or documentation failed, resume from that tag with
   `resume_after_publish=true` so Maven Central deployment is not repeated.

@@ -315,6 +315,24 @@ public abstract class AbstractCliConformanceTest {
     }
 
     @Test
+    void testCliAgentSensorSwitchesRejectMissingAndUnsupportedIds() {
+        for (String tool : java.util.List.of("enable_agent_sensor", "disable_agent_sensor")) {
+            JsonNode entry = catalogEntry(tool);
+            assertThat(entry.path("panel").asText()).isEqualTo("java-agent");
+            assertThat(entry.path("action").asBoolean()).isTrue();
+            assertThat(entry.path("command").asText())
+                    .isEqualTo(tool.equals("enable_agent_sensor") ? "agent sensor enable" : "agent sensor disable");
+            assertThat(invoke(tool, "{}").status()).isEqualTo(400);
+            Response invalid = invoke(tool, "{\"id\":\"executors\"}");
+            assertThat(invalid.status()).isEqualTo(400);
+            assertThat(invalid.json().path("error").asText()).contains("cannot be switched", "executors");
+            Response refused = invoke(tool, "{\"id\":\"files\"}");
+            assertThat(refused.status()).isEqualTo(409);
+            assertThat(refused.json().path("error").asText()).contains("not armed");
+        }
+    }
+
+    @Test
     void testCliDisabledPanelRefusesItsTools() {
         // Every conformance profile disables the Memory panel. It is deliberately a panel every stack
         // reports as available on any machine: a panel that is *unavailable* drops its tools from the

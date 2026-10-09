@@ -1,10 +1,12 @@
 import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it, vi} from 'vitest'
+import {ref} from 'vue'
+import {createMemoryHistory, createRouter, RouterLink} from 'vue-router'
 
 import RuntimeInsights from './RuntimeInsights.vue'
 
 const routeState = vi.hoisted(() => ({query: {}}))
-vi.mock('vue-router', () => ({useRoute: () => routeState}))
+vi.mock('vue-router', async (importOriginal) => ({...(await importOriginal()), useRoute: () => routeState}))
 
 const report = {
   available: true,
@@ -71,8 +73,22 @@ function jsonResponse(body) {
   return {ok: true, status: 200, json: () => Promise.resolve(body)}
 }
 
-function mountPanel(props = {}) {
-  return mount(RuntimeInsights, {props, global: {stubs: {'router-link': {template: '<a><slot /></a>'}}}})
+function mountPanel(props = {}, panels = null, router = null) {
+  return mount(RuntimeInsights, {
+    props,
+    global: {
+      provide: {panels: ref(panels)},
+      plugins: router ? [router] : [],
+      stubs: {
+        'router-link': router
+          ? RouterLink
+          : {
+              props: ['to'],
+              template: '<a :data-to="JSON.stringify(to)"><slot /></a>'
+            }
+      }
+    }
+  })
 }
 
 // v-show hides a tab panel that is not selected.
@@ -109,6 +125,177 @@ describe('Runtime Insights panel', () => {
     expect(fetchMock).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('journal disabled')
   })
+
+  it('opens the JFR profile tab from a route breakdown without starting a recording', async () => {
+    const breakdown = {
+      ...report.observations[0],
+      id: 'route-time-breakdown:orders',
+      kind: 'route-time-breakdown',
+      subject: 'GET /api/orders/{id}',
+      listed: true
+    }
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(
+        jsonResponse(
+          String(url).includes('/insights/')
+            ? {...detail, observation: breakdown}
+            : {...report, observations: [breakdown]}
+        )
+      )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPanel({}, {panels: [{id: 'code-paths', available: true, enabled: true, readOnly: true}]})
+    await flushPromises()
+    await openRow(wrapper, 'GET /api/orders/{id}')
+
+    const section = wrapper.get('.insight-performance-deep-dives')
+    expect(section.text()).toContain('Open the JFR profile tab')
+    expect(section.text()).toContain('recording starts only when you choose Profile resources')
+    expect(section.text()).toContain('not an exact request replay')
+    expect(JSON.parse(section.get('a').attributes('data-to'))).toEqual({
+      path: '/code-paths',
+      query: {route: 'GET /api/orders/{id}'}
+    })
+    await section.get('button').trigger('click')
+    expect(shown(wrapper.get('#insights-panel-profile'))).toBe(true)
+    expect(wrapper.get('#insights-tab-profile').text()).toContain('JFR profile')
+    expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
+  })
+
+  it.each([
+    {
+      name: 'detached agent',
+      panel: {available: false, unavailableReason: "Requires the BootUI agent's code-paths sensor: no agent attached."},
+      tip: true
+    },
+    {
+      name: 'disabled sensor',
+      panel: {
+        available: false,
+        unavailableReason: "Requires the BootUI agent's code-paths sensor: the sensor is disabled."
+      },
+      tip: true
+    },
+    {
+      name: 'disabled panel',
+      panel: {enabled: false, available: false, unavailableReason: "Requires the BootUI agent's code-paths sensor."},
+      reason: 'bootui.panels.code-paths.enabled=false'
+    },
+    {
+      name: 'unavailable dependency',
+      panel: {available: false, unavailableReason: 'The HTTP Exchanges panel is disabled.'},
+      reason: 'The HTTP Exchanges panel is disabled.'
+    },
+    {name: 'missing panel', panel: null, reason: 'Code Paths is not available in this runtime.'},
+    {name: 'unknown manifest', manifest: null, reason: 'Code Paths availability is not known yet.'}
+  ])('shows honest guidance for $name without a Code Paths action', async ({panel, manifest, reason, tip}) => {
+    const breakdown = {...report.observations[0], kind: 'route-time-breakdown'}
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(
+        jsonResponse(
+          String(url).includes('/insights/')
+            ? {...detail, observation: breakdown}
+            : {...report, observations: [breakdown]}
+        )
+      )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPanel(
+      {},
+      manifest === null
+        ? null
+        : {
+            panels: [
+              ...(panel ? [{id: 'code-paths', enabled: true, ...panel}] : []),
+              {id: 'java-agent', enabled: true, available: true}
+            ]
+          }
+    )
+    await flushPromises()
+    await openRow(wrapper)
+
+    const section = wrapper.get('.insight-performance-deep-dives')
+    expect(section.text()).toContain(reason ?? panel.unavailableReason)
+    expect(section.find('.insight-agent-tip').exists()).toBe(!!tip)
+    expect(section.findAll('a').some((link) => JSON.parse(link.attributes('data-to'))?.path === '/code-paths')).toBe(
+      false
+    )
+    expect(section.findAll('a').length).toBe(tip ? 1 : 0)
+    if (tip) expect(section.get('a').attributes('data-to')).toBe('"/java-agent"')
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('api/code-paths'))).toBe(false)
+    await section.get('button').trigger('click')
+    expect(shown(wrapper.get('#insights-panel-profile'))).toBe(true)
+    expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
+  })
+
+  it('keeps the agent tip without a setup link when the Java Agent panel is disabled', async () => {
+    const breakdown = {...report.observations[0], kind: 'route-time-breakdown'}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        Promise.resolve(
+          jsonResponse(
+            String(url).includes('/insights/')
+              ? {...detail, observation: breakdown}
+              : {...report, observations: [breakdown]}
+          )
+        )
+      )
+    )
+    wrapper = mountPanel(
+      {},
+      {
+        panels: [
+          {id: 'code-paths', available: false, unavailableReason: "Requires the BootUI agent's code-paths sensor."},
+          {id: 'java-agent', enabled: false, available: true}
+        ]
+      }
+    )
+    await flushPromises()
+    await openRow(wrapper)
+    expect(wrapper.get('.insight-agent-tip').text()).toContain('method-level timing')
+    expect(wrapper.get('.insight-performance-deep-dives').findAll('a')).toHaveLength(0)
+  })
+
+  it.each(['GET /api/orders/{id}?name=a+b&view=#résumé', null])(
+    'preserves the real route identity or explains its absence (%s)',
+    async (subject) => {
+      const breakdown = {...report.observations[0], kind: 'route-time-breakdown', subject}
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url) =>
+          Promise.resolve(
+            jsonResponse(
+              String(url).includes('/insights/')
+                ? {...detail, observation: breakdown}
+                : {...report, observations: [breakdown]}
+            )
+          )
+        )
+      )
+      const router = createRouter({
+        history: createMemoryHistory('/host/dev-console/'),
+        routes: [{path: '/:pathMatch(.*)*', component: {template: '<div />'}}]
+      })
+      await router.push('/runtime-insights')
+      wrapper = mountPanel({}, {panels: [{id: 'code-paths', available: true, enabled: true}]}, router)
+      await flushPromises()
+      await openRow(wrapper)
+      const section = wrapper.get('.insight-performance-deep-dives')
+      if (subject) {
+        const link = section.get('a')
+        const href = link.attributes('href')
+        expect(href).toMatch(/^\/host\/dev-console\/code-paths\?route=/)
+        expect(router.resolve(href.replace('/host/dev-console', '')).query.route).toBe(subject)
+        await link.trigger('click')
+        await flushPromises()
+        expect(router.currentRoute.value.query.route).toBe(subject)
+      } else {
+        expect(section.text()).toContain('This observation has no known route')
+        expect(section.find('a').exists()).toBe(false)
+      }
+    }
+  )
 
   it('shows the window, the coverage, the selected observation with its evidence, and checks that did not run', async () => {
     const fetchMock = vi.fn((url) =>

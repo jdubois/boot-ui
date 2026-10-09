@@ -4,7 +4,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from rehearse_v2_merge import TriggerParseError, parse_triggers, push_runs_on, runs_on_main  # noqa: E402
+from rehearse_v2_merge import (  # noqa: E402
+    GATE,
+    FakeCentral,
+    TriggerParseError,
+    gate_sentinels,
+    parse_triggers,
+    push_runs_on,
+    runs_on_main,
+)
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def runs(workflow):
@@ -68,6 +78,31 @@ class TriggerTests(unittest.TestCase):
         ):
             with self.subTest(workflow=workflow), self.assertRaises(TriggerParseError):
                 parse_triggers(workflow)
+
+
+
+class FakeCentralTests(unittest.TestCase):
+    """The simulated futures publish exactly what the gate under test looks for on Maven Central."""
+
+    def test_the_sentinels_come_from_the_gate(self):
+        sentinels = gate_sentinels((ROOT / GATE).read_text(encoding="utf-8"))
+        self.assertEqual(sentinels, ("bootui-engine", "bootui-spring-boot-starter"))
+        self.assertNotIn("bootui-core", sentinels)
+
+    def test_a_gate_without_sentinels_is_an_error(self):
+        with self.assertRaises(ValueError):
+            gate_sentinels("central_state() { :; }\n")
+
+    def test_publish_writes_every_sentinel_jar(self):
+        central = FakeCentral(("bootui-engine", "bootui-spring-boot-starter"))
+        try:
+            central.publish("2.0.0")
+            root = Path(central.directory.name) / "com/julien-dubois/bootui"
+            self.assertTrue((root / "bootui-engine/2.0.0/bootui-engine-2.0.0.jar").is_file())
+            self.assertTrue((root / "bootui-spring-boot-starter/2.0.0/bootui-spring-boot-starter-2.0.0.jar").is_file())
+            self.assertFalse((root / "bootui-core").exists())
+        finally:
+            central.close()
 
 
 if __name__ == "__main__":

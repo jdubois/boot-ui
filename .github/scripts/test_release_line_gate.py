@@ -45,12 +45,14 @@ class FakeCentral:
         self.thread.start()
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
 
-    def publish(self, version, artifacts=("core", "starter")):
+    def publish(self, version, artifacts=("engine", "starter")):
         root = Path(self.directory.name) / GROUP
-        if "core" in artifacts:
-            core = root / "bootui-core" / version / f"bootui-core-{version}.jar"
-            core.parent.mkdir(parents=True, exist_ok=True)
-            core.write_bytes(b"jar")
+        for artifact in artifacts:
+            if artifact in ("engine", "core"):
+                name = f"bootui-{artifact}"
+                jar = root / name / version / f"{name}-{version}.jar"
+                jar.parent.mkdir(parents=True, exist_ok=True)
+                jar.write_bytes(b"jar")
         if "starter" in artifacts:
             name = f"bootui-spring-boot-starter-{version}.jar"
             starter = root / "bootui-spring-boot-starter" / version / name
@@ -124,7 +126,7 @@ class ReleaseLineGateTests(unittest.TestCase):
         self.assert_decision("false", "2.0.0", 2, ["v1.19.0", "v2.0.0"], "none with its artifacts")
 
     def test_a_partially_visible_release_publishes_nothing(self):
-        self.central.publish("2.0.0", artifacts=("core",))
+        self.central.publish("2.0.0", artifacts=("engine",))
         self.assert_decision("false", "2.0.0", 2, ["v1.19.0", "v2.0.0"])
 
     def test_2_0_0_on_central_publishes_the_2x_line(self):
@@ -135,6 +137,17 @@ class ReleaseLineGateTests(unittest.TestCase):
     def test_a_failed_later_patch_does_not_block_the_released_line(self):
         self.central.publish("2.0.0")
         self.assert_decision("true", "2.0.1", 2, ["v1.19.0", "v2.0.0", "v2.0.1"])
+
+    def test_a_2x_release_without_bootui_core_supersedes_the_1x_line(self):
+        # 2.0 publishes no bootui-core: the gate must recognise a 2.x release by artifacts it still publishes.
+        self.central.publish("1.19.0", artifacts=("core", "engine", "starter"))
+        self.central.publish("2.0.0", artifacts=("engine", "starter"))
+        self.assert_decision("false", "1.19.0", 1, ["v1.19.0", "v2.0.0"], "superseded by v2.0.0")
+        self.assert_decision("true", "2.0.0", 2, ["v1.19.0", "v2.0.0"], "v2.0.0 is on Maven Central")
+
+    def test_bootui_core_alone_is_no_longer_a_sentinel(self):
+        self.central.publish("2.0.0", artifacts=("core", "starter"))
+        self.assert_decision("false", "2.0.0", 2, ["v1.19.0", "v2.0.0"], "none with its artifacts")
 
     def test_maintenance_branch_stops_once_a_newer_major_is_released(self):
         self.central.publish("1.19.0")

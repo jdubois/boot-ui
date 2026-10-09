@@ -1447,7 +1447,10 @@ function toggleFlow() {
               {{ profile.unavailableReason }}
             </div>
             <RequestJournalProfile v-if="journalProfile" :profile="journalProfile" />
-            <RequestCodePath :request-id="journalProfile?.requestId || profileRequestId" />
+            <RequestCodePath
+              :request-id="journalProfile?.requestId || profileRequestId"
+              :route="journalProfile?.route"
+            />
           </div>
           <div v-else-if="profile">
             <section class="mb-3">
@@ -1480,7 +1483,10 @@ function toggleFlow() {
             </section>
 
             <RequestJournalProfile v-if="journalProfile" :profile="journalProfile" />
-            <RequestCodePath :request-id="journalProfile?.requestId || profileRequestId" />
+            <RequestCodePath
+              :request-id="journalProfile?.requestId || profileRequestId"
+              :route="journalProfile?.route"
+            />
 
             <p v-if="profile.approximate" class="alert alert-secondary small py-2 mb-3" role="note">
               <i class="bi bi-info-circle me-1" aria-hidden="true"></i>Parts of this profile are approximate: some

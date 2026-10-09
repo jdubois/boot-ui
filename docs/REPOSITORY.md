@@ -2,8 +2,9 @@
 
 ## Modules
 
-- `bootui-core`: shared DTOs, secret masking, and core helpers.
-- `bootui-engine`: framework-neutral services/advisors and SPI ports.
+- `bootui-engine`: the shared DTOs, secret masking, and core helpers (package `io.github.jdubois.bootui.core`), and the
+  framework-neutral services/advisors and SPI ports built on them. The core package depends only on the JDK and never
+  on the engine, the SPI, or an adapter; `CoreBoundaryArchitectureTests` enforces it.
 - `bootui-spring-boot-starter`: the Spring MVC/WebFlux adapter and its starter (auto-configuration, endpoints, safety,
   and the bundled UI). It brings no web stack; the application's own web starter decides.
 - `bootui-ui`: Vue 3 frontend packaged into `META-INF/resources/bootui/`.
@@ -40,12 +41,12 @@ Quarkus LTS version.
 
 ## Published artifacts
 
-Maven Central receives eight coordinates under `com.julien-dubois.bootui`: `bootui-core`, `bootui-engine`, `bootui-ui`,
+Maven Central receives seven coordinates under `com.julien-dubois.bootui`: `bootui-engine`, `bootui-ui`,
 `bootui-spring-boot-starter`, `bootui-quarkus`, `bootui-quarkus-deployment`, `bootui-cli` (with its `all` classifier),
 and `bootui-agent`. Their POMs are flattened by `flatten-maven-plugin`: no `<parent>`, every dependency version
 resolved, and the project metadata inlined, so neither `bootui-parent` nor `bootui-quarkus-parent` is published. Every
 other module is built but never published. The release installs the publication reactor and uploads a bundle that
-`.github/scripts/assemble_central_bundle.py` assembles from exactly those eight coordinates.
+`.github/scripts/assemble_central_bundle.py` assembles from exactly those seven coordinates.
 `.github/scripts/stage-release-candidate.sh` builds the same bundle, unsigned, into a local file repository, and `.github/scripts/consumer-smoke-tests.sh <version> <directory>` runs the release's
 consumer smoke tests against it. `.github/scripts/published-cli-smoke.sh <spring-sample-jar>` runs the newest published
 `bootui-cli`, pinned by SHA-256, against the Spring sample built from the checkout, so a server change that breaks the

@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus.mcp;
 import io.github.jdubois.bootui.core.dto.RestClientTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsAgentView;
+import io.github.jdubois.bootui.engine.mcp.McpAgentSensorSwitches;
 import io.github.jdubois.bootui.engine.mcp.McpAgentViews;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpControlAcks;
@@ -392,6 +393,22 @@ public class QuarkusMcpTools {
                         "get_agent_status",
                         McpToolDescriptions.quarkus("get_agent_status"),
                         args -> McpAgentViews.agentStatus(javaAgent.report(), args.query())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "enable_agent_sensor",
+                        McpToolDescriptions.quarkus("enable_agent_sensor"),
+                        args -> McpAgentSensorSwitches.invoke(
+                                args.id(), () -> javaAgent.switchSensorReport(args.id(), true))));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "disable_agent_sensor",
+                        McpToolDescriptions.quarkus("disable_agent_sensor"),
+                        args -> McpAgentSensorSwitches.invoke(
+                                args.id(), () -> javaAgent.switchSensorReport(args.id(), false))));
         // Code Inventory, advertised while the BootUI agent's inventory sensor records this start (§5.15).
         addIfAvailable(
                 registry,

@@ -125,9 +125,6 @@ application's own code did. See [Java Agent](features/java-agent.md).
 **Limits of the agent itself:**
 
 - JVM mode only, attached with `-javaagent` or an opt-in self-attach; it is unavailable in a GraalVM native image.
-- It remembers at most 32,768 pending executor tasks, and 32,768 pending threads, of the current run; past that, new
-  tasks run without their request, counted as **Over the limit**, and a task object several requests share can run with
-  another request's context.
 - It appends itself to the bootstrap class path, so class data sharing, AppCDS, and AOT caches stop applying outside
   the boot loader and HotSpot prints a warning. A development tool: never attach it to a production or AOT-cached JVM.
 
@@ -146,5 +143,7 @@ These are the targets 2.0 is measured against. The measured values are recorded 
 
 BootUI itself, with or without the journal, is not free: on a worst-case route that answers in about 0.7 ms, the
 Spring MVC sample sustains about 83 to 87 % of the throughput it reaches with BootUI off. Slower, realistic requests
-dilute this cost. If the journal misses its 5 % target before 2.0.0, it ships disabled by default and the release notes
-say so.
+dilute this cost. The 2026-10-09 journal-on/off CI benchmark measured 14.1 % lower median throughput with the journal
+on for one Spring MVC sample route, against the 5 % target; its 96 % distribution-free interval for overhead was
+9–16 %. This is one workload, not a general application estimate. The maintainer explicitly decided to keep the
+journal enabled by default despite this measured miss; see the [validation report](V2-VALIDATION-REPORT.md#release-sign-off).

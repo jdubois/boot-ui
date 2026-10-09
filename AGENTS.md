@@ -1,11 +1,14 @@
 # BootUI repository instructions
 
-BootUI is a local-only developer console delivered from one codebase through three request stacks: Spring Boot 4 MVC,
-Spring Boot 4 WebFlux, and Quarkus. All three serve the same Vue UI and stable JSON contract through a
+BootUI is a local-only developer console delivered from one codebase through three request stacks: Spring Boot MVC,
+Spring Boot WebFlux, and Quarkus. All three serve the same Vue UI and stable JSON contract through a
 framework-neutral engine. The same diagnostics are reachable without a browser through MCP tools and the published
 `bootui-cli` command-line interface, which builds on its own dependency-free client package.
 
 ## Authoritative context
+
+- In product descriptions, taglines, and directory listings, say "Spring Boot and Quarkus" without version numbers.
+  Keep explicit versions in compatibility requirements, dependency baselines, migration guidance, and historical notes.
 
 - Read `docs/SPECIFICATION.md`, `docs/PLAN.md`, `docs/features/`, `docs/WEBFLUX-SUPPORT.md`, and
   `docs/QUARKUS-SUPPORT.md` before changing public behavior, panel availability, or visible UI.
@@ -17,7 +20,8 @@ framework-neutral engine. The same diagnostics are reachable without a browser t
 
 ## Architecture invariants
 
-- Preserve `bootui-core <- bootui-engine <- adapters`. Shared modules never depend on Spring, Quarkus, or a JSON library.
+- Preserve the package direction `io.github.jdubois.bootui.core` <- engine and SPI <- adapters. The core package,
+  inside `bootui-engine`, reaches only the JDK; shared modules never depend on Spring, Quarkus, or a JSON library.
 - Put reusable behavior and policy in the engine. Keep Spring and Quarkus adapters thin and native to their frameworks.
 - Keep core DTO records immutable, annotation-free, and byte-compatible across Jackson 3 and Jackson 2 serialization.
 - Treat Spring MVC, Spring WebFlux, and Quarkus as the default scope for shared behavior. When a capability is

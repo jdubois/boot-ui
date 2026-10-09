@@ -114,12 +114,12 @@ class CentralBundleTests(unittest.TestCase):
         self.assertEqual(self.errors(), [])
 
     def test_resolver_bookkeeping_and_foreign_files_are_rejected(self):
-        artifact_dir = self.root / GROUP_PATH / "bootui-core"
+        artifact_dir = self.root / GROUP_PATH / "bootui-engine"
         for path in (
             artifact_dir / "maven-metadata-local.xml",
             artifact_dir / VERSION / "_remote.repositories",
-            artifact_dir / VERSION / f"bootui-core-{VERSION}-tests.jar",
-            artifact_dir / VERSION / f"bootui-core-{VERSION}.jar.asc.md5",
+            artifact_dir / VERSION / f"bootui-engine-{VERSION}-tests.jar",
+            artifact_dir / VERSION / f"bootui-engine-{VERSION}.jar.asc.md5",
         ):
             with self.subTest(path=path.name):
                 path.write_text("x", encoding="utf-8")
@@ -132,36 +132,36 @@ class CentralBundleTests(unittest.TestCase):
             "<parent><groupId>com.julien-dubois.bootui</groupId><artifactId>bootui-parent</artifactId>"
             f"<version>{VERSION}</version></parent>"
         )
-        self.write("bootui-core", pom("bootui-core", extra=parent))
+        self.write("bootui-engine", pom("bootui-engine", extra=parent))
         self.assert_error("must not declare <parent>")
 
     def test_inherited_build_sections_are_rejected(self):
         for element in ("dependencyManagement", "profiles", "build", "repositories"):
             with self.subTest(element=element):
-                self.write("bootui-core", pom("bootui-core", extra=f"<{element}/>"))
+                self.write("bootui-engine", pom("bootui-engine", extra=f"<{element}/>"))
                 self.assert_error(f"must not declare <{element}>")
 
     def test_unresolved_properties_and_missing_versions_are_rejected(self):
-        self.write("bootui-core", pom("bootui-core", dependency("org.example", "lib", "${lib.version}")))
+        self.write("bootui-engine", pom("bootui-engine", dependency("org.example", "lib", "${lib.version}")))
         self.assert_error("unresolved ${...} property")
         self.write(
-            "bootui-core",
-            pom("bootui-core", "<dependency><groupId>org.example</groupId><artifactId>lib</artifactId></dependency>"),
+            "bootui-engine",
+            pom("bootui-engine", "<dependency><groupId>org.example</groupId><artifactId>lib</artifactId></dependency>"),
         )
         self.assert_error("must declare groupId, artifactId and a literal version")
 
     def test_central_metadata_must_match_the_root(self):
         for old, new, fragment in (
             ("<url>https://github.com/jdubois/boot-ui</url>\n  <licenses>",
-             "<url>https://github.com/jdubois/boot-ui/bootui-core</url>\n  <licenses>", "<url> must be"),
-            ("<description>The bootui-core module.</description>", "", "non-empty <description>"),
+             "<url>https://github.com/jdubois/boot-ui/bootui-engine</url>\n  <licenses>", "<url> must be"),
+            ("<description>The bootui-engine module.</description>", "", "non-empty <description>"),
             ("Apache License, Version 2.0", "MIT", "<licenses>"),
             ("<name>Julien Dubois</name>", "", "named developer"),
             ("scm:git:https://github.com/jdubois/boot-ui.git<", "scm:git:https://github.com/jdubois/boot-ui.git/core<",
              "<scm><connection>"),
         ):
             with self.subTest(new=new):
-                self.write("bootui-core", pom("bootui-core").replace(old, new, 1))
+                self.write("bootui-engine", pom("bootui-engine").replace(old, new, 1))
                 self.assert_error(fragment)
 
     def test_unpublished_bootui_dependencies_are_rejected_unless_optional(self):
@@ -171,12 +171,12 @@ class CentralBundleTests(unittest.TestCase):
         optional_bridge = dependency("com.julien-dubois.bootui", "bootui-agent-bridge", VERSION, optional=True)
         self.write("bootui-agent", pom("bootui-agent", optional_bridge))
         self.assertEqual(self.errors(), [])
-        stale = dependency("com.julien-dubois.bootui", "bootui-core", "1.19.0")
-        self.write("bootui-engine", pom("bootui-engine", stale))
+        stale = dependency("com.julien-dubois.bootui", "bootui-engine", "1.19.0")
+        self.write("bootui-spring-boot-starter", pom("bootui-spring-boot-starter", stale))
         self.assert_error("must be version 2.0.0")
 
     def test_test_scope_dependencies_are_rejected(self):
-        self.write("bootui-core", pom("bootui-core", dependency("org.junit.jupiter", "junit-jupiter", scope="test")))
+        self.write("bootui-engine", pom("bootui-engine", dependency("org.junit.jupiter", "junit-jupiter", scope="test")))
         self.assert_error("scope test")
 
     def test_the_starter_brings_no_web_stack(self):

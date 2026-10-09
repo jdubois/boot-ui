@@ -10,6 +10,16 @@ import org.junit.jupiter.api.Test;
 class McpToolDescriptionsTests {
 
     @Test
+    void agentStatusWarnsAboutSharedTasksAfterExecutorOverflowOnEveryStack() {
+        for (Function<String, String> provider :
+                List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+            assertThat(provider.apply("get_agent_status"))
+                    .contains("executors sensor", "overflow", "another request's context")
+                    .contains("never claims, installs, or changes the agent");
+        }
+    }
+
+    @Test
     void mysqlGuidanceDistinguishesActiveWorkScopeAndMissingEvidence() {
         for (Function<String, String> descriptions :
                 List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
@@ -26,6 +36,31 @@ class McpToolDescriptionsTests {
                             "raw session/sample SQL");
             assertThat(descriptions.apply("get_mysql_report"))
                     .contains("without contacting", "NOT_READ", "exposure-policy", "readAt", "approved");
+        }
+    }
+
+    @Test
+    void agentSensorActionsExplainEvidenceCostAndApprovalOnEveryStack() {
+        for (Function<String, String> descriptions :
+                List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+            for (String tool : List.of("enable_agent_sensor", "disable_agent_sensor")) {
+                assertThat(descriptions.apply(tool))
+                        .as(tool)
+                        .contains(
+                                "user's authorization",
+                                "get_agent_status",
+                                "get_side_effects",
+                                "thread-activity",
+                                "java.lang.Thread",
+                                "6.8%",
+                                "11.5%",
+                                "thread-locals",
+                                "security-sinks",
+                                "redacted",
+                                "request-values=true",
+                                "not persisted",
+                                "run comparisons");
+            }
         }
     }
 

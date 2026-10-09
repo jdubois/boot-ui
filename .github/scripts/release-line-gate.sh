@@ -47,11 +47,12 @@ decide() {
 
 # Prints `present` when every sentinel artifact of VERSION is downloadable, `absent` when one is
 # missing, and fails on any other answer, so a network error never reads as either. The sentinels are
-# published on every line: 2.0 stopped publishing the parent POMs, so bootui-parent cannot be one.
+# published on every line: 2.0 stopped publishing the parent POMs and bootui-core, so neither
+# bootui-parent nor bootui-core can be one.
 central_state() {
   local version="$1" artifact url code
   for artifact in \
-    "bootui-core/${version}/bootui-core-${version}.jar" \
+    "bootui-engine/${version}/bootui-engine-${version}.jar" \
     "bootui-spring-boot-starter/${version}/bootui-spring-boot-starter-${version}.jar"; do
     url="${CENTRAL_URL}/${GROUP_PATH}/${artifact}"
     code="$(curl -sS -I -o /dev/null -w '%{http_code}' --max-time 30 --retry 2 --retry-connrefused "$url" || true)"

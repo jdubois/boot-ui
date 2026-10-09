@@ -2,7 +2,7 @@
 
 ## 1. Strategy
 
-BootUI adds a safe, local-only developer console to a running application, shipping on **Spring Boot 4 (servlet and
+BootUI adds a safe, local-only developer console to a running application, shipping on **Spring Boot (servlet and
 WebFlux starters) and Quarkus (an extension)** from one shared, framework-neutral engine that serves the same Vue UI and
 the same `/bootui/api/**` contract on every runtime. The released surface covers 60 panels across runtime introspection,
 configuration, databases, services, diagnostics, project health, and developer tooling, and MCP tools and the `bootui`
@@ -217,7 +217,7 @@ of the lists below, so a missed step fails the build rather than drifting silent
 
 - Put policy, bounds, ordering, and assembly in the framework-neutral engine. Keep the Spring MVC, Spring WebFlux, and
   Quarkus adapters thin, and keep optional framework or driver types in gated adapter classes.
-- Keep `bootui-core` DTO changes additive and nullable, so older browsers, MCP clients, and published `bootui` binaries
+- Keep core DTO changes additive and nullable, so older browsers, MCP clients, and published `bootui` binaries
   keep working. Update the panel's `BootUiApiContractCatalog` entry to its real DTO fields;
   `availablePanelsMatchTheirDtoFamilyContracts` fails when the declared shape drifts.
 - Route every displayed value through the live `ExposurePolicy` and `SecretMasker`, and bound every list with a visible

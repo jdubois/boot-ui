@@ -1,6 +1,8 @@
 import hashlib
 import importlib.util
+import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -23,6 +25,10 @@ _BUNDLE_CHECK_SPEC.loader.exec_module(_bundle_check)
 # The published coordinates, from the one list the assembler and the bundle check read.
 PUBLISHED = _bundle_check.PUBLISHED
 
+SIGNATURE_CHECK = ROOT / ".github/scripts/verify-release-signatures.sh"
+BUNDLE_SIGNATURE_LINE = '          bash .github/scripts/verify-release-signatures.sh bundle "$BUNDLE_DIR"\n'
+BUILD_SIGNATURE_LINE = "            bash .github/scripts/verify-release-signatures.sh build\n"
+PINNED_RELEASE_KEY = "      RELEASE_KEY_FINGERPRINT: 7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9\n"
 NEXT_VERSION_CALL = (
     'bash .github/scripts/release-version-policy.sh next-version "$VERSION" "$CURRENT_VERSION" "$RELEASE_LINE"'
 )
@@ -48,11 +54,22 @@ AGENT_DORMANT = (
     'dormant until BootUI claims it"'
 )
 AGENT_DEPENDENCY_FREE = 'if [[ "$AGENT_CLASSPATH" != "bootui-agent-${VERSION}.jar" ]]; then'
+PLUGIN_VERSION_UPDATE = "plugin.version = process.argv[1];"
+PLUGIN_VERSION_CHECK = "if (plugin.version !== process.argv[1]) {"
 
 
 class ReleaseIntegrityTests(unittest.TestCase):
     def check(
-        self, content=None, pages=None, docker=None, smoke=None, stage=None, bundle=None, assembler=None, root_files=None
+        self,
+        content=None,
+        pages=None,
+        docker=None,
+        smoke=None,
+        stage=None,
+        bundle=None,
+        assembler=None,
+        signature=None,
+        root_files=None,
     ):
         """Runs the guard on mutated copies. root_files maps repository paths to replacement contents and
         runs the guard against a copy of the POMs and the release line it reads from the repository."""
@@ -66,6 +83,7 @@ class ReleaseIntegrityTests(unittest.TestCase):
                 ("stage-release-candidate.sh", stage, STAGE),
                 ("check-central-bundle.py", bundle, BUNDLE_CHECK),
                 ("assemble_central_bundle.py", assembler, BUNDLE_ASSEMBLER),
+                ("verify-release-signatures.sh", signature, SIGNATURE_CHECK),
             ):
                 path = Path(directory) / name
                 path.write_text(source.read_text(encoding="utf-8") if text is None else text, encoding="utf-8")
@@ -109,6 +127,99 @@ class ReleaseIntegrityTests(unittest.TestCase):
     def test_release_workflow_passes(self):
         result = self.check(WORKFLOW.read_text(encoding="utf-8"))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_plugin_version_update_and_verification_are_required(self):
+        for old, new, message in (
+            (PLUGIN_VERSION_UPDATE, "// no update", "portable plugin release version update"),
+            (
+                'fs.writeFileSync(path, JSON.stringify(plugin, null, 2) + "\\n");',
+                "// no write",
+                "portable plugin release version write",
+            ),
+            (PLUGIN_VERSION_CHECK, "if (false) {", "portable plugin release version verification"),
+        ):
+            with self.subTest(old=old):
+                self.assert_rejected(self.mutate(old, new), message)
+
+    def plugin_version_command(self, marker):
+        content = WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(content.count(marker), 1, f"fixture drifted: {marker!r}")
+        position = content.index(marker)
+        start = content.rindex("node -e '", 0, position)
+        suffix = "' \"$VERSION\""
+        end = content.index(suffix, position) + len(suffix)
+        return content[start:end]
+
+    def test_plugin_version_commands_are_ordered_around_sealing(self):
+        for marker, anchor, message in (
+            (
+                PLUGIN_VERSION_UPDATE,
+                '          RELEASE_SHA="$(git rev-parse HEAD)"',
+                "written before release verification and sealing",
+            ),
+            (
+                PLUGIN_VERSION_CHECK,
+                "          echo \"All BootUI ${VERSION} artifacts are available on Maven Central.\"",
+                "verified before publication",
+            ),
+        ):
+            with self.subTest(marker=marker):
+                command = self.plugin_version_command(marker)
+                content = WORKFLOW.read_text(encoding="utf-8").replace(command, "")
+                content = content.replace(anchor, command + "\n" + anchor)
+                self.assert_rejected(content, message)
+
+    def test_plugin_version_commands_update_and_check_the_actual_payload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "plugins/bootui/plugin.json"
+            manifest.parent.mkdir(parents=True)
+            original = json.loads((ROOT / "plugins/bootui/plugin.json").read_text(encoding="utf-8"))
+            manifest.write_text(json.dumps(original), encoding="utf-8")
+            claude_manifest = manifest.parent / ".claude-plugin/plugin.json"
+            claude_manifest.parent.mkdir()
+            claude_original = (ROOT / "plugins/bootui/.claude-plugin/plugin.json").read_bytes()
+            claude_manifest.write_bytes(claude_original)
+            env = {**os.environ, "VERSION": "2.3.4"}
+
+            def run(marker):
+                return subprocess.run(
+                    ["bash", "-c", self.plugin_version_command(marker)],
+                    cwd=directory,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+            result = run(PLUGIN_VERSION_CHECK)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("plugin version mismatch", result.stderr)
+            result = run(PLUGIN_VERSION_UPDATE)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            updated = json.loads(manifest.read_text(encoding="utf-8"))
+            self.assertEqual(updated, {**original, "version": "2.3.4"})
+            self.assertEqual(claude_manifest.read_bytes(), claude_original)
+            result = run(PLUGIN_VERSION_CHECK)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            versioned_bytes = manifest.read_bytes()
+            result = run(PLUGIN_VERSION_UPDATE)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(manifest.read_bytes(), versioned_bytes)
+
+            del updated["version"]
+            manifest.write_text(json.dumps(updated), encoding="utf-8")
+            result = run(PLUGIN_VERSION_CHECK)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("plugin version mismatch", result.stderr)
+            result = run(PLUGIN_VERSION_UPDATE)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = run(PLUGIN_VERSION_CHECK)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            manifest.write_text("{invalid", encoding="utf-8")
+            for marker in (PLUGIN_VERSION_CHECK, PLUGIN_VERSION_UPDATE):
+                with self.subTest(marker=marker):
+                    self.assertNotEqual(run(marker).returncode, 0)
 
     def test_per_major_version_policy_is_required(self):
         self.assert_rejected(
@@ -256,7 +367,7 @@ class ReleaseIntegrityTests(unittest.TestCase):
         url = "file:///tmp/bootui-candidate"
         digest = hashlib.sha1(url.encode()).hexdigest()
         other = hashlib.sha1(b"file:///tmp/elsewhere").hexdigest()
-        jar = "bootui-core-1.0.0.jar"
+        jar = "bootui-ui-1.0.0.jar"
         for origin, accepted in (
             (f"{jar}>bootui-staged=", True),
             (f"{jar}>bootui-staged-{digest}=", True),
@@ -376,9 +487,131 @@ class ReleaseIntegrityTests(unittest.TestCase):
             ('python3 "$REPOSITORY_ROOT/.github/scripts/check-central-bundle.py"', '# python3 "$REPOSITORY_ROOT/.github/scripts/check-central-bundle.py"', "check-central-bundle.py"),
             ('"$LOCAL_REPO" "$VERSION" "$BUNDLE"\n', '"$LOCAL_REPO" "$VERSION" "$BUNDLE" || true\n', "assemble_central_bundle.py"),
             ("set -euo pipefail\n", "set -uo pipefail\n", "set -euo pipefail"),
+            ('unzip -q "$BUNDLE" -d "$OUTPUT"\n', "", "unzip -q"),
+            ('unzip -q "$BUNDLE" -d "$OUTPUT"\n', 'unzip -q "$BUNDLE" -d "$OUTPUT" || true\n', "unzip -q"),
         ):
             with self.subTest(new=new):
                 self.assert_rejected(None, message, stage=self.mutate_file(STAGE, old, new))
+
+    def test_staging_runs_its_commands_in_publication_order(self):
+        check = 'python3 "$REPOSITORY_ROOT/.github/scripts/check-central-bundle.py" "$OUTPUT" "$VERSION"\n'
+        unzip = 'unzip -q "$BUNDLE" -d "$OUTPUT"\n'
+        assemble = (
+            'python3 "$REPOSITORY_ROOT/.github/scripts/assemble_central_bundle.py" --unsigned "$LOCAL_REPO" "$VERSION"'
+            ' "$BUNDLE"\n'
+        )
+        install = "./mvnw -B -ntp -Prelease clean install \\\n"
+        stage = STAGE.read_text(encoding="utf-8")
+        for first, second in ((unzip, check), (assemble, unzip), (install, assemble)):
+            with self.subTest(first=first):
+                self.assertEqual(stage.count(first), 1, f"fixture drifted: {first!r}")
+                swapped = stage.replace(first, "\0", 1).replace(second, first, 1).replace("\0", second, 1)
+                self.assert_rejected(None, "after the previous staging command", stage=swapped)
+
+    def test_every_bundle_signature_is_verified_before_the_upload(self):
+        message = "verification of every bundle signature by the release key before its upload"
+        for mutated in (
+            "",
+            BUNDLE_SIGNATURE_LINE.replace("bash ", "# bash ", 1),
+            BUNDLE_SIGNATURE_LINE.rstrip("\n") + " || true\n",
+        ):
+            with self.subTest(mutated=mutated):
+                self.assert_rejected(self.mutate(BUNDLE_SIGNATURE_LINE, mutated), message)
+        # Verifying only after the upload is too late: the coordinate is already consumed.
+        publish = (
+            '          python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip "bootui-$VERSION"'
+            ' "$CENTRAL_AUTO_PUBLISH"\n'
+        )
+        moved = self.mutate(BUNDLE_SIGNATURE_LINE, "").replace(publish, publish + BUNDLE_SIGNATURE_LINE, 1)
+        self.assert_rejected(moved, "after the previous bundle command")
+
+    def test_the_build_signatures_are_verified_before_the_tag(self):
+        for mutated in (
+            "",
+            BUILD_SIGNATURE_LINE.replace("bash ", "# bash ", 1),
+            BUILD_SIGNATURE_LINE.rstrip("\n") + " || true\n",
+        ):
+            with self.subTest(mutated=mutated):
+                self.assert_rejected(self.mutate(BUILD_SIGNATURE_LINE, mutated), "pre-tag verification")
+        commit = '            git commit -m "Release $TAG"\n'
+        workflow = self.mutate(BUILD_SIGNATURE_LINE, "")
+        self.assertEqual(workflow.count(commit), 1, "fixture drifted: release commit")
+        moved = workflow.replace(commit, commit + BUILD_SIGNATURE_LINE, 1)
+        self.assert_rejected(moved, "after the verification build and before the release commit")
+
+    def test_the_release_key_is_pinned_and_checked_before_anything_is_signed(self):
+        pinned = "pin RELEASE_KEY_FINGERPRINT to 7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9"
+        other = PINNED_RELEASE_KEY.replace("7B7C0BD0", "00000000")
+        self.assert_rejected(self.mutate(PINNED_RELEASE_KEY, other), pinned)
+        self.assert_rejected(self.mutate(PINNED_RELEASE_KEY, ""), pinned)
+        override = "        env:\n          RELEASE_KEY_FINGERPRINT: 0000000000000000000000000000000000000000\n"
+        step = "      - name: Prepare release version\n        if: github.event_name == 'workflow_dispatch' && inputs.version != ''\n"
+        self.assert_rejected(self.mutate(step, step + override), "nothing may redefine it")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        start = workflow.index("      - name: Check the release signing key\n")
+        end = workflow.index("      - name: Configure Git author\n")
+        check_step = workflow[start:end]
+        guarded = [line for line in check_step.splitlines() if line.rstrip().endswith("exit 1; }")]
+        self.assertEqual(len(guarded), 2, "fixture drifted: the release signing key check")
+        for line in guarded:
+            for mutated in (line.replace("; exit 1; }", "; }"), line.replace("          ", "          # ", 1), ""):
+                with self.subTest(line=line, mutated=mutated):
+                    self.assert_rejected(self.mutate(line + "\n", mutated + "\n"), "the release signing key check must")
+        self.assert_rejected(self.mutate(check_step, ""), "the release signing key check must")
+        moved = self.mutate(check_step, "").replace(
+            "      - name: Decide documentation redeploy\n", check_step + "      - name: Decide documentation redeploy\n", 1
+        )
+        self.assert_rejected(moved, "before anything is signed or tagged")
+        jdk = "      - name: Set up JDK 17\n"
+        before_jdk = self.mutate(check_step, "").replace(jdk, check_step + jdk, 1)
+        self.assert_rejected(before_jdk, "after it is imported")
+        name = "      - name: Check the release signing key\n"
+        for setting in ("        if: inputs.version != ''\n", "        continue-on-error: true\n"):
+            with self.subTest(setting=setting):
+                self.assert_rejected(self.mutate(name, name + setting), "the release signing key check must run unconditionally")
+        build = "      - name: Configure Git author\n"
+        self.assert_rejected(
+            self.mutate(build, build + "        continue-on-error: true\n"), "no release step may set continue-on-error"
+        )
+
+    def test_the_signature_check_reads_the_pin_and_nothing_else(self):
+        script = SIGNATURE_CHECK.read_text(encoding="utf-8")
+        readonly = "readonly RELEASE_KEY_FINGERPRINT\n"
+        derived = (
+            "RELEASE_KEY_FINGERPRINT=\"$(gpg --batch --with-colons --list-secret-keys"
+            " | awk -F: '$1 == \"fpr\" { print $10; exit }')\"\n"
+        )
+        for mutated in (derived + readonly, readonly + "export RELEASE_KEY_FINGERPRINT\n", ""):
+            with self.subTest(mutated=mutated):
+                self.assert_rejected(
+                    None, "verify-release-signatures.sh must", signature=script.replace(readonly, mutated, 1)
+                )
+
+    def test_every_signature_check_failure_stops_the_script(self):
+        script = SIGNATURE_CHECK.read_text(encoding="utf-8")
+        guarded = [line for line in script.splitlines() if line.rstrip().endswith("exit 1; }")]
+        self.assertEqual(len(guarded), 4, "fixture drifted: the guarded failure lines")
+        for line in guarded:
+            for mutated in (
+                line.replace("; exit 1; }", "; }"),
+                line.replace("; exit 1; }", "; # exit 1; }"),
+                "# " + line.lstrip(),
+                "",
+            ):
+                with self.subTest(line=line, mutated=mutated):
+                    self.assertEqual(script.count(line + "\n"), 1, f"fixture drifted: {line!r}")
+                    self.assert_rejected(
+                        None, "verify-release-signatures.sh must", signature=script.replace(line + "\n", mutated + "\n", 1)
+                    )
+        for old, new in (
+            ("set -euo pipefail\n", "set -uo pipefail\n"),
+            ("-path '*/target/*.asc')", "-path '*/target/*.sig')"),
+            ("(-name '*.asc')", "(-name '*.sig')"),
+            ('"${FIND_FILTER[@]}" -type f -print0)', '-name nothing -print0)'),
+        ):
+            with self.subTest(new=new):
+                self.assertEqual(script.count(old), 1, f"fixture drifted: {old!r}")
+                self.assert_rejected(None, "verify-release-signatures.sh must", signature=script.replace(old, new, 1))
 
     def test_every_list_names_the_same_coordinates(self):
         self.assert_rejected(
@@ -393,7 +626,7 @@ class ReleaseIntegrityTests(unittest.TestCase):
         )
         own_list = "ARTIFACT_IDS = _load_bundle_check().PUBLISHED"
         for new in (
-            'ARTIFACT_IDS = ("bootui-core", "bootui-agent-bridge")',
+            'ARTIFACT_IDS = ("bootui-engine", "bootui-agent-bridge")',
             own_list + ' + ("bootui-parent",)',
             own_list + '\nARTIFACT_IDS = ("bootui-parent",)',
         ):
@@ -637,9 +870,8 @@ class ReleaseIntegrityTests(unittest.TestCase):
         )
         self.assert_rejected(self.mutate(check, ""), "check of the assembled Central bundle before its upload")
         publish_line = publish + ' target/central-bundle.zip "bootui-$VERSION" "$CENTRAL_AUTO_PUBLISH"\n'
-        self.assert_rejected(
-            self.mutate(check + publish_line, publish_line + check), "after the previous bundle command"
-        )
+        moved_upload = self.mutate(publish_line, "").replace(check, publish_line + check, 1)
+        self.assert_rejected(moved_upload, "after the previous bundle command")
         unzip = '          unzip -q target/central-bundle.zip -d "$BUNDLE_DIR"\n'
         for line, message in (
             (assemble, "Central bundle assembled from the installed release"),
@@ -692,6 +924,149 @@ class ReleaseIntegrityTests(unittest.TestCase):
             ),
             "must not be exposed in process arguments",
         )
+
+
+@unittest.skipUnless(shutil.which("gpg"), "gpg is not installed")
+class BundleSignatureVerificationTests(unittest.TestCase):
+    """The publication step uploads a bundle only when every file carries a valid signature by the release key."""
+
+    def setUp(self):
+        self.pinned = None
+        self.directory = tempfile.TemporaryDirectory()
+        root = Path(self.directory.name)
+        self.release_home = root / "release-gnupg"
+        self.other_home = root / "other-gnupg"
+        self.bundle = root / "bundle"
+        self.bundle.mkdir()
+        for home, name in ((self.release_home, "Release"), (self.other_home, "Other")):
+            home.mkdir(mode=0o700)
+            self.gpg(home, "--gen-key", stdin=(
+                "%no-protection\nKey-Type: eddsa\nKey-Curve: ed25519\nKey-Usage: sign\n"
+                f"Name-Real: {name}\nName-Email: {name.lower()}@invalid\nExpire-Date: 1d\n%commit\n"
+            ))
+        exported = self.gpg(self.other_home, "--export", "--armor").stdout
+        self.gpg(self.release_home, "--import", stdin=exported)
+        self.release_fingerprint = self.fingerprint(self.release_home)
+        self.other_fingerprint = self.fingerprint(self.other_home)
+
+    def fingerprint(self, home):
+        listing = self.gpg(home, "--with-colons", "--list-secret-keys").stdout
+        return next(line.split(":")[9] for line in listing.splitlines() if line.startswith("fpr:"))
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def gpg(self, home, *arguments, stdin=None):
+        return subprocess.run(
+            ["gpg", "--batch", "--quiet", *arguments],
+            input=stdin, env={**os.environ, "GNUPGHOME": str(home)},
+            text=True, capture_output=True, check=True,
+        )
+
+    def sign(self, home, name):
+        path = self.bundle / name
+        path.write_text(name)
+        self.gpg(home, "--armor", "--detach-sign", "--output", f"{path}.asc", str(path))
+        return path
+
+    def verify(self, *arguments, cwd=None):
+        return subprocess.run(
+            ["bash", str(SIGNATURE_CHECK), *(arguments or ("bundle", str(self.bundle)))],
+            env={
+                **os.environ,
+                "GNUPGHOME": str(self.release_home),
+                "RELEASE_KEY_FINGERPRINT": self.release_fingerprint if self.pinned is None else self.pinned,
+            },
+            text=True, capture_output=True, cwd=cwd,
+        )
+
+    def test_signatures_by_the_release_key_pass(self):
+        self.sign(self.release_home, "bootui-engine-2.0.0.pom")
+        self.sign(self.release_home, "bootui-engine-2.0.0.jar")
+        result = self.verify()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_valid_signature_by_another_key_is_refused(self):
+        self.sign(self.release_home, "bootui-engine-2.0.0.jar")
+        self.sign(self.other_home, "bootui-engine-2.0.0.pom")
+        result = self.verify()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("bootui-engine-2.0.0.pom.asc is not a valid signature by the release key", result.stdout)
+
+    def test_a_tampered_file_is_refused(self):
+        pom = self.sign(self.release_home, "bootui-engine-2.0.0.pom")
+        pom.write_text("tampered")
+        self.assertNotEqual(self.verify().returncode, 0)
+
+    def test_a_bundle_without_signatures_is_refused(self):
+        (self.bundle / "bootui-engine-2.0.0.pom").write_text("unsigned")
+        result = self.verify()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Found no release signature to verify", result.stdout)
+
+    def test_build_mode_checks_the_signatures_in_each_target_directory(self):
+        workspace = Path(self.directory.name) / "workspace"
+        for module in ("target", "bootui-engine/target"):
+            (workspace / module).mkdir(parents=True)
+        self.bundle = workspace / "bootui-engine/target"
+        self.sign(self.release_home, "bootui-engine-2.0.0.pom")
+        self.bundle = workspace / "target"
+        self.sign(self.release_home, "bootui-parent-2.0.0.pom")
+        result = self.verify("build", cwd=workspace)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Verified 2 release signatures", result.stdout)
+        self.bundle = workspace / "bootui-engine/target"
+        self.sign(self.other_home, "bootui-engine-2.0.0.jar")
+        result = self.verify("build", cwd=workspace)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("is not a valid signature by the release key", result.stdout)
+
+    def test_signatures_by_a_key_other_than_the_pinned_one_are_refused(self):
+        # Both keys are in the keyring and both signatures are good: only the pinned fingerprint decides.
+        self.sign(self.other_home, "bootui-engine-2.0.0.pom")
+        self.pinned = self.other_fingerprint
+        self.assertEqual(self.verify().returncode, 0)
+        self.sign(self.release_home, "bootui-engine-2.0.0.jar")
+        result = self.verify()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("bootui-engine-2.0.0.jar.asc is not a valid signature by the release key", result.stdout)
+
+    def test_a_missing_or_malformed_pin_is_refused(self):
+        self.sign(self.release_home, "bootui-engine-2.0.0.pom")
+        for pinned in ("", self.release_fingerprint.lower(), self.release_fingerprint[:-1]):
+            with self.subTest(pinned=pinned):
+                self.pinned = pinned
+                result = self.verify()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("RELEASE_KEY_FINGERPRINT must be the pinned", result.stdout)
+
+    def run_key_check(self, home, pinned):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        start = workflow.index("      - name: Check the release signing key\n")
+        body = workflow[workflow.index("        run: |\n", start) + len("        run: |\n") : workflow.index(
+            "      - name: Configure Git author\n", start
+        )]
+        script = "".join(line[10:] if line.startswith("          ") else line for line in body.splitlines(True))
+        return subprocess.run(
+            ["bash", "-c", script],
+            env={**os.environ, "GNUPGHOME": str(home), "RELEASE_KEY_FINGERPRINT": pinned},
+            text=True, capture_output=True,
+        )
+
+    def test_the_workflow_key_check_accepts_only_the_pinned_key_alone(self):
+        result = self.run_key_check(self.release_home, self.release_fingerprint)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result = self.run_key_check(self.release_home, self.other_fingerprint)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("is not the pinned release key", result.stdout)
+        secret = self.gpg(self.other_home, "--export-secret-keys", "--armor").stdout
+        self.gpg(self.release_home, "--import", stdin=secret)
+        result = self.run_key_check(self.release_home, self.release_fingerprint)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Exactly one secret signing key", result.stdout)
+
+    def test_a_missing_bundle_directory_is_a_usage_error(self):
+        self.assertEqual(self.verify("bundle", str(self.bundle / "missing")).returncode, 2)
 
 
 if __name__ == "__main__":

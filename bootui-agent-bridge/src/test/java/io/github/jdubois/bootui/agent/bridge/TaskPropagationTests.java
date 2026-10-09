@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.agent.bridge;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.lang.ref.Reference;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -43,6 +44,40 @@ class TaskPropagationTests {
     @AfterEach
     void reset() {
         AgentBridge.reset();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false", "true"})
+    void disablingTheThreadsSensorClearsPendingSnapshotsButKeepsCumulativeCounters(boolean everyGeneration)
+            throws ReflectiveOperationException {
+        TaskSnapshots snapshots = TaskSnapshots.THREADS;
+        long generation = AgentBridge.current().generation;
+        snapshots.put(new Thread(), generation, snapshot("unapplied"), 0L);
+        java.lang.reflect.Field field = TaskSnapshots.class.getDeclaredField("snapshots");
+        field.setAccessible(true);
+        Map<?, ?> keyed = (Map<?, ?>) field.get(snapshots);
+        Reference<?> reclaimed = (Reference<?>) keyed.keySet().iterator().next();
+        reclaimed.clear();
+        assertThat(reclaimed.enqueue()).isTrue();
+        assertThat(snapshots.neverApplied()).isEqualTo(1L);
+        Thread pending = new Thread();
+        snapshots.put(pending, generation, snapshot("pending"), 0L);
+        snapshots.overflowed();
+
+        ThreadPropagation.disable(generation, everyGeneration);
+
+        assertThat(ThreadPropagation.status().get("overflow")).isEqualTo(1L);
+        assertThat(ThreadPropagation.status().get("neverApplied")).isEqualTo(1L);
+        assertThat(ThreadPropagation.status().get("pending")).isEqualTo(0L);
+        assertThat(snapshots.take(pending)).isNull();
+        assertThat(snapshots.entries.get()).isZero();
+        assertThat(snapshots.retainedEntries.get()).isZero();
+        claimWith(List.of());
+        assertThat(ThreadPropagation.status().get("overflow")).isEqualTo(1L);
+        assertThat(ThreadPropagation.status().get("neverApplied")).isEqualTo(1L);
+        snapshots.reset();
+        assertThat(snapshots.overflow()).isZero();
+        assertThat(snapshots.neverApplied()).isZero();
     }
 
     @Test
@@ -128,86 +163,8 @@ class TaskPropagationTests {
         assertThat(queued).hasSize(TaskSnapshots.MAX_PENDING);
     }
 
-    private static final Runnable SHARED_TASK = () -> {};
-
     @Test
-    void aWorkerThatFailedToStartNeverReleasesTheEntryOfASubmissionMadeMeanwhile() {
-        List<Object> queued = fillTasks();
-        owner.set(snapshot("a"));
-        int outcome = TaskPropagation.workerOffered(SHARED_TASK);
-        owner.remove();
-        assertThat(outcome).isEqualTo(TaskPropagation.OVERFLOWED);
-        // A queued task runs, and another request submits the same singleton task into the slot it freed.
-        TaskPropagation.exit(TaskPropagation.enter(queued.get(0), TaskPropagation.APPLY_RUN_WORKER), null);
-        owner.set(snapshot("b"));
-        assertThat(TaskPropagation.submitted(SHARED_TASK, TaskPropagation.KEY_THREAD_POOL))
-                .isTrue();
-        owner.remove();
-
-        TaskPropagation.workerAdded(outcome, SHARED_TASK, false);
-
-        TaskPropagation.exit(TaskPropagation.enter(SHARED_TASK, TaskPropagation.APPLY_RUN_WORKER), null);
-        assertThat(reopened).last().asString().startsWith("b ");
-    }
-
-    @Test
-    void aQueueThatRefusedAnOverflowedTaskNeverReleasesTheEntryOfASubmissionMadeMeanwhile() {
-        List<Object> queued = fillTasks();
-        java.util.concurrent.BlockingQueue<Object> full = new java.util.concurrent.ArrayBlockingQueue<Object>(1) {
-            @Override
-            public boolean offer(Object task) {
-                // Between A's keying and its refused offer: a slot frees and B submits the same task.
-                TaskPropagation.exit(TaskPropagation.enter(queued.get(0), TaskPropagation.APPLY_RUN_WORKER), null);
-                Object a = owner.get();
-                owner.set(snapshot("b"));
-                assertThat(TaskPropagation.submitted(task, TaskPropagation.KEY_THREAD_POOL))
-                        .isTrue();
-                owner.set(a);
-                return false;
-            }
-        };
-        owner.set(snapshot("a"));
-
-        assertThat(TaskPropagation.offer(full, SHARED_TASK)).isFalse();
-        owner.remove();
-
-        TaskPropagation.exit(TaskPropagation.enter(SHARED_TASK, TaskPropagation.APPLY_RUN_WORKER), null);
-        assertThat(reopened).last().asString().startsWith("b ");
-    }
-
-    @Test
-    void aNewClaimFreesTheCapFromTheEarlierClaimsBacklog() {
-        List<Object> queued = fillTasks();
-        Runnable task = () -> {};
-        owner.set(snapshot("r1"));
-        assertThat(TaskPropagation.submitted(task, TaskPropagation.KEY_THREAD_POOL))
-                .isFalse();
-        owner.remove();
-
-        // A restart: the same application claims again.
-        claimWith(List.of());
-        owner.set(snapshot("r2"));
-        assertThat(TaskPropagation.submitted(task, TaskPropagation.KEY_THREAD_POOL))
-                .isTrue();
-        owner.remove();
-
-        TaskPropagation.exit(TaskPropagation.enter(task, TaskPropagation.APPLY_RUN_WORKER), null);
-        TaskPropagation.exit(TaskPropagation.enter(queued.get(0), TaskPropagation.APPLY_RUN_WORKER), null);
-        assertThat(reopened).containsExactly("r2 " + task.getClass().getName() + " ThreadPoolExecutor.runWorker");
-        assertThat(counter("stale")).isEqualTo(1L);
-        assertThat(counter("pending")).isEqualTo(TaskSnapshots.MAX_PENDING - 1);
-    }
-
-    @Test
-    void disablingTheThreadsSensorKeepsItsOverflowCount() {
-        TaskSnapshots.THREADS.overflowed();
-
-        ThreadPropagation.disable(AgentBridge.current().generation, false);
-
-        assertThat(ThreadPropagation.status().get("overflow")).isEqualTo(1L);
-    }
-
-    private List<Object> fillTasks() {
+    void aRefusedWorkerStartCannotReleaseTheSameTaskAdmittedAfterRoomWasFreed() {
         long generation = AgentBridge.current().generation;
         List<Object> queued = new ArrayList<>();
         for (int i = 0; i < TaskSnapshots.MAX_PENDING; i++) {
@@ -215,7 +172,139 @@ class TaskPropagationTests {
             queued.add(delayed);
             TaskSnapshots.TASKS.put(delayed, generation, snapshot("delayed"), 0L);
         }
-        return queued;
+        Runnable shared = () -> {};
+        owner.set(snapshot("a"));
+        int refused = TaskPropagation.workerOffered(shared);
+        assertThat(refused).isEqualTo(TaskPropagation.OVERFLOWED);
+
+        TaskPropagation.exit(TaskPropagation.enter(queued.get(0), TaskPropagation.APPLY_RUN_WORKER), null);
+        owner.set(snapshot("b"));
+        assertThat(TaskPropagation.submitted(shared, TaskPropagation.KEY_THREAD_POOL))
+                .isTrue();
+
+        TaskPropagation.workerAdded(refused, shared, false);
+        TaskPropagation.exit(TaskPropagation.enter(shared, TaskPropagation.APPLY_RUN_WORKER), null);
+        owner.remove();
+
+        assertThat(reopened).last().asString().startsWith("b ");
+    }
+
+    @Test
+    void aRefusedQueueOfferCannotReleaseTheSameTaskAdmittedWhileOfferWasInFlight() {
+        long generation = AgentBridge.current().generation;
+        List<Object> queued = new ArrayList<>();
+        for (int i = 0; i < TaskSnapshots.MAX_PENDING; i++) {
+            Object delayed = new Object();
+            queued.add(delayed);
+            TaskSnapshots.TASKS.put(delayed, generation, snapshot("delayed"), 0L);
+        }
+        Runnable shared = () -> {};
+        java.util.concurrent.BlockingQueue<Object> refusing = new java.util.concurrent.ArrayBlockingQueue<Object>(1) {
+            @Override
+            public boolean offer(Object task) {
+                TaskPropagation.exit(TaskPropagation.enter(queued.get(0), TaskPropagation.APPLY_RUN_WORKER), null);
+                Object previousOwner = owner.get();
+                owner.set(snapshot("b"));
+                assertThat(TaskPropagation.submitted(task, TaskPropagation.KEY_THREAD_POOL))
+                        .isTrue();
+                owner.set(previousOwner);
+                return false;
+            }
+        };
+        owner.set(snapshot("a"));
+
+        assertThat(TaskPropagation.offer(refusing, shared)).isFalse();
+        TaskPropagation.exit(TaskPropagation.enter(shared, TaskPropagation.APPLY_RUN_WORKER), null);
+        owner.remove();
+
+        assertThat(reopened).last().asString().startsWith("b ");
+    }
+
+    @Test
+    void executorSelfTestMarkersAreAppliedWhenOldLiveTasksFillTheOrdinaryLimit() {
+        long generation = AgentBridge.current().generation;
+        List<Object> queued = new ArrayList<>();
+        for (int i = 0; i < TaskSnapshots.MAX_PENDING; i++) {
+            Object delayed = new Object();
+            queued.add(delayed);
+            TaskSnapshots.TASKS.put(delayed, generation, snapshot("old"), 0L);
+        }
+        claimWith(List.of());
+
+        Runnable marker = () -> {};
+        TaskPropagation.beginSelfTest();
+        assertThat(TaskPropagation.submitted(marker, TaskPropagation.KEY_THREAD_POOL))
+                .isTrue();
+        assertThat(TaskPropagation.enter(marker, TaskPropagation.APPLY_RUN_WORKER))
+                .isNull();
+        Map<String, Object> selfTest = TaskPropagation.endSelfTest();
+
+        assertThat(selfTest.get("keyed").toString()).contains("ThreadPoolExecutor.addWorker=1");
+        assertThat(selfTest.get("applied").toString()).contains("ThreadPoolExecutor.runWorker=1");
+        assertThat(queued).hasSize(TaskSnapshots.MAX_PENDING);
+        assertThat(TaskSnapshots.TASKS.retainedEntries.get())
+                .isLessThanOrEqualTo(TaskSnapshots.MAX_PENDING + TaskSnapshots.SELF_TEST_RESERVE);
+    }
+
+    @Test
+    void threadSelfTestMarkersAreAppliedWhenOldLiveTasksFillTheOrdinaryLimit() {
+        long generation = AgentBridge.current().generation;
+        List<Thread> retained = new ArrayList<>();
+        for (int i = 0; i < TaskSnapshots.MAX_PENDING; i++) {
+            Thread thread = new Thread();
+            retained.add(thread);
+            TaskSnapshots.THREADS.put(thread, generation, snapshot("old"), 0L);
+        }
+        claimWith(List.of());
+
+        Thread marker = new Thread();
+        ThreadPropagation.beginSelfTest();
+        assertThat(ThreadPropagation.starting(marker, ThreadPropagation.KEY_THREAD_START))
+                .isTrue();
+        assertThat(ThreadPropagation.enter(marker, null, ThreadPropagation.APPLY_THREAD_RUN))
+                .isNull();
+        Map<String, Object> selfTest = ThreadPropagation.endSelfTest();
+
+        assertThat(selfTest.get("keyed").toString()).contains("Thread.start=1");
+        assertThat(selfTest.get("applied").toString()).contains("Thread.run=1");
+        assertThat(retained).hasSize(TaskSnapshots.MAX_PENDING);
+        assertThat(TaskSnapshots.THREADS.retainedEntries.get())
+                .isLessThanOrEqualTo(TaskSnapshots.MAX_PENDING + TaskSnapshots.SELF_TEST_RESERVE);
+    }
+
+    @Test
+    void exhaustedSelfTestHeadroomDoesNotReportARefusedTaskOrThreadAsKeyed() {
+        List<Object> held = new ArrayList<>();
+        long generation = AgentBridge.current().generation;
+        for (int i = 0; i < TaskSnapshots.MAX_PENDING + TaskSnapshots.SELF_TEST_RESERVE; i++) {
+            Object task = new Object();
+            Thread thread = new Thread();
+            held.add(task);
+            held.add(thread);
+            assertThat(TaskSnapshots.TASKS.putSelfTest(task, generation, TaskPropagation.SELF_TEST))
+                    .isEqualTo(TaskSnapshots.OWNED);
+            assertThat(TaskSnapshots.THREADS.putSelfTest(thread, generation, TaskPropagation.SELF_TEST))
+                    .isEqualTo(TaskSnapshots.OWNED);
+        }
+        Object task = new Object();
+        Thread thread = new Thread();
+        TaskPropagation.beginSelfTest();
+        ThreadPropagation.beginSelfTest();
+        try {
+            assertThat(TaskPropagation.submit(task, TaskPropagation.KEY_THREAD_POOL, false))
+                    .isEqualTo(TaskPropagation.NONE);
+            assertThat(ThreadPropagation.starting(thread, ThreadPropagation.KEY_THREAD_START))
+                    .isFalse();
+        } finally {
+            assertThat(TaskPropagation.endSelfTest().get("keyed").toString())
+                    .contains("ThreadPoolExecutor.addWorker=0");
+            assertThat(ThreadPropagation.endSelfTest().get("keyed").toString()).contains("Thread.start=0");
+        }
+        assertThat(TaskSnapshots.TASKS.peek(task)).isNull();
+        assertThat(TaskSnapshots.THREADS.peek(thread)).isNull();
+        assertThat(TaskSnapshots.TASKS.size()).isEqualTo(TaskSnapshots.MAX_PENDING + TaskSnapshots.SELF_TEST_RESERVE);
+        assertThat(TaskSnapshots.THREADS.size()).isEqualTo(TaskSnapshots.MAX_PENDING + TaskSnapshots.SELF_TEST_RESERVE);
+        assertThat(held).hasSize(2 * (TaskSnapshots.MAX_PENDING + TaskSnapshots.SELF_TEST_RESERVE));
     }
 
     @Test

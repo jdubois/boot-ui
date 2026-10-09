@@ -1,8 +1,8 @@
 # Java Agent
 
 The Java Agent panel explains whether the optional BootUI `-javaagent` is attached to the current JVM, whether this
-application has claimed it, and how to attach it when it is missing. It is view-only on Spring MVC, Spring WebFlux, and
-Quarkus.
+application has claimed it, and how to attach it when it is missing. Its bounded runtime sensor switches are available
+on Spring MVC, Spring WebFlux, and Quarkus.
 
 The panel opens the sidebar's **Instrumentation** group, the setup and status entry point for the panels that read the
 agent's sensors: [Code Paths](#code-paths) and [Code Inventory](#code-inventory). Without the agent those two stay in
@@ -14,12 +14,12 @@ application hands to a raw thread pool or `CompletableFuture` is owned by the re
 local-only, exports nothing, and stays dormant until BootUI claims it. A Spring or Quarkus application that starts
 without `-javaagent` behaves exactly as before and reports `NOT_ATTACHED` with setup snippets.
 
-While the agent is not attached, the panel opens on its setup. Under the **Not attached** status, **Attach the agent**
-lists the steps (download the jar when it is missing, add `-javaagent` where the application starts, and restart) above
-the [snippet tabs](#attaching-the-agent). **What the Java agent adds** follows: what a Java agent is, how BootUI's stays
-idle until the application claims it and records metadata rather than data, which features need it, what works
-without it, and what it costs. The sections that describe an attached agent (versions and runtime facts, the claim,
-runtime switches, sensors, class transformation, and counters) are left out until it is attached. In every other state,
+While the agent is not attached, the panel opens on **What the Java agent adds** under the **Not attached** status:
+what a Java agent is, how BootUI's stays idle until the application claims it and records metadata rather than data,
+which features need it, what works without it, and what it costs. **Attach the agent** follows, listing the steps
+(download the jar when it is missing, add `-javaagent` where the application starts, and restart) above the
+[snippet tabs](#attaching-the-agent). The sections that describe an attached agent (versions and runtime facts, the
+claim, runtime switches, sensors, class transformation, and counters) are left out until it is attached. In every other state,
 `DORMANT`, `UNAVAILABLE`, and `DISABLED` included, the agent's own diagnosis comes first and the setup snippets close
 the panel: the agent is already on the JVM or cannot be used, and the status reason names the fix.
 
@@ -105,9 +105,12 @@ refuse it with the canonical 403, and it carries the same localhost, Host, and c
 BootUI action. Another sensor id, or a body without `enabled`, answers 400; a switch the agent cannot make answers 409
 with the reason: the agent is not attached or not armed for this application, an older agent predates switches, the
 claim changed meanwhile, `threads` already failed in this run, or `files`, `environment`, or `security-sinks` already
-failed its self-test in this JVM. There is no MCP tool or CLI command for it, and only these sensors are ever switched: the
+failed its self-test in this JVM. Only these sensors are ever switched: the
 bridge refuses any other, the other default sensors (`executors`, `inventory`, `code-paths`, `processes`, `network`,
-`blocking`, and `resources`) and `caught-exceptions` included. The report lists `toggles`
+`blocking`, and `resources`) and `caught-exceptions` included. MCP provides the same bounded action through
+`enable_agent_sensor` and `disable_agent_sensor`, and the CLI exposes `bootui agent sensor enable|disable <id>`.
+Both use the Java Agent panel's action/read-only policy; agents must obtain the user's approval before calling them.
+The CLI marks them as actions that need approval. The report lists `toggles`
 only while this application's claim is armed.
 
 The agent applies a switch to the running claim, keeping its generation: switching `threads` on installs and self-tests
@@ -276,26 +279,31 @@ report warns that the self-test decides.
 | Ambiguous | Tasks submitted more than once by different owners, left unowned. |
 | Stale | Tasks received under an earlier claim, never reopened after a restart. |
 | Refused | Snapshots the bridge refused because they held more than strings and numbers. |
-| Over the limit | Tasks received from owned work while 32,768 of this run were already pending, left unowned. |
+| Over the limit | Tasks received from owned work while 32,768 were already pending, left unowned. |
 | Virtual threads skipped | Virtual-thread continuations, which keep their own context. |
 | Periodic tasks skipped | Repeating scheduled tasks, which are never propagated. |
 | Wrappers skipped | Tasks already carrying their context (`bootui.agent.executors.skip-tasks`). |
 | Threads skipped | Workers whose executor propagates the context itself (`bootui.agent.executors.skip-threads`). |
 | Failed tasks | Propagated tasks that ended with an exception. |
 
-The bridge holds at most 32,768 pending tasks of the current claim, and, apart, at most 32,768 pending threads for the
-threads sensor. Past that, a task from owned work is not recorded and runs unowned, counted as over the limit, until
-queued tasks run or are reclaimed. Meanwhile, a task object several requests submit, such as a shared lambda, can run
-with another request's context; the counter adds up since the agent started, and the Java Agent panel warns once it is
-above zero. A new claim, after a DevTools
-restart or a Quarkus live reload, stops counting the earlier run's pending tasks against the limit; they are kept until
-they run, are released, or are reclaimed, so a task submitted across the two runs stays ambiguous. A task already pending is still recorded, so the ambiguity rules below are unchanged. Snapshots of reclaimed
-tasks are removed at most 64 at a time by a submission, so the application's threads never do unbounded clean-up; a
-status read removes all of them.
+The bridge retains at most 32,768 task entries plus 64 reserved self-test markers and, apart, at most 32,768 thread
+entries plus 64 reserved self-test markers for the threads sensor. Application entries counted for the current claim
+are separately capped at 32,768. Earlier-claim entries stop counting against that per-claim limit but remain retained to
+keep a task shared across claims ambiguous. If the live entries fill the ordinary total cap, new distinct tasks from
+owned work are not recorded and run unowned, counted as over the limit, until entries run, are released, or are
+reclaimed. The fixed self-test reserve lets hook verification run despite a full application backlog without making
+retention unbounded. A task already pending still has its ambiguity tracked. Snapshots of reclaimed tasks are removed at
+most 64 at a time by a submission, so the application's threads never do unbounded clean-up; a status read removes all
+of them.
 
 New submissions and skip counters are recorded only while the current armed claim asks for `executors` and that
 sensor has not been disabled by its self-test. Pending entries are still drained while recording is off, without
 reopening their snapshots. A handoff already opened before recording stopped is still closed and reports its outcome.
+
+Disabling the threads sensor clears its pending snapshots but keeps its cumulative **Over the limit** and
+**Never applied** counts. Those counts reset only when the JVM ends, not when the sensor is disabled or re-enabled.
+Once the executors sensor has counted overflow, the Java Agent panel warns that a shared task object may have run with
+another request's context. The `get_agent_status` tool and generated CLI help describe the same limitation.
 
 ### Accepted limits
 
@@ -309,9 +317,12 @@ reopening their snapshots. A handoff already opened before recording stopped is 
   with neither late I/O nor a failure, is badged only from 50 ms past the response.
 - A task handed over by a draining or serializing executor carries the context of the thread that handed it over.
 - Pools whose workers started before the first claim never apply their tasks; they are counted as never applied.
-- A task submitted while the bridge already held 32,768 pending tasks runs unowned. If the same task object is
-  submitted again once there is room, by another request, the first run takes that request's snapshot, as it does
-  after an unowned first submission.
+- A new task submitted while the bridge has reached either 32,768-entry limit runs unowned. Live entries from earlier
+  claims count toward the total limit until their tasks run, are released, or are reclaimed, so a backlog can leave
+  fewer slots for a new claim. A submission of a task object already in the bridge is still tracked and becomes
+  ambiguous across owners or claim generations. A refused submission creates no entry: if the same task object is
+  submitted again by another owner once a slot is available, that later snapshot may be used by the earlier refused
+  run, as after any unowned first submission.
 - A task submitted before a DevTools restart or a Quarkus live reload that ends after it is never reopened, and a task
   from the previous run that is still running when it ends is lost.
 - If the same task object has pending submissions across claim generations, all overlapping submissions stay

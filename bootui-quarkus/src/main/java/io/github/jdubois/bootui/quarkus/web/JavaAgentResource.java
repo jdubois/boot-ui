@@ -47,7 +47,7 @@ public class JavaAgentResource {
                 throw new IllegalArgumentException(
                         "The request body must say {\"enabled\": true} or {\"enabled\": false}.");
             }
-            return Response.ok(service.switchSensor(id, request.enabled()))
+            return Response.ok(switchSensorReport(id, request.enabled()))
                     .type(MediaType.APPLICATION_JSON)
                     .build();
         } catch (IllegalArgumentException ex) {
@@ -55,6 +55,11 @@ public class JavaAgentResource {
         } catch (IllegalStateException ex) {
             return error(Response.Status.CONFLICT, ex);
         }
+    }
+
+    /** Applies the Java Agent panel's checked runtime switch and returns its report for direct in-process callers. */
+    public JavaAgentReport switchSensorReport(String id, boolean enabled) {
+        return service.switchSensor(id, enabled);
     }
 
     private static Response error(Response.Status status, RuntimeException ex) {

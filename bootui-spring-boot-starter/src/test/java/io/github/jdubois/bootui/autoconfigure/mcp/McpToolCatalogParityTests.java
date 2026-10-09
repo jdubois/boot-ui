@@ -1,18 +1,25 @@
 package io.github.jdubois.bootui.autoconfigure.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.databaseadvisor.DatabaseAdvisorController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
+import io.github.jdubois.bootui.autoconfigure.javaagent.JavaAgentController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiMcpTools;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityController;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
+import io.github.jdubois.bootui.core.dto.JavaAgentReport;
+import io.github.jdubois.bootui.core.dto.JavaAgentSensorSwitchRequest;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
@@ -63,6 +70,53 @@ class McpToolCatalogParityTests {
                         });
             });
         }
+    }
+
+    @Test
+    void bothSpringStacksRouteAgentSensorActionsThroughTheJavaAgentController() {
+        for (Class<?> registry : List.of(BootUiMcpTools.class, ReactiveBootUiMcpTools.class)) {
+            JavaAgentController javaAgent = mock(JavaAgentController.class);
+            when(javaAgent.switchSensor(anyString(), any())).thenReturn(agentReport());
+            List<McpTool> tools = McpToolsRegistryFixture.maximalRegistry(
+                    registry, "tools", Map.of(JavaAgentController.class, javaAgent));
+
+            tools.stream()
+                    .filter(tool -> tool.name().equals("enable_agent_sensor"))
+                    .findFirst()
+                    .orElseThrow()
+                    .invoke(new McpArguments(null, 100, "security-sinks"));
+            tools.stream()
+                    .filter(tool -> tool.name().equals("disable_agent_sensor"))
+                    .findFirst()
+                    .orElseThrow()
+                    .invoke(new McpArguments(null, 100, "security-sinks"));
+
+            verify(javaAgent).switchSensor("security-sinks", new JavaAgentSensorSwitchRequest(true));
+            verify(javaAgent).switchSensor("security-sinks", new JavaAgentSensorSwitchRequest(false));
+        }
+    }
+
+    private static JavaAgentReport agentReport() {
+        return new JavaAgentReport(
+                JavaAgentReport.ARMED,
+                null,
+                "2.0.0",
+                "2.0.0",
+                1,
+                1,
+                "21",
+                "javaagent",
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null);
     }
 
     @Test

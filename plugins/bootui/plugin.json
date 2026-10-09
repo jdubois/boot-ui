@@ -1,6 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "bootui",
+  "version": "1.21.0",
   "description": "Ask a running Spring Boot or Quarkus application about itself: architecture, Spring, Hibernate, memory, security, pentest, GraalVM and CRaC advisors plus live runtime diagnostics, over BootUI's local MCP server.",
   "author": {
     "name": "Julien Dubois",

@@ -10,7 +10,7 @@ package io.github.jdubois.bootui.core.dto;
  * @param ambiguous tasks submitted more than once by different owners, which are left unowned
  * @param stale tasks keyed under an earlier claim, which are not reopened
  * @param refused snapshots the bridge refused because they held other values than strings and numbers
- * @param overflow owned tasks received while the bridge already held its limit of pending tasks of this run (32,768), which run
+ * @param overflow owned tasks received while the bridge already held its limit of pending tasks (32,768), which run
  *     unowned
  * @param virtualSkipped virtual-thread continuations, which run their own thread's context
  * @param periodicSkipped periodic scheduled tasks, which are never propagated

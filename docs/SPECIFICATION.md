@@ -3,7 +3,7 @@
 ## 1. Overview
 
 BootUI is a **local-only developer console** that adds an embedded, safe introspection and explanation layer to a
-running application. It runs on **Spring Boot 4 (servlet or WebFlux) and Quarkus** from a single codebase: each stack
+running application. It runs on **Spring Boot (servlet or WebFlux) and Quarkus** from a single codebase: each stack
 ships a thin adapter — one Spring Boot starter (`bootui-spring-boot-starter`, for servlet and WebFlux alike) or a
 Quarkus extension — over a shared, framework-neutral engine, so all three serve the
 **same Vue UI** and the **same `/bootui/api/**` REST contract**. It is inspired by Quarkus Dev UI, .NET Aspire Dashboard,
@@ -13,6 +13,9 @@ loop of a single application.
 BootUI is not a standalone application, production monitoring tool, APM product, cloud service, IDE plugin, or
 replacement for Actuator. It is a framework-native visualization and explanation layer loaded into the user's running
 application through a starter (Spring Boot) or extension (Quarkus) dependency.
+
+Product descriptions, taglines, and directory listings use "Spring Boot and Quarkus" without version numbers.
+Explicit versions belong in compatibility requirements, dependency baselines, migration guidance, and historical notes.
 
 ## 1.1 Target platform
 
@@ -88,7 +91,7 @@ BootUI activates only in development contexts.
 
 Default activation rules:
 
-- Enabled when the `bootui-spring-boot-starter` dependency is present in a Spring Boot 4 application and at least one of
+- Enabled when the `bootui-spring-boot-starter` dependency is present in a Spring Boot application and at least one of
   these is true:
   - `spring-boot-devtools` is present.
   - Active profile is `dev` or `local`.
@@ -136,7 +139,7 @@ Cloud Config apps still start. It can be disabled with `bootui.force-web=false`.
 
 ### 4.2 URL
 
-Default UI URL inside the host Spring Boot 4 application:
+Default UI URL inside the host Spring Boot application:
 
 ```text
 http://localhost:${server.port}/bootui
@@ -643,9 +646,13 @@ Features:
 
 Acceptance criteria:
 
-- The panel is always available on Spring MVC, Spring WebFlux, and Quarkus. Its one action switches an opt-in sensor
-  (`threads`, `files`, `environment`, `thread-activity`, `thread-locals`, `security-sinks`) on or off at run time: refused by
-  `bootui.panels.java-agent.read-only` and `bootui.read-only`, offered only while this application's claim is armed.
+- The panel is always available on Spring MVC, Spring WebFlux, and Quarkus. Its runtime switch actions can turn
+  (`threads`, `files`, `environment`, `thread-activity`, `thread-locals`, `security-sinks`) on or off while this
+  application's claim is armed. The browser panel uses the Java Agent panel; MCP exposes `enable_agent_sensor` and
+  `disable_agent_sensor`, which agents call only with the user's approval. All paths are refused by
+  `bootui.panels.java-agent.read-only` and `bootui.read-only`. The override lasts only until the JVM ends and is not
+  persisted; `security-sinks` request-value matching still requires
+  `bootui.agent.security-sinks.request-values=true` at startup.
 - `GET /bootui/api/java-agent`, `get_agent_status`, and `bootui agent status` return the same `JavaAgentReport`.
 - Spring claims from `BootUiAgentClaimEnvironmentPostProcessor` (registered in `META-INF/spring.factories`) once BootUI activation is resolved, refines after context
   refresh, disarms on close or startup failure, and releases the agent when BootUI or `bootui.agent.enabled` is off.
@@ -2978,7 +2985,6 @@ Acceptance criteria:
 ```text
 BootUI/
 ├── pom.xml
-├── bootui-core/
 ├── bootui-engine/
 ├── bootui-conformance/
 ├── bootui-ui/
@@ -2997,9 +3003,9 @@ BootUI/
 
 Shared modules:
 
-- `bootui-core`: immutable DTO records, secret masking, version metadata, and safe value rendering.
-- `bootui-engine`: framework-neutral services and advisor engines plus the neutral
-  `io.github.jdubois.bootui.spi` ports. The bytecode-reading advisors here are Kotlin-aware — compiler-generated
+- `bootui-engine`: the immutable DTO records, secret masking, version metadata, and safe value rendering of the
+  `io.github.jdubois.bootui.core` package, the framework-neutral services and advisor engines built on them, and the
+  neutral `io.github.jdubois.bootui.spi` ports. The bytecode-reading advisors here are Kotlin-aware — compiler-generated
   members and classes are filtered out and suspending functions are judged on their declared signature — implemented by
   bytecode name only, so no Kotlin runtime dependency is added and every adapter behaves identically.
 - `bootui-conformance`: the shared HTTP contract suite and golden panel manifests run against every adapter.
@@ -3008,7 +3014,7 @@ Shared modules:
 - `bootui-cli`: the `bootui` command-line interface, a picocli tree generated from the engine's tool catalog and
   published as a runnable uber-jar (the `all` classifier), together with the dependency-free client for the
   command-line endpoint, the `io.github.jdubois.bootui.client` package — URL and token handling, tool invocation,
-  outcome mapping, and an opaque JSON tree. The client reaches nothing outside the JDK, not even `bootui-core` or
+  outcome mapping, and an opaque JSON tree. The client reaches nothing outside the JDK, not even BootUI's DTOs or
   picocli, so it stays version-compatible with applications it was not built against; picocli is an optional
   dependency of `bootui-cli`, so tooling that depends on it for the client gets no dependency at all.
 
@@ -3029,15 +3035,17 @@ Quarkus modules:
 - `bootui-quarkus-integration-tests`: Docker-free `@QuarkusTest` conformance and smoke tests.
 - `bootui-quarkus-sample-app`: Quarkus reference app.
 
-Dependency direction is one-way: `bootui-engine` depends on `bootui-core`, and each framework adapter depends on both.
-`bootui-cli` sits outside that chain entirely: its client package depends on nothing, its command line on picocli
-(optional), and it uses `bootui-engine` only in test scope, to generate its command manifest. Maven Central receives
-eight coordinates, each with a flattened, parentless POM: `bootui-core`, `bootui-engine`, `bootui-ui`,
-`bootui-spring-boot-starter`, `bootui-quarkus`, `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`.
-The shared `core`, `engine`, `conformance`, and UI modules never depend on Spring or Quarkus. JSON parsing and
-serialization stay in the adapters because Spring Boot and Quarkus use incompatible Jackson major versions.
+Dependency direction is one-way, by package inside `bootui-engine` and by module beyond it:
+`io.github.jdubois.bootui.core` depends only on the JDK, the engine and SPI packages depend on it, and each framework
+adapter depends on `bootui-engine`. `CoreBoundaryArchitectureTests` keeps the core package off the engine, the SPI, the
+adapters, and every external library. `bootui-cli` sits outside that chain entirely: its client package depends on
+nothing, its command line on picocli (optional), and it uses `bootui-engine` only in test scope, to generate its command
+manifest. Maven Central receives seven coordinates, each with a flattened, parentless POM: `bootui-engine`, `bootui-ui`,
+`bootui-spring-boot-starter`, `bootui-quarkus`, `bootui-quarkus-deployment`, `bootui-cli`, and `bootui-agent`. The
+shared `engine` (with its `core` package), `conformance`, and UI modules never depend on Spring or Quarkus. JSON parsing
+and serialization stay in the adapters because Spring Boot and Quarkus use incompatible Jackson major versions.
 
-Core DTO immutability is enforced, not just documented. Every collection component of a `bootui-core` record is
+Core DTO immutability is enforced, not just documented. Every collection component of a core DTO record is
 defensively copied in the record's compact constructor, so a caller cannot change a published report by mutating the
 collection it passed in or the collection an accessor returned, and a `null` collection is normalized to an empty one.
 The copies preserve the caller's iteration order — in particular map components are copied into a `LinkedHashMap` rather
@@ -3519,6 +3527,10 @@ Design rules:
     and `start_method_probe`, which retransforms one application method for at most 20 invocations or 60 seconds and
     needs the user's separate approval (refused by read-only policy, metadata only in every exposure mode).
 
+  Java Agent exposes actions `enable_agent_sensor` and `disable_agent_sensor` for the switchable runtime sensors; each
+  requires a sensor id and is refused by the Java Agent panel's read-only policy. Agents must ask the user before
+  calling either action. `get_agent_status` verifies the result.
+
   MySQL (§5.17.8) exposes cached read `get_mysql_report` and action `mysql_read`, both
   argument-free, on MVC/WebFlux/Quarkus with a supported JDBC datasource. The generated CLI equivalents are
   `bootui db mysql report` and `bootui db mysql read`. Agents must request approval before active collection and
@@ -3526,7 +3538,8 @@ Design rules:
 
   Heap capture/download, HTTP probes, database/cache mutations, GitHub writes, dev-service restarts, and arbitrary agent
   commands are deliberately excluded, as are Profile resources (JFR), enabling Hibernate statistics, the WebSockets
-  capture switch, the Java agent's sensor switches, and logger-level changes, which stay browser-only. Tools whose
+  capture switch, and logger-level changes, which stay browser-only. Java agent sensor switches are bounded MCP/CLI
+  actions, guarded by the Java Agent panel's enabled and read-only policy. Tools whose
   backing controller is absent or not applicable to the running stack are not advertised; a `tools/call` naming one of
   them answers `-32602` with `Tool not available in this application: <name>.` and the panel's unavailable reason, also
   in `error.data` (`tool`, `panel`, `reason`), while a name outside the catalog keeps `Unknown tool: <name>`. The CLI
@@ -3672,7 +3685,7 @@ Design rules:
   over the catalog. Adding an MCP tool without giving it a command therefore fails the build, and a hand-written
   command for a tool that no longer exists cannot survive either. A second test runs every command against a stub and
   asserts it reaches the tool it claims to, so a tree that builds but shadows a leaf is caught as well.
-- **No compile-time coupling to BootUI's types.** The client package depends on nothing — not `bootui-core`, not
+- **No compile-time coupling to BootUI's types.** The client package depends on nothing — not BootUI's DTOs, not
   Jackson, not picocli, not an HTTP library beyond the JDK's, enforced by `ClientDependencyTests` — and treats payloads as opaque JSON re-emitted verbatim. A CLI from one
   release has to keep working against an application running another, which rules out sharing DTO records with it.
   The engine is a *test-scoped* dependency of `bootui-cli`, used only to generate the manifest.

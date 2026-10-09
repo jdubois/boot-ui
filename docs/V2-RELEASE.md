@@ -29,8 +29,8 @@ a branch preparing a later major, such as `v3`, declares that major.
 | Installers (`install.sh`, `install.ps1`) and the CLI's update check | Maven Central's `maven-metadata.xml` | 1.x | 1.x | 2.x |
 
 `release-line-gate.sh` reads the branch's release line, the tags on origin, and Maven Central. A branch may publish
-only when one tag of its line has its `bootui-core` and Spring starter jars on Maven Central (2.0 no longer
-publishes the parent POM), and no tag of a newer major does. Requiring any tag, not the newest, keeps one failed or still-propagating patch from blocking every later deploy, and
+only when one tag of its line has its `bootui-engine` and Spring starter jars on Maven Central (2.0 no longer
+publishes the parent POM or `bootui-core`), and no tag of a newer major does. Requiring any tag, not the newest, keeps one failed or still-propagating patch from blocking every later deploy, and
 counting a newer major only once it is on Maven Central keeps a stray or failed tag from retiring the released line. An
 unreadable answer, from origin or from Maven Central, fails the run instead of deciding.
 
@@ -115,6 +115,8 @@ over the 2.0 site. One pull request into `main`, well before the cut:
 
 1. Copies byte for byte from `v2`: `release-version-policy.sh`, `release-line-gate.sh`, `pages.yml`, and
    `docker-publish.yml`. Identical files merge cleanly on every later `main`-to-`v2` sync; the rehearsal checks it.
+   Copy them again whenever they change on `v2`: when 2.0 stopped publishing `bootui-core`, the gate's sentinel moved
+   to `bootui-engine`, and a `1.x` branch cut with the old gate would never see 2.0 on Maven Central.
 2. Ports to `main`'s `release.yml` the release-line arguments, the tagged-contents and release-branch checks, the
    deploy confirmation, and the newest-major documentation decision, keeping `main`'s own publication reactor and availability list, which have no agent
    modules; ports `check-release-integrity.sh` and the `test_release_*.py` tests the same way.
@@ -169,7 +171,10 @@ The branch points at an existing commit: no merge, no rebase, no new commit.
 7. **Changelog.** Cut `CHANGELOG.md`'s `[Unreleased]` to `## [2.0.0] - YYYY-MM-DD` on `main`, as its own commit, and
    wait for a green build.
 8. **Release.** Run **Release** from `main` with version `2.0.0`. Merge nothing into `main` until the run is green:
-   while Maven Central propagates, a push could find the gate's two artifacts before the others.
+   while Maven Central propagates, a push could find the gate's two artifacts before the others. 2.0.0 is the first
+   release whose POMs are flattened before signing, so the run refuses an imported key other than the pinned
+   `RELEASE_KEY_FINGERPRINT` (7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9), and checks every signature against it twice:
+   after the verification build, before the tag (unless `skip_build`), and on the Central bundle, before the upload.
 9. **After the release.** Confirm that the site shows 2.0 (deployed from the v2.0.0 tag), that
    `jbang bootui@jdubois/boot-ui` and the installers resolve 2.0.0, and that the next daily Docker run publishes 2.x
    images. Narrow the `github-pages` tag rule to `v2.*`. After the first 1.x patch that follows, confirm that

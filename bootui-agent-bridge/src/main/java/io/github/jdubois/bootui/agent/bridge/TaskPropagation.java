@@ -161,8 +161,10 @@ public final class TaskPropagation {
             }
             long generation = claim.generation;
             if (Thread.currentThread() == selfTestThread) {
+                if (TaskSnapshots.TASKS.putSelfTest(task, generation, SELF_TEST) == TaskSnapshots.REFUSED) {
+                    return NONE;
+                }
                 SELF_TEST_KEYED[hook].increment();
-                TaskSnapshots.TASKS.putSelfTest(task, generation, SELF_TEST);
                 return TOUCHED;
             }
             if (!claim.hasSensor(SENSOR) || generation == disabledGeneration) {
@@ -215,7 +217,6 @@ public final class TaskPropagation {
         if (started) {
             confirm(outcome, KEY_THREAD_POOL);
         } else if (outcome != OVERFLOWED) {
-            // An overflowed submission recorded nothing: a release would take another submission's entry.
             release(firstTask);
         }
     }
@@ -335,10 +336,7 @@ public final class TaskPropagation {
         submitted(task, KEY_DELAYED);
     }
 
-    /**
-     * A new claim armed: earlier claims' pending tasks, which are never reopened, stop counting against the cap, so a
-     * backlog from before a restart cannot fill it. Called once per claim, off the submission path.
-     */
+    /** Earlier-generation tasks are never reopened, but stay retained to preserve cross-generation ambiguity. */
     static void claimed(long generation) {
         try {
             TaskSnapshots.TASKS.releaseEarlierClaims(generation);

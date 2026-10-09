@@ -91,5 +91,9 @@ class McpToolGuideTests {
                 .as("a value that looks like an option goes after --")
                 .isEqualTo("bootui insights show -- -1");
         assertThat(CliCommandPaths.command("get_config", Map.of("query", ""))).isEqualTo("bootui config --query ''");
+        assertThat(CliCommandPaths.command("enable_agent_sensor", McpToolGuide.example("enable_agent_sensor")))
+                .isEqualTo("bootui agent sensor enable security-sinks");
+        assertThat(CliCommandPaths.command("disable_agent_sensor", McpToolGuide.example("disable_agent_sensor")))
+                .isEqualTo("bootui agent sensor disable security-sinks");
     }
 }

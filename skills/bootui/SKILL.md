@@ -1,12 +1,12 @@
 ---
 name: bootui
-description: Install, configure, and use BootUI in Spring Boot 4 or Quarkus applications; assess a running application, propose a prioritized action plan, and execute only approved fixes using runtime evidence. Use when asked to add or troubleshoot BootUI, assess application health, or investigate a slow or failing endpoint, exceptions, SQL, Hibernate, beans, mappings, configuration, health, metrics, logs, or traces; to find runtime-only bugs such as N+1 queries, split transactions, or bypassed @Transactional proxies, or check which routes a code change affects and verify what it changed at runtime after the tests; also for architecture, security, memory, database, REST, pentest, GraalVM, CRaC, or vulnerability scans, or connecting an AI agent to BootUI.
+description: Install, configure, and use BootUI in Spring Boot or Quarkus applications; assess a running application, propose a prioritized action plan, and execute only approved fixes using runtime evidence. Use when asked to add or troubleshoot BootUI, assess application health, or investigate a slow or failing endpoint, exceptions, SQL, Hibernate, beans, mappings, configuration, health, metrics, logs, or traces; to find runtime-only bugs such as N+1 queries, split transactions, or bypassed @Transactional proxies, or check which routes a code change affects and verify what it changed at runtime after the tests; also for architecture, security, memory, database, REST, pentest, GraalVM, CRaC, or vulnerability scans, or connecting an AI agent to BootUI.
 license: Apache-2.0
 ---
 
 # BootUI
 
-Use BootUI as a local, runtime-grounded source of information for Spring Boot 4 and Quarkus 3 applications. Keep it
+Use BootUI as a local, runtime-grounded source of information for Spring Boot and Quarkus applications. Keep it
 local-only, preserve its fail-closed defaults, and make the smallest application change that addresses the user's request.
 
 ## Establish the application context
@@ -18,7 +18,7 @@ Before changing anything:
    - Spring Boot servlet
    - Spring Boot WebFlux
    - Quarkus
-3. Confirm Java 17 or later and a supported framework version.
+3. Confirm Java 17 or later and a supported framework version (Spring Boot 4.x or Quarkus 3.x).
 4. Find the runnable module, active development profile, configured HTTP port, and existing BootUI dependency.
 5. Run the project's existing focused tests before and after changes when practical.
 
@@ -400,10 +400,29 @@ DTOs.
 Treat unavailable panels honestly. Their backing library, capability, configuration, or adapter support may be absent.
 Do not install unrelated infrastructure solely to light up a panel unless the user asks.
 
-Some things are in the browser only, with no command or MCP tool: HTTP Probe (it sends requests the user composes),
-Profile resources and its JDK Flight Recorder results in Runtime Insights, enabling Hibernate statistics, the WebSockets
-capture switch, the Java agent's sensor switches, and other panel controls such as changing a logger level. Point the
-user to the panel rather than improvising one.
+Before suggesting a Java Agent sensor switch, read `get_agent_status` and `get_side_effects` (or
+`bootui agent status` and `bootui side-effects`). Check whether the sensor is already recording, available, and useful to
+the current investigation. If not, explain what it adds and the trade-off, then obtain the user's approval; never enable
+sensors speculatively or merely to make a panel appear populated.
+
+| Switchable sensor | What enabling it records | Consider before enabling |
+| --- | --- | --- |
+| `threads` | Request context through new `Thread` operations | Retransforms `java.lang.Thread`; this is the highest-risk JDK class in the agent. If its self-test fails it stays off until restart. |
+| `files` | File opens, deletes, moves, and copies as path patterns | On by default; reports paths, never contents. |
+| `environment` | Names of environment variables and system properties read | Never values; measured around 6.8% throughput cost on a property-heavy route, above the 3% sensor budget. |
+| `thread-activity` | Threads and executors created per request, including threads left running | Opt-in; on a thread-per-request route it added about 11.5% overhead (16.6% with default sensors). |
+| `thread-locals` | Thread-local fields left set on pooled threads | Scans thread-local maps; reports field identity and counts, never values. |
+| `security-sinks` | JDK checks plus request input reaching SQL, commands, file paths, and outbound URLs | Values are redacted in reports. JDK checks measured about 3.9% extra throughput cost; request-value matching about 3% more and retains query/path values in memory while requests run. Matching also requires `bootui.agent.security-sinks.request-values=true` at startup; the runtime switch cannot turn it on. |
+
+After approval, use `enable_agent_sensor` or `disable_agent_sensor` (or the matching
+`bootui agent sensor enable|disable <id>` command). These are actions and must not be called without explicit user
+approval. The override applies now and to later claims until the JVM exits; it is not persisted. Switching changes what
+evidence exists and may make a sensor's run comparison not comparable. Verify with `get_agent_status` /
+`bootui agent status`, and turn the sensor off after the investigation if it is no longer needed. Both actions are
+refused unless the agent is attached and armed with runtime-switch support, or if the Java Agent panel is disabled or
+read-only; report the refusal rather than working around policy. Other controls remain browser-only: HTTP Probe (it sends
+requests the user composes), Profile resources and its JDK Flight Recorder results in Runtime Insights, enabling Hibernate
+statistics, the WebSockets capture switch, changing a logger level, and panel controls without a documented MCP tool.
 
 ### Analyze what a run did
 

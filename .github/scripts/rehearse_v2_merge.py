@@ -196,8 +196,22 @@ def runs_on_main(triggers):
     return "push" in triggers and push_runs_on(triggers["push"], "main")
 
 
+GATE_SENTINEL = re.compile(r'"(bootui-[a-z-]+)/\$\{version\}/\1-\$\{version\}\.jar"')
+
+
+def gate_sentinels(gate_text):
+    """The artifacts release-line-gate.sh probes on Maven Central to decide that a version is released."""
+    sentinels = tuple(dict.fromkeys(GATE_SENTINEL.findall(gate_text)))
+    if not sentinels:
+        raise ValueError("release-line-gate.sh names no sentinel artifact")
+    return sentinels
+
+
 class FakeCentral:
-    def __init__(self):
+    """A local stand-in for Maven Central that publishes, for a version, the jars the gate under test probes."""
+
+    def __init__(self, sentinels):
+        self.sentinels = sentinels
         self.directory = tempfile.TemporaryDirectory()
         handler = functools.partial(_Quiet, directory=self.directory.name)
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -206,11 +220,8 @@ class FakeCentral:
 
     def publish(self, version):
         root = Path(self.directory.name) / GROUP
-        for artifact, name in (
-            ("bootui-core", f"bootui-core-{version}.jar"),
-            ("bootui-spring-boot-starter", f"bootui-spring-boot-starter-{version}.jar"),
-        ):
-            path = root / artifact / version / name
+        for artifact in self.sentinels:
+            path = root / artifact / version / f"{artifact}-{version}.jar"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"published")
 
@@ -533,7 +544,7 @@ def main():
         main_tree = Path(directory) / "main"
         git("worktree", "add", "--detach", "--quiet", str(candidate_tree), candidate, cwd=repository)
         git("worktree", "add", "--detach", "--quiet", str(main_tree), main_sha, cwd=repository)
-        central = FakeCentral()
+        central = FakeCentral(gate_sentinels((candidate_tree / GATE).read_text(encoding="utf-8")))
         try:
             rehearse(repository, candidate, candidate_tree, main_tree, tags, central, arguments)
         finally:
