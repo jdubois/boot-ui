@@ -432,11 +432,17 @@ executor that is not a bean, such as one an `AsyncConfigurer` creates without `@
 request link. A periodic or trigger-based (cron) task belongs to the request that scheduled it on its first run only,
 and a task is propagated once even when Spring Boot's composite of task decorators already carries BootUI's. Without the BootUI agent, raw executors and
 `CompletableFuture` are not followed; with it attached, they are propagated too ([Java Agent](java-agent.md)). It keeps running aggregates per route, statement, exception group, and thread family, which
-count every event even after the journal evicts it. Recording never slows a request: when the journal cannot keep up,
-it drops events, counts them per source, and drops routine events before failed or slow ones. BootUI's own requests,
+count every event even after the journal evicts it. A request does not wait for the journal's dispatcher: when the
+journal cannot keep up, it drops events, counts them per source, and drops routine events before failed or slow ones.
+BootUI's own requests,
 and the SQL its panels run while serving them, are never recorded. Pausing a panel's recording, or BootUI releasing
 its buffers while the console is idle (`bootui.free-on-idle`), stops only what that panel keeps: the journal keeps
 recording SQL statements, connections, transactions, REST client calls, AI calls, and security events.
+
+The journal is enabled by default. In one 2026-10-09 Spring MVC sample-route CI benchmark, its median throughput was
+14.1 % lower than with the journal disabled, against the 5 % target; zero events were dropped. This is a single
+workload, not a universal application estimate. The maintainer decided to keep the default enabled; the
+[validation report](../V2-VALIDATION-REPORT.md#release-sign-off) records both the measurement and the exception.
 
 **Recording** in the panel header opens the journal's status: the events and memory it retains against its bounds,
 when its oldest event happened, how many events each source recorded in this run, and how many were evicted or

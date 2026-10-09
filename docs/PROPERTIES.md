@@ -692,6 +692,10 @@ each read; Runtime Insights always quotes a statement's literal-free shape.
 | `bootui.runtime-journal.baseline-file` | Unset                                    | File that keeps the last run's summary across a full JVM restart, such as `target/bootui-baseline.bin` or `build/bootui-baseline.bin`. Written atomically when a run ends, and read back at the next start as the previous run when the JVM keeps none; a file from another BootUI version, format, or application is ignored and the reason logged. With the BootUI agent, it also holds the run's side-effect keys for the comparison: host and port, masked file pattern, process file name, or variable name, with its route, job, or startup, never a value, an argument, or a file's contents. Relative to the working directory; its directory must exist, as it is never created. Unset writes and reads nothing. |
 | `bootui.runtime-insights.ai-token-threshold` | `8000`                                | Tokens of one model call above which Runtime Insights' AI usage by route reports the route from that call alone, rather than from three AI operations. Must be positive. |
 
+The journal is enabled by default. One Spring MVC sample-route benchmark measured 14.1 % lower median throughput
+with it on than off, missing the 5 % target; this single workload is not a general application estimate. The
+maintainer's decision is to keep the default on ([validation report](V2-VALIDATION-REPORT.md#release-sign-off)).
+
 Recording a source is not enough to see it: each source belongs to the panel that publishes it, and disabling that panel
 leaves its events out of Live Activity, request profiles, Runtime Insights, and the MCP tools and CLI commands over them,
 with the panel named as the reason. `http` belongs to HTTP Exchanges, `sql` and `connection` to SQL Trace, `transaction`
