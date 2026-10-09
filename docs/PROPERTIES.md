@@ -1033,7 +1033,20 @@ read-only, and all values flow through the same secret masking as the REST API.
 | `bootui.mcp.max-payload-bytes` | `1048576` | Maximum size (in bytes) of an incoming JSON-RPC request body; larger requests are rejected before parsing. |
 | `bootui.mcp.max-concurrent-calls` | `20`   | Maximum number of `tools/call` invocations the server executes concurrently; excess calls are refused with a rate-limited error. A progress stream holds its slot until its tool and its writer are both done. |
 | `bootui.mcp.execution-timeout` | `30s`     | Maximum wall-clock duration of one tool invocation; timed-out calls are interrupted and return JSON-RPC `-32002` (`-31002` for MCP 2026-07-28 clients). It stays the absolute bound when a call streams progress. A scan that reports progress (`architecture_scan`, `vulnerabilities_scan`) stops at its next step and keeps its previous report. |
-| `bootui.mcp.max-response-bytes` | `4194304` | Maximum size of a rendered JSON-RPC response, and of each event of a progress stream; oversized results are replaced by JSON-RPC `-32003` (`-31003` for MCP 2026-07-28 clients), and an oversized progress notification is dropped and counted in the MCP Server status's `progressDropped`. |
+| `bootui.mcp.max-response-bytes` | `4194304` | Maximum UTF-8 JSON payload bytes of a response or progress event, excluding SSE framing; oversized responses use bounded JSON-RPC `-32003` (`-31003` for MCP 2026-07-28 clients), or bodyless HTTP `413` if even that fallback cannot fit. Oversized progress is dropped and counted as `progressDropped`. |
+
+Before dispatching a request that needs a response, BootUI measures the response-too-large fallback with the original
+correlation id in the selected protocol era. If it cannot fit, the transport refuses with HTTP `413` and an empty
+body, before invoking a tool, acquiring a concurrency slot, or opening a stream. It never truncates or coerces the id,
+substitutes `null` for a valid id, or raises the configured limit. This is BootUI's resource admission policy, not a
+protocol-mandated HTTP status. Validation and parse errors are also byte-bounded, without changing which error is
+selected first; legitimate notifications still answer bodyless `202`. Every budget refusal increments
+`responseLimitRefusals` once.
+
+Spring JSON replies and all SSE payloads use compact JSON; Quarkus JSON replies use its application's Jackson
+configuration. Admission covers both possible representations when a client accepts SSE, because a call can still
+answer with JSON. The budget counts the rendered JSON only, not HTTP headers, the SSE `data:` prefix, blank lines,
+or heartbeat comments.
 
 ### Command-line endpoint
 

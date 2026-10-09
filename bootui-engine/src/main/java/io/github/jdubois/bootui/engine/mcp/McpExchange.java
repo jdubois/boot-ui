@@ -205,9 +205,14 @@ public final class McpExchange {
      * replaced, with HTTP {@code 200} on the JSON path, by {@link McpProtocol#RESPONSE_TOO_LARGE} echoing the request id.
      */
     public static Plan.Reject checkResponseSize(McpEra era, long renderedBytes, int maxResponseBytes) {
-        if (renderedBytes <= Math.max(1, maxResponseBytes)) {
+        if (canAnswer(renderedBytes, maxResponseBytes)) {
             return null;
         }
+        return responseTooLarge(era);
+    }
+
+    /** The canonical fallback, echoing the original response id without truncation or coercion. */
+    public static Plan.Reject responseTooLarge(McpEra era) {
         return Plan.Reject.of(
                 era,
                 200,
@@ -216,13 +221,36 @@ public final class McpExchange {
                 IdEcho.AS_SENT);
     }
 
+    /** Whether the adapter's measured fallback fits, required before starting a response-bearing dispatch. */
+    public static boolean canAnswer(long fallbackBytes, int maxResponseBytes) {
+        return fallbackBytes <= Math.max(1, maxResponseBytes);
+    }
+
+    public enum ResponseBudget {
+        FITS,
+        REPLACE,
+        /** Refuse at the HTTP transport with an empty body, never a forged JSON-RPC id or notification. */
+        REFUSE
+    }
+
+    /** Both the original JSON payload and its fallback obey the same UTF-8 byte budget (excluding SSE framing). */
+    public static ResponseBudget responseBudget(long renderedBytes, long fallbackBytes, int maxResponseBytes) {
+        if (canAnswer(renderedBytes, maxResponseBytes)) {
+            return ResponseBudget.FITS;
+        }
+        return canAnswer(fallbackBytes, maxResponseBytes) ? ResponseBudget.REPLACE : ResponseBudget.REFUSE;
+    }
+
+    /** BootUI's implementation resource refusal, not a JSON-RPC protocol error. */
+    public static final int RESPONSE_BUDGET_REFUSAL_STATUS = 413;
+
     /**
      * Whether a rendered {@code notifications/progress} of {@code renderedBytes} bytes may be sent: every event of a
      * stream obeys {@code bootui.mcp.max-response-bytes} too. One that does not fit is dropped rather than replaced,
      * because progress is advisory and the final response still ends the stream.
      */
     public static boolean progressFits(long renderedBytes, int maxResponseBytes) {
-        return renderedBytes <= Math.max(1, maxResponseBytes);
+        return canAnswer(renderedBytes, maxResponseBytes);
     }
 
     /** The decision {@link #plan} makes for one request body. */

@@ -148,7 +148,10 @@ The server inherits BootUI's full safety model:
 - Values pass through the same secret masking and `bootui.expose-values` mode as the REST API, and paginated reads are
   capped by `bootui.mcp.max-results`.
 - Request bytes, concurrent calls, tool execution time, and rendered response bytes have configurable hard limits.
-  Capacity, timeout, and response-limit refusals use explicit JSON-RPC errors, and the status endpoint exposes call
+  Capacity, timeout, and response-limit refusals use bounded JSON-RPC errors; when even the response-limit error with
+  the original id cannot fit, the transport answers bodyless HTTP `413` before dispatch rather than running a tool
+  without a bounded answer. The response budget counts UTF-8 JSON payload bytes, not SSE framing or heartbeats.
+  The status endpoint exposes call
   count, aggregate latency, and each refusal count.
 - Unexpected server failures return only JSON-RPC `-32603` with the message `Internal error`. Exception messages, stack
   traces, paths, queries, and credentials are never included, and BootUI logs the original throwable once on the

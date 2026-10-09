@@ -843,8 +843,12 @@ browser, the MCP tools, and the CLI alike:
 Exceptions and Traces keep no lifetime count, so their acknowledgement's `totalCaptured` is `null`.
 
 Every tool response, report tools included, obeys `bootui.mcp.max-response-bytes` (4 MiB by default). A response that
-does not fit is refused with JSON-RPC `-32003` (legacy) or `-31003` (modern) rather than truncated, so the agent never mistakes a cut report for a
-complete one. Report tools stay well below it: a rule advisor's report keeps at most 10 (or 20) sample violations per
+does not fit is refused with a bounded JSON-RPC `-32003` (legacy) or `-31003` (modern) rather than truncated, so the agent never mistakes a cut report for a
+complete one. If even that fallback with the original correlation id cannot fit, BootUI refuses before dispatch with
+HTTP `413` and an empty body: no tool runs and no progress stream opens. Use a shorter correlation id, or review the
+configured response budget; retrying with a smaller result limit cannot fix an id that itself exceeds the budget.
+This is an implementation resource limit, not a requirement imposed by MCP. Ordinary legacy responses and modern
+result decoration are unchanged. Report tools stay well below it: a rule advisor's report keeps at most 10 (or 20) sample violations per
 rule and pages the rest with its `get_*_rule_violations` tool; `get_vulnerabilities_report` lists `limit` dependencies,
 each with at most 5 advisories (active and most severe first) without their OSV `details` and with at most 3
 references and symbols, so `limit` bounds the whole answer; its `advisories` object counts what was left out, an exact
@@ -917,9 +921,12 @@ compatibility rules describe. Protocol fields belong in `params._meta`, not at t
   strictly increasing `progress`, the `total` when known, and a fixed phase `message`, then exactly one final
   response, after which the stream closes. There are no event ids, and `:` comment lines every 2 seconds keep the
   connection open. Notifications are rate-limited: a burst of 8, then one every 250 ms, coalescing to the newest. Every
-  event obeys `bootui.mcp.max-response-bytes`: a notification that would not fit is dropped (counted as `progressDropped`
+  event's UTF-8 JSON payload obeys `bootui.mcp.max-response-bytes` (SSE framing and heartbeats are excluded): a notification that would not fit is dropped (counted as `progressDropped`
   in the `GET /bootui/api/mcp-server` status and shown in the MCP Server panel), and a final response that
-  would not fit is replaced by the response-too-large error. A string `progressToken` longer than 128 characters is
+  would not fit is replaced by the byte-bounded response-too-large error. Before dispatch, BootUI ensures that this
+  fallback fits with the original id; otherwise the HTTP transport answers bodyless `413`, never a forged `id: null`
+  or a notification-shaped `202`. Budget refusals, including this admission refusal, count once as
+  `responseLimitRefusals`. A string `progressToken` longer than 128 characters is
   refused on a modern request and ignored on a legacy one, which then answers with one JSON response. Any
   other call, including every refusal and a call without a token, stays a single JSON response, byte-identical to
   BootUI 1.x for a legacy client. A legacy stream's final response is a legacy one: no `resultType` or `_meta`, and the

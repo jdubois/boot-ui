@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpService;
 import io.github.jdubois.bootui.autoconfigure.mcp.McpServerState;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome;
+import io.github.jdubois.bootui.engine.mcp.McpEra;
 import io.github.jdubois.bootui.engine.mcp.McpProgressToken;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpRequestHeaders;
@@ -127,7 +128,7 @@ public class ReactiveBootUiMcpController {
                     .body(events(reply.stream(), unstarted));
         }
         if (reply.body() == null) {
-            return ResponseEntity.accepted().build();
+            return ResponseEntity.status(reply.status()).build();
         }
         return json(reply.status(), reply.body());
     }
@@ -230,9 +231,13 @@ public class ReactiveBootUiMcpController {
         return response;
     }
 
-    private static ResponseEntity<String> json(int status, JsonNode body) {
-        return ResponseEntity.status(status)
+    private ResponseEntity<String> json(int status, JsonNode body) {
+        BootUiMcpService.Reply reply = service.limitResponse(status, body, McpEra.LEGACY);
+        if (reply.body() == null) {
+            return ResponseEntity.status(reply.status()).build();
+        }
+        return ResponseEntity.status(reply.status())
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(body.toString());
+                .body(reply.body().toString());
     }
 }

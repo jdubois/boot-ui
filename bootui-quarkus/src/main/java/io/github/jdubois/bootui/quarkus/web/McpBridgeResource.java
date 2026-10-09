@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome;
+import io.github.jdubois.bootui.engine.mcp.McpEra;
 import io.github.jdubois.bootui.engine.mcp.McpPayloadReader;
 import io.github.jdubois.bootui.engine.mcp.McpPayloadReader.PayloadTooLargeException;
 import io.github.jdubois.bootui.engine.mcp.McpProgressToken;
@@ -94,7 +95,7 @@ public class McpBridgeResource {
                     .build();
         }
         if (reply.body() == null) {
-            return Response.accepted().build();
+            return Response.status(reply.status()).build();
         }
         return json(reply.status(), reply.body());
     }
@@ -192,10 +193,14 @@ public class McpBridgeResource {
         return response;
     }
 
-    private static Response json(int status, JsonNode body) {
-        return Response.status(status)
+    private Response json(int status, JsonNode body) {
+        QuarkusMcpEnvelope.Reply reply = envelope.limitResponse(status, body, McpEra.LEGACY);
+        if (reply.body() == null) {
+            return Response.status(reply.status()).build();
+        }
+        return Response.status(reply.status())
                 .type(MediaType.APPLICATION_JSON)
-                .entity(body)
+                .entity(reply.body())
                 .build();
     }
 }

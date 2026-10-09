@@ -823,6 +823,8 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **MCP correlation ids cannot exceed the response budget.** An unanswerable request gets bodyless HTTP `413` before
+  any tool runs; normal replies keep their ids and wire shape ([AI agents](docs/AI-AGENTS.md#protocol-eras)).
 - **Quarkus advisor rules report one outcome per scan.** A rule with findings and incomplete coverage, such as
   QA-WEB-004 in development mode, is no longer also listed as an analysis error; its coverage note stays on the finding.
 - **Quarkus connection pools say they are Agroal.** Each pool names its `implementation`, and settings Agroal does not

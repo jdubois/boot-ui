@@ -161,6 +161,17 @@ class McpExchangeTests {
                 .isEqualTo(-31003);
     }
 
+    @Test
+    void admissionAndFinalReplacementBothRequireAByteBoundedFallback() {
+        assertThat(McpExchange.canAnswer(512, 512)).isTrue();
+        assertThat(McpExchange.canAnswer(513, 512)).isFalse();
+        assertThat(McpExchange.canAnswer(2, 0)).isFalse();
+        assertThat(McpExchange.responseBudget(512, 513, 512)).isEqualTo(McpExchange.ResponseBudget.FITS);
+        assertThat(McpExchange.responseBudget(513, 512, 512)).isEqualTo(McpExchange.ResponseBudget.REPLACE);
+        assertThat(McpExchange.responseBudget(513, 513, 512)).isEqualTo(McpExchange.ResponseBudget.REFUSE);
+        assertThat(McpExchange.RESPONSE_BUDGET_REFUSAL_STATUS).isEqualTo(413);
+    }
+
     private static Plan.Reject reject200(int code, String message, IdEcho echo) {
         return new Plan.Reject(McpEra.LEGACY, 200, code, message, List.of(), null, echo);
     }
