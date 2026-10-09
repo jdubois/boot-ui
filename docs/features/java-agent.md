@@ -1072,7 +1072,7 @@ the same starting thread family, target, kind, and code-paths call site (at most
 is its first start's when the code-paths sensor did not stamp it; a start no request owns is counted in that sighting
 and published by the drain thread. The sensor is opt-in until a same-runner A/B of the agent's overhead benchmark on a
 route that starts a thread and creates an executor per request shows its own median increment at most 3 % and the
-cumulative median at most 10 % (the `agent-overhead-thread-activity` job of `build.yml`). The first run measured 11.5 %
+cumulative median at most 10 % (the thread-activity legs of `build.yml`'s `agent-overhead-extra-legs` matrix). The first run measured 11.5 %
 for its own increment and 16.6 % cumulative, on a route that starts a thread and creates an executor on every request,
 so it stays opt-in. Add `thread-activity` to `bootui.agent.sensors` to record it, or switch it on at run time from the
 Java Agent or Side Effects panel, as `files` and `environment` are: it has its own transformer, so switching it
@@ -1153,10 +1153,10 @@ the opening, the sensor reports itself unavailable; a claim never fails.
 table larger than 16,384 slots or with more than 4,096 thread locals set is skipped, counted, at most 16 leftovers a
 scope are reported, and the bridge remembers at most 1,024 thread locals per run, weakly. With the sensor off, a scope
 costs one volatile read; on Spring WebFlux, while the agent is attached, each Reactor task also runs through a small
-wrapper. The sensor is opt-in whatever its overhead: the `agent-overhead-thread-locals` job of
-`build.yml` measures its own increment and the cumulative overhead on the default route: about 0.5 % over the default
-sensors, and 7.0 % cumulative against the 10 % budget, in its first run. Add `thread-locals` to `bootui.agent.sensors` to
-record it, or [switch it on at run time](#switching-sensors-at-run-time).
+wrapper. The sensor is opt-in whatever its overhead: the thread-locals legs of `build.yml`'s
+`agent-overhead-extra-legs` matrix measure its own increment and the cumulative overhead on the default route: about
+0.5 % over the default sensors, and 7.0 % cumulative against the 10 % budget, in its first run. Add `thread-locals` to
+`bootui.agent.sensors` to record it, or [switch it on at run time](#switching-sensors-at-run-time).
 
 Its self-test, on the sensor's own thread, opens a scope, leaves a plain, an inheritable, and a read `withInitial`
 thread local set, removes one, sets one to `null`, and expects exactly the three left set, never one set before the
@@ -1227,11 +1227,11 @@ kind untracked; the sensor fails when no close hook passed. Forked-JVM tests run
 newest verified JDK, alone and beside the OpenTelemetry agent in both orders, with a library pool's socket and the JDK
 `HttpClient`'s pool as counterexamples, never reported reclaimed.
 
-**Cost.** The `agent-overhead-resources` job of `build.yml` measures it on the benchmark's I/O route (one socket
-connected and closed and one file read per request), fifteen same-runner pairs each: its first run measured its own
-median increment at -0.5 % over the default sensors (pairs -12.2 to 12.0 %), 0.3 % beside `files`, and the cumulative
+**Cost.** The resources legs of `build.yml`'s `agent-overhead-extra-legs` matrix measure it on the benchmark's I/O route
+(one socket connected and closed and one file read per request), fifteen same-runner pairs each: its first run measured
+its own median increment at -0.5 % over the default sensors (pairs -12.2 to 12.0 %), 0.3 % beside `files`, and the cumulative
 median at 6.9 % (pairs 2.0 to 18.2 %), within the 3 % and 10 % budgets, so it is on by default (D47, an exception to
-D37's opt-in rule). That job now fails CI when its own increment exceeds 3 %. It still prints the cumulative median,
+D37's opt-in rule). The `agent-overhead` job now fails CI when its own increment exceeds 3 %. It still prints the cumulative median,
 for the record only, with its 95 % interval and what D48's rule would say: that figure is mostly the other default
 sensors' overhead (10.7 % and 11.7 % on noisy runners later), which the `agent-overhead` job gates under D48. It tracks
 sockets through `network` and file streams and channels through `files`, both on by default; the panel says when
@@ -1323,8 +1323,9 @@ itself. Forked-JVM tests redefine an instrumented bean class both ways, through 
 
 ## Overhead
 
-The `agent-overhead` jobs of `build.yml` measure the agent with the sample's executable jar, in pairs whose order
-alternates. Each report gives each pair's throughput ratio, their median, and, since the median of 9 or 15 pairs moves
+The `agent-overhead-legs` and `agent-overhead-extra-legs` jobs of `build.yml`, one measurement each and all at the
+same time, measure the agent with the sample's executable jar, in pairs whose order alternates on one runner; the
+`agent-overhead` job gathers their reports and runs the checks. Each report gives each pair's throughput ratio, their median, and, since the median of 9 or 15 pairs moves
 by several points from run to run on a shared runner, a distribution-free 95 % confidence interval of that median (the
 4th lowest and highest of 15 pairs, the 2nd of 9). The default sensors' cumulative median on the I/O route only warns
 above 10 %. These checks fail a build:
