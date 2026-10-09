@@ -1239,6 +1239,16 @@
       expect: [['repeated-selects', 'Repeated SELECTs', 'GET /api/insights/orders']]
     },
     {
+      key: 'eager-repeated-selects',
+      label: 'Hibernate eager N+1',
+      text: 'Loads 16 orders with distinct eager customers through a JPQL finder, three times; then compares its JOIN FETCH control.',
+      steps: [
+        ['GET', '/api/insights/eager-orders', 3],
+        ['GET', '/api/insights/eager-orders/joined', 3]
+      ],
+      expect: [['repeated-selects', 'Repeated SELECTs', 'GET /api/insights/eager-orders']]
+    },
+    {
       key: 'lazy-sql-after-handler',
       label: 'SQL after the handler',
       text: "Returns a report whose lines are read while the response is written, three times.",

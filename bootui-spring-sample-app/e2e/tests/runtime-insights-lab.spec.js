@@ -21,6 +21,7 @@ const LISTED = [
 /** Seeds whose findings the panel leaves out of its default list, reached with Show all routes. */
 const UNLISTED = [
   'repeated-selects',
+  'eager-repeated-selects',
   'lazy-sql-after-handler',
   'connections-per-request',
   'anonymous-data-reach',
@@ -73,7 +74,7 @@ test.describe('Runtime Insights buttons on the sample home page', () => {
     }
 
     // A local model's answers are not timed here, so AI usage is not part of the exact count.
-    const runnable = 16 + (agentAttached ? 1 : 0) + (chatModel ? 1 : 0)
+    const runnable = 17 + (agentAttached ? 1 : 0) + (chatModel ? 1 : 0)
     const reported = chatModel
       ? new RegExp(`(${runnable - 1}|${runnable}) of ${runnable}`)
       : `${runnable} of ${runnable}`
@@ -91,6 +92,9 @@ test.describe('Runtime Insights buttons on the sample home page', () => {
     }
     await expect(
       card('repeated-selects').getByRole('link', {name: 'Repeated SELECTs: GET /api/insights/orders'})
+    ).toHaveAttribute('href', /^\/bootui\/#\/runtime-insights\?insight=repeated-selects%3A/)
+    await expect(
+      card('eager-repeated-selects').getByRole('link', {name: 'Repeated SELECTs: GET /api/insights/eager-orders'})
     ).toHaveAttribute('href', /^\/bootui\/#\/runtime-insights\?insight=repeated-selects%3A/)
 
     // A card's link opens its finding, even one the default list leaves out.

@@ -342,6 +342,23 @@ reset (Anonymous writes), and a payroll report whose exact security matcher miss
 auto-flushes), and 600 tags loaded as entities against their labels only (Large persistence contexts). The WebFlux
 sample adds blocking JDBC on the event loop and a per-note loop.
 
+The separate Hibernate eager-loading demo uses 16 orders with distinct customers. The JPQL finder behind
+`GET /api/insights/eager-orders` loads an eager customer for each order with a secondary SELECT; the
+`GET /api/insights/eager-orders/joined` control returns identical data with `JOIN FETCH`. Use the
+**Hibernate eager N+1** welcome-page button to make three requests to each route and inspect the N+1 badge in
+Live Activity, **Repeated SELECTs** in Runtime Insights (possibly under **Show all routes**), and the SQL groups in
+the request profile. An explicit Hibernate advisor scan surfaces the eager-mapping warning in the Scorecard; the
+Runtime Insights observation itself does not change the Scorecard. The optional Java agent supplies Code Paths.
+The six-order `JdbcTemplate` fixture above remains a separate demo. These routes are intentionally inefficient
+sample code; do not copy them into an application.
+
+To reproduce bounded concurrent traffic against the running **Spring MVC** sample, run
+`node e2e/scripts/eager-n-plus-one-demo.mjs http://localhost:8080` from this module. It warms each route and sends
+48 requests per route with eight concurrent clients, printing measured median and p95 client latency. Latency depends
+on the host and H2 cache; compare SQL statement counts and captured request histories rather than assuming a fixed
+latency difference. For SQL text in Log Tail, enable `org.hibernate.SQL` at DEBUG before running the script (do not log
+bind values). The demo never changes its data, so repeated runs use the same 16 orders.
+
 The easiest way to try it is the **Runtime Insights** section of the welcome page (`http://localhost:8080/`): one button
 per finding sends that finding's requests, then reads the panel's report and links to what it found, saying whether the
 panel lists it by default or only with **Show all routes**. **Generate all findings** runs every button this run can
