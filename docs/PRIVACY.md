@@ -8,11 +8,25 @@ sidebarDepth: 0
 
 This page describes what the BootUI documentation site collects, and how to change your mind at any time.
 
-## The BootUI console itself collects nothing
+## The BootUI console sends no analytics
 
 BootUI is a local-only developer console. It runs inside your own application, rejects non-loopback requests by default, and never sends
-telemetry, usage data, or analytics anywhere. Nothing on this page applies to the console — only to this documentation
-website.
+usage telemetry or analytics to BootUI or an analytics provider. It does collect local diagnostic evidence from your
+application: requests, SQL, logs, exceptions, traces, and optional agent sensor metadata. Masking reduces disclosure;
+it does not guarantee that all sensitive data is removed.
+
+The default Java agent sensors never record file contents, process arguments, or environment values. The separate,
+startup opt-in `bootui.agent.security-sinks.request-values=true` can hold bounded query/path parameter values
+transiently in memory while requests run; reports redact those values. Method-probe shapes are separately opt-in and
+stay in the browser panel, never MCP or CLI answers.
+
+Explicit actions can contact external services, such as dependency scans querying OSV.dev/FIRST and GitHub refreshes.
+Configured durable activity persistence and baseline files can save diagnostic metadata; heap capture saves a raw dump
+that may contain secrets, with raw download disabled by default. MCP and CLI expose evidence only when called, but a
+coding agent may send its answers to its model provider: a local endpoint does not mean local model processing.
+See [Properties](PROPERTIES.md) and the [AI-agent disclosure boundary](AI-AGENTS.md#boundaries).
+
+The analytics consent controls below apply only to this documentation website, not to the console.
 
 ## Analytics on this website
 
@@ -20,8 +34,8 @@ This website can use Google Analytics 4 (measurement ID `G-V55EF46P7M`) to count
 documentation pages are actually read.
 
 - **Nothing is loaded until you accept.** The Google Analytics script is not requested, and no analytics cookie is
-  written, unless you choose "Accept" in the banner. Declining, or ignoring the banner, leaves the site entirely
-  free of third-party requests.
+  written, unless you choose "Accept" in the banner. Declining, or ignoring the banner, causes no analytics requests.
+  Following an external link is a separate request to the linked site's operator.
 - **What is stored if you accept:** Google Analytics sets the `_ga` and `_ga_*` cookies, which hold a randomly
   generated identifier used to recognise a returning browser. Google receives your IP address, page URL, referrer,
   and basic device and browser information as the data processor for these measurements.
