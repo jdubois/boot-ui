@@ -168,6 +168,24 @@ class SideEffectsRunTests {
     }
 
     @Test
+    void aSwitchThatReinstallsTheSharedTransformerLeavesEveryComparedSensorOut() {
+        start();
+        service.sensorSwitched("thread-locals");
+        service.sensorSwitched("security-sinks");
+        service.sensorSwitched("thread-activity");
+        assertThat(service.runSideEffects().sensor("processes").reason())
+                .as(
+                        "thread-locals transforms nothing; security-sinks and thread-activity have transformers of their own")
+                .isNull();
+
+        service.sensorSwitched("environment");
+
+        RunSideEffects run = service.runSideEffects();
+        assertThat(run.sensor("processes").reason()).isEqualTo(SideEffectsService.PAUSED_FOR_A_SWITCH);
+        assertThat(run.sensor("network").reason()).isEqualTo(SideEffectsService.PAUSED_FOR_A_SWITCH);
+    }
+
+    @Test
     void anotherThreadsWorkBeforeTheApplicationWasReadyIsNoStartupKey() throws Exception {
         clock.set(System.currentTimeMillis() + 60_000L);
         start();

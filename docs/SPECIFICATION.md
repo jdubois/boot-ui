@@ -644,7 +644,7 @@ Features:
 Acceptance criteria:
 
 - The panel is always available on Spring MVC, Spring WebFlux, and Quarkus. Its one action switches an opt-in sensor
-  (`threads`, `files`, `environment`, `thread-activity`, `thread-locals`) on or off at run time: refused by
+  (`threads`, `files`, `environment`, `thread-activity`, `thread-locals`, `security-sinks`) on or off at run time: refused by
   `bootui.panels.java-agent.read-only` and `bootui.read-only`, offered only while this application's claim is armed.
 - `GET /bootui/api/java-agent`, `get_agent_status`, and `bootui agent status` return the same `JavaAgentReport`.
 - Spring claims from `BootUiAgentClaimEnvironmentPostProcessor` (registered in `META-INF/spring.factories`) once BootUI activation is resolved, refines after context
@@ -960,7 +960,8 @@ Acceptance criteria:
   stream` reclaimed without `close()`; the counterexamples `GET /api/resources/closed-stream` (try-with-resources) shows
   nothing, and `GET /api/resources/pooled-client` (the JDK `HttpClient`'s pool) never a reclaim.
 - `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`,
-  `blocking`, and `resources`; `threads`, `environment`, `thread-activity`, and `thread-locals` remain opt-in.
+  `blocking`, and `resources`; `threads`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and
+  `security-sinks` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
   the accepted ids.

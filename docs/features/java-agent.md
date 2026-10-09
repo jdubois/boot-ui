@@ -82,7 +82,7 @@ best-effort.
 ## Switching sensors at run time
 
 The sensors the agent installs and removes without a new claim, the opt-in `threads`, `environment`, `thread-activity`,
-and `thread-locals`, and `files`, on by default, can be switched on and off for the running application
+`thread-locals`, and `security-sinks`, and `files`, on by default, can be switched on and off for the running application
 without a restart, from the panel's **Runtime switches** card or from each sensor's section in
 [Side Effects](#side-effects), the way the MCP Server panel switches MCP. Each switch shows the configured value from
 `bootui.agent.sensors`, an **Overridden** badge when the switch differs from it, the sensor's state (installing,
@@ -92,29 +92,38 @@ is: none of them is switched at run time.
 
 | Sensor | By default |
 | --- | --- |
-| `files` | On: it records the files the application opens, deletes, moves, and copies, as path patterns, never their contents. |
-| `environment` | Off: it records the names of the environment variables and system properties the application reads, never their values, but each `System.getProperty` call from application code takes about 20 ns more with it; on a route reading fifty properties per request, that cost 6.8 % of throughput, over its 3 % budget. |
-| `threads` | Off: it retransforms `java.lang.Thread`, the riskiest JDK class to instrument; a failed self-test leaves it off until the application restarts. |
-| `thread-locals` | Off: It scans the thread-local maps of every pooled request thread; it stays opt-in until its overhead is measured on more routes (about 0.5 % over the default sensors on the benchmark's route). |
+| `threads` | Off by default: it retransforms `java.lang.Thread`, the riskiest JDK class to instrument; a failed self-test leaves it off until the application restarts. |
+| `files` | On by default: it records the files the application opens, deletes, moves, and copies, as path patterns, never their contents. Switch it off to stop recording them. |
+| `environment` | Off by default: it records the names of the environment variables and system properties the application reads, never their values, but each `System.getProperty` call from application code takes about 20 ns more with it; on a route reading fifty properties per request, that cost 6.8 % of throughput, over its 3 % budget. Switch it on to see what the application reads. |
+| `thread-activity` | Off by default: on a route that starts a thread per request, it added about 11.5 % to the agent's overhead, 16.6 % with the default sensors, over the 3 % and 10 % budgets. |
+| `thread-locals` | Off by default: it scans the thread-local maps of every pooled request thread; it stays opt-in until its overhead is measured on more routes (about 0.5 % over the default sensors on the benchmark's route). |
+| `security-sinks` | Off by default: on the benchmark's checks route, its JDK checks added a median of about 3.9 % over the default sensors, above the 3 % budget ([Overhead](#overhead)); its request-value matching, which also needs `bootui.agent.security-sinks.request-values=true` and holds each request's query and path values in memory while it runs, added about 3 % on the benchmark's sinks route. |
 
 `POST /bootui/api/java-agent/sensors/{id}` with `{"enabled": true}` or `{"enabled": false}` switches one and returns
 the updated report. It is the panel's only action, so `bootui.panels.java-agent.read-only` and `bootui.read-only`
 refuse it with the canonical 403, and it carries the same localhost, Host, and cross-site write protections as every
 BootUI action. Another sensor id, or a body without `enabled`, answers 400; a switch the agent cannot make answers 409
 with the reason: the agent is not attached or not armed for this application, an older agent predates switches, the
-claim changed meanwhile, `threads` already failed in this run, or `files` or `environment` already failed its
-self-test in this JVM. There is no MCP tool or CLI command for it, and only these sensors are ever switched: the
+claim changed meanwhile, `threads` already failed in this run, or `files`, `environment`, or `security-sinks` already
+failed its self-test in this JVM. There is no MCP tool or CLI command for it, and only these sensors are ever switched: the
 bridge refuses any other, the other default sensors (`executors`, `inventory`, `code-paths`, `processes`, `network`,
-and `blocking`) and `caught-exceptions` included. The report lists `toggles`
+`blocking`, and `resources`) and `caught-exceptions` included. The report lists `toggles`
 only while this application's claim is armed.
 
 The agent applies a switch to the running claim, keeping its generation: switching `threads` on installs and self-tests
 it, and off restores `java.lang.Thread`. Switching `files` or `environment` stops their recording at once, then
 reinstalls the side-effect transformer that `processes`, `network`, and `blocking` share with them, and runs the
 self-test of every side-effect sensor the claim uses again: those sensors pause for the reinstall, and one whose core
-hook fails that self-test stays off for the JVM's life, as at startup. After a switch, both panels read the sensors'
+hook fails that self-test stays off for the JVM's life, as at startup. Runtime Insights' run comparison therefore leaves
+the compared sensors out of a run in which one of these two was switched. `thread-activity` and `security-sinks` each
+have a transformer of their own: switching either installs or removes only its hooks and self-tests only them, and
+the other sensors keep recording. After a switch, both panels read the sensors'
 states again. Switching `thread-locals` transforms nothing: it enables or disables its scan, and a scope opened before
-the switch is closed without a report. When the agent fails a switch the bridge already kept, the switch shows **Failed** with the agent's reason
+the switch is closed without a report. Switching `security-sinks` switches its [JDK checks](#jdk-checks) and its
+request-value matching together, and never turns matching on by itself: matching still needs
+`bootui.agent.security-sinks.request-values=true` when the application starts, and while it is off the sensor's reason
+says so and how to turn it on. Switching it off wipes the values the holder keeps for requests still running; its rows
+stay until **Clear recording**, as every sensor's do. When the agent fails a switch the bridge already kept, the switch shows **Failed** with the agent's reason
 rather than installing.
 
 A switch is a runtime override, never written to any file. The bootstrap bridge keeps it for the application's slot
@@ -880,7 +889,8 @@ and 6.8 % [4.1, 8.4] in its first two runs, the second over the 3 % budget, so i
 
 ## The security-sinks sensor
 
-`bootui.agent.sensors=...,security-sinks` with `bootui.agent.security-sinks.request-values=true` checks whether
+`bootui.agent.sensors=...,security-sinks`, or [its switch at run time](#switching-sensors-at-run-time), with
+`bootui.agent.security-sinks.request-values=true` checks whether
 request input reaches a sink **unchanged**: whether the value of one of the current request's query or path parameters
 appears verbatim in SQL text, a command, a file path, or an outbound URL. Both are opt-in (D37): the sensor alone runs
 only its [JDK checks](#jdk-checks), and the property does nothing without the sensor. Each match is a row of the Side Effects
@@ -907,8 +917,8 @@ the path variables once its handler mapping set them, never the form data; Quark
 matched path parameters. Form values, headers, and bodies are never held. The holder keeps at most 128 requests and 32
 values of 4 to 256 characters each (on Spring MVC, BootUI's own decoding of the query string), and removes a request's values where its response
 really completes: the filter's end, the async cycle's end, the WebFlux chain's end, or Quarkus' response end handler.
-A missed end is swept after 60 seconds, and a new claim, a DevTools restart, a live reload, or a release wipes the
-holder. The values are not part of BootUI's correlation context, so no executor snapshot copies them, and a task the
+A missed end is swept after 60 seconds, and a new claim, a DevTools restart, a live reload, a release, or switching the
+sensor off wipes the holder. The values are not part of BootUI's correlation context, so no executor snapshot copies them, and a task the
 agent propagated, or any other request's work, is never matched; a task the request hands to a managed executor still
 matches, until the response completes. Matching is bounded per request: at most 256 checks, 16 KB of text per check,
 and 4 Mi character comparisons in all, each check costing its text's length times the held values' total length. An
@@ -1495,8 +1505,8 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.allow-in-disabled-profiles` | `false` | Spring only: claim the agent even when `bootui.enabled=ON` forces BootUI on in a disabled profile such as `prod`. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `blocking`, `resources` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `blocking`, and `resources`, and the opt-in `threads`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks`. Any other id fails the start while the agent is attached. |
-| `bootui.agent.security-sinks.request-values` | `false` | With the `security-sinks` sensor, holds the current request's query and path parameter values while it runs, so a sink it reaches can be checked for one appearing verbatim ([the security-sinks sensor](#the-security-sinks-sensor)). Never stored, logged, or displayed. |
+| `bootui.agent.sensors` | `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, `resources` | The sensors this application asks for: `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, and `resources`, and the opt-in `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks`. Any other id fails the start while the agent is attached. |
+| `bootui.agent.security-sinks.request-values` | `false` | With the `security-sinks` sensor, holds the current request's query and path parameter values while it runs, so a sink it reaches can be checked for one appearing verbatim ([the security-sinks sensor](#the-security-sinks-sensor)). Never stored, logged, or displayed. Read at startup: switching the `security-sinks` sensor on never turns matching on. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `java.lang.ProcessHandleImpl` (the JDK's process reaper), `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window: a task belongs to its request when it starts no later than this after the request ended, its work is attributed until this long after it started, and it is published `capped` when it runs longer. |
@@ -1828,7 +1838,7 @@ The panel has one tab per sensor group:
 | Environment | `environment` | Records when `bootui.agent.sensors` opts in or it is switched on; otherwise `not-claimed`. |
 | Threads and leaks | `thread-activity`, `thread-locals`, `resources` | `resources` records by default, sockets through `network` and file streams through `files` (see [the resources sensor](#the-resources-sensor)); `thread-activity` and `thread-locals` record when `bootui.agent.sensors` opts in or they are switched on (see [the thread-activity sensor](#the-thread-activity-sensor) and [the thread-locals sensor](#the-thread-locals-sensor)). |
 | Blocking | `blocking` | records on Spring WebFlux and Quarkus; `not-applicable` on Spring MVC until a WebClient's event loop is registered. |
-| Security sinks | `security-sinks` | Records deserialization without a filter, weak algorithms, and trust managers and hostname verifiers when `bootui.agent.sensors` opts in, and request input reaching SQL text, a command, a file path, or an outbound URL with `bootui.agent.security-sinks.request-values=true` too (see [the security-sinks sensor](#the-security-sinks-sensor)). |
+| Security sinks | `security-sinks` | Records deserialization without a filter, weak algorithms, and trust managers and hostname verifiers when `bootui.agent.sensors` opts in or its runtime switch is on, and request input reaching SQL text, a command, a file path, or an outbound URL with `bootui.agent.security-sinks.request-values=true` too (see [the security-sinks sensor](#the-security-sinks-sensor)). |
 
 The `processes` sensor is on by default through `bootui.agent.sensors`. It hooks the JDK process start path used by
 `ProcessBuilder.start()`, `ProcessBuilder.startPipeline(...)`, and `Runtime.exec(...)`. A row records the command name

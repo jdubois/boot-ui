@@ -76,7 +76,13 @@ give the details.
   (`GET /exceptions/caught`, `caughtInCode` in `get_exceptions`).
 
 - **Agent sensors switched at run time.** The Java Agent and Side Effects panels switch `threads`, `files`,
-  `environment`, `thread-activity`, and `thread-locals` on or off without a restart, until the JVM ends ([Java Agent](docs/features/java-agent.md#switching-sensors-at-run-time), [#1290](https://github.com/jdubois/boot-ui/pull/1290)).
+  `environment`, `thread-activity`, `thread-locals`, and `security-sinks` on or off without a restart, until the JVM
+  ends ([Java Agent](docs/features/java-agent.md#switching-sensors-at-run-time), [#1290](https://github.com/jdubois/boot-ui/pull/1290)).
+- **The security-sinks sensor switched at run time.** The Java Agent and Side Effects panels switch `security-sinks`
+  on or off like the other switchable sensors: its JDK checks and request-value matching together, which still needs
+  `bootui.agent.security-sinks.request-values=true` at startup. Its checks have a transformer of their own, so the
+  switch never pauses the other sensors. Switching `files` or `environment` pauses shared Side Effects sensors while
+  their hooks are reinstalled, so Runtime Insights does not compare that run for them ([Java Agent](docs/features/java-agent.md#switching-sensors-at-run-time)).
 - **Side effects in the run comparison.** With the BootUI agent, Runtime Insights' comparison lists the hosts,
   files, processes, and variable names a route, job, or startup newly uses or no longer uses, for sensors that recorded
   both runs whole ([Runtime Insights](docs/features/overview.md#runtime-insights)).
@@ -571,9 +577,8 @@ give the details.
   partial tree that counted the request twice; one for a tree only an exemplar still keeps amends its route too.
 - **`bootui.agent.sensors` rejects unknown sensor ids.** The default sensor set is now `executors`, `inventory`,
   `code-paths`, `processes`, `network`, `files`, `blocking`, and `resources`. `threads`, `environment`,
-  `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks` are opt-in; the first four, and `files`,
-  can also be switched at run time, while `caught-exceptions` and `security-sinks` are installed only when the
-  application starts.
+  `thread-activity`, `thread-locals`, `caught-exceptions`, and `security-sinks` are opt-in. The opt-in sensors and
+  default-on `files` can be switched at run time; `resources` is not switchable.
   Any other id now fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with
   an error naming the accepted ids.
 

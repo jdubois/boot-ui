@@ -161,15 +161,18 @@ public record AgentSensorSettings(
 
     /**
      * The sensors the Java Agent and Side Effects panels switch off and on at run time ({@code docs/PLAN-v2.md} M5-14),
-     * those the agent installs and removes without a new claim: the opt-in {@link #OPT_IN_SENSORS}, and {@code files},
-     * on by default (D49). The other default sensors are installed with the claim only, as is
-     * {@code caught-exceptions} (M5-6a), off by default, whose visit of every application class is.
+     * those the agent installs and removes without a new claim: the opt-in {@link #OPT_IN_SENSORS}, plus {@code files}
+     * (on by default, D49) and {@code security-sinks}. The latter's JDK checks have a transformer of their own, and its
+     * request-value matching follows the sensor, still only with {@code bootui.agent.security-sinks.request-values} on
+     * (D37). The other default sensors are installed with the claim only, as is {@code caught-exceptions} (M5-6a), whose
+     * visit of every application class is installed with the claim only.
      */
     public static final List<String> SWITCHABLE_SENSORS =
-            List.of(THREADS, FILES, ENVIRONMENT, THREAD_ACTIVITY, THREAD_LOCALS);
+            List.of(THREADS, FILES, ENVIRONMENT, THREAD_ACTIVITY, THREAD_LOCALS, SECURITY_SINKS);
 
     /** The switchable sensors this version ships off by default. */
-    public static final List<String> OPT_IN_SENSORS = List.of(THREADS, ENVIRONMENT, THREAD_ACTIVITY, THREAD_LOCALS);
+    public static final List<String> OPT_IN_SENSORS =
+            List.of(THREADS, ENVIRONMENT, THREAD_ACTIVITY, THREAD_LOCALS, SECURITY_SINKS);
 
     /**
      * Why {@code id}, one of {@link #SWITCHABLE_SENSORS}, is off, or on, by default, as the panels show it beside its
@@ -197,6 +200,11 @@ public record AgentSensorSettings(
             case THREAD_LOCALS ->
                 "Off by default until its overhead is measured on more routes: it scans the thread-local maps of every"
                         + " pooled request thread; the benchmark's route measured about 0.5 % over the default sensors.";
+            case SECURITY_SINKS ->
+                "Off by default: on the benchmark's checks route, its JDK checks added a median of about 3.9 % over"
+                        + " the default sensors, above the 3 % budget. Its request-value matching, which also needs"
+                        + " bootui.agent.security-sinks.request-values=true and holds each request's query and path"
+                        + " values in memory while it runs, added about 3 % on the benchmark's sinks route.";
             default -> null;
         };
     }

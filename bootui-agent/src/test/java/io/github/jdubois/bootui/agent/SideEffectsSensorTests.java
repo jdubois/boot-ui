@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.agent;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.agent.bridge.SecuritySinks;
+import io.github.jdubois.bootui.agent.bridge.SideEffects;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -33,6 +34,33 @@ class SideEffectsSensorTests {
 
         assertThat(result).isEqualTo("ok");
         assertThat(result).doesNotContain(System.getProperty("java.io.tmpdir"));
+    }
+
+    /**
+     * Thread-activity and security-sinks each have a transformer group of their own, so switching one never touches the
+     * shared group's sensors (M5-14).
+     */
+    @Test
+    void securitySinksAndThreadActivityHaveTransformerGroupsOfTheirOwn() {
+        int rest = SideEffectsSensor.GROUP_MASKS[SideEffectsSensor.REST];
+        assertThat(SideEffectsSensor.groups(SideEffects.MASK_SECURITY_SINKS))
+                .isEqualTo(SideEffects.MASK_SECURITY_SINKS);
+        assertThat(SideEffectsSensor.groups(SideEffects.MASK_FILES | SideEffects.MASK_NETWORK))
+                .isEqualTo(rest);
+        assertThat(rest & SideEffects.MASK_SECURITY_SINKS).isZero();
+        assertThat(rest & SideEffects.MASK_THREADS).isZero();
+        assertThat(SideEffectsSensor.group(SideEffects.MASK_SECURITY_SINKS)).isEqualTo(SideEffectsSensor.SINKS);
+        assertThat(SideEffectsSensor.group(SideEffects.MASK_THREADS)).isEqualTo(SideEffectsSensor.THREADS);
+        assertThat(SideEffectsSensor.group(SideEffects.MASK_BLOCKING)).isEqualTo(SideEffectsSensor.REST);
+        // Every hook's sensor in exactly one group.
+        for (String[] hook : SideEffectsSensor.HOOKS) {
+            int bit = SideEffects.bit(hook[3]);
+            int groups = 0;
+            for (int group : SideEffectsSensor.GROUP_MASKS) {
+                groups += (bit & group) != 0 ? 1 : 0;
+            }
+            assertThat(groups).as(hook[0]).isEqualTo(1);
+        }
     }
 
     /** A failed core hook switches its own security-sinks check group off, with its reason, never another (M5-6b2). */

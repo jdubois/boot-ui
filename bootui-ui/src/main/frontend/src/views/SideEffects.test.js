@@ -1165,4 +1165,75 @@ describe('Side Effects panel', () => {
     expect(wrapper.get('[data-testid="agent-sensor-toggle-environment"] input').element.disabled).toBe(true)
     expect(wrapper.get('.side-effects-state-note').text()).not.toContain('switch it on')
   })
+
+  it('offers the security-sinks switch, which says request-value matching still needs its property', async () => {
+    const toggle = {
+      id: 'security-sinks',
+      configured: false,
+      enabled: false,
+      overridden: false,
+      state: 'off',
+      optInReason:
+        'Off by default: its JDK checks added about 3.9 % on the benchmark. Its request-value matching also needs bootui.agent.security-sinks.request-values=true.',
+      available: true,
+      unavailableReason: null
+    }
+    const panels = ref({panels: [{id: 'java-agent', enabled: true, available: true, readOnly: false}]})
+    const responses = {
+      'api/side-effects': summary({
+        sensors: {
+          'security-sinks': {
+            state: 'not-claimed',
+            reason: "This application's bootui.agent.sensors does not include security-sinks.",
+            toggle
+          }
+        }
+      }),
+      'api/side-effects/sensor?sensor=security-sinks&offset=0&limit=50': sensorReport('security-sinks', [])
+    }
+    ;({wrapper} = mountPanel(responses, {}, panels))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Security sinks')
+      .trigger('click')
+    await flushPromises()
+
+    const control = wrapper.get('[data-testid="agent-sensor-toggle-security-sinks"]')
+    const input = control.get('input[role="switch"]')
+    expect(input.element.checked).toBe(false)
+    expect(input.attributes('aria-describedby')).toBeTruthy()
+    expect(control.text()).toContain('Record with the security-sinks sensor')
+    expect(control.text()).toContain('bootui.agent.security-sinks.request-values=true')
+    const note = wrapper.get('.side-effects-state-note').text()
+    expect(note).toContain('add security-sinks to bootui.agent.sensors')
+    expect(note).toContain('or switch it on above for this JVM')
+    wrapper.unmount()
+
+    // Switched on with request-value matching off: the JDK checks record, and the reason says how to turn matching on.
+    responses['api/side-effects'] = summary({
+      sensors: {
+        'security-sinks': {
+          state: 'recording',
+          reason:
+            'JDK checks: deserialization without a filter, weak algorithms, trust managers and hostname verifiers. Request-value matching is off: set bootui.agent.security-sinks.request-values=true and restart the application to check whether request input reaches SQL text, a command, a file path, or an outbound URL.',
+          toggle: {...toggle, enabled: true, overridden: true, state: 'installed'}
+        }
+      }
+    })
+    ;({wrapper} = mountPanel(responses, {}, panels))
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Security sinks')
+      .trigger('click')
+    await flushPromises()
+    const on = wrapper.get('[data-testid="agent-sensor-toggle-security-sinks"]')
+    expect(on.get('input[role="switch"]').element.checked).toBe(true)
+    expect(on.text()).toContain('Recording')
+    expect(on.text()).toContain('Overridden')
+    expect(wrapper.text()).toContain(
+      'Request-value matching is off: set bootui.agent.security-sinks.request-values=true and restart the application'
+    )
+  })
 })

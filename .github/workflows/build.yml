@@ -944,8 +944,8 @@ jobs:
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.agent.budget-percent=3
               -Dbootui.benchmark.route=checks -Dbootui.benchmark.report=spring-mvc-checks-ab
-              -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,security-sinks
-              -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network
+              -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,files,blocking,resources,security-sinks
+              -Dbootui.benchmark.agent.baseline-sensors=executors,inventory,code-paths,processes,network,files,blocking,resources
               -Dbootui.benchmark.agent.extra=--bootui.agent.security-sinks.request-values=false
           - id: spring-mvc-agent-checks
             name: security-sinks JDK checks cumulative
@@ -957,7 +957,7 @@ jobs:
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.agent.budget-percent=10
               -Dbootui.benchmark.route=checks -Dbootui.benchmark.report=spring-mvc-agent-checks
-              -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,security-sinks
+              -Dbootui.benchmark.agent.sensors=executors,inventory,code-paths,processes,network,files,blocking,resources,security-sinks
               -Dbootui.benchmark.agent.extra=--bootui.agent.security-sinks.request-values=false
           # The thread-activity sensor's default (M5-5e): an A/B on one runner. On the thread route, which starts and
           # joins a thread and creates and shuts down an executor per request, the default sensors plus thread-activity
@@ -1140,8 +1140,9 @@ jobs:
             echo "::warning::The BootUI agent's median overhead is ${overhead} %, above its ${budget} % budget."
           fi
           for report in spring-mvc-agent-io spring-mvc-network-ab spring-mvc-blocking-ab spring-mvc-files-ab \
-            spring-mvc-environment-ab spring-mvc-caught-ab spring-mvc-agent-caught spring-mvc-sinks-ab \
-            spring-mvc-agent-sinks spring-mvc-checks-ab spring-mvc-agent-checks; do
+            spring-mvc-agent-io-files spring-mvc-environment-ab spring-mvc-caught-ab \
+            spring-mvc-agent-caught spring-mvc-sinks-ab spring-mvc-agent-sinks \
+            spring-mvc-checks-ab spring-mvc-agent-checks; do
             if [ -f "$directory/$report.md" ]; then
               cat "$directory/$report.md" >> "$GITHUB_STEP_SUMMARY"
               overhead=$(sed -n 's/^overheadPercent=//p' "$directory/$report.properties")

@@ -714,7 +714,8 @@ class JavaAgentServiceTests {
                         org.assertj.core.api.Assertions.tuple("files", true, true, false, "installing", true),
                         org.assertj.core.api.Assertions.tuple("environment", false, false, false, "off", true),
                         org.assertj.core.api.Assertions.tuple("thread-activity", false, false, false, "off", true),
-                        org.assertj.core.api.Assertions.tuple("thread-locals", false, false, false, "off", true));
+                        org.assertj.core.api.Assertions.tuple("thread-locals", false, false, false, "off", true),
+                        org.assertj.core.api.Assertions.tuple("security-sinks", false, false, false, "off", true));
         assertThat(service.report().toggles())
                 .allSatisfy(toggle -> assertThat(toggle.optInReason())
                         .startsWith(
@@ -930,6 +931,46 @@ class JavaAgentServiceTests {
             assertThat(toggle.enabled()).isTrue();
             assertThat(toggle.overridden()).isTrue();
         });
+    }
+
+    @Test
+    void theSecuritySinksSwitchNeverTurnsRequestValueMatchingOnWithoutItsProperty() {
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        AgentSensorSettings sensors = new AgentSensorSettings(List.of("processes"), List.of(), List.of(), null);
+        claim.set(
+                AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example"), sensors));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+        AgentRequestValues.configure(false);
+
+        assertThat(service.report().toggles().get(5)).satisfies(toggle -> {
+            assertThat(toggle.id()).isEqualTo("security-sinks");
+            assertThat(toggle.enabled()).isFalse();
+            assertThat(toggle.available()).isTrue();
+            assertThat(toggle.optInReason())
+                    .contains("bootui.agent.security-sinks.request-values=true")
+                    .doesNotContainPattern("\\b[MD]\\d");
+        });
+
+        JavaAgentReport on = service.switchSensor("security-sinks", true);
+
+        assertThat(on.toggles().get(5).enabled()).isTrue();
+        assertThat(on.toggles().get(5).overridden()).isTrue();
+        assertThat(claim.get().activeSensors()).containsExactly("processes", "security-sinks");
+        assertThat(stub.ops()).contains("sensors");
+        JavaAgentService.SideEffectsCoverage coverage = service.sideEffectsCoverage("security-sinks");
+        assertThat(coverage.toggle()).isNotNull();
+        assertThat(coverage.toggle().enabled()).isTrue();
+        assertThat(coverage.reason())
+                .startsWith("Request-value matching is off")
+                .contains("request-values=true and restart the application");
+        assertThat(AgentRequestValues.active()).isFalse();
+
+        service.switchSensor("security-sinks", false);
+
+        JavaAgentService.SideEffectsCoverage off = service.sideEffectsCoverage("security-sinks");
+        assertThat(off.state()).isEqualTo("not-claimed");
+        assertThat(off.reason()).isEqualTo("This application's bootui.agent.sensors does not include security-sinks.");
+        assertThat(off.toggle().enabled()).isFalse();
     }
 
     private JavaAgentService service(AgentBridgeAccess access, JavaAgentSettings settings) {

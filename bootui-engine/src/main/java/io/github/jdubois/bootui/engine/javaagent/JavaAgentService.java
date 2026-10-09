@@ -283,7 +283,7 @@ public final class JavaAgentService {
             reason.append("; off: ").append(String.join("; ", off));
         }
         reason.append(". ");
-        SideEffectsCoverage values = securitySinksCoverage(status, List.of(), claimed);
+        SideEffectsCoverage values = securitySinksCoverage(status, List.of(), claimed, null);
         reason.append(values.reason());
         return reason.toString();
     }
@@ -293,26 +293,35 @@ public final class JavaAgentService {
      * matching rides on the SQL and REST client recorders and on the processes and files sensors' hooks, so it records
      * once the claim asks for it and {@code bootui.agent.security-sinks.request-values} is on. While recording, its
      * reason names the sinks it checks, and those it cannot because their sensor is not claimed; its drops are the
-     * holder's records the ring could not take.
+     * holder's records the ring could not take. {@code claimed} is the claim's sensors with the runtime switches
+     * applied; {@code toggle}, the sensor's runtime switch, or {@code null}.
      */
     static SideEffectsCoverage securitySinksCoverage(
-            Map<String, Object> status, List<SideEffectsHookDto> hooks, List<String> claimed) {
+            Map<String, Object> status,
+            List<SideEffectsHookDto> hooks,
+            List<String> claimed,
+            JavaAgentSensorToggleDto toggle) {
         Map<String, Object> holder = AgentBridgeAccess.map(status, "requestValues");
         long dropped = longValue(holder, "dropped");
         if (!AgentRequestValues.enabled()) {
             return new SideEffectsCoverage(
                     SideEffectsSensorDto.DISABLED,
-                    "Request-value matching is off: set bootui.agent.security-sinks.request-values=true to check"
-                            + " whether request input reaches SQL text, a command, a file path, or an outbound URL.",
+                    "Request-value matching is off: set bootui.agent.security-sinks.request-values=true and restart"
+                            + " the application to check whether request input reaches SQL text, a command, a file"
+                            + " path, or an outbound URL.",
                     hooks,
-                    dropped);
+                    dropped,
+                    Map.of(),
+                    toggle);
         }
         if (!AgentBridgeAccess.flag(holder, "active")) {
             return new SideEffectsCoverage(
                     SideEffectsSensorDto.INSTALLING,
                     "The attached BootUI agent has not turned request-value matching on for this claim.",
                     hooks,
-                    dropped);
+                    dropped,
+                    Map.of(),
+                    toggle);
         }
         StringBuilder reason = new StringBuilder("Checks SQL text where SQL Trace captures it and outbound URLs where"
                 + " REST Client Trace records the call");
@@ -324,7 +333,8 @@ public final class JavaAgentService {
                 claimed.contains(AgentSensorSettings.FILES)
                         ? "; file paths through the files sensor."
                         : "; not file paths: the files sensor is not claimed.");
-        return new SideEffectsCoverage(SideEffectsSensorDto.RECORDING, reason.toString(), hooks, dropped);
+        return new SideEffectsCoverage(
+                SideEffectsSensorDto.RECORDING, reason.toString(), hooks, dropped, Map.of(), toggle);
     }
 
     /**
@@ -363,8 +373,7 @@ public final class JavaAgentService {
                         toggle);
             }
             if (sensor == null && AgentSensorSettings.SECURITY_SINKS.equals(id)) {
-                return securitySinksCoverage(
-                        status, hooks, ours == null ? List.of() : ours.sensors().sensors());
+                return securitySinksCoverage(status, hooks, ours == null ? List.of() : ours.activeSensors(), toggle);
             }
             if (sensor == null) {
                 return new SideEffectsCoverage(
@@ -416,10 +425,7 @@ public final class JavaAgentService {
                 // Its JDK checks record; the reason says which check groups run and whether request values match.
                 return new SideEffectsCoverage(
                         SideEffectsSensorDto.RECORDING,
-                        securitySinksReason(
-                                counters,
-                                status,
-                                ours == null ? List.of() : ours.sensors().sensors()),
+                        securitySinksReason(counters, status, ours == null ? List.of() : ours.activeSensors()),
                         hooks,
                         dropped,
                         buckets,
