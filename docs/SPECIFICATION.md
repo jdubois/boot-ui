@@ -792,9 +792,9 @@ Purpose: answer "Which processes, hosts, and other side effects did this route o
 
 Data sources:
 
-- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes`, `network`, `blocking`, and
-  `resources` sensors record by default, and `files`, `environment`, `thread-activity`, and `thread-locals` when opted
-  in. `security-sinks` records, when opted in with `bootui.agent.security-sinks.request-values=true`, request input
+- The BootUI agent's side-effect bridge through the bootstrap loader. The `processes`, `network`, `files`, `blocking`,
+  and `resources` sensors record by default, and `environment`, `thread-activity`, and `thread-locals` when opted in.
+  `security-sinks` records, when opted in with `bootui.agent.security-sinks.request-values=true`, request input
   reaching SQL text, a command, a file path, or an outbound URL unchanged: the redacted sink, the parameter's name, and a
   sentence stating the fact; opted in alone, its JDK checks record deserialization without an `ObjectInputFilter`,
   weak `MessageDigest` and `Cipher` algorithms (application and library requests apart), the application's trust
@@ -950,17 +950,17 @@ Acceptance criteria:
   `ScheduledTenant`, on when `side-effects-seed.scheduled-every` sets its period, leaves `TenantContext.JOB` set from a
   scheduled run: a row of scope `execution` with no request.
 - The `resources` sensor (M5-5g, D46), on by default (D47), tracks the streams, channels, and sockets the `files` and
-  `network` sensors record opening (sockets by default, file streams only while the opt-in `files` is on) for a request or a job with an application frame on the
+  `network` sensors record opening (sockets and file streams, both by default) for a request or a job with an application frame on the
   stack, and the JDK's close methods. The **Threads and leaks** tab shows rows by attribution, resource kind (`file input
   stream`, `file output stream`, `random access file`, `file channel`, `socket`, `socket channel`), target (the masked
   path pattern or host and port), call site, and origin (`Opened by the application`, or `Opened by a library the
   application called`), with how many were still open 250 ms after their request's response completed and closed after
   it (a hand-off, as a pool's connection), and how many the collector reclaimed without `close()`, the leak. With the
-  agent and `files` opted in, the three samples' `GET /api/resources/leaked-stream` shows a `file input
+  agent, the three samples' `GET /api/resources/leaked-stream` shows a `file input
   stream` reclaimed without `close()`; the counterexamples `GET /api/resources/closed-stream` (try-with-resources) shows
   nothing, and `GET /api/resources/pooled-client` (the JDK `HttpClient`'s pool) never a reclaim.
-- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, `blocking`, and
-  `resources`; `threads`, `files`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and
+- `bootui.agent.sensors` defaults to `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`,
+  `blocking`, and `resources`; `threads`, `environment`, `thread-activity`, `thread-locals`, `caught-exceptions`, and
   `security-sinks` remain opt-in.
   The ids of sensors this version does not ship are accepted with a warning and reported not available; any other id
   fails the application's start, on Spring and Quarkus alike, while the BootUI agent is attached, with a message naming
@@ -1544,8 +1544,8 @@ Data sources:
 
 - By default (`bootui.activity.feed-source=journal`) the feed renders the runtime journal's retained events, nesting
   every child under its request or execution by id; when the journal is disabled or not recording, the panel buffers
-  serve the feed instead. `bootui.activity.feed-source=buffers`, or `?source=buffers` on one request, selects the
-  merge of the panels' own buffers described below.
+  serve the feed instead. `?source=buffers` on one request selects the merge of the panels' own buffers described
+  below; the property's `buffers` value was removed in 2.0.0 and fails startup with a message naming `journal`.
 - Reuses the existing HTTP Exchanges, SQL Trace, REST Client, Exceptions, Security Logs, Email, and Health controllers/DTOs. The panel adds
   no new instrumentation and reads no raw buffers directly, so masking, `bootui.monitoring.exclude-self`, and buffer
   bounds are inherited unchanged from each source panel.
@@ -1693,7 +1693,8 @@ Features:
   its Exceptions group, so a profile reaches the group's detail through `GET /bootui/api/exceptions/{id}` or
   `get_exception_detail`. The `get_request_profile` MCP tool and `bootui request-profile <id>` CLI command instead
   select the journal's retained request or scheduled/message execution profile first, and this HTTP-exchange DTO as
-  fallback; `source: "none"` reports when neither retains the id.
+  fallback. An id neither retains is a tool error (CLI exit `1`); `source: "none"` with `available: false` reports a
+  journal that is off or an id that cannot be profiled.
 - **Copy profile** and **Copy for AI** in the profile drawer, and **Copy for AI** in an Exceptions detail, render one
   Markdown document through a single shared frontend helper, built only from DTOs the browser holds or loads through
   existing read endpoints, so identical DTOs produce identical text on every adapter. Captured strings are escaped, and
@@ -1979,8 +1980,8 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   contains the text, with their kind and class and the total matched: an exact name first, then a name or a route's
   path starting with it, then a class starting with it. It reads only the run's model, and answers `available=false`
   with the reason when the journal is disabled.
-- `GET /bootui/api/runtime-insights/comparison[?run=<runId>]` compares the current run with the newest kept run that
-  served HTTP requests (the newest kept run when none did), or the chosen one ([PLAN-v2.md](PLAN-v2.md) §5.8). Its status is `COMPARED`, `INSUFFICIENT` when no route served 3 requests
+- `GET /bootui/api/runtime-insights/comparison[?run=<runId>]` compares the current run with the newest kept run, even one
+  that served no HTTP request, or the chosen one ([PLAN-v2.md](PLAN-v2.md) §5.8). Its status is `COMPARED`, `INSUFFICIENT` when no route served 3 requests
   in both runs, `NOT_COMPARABLE` with the database, profile, or cache difference first, `NO_PREVIOUS_RUN` with the
   reason, or `UNAVAILABLE`. Behavior rows come first (statements, REST and AI calls, cache misses, and tokens per
   request; new statements, exceptions, and routes; status-class shares; allocation), then the runtime model's added and
@@ -3090,8 +3091,9 @@ Detail reads require the report's nonblank `scanId`; offset defaults to zero and
 Malformed/fractional/overflowing inputs, negative offsets, and nonpositive limits are rejected. Responses contain
 `scanId`, `ruleId`, full `violationCount`, `retainedCount`, `truncated`, `violations`,
 `page: {total, matched, offset, limit, returned, hasMore}`, and `locations`. Page totals count retained entries; a
-terminal page does not prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Unknown/non-finding
-rules return 404; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
+terminal page does not prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Ids outside the
+advisor's rule catalogue (`Unknown advisor rule: ...`) and catalogue rules without findings, whether passed, skipped, or
+failed (`Advisor rule has no findings in the current scan.`), both return 404 with those distinct messages; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
 retrievable. Reads obey panel availability, enabled and safety policy, but are allowed in read-only mode, and never
 rescan or collect new observations.
 
@@ -3290,7 +3292,7 @@ Initial endpoints:
 | `/bootui/api/runtime-insights/insights/{id}` | GET    | One observation by its stable id, with up to 20 evidence rows and how many were left out; an unknown id answers unavailable |
 | `/bootui/api/runtime-insights/impact`        | GET    | `?symbol=<symbol>`: for a route, bean, class, method (`Class#method`, read from the route trees with the BootUI agent), repository, table, cache, or host, the routes that ran through it in this run, those that did not, and those sharing a resource with it; `AMBIGUOUS`, `NOT_FOUND`, or `UNAVAILABLE` with the reason |
 | `/bootui/api/runtime-insights/impact/symbols` | GET   | `?query=<text>`: at most 20 routes, beans, repositories, tables, caches, hosts, and events of the run's model matching the text, best first, each with its kind, for the change impact box |
-| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the newest kept run (including listener-only or idle runs), or `?run=<runId>`: with the BootUI agent, the code changes since the previous run first and the side effects new or gone outside the JVM, then route/execution behavior, new and gone fingerprints and edges from shared sources, adjacent-restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, `NO_PREVIOUS_RUN`, or `UNAVAILABLE` with the reason |
+| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the application's newest kept run (including listener-only or idle runs; another application sharing the JVM is never compared), or `?run=<runId>`: with the BootUI agent, the code changes since the previous run first and the side effects new or gone outside the JVM, then route/execution behavior, new and gone fingerprints and edges from shared sources, adjacent-restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, `NO_PREVIOUS_RUN`, or `UNAVAILABLE` with the reason |
 | `/bootui/api/runtime-insights/resource-profile` | GET | The **Profile resources** session's state and the last session's CPU samples, allocation, and hot frames by route; starts nothing |
 | `/bootui/api/runtime-insights/resource-profile` | POST | Start a JFR session bounded by `bootui.resources.jfr.max-duration` |
 | `/bootui/api/runtime-insights/resource-profile/stop` | POST | End the running session now and return its results |

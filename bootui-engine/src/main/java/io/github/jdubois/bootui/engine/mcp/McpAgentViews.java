@@ -8,11 +8,15 @@ import io.github.jdubois.bootui.core.dto.CopilotSessionSummary;
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.DependencyVulnerabilityDto;
+import io.github.jdubois.bootui.core.dto.DevToolsActionResult;
 import io.github.jdubois.bootui.core.dto.JavaAgentReport;
 import io.github.jdubois.bootui.core.dto.JavaAgentSensorDto;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.LogLineDto;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
+import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
+import io.github.jdubois.bootui.core.dto.RestClientTraceGroupDto;
+import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
@@ -43,6 +47,9 @@ public final class McpAgentViews {
     /** The statements {@code get_sql_traces} lists when the call asks for no limit. */
     public static final int SQL_TRACES_DEFAULT_LIMIT = 20;
 
+    /** The calls {@code get_rest_client_traces} lists when the call asks for no limit. */
+    public static final int REST_CLIENT_TRACES_DEFAULT_LIMIT = 20;
+
     /** The steps {@code get_startup_timeline} lists when the call asks for no limit. */
     public static final int STARTUP_DEFAULT_LIMIT = 25;
 
@@ -54,6 +61,16 @@ public final class McpAgentViews {
 
     /** The dependencies {@code get_vulnerabilities_report} lists when the call asks for no limit. */
     public static final int VULNERABILITIES_DEFAULT_LIMIT = 10;
+
+    /** The advisories {@code get_vulnerabilities_report} lists per dependency, unless the query names it exactly. */
+    public static final int ADVISORIES_PER_DEPENDENCY = 5;
+
+    /** The references and the advisory symbols a listed advisory keeps, unless the query names it exactly. */
+    public static final int ADVISORY_LIST_ITEMS = 3;
+
+    /** Vulnerability severities, most severe first; {@code UNKNOWN} is not zero risk, so it ranks before none. */
+    static final List<String> VULNERABILITY_SEVERITIES =
+            List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN", "NONE");
 
     /** The entries {@code get_live_activity} lists when the call asks for no limit. */
     public static final int LIVE_ACTIVITY_DEFAULT_LIMIT = 25;
@@ -262,6 +279,52 @@ public final class McpAgentViews {
     }
 
     /**
+     * The newest {@code limit} REST-client calls matching {@code query} (in their method, URI, host, path, status,
+     * client type, error, call site, or request, trace, or execution id), and the top calls matching it, with every
+     * other field of the report.
+     */
+    public static Map<String, Object> restClientTraces(RestClientTraceReport report, String query, int limit) {
+        String needle = PagedList.normalize(query);
+        List<RestClientTraceEntryDto> matched = report.entries().stream()
+                .filter(entry -> PagedList.contains(entry.method(), needle)
+                        || PagedList.contains(entry.uri(), needle)
+                        || PagedList.contains(entry.host(), needle)
+                        || PagedList.contains(entry.path(), needle)
+                        || PagedList.contains(
+                                entry.status() == null ? null : entry.status().toString(), needle)
+                        || PagedList.contains(entry.clientType(), needle)
+                        || PagedList.contains(entry.errorMessage(), needle)
+                        || PagedList.contains(entry.callSite(), needle)
+                        || PagedList.contains(entry.requestId(), needle)
+                        || PagedList.contains(entry.traceId(), needle)
+                        || PagedList.contains(entry.executionId(), needle))
+                .toList();
+        List<RestClientTraceEntryDto> listed = newest(matched, RestClientTraceEntryDto::timestamp, limit);
+        List<RestClientTraceGroupDto> top = report.topCalls().stream()
+                .filter(group -> PagedList.contains(group.method(), needle)
+                        || PagedList.contains(group.host(), needle)
+                        || PagedList.contains(group.path(), needle)
+                        || group.callSites().stream().anyMatch(site -> PagedList.contains(site, needle)))
+                .toList();
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("available", report.available());
+        view.put("unavailableReason", report.unavailableReason());
+        view.put("capturing", report.capturing());
+        view.put("captureHeaders", report.captureHeaders());
+        view.put("bufferSize", report.bufferSize());
+        view.put("totalCaptured", report.totalCaptured());
+        view.put("slowCallThresholdMillis", report.slowCallThresholdMillis());
+        view.put("clientTypes", report.clientTypes());
+        view.put("stats", report.stats());
+        view.put("entries", listed);
+        view.put("topCalls", top);
+        view.put("warnings", report.warnings());
+        view.put("retention", report.retention());
+        view.put("page", page(report.entries().size(), matched.size(), limit, listed.size()));
+        return view;
+    }
+
+    /**
      * The {@code limit} slowest startup steps matching {@code query} (in their name or a tag's key or value), slowest
      * first. A parent step's duration includes its children's.
      */
@@ -326,6 +389,14 @@ public final class McpAgentViews {
     /**
      * The first {@code limit} dependencies matching {@code query} (in their coordinates, package, highest severity, or
      * a vulnerability's id or alias), vulnerable dependencies first, with every other field of the report.
+     *
+     * <p>{@code limit} bounds the whole answer, not just the dependency count: one dependency can carry dozens of
+     * advisories, each with OSV's full text. So each listed dependency keeps at most {@value #ADVISORIES_PER_DEPENDENCY}
+     * advisories, active and most severe first, each without its {@code details} and with at most {@value
+     * #ADVISORY_LIST_ITEMS} references and advisory symbols. A query that equals a dependency's {@code group:artifact}
+     * (or {@code group:artifact:version}, or its package name) lists all its advisories, still without details, and a
+     * query that equals an advisory's id or alias returns that advisory whole. The {@code advisories} object counts
+     * what was left out and says how to read it.
      */
     public static Map<String, Object> vulnerabilities(DependenciesReport report, String query, int limit) {
         String needle = PagedList.normalize(query);
@@ -337,7 +408,47 @@ public final class McpAgentViews {
         }
         // A stable sort: vulnerable dependencies first, each group in the report's own order.
         matched.sort(Comparator.comparing((DependencyDto dependency) -> dependency.vulnerabilityCount() == 0));
-        List<DependencyDto> listed = matched.subList(0, Math.min(limit, matched.size()));
+        String exact = query == null ? "" : query.strip();
+        List<DependencyDto> listed = new ArrayList<>();
+        int advisoriesListed = 0;
+        int advisoriesOmitted = 0;
+        int detailsOmitted = 0;
+        for (DependencyDto dependency : matched.subList(0, Math.min(limit, matched.size()))) {
+            boolean named = namesDependency(dependency, exact);
+            List<DependencyVulnerabilityDto> ranked = new ArrayList<>(dependency.vulnerabilities());
+            ranked.sort(Comparator.comparing((DependencyVulnerabilityDto advisory) -> advisory.dismissed())
+                    .thenComparingInt(advisory -> rank(advisory.severity())));
+            List<DependencyVulnerabilityDto> kept = new ArrayList<>();
+            for (DependencyVulnerabilityDto advisory : ranked) {
+                boolean focused = namesAdvisory(advisory, exact);
+                if (focused) {
+                    kept.add(advisory);
+                } else if (named || kept.size() < ADVISORIES_PER_DEPENDENCY) {
+                    kept.add(compact(advisory));
+                    if (advisory.details() != null && !advisory.details().isBlank()) {
+                        detailsOmitted++;
+                    }
+                }
+            }
+            advisoriesListed += kept.size();
+            advisoriesOmitted += ranked.size() - kept.size();
+            listed.add(dependency.withRuntimeReach(dependency.runtimeReach(), kept));
+        }
+        Map<String, Object> advisories = new LinkedHashMap<>();
+        advisories.put("listed", advisoriesListed);
+        advisories.put("omitted", advisoriesOmitted);
+        advisories.put("detailsOmitted", detailsOmitted);
+        advisories.put("perDependency", ADVISORIES_PER_DEPENDENCY);
+        advisories.put(
+                "hint",
+                advisoriesOmitted == 0 && detailsOmitted == 0
+                        ? null
+                        : "Each dependency lists at most " + ADVISORIES_PER_DEPENDENCY + " advisories, active and most "
+                                + "severe first, without details and with at most " + ADVISORY_LIST_ITEMS
+                                + " references and symbols; listed and omitted include dismissed advisories, which "
+                                + "vulnerabilityCount leaves out. Query a dependency's "
+                                + "exact group:artifact to list all its advisories, or an exact advisory id or alias "
+                                + "to read it whole.");
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("scanningEnabled", report.scanningEnabled());
         view.put("total", report.total());
@@ -348,8 +459,54 @@ public final class McpAgentViews {
         view.put("dependencies", List.copyOf(listed));
         view.put("evidence", report.evidence());
         view.put("runtimeReach", report.runtimeReach());
+        view.put("advisories", advisories);
         view.put("page", page(report.dependencies().size(), matched.size(), limit, listed.size()));
         return view;
+    }
+
+    /** An advisory without its free text, and with at most {@value #ADVISORY_LIST_ITEMS} references and symbols. */
+    private static DependencyVulnerabilityDto compact(DependencyVulnerabilityDto advisory) {
+        return new DependencyVulnerabilityDto(
+                advisory.id(),
+                advisory.summary(),
+                null,
+                advisory.severity(),
+                advisory.score(),
+                advisory.aliases(),
+                first(advisory.references()),
+                advisory.fixedVersions(),
+                advisory.fixAvailable(),
+                advisory.epssScore(),
+                advisory.epssPercentile(),
+                advisory.dismissed(),
+                first(advisory.advisorySymbols()),
+                advisory.advisorySymbolSource(),
+                advisory.runtimeReach());
+    }
+
+    private static List<String> first(List<String> values) {
+        return values.size() <= ADVISORY_LIST_ITEMS ? values : List.copyOf(values.subList(0, ADVISORY_LIST_ITEMS));
+    }
+
+    private static int rank(String severity) {
+        int index = severity == null ? -1 : VULNERABILITY_SEVERITIES.indexOf(severity.toUpperCase(Locale.ROOT));
+        return index < 0 ? VULNERABILITY_SEVERITIES.size() : index;
+    }
+
+    private static boolean namesDependency(DependencyDto dependency, String exact) {
+        if (exact.isEmpty()) {
+            return false;
+        }
+        String coordinates = dependency.groupId() + ":" + dependency.artifactId();
+        return exact.equalsIgnoreCase(coordinates)
+                || exact.equalsIgnoreCase(coordinates + ":" + dependency.version())
+                || exact.equalsIgnoreCase(dependency.packageName());
+    }
+
+    private static boolean namesAdvisory(DependencyVulnerabilityDto advisory, String exact) {
+        return !exact.isEmpty()
+                && (exact.equalsIgnoreCase(advisory.id())
+                        || advisory.aliases().stream().anyMatch(exact::equalsIgnoreCase));
     }
 
     /**
@@ -439,6 +596,21 @@ public final class McpAgentViews {
             }
         }
         return false;
+    }
+
+    /**
+     * A DevTools action result in the availability shape other tools use: {@code available=false} with the reason when
+     * the action's capability is absent (status {@code unavailable}), and the action, status, and message unchanged.
+     */
+    public static Map<String, Object> devToolsAction(DevToolsActionResult result) {
+        boolean available = !"unavailable".equals(result.status());
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("available", available);
+        view.put("unavailableReason", available ? null : result.message());
+        view.put("action", result.action());
+        view.put("status", result.status());
+        view.put("message", result.message());
+        return view;
     }
 
     /** The {@code limit} newest of {@code rows}, kept in their original order. */

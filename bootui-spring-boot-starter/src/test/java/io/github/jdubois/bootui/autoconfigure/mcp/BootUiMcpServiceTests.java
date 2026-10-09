@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.conformance.McpCodecParity;
+import io.github.jdubois.bootui.conformance.McpCompactAnswerContract;
 import io.github.jdubois.bootui.conformance.McpModernParity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
@@ -148,6 +149,92 @@ class BootUiMcpServiceTests {
         assertThat(retry.path("result").path("isError").asBoolean()).isFalse();
         assertThat(retry.has("error")).isFalse();
         assertThat(received.get()).isEqualTo(new McpArguments(null, 1, "RULE-1", "scan-1", 22));
+    }
+
+    @Test
+    void compactAnswersStayFarBelowTheReportsTheyReplaceWhileReportsPageUnderTheByteBudget() {
+        properties.getMcp().setMaxResponseBytes(McpCompactAnswerContract.MAX_RESPONSE_BYTES);
+        BootUiMcpService compact = new BootUiMcpService(
+                McpCompactAnswerContract.tools(), properties, objectMapper, "1.2.3", (operation, failure) -> {
+                    throw new AssertionError("Unexpected server failure: " + operation, failure);
+                });
+        for (String tool : List.of("vulnerabilities_scan", "hibernate_scan", "pause_sql_trace_recording")) {
+            JsonNode reply = compact.handle(objectMapper.readTree(McpCompactAnswerContract.call(tool, "{}")));
+            assertThat(reply.has("error")).as(tool).isFalse();
+            assertThat(objectMapper.writeValueAsString(reply).length())
+                    .as(tool)
+                    .isLessThan(McpCompactAnswerContract.COMPACT_BYTES);
+        }
+
+        JsonNode vulnerabilities = compact.handle(
+                        objectMapper.readTree(McpCompactAnswerContract.call("vulnerabilities_scan", "{}")))
+                .path("result")
+                .path("structuredContent");
+        assertThat(vulnerabilities.path("reportTool").asString()).isEqualTo("get_vulnerabilities_report");
+        assertThat(vulnerabilities.path("topFindings").size()).isEqualTo(10);
+        assertThat(vulnerabilities.path("moreFindings").asInt())
+                .isEqualTo(McpCompactAnswerContract.VULNERABLE_DEPENDENCIES - 10);
+        assertThat(vulnerabilities.path("topFindings").get(0).path("id").asString())
+                .isEqualTo("org.example:library-0:1.0.0");
+
+        JsonNode hibernate = compact.handle(
+                        objectMapper.readTree(McpCompactAnswerContract.call("hibernate_scan", "{}")))
+                .path("result")
+                .path("structuredContent");
+        assertThat(hibernate.path("detailsTool").asString()).isEqualTo("get_hibernate_rule_violations");
+        assertThat(hibernate.path("violationDetails").path("scanId").asString()).isEqualTo("scan-1");
+        assertThat(hibernate.path("topFindings").get(0).path("severity").asString())
+                .isEqualTo("HIGH");
+        assertThat(hibernate.toString()).doesNotContain("sampleViolations", "recommendation");
+
+        JsonNode paused = compact.handle(
+                        objectMapper.readTree(McpCompactAnswerContract.call("pause_sql_trace_recording", "{}")))
+                .path("result")
+                .path("structuredContent");
+        assertThat(paused.toString())
+                .isEqualTo("{\"action\":\"paused\",\"available\":true,\"unavailableReason\":null,"
+                        + "\"capturing\":false,\"retained\":200,\"capacity\":200,\"totalCaptured\":872}");
+
+        JsonNode report =
+                compact.handle(objectMapper.readTree(McpCompactAnswerContract.call("get_hibernate_report", "{}")));
+        assertThat(report.has("error")).isFalse();
+        assertThat(objectMapper.writeValueAsString(report).length())
+                .isGreaterThan(McpCompactAnswerContract.COMPACT_BYTES);
+
+        JsonNode defaultPage = compact.handle(
+                objectMapper.readTree(McpCompactAnswerContract.call("get_vulnerabilities_report", "{}")));
+        assertThat(defaultPage.has("error")).isFalse();
+        assertThat(objectMapper.writeValueAsString(defaultPage).length())
+                .isLessThan(McpCompactAnswerContract.VULNERABILITY_PAGE_BYTES);
+        assertThat(defaultPage
+                        .path("result")
+                        .path("structuredContent")
+                        .path("advisories")
+                        .path("omitted")
+                        .asInt())
+                .isPositive();
+        JsonNode advisory = compact.handle(objectMapper.readTree(
+                        McpCompactAnswerContract.call("get_vulnerabilities_report", "{\"query\":\"GHSA-3-7\"}")))
+                .path("result")
+                .path("structuredContent")
+                .path("dependencies")
+                .get(0)
+                .path("vulnerabilities");
+        boolean whole = false;
+        for (JsonNode each : advisory) {
+            whole |= each.path("id").asString().equals("GHSA-3-7")
+                    && each.path("details").asString().length() > 1000;
+        }
+        assertThat(whole).as("an exact advisory id returns that advisory whole").isTrue();
+        JsonNode page = compact.handle(
+                objectMapper.readTree(McpCompactAnswerContract.call("get_vulnerabilities_report", "{\"limit\":1}")));
+        assertThat(page.has("error")).isFalse();
+        assertThat(page.path("result")
+                        .path("structuredContent")
+                        .path("page")
+                        .path("hasMore")
+                        .asBoolean())
+                .isTrue();
     }
 
     @Test
@@ -328,7 +415,13 @@ class BootUiMcpServiceTests {
         assertThat(prompts.get(2).path("name").asString()).isEqualTo("review_application");
         assertThat(prompts.get(3).path("name").asString()).isEqualTo("assess_application");
         assertThat(prompts.get(0).path("arguments").isArray()).isTrue();
-        assertThat(prompts.get(0).path("arguments")).hasSize(0);
+        assertThat(prompts.get(0).path("arguments"))
+                .extracting(argument -> argument.path("name").asString())
+                .containsExactly("symptom", "route");
+        assertThat(prompts.get(0).path("arguments")).allSatisfy(argument -> {
+            assertThat(argument.path("required").asBoolean(true)).isFalse();
+            assertThat(argument.path("description").asString()).isNotBlank();
+        });
 
         JsonNode prompt = service.handle(request("prompts/get", 4, params("name", "diagnose_runtime_issue")));
         assertThat(prompt.path("result").path("messages").get(0).path("role").asString())
@@ -340,6 +433,36 @@ class BootUiMcpServiceTests {
                         .path("text")
                         .asString())
                 .contains("get_live_activity", "Separate observed evidence from hypotheses");
+
+        ObjectNode withArguments = params("name", "diagnose_runtime_issue");
+        withArguments
+                .putObject("arguments")
+                .put("symptom", "checkout answers 500")
+                .put("route", "POST /api/orders");
+        assertThat(service.handle(request("prompts/get", 6, withArguments))
+                        .path("result")
+                        .path("messages")
+                        .get(0)
+                        .path("content")
+                        .path("text")
+                        .asString())
+                .contains("Separate observed evidence from hypotheses")
+                .endsWith("- The symptom the user reports: checkout answers 500\n"
+                        + "- The route, job, or listener involved: POST /api/orders");
+        ObjectNode unknownArgument = params("name", "diagnose_runtime_issue");
+        unknownArgument.putObject("arguments").put("sympton", "typo");
+        assertThat(service.handle(request("prompts/get", 7, unknownArgument))
+                        .path("error")
+                        .path("message")
+                        .asString())
+                .contains("sympton", "route", "symptom");
+        ObjectNode nonString = params("name", "diagnose_runtime_issue");
+        nonString.putObject("arguments").put("symptom", 5);
+        assertThat(service.handle(request("prompts/get", 8, nonString))
+                        .path("error")
+                        .path("code")
+                        .asInt())
+                .isEqualTo(-32602);
 
         JsonNode assessment = service.handle(request("prompts/get", 5, params("name", "assess_application")));
         assertThat(assessment

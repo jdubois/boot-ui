@@ -124,9 +124,13 @@ describe('Java Agent panel', () => {
     expect(about.text()).toContain('The other panels work without it')
     expect(about.text()).not.toContain('Every other panel')
     expect(about.text()).toContain('overhead budget of 10%')
+    expect(about.text().replace(/\s+/g, ' ')).toContain(
+      'has its own memory ceiling, apart from the runtime journal and the agent’s ring: about 68 MB by default, set ' +
+        'with bootui.runtime-journal.agent-evidence-max-bytes. It is a ceiling, not memory taken up front.'
+    )
 
     const text = wrapper.text()
-    for (const absent of ['Versions & runtime facts', 'No active claim', 'Opt-in sensors', 'No sensor installed']) {
+    for (const absent of ['Versions & runtime facts', 'No active claim', 'Runtime switches', 'No sensor installed']) {
       expect(text).not.toContain(absent)
     }
     expect(wrapper.findAll('[role="tablist"]')).toHaveLength(1)
@@ -276,6 +280,7 @@ describe('Java Agent panel', () => {
             ambiguous: 0,
             stale: 0,
             refused: 0,
+            overflow: 4,
             virtualSkipped: 0,
             periodicSkipped: 2,
             skippedTasks: 5,
@@ -301,6 +306,8 @@ describe('Java Agent panel', () => {
     expect(text).toContain('Never applied 3')
     expect(text).toContain('pools whose workers started before the claim')
     expect(text).toContain('Periodic tasks skipped 2')
+    expect(text).toContain('Over the limit 4')
+    expect(text).toContain('while 32,768 were already pending')
     expect(text).not.toContain('No sensor installed')
     expect(wrapper.find('[aria-labelledby="java-agent-hooks-executors"]').exists()).toBe(true)
   })
@@ -339,6 +346,7 @@ describe('Java Agent panel', () => {
             ambiguous: 0,
             stale: 0,
             refused: 0,
+            overflow: 1,
             virtualSkipped: 0,
             periodicSkipped: 0,
             skippedTasks: 0,
@@ -360,6 +368,8 @@ describe('Java Agent panel', () => {
     expect(text).toContain('inactive')
     expect(text).toContain('Library threads skipped 6')
     expect(text).toContain('Pool workers skipped 2')
+    expect(text).toContain('Over the limit 1')
+    expect(text).toContain('threads started from owned work while 32,768 were already pending')
     expect(text).not.toContain('Periodic tasks skipped')
     expect(wrapper.find('[aria-labelledby="java-agent-hooks-threads"]').exists()).toBe(true)
   })
@@ -621,7 +631,7 @@ describe('Java Agent panel', () => {
     wrapper = mount(JavaAgent, {global: {provide: {panels}}})
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Opt-in sensors')
+    expect(wrapper.text()).toContain('Runtime switches')
     expect(wrapper.get('[data-testid="agent-sensor-toggle-threads"]').text()).toContain('retransforms java.lang.Thread')
     const environment = wrapper.get('[data-testid="agent-sensor-toggle-environment"]')
     expect(environment.get('input').element.checked).toBe(true)

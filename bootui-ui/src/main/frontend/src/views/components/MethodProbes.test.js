@@ -180,6 +180,39 @@ describe('Method probes', () => {
     expect(wrapper.text()).toContain('bootui.read-only=true')
   })
 
+  it('renders Probe this method next to the selected method, its messages with it, and Stop’s in the list', async () => {
+    const target = document.createElement('div')
+    document.body.appendChild(target)
+    const fetch = vi.fn((url, init) => {
+      if (String(url).endsWith('/stop')) return Promise.resolve(json({error: 'The agent did not answer.'}, 409))
+      if (init?.method === 'POST') return Promise.resolve(json({error: 'Five probes are running.'}, 409))
+      return Promise.resolve(
+        json(report([probe({method: 'shop.Other#run()V', className: 'shop.Other', methodName: 'run'})]))
+      )
+    })
+    mountProbes(fetch, {method: QUOTE, actionTarget: target})
+    await flushPromises()
+
+    expect(target.querySelector('.code-paths-probe-start')).not.toBeNull()
+    expect(target.querySelector('#code-paths-probe-shapes')).not.toBeNull()
+    expect(target.querySelector('#code-paths-probe-target')?.textContent).toContain(QUOTE)
+    expect(wrapper.find('.code-paths-probe-start').exists()).toBe(false)
+
+    target.querySelector('.code-paths-probe-start').click()
+    settleConfirm(true)
+    await flushPromises()
+    expect(target.textContent).toContain('Five probes are running.')
+
+    await wrapper.get('.code-paths-probe-stop').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('The agent did not answer.')
+    expect(target.textContent).not.toContain('The agent did not answer.')
+
+    wrapper.unmount()
+    wrapper = null
+    target.remove()
+  })
+
   it('does not offer a second probe on a method already probed, and stops a running one', async () => {
     const fetch = vi.fn(() => Promise.resolve(json(report([probe({waitingForClass: true, hits: []})]))))
     mountProbes(fetch, {method: QUOTE})
@@ -192,6 +225,39 @@ describe('Method probes', () => {
 
     const stop = fetch.mock.calls.find(([, init]) => init?.method === 'POST')
     expect(String(stop[0])).toContain('api/code-paths/probes/7/stop')
+  })
+
+  it('offers a probe on another overload of a probed method, but not while the probed overload is unresolved', async () => {
+    const STRING_QUOTE = 'shop.QuoteService#quote(Ljava/lang/String;)J'
+    let probes = [probe()]
+    mountProbes(
+      vi.fn(() => Promise.resolve(json(report(probes)))),
+      {method: STRING_QUOTE}
+    )
+    await flushPromises()
+    expect(wrapper.get('.code-paths-probe-start').attributes('disabled')).toBeUndefined()
+
+    await wrapper.setProps({method: QUOTE})
+    expect(wrapper.get('.code-paths-probe-start').attributes('disabled')).toBeDefined()
+
+    probes = [probe({method: 'shop.QuoteService#quote', descriptor: null, state: 'starting'})]
+    wrapper.unmount()
+    mountProbes(
+      vi.fn(() => Promise.resolve(json(report(probes)))),
+      {method: STRING_QUOTE}
+    )
+    await flushPromises()
+    expect(wrapper.get('.code-paths-probe-start').attributes('disabled')).toBeDefined()
+
+    // Started with its descriptor, a probe not yet resolved still names its overload.
+    probes = [probe({descriptor: null, state: 'starting'})]
+    wrapper.unmount()
+    mountProbes(
+      vi.fn(() => Promise.resolve(json(report(probes)))),
+      {method: STRING_QUOTE}
+    )
+    await flushPromises()
+    expect(wrapper.get('.code-paths-probe-start').attributes('disabled')).toBeUndefined()
   })
 
   it('polls only while a probe is live', async () => {

@@ -64,10 +64,24 @@ test.describe('Code Paths view (Quarkus)', () => {
     await expect(tree).toContainText('QuoteService.quote')
     await expect(tree).toContainText('SlowPricingService.quote')
 
-    await tree.getByRole('button', {name: 'SlowPricingService.quote'}).click()
+    await tree.locator('.code-paths-node').filter({hasText: 'SlowPricingService.quote'}).click()
     const detail = page.locator('.code-paths-method-detail')
     await expect(detail.locator('.code-paths-callers')).toContainText('QuoteService.quote')
     await expect(detail.locator('.code-paths-reach')).toContainText('GET /api/quotes/{sku}')
+
+    // The open route's tree is one treegrid under its row; the selected method's row is selected, its detail and the
+    // probe action right under it, and the arrow keys move through the tree.
+    await expect(page.getByRole('treegrid')).toHaveCount(1)
+    await expect(page.locator('.code-paths-route[aria-expanded="true"]')).toHaveCount(1)
+    const slow = tree.locator('.code-paths-node').filter({hasText: 'SlowPricingService.quote'})
+    await expect(slow).toHaveAttribute('aria-selected', 'true')
+    await expect(page).toHaveURL(/[?&]method=/)
+    await expect(detail.getByRole('button', {name: 'Probe this method'})).toBeVisible()
+    await slow.press('ArrowLeft')
+    await expect(tree.locator('.code-paths-node').filter({hasText: 'QuoteService.quote'})).toBeFocused()
+    await page.getByLabel('Filter routes').fill('quotes')
+    await expect(page.locator('.code-paths-route-row').first()).toContainText('/api/quotes/{sku}')
+    await page.getByLabel('Filter routes').fill('')
 
     // M5-8: Probe this method advises the current dev-mode run's copy and records the next calls; asked for shapes
     // (D44), it records the argument's and the return value's types, which MCP never sees.

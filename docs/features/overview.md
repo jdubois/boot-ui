@@ -441,8 +441,10 @@ against `bootui.runtime-journal.agent-evidence-max-bytes`, and Clear recording, 
 evidence too: Code Paths' request and route trees, Code Inventory's first requests and routes, and Side Effects rows.
 The status counts Side Effects as `sideEffectRows` and `sideEffectsWaiting`. When the application restarts in the
 same JVM, as after a DevTools restart or a Quarkus live reload, BootUI keeps a summary of the run that ended, at most
-256 KB each, for the 5 most recent runs. **Previous runs** lists them with their requests, failures, and events, or says
-why none can be kept when BootUI itself is reloaded with the application. A summary keeps the run's counts and
+256 KB each, for the 5 most recent runs. Each run carries its application (its name and whether it runs as a test),
+so when several applications share the JVM, as Spring test contexts do, a run is only compared with its own
+application's runs, and each application keeps its last run. **Previous runs** lists them with their requests,
+failures, and events, or says why none can be kept when BootUI itself is reloaded with the application. A summary keeps the run's counts and
 histograms per route, statement fingerprint, and exception group, and the edges its requests, jobs, and listeners
 observed, such as a route reading a table or calling a host, and what the run recorded when it started: its time to
 ready and slowest bean instantiations (Spring), its active profiles, data source URL shapes, cache, and whether
@@ -452,7 +454,7 @@ when the run ends, and read back at the next start when the JVM keeps no previou
 scoped by the `bootui.runtime-journal.*` [properties](../PROPERTIES.md#runtime-journal).
 
 **Recorded by** chooses where the feed comes from. **Default** follows `bootui.activity.feed-source`, which is the
-runtime journal unless set to `buffers`. **Runtime journal** renders the feed from the journal: every child nests under
+runtime journal; the panel buffers serve it only while the journal does not record. **Runtime journal** renders the feed from the journal: every child nests under
 its request, scheduled run, or consumed message by id, transactions and log events appear as rows, an AI call appears as
 an **AI** row with its model, provider, tokens, and finish reason, nested under the request that started it (an error
 when it failed, a warning when the model stopped at its length limit), and four more filters apply on the server (not while durable activity storage serves the feed, which keeps no run or request grouping, so the panel hides them then): a
@@ -701,6 +703,8 @@ tools list the same rows:
 | `gc-inflated-latency`, `heap-growth-after-gc` | Not listed; reached from the Memory panel |
 
 The observations of the BootUI agent's own panels, such as Side Effects, are shown there rather than in this list.
+When nothing is reported, or no request was recorded yet, the findings say that some checks show their findings in
+other panels, with links to Live Activity, Exceptions, Database Connection Pools, AI Framework, and Memory.
 
 **The default list** shows less than the report holds, so the rows worth reading first are not buried under the others.
 A row it leaves out stays in the report and its JSON, marked `listed: false` with an `unlistedReason`; the toggle **Show
@@ -817,7 +821,9 @@ what each finding needs.
 :::
 
 **Copy for AI** on an open observation previews it as one Markdown document, its sentence, the checks to run, the
-requests to open, and its evidence, built from what the panel already shows; copying sends nothing. Agents read the
+requests to open, and its evidence, built from what the panel already shows; copying sends nothing. When a refresh
+cannot reload the open observation's evidence, the panel says so, keeps the earlier evidence marked as from an earlier
+refresh, and closes an open **Copy for AI** preview and turns **Copy for AI** off until a refresh succeeds. Agents read the
 same facts through the `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
 `get_runtime_run_comparison` MCP tools and the `bootui insights` CLI commands ([AI agents](../AI-AGENTS.md#runtime-insights-for-agents)).
 

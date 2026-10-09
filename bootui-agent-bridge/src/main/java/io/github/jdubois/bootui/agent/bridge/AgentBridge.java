@@ -215,9 +215,10 @@ public final class AgentBridge {
      * (PLAN-v2 M5-14): an override, never written anywhere, dropped once the application's own sensors agree with it. The
      * switches travel with the slot's claims, each claim in the same slot taking its predecessor's, and are kept by
      * {@link SlotSwitches} while another slot's claim, or none, is current.
-     * Only the opt-in {@code threads}, {@code files}, {@code environment}, {@code thread-activity}, {@code thread-locals},
-     * and {@code security-sinks} can be switched ({@link #switchable}), since the agent installs and removes them without
-     * a new claim. The claim keeps its generation and token; its {@code sensorsRevision} grows by one, which orders the
+     * Only {@code threads}, {@code files}, {@code environment}, {@code thread-activity}, {@code thread-locals}, and
+     * {@code security-sinks} can be switched ({@link #switchable}), whether they are on by default or not, since the
+     * agent installs and removes them without a new claim. The claim keeps its generation and token; its
+     * {@code sensorsRevision} grows by one, which orders the
      * switches the agent receives. Re-enabling {@code threads} after it failed in this run is refused: its bridge
      * disables it for the run's generation, so only the next claim tries it again.
      */
@@ -265,13 +266,13 @@ public final class AgentBridge {
     }
 
     /**
-     * Whether {@code sensor} can be switched at run time: only the opt-in {@code threads}, {@code files},
-     * {@code environment}, {@code thread-activity}, {@code thread-locals}, and {@code security-sinks}, which the agent
-     * installs and removes without a new claim ({@code thread-locals} transforms nothing: its scan is enabled or
-     * disabled; {@code security-sinks}' JDK checks have a side-effect transformer of their own, and its request-value matching
-     * follows the sensor's bit, {@link RequestValues#active()}). Never a default sensor,
-     * as {@code resources}, nor
-     * {@code blocking}, whose call-site visit is installed with the application methods' transformer at the claim (M5-5c),
+     * Whether {@code sensor} can be switched at run time: only {@code threads}, {@code files}, {@code environment},
+     * {@code thread-activity}, {@code thread-locals}, and {@code security-sinks}, which the agent installs and removes
+     * without a new claim, whether on by default or not ({@code thread-locals} transforms nothing: its scan is enabled
+     * or disabled; {@code security-sinks}' JDK checks have a transformer of their own, and request-value matching
+     * follows the sensor's bit, {@link RequestValues#active()}). Never {@code executors}, {@code inventory},
+     * {@code code-paths}, {@code processes}, {@code network}, or {@code resources}, nor {@code blocking}, whose call-site
+     * visit is installed with the application methods' transformer at the claim (M5-5c),
      * nor {@code caught-exceptions}, whose visit is installed with the claim only.
      */
     static boolean switchable(String sensor) {

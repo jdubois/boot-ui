@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.agent.bridge;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BiFunction;
 
@@ -12,7 +13,14 @@ import java.util.function.BiFunction;
  * Each entry counts its pending submissions: a submission by another owner, or an unowned one, while any is pending makes
  * the entry ambiguous until the count drops to zero, so a run never takes another owner's snapshot. Payloads are flat
  * arrays of JDK values stamped with the claim generation, so the map can never pin a class loader and is never cleared.
- * No lambdas, no synchronized.
+ *
+ * <p>Each registry holds at most {@link #MAX_PENDING} tasks, admitted atomically: past that, a new owned submission is
+ * refused, counted by its caller ({@link #overflowed()}), records nothing, and so runs unowned, exactly like an unowned submission of
+ * a task with no entry. A submission of a task that already has an entry is never refused, so the ambiguity rules are
+ * unchanged. As with an unowned first submission, a refused submission followed by an admitted one of the same task
+ * object lets the first run take the admitted snapshot. Stale entries are expunged at most {@link #EXPUNGE_BATCH} at a
+ * time on application threads, before the admission check, and fully when the status is read. No lambdas, no
+ * synchronized.
  */
 final class TaskSnapshots {
 
@@ -22,33 +30,66 @@ final class TaskSnapshots {
     /** The owner fields of a snapshot compared to tell owners apart: request, execution, trace, and span ids. */
     static final int OWNER_FIELDS = 4;
 
+    /** The most tasks a registry holds pending at once. */
+    static final int MAX_PENDING = 32768;
+
+    /** The most reclaimed tasks one submission or release expunges, so an application thread does bounded work. */
+    static final int EXPUNGE_BATCH = 64;
+
+    /** {@link #put}: the submission is the entry's owner. */
+    static final int OWNED = 0;
+
+    /** {@link #put}: the entry is (now) ambiguous. */
+    static final int AMBIGUOUS_PUT = 1;
+
+    /** {@link #put}: the registry is full; nothing was recorded. */
+    static final int REFUSED = 2;
+
     /** The snapshots of tasks handed to executors. */
-    static final TaskSnapshots TASKS = new TaskSnapshots();
+    static final TaskSnapshots TASKS = new TaskSnapshots(MAX_PENDING);
 
     /** The snapshots of threads started from owned work, kept apart so pool workers never crowd the task map. */
-    static final TaskSnapshots THREADS = new TaskSnapshots();
+    static final TaskSnapshots THREADS = new TaskSnapshots(MAX_PENDING);
 
     private final ConcurrentHashMap<Object, Entry> snapshots = new ConcurrentHashMap<Object, Entry>();
     private final ReferenceQueue<Object> queue = new ReferenceQueue<Object>();
     private final LongAdder neverAppliedCount = new LongAdder();
+    private final LongAdder overflowCount = new LongAdder();
+    private final int maxPending;
 
-    private TaskSnapshots() {}
+    /** The entries in {@link #snapshots}: changed only where an entry is added to or removed from the map. */
+    final AtomicInteger entries = new AtomicInteger();
 
-    /** Records an owned submission; returns false when the entry is (now) ambiguous. */
-    boolean put(Object task, long generation, Object[] payload) {
-        return put(task, generation, payload, 0L);
+    TaskSnapshots(int maxPending) {
+        this.maxPending = maxPending;
+    }
+
+    /**
+     * Records a self-test marker, past the cap too, so a full registry can never fail the self-test; see {@link
+     * #put(Object, long, Object[], long)}.
+     */
+    int putSelfTest(Object task, long generation, Object[] payload) {
+        return put(task, generation, payload, 0L, false);
     }
 
     /**
      * Records an owned submission made while the code-paths node {@code stamp} was open on the submitting thread (0 when
-     * unknown); returns false when the entry is (now) ambiguous. Submissions of one task by one owner from different
-     * nodes keep no stamp.
+     * unknown): {@link #OWNED}, {@link #AMBIGUOUS_PUT} when the entry is (now) ambiguous, or {@link #REFUSED} when the
+     * task has no entry and the registry is full. Submissions of one task by one owner from different nodes keep no
+     * stamp.
      */
-    boolean put(Object task, long generation, Object[] payload, long stamp) {
-        expunge();
-        Put put = new Put(generation, payload, stamp);
+    int put(Object task, long generation, Object[] payload, long stamp) {
+        return put(task, generation, payload, stamp, true);
+    }
+
+    private int put(Object task, long generation, Object[] payload, long stamp, boolean capped) {
+        expunge(EXPUNGE_BATCH);
+        Put put = new Put(this, generation, payload, stamp, capped);
         snapshots.compute(new Key(task, queue), put);
-        return !put.ambiguous;
+        if (put.refused) {
+            return REFUSED;
+        }
+        return put.ambiguous ? AMBIGUOUS_PUT : OWNED;
     }
 
     /** Records an unowned submission of a task with a pending owned one: the entry becomes ambiguous. */
@@ -66,7 +107,7 @@ final class TaskSnapshots {
         if (snapshots.isEmpty() || snapshots.get(new Lookup(task)) == null) {
             return null;
         }
-        Take take = new Take();
+        Take take = new Take(this);
         snapshots.computeIfPresent(new Lookup(task), take);
         return take.result;
     }
@@ -85,42 +126,72 @@ final class TaskSnapshots {
         if (snapshots.isEmpty() || snapshots.get(new Lookup(task)) == null) {
             return;
         }
-        snapshots.computeIfPresent(new Lookup(task), new Take());
+        snapshots.computeIfPresent(new Lookup(task), new Take(this));
     }
 
     boolean isEmpty() {
         return snapshots.isEmpty();
     }
 
+    /** Read with the status, off the application's threads: expunges every reclaimed task first. */
     int size() {
-        expunge();
+        expunge(Integer.MAX_VALUE);
         return snapshots.size();
     }
 
     /** Entries whose task was reclaimed while still pending: keyed but never run where a hook applies it. */
     long neverApplied() {
-        expunge();
+        expunge(Integer.MAX_VALUE);
         return neverAppliedCount.sum();
     }
 
-    /** Tests only. */
+    /**
+     * Counts a refused submission, once the caller knows the task was accepted: a task the executor turned down never
+     * runs, and one hand-off may try several key points.
+     */
+    void overflowed() {
+        overflowCount.increment();
+    }
+
+    /** Owned submissions refused because the registry already held {@code MAX_PENDING} tasks; they ran unowned. */
+    long overflow() {
+        return overflowCount.sum();
+    }
+
+    /**
+     * Drops every entry and the counters, as when the sensor is disabled. Each removal is counted, so the admission count
+     * stays exact while submissions race with it.
+     */
     void reset() {
-        snapshots.clear();
-        neverAppliedCount.reset();
-    }
-
-    void expungeStale() {
-        expunge();
-    }
-
-    private void expunge() {
-        Object stale;
-        while ((stale = queue.poll()) != null) {
-            Entry entry = snapshots.remove(stale);
-            if (entry != null && entry.pending > 0) {
-                neverAppliedCount.increment();
+        for (Object key : snapshots.keySet()) {
+            if (snapshots.remove(key) != null) {
+                entries.decrementAndGet();
             }
         }
+        neverAppliedCount.reset();
+        overflowCount.reset();
+    }
+
+    /** Bounded: called on the application thread that released a submission. */
+    void expungeStale() {
+        expunge(EXPUNGE_BATCH);
+    }
+
+    /** Expunges at most {@code budget} reclaimed tasks; returns how many entries it removed. */
+    int expunge(int budget) {
+        int removed = 0;
+        Object stale;
+        for (int i = 0; i < budget && (stale = queue.poll()) != null; i++) {
+            Entry entry = snapshots.remove(stale);
+            if (entry != null) {
+                entries.decrementAndGet();
+                removed++;
+                if (entry.pending > 0) {
+                    neverAppliedCount.increment();
+                }
+            }
+        }
+        return removed;
     }
 
     static boolean sameOwner(Object[] left, Object[] right) {
@@ -155,21 +226,37 @@ final class TaskSnapshots {
 
     static final class Put implements BiFunction<Object, Entry, Entry> {
 
+        private final TaskSnapshots owner;
         private final long generation;
         private final Object[] payload;
         private final long stamp;
+        private final boolean capped;
         boolean ambiguous;
+        boolean refused;
 
-        Put(long generation, Object[] payload, long stamp) {
+        Put(TaskSnapshots owner, long generation, Object[] payload, long stamp, boolean capped) {
+            this.owner = owner;
             this.generation = generation;
             this.payload = payload;
             this.stamp = stamp;
+            this.capped = capped;
         }
 
         @Override
         public Entry apply(Object key, Entry existing) {
             if (existing == null) {
-                return new Entry(generation, payload, stamp);
+                // Admitted atomically: returning null for an absent key adds nothing to the map.
+                if (owner.entries.incrementAndGet() > owner.maxPending && capped) {
+                    owner.entries.decrementAndGet();
+                    refused = true;
+                    return null;
+                }
+                try {
+                    return new Entry(generation, payload, stamp);
+                } catch (Throwable ex) {
+                    owner.entries.decrementAndGet();
+                    throw ex;
+                }
             }
             existing.pending++;
             if (existing.stamp != stamp) {
@@ -198,13 +285,22 @@ final class TaskSnapshots {
 
     static final class Take implements BiFunction<Object, Entry, Entry> {
 
+        private final TaskSnapshots owner;
         Object result;
+
+        Take(TaskSnapshots owner) {
+            this.owner = owner;
+        }
 
         @Override
         public Entry apply(Object key, Entry existing) {
             result = existing.ambiguous ? AMBIGUOUS : existing;
             existing.pending--;
-            return existing.pending <= 0 ? null : existing;
+            if (existing.pending <= 0) {
+                owner.entries.decrementAndGet();
+                return null;
+            }
+            return existing;
         }
     }
 

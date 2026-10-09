@@ -60,20 +60,29 @@ class McpToolDescriptionsTests {
                                 "Verify each finding");
                 assertThat(provider.apply("get_" + advisor + "_report"))
                         .contains("bounded previews", "page cached retained", "retention overflow");
-                // A scan answers with the same report, so it points at that guidance instead of repeating it.
+                // A scan answers with a summary, so it names the tools that hold the rest instead of their guidance.
                 assertThat(provider.apply(advisor + "_scan"))
-                        .contains("get_" + advisor + "_report", "get_" + advisor + "_rule_violations")
+                        .contains(
+                                "compact summary, not the report",
+                                "topFindings",
+                                "violationDetails.scanId",
+                                "get_" + advisor + "_report",
+                                "get_" + advisor + "_rule_violations")
                         .doesNotContain("bounded previews");
                 assertThat(provider.apply("get_" + advisor + "_rule_violations"))
                         .contains(
                                 "page.hasMore",
                                 "violationCount",
-                                "404",
-                                "409",
-                                "cached report, not a new scan",
+                                "tool error",
+                                "unknown rule",
+                                "no findings",
+                                "stale or missing scanId",
+                                "rather than start a new scan",
                                 "-32003",
                                 "same scanId and offset",
-                                "smaller limit");
+                                "smaller limit")
+                        .as("an MCP tool error carries no HTTP status")
+                        .doesNotContain("404", "409");
             }
         }
         assertThat(McpToolDescriptions.spring("get_hibernate_report"))
@@ -84,6 +93,35 @@ class McpToolDescriptionsTests {
         assertThat(McpToolDescriptions.spring("get_spring_report")).contains("up to 10");
         assertThat(McpToolDescriptions.quarkus("get_spring_report")).contains("up to 20");
         assertThat(McpToolDescriptions.quarkus("get_security_report")).contains("up to 20");
+    }
+
+    @Test
+    void idBasedToolsDescribeAnUnknownIdAsAToolErrorAndAnAbsentCapabilityAsUnavailable() {
+        for (Function<String, String> provider :
+                List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+            for (String tool : List.of(
+                    "get_exception_detail",
+                    "get_request_profile",
+                    "get_runtime_insight",
+                    "get_runtime_run_comparison",
+                    "get_method_probe")) {
+                assertThat(provider.apply(tool)).as(tool).contains("tool error");
+            }
+            assertThat(provider.apply("get_runtime_insight")).contains("available=false", "get_runtime_insights");
+            assertThat(provider.apply("get_request_profile")).contains("available=false", "journal is off");
+        }
+        assertThat(McpToolDescriptions.spring("trigger_devtools_livereload"))
+                .contains("available=false", "unavailableReason", "no_clients");
+    }
+
+    @Test
+    void analyzeHeapDumpSaysItReadsTheLiveHeapRatherThanADumpFile() {
+        for (Function<String, String> provider :
+                List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+            assertThat(provider.apply("analyze_heap_dump"))
+                    .contains("live JVM heap", "not a dump file", "dumpCount 0", "ANALYZED", "never")
+                    .doesNotContain("existing BootUI heap dump");
+        }
     }
 
     @Test
@@ -115,6 +153,39 @@ class McpToolDescriptionsTests {
                         McpToolDescriptions.quarkus("get_vulnerabilities_report")))
                 .allSatisfy(description ->
                         assertThat(description).contains("without contacting", "UNKNOWN severity is not zero risk"));
+    }
+
+    @Test
+    void controlToolsDescribeTheirCompactAcknowledgementAndTheLifetimeCount() {
+        for (String tool : List.of(
+                "clear_sql_traces",
+                "pause_sql_trace_recording",
+                "resume_sql_trace_recording",
+                "clear_rest_client_traces",
+                "pause_rest_client_recording",
+                "resume_rest_client_recording",
+                "clear_exceptions",
+                "clear_traces")) {
+            for (Function<String, String> provider :
+                    List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+                assertThat(provider.apply(tool))
+                        .as(tool)
+                        .contains("compact acknowledgement", "since startup, which a clear does not reset")
+                        .doesNotContain("resulting report");
+            }
+        }
+        for (String tool :
+                List.of("clear_transactions", "pause_transaction_recording", "resume_transaction_recording")) {
+            assertThat(McpToolDescriptions.spring(tool)).contains("compact acknowledgement", "get_transactions");
+        }
+        assertThat(McpToolDescriptions.spring("get_sql_traces")).contains("since startup", "clear_sql_traces");
+        assertThat(McpToolDescriptions.spring("get_exceptions")).contains("clear_exceptions resets it");
+        for (String tool : List.of("pentest_scan", "vulnerabilities_scan", "postgresql_read", "mysql_read")) {
+            assertThat(McpToolDescriptions.quarkus(tool)).as(tool).contains("summary, not the");
+        }
+        assertThat(McpToolDescriptions.spring("graalvm_scan")).contains("get_graalvm_report");
+        assertThat(McpToolDescriptions.spring("get_vulnerabilities_report"))
+                .contains("at most 5 advisories", "advisories.omitted", "exact advisory id or alias");
     }
 
     private static void assertDescriptions(Set<String> names, Function<String, String> descriptionProvider) {

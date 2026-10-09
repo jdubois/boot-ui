@@ -17,7 +17,7 @@ import java.util.Map;
 /**
  * The Java Agent panel on Quarkus ({@code docs/PLAN-v2.md} §5.13): the same engine report as the Spring adapters,
  * served at {@code GET /bootui/api/java-agent}, which only reads the bootstrap bridge's status. {@code POST
- * /bootui/api/java-agent/sensors/{id}} switches an opt-in sensor on or off at run time (M5-14), an action the panel's
+ * /bootui/api/java-agent/sensors/{id}} switches a switchable sensor on or off at run time (M5-14), an action the panel's
  * read-only policy refuses like every other, with the Spring adapters' statuses: 400 for another sensor, 409 when it
  * cannot be switched.
  */

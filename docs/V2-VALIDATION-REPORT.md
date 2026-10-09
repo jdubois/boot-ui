@@ -71,6 +71,27 @@ One row per §2.2 measure. **Result** is the measured value; **Status** is **Met
 | After M3, holdouts | Holdout applications no more than 20 points below the tuned ones, with the same consequence | Tuned 35 % (7 of 20), holdouts 27.3 % (3 of 11): 7.7 points below; neither holdout is empty | Passed: no escalation |
 | Before 2.0.0, overhead | Journal throughput within 5 %; if missed, the journal ships disabled by default and the release notes say so | TODO | TODO |
 
+**Measuring the journal's overhead.** Both overhead rows, "Capture overhead, throughput" and "Before 2.0.0, overhead",
+read one measurement: `JournalOverheadBenchmarkIT`, a paired A/B on the Spring sample's executable jar with BootUI on
+and no agent in both arms, the journal on (its default) against `bootui.runtime-journal.enabled=false`, on the
+default route (`/api/sample/product-search?term=console`, sixteen concurrent clients, 10 s warm-up and 15 s measured
+per run), in pairs whose order alternates after one discarded run. Its result is the median paired throughput delta
+with its distribution-free 95 % interval, the pairs, and the median p99 latency in each arm. CI's runtime journal
+leg of `build.yml`'s `agent-overhead-extra-legs` matrix runs it with fifteen pairs on pushes to `v2`, manual runs, and
+pull requests labelled `agent`, and the `agent-overhead` job publishes the report to its summary and the
+`journal-overhead` artifact; it is report-only and never fails the
+build. `CaptureOverheadBenchmarkTest` compares BootUI on with BootUI off, so it does not measure the journal. To run it
+locally, after installing the reactor (`./mvnw -pl bootui-spring-sample-app -am -DskipTests install`):
+
+```bash
+./mvnw -B -ntp -pl bootui-spring-sample-app verify -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 \
+  -Dit.test=JournalOverheadBenchmarkIT -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+It writes `bootui-spring-sample-app/target/journal-overhead/spring-mvc-journal.md` and `spring-mvc-journal.properties`
+(`overheadPercent`, `lowOverheadPercent` and `highOverheadPercent` for the interval, `p99OnMillis`, `p99OffMillis`). Each
+run starts on a free port of its own. A loaded machine widens the interval.
+
 ### Per-kind gates
 
 A kind passes with at least 3 default-visible facts on at least 2 applications, at least 50 % of them useful to both

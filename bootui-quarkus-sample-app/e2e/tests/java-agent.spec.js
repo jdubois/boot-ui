@@ -68,7 +68,7 @@ test.describe('Java Agent view (Quarkus)', () => {
       await expect(regions.nth(2)).toHaveAttribute('aria-labelledby', 'java-agent-about-title')
       await expect(page.getByRole('heading', {name: 'What the Java agent adds'})).toBeVisible()
       await expect(page.getByRole('region', {name: 'Sensors'})).toHaveCount(0)
-      await expect(page.getByRole('region', {name: 'Opt-in sensors'})).toHaveCount(0)
+      await expect(page.getByRole('region', {name: 'Runtime switches'})).toHaveCount(0)
     }
 
     const tabs = page.getByRole('tab')

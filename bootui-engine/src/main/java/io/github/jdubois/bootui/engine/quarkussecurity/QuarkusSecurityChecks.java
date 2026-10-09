@@ -24,7 +24,55 @@ import java.util.regex.Pattern;
 final class QuarkusSecurityChecks {
 
     private static final String VIOLATION = "VIOLATION";
-    private static final int RULE_COUNT = 45;
+    /** Every rule these checks evaluate, in catalogue order; docs/QUARKUS-CHECKS.md documents each. */
+    private static final List<String> RULE_IDS = List.of(
+            "QS-AUTH-001",
+            "QS-AUTH-002",
+            "QS-AUTH-003",
+            "QS-AUTH-004",
+            "QS-AUTH-007",
+            "QS-AUTH-008",
+            "QS-AUTH-009",
+            "QS-AUTH-010",
+            "QS-AUTH-012",
+            "QS-AUTH-013",
+            "QS-AUTHZ-001",
+            "QS-AUTHZ-002",
+            "QS-AUTHZ-004",
+            "QS-CFG-001",
+            "QS-CORS-001",
+            "QS-CORS-002",
+            "QS-DEV-001",
+            "QS-DEV-002",
+            "QS-DEV-003",
+            "QS-GRAPHQL-001",
+            "QS-GRPC-001",
+            "QS-HDR-001",
+            "QS-HDR-002",
+            "QS-HDR-003",
+            "QS-HDR-004",
+            "QS-HDR-005",
+            "QS-HDR-006",
+            "QS-MGMT-001",
+            "QS-MGMT-003",
+            "QS-MSG-001",
+            "QS-OIDC-001",
+            "QS-OIDC-002",
+            "QS-OIDC-003",
+            "QS-OIDC-004",
+            "QS-OIDC-005",
+            "QS-PROXY-001",
+            "QS-SESSION-001",
+            "QS-SESSION-002",
+            "QS-SESSION-003",
+            "QS-TLS-001",
+            "QS-TLS-002",
+            "QS-TLS-003",
+            "QS-TLS-004",
+            "QS-TLS-005",
+            "QS-TLS-006");
+
+    private static final int RULE_COUNT = RULE_IDS.size();
     private static final String GUIDES = "https://quarkus.io/version/3.33/guides/";
     private static final Pattern MAX_AGE = Pattern.compile("max-age\\s*=\\s*(\\d+|\"\\d+\")");
     private static final long HSTS_MIN_MAX_AGE = 31536000L;
@@ -39,6 +87,10 @@ final class QuarkusSecurityChecks {
 
     static int ruleCount() {
         return RULE_COUNT;
+    }
+
+    static List<String> ruleIds() {
+        return RULE_IDS;
     }
 
     static List<SecurityRuleResultDto> evaluate(QuarkusSecuritySnapshot s) {
@@ -868,6 +920,9 @@ final class QuarkusSecurityChecks {
             List<String> samples,
             String recommendation,
             List<String> details) {
+        if (!RULE_IDS.contains(id)) {
+            throw new IllegalStateException("Quarkus security rule " + id + " is missing from RULE_IDS.");
+        }
         // Unknown-evidence results are removed from the report and must not consume the detail budget.
         if (collector != null && !unknownRules.contains(id)) {
             collector.record(id, count, details, value -> DetailText.sanitize(CredentialRedaction.redact(value)));

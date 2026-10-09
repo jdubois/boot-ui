@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * The Java Agent panel ({@code docs/PLAN-v2.md} §5.13), shared by the Spring MVC and WebFlux adapters: whether the BootUI
  * agent is attached, who holds its claim, and how to attach it. Reading it only reads the bootstrap bridge's status.
- * {@code POST /sensors/{id}} switches an opt-in sensor on or off at run time (M5-14), an action the panel's read-only
+ * {@code POST /sensors/{id}} switches a switchable sensor on or off at run time (M5-14), an action the panel's read-only
  * policy refuses like every other.
  */
 @RestController
@@ -35,7 +35,7 @@ public class JavaAgentController {
         return service.report();
     }
 
-    /** Switches the opt-in sensor {@code id} on or off at run time; 400 for another id, 409 when it cannot. */
+    /** Switches the sensor {@code id} on or off at run time; 400 for another id, 409 when it cannot. */
     @PostMapping("/sensors/{id}")
     public JavaAgentReport switchSensor(
             @PathVariable String id, @RequestBody(required = false) JavaAgentSensorSwitchRequest request) {

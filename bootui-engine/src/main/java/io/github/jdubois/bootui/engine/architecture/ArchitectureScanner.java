@@ -64,7 +64,7 @@ public final class ArchitectureScanner {
             sourceLocations;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private final AdvisorScanState<ArchitectureReport> violationState =
-            new AdvisorScanState<>(ArchitectureReport::withViolationDetails);
+            new AdvisorScanState<>(ArchitectureReport::withViolationDetails, this::ruleCatalog);
 
     ArchitectureScanner(
             Supplier<List<String>> basePackagesSupplier,
@@ -457,5 +457,10 @@ public final class ArchitectureScanner {
 
     private static boolean isViolation(ArchitectureRuleResultDto result) {
         return ArchitectureRuleSupport.VIOLATION.equals(result.status());
+    }
+
+    /** The ids of the rules this scanner runs, the catalogue its detail reads know. */
+    private List<String> ruleCatalog() {
+        return AdvisorScanState.ruleIds(rules, rule -> rule.definition().id());
     }
 }

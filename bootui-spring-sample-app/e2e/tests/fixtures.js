@@ -56,7 +56,7 @@ export async function acceptConfirm(page) {
  */
 
 /**
- * Switches an opt-in BootUI agent sensor on or off at run time (docs/PLAN-v2.md M5-14), as the Java Agent panel does,
+ * Switches a BootUI agent sensor on or off at run time (docs/PLAN-v2.md M5-14), as the Java Agent panel does,
  * echoing the XSRF-TOKEN cookie a GET primes; then waits until the sensor's switch reads `installed` when switched on,
  * or `off` when switched off. Returns whether it was enabled before, so a spec can put it back.
  *
