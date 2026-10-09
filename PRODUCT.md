@@ -28,7 +28,7 @@ same panels through the opt-in MCP server — so the information has to be struc
 
 ## Product Purpose
 
-BootUI is an embedded, **local-only** developer console for **Spring Boot 4** (servlet and WebFlux) and
+BootUI is an embedded, **local-only** developer console for **Spring Boot** (servlet and WebFlux) and
 **Quarkus** applications. Its primary goal is blunt: **make a running application understandable in minutes.**
 It is a framework-neutral visualization and explanation layer over each runtime's diagnostics and live application
 context — not an APM, not production monitoring, not a hosted dashboard.
@@ -62,7 +62,7 @@ boundaries in the developer's existing inner loop.
 
 ## Capabilities and Constraints
 
-- Supports Spring Boot 4 servlet and WebFlux applications and Quarkus applications from one codebase.
+- Supports Spring Boot servlet and WebFlux applications and Quarkus applications from one codebase.
 - Serves one Vue UI and one `/bootui/api/**` JSON contract through a framework-neutral engine and thin framework
   adapters.
 - Provides runtime inspection, diagnostics, configuration visibility, and on-demand advisors; it is not a hosted

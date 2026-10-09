@@ -133,13 +133,13 @@ Ready to paste:
 - One-line summary:
 
 ```
-A local-only developer console for Spring Boot 4 and Quarkus, with an MCP server that lets an agent ask a running application about itself.
+A local-only developer console for Spring Boot and Quarkus, with an MCP server that lets an agent ask a running application about itself.
 ```
 
 - Longer description:
 
 ```
-BootUI embeds a developer console in your own Spring Boot 4 or Quarkus application. Its MCP server runs inside that
+BootUI embeds a developer console in your own Spring Boot or Quarkus application. Its MCP server runs inside that
 application, on loopback, and is disabled by default; set bootui.mcp.enabled=ON to turn it on. The tools cover the
 architecture, REST API, Spring, Hibernate, JVM memory, Spring Security, pentest, GraalVM and CRaC advisors, plus live
 runtime diagnostics: health, effective configuration with secrets masked, beans, request mappings, exceptions, SQL
@@ -190,7 +190,7 @@ submitted before that.
 Suggested entry text for both:
 
 ```
-BootUI — a local-only developer console for Spring Boot 4 and Quarkus. Its Claude Code plugin and agent skill let an
+BootUI — a local-only developer console for Spring Boot and Quarkus. Its Claude Code plugin and agent skill let an
 agent scan a running application (architecture, Spring, Hibernate, memory, security, pentest, GraalVM and CRaC
 advisors) and read live runtime diagnostics over a local MCP server.
 ```

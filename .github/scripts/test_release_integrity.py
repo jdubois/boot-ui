@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import tempfile
@@ -21,6 +22,8 @@ PAGES_UPLOAD_CONDITION = "        if: github.event_name != 'pull_request' && ste
 DOCKER_CONFIG_CONDITION = "    if: ${{ !inputs.cleanup_only && needs.gate.outputs.publish == 'true' }}\n"
 NEWEST_MAJOR_CALL = 'bash .github/scripts/release-version-policy.sh newest-major "$RELEASE_VERSION"'
 REDEPLOY_CONDITION = "if: env.CENTRAL_AUTO_PUBLISH == 'true' && env.REDEPLOY_DOCS == 'true'"
+PLUGIN_VERSION_UPDATE = "plugin.version = process.argv[1];"
+PLUGIN_VERSION_CHECK = "if (plugin.version !== process.argv[1]) {"
 
 
 class ReleaseIntegrityTests(unittest.TestCase):
@@ -60,6 +63,99 @@ class ReleaseIntegrityTests(unittest.TestCase):
     def test_release_workflow_passes(self):
         result = self.check(WORKFLOW.read_text(encoding="utf-8"))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_plugin_version_update_and_verification_are_required(self):
+        for old, new, message in (
+            (PLUGIN_VERSION_UPDATE, "// no update", "portable plugin release version update"),
+            (
+                'fs.writeFileSync(path, JSON.stringify(plugin, null, 2) + "\\n");',
+                "// no write",
+                "portable plugin release version write",
+            ),
+            (PLUGIN_VERSION_CHECK, "if (false) {", "portable plugin release version verification"),
+        ):
+            with self.subTest(old=old):
+                self.assert_rejected(self.mutate(old, new), message)
+
+    def plugin_version_command(self, marker):
+        content = WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(content.count(marker), 1, f"fixture drifted: {marker!r}")
+        position = content.index(marker)
+        start = content.rindex("node -e '", 0, position)
+        suffix = "' \"$VERSION\""
+        end = content.index(suffix, position) + len(suffix)
+        return content[start:end]
+
+    def test_plugin_version_commands_are_ordered_around_sealing(self):
+        for marker, anchor, message in (
+            (
+                PLUGIN_VERSION_UPDATE,
+                '          RELEASE_SHA="$(git rev-parse HEAD)"',
+                "written before release verification and sealing",
+            ),
+            (
+                PLUGIN_VERSION_CHECK,
+                "          echo \"All BootUI ${VERSION} artifacts are available on Maven Central.\"",
+                "verified before publication",
+            ),
+        ):
+            with self.subTest(marker=marker):
+                command = self.plugin_version_command(marker)
+                content = WORKFLOW.read_text(encoding="utf-8").replace(command, "")
+                content = content.replace(anchor, command + "\n" + anchor)
+                self.assert_rejected(content, message)
+
+    def test_plugin_version_commands_update_and_check_the_actual_payload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "plugins/bootui/plugin.json"
+            manifest.parent.mkdir(parents=True)
+            original = json.loads((ROOT / "plugins/bootui/plugin.json").read_text(encoding="utf-8"))
+            manifest.write_text(json.dumps(original), encoding="utf-8")
+            claude_manifest = manifest.parent / ".claude-plugin/plugin.json"
+            claude_manifest.parent.mkdir()
+            claude_original = (ROOT / "plugins/bootui/.claude-plugin/plugin.json").read_bytes()
+            claude_manifest.write_bytes(claude_original)
+            env = {**os.environ, "VERSION": "2.3.4"}
+
+            def run(marker):
+                return subprocess.run(
+                    ["bash", "-c", self.plugin_version_command(marker)],
+                    cwd=directory,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+            result = run(PLUGIN_VERSION_CHECK)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("plugin version mismatch", result.stderr)
+            result = run(PLUGIN_VERSION_UPDATE)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            updated = json.loads(manifest.read_text(encoding="utf-8"))
+            self.assertEqual(updated, {**original, "version": "2.3.4"})
+            self.assertEqual(claude_manifest.read_bytes(), claude_original)
+            result = run(PLUGIN_VERSION_CHECK)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            versioned_bytes = manifest.read_bytes()
+            result = run(PLUGIN_VERSION_UPDATE)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(manifest.read_bytes(), versioned_bytes)
+
+            del updated["version"]
+            manifest.write_text(json.dumps(updated), encoding="utf-8")
+            result = run(PLUGIN_VERSION_CHECK)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("plugin version mismatch", result.stderr)
+            result = run(PLUGIN_VERSION_UPDATE)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = run(PLUGIN_VERSION_CHECK)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            manifest.write_text("{invalid", encoding="utf-8")
+            for marker in (PLUGIN_VERSION_CHECK, PLUGIN_VERSION_UPDATE):
+                with self.subTest(marker=marker):
+                    self.assertNotEqual(run(marker).returncode, 0)
 
     def test_per_major_version_policy_is_required(self):
         self.assert_rejected(

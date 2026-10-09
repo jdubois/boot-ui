@@ -1,6 +1,6 @@
 # BootUI agent plugin
 
-This plugin lets an agent consult a running Spring Boot 4 or Quarkus application through BootUI. It installs:
+This plugin lets an agent consult a running Spring Boot or Quarkus application through BootUI. It installs:
 
 - the `bootui` skill, which teaches the agent how to add, configure, and use BootUI safely;
 - the local MCP server connection at `http://127.0.0.1:8080/bootui/api/mcp`.
@@ -16,6 +16,20 @@ server with `bootui.mcp.enabled=ON` or from the **MCP Server** panel at `/bootui
 BootUI serves MCP over Streamable HTTP. Agent Plugins calls that transport `streamable-http`; Claude Code and VS Code
 call the same transport `http`, while Cursor's personal MCP configuration omits the type. BootUI accepts JSON-RPC
 requests over `POST /bootui/api/mcp`.
+
+## Install in GitHub Copilot CLI
+
+Install directly from the plugin directory in this repository:
+
+```bash
+copilot plugin install jdubois/boot-ui:plugins/bootui
+copilot plugin list
+```
+
+The skill can also diagnose through the BootUI CLI or plain HTTP when MCP is unavailable. Installing the plugin does
+not add BootUI to an application or enable its MCP server. The bundled connection uses the default loopback endpoint;
+for another port or API path, configure the correct MCP endpoint in Copilot rather than changing the application to
+match the plugin. Keep credentials in your local client configuration, never in the plugin.
 
 ## Install in Cursor
 
