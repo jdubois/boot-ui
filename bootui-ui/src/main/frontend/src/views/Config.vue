@@ -1,7 +1,11 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {ApiError, getJson} from '../api.js'
 import {computed, inject, nextTick, onMounted, ref, watch} from 'vue'
-import {formatLoadError} from '../utils/loadError.js'
+import {
+  diagnosticActionError,
+  getDiagnosticAcknowledgement,
+  isConfigRemoveAcknowledgement
+} from '../utils/diagnosticAcknowledgement.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {canonicalizeName} from '../utils/relaxedNames.js'
 import {useConfirm} from '../utils/useConfirm.js'
@@ -239,23 +243,17 @@ async function postOverride(name, value, action, onSuccess) {
   if (!confirmed) return
   saving.value = true
   try {
-    const res = await apiFetch('api/config/overrides', {
+    const result = await getJson('api/config/overrides', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({name, value})
     })
-    const result = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      const msg = result.message || result.error || `HTTP ${res.status}`
-      flash(`Could not save override: ${msg}`, 'danger')
-      return
-    }
     flash(`Override saved for ${name}. ${result.message || ''}`, 'success')
     editingName.value = null
     if (onSuccess) onSuccess()
     await load()
   } catch (e) {
-    flash(formatLoadError(e, 'Could not save override'), 'danger')
+    flash(diagnosticActionError(e, 'Could not save override'), 'danger')
   } finally {
     saving.value = false
   }
@@ -283,15 +281,21 @@ async function removeOverride(name) {
   if (!confirmed) return
   saving.value = true
   try {
-    const res = await apiFetch(`api/config/overrides/${encodeURIComponent(name)}`, {method: 'DELETE'})
-    const result = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      const msg = result.message || `HTTP ${res.status}`
-      flash(`Could not remove override: ${msg}`, 'danger')
-      return
-    }
-    flash(`Override removed for ${name}.`, 'success')
+    const result = await getDiagnosticAcknowledgement(
+      `api/config/overrides/${encodeURIComponent(name)}`,
+      {method: 'DELETE'},
+      (value) => isConfigRemoveAcknowledgement(value, name)
+    )
+    flash(
+      result.persisted
+        ? `Override removed for ${name}.`
+        : `Override removal was not persisted for ${name}. ${result.message}`,
+      result.persisted ? 'success' : 'warning'
+    )
     await load()
+  } catch (e) {
+    flash(diagnosticActionError(e, 'Could not remove override'), 'danger')
+    if (!(e instanceof ApiError)) await load()
   } finally {
     saving.value = false
   }

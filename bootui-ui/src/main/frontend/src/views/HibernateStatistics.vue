@@ -1,6 +1,11 @@
 <script setup>
 import {computed, ref} from 'vue'
-import {getJson} from '../api.js'
+import {ApiError, getJson} from '../api.js'
+import {
+  diagnosticActionError,
+  getDiagnosticAcknowledgement,
+  isHibernateStatisticsReport
+} from '../utils/diagnosticAcknowledgement.js'
 import {formatNumber} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
@@ -19,20 +24,26 @@ const report = ref(null)
 const error = ref(null)
 const lastFetched = ref(null)
 const enabling = ref(false)
+let reportVersion = 0
 const {message: banner, flash, clear} = useFlashMessage(8000)
 
 async function fetchStatistics() {
   if (!manifestAvailable.value) return
+  const version = reportVersion
   error.value = null
   try {
-    report.value = await getJson('api/hibernate-statistics')
+    const loaded = await getJson('api/hibernate-statistics')
+    if (version !== reportVersion) return
+    if (!isHibernateStatisticsReport(loaded)) throw new Error('Invalid Hibernate statistics report')
+    report.value = loaded
     lastFetched.value = Date.now()
   } catch (e) {
+    if (version !== reportVersion) return
     error.value = describeLoadError(e, 'Unable to load Hibernate session statistics')
   }
 }
 
-const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchStatistics, {
+const {autoRefresh, loading, initialLoading, load, loadAfterCurrent} = useAutoRefresh(fetchStatistics, {
   enabled: manifestAvailable,
   initialLoading: false
 })
@@ -114,13 +125,31 @@ async function enableStatistics() {
     flash(readOnlyReason.value, 'warning')
     return
   }
+  if (enabling.value) return
   enabling.value = true
   try {
-    report.value = await getJson('api/hibernate-statistics/enable', {method: 'POST'})
+    const result = await getDiagnosticAcknowledgement(
+      'api/hibernate-statistics/enable',
+      {method: 'POST'},
+      isHibernateStatisticsReport
+    )
+    reportVersion++
+    report.value = result
+    error.value = null
     lastFetched.value = Date.now()
-    flash('Hibernate statistics enabled for this runtime. Counters start collecting now.', 'success')
+    flash(
+      result.available
+        ? 'Hibernate statistics enabled for this runtime. Counters start collecting now.'
+        : result.unavailableReason || 'Hibernate statistics remain unavailable; activation had no effect.',
+      result.available ? 'success' : 'warning'
+    )
+    if (loading.value) await loadAfterCurrent()
   } catch (e) {
-    flash(describeLoadError(e, 'Could not enable Hibernate statistics'), 'danger')
+    flash(diagnosticActionError(e, 'Could not enable Hibernate statistics'), 'danger')
+    if (!(e instanceof ApiError)) {
+      reportVersion++
+      await loadAfterCurrent()
+    }
   } finally {
     enabling.value = false
   }

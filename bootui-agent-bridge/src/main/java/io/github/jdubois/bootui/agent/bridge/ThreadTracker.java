@@ -210,7 +210,9 @@ final class ThreadTracker {
         long now = System.nanoTime();
         lock.lock();
         try {
-            reset(entryGeneration);
+            if (!reset(entryGeneration)) {
+                return false;
+            }
             expunge(reports, now);
             timeOut(createdMillis);
             boolean wait = request != 0L && !ended.containsKey(Long.valueOf(request));
@@ -337,7 +339,9 @@ final class ThreadTracker {
         int read = 0;
         lock.lock();
         try {
-            reset(processGeneration);
+            if (!reset(processGeneration)) {
+                return false;
+            }
             if (written - endsRead > ENDS) {
                 endsLost.add(written - endsRead - ENDS);
                 endsRead = written - ENDS;
@@ -406,13 +410,16 @@ final class ThreadTracker {
     }
 
     /** Executors the collector reclaimed without a shutdown since the last call, reported. Never throws. */
-    void expunge(List<Entry> reports) {
+    void expunge(long expectedGeneration, List<Entry> reports) {
         if (size == 0) {
             return;
         }
         long now = System.nanoTime();
         lock.lock();
         try {
+            if (expectedGeneration != generation) {
+                return;
+            }
             expunge(reports, now);
             timeOut(System.currentTimeMillis());
         } finally {
@@ -441,7 +448,7 @@ final class ThreadTracker {
         lock.lock();
         try {
             dropped.add(waiting);
-            reset(Long.MIN_VALUE);
+            clearState();
             generation = Long.MIN_VALUE;
             endsRead = endsWritten.get();
         } finally {
@@ -451,10 +458,19 @@ final class ThreadTracker {
 
     // ---- under the lock --------------------------------------------------------------------------------------------
 
-    private void reset(long next) {
+    private boolean reset(long next) {
         if (next == generation) {
-            return;
+            return true;
         }
+        if (next < generation) {
+            return false;
+        }
+        clearState();
+        generation = next;
+        return true;
+    }
+
+    private void clearState() {
         for (int i = 0; i < BUCKETS; i++) {
             for (Entry entry = buckets[i]; entry != null; entry = entry.next) {
                 entry.clear();
@@ -471,7 +487,6 @@ final class ThreadTracker {
         threads = 0;
         executors = 0;
         waiting = 0;
-        generation = next;
     }
 
     private void expunge(List<Entry> reports, long now) {

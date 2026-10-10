@@ -3,8 +3,15 @@ package io.github.jdubois.bootui.engine.javaagent;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
+import io.github.jdubois.bootui.agent.bridge.AgentRing;
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -262,6 +269,89 @@ class AgentClaimTests {
         assertThat(claim.drainer()).isNull();
         drainer.route(AgentRecordDrainer.SENSOR_INVENTORY, record -> {});
         assertThat(drainer.running()).as("a closed drainer never starts again").isFalse();
+    }
+
+    @Test
+    void disarmDeliversAPublishedTailRecordBeforeForgettingTheRoutes() throws Exception {
+        AgentClaim claim = AgentClaim.claim(access, "app", "app@1", "dev", List.of());
+        AgentRecordDrainer drainer = claim.drainer();
+        AtomicInteger delivered = new AtomicInteger();
+        CountDownLatch routeEntered = new CountDownLatch(1);
+        CountDownLatch bridgeDisarmed = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        drainer.route(AgentRecordDrainer.SENSOR_INVENTORY, record -> {
+            if (record[AgentRecordDrainer.PAYLOAD] == 0L) {
+                routeEntered.countDown();
+            } else {
+                delivered.incrementAndGet();
+            }
+        });
+        try {
+            assertThat(AgentRing.publish(
+                            AgentRing.SENSOR_INVENTORY, 1, claim.generation(), System.currentTimeMillis(), 0, 0, 0, 0))
+                    .isTrue();
+            assertThat(routeEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            Field lock = AgentRecordDrainer.class.getDeclaredField("drainLock");
+            lock.setAccessible(true);
+            ReentrantLock drainLock = (ReentrantLock) lock.get(drainer);
+            Thread stopping;
+            drainLock.lock();
+            try {
+                assertThat(AgentRing.publish(
+                                AgentRing.SENSOR_INVENTORY,
+                                1,
+                                claim.generation(),
+                                System.currentTimeMillis(),
+                                1,
+                                0,
+                                0,
+                                0))
+                        .isTrue();
+                agent.onDisarm = bridgeDisarmed::countDown;
+                stopping = new Thread(() -> {
+                    try {
+                        claim.disarm();
+                    } catch (Throwable ex) {
+                        failure.set(ex);
+                    }
+                });
+                stopping.start();
+                assertThat(bridgeDisarmed.await(5, TimeUnit.SECONDS)).isTrue();
+            } finally {
+                drainLock.unlock();
+            }
+            stopping.join(3000);
+            assertThat(stopping.isAlive()).isFalse();
+            assertThat(failure.get()).isNull();
+            assertThat(delivered).hasValue(1);
+            assertThat(drainer.drained()).isEqualTo(2);
+            assertThat(drainer.closed()).isTrue();
+            assertThat(drainer.running()).isFalse();
+            assertThat(claim.drain(record -> delivered.incrementAndGet())).isZero();
+            assertThat(claim.disarm()).containsEntry("status", "stale");
+            assertThat(delivered).hasValue(1);
+        } finally {
+            drainer.close();
+        }
+    }
+
+    @Test
+    void aReplacedClaimsShutdownCannotDrainTheNewOwnersTailRecord() throws Exception {
+        AgentClaim first = AgentClaim.claim(access, "app", "app@1", "dev", List.of());
+        AtomicInteger oldDelivered = new AtomicInteger();
+        AgentClaim current = AgentClaim.claim(access, "app", "app@2", "dev", List.of());
+        AtomicInteger currentDelivered = new AtomicInteger();
+        assertThat(AgentRing.publish(
+                        AgentRing.SENSOR_INVENTORY, 1, current.generation(), System.currentTimeMillis(), 1, 0, 0, 0))
+                .isTrue();
+
+        assertThat(first.disarm()).containsEntry("status", "stale");
+        assertThat(first.drain(record -> oldDelivered.incrementAndGet())).isZero();
+        assertThat(oldDelivered).hasValue(0);
+        assertThat(currentDelivered).hasValue(0);
+        assertThat(current.drain(record -> currentDelivered.incrementAndGet())).isEqualTo(1);
+        current.disarm();
+        assertThat(currentDelivered).hasValue(1);
     }
 
     @Test

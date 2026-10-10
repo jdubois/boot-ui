@@ -65,6 +65,20 @@ class SideEffectsTests {
     }
 
     @Test
+    void anEarlierSlotReaderCannotMoveGenerationBackwardsOrDisableTheNewReader() throws Exception {
+        SideEffects.slotReaders(true, 20L);
+        SideEffects.slotReaders(true, 10L);
+        SideEffects.slotReaders(false, 10L);
+
+        assertThat(SideEffects.generation).isEqualTo(20L);
+        java.lang.reflect.Field readers = SideEffects.class.getDeclaredField("slotReaders");
+        readers.setAccessible(true);
+        assertThat(readers.getBoolean(null)).isTrue();
+        SideEffects.slotReaders(false, 20L);
+        assertThat(readers.getBoolean(null)).isFalse();
+    }
+
+    @Test
     void aClaimWithoutTheSensorRecordsNothingEvenWhenEnabled() {
         long token = claim(List.of("executors"));
         SideEffects.enable(SideEffects.MASK_PROCESSES);

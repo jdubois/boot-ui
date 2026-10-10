@@ -61,6 +61,65 @@ class ResourceTrackerTests {
     }
 
     @Test
+    void aStaleSweepCannotForgetANewerGenerationsResource() throws Exception {
+        FileInputStream stream = stream();
+        assertThat(tracker.track(
+                        stream,
+                        Resources.KIND_FILE_INPUT_STREAM,
+                        GENERATION + 1,
+                        REQUEST,
+                        0L,
+                        0,
+                        1,
+                        0,
+                        3,
+                        5L,
+                        9L,
+                        0,
+                        System.currentTimeMillis()))
+                .isNotNull();
+
+        List<ResourceTracker.Entry> reports = new ArrayList<>();
+        tracker.sweep(GENERATION, System.nanoTime(), 0L, 0, reports);
+
+        assertThat(reports).isEmpty();
+        assertThat(tracker.size()).isEqualTo(1);
+        assertThat(tracker.closed(stream, Resources.KIND_FILE_INPUT_STREAM)).isTrue();
+    }
+
+    @Test
+    void aStaleSweepLeavesANewerGenerationsQueuedEndForItsOwnSweep() throws Exception {
+        FileInputStream stream = stream();
+        assertThat(tracker.track(
+                        stream,
+                        Resources.KIND_FILE_INPUT_STREAM,
+                        GENERATION + 1,
+                        REQUEST,
+                        0L,
+                        0,
+                        1,
+                        0,
+                        3,
+                        5L,
+                        9L,
+                        0,
+                        System.currentTimeMillis()))
+                .isNotNull();
+        tracker.ended(REQUEST);
+        List<ResourceTracker.Entry> reports = new ArrayList<>();
+
+        tracker.sweep(GENERATION, System.nanoTime() + 1, 0L, 0, reports);
+
+        assertThat(reports).isEmpty();
+        assertThat(tracker.size()).isEqualTo(1);
+        tracker.sweep(GENERATION + 1, System.nanoTime() + 1, 0L, 0, reports);
+        assertThat(reports).singleElement().satisfies(report -> {
+            assertThat(report.reported).isEqualTo(ResourceTracker.LEFT_OPEN);
+            assertThat(report.generation).isEqualTo(GENERATION + 1);
+        });
+    }
+
+    @Test
     void aResourceStillOpenAfterItsRequestIsReportedOpenThenClosedLate() throws Exception {
         FileInputStream stream = stream();
         track(stream, Resources.KIND_FILE_INPUT_STREAM, REQUEST);

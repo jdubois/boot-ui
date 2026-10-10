@@ -165,6 +165,86 @@ The preserved raw log's SHA-256 is
   candidate designation, and the remaining release prerequisites are not supplied by green workflows or this audit.
   The Release sign-off fields below remain `PENDING`/`TODO`.
 
+## Fresh three-model pass and verified corrections, 2026-10-10
+
+GPT-6.1 Sol, Claude Sonnet 5.5, and Grok 4.7 independently reviewed the entire product at
+`e3c10a468d675a9b5a89fbaee63e52b30bb68e3e`, tree `7e0f12f31fefe9f10018bb80a82d68248af80b36`.
+Their source findings were adjudicated against actual producers, documented contracts, and deterministic
+counterexamples; disagreement was not resolved by majority vote. This pass neither reruns nor rescores the
+registered external-application study, and does not supply release approval.
+
+The initial reports raised eight candidate groups. Two were withdrawn after their premises were checked:
+Spring's SQL tracing producers record executions only, so the alleged preparation-only Spring profile is not
+reachable; and the journal clear acknowledgement deliberately counts retained events, not queued offers.
+Neither claim justified a production change. Six retained correctness groups were repaired:
+
+| Severity | Verified issue | Correction |
+| --- | --- | --- |
+| High | Stale resource/thread operations could replace newer tracking state; an old owner-slot reader could stop the current reader | Reject older generations under the owning lock, separate explicit clearing from generation advancement, and publish generation/reader state atomically |
+| High | Nested scheduled observation scopes overwrote restoration handles and left a completed job's execution on its worker | Keep thread-owned stacks per observation context, restore each nested correlation, and close the outer thread-local scope only after its own final close |
+| High | A 45-byte malformed baseline could request an oversized list and escape best-effort startup handling with an allocation error | Check collection counts, lengths, string references, numeric range, and histogram bounds before allocation or narrowing; preserve versioned compatibility |
+| Medium | Ending a claim blocked the drainer's promised final delivery of accepted tail records | Drain through the stopped owner's token before forgetting routes, preserve stale-token rejection and disabled ordinary reads, and report a busy consumer rather than blocking shutdown indefinitely |
+| Medium (configuration removal: Low) | Logger refusals and configuration network failures could disappear, and accepted logger state could be replaced by an earlier list read | Preserve canonical failure reasons, validate native acknowledgements, catch network failures, and supersede older list reads without retrying mutations |
+| Low | Remaining SQL, transaction, REST client, WebSocket and Hibernate controls could accept malformed reports or be overwritten by a pre-action read | Validate actual report contracts, retain accepted state, reject superseded reads, reconcile boundedly, and describe unavailable or unchanged outcomes honestly |
+
+These are correctness/workflow priorities, not CVSS scores. Native-scope and owner-slot variants are not counted
+as extra roots. The fixes do not add public DTO fields, change supported adapter capabilities, enable sensors,
+retry mutations automatically, or alter performance targets.
+
+### Reproduction and validation
+
+The tracker counterexamples ran against the exact reviewed bridge sources with two positive same-generation
+controls. Both stale-generation assertions failed before the repair, and the unchanged probes passed after it.
+The owner-slot reader's stale stop was independently reproduced on the same starting source. A real Micrometer
+`ObservationRegistry` reproduced both ambient-request and initially-unowned worker leaks; the corrected test also
+covers two workers sharing one observation context.
+
+The malformed-baseline reproduction used an isolated, processor-capped JVM with a 64 MB heap. The invalid count
+produced an immediate VM array-size-limit rejection, not a deliberate large allocation. The same 45-byte file is
+now ignored with a reason. Collection and text bounds, overflowed varints, histogram indexes, and genuine legacy
+summaries are covered separately. Codec version 15 and the genuine earlier-version fixtures remain unchanged.
+
+The shutdown regression uses the real periodic drainer and transport ring. It orders publication while the claim
+is armed, observes disarm, and verifies one final delivery, accurate counts, idempotent closure, and refusal to
+drain a replacement owner's records. An earlier unstarted-worker fixture was a harness failure, not product RED.
+
+The final targeted Java classes executed 199 cases with no failures, errors, or skips, each through its own actual
+`jvmRun1` on JDK 26. The missing `ThreadActivityTests` selector was recorded and not suppressed; existing
+thread-tracker, side-effect, resources and code-paths classes exercise that integration.
+
+The UI regressions ran against the eight owned production originals: 65 failures, 11 passing controls, and eight
+unhandled errors caused by the original malformed-report rendering and missing catches. Those errors were not
+counted as additional defects or silently labelled harness noise. The corrected selection passed 167 tests across
+nine files with no unhandled errors, and its typed build and owned formatting checks passed. The final assertions
+are the formatting-normalized equivalent of the RED assertions.
+
+The shared browser scenario adds 19 cases per runtime. Actual Playwright discovery registered 28 cases on each
+of MVC, WebFlux, and Quarkus, including the nine previously delivered cases. Discovery is not execution: native
+capability guards preserve WebFlux's absent Hibernate integration, metadata-only WebSockets, Quarkus's unavailable
+transactions, and its read-only configuration. Every test mutation is intercepted rather than sent to the app.
+Current-source browser execution remains a CI gate, not a claim supplied by these registration counts.
+
+The documentation checks passed: 11 workshop cases, the 66-page production build, installer publication and
+shellcheck, three fragment/link cases, and seven changelog cases. The historical release sign-off and registered
+study below remain byte-identical; neither the implementation corrections nor these checks amend their results.
+
+The required `main`-into-`v2` synchronization used a merge commit, not a rebase. Its two inherited changes were the
+Windows skill-documentation path test and Docker-free Quarkus demo configuration; the plans, dependency versions,
+and reviewed runtime code were unchanged by that synchronization.
+
+### Remaining acceptance qualifications
+
+The reviewed integrated source's [baseline run](https://github.com/jdubois/boot-ui/actions/runs/38048272117)
+genuinely failed the journal-insight read-time assertion: 2,289 ms exceeded the test's 2,000 ms limit. This is a
+performance failure, not infrastructure or a passed gate; the user excluded performance optimization from this
+correctness task, and no workload or threshold was relaxed. Earlier source-specific throughput misses and the
+registered study's results remain on their original sources.
+
+The three reviews and targeted regression results are not exhaustive proof of every advisor, database, browser,
+or native framework path. The shared browser scenarios and whole-source CI remain separate evidence gates for the
+newly composed fixes. Human sign-off, release-candidate designation, main-merge authorization, and administrative
+prerequisites are unchanged.
+
 ## Release sign-off
 
 **Not signed off.** This section is the release decision for 2.0.0 ([v2 plan](PLAN-v2.md) §4.3). M4-20's registered

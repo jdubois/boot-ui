@@ -1703,7 +1703,9 @@ invocations, its window, a **Stop**, or the end of the run. The card refreshes e
 - **Bounds hold where the method runs.** The agent counts invocations and checks the window in the probe's own advice,
   so a probe never records past its bound even if removing its instrumentation is slow or fails; such a removal is
   reported on the probe. A probe ends with its run: a DevTools restart, a Quarkus live reload, or BootUI disabled.
-  A delayed lifecycle callback from an earlier run never ends a newer run's probe. When
+  A delayed lifecycle callback from an earlier run never ends a newer run's probe or clears its resource and thread
+  tracking. Generation-scoped drains and tracking reject older operations while an explicit sensor clear retains its
+  normal reset behavior. When
   the run ended with a restart or a reload, the previous run's copy of the class is not retransformed again: the probe's
   transformer is only removed, and the advice left in that copy records nothing until it is unloaded. While the panel
   is read-only, a running probe still ends by itself within its window.
@@ -1872,6 +1874,11 @@ comparison **Partial**, not a claim that the owner was never exercised. The brid
 for the current claim and at most 256 pending owner names per summary; overflow stays unknown. Summaries retain normalized, masked owner
 labels, never correlation ids. Older summaries without this metadata, and metadata omitted to fit the summary's
 byte budget, cannot establish absence; their observed keys remain usable.
+
+When the agent is disarmed, recording stops before its final owned-token drain delivers records already queued to
+the registered services. Normal reads of an ended claim remain disabled, and a replaced token cannot drain the new
+owner's evidence. Shutdown does not wait indefinitely for an already-running consumer; an incomplete final drain is
+reported rather than silently described as complete.
 
 The panel has one tab per sensor group:
 

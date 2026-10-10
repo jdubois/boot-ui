@@ -1,9 +1,14 @@
 <script setup>
-import {apiFetch, getJson} from '../api.js'
+import {ApiError, getJson} from '../api.js'
 import {computed, nextTick, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatClockTime, formatMillis, formatNumber} from '../utils/format.js'
-import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import {describeLoadError} from '../utils/loadError.js'
+import {
+  diagnosticActionError,
+  getDiagnosticAcknowledgement,
+  isCaptureReport
+} from '../utils/diagnosticAcknowledgement.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
 import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
@@ -26,6 +31,7 @@ const categoryFilter = ref('')
 const slowOnly = ref(false)
 const busy = ref(null)
 const lastFetched = ref(null)
+let reportVersion = 0
 const expanded = ref(new Set())
 const insights = ref(null)
 const insightsError = ref(null)
@@ -52,13 +58,17 @@ const INSIGHTS_MIN_INTERVAL_MS = 5000
 let lastInsightsFetch = 0
 
 async function fetchInsights(force = false) {
+  const version = reportVersion
   const now = Date.now()
   if (!force && insights.value && now - lastInsightsFetch < INSIGHTS_MIN_INTERVAL_MS) return
   lastInsightsFetch = now
   try {
-    insights.value = await getJson('api/sql-trace/insights')
+    const loaded = await getJson('api/sql-trace/insights')
+    if (version !== reportVersion) return
+    insights.value = loaded
     insightsError.value = null
   } catch (e) {
+    if (version !== reportVersion) return
     insights.value = null
     insightsError.value = describeLoadError(e, 'Unable to load SQL rankings')
   }
@@ -67,11 +77,16 @@ async function fetchInsights(force = false) {
 let forceNextInsights = false
 
 async function fetchReport() {
+  const version = reportVersion
   error.value = null
   try {
-    report.value = await getJson('api/sql-trace')
+    const loaded = await getJson('api/sql-trace')
+    if (version !== reportVersion) return
+    if (!isCaptureReport(loaded)) throw new Error('Invalid SQL trace report')
+    report.value = loaded
     lastFetched.value = Date.now()
   } catch (e) {
+    if (version !== reportVersion) return
     error.value = describeLoadError(e, 'Unable to load SQL trace')
     return
   }
@@ -252,24 +267,37 @@ async function applyAction(action, options) {
     flash(readOnlyReason.value, 'warning')
     return
   }
-  if (options.confirm && !(await confirm(options.confirm))) return
+  if (busy.value) return
   busy.value = action
-  clearBanner()
+  const wasCapturing = report.value?.capturing
   try {
-    const res = await apiFetch(options.url, options.init)
-    const result = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      flash(result.message || result.error || `HTTP ${res.status}`, 'warning')
-      return
-    }
+    if (options.confirm && !(await confirm(options.confirm))) return
+    clearBanner()
+    const result = await getDiagnosticAcknowledgement(options.url, options.init, isCaptureReport)
+    reportVersion++
     report.value = result
+    error.value = null
     lastFetched.value = Date.now()
     if (options.onSuccess) options.onSuccess(result)
     // A user-triggered capture change (start, stop, clear) must be reflected at once.
     await fetchInsights(true)
-    flash(options.success(result), 'success')
+    const unchanged = action === 'recording' && result.capturing === wasCapturing
+    flash(
+      !result.available
+        ? result.unavailableReason || 'SQL tracing is unavailable; the action had no effect.'
+        : unchanged
+          ? `Recording state is unchanged; recording remains ${result.capturing ? 'active' : 'paused'}.`
+          : options.success(result),
+      result.available && !unchanged ? 'success' : 'warning'
+    )
+    if (loading.value) await load()
   } catch (e) {
-    flash(formatLoadError(e, options.failure), 'danger')
+    flash(diagnosticActionError(e, options.failure), 'danger')
+    if (!(e instanceof ApiError)) {
+      reportVersion++
+      forceNextInsights = true
+      await load()
+    }
   } finally {
     busy.value = null
   }
@@ -280,7 +308,7 @@ function toggleRecording() {
   applyAction('recording', {
     url: 'api/sql-trace/recording',
     init: {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({enabled: next})},
-    success: () => (next ? 'Recording resumed.' : 'Recording paused; existing executions are kept.'),
+    success: (result) => (result.capturing ? 'Recording resumed.' : 'Recording paused; existing executions are kept.'),
     failure: 'Could not change recording state'
   })
 }

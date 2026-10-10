@@ -823,6 +823,11 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **Review follow-up correctness.** Stale agent generations cannot erase newer tracking or stop its owner slots,
+  nested scheduled scopes restore each worker's correlation, malformed baseline sizes are rejected before
+  allocation, and shutdown drains already accepted records before forgetting routes.
+- **Remaining diagnostic controls report real outcomes.** Logger and configuration failures remain visible, and
+  SQL, transaction, REST client, WebSocket, and Hibernate controls reject malformed replies and superseded reads.
 - **Diagnostic acknowledgements stay honest.** Comparisons qualify outside-JVM evidence, mutation reads cannot restore
   stale state, malformed acknowledgements report unknown outcomes, and MCP panel refusals preserve their policy reason.
 - **Durable history requires a running capture.** The datasource action fails before switching storage when capture

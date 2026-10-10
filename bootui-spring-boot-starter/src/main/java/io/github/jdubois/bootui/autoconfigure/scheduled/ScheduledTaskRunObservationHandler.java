@@ -9,6 +9,10 @@ import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
 import java.lang.reflect.Method;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.IdentityHashMap;
+import java.util.Map;
 import org.springframework.scheduling.support.ScheduledTaskObservationContext;
 
 /**
@@ -35,6 +39,7 @@ public final class ScheduledTaskRunObservationHandler implements ObservationHand
 
     private final ScheduledTaskRunStore store;
     private final BootUiSelfDataFilter selfDataFilter;
+    private final ThreadLocal<Map<ScheduledTaskObservationContext, RunScope>> scopes = new ThreadLocal<>();
 
     public ScheduledTaskRunObservationHandler(ScheduledTaskRunStore store, BootUiSelfDataFilter selfDataFilter) {
         this.store = store;
@@ -67,39 +72,52 @@ public final class ScheduledTaskRunObservationHandler implements ObservationHand
     public void onScopeOpened(ScheduledTaskObservationContext context) {
         StartMarker start = context.get(StartMarker.class);
         if (start != null) {
-            context.put(BootUiCorrelation.Scope.class, BootUiCorrelation.open(start.correlation()));
-            // The run's thread-locals scope, inside its context (docs/PLAN-v2.md §5.16, M5-5f): opened by the
-            // outermost observation scope, closed by its own close, never by a nested one's.
-            if (context.get(ThreadLocalsScope.class) instanceof ThreadLocalsScope open) {
-                open.depth++;
-            } else {
-                context.put(ThreadLocalsScope.class, new ThreadLocalsScope(AgentThreadLocals.open()));
+            BootUiCorrelation.Scope correlation = BootUiCorrelation.open(start.correlation());
+            Map<ScheduledTaskObservationContext, RunScope> current = scopes.get();
+            if (current == null) {
+                current = new IdentityHashMap<>();
+                scopes.set(current);
             }
+            RunScope open = current.get(context);
+            if (open == null) {
+                open = new RunScope(AgentThreadLocals.open());
+                current.put(context, open);
+            }
+            open.correlations.push(correlation);
         }
     }
 
-    /** The BootUI agent's thread-locals scope of a run, and how many observation scopes are nested in it. */
-    private static final class ThreadLocalsScope {
+    /** Observation contexts can be reopened and shared, but restoration handles belong to their opening thread. */
+    private static final class RunScope {
         final long token;
-        int depth;
+        final Deque<BootUiCorrelation.Scope> correlations = new ArrayDeque<>();
 
-        ThreadLocalsScope(long token) {
+        RunScope(long token) {
             this.token = token;
         }
     }
 
     @Override
     public void onScopeClosed(ScheduledTaskObservationContext context) {
-        if (context.get(ThreadLocalsScope.class) instanceof ThreadLocalsScope threadLocals) {
-            if (threadLocals.depth > 0) {
-                threadLocals.depth--;
-            } else {
-                context.remove(ThreadLocalsScope.class);
-                AgentThreadLocals.close(threadLocals.token);
-            }
+        Map<ScheduledTaskObservationContext, RunScope> current = scopes.get();
+        if (current == null) {
+            return;
         }
-        if (context.remove(BootUiCorrelation.Scope.class) instanceof BootUiCorrelation.Scope scope) {
-            scope.close();
+        RunScope open = current.get(context);
+        if (open == null) {
+            return;
+        }
+        BootUiCorrelation.Scope correlation = open.correlations.pop();
+        try {
+            if (open.correlations.isEmpty()) {
+                current.remove(context);
+                if (current.isEmpty()) {
+                    scopes.remove();
+                }
+                AgentThreadLocals.close(open.token);
+            }
+        } finally {
+            correlation.close();
         }
     }
 

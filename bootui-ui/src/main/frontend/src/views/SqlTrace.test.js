@@ -263,6 +263,9 @@ describe('SqlTrace', () => {
       trace: {
         available: false,
         unavailableReason: 'No DataSource bean is available',
+        capturing: false,
+        bufferSize: 0,
+        totalCaptured: 0,
         stats: {totalQueries: 0},
         entries: [],
         topStatements: [],

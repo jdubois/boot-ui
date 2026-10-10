@@ -529,7 +529,7 @@ public final class ThreadActivity {
             }
             List<ThreadTracker.Entry> reports = new ArrayList<ThreadTracker.Entry>();
             TRACKER.processEnds(claim.generation, System.nanoTime(), GRACE_NANOS, reports);
-            TRACKER.expunge(reports);
+            TRACKER.expunge(claim.generation, reports);
             publish(reports);
             if (state != null && state.generation == claim.generation) {
                 for (Map.Entry<Key, Sighting> entry : state.sightings.entrySet()) {

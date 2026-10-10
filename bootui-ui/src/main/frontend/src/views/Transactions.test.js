@@ -94,6 +94,9 @@ describe('Transactions', () => {
         jsonResponse({
           available: false,
           unavailableReason: 'No PlatformTransactionManager bean is available',
+          capturing: false,
+          bufferSize: 0,
+          totalCaptured: 0,
           stats: {totalTransactions: 0},
           entries: [],
           warnings: []

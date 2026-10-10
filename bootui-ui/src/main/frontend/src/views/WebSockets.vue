@@ -1,9 +1,14 @@
 <script setup>
-import {apiFetch, getJson} from '../api.js'
+import {ApiError, getJson} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatBytes, formatClockTime, formatNumber} from '../utils/format.js'
-import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import {describeLoadError} from '../utils/loadError.js'
+import {
+  diagnosticActionError,
+  getDiagnosticAcknowledgement,
+  isWebSocketReport
+} from '../utils/diagnosticAcknowledgement.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
 import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
@@ -25,14 +30,20 @@ const filter = ref('')
 const directionFilter = ref('')
 const busy = ref(null)
 const lastFetched = ref(null)
+let reportVersion = 0
 const tab = ref('endpoints')
 
 async function fetchReport() {
+  const version = reportVersion
   error.value = null
   try {
-    report.value = await getJson('api/websockets')
+    const loaded = await getJson('api/websockets')
+    if (version !== reportVersion) return
+    if (!isWebSocketReport(loaded)) throw new Error('Invalid WebSocket report')
+    report.value = loaded
     lastFetched.value = Date.now()
   } catch (e) {
+    if (version !== reportVersion) return
     error.value = describeLoadError(e, 'Unable to load WebSocket endpoints')
   }
 }
@@ -211,21 +222,36 @@ async function applyAction(action, options) {
     flash(readOnlyReason.value, 'warning')
     return
   }
-  if (options.confirm && !(await confirm(options.confirm))) return
+  if (busy.value) return
   busy.value = action
-  clearBanner()
+  const wasCapturing = report.value?.capturing
   try {
-    const response = await apiFetch(options.url, options.init)
-    const result = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      flash(result.message || result.error || `HTTP ${response.status}`, 'warning')
-      return
-    }
+    if (options.confirm && !(await confirm(options.confirm))) return
+    clearBanner()
+    const result = await getDiagnosticAcknowledgement(options.url, options.init, isWebSocketReport)
+    reportVersion++
     report.value = result
+    error.value = null
     lastFetched.value = Date.now()
-    flash(options.success(), 'success')
+    const unsupported = action === 'capture' && !result.frameCaptureSupported
+    const unchanged = action === 'capture' && result.capturing === wasCapturing
+    flash(
+      !result.available
+        ? result.unavailableReason || 'WebSocket support is unavailable; the action had no effect.'
+        : unsupported
+          ? result.frameCaptureUnavailableReason || 'Frame capture is unsupported; the action had no effect.'
+          : unchanged
+            ? `Frame capture state is unchanged; capture remains ${result.capturing ? 'active' : 'paused'}.`
+            : options.success(result),
+      result.available && !unsupported && !unchanged ? 'success' : 'warning'
+    )
+    if (loading.value) await load()
   } catch (e) {
-    flash(formatLoadError(e, options.failure), 'danger')
+    flash(diagnosticActionError(e, options.failure), 'danger')
+    if (!(e instanceof ApiError)) {
+      reportVersion++
+      await load()
+    }
   } finally {
     busy.value = null
   }
@@ -236,7 +262,8 @@ function toggleCapture() {
   applyAction('capture', {
     url: 'api/websockets/capture',
     init: {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({enabled: next})},
-    success: () => (next ? 'Frame capture resumed.' : 'Frame capture paused; existing activity is kept.'),
+    success: (result) =>
+      result.capturing ? 'Frame capture resumed.' : 'Frame capture paused; existing activity is kept.',
     failure: 'Could not change frame capture state'
   })
 }

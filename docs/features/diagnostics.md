@@ -448,3 +448,20 @@ Quarkus has no config key that always equals the bound port, so the adapter sele
 `quarkus.http.port` by launch mode. A random `=0` port still resolves, because Quarkus rewrites the property to the
 actual port once the server is up.
 :::
+
+## Diagnostic control outcomes
+
+Logger level changes, configuration override removal, Hibernate runtime activation, and SQL, transaction, REST client,
+and WebSocket capture controls report the backend's accepted outcome, not merely the requested change. A policy
+refusal shows its specific reason; unavailable or unchanged capture reports never appear as successful activation.
+Logger resets retain inherited effective levels. Removing an already absent configuration override is still a valid
+removal, and the property falls back to its underlying value after the next read. Configuration writes remain
+Spring-only; this does not add override support to Quarkus.
+
+These controls require their documented JSON response. An empty, malformed, or unrecognized reply, or a lost
+connection during the action, reports an **unknown outcome**, keeps the last accepted state, and re-reads once without
+retrying the mutation. If that read fails, the accepted data stays visible alongside the read failure.
+
+A refresh started before an accepted Hibernate activation or capture action cannot overwrite its result. When a
+refresh is already outstanding, one fresh read follows it even with auto-refresh off; otherwise the returned report
+updates the panel immediately. Ordinary refresh behavior and each stack's capability limitations are unchanged.

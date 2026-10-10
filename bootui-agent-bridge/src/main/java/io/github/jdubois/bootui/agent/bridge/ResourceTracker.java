@@ -237,7 +237,9 @@ final class ResourceTracker {
                 // Switched off, or an open of an earlier claim generation: never inserted.
                 return null;
             }
-            reset(entryGeneration);
+            if (!reset(entryGeneration)) {
+                return null;
+            }
             if (size >= MAX_ENTRIES) {
                 untracked.increment();
                 return null;
@@ -361,7 +363,9 @@ final class ResourceTracker {
         lock.lock();
         try {
             // A newer claim's sweep: the earlier generation's entries are forgotten, never reported in its run.
-            reset(sweepGeneration);
+            if (!reset(sweepGeneration)) {
+                return 0;
+            }
             for (int i = 0; i < candidates.size(); i++) {
                 Entry entry = candidates.get(i);
                 if (!entry.linked || entry.closed || states[i] == Resources.STATE_CLOSED) {
@@ -455,7 +459,9 @@ final class ResourceTracker {
         int read = 0;
         lock.lock();
         try {
-            reset(readGeneration);
+            if (!reset(readGeneration)) {
+                return false;
+            }
             if (written - endsRead > ENDS) {
                 endsLost.add(written - endsRead - ENDS);
                 endsRead = written - ENDS;
@@ -570,7 +576,7 @@ final class ResourceTracker {
         try {
             dropped.add(size);
             accepting = false;
-            reset(Long.MIN_VALUE);
+            clearState();
             generation = Long.MIN_VALUE;
             endsRead = endsWritten.get();
         } finally {
@@ -580,10 +586,19 @@ final class ResourceTracker {
 
     // ---- under the lock --------------------------------------------------------------------------------------------
 
-    private void reset(long next) {
+    private boolean reset(long next) {
         if (next == generation) {
-            return;
+            return true;
         }
+        if (next < generation) {
+            return false;
+        }
+        clearState();
+        generation = next;
+        return true;
+    }
+
+    private void clearState() {
         for (int i = 0; i < BUCKETS; i++) {
             for (Entry entry = buckets.get(i); entry != null; entry = entry.next) {
                 entry.linked = false;
@@ -601,7 +616,6 @@ final class ResourceTracker {
         ended.clear();
         size = 0;
         waiting = 0;
-        generation = next;
     }
 
     private void stopWaiting(Entry entry) {

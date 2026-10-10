@@ -2,6 +2,10 @@
 
 ## Scheduled Tasks
 
+Scheduled observations restore the worker's previous correlation when their scopes close, including nested
+reopenings and separate workers using the same observation. A completed job's execution id is not left on a pooled
+worker to attribute unrelated later work to that job.
+
 ![BootUI Scheduled Tasks panel](../images/bootui-scheduled-tasks.webp)
 
 The Scheduled Tasks panel lists the jobs registered with Spring's scheduling infrastructure, with their task type and

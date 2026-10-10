@@ -12,6 +12,70 @@ function isNonemptyString(value) {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+function isNullableString(value) {
+  return value === null || typeof value === 'string'
+}
+
+export function isLoggerAcknowledgement(value, name) {
+  return (
+    isRecord(value) &&
+    value.name === name &&
+    isNullableString(value.configuredLevel) &&
+    isNonemptyString(value.effectiveLevel)
+  )
+}
+
+export function isConfigRemoveAcknowledgement(value, name) {
+  return (
+    isRecord(value) &&
+    value.name === name &&
+    value.value === null &&
+    isNullableString(value.previousValue) &&
+    typeof value.persisted === 'boolean' &&
+    isNonemptyString(value.message)
+  )
+}
+
+export function isHibernateStatisticsReport(value) {
+  return (
+    isRecord(value) &&
+    typeof value.available === 'boolean' &&
+    typeof value.enableAvailable === 'boolean' &&
+    isNullableString(value.unavailableReason) &&
+    (isRecord(value.statistics) || (!value.available && value.statistics === null))
+  )
+}
+
+// The shared capture controls return reports, including unavailable and unchanged outcomes.
+export function isCaptureReport(value) {
+  return (
+    isRecord(value) &&
+    typeof value.available === 'boolean' &&
+    isNullableString(value.unavailableReason) &&
+    typeof value.capturing === 'boolean' &&
+    Number.isInteger(value.bufferSize) &&
+    value.bufferSize >= 0 &&
+    typeof value.totalCaptured === 'number' &&
+    Number.isFinite(value.totalCaptured) &&
+    value.totalCaptured >= 0 &&
+    isRecord(value.stats) &&
+    Array.isArray(value.entries) &&
+    value.entries.every(isRecord)
+  )
+}
+
+export function isWebSocketReport(value) {
+  return (
+    isRecord(value) &&
+    typeof value.available === 'boolean' &&
+    isNullableString(value.unavailableReason) &&
+    typeof value.capturing === 'boolean' &&
+    typeof value.frameCaptureSupported === 'boolean' &&
+    Array.isArray(value.activity) &&
+    value.activity.every(isRecord)
+  )
+}
+
 export function isJournalClearAcknowledgement(value) {
   return (
     isRecord(value) &&

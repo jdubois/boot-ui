@@ -36,6 +36,7 @@ final class Bridges {
         List<Object> sensors = new ArrayList<>();
         Map<String, Object> claimAnswer;
         Map<String, Object> sensorsAnswer;
+        Runnable onDisarm;
 
         @Override
         public synchronized Map<String, Object> apply(Map<String, Object> request) {
@@ -52,6 +53,9 @@ final class Bridges {
                 return map;
             }
             requests.add(new LinkedHashMap<>(request));
+            if ("disarm".equals(op) && onDisarm != null) {
+                onDisarm.run();
+            }
             if ("claim".equals(op) && claimAnswer != null) {
                 return claimAnswer;
             }

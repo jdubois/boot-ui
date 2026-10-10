@@ -1,6 +1,11 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {ApiError} from '../api.js'
 import {onMounted, ref, watch} from 'vue'
+import {
+  diagnosticActionError,
+  getDiagnosticAcknowledgement,
+  isLoggerAcknowledgement
+} from '../utils/diagnosticAcknowledgement.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
@@ -13,6 +18,7 @@ import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
 const filter = ref('')
+const changingLevel = ref(false)
 const {message, flash, clear} = useFlashMessage(3000)
 
 const {
@@ -43,17 +49,28 @@ async function changeLevel(logger, level) {
     flash(readOnlyReason.value, 'warning')
     return
   }
+  if (changingLevel.value) return
+  changingLevel.value = true
   const body = level ? {level} : {}
-  const res = await apiFetch(`api/loggers/${encodeURIComponent(logger.name)}`, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body)
-  })
-  if (res.ok) {
-    const updated = await res.json()
-    const i = data.value.loggers.findIndex((l) => l.name === logger.name)
+  try {
+    const updated = await getDiagnosticAcknowledgement(
+      `api/loggers/${encodeURIComponent(logger.name)}`,
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      },
+      (value) => isLoggerAcknowledgement(value, logger.name)
+    )
+    const i = data.value?.loggers.findIndex((l) => l.name === logger.name) ?? -1
     if (i >= 0) data.value.loggers[i] = updated
     flash(`Level updated for ${logger.name}`, 'success')
+    await load()
+  } catch (e) {
+    flash(diagnosticActionError(e, 'Could not change logger level'), 'danger')
+    if (!(e instanceof ApiError)) await load()
+  } finally {
+    changingLevel.value = false
   }
 }
 
@@ -114,7 +131,7 @@ watch(filter, scheduleReload)
                 <button
                   v-for="lvl in data.availableLevels"
                   :key="lvl"
-                  :disabled="readOnly"
+                  :disabled="readOnly || changingLevel"
                   :class="{active: l.configuredLevel === lvl}"
                   class="btn btn-outline-secondary"
                   @click="changeLevel(l, lvl)"
@@ -123,7 +140,7 @@ watch(filter, scheduleReload)
                 </button>
                 <button
                   :aria-label="`Reset ${l.name} logger level`"
-                  :disabled="readOnly"
+                  :disabled="readOnly || changingLevel"
                   class="btn btn-outline-secondary"
                   title="Reset"
                   type="button"

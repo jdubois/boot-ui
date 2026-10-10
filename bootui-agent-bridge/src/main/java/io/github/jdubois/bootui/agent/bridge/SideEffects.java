@@ -638,6 +638,7 @@ public final class SideEffects {
     private static volatile int enabled;
 
     static volatile long generation = -1L;
+    private static final Object GENERATION_LOCK = new Object();
     private static volatile boolean off;
     private static volatile String offReason;
     static volatile Thread selfTestThread;
@@ -2110,10 +2111,15 @@ public final class SideEffects {
      */
     static void slotReaders(boolean reading, long readerGeneration) {
         try {
-            if (reading && readerGeneration > generation) {
-                generation = readerGeneration;
+            synchronized (GENERATION_LOCK) {
+                if (readerGeneration < generation) {
+                    return;
+                }
+                if (reading) {
+                    generation = readerGeneration;
+                }
+                slotReaders = reading;
             }
-            slotReaders = reading;
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
@@ -3878,8 +3884,10 @@ public final class SideEffects {
                     break;
                 }
             }
-            if (claim.generation > generation) {
-                generation = claim.generation;
+            synchronized (GENERATION_LOCK) {
+                if (claim.generation > generation) {
+                    generation = claim.generation;
+                }
             }
             while (true) {
                 Network current = NETWORK_STATE.get();

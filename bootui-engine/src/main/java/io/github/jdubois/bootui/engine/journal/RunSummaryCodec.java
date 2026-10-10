@@ -789,13 +789,13 @@ final class RunSummaryCodec {
                 return null;
             }
             Long readyNanos = optionalLong();
-            int steps = (int) number();
+            int steps = count(3);
             List<StartupStepTiming> slowest = new ArrayList<>(steps);
             for (int i = 0; i < steps; i++) {
                 slowest.add(new StartupStepTiming(text(), optionalText(), number()));
             }
             List<String> profiles = texts();
-            int dataSources = (int) number();
+            int dataSources = count(2);
             Map<String, String> shapes = new LinkedHashMap<>();
             for (int i = 0; i < dataSources; i++) {
                 shapes.put(text(), text());
@@ -812,7 +812,7 @@ final class RunSummaryCodec {
         }
 
         List<String> texts() {
-            int size = (int) number();
+            int size = count(1);
             List<String> values = new ArrayList<>(size);
             for (int i = 0; i < size; i++) {
                 values.add(text());
@@ -821,7 +821,7 @@ final class RunSummaryCodec {
         }
 
         void strings() {
-            int size = (int) number();
+            int size = count(1);
             List<String> strings = new ArrayList<>(size);
             for (int i = 0; i < size; i++) {
                 strings.add(text());
@@ -841,6 +841,9 @@ final class RunSummaryCodec {
             int shift = 0;
             while (true) {
                 int b = next();
+                if (shift == 63 && (b & 0x7e) != 0) {
+                    throw new IllegalArgumentException("A run summary number exceeds its range");
+                }
                 value |= (long) (b & 0x7F) << shift;
                 if ((b & 0x80) == 0) {
                     return value;
@@ -852,16 +855,25 @@ final class RunSummaryCodec {
             }
         }
 
+        private int count(int minimumBytes) {
+            long size = number();
+            if (size < 0 || size > (bytes.length - position) / minimumBytes) {
+                throw new IllegalArgumentException("A run summary collection exceeds its remaining bytes");
+            }
+            return (int) size;
+        }
+
         Long optionalLong() {
             long value = number();
             return value == 0 ? null : value - 1;
         }
 
         String text() {
-            int length = (int) number();
-            if (length < 0 || position + length > bytes.length) {
+            long encodedLength = number();
+            if (encodedLength < 0 || encodedLength > bytes.length - position) {
                 throw new IllegalArgumentException("The run summary ends early");
             }
+            int length = (int) encodedLength;
             String value = new String(bytes, position, length, StandardCharsets.UTF_8);
             position += length;
             return value;
@@ -869,11 +881,17 @@ final class RunSummaryCodec {
 
         String string() {
             long index = number();
-            return index == 0 ? null : table.get((int) index - 1);
+            if (index == 0) {
+                return null;
+            }
+            if (index < 0 || index > table.size()) {
+                throw new IllegalArgumentException("A run summary string reference exceeds its table");
+            }
+            return table.get((int) index - 1);
         }
 
         <T> List<T> list(Supplier<T> reader) {
-            int size = (int) number();
+            int size = count(1);
             List<T> values = new ArrayList<>(size);
             for (int i = 0; i < size; i++) {
                 values.add(reader.get());
@@ -882,7 +900,7 @@ final class RunSummaryCodec {
         }
 
         Map<String, Long> stringMap() {
-            int size = (int) number();
+            int size = count(2);
             Map<String, Long> counts = new LinkedHashMap<>();
             for (int i = 0; i < size; i++) {
                 counts.put(string(), number());
@@ -892,7 +910,7 @@ final class RunSummaryCodec {
 
         /** Counts per source; a source this version does not know, from a newer summary, is skipped. */
         Map<JournalSource, Long> sourceMap() {
-            int size = (int) number();
+            int size = count(2);
             Map<JournalSource, Long> counts = new EnumMap<>(JournalSource.class);
             for (int i = 0; i < size; i++) {
                 JournalSource source = SOURCES.get(string());
@@ -906,7 +924,7 @@ final class RunSummaryCodec {
 
         /** Observed edges; an edge naming a node or edge type this version does not know is skipped. */
         List<ObservedEdge> edges() {
-            int size = (int) number();
+            int size = count(8);
             List<ObservedEdge> edges = new ArrayList<>(size);
             for (int i = 0; i < size; i++) {
                 NodeType fromType = constant(NodeType.class, string());
@@ -943,8 +961,8 @@ final class RunSummaryCodec {
             }
             String unavailable = string();
             boolean routesHidden = number() != 0;
-            int sensorCount = (int) number();
-            List<RunSideEffects.Sensor> sensors = new ArrayList<>(Math.max(0, sensorCount));
+            int sensorCount = count(4);
+            List<RunSideEffects.Sensor> sensors = new ArrayList<>(sensorCount);
             for (int i = 0; i < sensorCount; i++) {
                 String id = string();
                 String reason = string();
@@ -954,8 +972,8 @@ final class RunSummaryCodec {
                     sensors.add(new RunSideEffects.Sensor(id, reason, startupReason, omitted));
                 }
             }
-            int keyCount = (int) number();
-            List<RunSideEffects.Key> keys = new ArrayList<>(Math.max(0, keyCount));
+            int keyCount = count(7);
+            List<RunSideEffects.Key> keys = new ArrayList<>(keyCount);
             for (int i = 0; i < keyCount; i++) {
                 String sensor = string();
                 String kind = string();
@@ -973,7 +991,7 @@ final class RunSummaryCodec {
             }
             String unknown = string();
             long count = number();
-            if (count < 0 || count > RunSideEffects.MAX_PENDING_OWNERS) {
+            if (count < 0 || count > RunSideEffects.MAX_PENDING_OWNERS || count > (bytes.length - position) / 2) {
                 throw new IllegalArgumentException("Invalid pending-owner count in run summary");
             }
             int pendingCount = (int) count;
@@ -994,11 +1012,18 @@ final class RunSummaryCodec {
             long count = number();
             long total = number();
             long max = number();
-            int nonEmpty = (int) number();
+            int nonEmpty = count(2);
+            if (nonEmpty > LatencyHistogram.BUCKETS) {
+                throw new IllegalArgumentException("A run summary histogram exceeds its bucket count");
+            }
             long[] counts = new long[LatencyHistogram.BUCKETS];
             int bucket = 0;
             for (int i = 0; i < nonEmpty; i++) {
-                bucket += (int) number();
+                long offset = number();
+                if (offset < 0 || offset >= LatencyHistogram.BUCKETS - bucket) {
+                    throw new IllegalArgumentException("A run summary histogram bucket exceeds its range");
+                }
+                bucket += (int) offset;
                 counts[bucket] = number();
             }
             return LatencyHistogram.restore(counts, count, total, max);

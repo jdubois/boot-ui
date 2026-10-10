@@ -1,9 +1,14 @@
 <script setup>
-import {apiFetch, getJson} from '../api.js'
+import {ApiError, getJson} from '../api.js'
 import {computed, inject, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatClockTime, formatNumber} from '../utils/format.js'
-import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import {describeLoadError} from '../utils/loadError.js'
+import {
+  diagnosticActionError,
+  getDiagnosticAcknowledgement,
+  isCaptureReport
+} from '../utils/diagnosticAcknowledgement.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
 import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
@@ -28,14 +33,20 @@ const methodFilter = ref('')
 const slowOnly = ref(false)
 const busy = ref(null)
 const lastFetched = ref(null)
+let reportVersion = 0
 const expanded = ref(new Set())
 
 async function fetchReport() {
+  const version = reportVersion
   error.value = null
   try {
-    report.value = await getJson('api/rest-client-trace')
+    const loaded = await getJson('api/rest-client-trace')
+    if (version !== reportVersion) return
+    if (!isCaptureReport(loaded)) throw new Error('Invalid REST client trace report')
+    report.value = loaded
     lastFetched.value = Date.now()
   } catch (e) {
+    if (version !== reportVersion) return
     error.value = describeLoadError(e, 'Unable to load REST client trace')
   }
 }
@@ -129,22 +140,34 @@ async function applyAction(action, options) {
     flash(readOnlyReason.value, 'warning')
     return
   }
-  if (options.confirm && !(await confirm(options.confirm))) return
+  if (busy.value) return
   busy.value = action
-  clearBanner()
+  const wasCapturing = report.value?.capturing
   try {
-    const res = await apiFetch(options.url, options.init)
-    const result = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      flash(result.message || result.error || `HTTP ${res.status}`, 'warning')
-      return
-    }
+    if (options.confirm && !(await confirm(options.confirm))) return
+    clearBanner()
+    const result = await getDiagnosticAcknowledgement(options.url, options.init, isCaptureReport)
+    reportVersion++
     report.value = result
+    error.value = null
     lastFetched.value = Date.now()
     if (options.onSuccess) options.onSuccess(result)
-    flash(options.success(result), 'success')
+    const unchanged = action === 'recording' && result.capturing === wasCapturing
+    flash(
+      !result.available
+        ? result.unavailableReason || 'REST client capture is unavailable; the action had no effect.'
+        : unchanged
+          ? `Recording state is unchanged; recording remains ${result.capturing ? 'active' : 'paused'}.`
+          : options.success(result),
+      result.available && !unchanged ? 'success' : 'warning'
+    )
+    if (loading.value) await load()
   } catch (e) {
-    flash(formatLoadError(e, options.failure), 'danger')
+    flash(diagnosticActionError(e, options.failure), 'danger')
+    if (!(e instanceof ApiError)) {
+      reportVersion++
+      await load()
+    }
   } finally {
     busy.value = null
   }
@@ -155,7 +178,7 @@ function toggleRecording() {
   applyAction('recording', {
     url: 'api/rest-client-trace/recording',
     init: {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({enabled: next})},
-    success: () => (next ? 'Recording resumed.' : 'Recording paused; existing calls are kept.'),
+    success: (result) => (result.capturing ? 'Recording resumed.' : 'Recording paused; existing calls are kept.'),
     failure: 'Could not change recording state'
   })
 }

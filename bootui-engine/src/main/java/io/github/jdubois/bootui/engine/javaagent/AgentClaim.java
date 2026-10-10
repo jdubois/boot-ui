@@ -422,6 +422,18 @@ public final class AgentClaim {
         return access.drainSideEffects(granted, sink);
     }
 
+    /** The drainer's shutdown-only read; the bridge still rejects a token replaced by a newer owner. */
+    int drainOnClose(Consumer<long[]> records, Consumer<long[]> fragments, Consumer<long[]> effects) {
+        Long granted = token;
+        if (granted == null) {
+            return 0;
+        }
+        int count = records == null ? 0 : access.drain(granted, records);
+        int blobs = fragments == null ? 0 : access.drainCodePaths(granted, fragments);
+        int sideEffects = effects == null ? 0 : access.drainSideEffects(granted, effects);
+        return count + blobs + sideEffects;
+    }
+
     /** This claim's recording was cleared: the side-effect sensors' intern quotas count again. */
     public void sideEffectsRecordingCleared() {
         Long current = generation;

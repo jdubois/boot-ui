@@ -987,6 +987,11 @@ run exercised its owner, and **gone** only when this run did (its route served a
 something else outside the JVM); otherwise its owner was **not exercised** in one of the runs. A run that kept only
 part of a sensor's keys marks it **partly compared** and withholds the rows that part could make wrong. Work on a
 thread no request or execution owns is not compared. The keys travel in the run summary, so in the baseline file too.
+The optional baseline file is best-effort: malformed collection counts, string lengths, references, or histogram
+buckets are rejected before allocation. A small corrupted file cannot request an unbounded collection or fail
+startup with an oversized-array allocation; it is ignored with a reason. Existing versioned summaries remain
+readable under their documented compatibility limits.
+
 The run-summary link counts framework behavior and runtime-model changes separately from outside-JVM evidence.
 Recorded outside-JVM additions or removals remain visible in that summary, and partial, unavailable, truncated, or
 not-exercised evidence is qualified rather than presented as a complete zero.

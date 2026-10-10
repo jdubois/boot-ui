@@ -13,6 +13,9 @@ import io.micrometer.observation.ObservationRegistry;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.scheduling.support.ScheduledTaskObservationContext;
 
@@ -108,6 +111,74 @@ class ScheduledTaskRunObservationHandlerTests {
                 .extracting(ScheduledTaskRunStore.Run::executionId)
                 .containsExactlyInAnyOrderElementsOf(
                         seen.stream().map(CorrelationContext::executionId).toList());
+    }
+
+    @Test
+    void nestedScopesRestoreTheAmbientRequestAfterTheScheduledRun() throws Exception {
+        assertNestedScopesRestore(CorrelationContext.forRequest("0123456789abcdef"));
+    }
+
+    @Test
+    void nestedScopesLeaveAnInitiallyUnownedWorkerUnowned() throws Exception {
+        assertNestedScopesRestore(CorrelationContext.NONE);
+    }
+
+    @Test
+    void sharedObservationScopesRestoreEachWorkersOwnAmbientContext() throws Exception {
+        ScheduledTaskRunObservationHandler handler =
+                new ScheduledTaskRunObservationHandler(new ScheduledTaskRunStore(10), selfDataFilter);
+        ScheduledTaskObservationContext context = applicationOwnedContext();
+        handler.onStart(context);
+        CountDownLatch bothOpen = new CountDownLatch(2);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        List<Thread> workers = new ArrayList<>();
+        for (String request : List.of("0123456789abcdef", "fedcba9876543210")) {
+            Thread worker = new Thread(() -> {
+                CorrelationContext ambient = CorrelationContext.forRequest(request);
+                try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(ambient)) {
+                    handler.onScopeOpened(context);
+                    try {
+                        bothOpen.countDown();
+                        assertThat(bothOpen.await(5, TimeUnit.SECONDS)).isTrue();
+                        assertThat(BootUiCorrelation.current().executionId()).isNotNull();
+                    } finally {
+                        handler.onScopeClosed(context);
+                    }
+                    assertThat(BootUiCorrelation.current()).isEqualTo(ambient);
+                } catch (Throwable ex) {
+                    failure.compareAndSet(null, ex);
+                }
+            });
+            workers.add(worker);
+            worker.start();
+        }
+        for (Thread worker : workers) {
+            worker.join(6000);
+            assertThat(worker.isAlive()).isFalse();
+        }
+        assertThat(failure.get()).isNull();
+    }
+
+    private void assertNestedScopesRestore(CorrelationContext ambient) throws Exception {
+        ScheduledTaskRunStore store = new ScheduledTaskRunStore(10);
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ScheduledTaskRunObservationHandler(store, selfDataFilter));
+        ScheduledTaskObservationContext context = applicationOwnedContext();
+        Observation observation = Observation.createNotStarted("tasks.scheduled.execution", () -> context, registry);
+
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(ambient)) {
+            observation.observe(() -> {
+                CorrelationContext scheduled = BootUiCorrelation.current();
+                assertThat(scheduled.executionId()).isNotNull();
+                try (Observation.Scope nested = observation.openScope()) {
+                    assertThat(BootUiCorrelation.current()).isEqualTo(scheduled);
+                }
+                assertThat(BootUiCorrelation.current()).isEqualTo(scheduled);
+            });
+            assertThat(BootUiCorrelation.current()).isEqualTo(ambient);
+        } finally {
+            BootUiCorrelation.replace(CorrelationContext.NONE);
+        }
     }
 
     private ScheduledTaskObservationContext applicationOwnedContext() throws Exception {

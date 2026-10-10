@@ -31,6 +31,95 @@ class ThreadTrackerTests {
     }
 
     @Test
+    void aStaleTrackCannotReplaceANewerGenerationsExecutor() {
+        ExecutorService current = Executors.newFixedThreadPool(1);
+        ExecutorService stale = Executors.newFixedThreadPool(1);
+        try {
+            assertThat(tracker.track(
+                            current,
+                            false,
+                            GENERATION + 1,
+                            REQUEST,
+                            0L,
+                            0,
+                            1,
+                            0,
+                            3,
+                            5L,
+                            9L,
+                            0,
+                            System.currentTimeMillis(),
+                            reports))
+                    .isTrue();
+            assertThat(tracker.track(
+                            stale,
+                            false,
+                            GENERATION,
+                            REQUEST + 1,
+                            0L,
+                            0,
+                            1,
+                            0,
+                            3,
+                            5L,
+                            9L,
+                            0,
+                            System.currentTimeMillis(),
+                            reports))
+                    .isFalse();
+            assertThat(tracker.size()).isEqualTo(1);
+
+            current.shutdown();
+            tracker.shutdown(current, false, GENERATION + 1, reports);
+
+            assertThat(reports).singleElement().satisfies(report -> {
+                assertThat(report.reported).isEqualTo(ThreadTracker.EXECUTOR_SHUT_DOWN);
+                assertThat(report.generation).isEqualTo(GENERATION + 1);
+            });
+        } finally {
+            current.shutdownNow();
+            stale.shutdownNow();
+        }
+    }
+
+    @Test
+    void aStaleEndDrainCannotConsumeANewerGenerationsQueuedEnd() {
+        ExecutorService current = Executors.newFixedThreadPool(1);
+        try {
+            assertThat(tracker.track(
+                            current,
+                            false,
+                            GENERATION + 1,
+                            REQUEST,
+                            0L,
+                            0,
+                            1,
+                            0,
+                            3,
+                            5L,
+                            9L,
+                            0,
+                            System.currentTimeMillis(),
+                            reports))
+                    .isTrue();
+            tracker.ended(REQUEST);
+
+            tracker.processEnds(GENERATION, System.nanoTime() + 1, 0L, reports);
+
+            assertThat(reports).isEmpty();
+            assertThat(tracker.size()).isEqualTo(1);
+            assertThat(tracker.anyWaiting()).isTrue();
+            tracker.processEnds(GENERATION + 1, System.nanoTime() + 1, 0L, reports);
+            assertThat(reports).singleElement().satisfies(report -> {
+                assertThat(report.reported).isEqualTo(ThreadTracker.EXECUTOR_LEFT_RUNNING);
+                assertThat(report.generation).isEqualTo(GENERATION + 1);
+            });
+        } finally {
+            current.shutdownNow();
+        }
+    }
+
+    @Test
     void aThreadStillAliveWhenItsRequestEndsIsReportedAndAJoinedOneIsNot() throws Exception {
         CountDownLatch release = new CountDownLatch(1);
         Thread running = new Thread(() -> {
@@ -313,7 +402,7 @@ class ThreadTrackerTests {
         }
         assertThat(executor.get()).as("collected").isNull();
         for (int i = 0; i < 50 && reports.isEmpty(); i++) {
-            tracker.expunge(reports);
+            tracker.expunge(GENERATION, reports);
             Thread.sleep(20);
         }
         assertThat(reports)

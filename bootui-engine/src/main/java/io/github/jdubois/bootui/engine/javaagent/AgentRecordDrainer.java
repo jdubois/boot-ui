@@ -5,6 +5,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -26,7 +27,7 @@ import java.util.logging.Logger;
  */
 public final class AgentRecordDrainer implements AutoCloseable {
 
-    private final Object drainLock = new Object();
+    private final ReentrantLock drainLock = new ReentrantLock();
 
     /** The drain thread's name. */
     public static final String THREAD_NAME = "bootui-agent-drain";
@@ -210,6 +211,33 @@ public final class AgentRecordDrainer implements AutoCloseable {
             closed = true;
         }
         stopThread();
+        if (drainLock.tryLock()) {
+            try {
+                claim.drainOnClose(
+                        record -> {
+                            drained.incrementAndGet();
+                            sink.accept(record);
+                        },
+                        codePathsRoute == null
+                                ? null
+                                : blob -> {
+                                    fragments.incrementAndGet();
+                                    blobSink.accept(blob);
+                                },
+                        sideEffectsRoute == null
+                                ? null
+                                : record -> {
+                                    sideEffects.incrementAndGet();
+                                    sideEffectsSink.accept(record);
+                                });
+            } finally {
+                drainLock.unlock();
+            }
+        } else {
+            log.log(
+                    Level.WARNING,
+                    "BootUI could not complete the agent's final drain because a route is still running");
+        }
         routes.clear();
         codePathsRoute = null;
         sideEffectsRoute = null;
@@ -291,8 +319,11 @@ public final class AgentRecordDrainer implements AutoCloseable {
      * flushed just before it; waiting for that drain, then draining again, never does.
      */
     private int drainOnce() {
-        synchronized (drainLock) {
+        drainLock.lock();
+        try {
             return drainUnderLock();
+        } finally {
+            drainLock.unlock();
         }
     }
 
