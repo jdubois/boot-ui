@@ -37,10 +37,12 @@ const busy = ref(false)
 // The "Copy for AI" preview of the open detail, or null while the detail itself is shown.
 const aiExport = ref(null)
 const lastFetched = ref(null)
+let reportVersion = 0
 
 const STATUSES = ['OPEN', 'ACKNOWLEDGED', 'RESOLVED']
 
 async function fetchExceptions() {
+  const version = reportVersion
   error.value = null
   try {
     // The caught-in-code section is optional: its failure never hides the exception groups.
@@ -48,10 +50,12 @@ async function fetchExceptions() {
       getJson('api/exceptions'),
       getJson('api/exceptions/caught').catch(() => null)
     ])
+    if (version !== reportVersion) return
     report.value = exceptions
     caughtReport.value = caught
     lastFetched.value = Date.now()
   } catch (e) {
+    if (version !== reportVersion) return
     error.value = describeLoadError(e, 'Unable to load exceptions')
   }
 }
@@ -129,6 +133,8 @@ async function clearAll() {
   try {
     const res = await apiFetch('api/exceptions', {method: 'DELETE'})
     if (!res.ok && res.status !== 204) throw new Error(`HTTP ${res.status}`)
+    reportVersion++
+    if (report.value) report.value = {...report.value, groups: [], totalExceptions: 0}
     closeDrawer()
     await load()
     flash('Cleared captured exceptions.', 'success')
@@ -174,6 +180,8 @@ async function changeStatus(group, status) {
     flash(readOnlyReason.value, 'warning')
     return
   }
+  if (busy.value) return
+  busy.value = true
   try {
     const res = await apiFetch(`api/exceptions/${encodeURIComponent(group.id)}/status`, {
       method: 'POST',
@@ -182,10 +190,14 @@ async function changeStatus(group, status) {
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const updated = await res.json()
+    reportVersion++
     applyUpdatedGroup(updated)
     flash(`Status changed to ${statusLabel(updated.status)}.`, 'success')
+    if (loading.value) await load()
   } catch (e) {
     show(formatLoadError(e, 'Could not update status'), 'danger')
+  } finally {
+    busy.value = false
   }
 }
 
@@ -394,7 +406,7 @@ onMounted(() => {
                             v-for="s in STATUSES"
                             :key="s"
                             type="button"
-                            :disabled="readOnly"
+                            :disabled="readOnly || busy"
                             :class="{active: g.status === s}"
                             class="btn btn-outline-secondary"
                             @click="changeStatus(g, s)"

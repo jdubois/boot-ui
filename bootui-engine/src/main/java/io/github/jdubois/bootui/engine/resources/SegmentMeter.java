@@ -7,7 +7,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -160,14 +159,11 @@ public final class SegmentMeter {
         if (segment == null) {
             return 0;
         }
-        for (int attempt = 0; attempt < 4; attempt++) {
-            long openStart = segment.openStartCpuNanos;
-            long closed = segment.attributedCpuNanos.get();
-            if (openStart == segment.openStartCpuNanos) {
-                return closed + (openStart >= 0 && threadCpuNanos > openStart ? threadCpuNanos - openStart : 0);
-            }
-        }
-        return segment.attributedCpuNanos.get();
+        CpuAttribution attribution = segment.attribution.get();
+        long openStart = attribution.openStart();
+        long credited =
+                attribution.closed() + (openStart >= 0 && threadCpuNanos > openStart ? threadCpuNanos - openStart : 0);
+        return threadCpuNanos < 0 ? credited : Math.min(credited, threadCpuNanos);
     }
 
     /** Forgets the platform threads that ended, which the CPU ledger calls once a sweep. */
@@ -275,9 +271,7 @@ public final class SegmentMeter {
         private final long[] startCollections;
         private final long[] endCollections;
         private volatile Meter meter;
-        private final AtomicLong attributedCpuNanos = new AtomicLong();
-        /** The open segment's starting CPU time, or {@code -1} when none is open; read by the CPU ledger. */
-        private volatile long openStartCpuNanos = -1;
+        private final AtomicReference<CpuAttribution> attribution = new AtomicReference<>(new CpuAttribution(0, -1));
 
         private String requestId;
         /** The JFR segment event open with it during a Profile resources session, or {@code null}. */
@@ -323,6 +317,9 @@ public final class SegmentMeter {
         }
     }
 
+    /** Closed credit and the open baseline must be observed together when a segment closes. */
+    private record CpuAttribution(long closed, long openStart) {}
+
     /** One measured request: its totals so far and its segments still open. */
     private static final class Meter {
 
@@ -346,7 +343,7 @@ public final class SegmentMeter {
                 return false;
             }
             open.add(segment);
-            segment.openStartCpuNanos = segment.startCpuNanos;
+            segment.attribution.set(new CpuAttribution(segment.attribution.get().closed(), segment.startCpuNanos));
             return true;
         }
 
@@ -382,7 +379,8 @@ public final class SegmentMeter {
         synchronized void discard() {
             done = true;
             for (Segment segment : open) {
-                segment.openStartCpuNanos = -1;
+                segment.attribution.set(
+                        new CpuAttribution(segment.attribution.get().closed(), -1));
                 segment.meter = null;
             }
             open.clear();
@@ -394,10 +392,10 @@ public final class SegmentMeter {
          */
         private void credit(Segment segment, long cpu, long allocated, long[] collections, Readings readings) {
             segments++;
+            long delta = 0;
             if (segment.startCpuNanos >= 0 && cpu >= 0 && segment.startAllocatedBytes >= 0 && allocated >= 0) {
-                long delta = Math.max(0, cpu - segment.startCpuNanos);
+                delta = Math.max(0, cpu - segment.startCpuNanos);
                 cpuNanos += delta;
-                segment.attributedCpuNanos.addAndGet(delta);
                 allocatedBytes += Math.max(0, allocated - segment.startAllocatedBytes);
             } else {
                 unmeasured++;
@@ -407,6 +405,7 @@ public final class SegmentMeter {
                             : readings.supported() ? Unmeasured.THREAD_ENDED : Unmeasured.UNSUPPORTED;
                 }
             }
+            segment.attribution.set(new CpuAttribution(segment.attribution.get().closed() + delta, -1));
             for (int i = 0; i < collections.length; i++) {
                 long after = segment.startCollections[i];
                 long last = collections[i];
@@ -414,7 +413,6 @@ public final class SegmentMeter {
                     addRange(readings.collector(i), after, last);
                 }
             }
-            segment.openStartCpuNanos = -1;
             segment.meter = null;
         }
 

@@ -125,14 +125,14 @@ function simpleName(type) {
 
 // A task the BootUI agent propagated from this request to an executor (docs/PLAN-v2.md M5-2): where it ran, what it
 // did under its own execution, and how it ended.
-function handoffRow(handoff) {
+function handoffRow(handoff, index) {
   const work = [
     handoff.sqlCount ? plural(handoff.sqlCount, 'SQL statement') : null,
     handoff.restClientCount ? plural(handoff.restClientCount, 'REST call') : null,
     handoff.messagingCount ? plural(handoff.messagingCount, 'message') : null
   ].filter(Boolean)
   return {
-    key: handoff.executionId,
+    key: `${handoff.executionId}:${index}`,
     task: simpleName(handoff.taskClass),
     taskClass: handoff.taskClass,
     hook: handoff.hook,
@@ -140,7 +140,12 @@ function handoffRow(handoff) {
     timing: `${formatDuration(micros(handoff.durationMicros))} after ${formatDuration(
       micros(handoff.queuedMicros)
     )} queued`,
-    did: work.length ? work.join(', ') : 'nothing recorded',
+    did:
+      handoff.executionId === handoff.parentExecutionId
+        ? 'work shares the parent execution; per-task counts unavailable'
+        : work.length
+          ? work.join(', ')
+          : 'nothing recorded',
     failed: handoff.failed,
     outcome: handoff.failed ? `failed: ${simpleName(handoff.exceptionClass)}` : 'completed',
     afterResponse: handoff.afterResponse

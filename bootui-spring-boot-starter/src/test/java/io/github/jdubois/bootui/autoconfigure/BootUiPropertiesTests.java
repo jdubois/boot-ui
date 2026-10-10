@@ -20,6 +20,13 @@ import org.springframework.mock.env.MockEnvironment;
 class BootUiPropertiesTests {
 
     @Test
+    void anEmptyJournalSourcesPropertyKeepsTheDefaultSources() {
+        BootUiProperties properties = bind(new MockEnvironment().withProperty("bootui.runtime-journal.sources", ""));
+        assertThat(properties.getRuntimeJournal().toSettings().sources())
+                .isEqualTo(io.github.jdubois.bootui.engine.journal.JournalSource.all());
+    }
+
+    @Test
     void aProfileResourcesSessionLastsThirtySecondsUnlessConfigured() {
         assertThat(new BootUiProperties().getResources().toSettings().jfrMaxDuration())
                 .isEqualTo(Duration.ofSeconds(30));

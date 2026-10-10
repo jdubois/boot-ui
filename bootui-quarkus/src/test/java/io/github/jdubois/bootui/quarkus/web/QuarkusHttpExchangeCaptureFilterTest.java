@@ -9,6 +9,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -19,6 +20,8 @@ import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.javaagent.AgentCodePaths;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.resources.SegmentMeter;
@@ -29,6 +32,8 @@ import io.github.jdubois.bootui.quarkus.exceptions.QuarkusExceptionLogHandler;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfigBuilder;
+import io.vertx.core.AsyncResult;
+import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.MultiMap;
 import io.vertx.core.Vertx;
@@ -74,6 +79,66 @@ class QuarkusHttpExchangeCaptureFilterTest {
 
         verify(rc).next();
         assertThat(buffer.snapshot()).hasSize(1);
+    }
+
+    @Test
+    void aClosedResponseWithoutBodyEndCompletesCaptureAndItsMeterExactlyOnce() throws Exception {
+        RoutingContext rc = mockRequest("/stream");
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+        RequestPhases phases = mock(RequestPhases.class);
+        SegmentMeter meter = mock(SegmentMeter.class);
+        AtomicReference<Handler<AsyncResult<Void>>> ended = new AtomicReference<>();
+        doAnswer(invocation -> {
+                    ended.set(invocation.getArgument(0));
+                    return rc;
+                })
+                .when(rc)
+                .addEndHandler(any());
+        @SuppressWarnings("unchecked")
+        Instance<TraceIdSource> tracing = mock(Instance.class);
+        try (RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start());
+                MockedStatic<SegmentMeter> meters = mockStatic(SegmentMeter.class);
+                MockedStatic<AgentCodePaths> codePaths = mockStatic(AgentCodePaths.class)) {
+            meters.when(SegmentMeter::shared).thenReturn(meter);
+            new QuarkusHttpExchangeCaptureFilter(buffer, tracing, new SmallRyeConfigBuilder().build(), phases, journal)
+                    .handle(rc);
+            when(rc.response().closed()).thenReturn(true);
+            if (ended.get() != null) ended.get().handle(Future.failedFuture("Connection closed"));
+            assertThat(buffer.snapshot())
+                    .singleElement()
+                    .satisfies(exchange -> assertThat(exchange.status()).isZero());
+            verify(meter, times(1)).take(any());
+            verify(phases, times(1)).end(any());
+            assertThat(journal.awaitDrained(java.time.Duration.ofSeconds(10))).isTrue();
+            assertThat(journal.entries())
+                    .filteredOn(entry -> entry.event().source() == JournalSource.HTTP)
+                    .singleElement()
+                    .satisfies(entry -> assertThat(((HttpPayload) entry.event().payload()).status())
+                            .isZero());
+            bodyEndHandler(rc).handle(null);
+            assertThat(buffer.snapshot()).hasSize(1);
+            verify(meter, times(1)).take(any());
+            codePaths.verify(AgentCodePaths::clearPhase, times(2));
+        }
+    }
+
+    @Test
+    void aNormalBodyEndAndRequestEndKeepOneExchangeWithTheRealStatus() {
+        RoutingContext rc = mockRequest("/orders");
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+        AtomicReference<Handler<AsyncResult<Void>>> ended = new AtomicReference<>();
+        doAnswer(invocation -> {
+                    ended.set(invocation.getArgument(0));
+                    return rc;
+                })
+                .when(rc)
+                .addEndHandler(any());
+        completeRequest(filter(buffer, Map.of()), rc);
+        when(rc.response().ended()).thenReturn(true);
+        if (ended.get() != null) ended.get().handle(Future.succeededFuture());
+        assertThat(buffer.snapshot())
+                .singleElement()
+                .satisfies(exchange -> assertThat(exchange.status()).isEqualTo(200));
     }
 
     @Test

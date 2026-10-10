@@ -12,20 +12,21 @@ import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.MemoryOffloadable;
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.WeakHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Predicate;
 
@@ -79,7 +80,8 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
 
     private final Object lock = new Object();
     private final Map<String, Group> groups = new HashMap<>();
-    private final Set<Throwable> seen = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
+    private final Set<SeenThrowable> seen = new HashSet<>();
+    private final ReferenceQueue<Throwable> seenQueue = new ReferenceQueue<>();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 
     private volatile List<String> applicationPackages = List.of();
@@ -190,17 +192,46 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
      * observe the chain, {@code false} if any link was already recorded (a duplicate from another source).
      */
     private boolean markSeen(Throwable throwable) {
-        boolean fresh = true;
-        Throwable current = throwable;
-        int depth = 0;
-        while (current != null && depth < MAX_CAUSE_DEPTH) {
-            if (!seen.add(current)) {
-                fresh = false;
+        synchronized (seen) {
+            SeenThrowable ended;
+            while ((ended = (SeenThrowable) seenQueue.poll()) != null) {
+                seen.remove(ended);
             }
-            current = current.getCause() == current ? null : current.getCause();
-            depth++;
+            boolean fresh = true;
+            Throwable current = throwable;
+            int depth = 0;
+            while (current != null && depth < MAX_CAUSE_DEPTH) {
+                if (!seen.add(new SeenThrowable(current, seenQueue))) {
+                    fresh = false;
+                }
+                current = current.getCause() == current ? null : current.getCause();
+                depth++;
+            }
+            return fresh;
         }
-        return fresh;
+    }
+
+    private static final class SeenThrowable extends WeakReference<Throwable> {
+        private final int hash;
+
+        SeenThrowable(Throwable throwable, ReferenceQueue<Throwable> queue) {
+            super(throwable, queue);
+            hash = System.identityHashCode(throwable);
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            Throwable throwable = get();
+            return throwable != null && other instanceof SeenThrowable reference && throwable == reference.get();
+        }
     }
 
     private void capture(
@@ -345,7 +376,12 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
         synchronized (lock) {
             groups.clear();
         }
-        seen.clear();
+        synchronized (seen) {
+            seen.clear();
+            while (seenQueue.poll() != null) {
+                // Discard only identity bookkeeping; cleared exceptions remain unretained.
+            }
+        }
         notifyListeners();
     }
 

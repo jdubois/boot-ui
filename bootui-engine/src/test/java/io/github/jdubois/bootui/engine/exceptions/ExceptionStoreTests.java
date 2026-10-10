@@ -96,6 +96,46 @@ class ExceptionStoreTests {
     }
 
     @Test
+    void distinctValueEqualThrowablesAreSeparateOccurrences() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        List<io.github.jdubois.bootui.engine.journal.RuntimeEvent> events = new ArrayList<>();
+        store.setRuntimeEventSink(event -> {
+            events.add(event);
+            return true;
+        });
+        List<ValueEqualFailure> failures = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            failures.add(new ValueEqualFailure());
+        }
+        for (ValueEqualFailure failure : failures) {
+            store.record(failure, "main", null, null, null, "log");
+            store.record(new RuntimeException("wrapper", failure), "main", null, null, null, "web");
+        }
+
+        assertThat(store.totalExceptions()).isEqualTo(2);
+        assertThat(store.groups())
+                .singleElement()
+                .satisfies(group -> assertThat(group.count()).isEqualTo(2));
+        assertThat(events).hasSize(2);
+    }
+
+    private static final class ValueEqualFailure extends RuntimeException {
+        ValueEqualFailure() {
+            super("equal failure");
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof ValueEqualFailure;
+        }
+
+        @Override
+        public int hashCode() {
+            return 1;
+        }
+    }
+
+    @Test
     void deduplicatesAcrossCauseChainSoAFrameworkWrapperOfASeenCauseCountsOnce() {
         ExceptionStore store = new ExceptionStore(100, 25, 50);
         IllegalStateException root = new IllegalStateException("boom");

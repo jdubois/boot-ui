@@ -145,7 +145,9 @@ application-originated exceptions only.
 On Spring MVC, BootUI records from two complementary sources: a non-intrusive `HandlerExceptionResolver` that observes
 exceptions escaping web request handlers, capturing the request method, path, and handler; and a logback appender that
 picks up anything logged with a throwable from scheduled tasks, async work, or `log.error("…", ex)`. A failure that is
-both handled and logged is de-duplicated by throwable identity.
+both handled and logged is de-duplicated by throwable identity. Distinct exception instances count as separate
+occurrences even when their `equals()` methods report them equal; observing the same instance or its cause twice does
+not add another occurrence.
 
 ### Triage status
 
@@ -164,6 +166,8 @@ When a **Resolved** group throws again, BootUI treats it as a regression. The gr
 A status filter narrows the list alongside the text and source filters. Changing a status calls
 `POST /bootui/api/exceptions/{id}/status` with `{"status": "..."}`, validated against the three values: anything else
 returns `400`, and an unknown group returns `404`.
+An older refresh cannot overwrite an accepted status change. If a refresh was already in flight, one fresh read
+follows it even with auto-refresh off; a failed follow-up keeps the accepted status visible alongside the read error.
 
 ### Caught in application code
 
@@ -465,3 +469,16 @@ retrying the mutation. If that read fails, the accepted data stays visible along
 A refresh started before an accepted Hibernate activation or capture action cannot overwrite its result. When a
 refresh is already outstanding, one fresh read follows it even with auto-refresh off; otherwise the returned report
 updates the panel immediately. Ordinary refresh behavior and each stack's capability limitations are unchanged.
+
+**Profile resources** uses the same accepted-outcome rule: an older poll cannot replace an accepted start or stop,
+and leaving the panel stops its polling and countdown. An unknown acknowledgement re-reads the profile once without
+starting or stopping another recording. Empty route rows mean no request samples were attributed to listed routes,
+not that no request ran. When HTTP Exchanges policy withholds the rows, the profile keeps its positive request and
+sample totals and shows the backend's limitation instead. At most 20 routes are listed; `routesOmitted` counts further
+routes, and the report's limitations describe sampling and attribution bounds.
+
+**Flyway and Liquibase** require their native action-result JSON before reporting success. A failed action can still
+have committed earlier migrations or change sets, so an HTTP 5xx, lost response, or unknown acknowledgement triggers
+one history read without retrying the mutation. The action failure stays visible; if that read fails too, the last
+accepted history remains alongside the read failure. A known HTTP 4xx refusal or a cancelled confirmation does not
+trigger that follow-up read.

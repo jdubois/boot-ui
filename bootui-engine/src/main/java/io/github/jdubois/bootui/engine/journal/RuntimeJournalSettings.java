@@ -62,7 +62,7 @@ public record RuntimeJournalSettings(
      * The settings the {@code bootui.runtime-journal.*} properties describe.
      *
      * @param maxBytes the byte bound, or {@code null} or a non-positive value for {@link #defaultMaxBytes}
-     * @param sources a comma-separated list of {@link JournalSource} names, or {@code null} for every source
+     * @param sources a comma-separated list of {@link JournalSource} names, or {@code null} or blank for every source
      * @throws IllegalArgumentException naming an unknown source
      */
     public static RuntimeJournalSettings of(
@@ -76,7 +76,7 @@ public record RuntimeJournalSettings(
                 queueCapacity,
                 DEFAULT_RESERVED_SHARE_PERCENT,
                 DEFAULT_RESERVED_SHARE_PERCENT,
-                sources == null ? JournalSource.all() : JournalSource.parse(sources));
+                sources == null || sources.isBlank() ? JournalSource.all() : JournalSource.parse(sources));
     }
 
     /**

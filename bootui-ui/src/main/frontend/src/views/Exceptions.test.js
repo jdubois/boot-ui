@@ -140,6 +140,43 @@ describe('Exceptions', () => {
     vi.unstubAllGlobals()
   })
 
+  it('keeps an acknowledged status after an older manual read finishes with auto-refresh off', async () => {
+    let reads = 0
+    let resolveStale
+    const updated = group({status: 'RESOLVED'})
+    const fetchMock = mockFetch({
+      'api/exceptions': () => {
+        reads++
+        if (reads === 2) return new Promise((resolve) => (resolveStale = resolve))
+        return Promise.resolve(jsonResponse(reads === 1 ? report() : report({groups: [updated]})))
+      },
+      'api/exceptions/abc123/status': updated
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(Exceptions)
+    try {
+      await flushPromises()
+      const header = wrapper.findComponent({name: 'PanelHeader'})
+      header.vm.$emit('update:autoRefresh', false)
+      header.vm.$emit('refresh')
+      await flushPromises()
+      expect(reads).toBe(2)
+      const row = wrapper.findAll('tbody tr')[0]
+      await row
+        .findAll('button')
+        .find((button) => button.text() === 'Resolved')
+        .trigger('click')
+      await flushPromises()
+      expect(row.findAll('td')[3].find('.badge').text()).toBe('Resolved')
+      resolveStale(jsonResponse(report()))
+      await flushPromises()
+      expect(wrapper.findAll('tbody tr')[0].findAll('td')[3].find('.badge').text()).toBe('Resolved')
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it('renders grouped exceptions with masked messages, counts, and locations', async () => {
     const fetchMock = mockFetch()
     vi.stubGlobal('fetch', fetchMock)

@@ -205,10 +205,15 @@ public class QuarkusHttpExchangeCaptureFilter {
                 logCaptureFailure(failure);
             }
         });
-        rc.addBodyEndHandler(v -> {
+        java.util.concurrent.atomic.AtomicBoolean completed = new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.function.IntConsumer complete = status -> {
+            // A late body end can run on a different worker after close-time capture; its phase must still clear.
+            AgentCodePaths.clearPhase();
+            if (!completed.compareAndSet(false, true)) {
+                return;
+            }
             // Runs on the thread that ended the response: on a worker, no end() closes the request's scope, so the
             // code-paths phase its response filter marked is cleared here, before the worker takes other work.
-            AgentCodePaths.clearPhase();
             try {
                 long durationNanos = System.nanoTime() - startNanos;
                 long durationMs = durationNanos / 1_000_000L;
@@ -227,14 +232,13 @@ public class QuarkusHttpExchangeCaptureFilter {
                             traceId,
                             thread,
                             null,
-                            RequestSlowThreshold.isFailedOrSlow(
-                                    response.getStatusCode(), durationMs, buffer.slowThresholdMillis()),
+                            RequestSlowThreshold.isFailedOrSlow(status, durationMs, buffer.slowThresholdMillis()),
                             new HttpPayload(
                                     request.method().name(),
                                     path,
                                     null,
                                     null,
-                                    response.getStatusCode(),
+                                    status,
                                     resources,
                                     RequestTiming.of(startNanos, phases == null ? null : phases.markers(requestId)))));
                 } catch (RuntimeException ex) {
@@ -244,7 +248,7 @@ public class QuarkusHttpExchangeCaptureFilter {
                         started,
                         request.method().name(),
                         toUri(request),
-                        response.getStatusCode(),
+                        status,
                         durationMs,
                         remoteAddr(rc),
                         principal(rc),
@@ -257,7 +261,13 @@ public class QuarkusHttpExchangeCaptureFilter {
             } catch (RuntimeException failure) {
                 logCaptureFailure(failure);
             }
-        });
+        };
+        rc.addBodyEndHandler(v -> complete.accept(rc.response().getStatusCode()));
+        rc.addEndHandler(
+                ended -> complete.accept(rc.response().ended() ? rc.response().getStatusCode() : 0));
+        if (rc.response().ended() || rc.response().closed()) {
+            complete.accept(rc.response().ended() ? rc.response().getStatusCode() : 0);
+        }
     }
 
     /**

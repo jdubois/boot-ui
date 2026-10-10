@@ -8,12 +8,21 @@ import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.AsyncHandoffPayload;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.OrmPayload;
+import io.github.jdubois.bootui.engine.journal.RequestJournalProfiles;
 import io.github.jdubois.bootui.engine.journal.RunningHandoffs;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
+import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.ThreadKind;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -518,6 +527,72 @@ class AgentHandoffsTests {
         assertThat(BootUiCorrelation.current().executionId()).isEqualTo("job-1");
         close(handle);
         assertThat(sink.single().executionId()).isEqualTo("job-1");
+    }
+
+    @Test
+    void aRealScheduledHandoffProfilesEachRetainedEventOnceAndQualifiesSharedTaskWork() throws Exception {
+        try (RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start())) {
+            JournalAggregates aggregates = new JournalAggregates();
+            journal.addListener(aggregates);
+            AgentHandoffs handoffs = handoffs(null, null);
+            handoffs.setRuntimeEventSink(journal);
+            CorrelationContext job = CorrelationContext.forExecution("job-1");
+            Object snapshot;
+            try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(job)) {
+                journal.offer(RuntimeEvent.of(
+                        JournalSource.SQL,
+                        now.toEpochMilli(),
+                        0,
+                        job,
+                        "scheduler",
+                        ThreadKind.WORKER,
+                        false,
+                        new SqlPayload("select * from direct_work", null, "db", false)));
+                snapshot = handoffs.capture();
+            }
+            AutoCloseable task = handoffs.reopen(new Object[] {snapshot, "Task", "hook"});
+            assertThat(task).isNotNull();
+            assertThat(BootUiCorrelation.current().executionId()).isEqualTo("job-1");
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.SQL,
+                    now.toEpochMilli(),
+                    0,
+                    BootUiCorrelation.current(),
+                    "worker",
+                    ThreadKind.WORKER,
+                    false,
+                    new SqlPayload("select * from task_work", null, "db", false)));
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.ORM,
+                    now.toEpochMilli(),
+                    0,
+                    BootUiCorrelation.current(),
+                    "worker",
+                    ThreadKind.WORKER,
+                    false,
+                    new OrmPayload(null, 1, 0, 1, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0)));
+            close(task);
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.SCHEDULED,
+                    now.toEpochMilli(),
+                    0,
+                    job,
+                    "scheduler",
+                    ThreadKind.WORKER,
+                    false,
+                    new ScheduledPayload("Job.run", null)));
+            assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+
+            var profile = new RequestJournalProfiles(journal, aggregates, 1000, 5, null).profile("job-1");
+            assertThat(profile.available()).isTrue();
+            assertThat(profile.timeline().stream()
+                            .filter(row -> "sql".equals(row.source()))
+                            .count())
+                    .isEqualTo(2);
+            assertThat(profile.handoffs()).hasSize(1);
+            assertThat(profile.orm().sessions()).isEqualTo(1);
+            assertThat(profile.notes()).anyMatch(note -> note.contains("share their parent execution id"));
+        }
     }
 
     @Test

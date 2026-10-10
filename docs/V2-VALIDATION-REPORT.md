@@ -295,6 +295,66 @@ database, browser, or framework path. The correctness task is complete on the re
 acceptance, human sign-off, release-candidate designation, main-merge authorization, and administrative
 prerequisites remain separate and unchanged.
 
+## Fourth independent three-model pass, 2026-10-10
+
+At the maintainer's request, GPT-6.1 Sol, Claude Sonnet 5.5, and Grok 4.7 performed a new independent source review
+of `84e3c1fca7675baaf41a06b7c84d5632fcef03d1`, tree `0e5eb8c8553c9cf70a897b83297a8e5f28e0c54f`.
+Live `main` at `bd46bf819e9e75282b849184e058090d9c769219` was fetched and already included; the explicit merge
+reported up to date. No redundant merge or plan/version change was needed.
+
+Sol reported four candidates, Sonnet four after a bounded clarification, and Grok no additional high-confidence
+finding. Their reports describe their source-only coverage and limits; none independently ran the application.
+The parent adjudicated candidates against native producers and controlled reproductions, not majority vote.
+Two claims were rejected: MCP/CLI action markers match the documented panel-only contract, and the proposed
+dynamic cache issue lacked a verified live-state-change counterexample. Sonnet also withdrew an Exceptions triage
+race, but the parent's native-acknowledgement regression demonstrated that race with auto-refresh off.
+
+| Severity | Confirmed issue | Correction |
+| --- | --- | --- |
+| Medium | Scheduled/message handoffs share their parent's execution id, selecting SQL/ORM evidence twice and implying no task work | Select each journal sequence once; preserve root anchors and qualify per-task counts that shared execution identity cannot separate |
+| Medium | A CPU ledger read during segment closure counted newly closed credit and the still-open baseline together | Publish closed credit and open baseline as one immutable accounting snapshot; bound attribution by the sampler's CPU snapshot |
+| Medium | Quarkus responses closed without body end lost their HTTP completion and left request measurements unfinished | Complete once from body end or native request end/close, retain status `0` for a response that never ended, and release its phase/resource accounting |
+| Medium | Distinct application throwables overriding equality were deduplicated as one failure | Use weak identity keys and queue cleanup; preserve deduplication of the same instance and shared cause chain |
+| Low | Blank journal-source properties silently recorded nothing on Spring but selected every source on Quarkus | Normalize blank property values to the existing default, while preserving explicitly empty internal sets and invalid-name rejection |
+| Medium | A resource-profile poll could replace an accepted stop result or restart timers after unmount | Invalidate pre-action reads and reject disposed/obsolete completions; reconcile unknown action outcomes without retrying mutations |
+| Medium | Completed JFR reports with withheld routes and positive request counts said no request ran | Keep positive totals, explain withheld route evidence, and describe empty attributed samples without inventing absence |
+| Medium | Flyway/Liquibase failed or lost actions left pre-action history visible despite possible partial commits | Re-read history once after server failures or unknown outcomes; retain the failure and never retry the database action |
+| Medium | An older manual exception read could overwrite an accepted triage change with auto-refresh off | Reject superseded report reads, preserve accepted status, and use the existing bounded follow-up read when one was in flight |
+
+These are correctness priorities, not CVSS scores. Shared task-count wording and unique rendering keys belong to
+the native-handoff root, not extra defects. No public DTO fields, transport schemas, sensor defaults, dependency
+versions, performance thresholds, or release permissions changed.
+
+### Controlled reproduction and local evidence
+
+The real handoff producer's capture/reopen/close path yielded four SQL timeline rows from two retained SQL events
+before correction. The CPU collector-latched closure yielded attribution `200` for CPU `100`. Two distinct
+value-equal exceptions yielded one occurrence. Native Quarkus close handling produced no exchange when one was
+required. Blank-source tests failed in both the shared engine and the real Spring binder. Each of those six original
+Java class runs had one assertion failure, no errors, and no skips.
+
+An initial fixture incorrectly tried to access a package-private journal constructor and dispatcher from another
+test package; those compile failures are harness failures, not product RED. The corrected fixture uses the public
+journal and its bounded drain wait. Actual failed XML and logs are retained separately.
+
+The three owned UI views had 39 failing assertions, 35 passing controls, and one genuine unhandled rendering error
+on original production bytes. Identical final assertions passed all 74 cases after correction, with no unhandled
+errors. Two additional parent regressions for triage read ordering and shared handoff wording failed with 17 positive
+controls before correction. The composed five-file selection then passed all 93 cases. A backend control batch
+stopped before its next command when the one-minute system load exceeded 50; no test failure is claimed from that
+safety stop.
+
+The final formatted local selection executed 231 Java cases across 12 individual class runs with no failures,
+errors, or skips, each through its own `jvmRun1`. The composed UI selection passed all 93 cases, its typed check and
+build passed, and root Spotless plus all three frontend/browser formatting checks passed. Native Spring and SmallRye
+blank-property tests preserve explicit source lists. Playwright discovery registered 44 cases on each of the three
+default stacks, including 16 additions per stack; discovery does not establish their execution.
+
+Final current-source native, browser, architecture, formatting, and documentation acceptance evidence is recorded
+only after it executes. The earlier green `93f1abcc4` tree does not validate this new composition. Existing
+performance misses remain separate and unwaived; these reviews and correctness repairs do not rerun or rescore the
+registered external-application study or provide release approval.
+
 ## Release sign-off
 
 **Not signed off.** This section is the release decision for 2.0.0 ([v2 plan](PLAN-v2.md) §4.3). M4-20's registered

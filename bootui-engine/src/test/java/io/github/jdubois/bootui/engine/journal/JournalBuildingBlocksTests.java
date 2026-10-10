@@ -88,6 +88,19 @@ class JournalBuildingBlocksTests {
     }
 
     @Test
+    void blankSourcePropertiesUseTheSameDefaultsAsUnsetWithoutChangingExplicitEmptySets() {
+        for (String blank : List.of("", " ", "\t")) {
+            assertThat(RuntimeJournalSettings.of(true, 50_000, null, 10_000, blank)
+                            .sources())
+                    .isEqualTo(JournalSource.all());
+        }
+        assertThat(new RuntimeJournalSettings(true, 10, 1000, 10, 10, 10, java.util.Set.of()).sources())
+                .isEmpty();
+        assertThat(RuntimeJournalSettings.of(true, 50_000, null, 10_000, "sql").sources())
+                .containsExactly(JournalSource.SQL);
+    }
+
+    @Test
     void byteSizesParseAsSpringAndQuarkusWriteThem() {
         assertThat(RuntimeJournalSettings.parseBytes("1024")).isEqualTo(1024);
         assertThat(RuntimeJournalSettings.parseBytes("512B")).isEqualTo(512);

@@ -1,7 +1,8 @@
 <script setup>
-import {apiFetch} from '../api.js'
-import {computed, onMounted, ref} from 'vue'
+import {ApiError, apiFetch} from '../api.js'
+import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import {diagnosticActionError} from '../utils/diagnosticAcknowledgement.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
@@ -20,22 +21,34 @@ const error = ref(null)
 const flywayPresent = ref(true)
 const initialLoading = ref(true)
 const filter = ref('')
-const {message: banner, flash, clear} = useFlashMessage()
+const {message: banner, flash, show, clear} = useFlashMessage()
 const busy = ref(null)
+let disposed = false
+let readEpoch = 0
 
 async function load() {
+  if (disposed) return
+  const read = ++readEpoch
+  const current = () => !disposed && read === readEpoch
   try {
     const res = await apiFetch('api/flyway/migrations')
+    if (!current()) return
     if (res.status === 404) {
       flywayPresent.value = false
       return
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    report.value = await res.json()
+    const result = await res.json()
+    if (!current()) return
+    if (!Array.isArray(result?.databases) || !Number.isFinite(result.total))
+      throw new Error('Invalid Flyway migrations response.')
+    report.value = result
+    error.value = null
+    flywayPresent.value = true
   } catch (e) {
-    error.value = describeLoadError(e, 'Unable to load Flyway migrations')
+    if (current()) error.value = describeLoadError(e, 'Unable to load Flyway migrations')
   } finally {
-    initialLoading.value = false
+    if (current()) initialLoading.value = false
   }
 }
 
@@ -44,6 +57,7 @@ function actionKey(db, action) {
 }
 
 async function runAction(db, action) {
+  if (disposed || busy.value) return
   if (readOnly.value) {
     flash(readOnlyReason.value, 'warning')
     return
@@ -66,27 +80,55 @@ async function runAction(db, action) {
           danger: true
         }
   if (!(await confirm(confirmation))) return
+  if (disposed || busy.value || readOnly.value) return
 
   const key = actionKey(db, action)
   busy.value = key
+  ++readEpoch
   clear()
+  let reconcile = true
   try {
     const res = await apiFetch(`api/flyway/${action}`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({beanName: db.name, confirm: true})
     })
-    const result = await res.json().catch(() => ({}))
+    if (disposed) return
+    reconcile = res.ok || res.status >= 500
+    let result
+    try {
+      result = await res.json()
+    } catch {
+      if (res.ok) throw new Error('Invalid Flyway action response.')
+    }
+    if (disposed) return
     if (!res.ok) {
-      flash(result.message || result.error || `HTTP ${res.status}`, 'warning')
+      show(diagnosticActionError(new ApiError(res.status, result), 'Could not run Flyway action'), 'warning')
       return
     }
-    flash(result.message || 'Flyway action completed.', result.status === 'success' ? 'success' : 'warning')
-    await load()
+    if (
+      !['success', 'failed'].includes(result?.status) ||
+      typeof result.message !== 'string' ||
+      !result.message.trim() ||
+      result.beanName !== db.name ||
+      !['schemasCleaned', 'schemasDropped', 'warnings'].every(
+        (field) => Array.isArray(result[field]) && result[field].every((value) => typeof value === 'string')
+      )
+    )
+      throw new Error('Invalid Flyway action response.')
+    if (result.status === 'success') flash(result.message, 'success')
+    else show(result.message, 'warning')
   } catch (e) {
-    flash(formatLoadError(e, 'Could not run Flyway action'), 'danger')
+    if (!disposed)
+      show(
+        `${formatLoadError(e, 'Could not run Flyway action')} The action outcome is unknown; reading the current migrations without retrying the action.`,
+        'danger'
+      )
   } finally {
-    busy.value = null
+    if (!disposed) {
+      if (reconcile) await load()
+      if (!disposed) busy.value = null
+    }
   }
 }
 
@@ -117,6 +159,10 @@ const stateClass = (state) => {
 }
 
 onMounted(load)
+onBeforeUnmount(() => {
+  disposed = true
+  ++readEpoch
+})
 </script>
 
 <template>

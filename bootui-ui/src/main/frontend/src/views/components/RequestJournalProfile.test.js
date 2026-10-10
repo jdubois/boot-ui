@@ -153,6 +153,38 @@ describe('RequestJournalProfile', () => {
     expect(wrapper.text()).not.toContain('Handoffs')
   })
 
+  it('qualifies shared execution handoffs instead of claiming that no work was recorded', () => {
+    const handoff = {
+      executionId: 'job-1',
+      parentExecutionId: 'job-1',
+      thread: 'worker',
+      startOffsetMicros: 1000,
+      durationMicros: 5000,
+      queuedMicros: 0,
+      taskClass: 'Task',
+      hook: 'Executor.execute',
+      failed: false,
+      afterResponse: false,
+      capped: false,
+      sqlCount: 0,
+      restClientCount: 0,
+      messagingCount: 0,
+      allocatedBytes: null
+    }
+    const wrapper = mount(RequestJournalProfile, {
+      props: {
+        profile: journalProfile({
+          requestId: 'job-1',
+          handoffs: [handoff, {...handoff, thread: 'another-worker'}]
+        })
+      }
+    })
+    expect(wrapper.findAll('.request-journal__handoff')).toHaveLength(2)
+    expect(wrapper.text()).toContain('per-task counts unavailable')
+    expect(wrapper.text()).not.toContain('nothing recorded')
+    wrapper.unmount()
+  })
+
   it('says why CPU time is unavailable or partial, never showing zero', () => {
     const unavailable = mount(RequestJournalProfile, {
       props: {

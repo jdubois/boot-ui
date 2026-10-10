@@ -1,7 +1,8 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
-import {getJson} from '../../api.js'
+import {ApiError, getJson} from '../../api.js'
 import {formatBytes, formatNumber} from '../../utils/format.js'
+import {diagnosticActionError} from '../../utils/diagnosticAcknowledgement.js'
 import {formatLoadError} from '../../utils/loadError.js'
 import {
   durationLabel,
@@ -28,6 +29,9 @@ const busy = ref(false)
 const now = ref(Date.now())
 let poll = null
 let tick = null
+let disposed = false
+let actionEpoch = 0
+let readEpoch = 0
 
 const state = computed(() => profile.value?.state ?? null)
 const running = computed(() => state.value === 'RUNNING')
@@ -37,6 +41,11 @@ const sampler = computed(() => samplerLabel(profile.value?.sampler))
 const length = computed(() => durationLabel(profile.value?.maxDurationSeconds ?? 30))
 const remaining = computed(() => remainingSeconds(profile.value, now.value))
 const progress = computed(() => elapsedPercent(profile.value, now.value))
+const routesHidden = computed(() =>
+  profile.value?.limitations.some((limitation) =>
+    limitation.startsWith('The http-exchanges panel is disabled, so the samples are not listed by route;')
+  )
+)
 const summary = computed(() => {
   const p = profile.value
   if (!p) return ''
@@ -52,41 +61,93 @@ const finished = computed(() =>
 )
 
 function show(result) {
-  profile.value = isResourceProfile(result) ? result : null
-  schedule()
+  if (
+    !isResourceProfile(result) ||
+    !['IDLE', 'RUNNING', 'COMPLETED', 'FAILED', 'UNAVAILABLE'].includes(result.state) ||
+    !['reason', 'sampler'].every((field) => result[field] === null || typeof result[field] === 'string') ||
+    !['startedAt', 'endsAt', 'finishedAt'].every((field) => result[field] === null || Number.isFinite(result[field])) ||
+    !Array.isArray(result.limitations) ||
+    !result.limitations.every((limitation) => typeof limitation === 'string') ||
+    !['maxDurationSeconds', 'cpuSamples', 'outsideSamples', 'requests', 'routesOmitted'].every(
+      (field) => Number.isFinite(result[field]) && result[field] >= 0
+    ) ||
+    !result.routes.every(
+      (route) =>
+        typeof route?.route === 'string' &&
+        ['requests', 'cpuSamples', 'allocatedBytes'].every(
+          (field) => Number.isFinite(route[field]) && route[field] >= 0
+        ) &&
+        typeof route.virtualThreads === 'boolean' &&
+        Array.isArray(route.hotFrames) &&
+        route.hotFrames.every(
+          (frame) => typeof frame?.frame === 'string' && Number.isFinite(frame.samples) && frame.samples >= 0
+        )
+    )
+  )
+    throw new Error('Invalid resource profile response.')
+  if (!disposed) profile.value = result
 }
 
-function schedule() {
+function cancelSchedule() {
   clearTimeout(poll)
   clearInterval(tick)
   poll = null
   tick = null
-  if (!running.value) return
+}
+
+function schedule() {
+  cancelSchedule()
+  if (disposed || busy.value || !running.value) return
   // While a session records, the countdown moves every second and the state is read every two.
   now.value = Date.now()
-  tick = setInterval(() => (now.value = Date.now()), 1000)
+  tick = setInterval(() => {
+    if (!disposed && !busy.value) now.value = Date.now()
+  }, 1000)
   poll = setTimeout(load, POLL_MILLIS)
 }
 
-async function load() {
+async function load({preserveError = false} = {}) {
+  if (disposed || (busy.value && !preserveError)) return
+  const action = actionEpoch
+  const read = ++readEpoch
+  const current = () => !disposed && action === actionEpoch && read === readEpoch
   try {
-    show(await getJson(PATH))
-    error.value = null
+    const result = await getJson(PATH)
+    if (!current()) return
+    show(result)
+    if (!preserveError) error.value = null
   } catch (e) {
-    error.value = formatLoadError(e, 'Unable to read the resource profile')
-    schedule()
+    if (!current()) return
+    const failure = formatLoadError(e, 'Unable to read the resource profile')
+    error.value = preserveError && error.value ? `${error.value} ${failure}` : failure
+  } finally {
+    if (current()) schedule()
   }
 }
 
 async function act(path, message) {
+  if (disposed || busy.value || (path === PATH && props.readOnly)) return
+  const action = ++actionEpoch
+  ++readEpoch
+  cancelSchedule()
   busy.value = true
   error.value = null
   try {
-    show(await getJson(path, {method: 'POST'}))
+    const result = await getJson(path, {method: 'POST'})
+    if (disposed || action !== actionEpoch) return
+    show(result)
   } catch (e) {
-    error.value = formatLoadError(e, message)
+    if (disposed || action !== actionEpoch) return
+    error.value = diagnosticActionError(e, message)
+    if (!(e instanceof ApiError) || e.status >= 500) {
+      error.value += ' The action outcome is unknown; reading the current profile without retrying the action.'
+      await load({preserveError: true})
+    }
   } finally {
-    busy.value = false
+    if (!disposed && action === actionEpoch) {
+      busy.value = false
+      schedule()
+    }
   }
 }
 
@@ -95,8 +156,10 @@ const stop = () => act(`${PATH}/stop`, 'Unable to stop the resource profile')
 
 onMounted(load)
 onBeforeUnmount(() => {
-  clearTimeout(poll)
-  clearInterval(tick)
+  disposed = true
+  ++actionEpoch
+  ++readEpoch
+  cancelSchedule()
 })
 </script>
 
@@ -167,11 +230,11 @@ onBeforeUnmount(() => {
         </div>
         <template v-else-if="state === 'COMPLETED'">
           <p class="small mt-3 mb-2 insight-profile-summary">{{ summary }}</p>
-          <p v-if="!rows.length" class="small text-muted mb-0">
-            No request ran during the session. Click "Profile again" and use the application — click through the pages
-            you want measured — while it records.
+          <p v-if="!rows.length && !routesHidden" class="small text-muted mb-0">
+            No request samples were attributed to listed routes during the session. Click "Profile again" and use the
+            application — click through the pages you want measured — while it records.
           </p>
-          <div v-else class="table-responsive">
+          <div v-if="rows.length" class="table-responsive">
             <table class="table table-sm align-middle mb-0 insight-profile-table">
               <thead>
                 <tr>

@@ -4,7 +4,7 @@ package io.github.jdubois.bootui.core.dto;
  * One task a request handed to a JDK executor, as the BootUI agent propagated it ({@code docs/PLAN-v2.md} M5-2): where
  * and when it ran, what it did under its own execution id, and how it ended.
  *
- * @param executionId the child execution it ran as, {@code async-…}
+ * @param executionId the child execution it ran as, {@code async-…}, or its scheduled/message parent execution
  * @param parentExecutionId the execution that submitted it, or {@code null}
  * @param thread the worker thread it ran on
  * @param startOffsetMicros when it started, from the request's start
@@ -21,9 +21,10 @@ package io.github.jdubois.bootui.core.dto;
  *     ended when the response start is unknown
  * @param capped whether it ended more than {@code bootui.agent.executors.max-handoff} after it started, after which
  *     its work is not attributed
- * @param sqlCount the SQL statements recorded under its execution id
- * @param restClientCount the REST client calls recorded under its execution id
- * @param messagingCount the messages sent or received under its execution id
+ * @param sqlCount the SQL statements recorded under a distinct child execution id; zero with a profile qualification
+ *     when the task shares its parent execution and cannot be separated from the parent's other work
+ * @param restClientCount the REST client calls recorded under a distinct child execution id, qualified as above
+ * @param messagingCount the messages sent or received under a distinct child execution id, qualified as above
  * @param allocatedBytes the bytes its thread allocated while it ran, or {@code null} when unmeasured
  */
 public record RequestHandoffDto(

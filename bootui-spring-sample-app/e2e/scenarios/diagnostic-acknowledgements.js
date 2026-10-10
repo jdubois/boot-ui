@@ -1,7 +1,374 @@
 // @ts-check
 
 export function registerDiagnosticAcknowledgementTests(test, expect, acceptConfirm) {
+  async function nativeResourceProfile(page) {
+    const manifestResponse = await page.request.get('/bootui/api/panels')
+    expect(manifestResponse.ok()).toBeTruthy()
+    const manifest = await manifestResponse.json()
+    const capability = manifest.panels.find((panel) => panel.id === 'runtime-insights')
+    expect(capability).toBeTruthy()
+    test.skip(capability.available === false || capability.enabled === false, capability.unavailableReason)
+    test.skip(capability.readOnly, capability.readOnlyReason)
+    const response = await page.request.get('/bootui/api/runtime-insights/resource-profile')
+    expect(response.ok()).toBeTruthy()
+    const native = await response.json()
+    test.skip(native.state === 'UNAVAILABLE', native.reason)
+    expect(Array.isArray(native.routes)).toBe(true)
+    expect(Array.isArray(native.limitations)).toBe(true)
+    return native
+  }
+
+  async function pauseClock(page) {
+    const time = new Date()
+    await page.clock.install({time})
+    await page.clock.pauseAt(new Date(time.getTime() + 1000))
+    return time.getTime() + 1000
+  }
+
   test.describe('Diagnostic acknowledgements', () => {
+    test('keeps an accepted exception triage status after a deferred manual read with auto-refresh off', async ({
+      page,
+      openView
+    }) => {
+      const manifestResponse = await page.request.get('/bootui/api/panels')
+      expect(manifestResponse.ok()).toBeTruthy()
+      const manifest = await manifestResponse.json()
+      const capability = manifest.panels.find((panel) => panel.id === 'exceptions')
+      expect(capability).toBeTruthy()
+      test.skip(capability.available === false || capability.enabled === false, capability.unavailableReason)
+      test.skip(capability.readOnly, capability.readOnlyReason)
+      const failure = await page.request.get('/api/sample/boom')
+      expect(failure.status()).toBe(500)
+      const response = await page.request.get('/bootui/api/exceptions')
+      expect(response.ok()).toBeTruthy()
+      const native = await response.json()
+      expect(native.available).toBe(true)
+      const group = native.groups.find((candidate) => candidate.lastRequestPath === '/api/sample/boom')
+      expect(group).toBeTruthy()
+      const initial = {...native, groups: [{...group, status: 'OPEN'}]}
+      const acknowledged = {...group, status: 'RESOLVED'}
+      let reads = 0
+      let writes = 0
+      let stale
+      let fresh
+      await page.route('**/api/exceptions{,/**}', (route) => {
+        const path = new URL(route.request().url()).pathname
+        if (route.request().method() !== 'GET') {
+          expect(route.request().method()).toBe('POST')
+          expect(path).toBe(`/bootui/api/exceptions/${encodeURIComponent(group.id)}/status`)
+          expect(route.request().postDataJSON()).toEqual({status: 'RESOLVED'})
+          writes++
+          return route.fulfill({json: acknowledged})
+        }
+        if (path === '/bootui/api/exceptions/stream')
+          return route.fulfill({contentType: 'text/event-stream', body: ': test snapshot\n\n'})
+        if (path !== '/bootui/api/exceptions') return route.fallback()
+        reads++
+        if (reads === 1) return route.fulfill({json: initial})
+        if (reads === 2) stale = route
+        else fresh = route
+      })
+      await openView('exceptions', 'Exceptions')
+      const row = page.locator('table tbody tr', {hasText: '/api/sample/boom'})
+      await expect(row).toHaveCount(1)
+      const autoRefresh = page.getByRole('checkbox', {name: 'Toggle auto-refresh'})
+      await autoRefresh.uncheck()
+      expect(writes).toBe(0)
+      await page.getByRole('button', {name: 'Refresh panel', exact: true}).click()
+      await expect.poll(() => Boolean(stale)).toBe(true)
+      await row.getByRole('button', {name: 'Resolved', exact: true}).click()
+      await expect(row.locator('.badge').filter({hasText: /^Resolved$/})).toBeVisible()
+      await expect(row.getByRole('button', {name: 'Resolved', exact: true})).toHaveClass(/active/)
+      await expect(page.getByRole('status').filter({hasText: 'Status changed to Resolved.'})).toBeVisible()
+      await stale.fulfill({json: initial})
+      await expect.poll(() => Boolean(fresh)).toBe(true)
+      await expect(row.locator('.badge').filter({hasText: /^Resolved$/})).toBeVisible()
+      await fresh.fulfill({status: 503, json: {error: 'Exception snapshot temporarily unavailable'}})
+      await expect(page.getByRole('alert').filter({hasText: 'Unable to load exceptions: HTTP 503'})).toBeVisible()
+      await expect(row.locator('.badge').filter({hasText: /^Resolved$/})).toBeVisible()
+      await expect(row.getByRole('button', {name: 'Resolved', exact: true})).toBeEnabled()
+      await expect(row.getByRole('button', {name: 'Resolved', exact: true})).toHaveClass(/active/)
+      await expect(autoRefresh).not.toBeChecked()
+      expect(reads).toBe(3)
+      expect(writes).toBe(1)
+    })
+
+    test('keeps an accepted resource-profile stop after a deferred running poll', async ({page, openView}) => {
+      const native = await nativeResourceProfile(page)
+      const now = await pauseClock(page)
+      const running = {...native, state: 'RUNNING', reason: null, startedAt: now, endsAt: now + 30000}
+      const completed = {
+        ...native,
+        state: 'COMPLETED',
+        reason: null,
+        sampler: 'jdk.ExecutionSample',
+        startedAt: now,
+        endsAt: now + 30000,
+        finishedAt: now + 2000,
+        cpuSamples: 400,
+        outsideSamples: 100,
+        requests: 12,
+        routes: [],
+        routesOmitted: 0,
+        limitations: []
+      }
+      let reads = 0
+      let writes = 0
+      let stale
+      await page.route('**/api/runtime-insights/resource-profile', (route) => {
+        expect(route.request().method()).toBe('GET')
+        reads++
+        if (reads === 2) {
+          stale = route
+          return
+        }
+        return route.fulfill({json: running})
+      })
+      await page.route('**/api/runtime-insights/resource-profile/stop', (route) => {
+        expect(route.request().method()).toBe('POST')
+        writes++
+        return route.fulfill({json: completed})
+      })
+      await openView('runtime-insights?tab=profile', 'Runtime Insights')
+      const profile = page.locator('.insight-profile')
+      await expect(profile.getByRole('button', {name: 'Stop now', exact: true})).toBeVisible()
+      await page.clock.runFor(2000)
+      await expect.poll(() => Boolean(stale)).toBe(true)
+      await profile.getByRole('button', {name: 'Stop now', exact: true}).click()
+      await expect(profile.locator('.insight-profile-summary')).toContainText('12 requests')
+      await stale.fulfill({json: running})
+      await page.clock.runFor(6000)
+      await expect(profile.locator('.insight-profile-summary')).toContainText('12 requests')
+      await expect(profile.getByRole('button', {name: 'Stop now', exact: true})).toHaveCount(0)
+      expect(reads).toBe(2)
+      expect(writes).toBe(1)
+    })
+
+    for (const phase of ['initial', 'poll', 'action']) {
+      test(`does not restart resource-profile polling after unmount with a pending ${phase}`, async ({
+        page,
+        openView
+      }) => {
+        const native = await nativeResourceProfile(page)
+        const now = await pauseClock(page)
+        const running = {...native, state: 'RUNNING', reason: null, startedAt: now, endsAt: now + 30000}
+        const errors = []
+        page.on('pageerror', (error) => errors.push(error.message))
+        let reads = 0
+        let writes = 0
+        let pending
+        await page.route('**/api/runtime-insights/resource-profile', (route) => {
+          expect(route.request().method()).toBe('GET')
+          reads++
+          if ((phase === 'initial' && reads === 1) || (phase === 'poll' && reads === 2)) {
+            pending = route
+            return
+          }
+          return route.fulfill({json: running})
+        })
+        await page.route('**/api/runtime-insights/resource-profile/stop', (route) => {
+          expect(route.request().method()).toBe('POST')
+          writes++
+          pending = route
+        })
+        await openView('runtime-insights?tab=profile', 'Runtime Insights')
+        if (phase === 'poll') {
+          await expect(page.locator('.insight-profile-running')).toBeVisible()
+          await page.clock.runFor(2000)
+        }
+        if (phase === 'action') {
+          await page.locator('.insight-profile').getByRole('button', {name: 'Stop now', exact: true}).click()
+        }
+        await expect.poll(() => Boolean(pending)).toBe(true)
+        await page.evaluate(() => {
+          location.hash = '#/health'
+        })
+        await expect(page.locator('main h2').filter({hasText: /^Health$/})).toBeVisible()
+        await pending.fulfill({json: running})
+        await page.clock.runFor(6000)
+        expect(reads).toBe(phase === 'poll' ? 2 : 1)
+        expect(writes).toBe(phase === 'action' ? 1 : 0)
+        expect(errors).toEqual([])
+      })
+    }
+
+    test('retains sampled request totals when resource-profile routes are withheld by policy', async ({
+      page,
+      openView
+    }) => {
+      const native = await nativeResourceProfile(page)
+      const reason =
+        "The http-exchanges panel is disabled, so the samples are not listed by route; the session's totals still count every sampled request."
+      const completed = {
+        ...native,
+        state: 'COMPLETED',
+        reason: null,
+        sampler: 'jdk.ExecutionSample',
+        startedAt: 1000,
+        endsAt: 31000,
+        finishedAt: 20000,
+        cpuSamples: 400,
+        outsideSamples: 100,
+        requests: 12,
+        routes: [],
+        routesOmitted: 0,
+        limitations: [reason]
+      }
+      let reads = 0
+      let writes = 0
+      await page.route('**/api/runtime-insights/resource-profile{,/*}', (route) => {
+        if (route.request().method() !== 'GET') {
+          writes++
+          return route.fulfill({status: 500, json: {error: 'Unexpected recording mutation'}})
+        }
+        reads++
+        return route.fulfill({json: completed})
+      })
+      await openView('runtime-insights?tab=profile', 'Runtime Insights')
+      const profile = page.locator('.insight-profile')
+      await expect(profile.locator('.insight-profile-summary')).toContainText('12 requests')
+      await expect(profile.locator('.insight-profile-limitations')).toContainText(reason)
+      await expect(profile).not.toContainText('No request ran')
+      await expect(profile).not.toContainText('No request samples were attributed')
+      await expect(profile.locator('.insight-profile-table')).toHaveCount(0)
+      expect(reads).toBe(1)
+      expect(writes).toBe(0)
+    })
+
+    for (const [id, title, readPath, action, label] of [
+      ['flyway', 'Flyway migrations', 'migrations', 'migrate', 'Migrate'],
+      ['liquibase', 'Liquibase change sets', 'changesets', 'update', 'Update']
+    ]) {
+      for (const outcome of ['failed', 'lost', 'malformed', 'blocked', 'failed-follow-up']) {
+        test(`reconciles the native ${title} ${outcome} outcome without retrying a database action`, async ({
+          page,
+          openView
+        }) => {
+          const manifestResponse = await page.request.get('/bootui/api/panels')
+          expect(manifestResponse.ok()).toBeTruthy()
+          const manifest = await manifestResponse.json()
+          const capability = manifest.panels.find((panel) => panel.id === id)
+          expect(capability).toBeTruthy()
+          test.skip(capability.available === false || capability.enabled === false, capability.unavailableReason)
+          test.skip(capability.readOnly, capability.readOnlyReason)
+          const response = await page.request.get(`/bootui/api/${id}/${readPath}`)
+          expect(response.ok()).toBeTruthy()
+          const native = await response.json()
+          expect(native.available).toBe(true)
+          const enabled = id === 'flyway' ? 'migrateEnabled' : 'updateEnabled'
+          const database = native.databases.find((candidate) => candidate[enabled])
+          test.skip(!database, `No native ${action} target is enabled on ${manifest.platform}.`)
+          const rows = id === 'flyway' ? 'migrations' : 'changeSets'
+          expect(database[rows].length).toBeGreaterThan(0)
+          const initial = {...native, total: database.total, databases: [database]}
+          const committed =
+            id === 'flyway'
+              ? {
+                  ...database.migrations[0],
+                  version: '999',
+                  script: 'V999__round4_committed.sql',
+                  description: 'Earlier migration committed before failure',
+                  state: 'Success'
+                }
+              : {
+                  ...database.changeSets[0],
+                  id: 'round4-committed',
+                  description: 'Earlier change set committed before failure',
+                  execType: 'EXECUTED',
+                  orderExecuted: database.applied + 1
+                }
+          const updated = {
+            ...initial,
+            total: initial.total + 1,
+            databases: [
+              {
+                ...database,
+                total: database.total + 1,
+                applied: database.applied + 1,
+                ...(id === 'flyway' ? {currentVersion: '999'} : {}),
+                [rows]: [...database[rows], committed]
+              }
+            ]
+          }
+          const failure = `${title} failed after an earlier change committed.`
+          const reason = `Panel '${id}' is read-only (bootui.panels.${id}.read-only=true)`
+          const failed =
+            id === 'flyway'
+              ? {
+                  status: 'failed',
+                  message: failure,
+                  beanName: database.name,
+                  migrationsExecuted: null,
+                  schemasCleaned: [],
+                  schemasDropped: [],
+                  migrationPath: null,
+                  warnings: []
+                }
+              : {
+                  status: 'failed',
+                  message: failure,
+                  beanName: database.name,
+                  pendingBefore: null,
+                  pendingAfter: null,
+                  changeSetsApplied: null,
+                  warnings: []
+                }
+          let reads = 0
+          let writes = 0
+          await page.route(`**/api/${id}/*`, (route) => {
+            if (route.request().method() !== 'GET') {
+              expect(route.request().method()).toBe('POST')
+              expect(new URL(route.request().url()).pathname).toBe(`/bootui/api/${id}/${action}`)
+              expect(route.request().postDataJSON()).toEqual({beanName: database.name, confirm: true})
+              writes++
+              if (outcome === 'lost') return route.abort('failed')
+              if (outcome === 'malformed')
+                return route.fulfill({status: 200, contentType: 'application/json', body: '{'})
+              if (outcome === 'blocked')
+                return route.fulfill({status: 403, json: {error: 'BootUI panel access denied', panel: id, reason}})
+              return route.fulfill({status: 500, json: failed})
+            }
+            expect(new URL(route.request().url()).pathname).toBe(`/bootui/api/${id}/${readPath}`)
+            reads++
+            if (reads === 1) return route.fulfill({json: initial})
+            if (outcome === 'failed-follow-up')
+              return route.fulfill({status: 503, json: {error: 'History temporarily unavailable'}})
+            return route.fulfill({json: updated})
+          })
+          await openView(id, title)
+          const button = page.getByRole('button', {name: label, exact: true})
+          await expect(button).toBeEnabled()
+          expect(writes).toBe(0)
+          await button.click()
+          await acceptConfirm(page)
+          const message =
+            outcome === 'blocked'
+              ? reason
+              : outcome === 'lost' || outcome === 'malformed'
+                ? 'action outcome is unknown'
+                : failure
+          await expect(page.locator('.alert', {hasText: message})).toBeVisible()
+          await expect(page.locator('.alert-success')).toHaveCount(0)
+          await expect.poll(() => reads).toBe(outcome === 'blocked' ? 1 : 2)
+          const card = page.locator('.card', {
+            has: page.locator('.card-header code').filter({hasText: database.name})
+          })
+          if (outcome === 'blocked' || outcome === 'failed-follow-up') {
+            await expect(card.getByText(`${database.applied} applied`, {exact: true})).toBeVisible()
+            await expect(card).not.toContainText(committed.description)
+            if (outcome === 'failed-follow-up')
+              await expect(page.locator('.alert-danger', {hasText: 'HTTP 503'})).toBeVisible()
+          } else {
+            await expect(card.getByText(`${database.applied + 1} applied`, {exact: true})).toBeVisible()
+            if (id === 'flyway') await expect(card).toContainText(committed.description)
+            else await expect(card).toContainText(committed.id)
+          }
+          await expect(button).toBeEnabled()
+          expect(writes).toBe(1)
+        })
+      }
+    }
+
     test('qualifies positive outside-JVM changes when framework comparison rows are empty', async ({
       page,
       openView

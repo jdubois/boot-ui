@@ -132,6 +132,7 @@ public final class RequestJournalProfiles {
         List<JournalEntry> all = journal.entries();
         JournalEntry request = null;
         List<JournalEntry> children = new ArrayList<>();
+        Set<Long> selected = new LinkedHashSet<>();
         List<JournalEntry> aiCalls = new ArrayList<>();
         Map<String, JournalEntry> collections = new HashMap<>();
         Set<String> executionHandoffs = new LinkedHashSet<>();
@@ -144,7 +145,9 @@ public final class RequestJournalProfiles {
                     && requestId.equals(handoff.parentExecutionId())
                     && visible(event)) {
                 executionHandoffs.add(event.executionId());
-                children.add(entry);
+                if (selected.add(entry.sequence())) {
+                    children.add(entry);
+                }
             }
             if (event.payload() instanceof GcPayload gc) {
                 collections.put(gc.collector() + '#' + gc.gcId(), entry);
@@ -152,7 +155,9 @@ public final class RequestJournalProfiles {
                 if (event.source() == JournalSource.HTTP) {
                     request = entry;
                 } else if (visible(event)) {
-                    children.add(entry);
+                    if (selected.add(entry.sequence())) {
+                        children.add(entry);
+                    }
                 }
             } else if (event.requestId() == null && requestId.equals(event.executionId())) {
                 if (event.payload() instanceof ScheduledPayload
@@ -160,7 +165,9 @@ public final class RequestJournalProfiles {
                         || event.payload() instanceof WebSocketPayload webSocket && webSocket.opensExecution()) {
                     request = entry;
                 } else if (visible(event)) {
-                    children.add(entry);
+                    if (selected.add(entry.sequence())) {
+                        children.add(entry);
+                    }
                 }
             } else if (AiCallOwners.linksByTrace(event) && visible(event)) {
                 aiCalls.add(entry);
@@ -170,15 +177,17 @@ public final class RequestJournalProfiles {
             RuntimeEvent event = entry.event();
             if (event.requestId() == null
                     && executionHandoffs.contains(event.executionId())
+                    && !requestId.equals(event.executionId())
                     && !(event.payload() instanceof AsyncHandoffPayload)
-                    && visible(event)) {
+                    && visible(event)
+                    && selected.add(entry.sequence())) {
                 children.add(entry);
             }
         }
         // An AI call carries only its span's trace id, so it joins the request with that trace id whose time span
         // contains its start, unless another such request shares the trace and which one made the call is unknown.
         for (JournalEntry call : aiCalls) {
-            if (requestId.equals(aiCallOwners.ownerOf(call.event()))) {
+            if (requestId.equals(aiCallOwners.ownerOf(call.event())) && selected.add(call.sequence())) {
                 children.add(call);
             }
         }
@@ -229,6 +238,12 @@ public final class RequestJournalProfiles {
                 : RouteLabel.of(
                         payload.method(), payload.path(), payload.routeTemplate(), payload.operation(), resolver());
         List<String> notes = new ArrayList<>();
+        if (children.stream()
+                .anyMatch(entry -> entry.event().payload() instanceof AsyncHandoffPayload handoff
+                        && java.util.Objects.equals(handoff.executionId(), handoff.parentExecutionId()))) {
+            notes.add("These handoffs share their parent execution id; their SQL, REST client, and messaging counts"
+                    + " cannot be attributed to individual tasks.");
+        }
         if (children.stream().anyMatch(entry -> entry.event().payload() instanceof SqlPayload sql && !sql.executed())) {
             notes.add("Unverified SQL captures do not establish execution, database time, or touched tables.");
         }

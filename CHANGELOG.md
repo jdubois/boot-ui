@@ -823,6 +823,12 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **Fourth-pass evidence corrections.** Native execution profiles select handoff evidence once and qualify shared
+  task counts, CPU attribution stays coherent during segment closure, aborted Quarkus responses finish capture,
+  distinct value-equal exceptions count separately, and blank journal source properties use consistent defaults.
+- **Action state survives stale reads.** Resource-profile polling cannot restart after navigation or undo an accepted
+  stop; hidden route samples do not imply no requests ran; failed migration actions reconcile their history without
+  retrying writes; and accepted exception triage state survives older reads.
 - **Review follow-up correctness.** Stale agent generations cannot erase newer tracking or stop its owner slots,
   nested scheduled scopes restore each worker's correlation, malformed baseline sizes are rejected before
   allocation, and shutdown drains already accepted records before forgetting routes.

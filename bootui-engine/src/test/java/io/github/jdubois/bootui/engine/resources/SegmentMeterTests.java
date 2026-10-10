@@ -2,6 +2,8 @@ package io.github.jdubois.bootui.engine.resources;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assumptions.assumeThat;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.spy;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
@@ -9,6 +11,8 @@ import io.github.jdubois.bootui.engine.resources.ResourceUsage.Availability;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage.Unmeasured;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.lang.reflect.Method;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
@@ -192,6 +196,66 @@ class SegmentMeterTests {
         assertThat(meter.take("never-begun")).isNull();
         assertThat(meter.begin(null)).isFalse();
         assertThat(meter.take(null)).isNull();
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void closingPublishesCpuAttributionWithoutCountingTheOpenSegmentTwice() throws Exception {
+        FakeReadings controlled = spy(new FakeReadings());
+        SegmentMeter measured = new SegmentMeter(controlled);
+        CountDownLatch collecting = new CountDownLatch(1);
+        CountDownLatch finishClose = new CountDownLatch(1);
+        doAnswer(invocation -> {
+                    collecting.countDown();
+                    assertThat(finishClose.await(10, TimeUnit.SECONDS)).isTrue();
+                    return "Young";
+                })
+                .when(controlled)
+                .collector(0);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread worker = new Thread(() -> {
+            try {
+                controlled.set(Thread.currentThread(), 0, 0);
+                measured.begin("r1");
+                controlled.set(Thread.currentThread(), 100, 100);
+                controlled.collections(1, 0);
+                measured.switchTo(null);
+                measured.begin("r2");
+                controlled.set(Thread.currentThread(), 200, 200);
+                measured.switchTo(null);
+            } catch (Throwable ex) {
+                failure.set(ex);
+            }
+        });
+        worker.start();
+        try {
+            assertThat(collecting.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(measured.attributedCpuNanos(worker.getId(), 100))
+                    .as("the closing segment is credited once, even while its GC ranges are collected")
+                    .isEqualTo(100);
+        } finally {
+            finishClose.countDown();
+            worker.join(10_000);
+        }
+        assertThat(worker.isAlive()).isFalse();
+        assertThat(failure.get()).isNull();
+        assertThat(measured.attributedCpuNanos(worker.getId(), 200)).isEqualTo(200);
+        assertThat(measured.take("r1").cpuNanos()).isEqualTo(100);
+        assertThat(measured.take("r2").cpuNanos()).isEqualTo(100);
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void ledgerCreditCannotAdvancePastACpuSampleTakenBeforeTheSegmentClosed() {
+        readings.set(Thread.currentThread(), 0, 0);
+        meter.begin("r1");
+        readings.set(Thread.currentThread(), 100, 100);
+        meter.switchTo(null);
+
+        assertThat(meter.attributedCpuNanos(Thread.currentThread().getId(), 50)).isEqualTo(50);
+        assertThat(meter.attributedCpuNanos(Thread.currentThread().getId(), 100))
+                .isEqualTo(100);
+        assertThat(meter.take("r1").cpuNanos()).isEqualTo(100);
     }
 
     @Test

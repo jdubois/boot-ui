@@ -313,7 +313,10 @@ buffers, is unavailable while the HTTP Exchanges panel is disabled, because it o
 Scheduled runs, consumed messages, and inbound WebSocket handlers can also be opened by execution id when their
 completed anchor is retained and its source panel is enabled. WebSocket journal profiles use the captured destination
 template, or the endpoint when no destination is recorded, and include only retained, enabled-panel work correlated to
-that execution; outbound messages and session open/close events never open an execution profile. These executions have no
+that execution; outbound messages and session open/close events never open an execution profile. Each retained event
+is selected once, even when an executor handoff shares its scheduled or message parent's execution id. Those tasks'
+work remains on the execution timeline, but individual task counts are qualified as unavailable rather than claiming
+that nothing was recorded. These executions have no
 HTTP status, route comparison, or measured CPU, allocation, and GC pauses; see
 [Investigate one request](../AI-AGENTS.md#investigate-one-request).
 
@@ -963,6 +966,10 @@ temporary recording that is deleted once read. A runtime without JFR, or a journ
 `resources` source, reports why no session can run, and `bootui.panels.runtime-insights.read-only` or
 `bootui.read-only` blocks starting one. While the HTTP Exchanges panel is disabled, the results keep their totals but
 list no route, and say so; re-enabling the panel shows the routes again.
+
+The regular CPU ledger accounts for a closing request segment once, even when its sampler reads concurrently with
+closure. Request completion also releases the measured segments on Quarkus connection cancellation; a response that
+closed without ending is retained with status `0`, not a fabricated successful response.
 
 **Compared with the previous run** compares this run with the newest run whose summary is kept, including runs
 without HTTP requests, after a DevTools restart, a Quarkus live reload, or, with

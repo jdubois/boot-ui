@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.engine.insights.AiUsageByRoute;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfig;
 import io.smallrye.config.SmallRyeConfigBuilder;
@@ -16,6 +18,24 @@ import org.junit.jupiter.api.Test;
  * empty-value case is proven against the converters Quarkus actually applies.
  */
 class BootUiEngineProducerRuntimeInsightsConfigTest {
+
+    @Test
+    void blankJournalSourcesFromNativeConfigUseTheSameDefaultsAsUnset() {
+        for (String value : new String[] {"", " ", "\t"}) {
+            String sources = config(Map.of("bootui.runtime-journal.sources", value))
+                    .getOptionalValue("bootui.runtime-journal.sources", String.class)
+                    .orElse(null);
+            assertThat(RuntimeJournalSettings.of(true, 50_000, null, 10_000, sources)
+                            .sources())
+                    .isEqualTo(JournalSource.all());
+        }
+        String sources = config(Map.of("bootui.runtime-journal.sources", "sql"))
+                .getOptionalValue("bootui.runtime-journal.sources", String.class)
+                .orElseThrow();
+        assertThat(RuntimeJournalSettings.of(true, 50_000, null, 10_000, sources)
+                        .sources())
+                .containsExactly(JournalSource.SQL);
+    }
 
     private static SmallRyeConfig config(Map<String, String> properties) {
         return new SmallRyeConfigBuilder()
