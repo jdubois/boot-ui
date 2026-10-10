@@ -54,9 +54,10 @@ describe('RuntimeResources', () => {
     await flushPromises()
 
     expect(fetchMock).toHaveBeenCalledWith('api/activity/resources', expect.anything())
-    expect(wrapper.text()).toContain("75% of this run's 1.00 s of CPU time went to work outside requests")
+    expect(wrapper.text()).toContain("75% of this run's 1.00 s of CPU time was not attributed to requests")
+    expect(wrapper.text()).toContain('it is not proof that this work ran outside requests')
     const rows = wrapper.findAll('tbody tr').map((row) => row.text())
-    expect(rows[0]).toContain('JVM internals (GC, JIT, VM)')
+    expect(rows[0]).toContain('Unclassified (JVM and unobserved threads)')
     expect(rows[0]).toContain('50%')
     expect(rows.some((row) => row.includes('Requests') && row.includes('25%'))).toBe(true)
     expect(rows.some((row) => row.includes('pool-N-thread-N') && row.includes('20%'))).toBe(true)
@@ -87,5 +88,58 @@ describe('RuntimeResources', () => {
 
     expect(wrapper.text()).toContain('does not record the resources source')
     expect(wrapper.find('table').exists()).toBe(false)
+  })
+
+  it.each([
+    {
+      reason: 'thread counters exceed the independently measured process counter',
+      processCpuNanos: 20_000_000,
+      requestCpuNanos: 10_000_000,
+      familyCpuNanos: {'pool-N-thread-N': 30_000_000}
+    },
+    {
+      reason: 'only some process intervals were measured',
+      processCpuNanos: 20_000_000,
+      requestCpuNanos: 30_000_000,
+      familyCpuNanos: {'pool-N-thread-N': 20_000_000}
+    },
+    {
+      reason: 'no process interval was measured but thread CPU is known',
+      processCpuNanos: 0,
+      requestCpuNanos: 10_000_000,
+      familyCpuNanos: {'pool-N-thread-N': 30_000_000}
+    }
+  ])('qualifies incomplete attribution when $reason', async ({processCpuNanos, requestCpuNanos, familyCpuNanos}) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          jsonResponse({
+            available: true,
+            unavailableReason: null,
+            families: ['pool-N-thread-N'],
+            points: [point(), point({epochMillis: 1700000001000, internalCpuNanos: -1})],
+            totals: {sweeps: 2, internalCpuNanos: -1, processCpuNanos, requestCpuNanos, familyCpuNanos}
+          })
+        )
+      )
+    )
+
+    const wrapper = mount(RuntimeResources)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('CPU attribution is incomplete')
+    expect(wrapper.text()).toContain('Measured times are shown without percentage shares')
+    expect(wrapper.text()).not.toContain('went to work outside requests')
+    expect(wrapper.text()).not.toContain('No CPU time measured yet')
+    expect(wrapper.find('.runtime-resources__stack').exists()).toBe(false)
+    const table = wrapper.find('table')
+    expect(table.exists()).toBe(true)
+    expect(table.text()).toContain('Requests')
+    expect(table.text()).toContain('pool-N-thread-N')
+    expect(table.text()).not.toContain('Share')
+    expect(table.text()).not.toContain('%')
+    expect(table.text()).toContain('Unknown')
+    expect(wrapper.findAll('polyline')).toHaveLength(2)
   })
 })

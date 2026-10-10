@@ -7,9 +7,10 @@ import java.util.Map;
  * was cleared.
  *
  * @param sweeps the sweeps recorded, including those the track no longer keeps
- * @param processCpuNanos the process's CPU time over the sweeps
+ * @param processCpuNanos the process's CPU time over sweeps with known process deltas
  * @param requestCpuNanos the share credited to requests
- * @param internalCpuNanos the JVM's own work
+ * @param internalCpuNanos unclassified process CPU, or {@code -1} if any interval's remainder was unknown; incomplete
+ *     totals must not be presented as percentage shares of the process counter
  * @param familyCpuNanos each thread family's share outside requests, the non-zero ones only
  */
 public record RuntimeResourceTotalsDto(
