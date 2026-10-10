@@ -517,9 +517,20 @@ statements, flushes, auto-flushes, and the most entities their persistence conte
 sources, transactions, caches, destinations, hosts, log templates, and AI models.
 
 **Resources** in the panel header opens **Work outside requests**: where this run's CPU time went, as the share
-credited to requests, each thread family's work outside them, BootUI's own threads, and the JVM's own work (GC, JIT,
-and VM threads), which together are the process's CPU time. A resource lane below shows heap used and process CPU over
-the last 15 minutes. It is read only when you open it, and sized by the `bootui.resources.*`
+credited to requests, each thread family's work outside them, BootUI's own threads, and an **Unclassified** process
+remainder. That remainder includes GC, JIT, and VM threads, but also threads that ended, went unread, or lacked
+consecutive CPU readings; it can include request work that could not be attributed. A first-seen or reappearing
+thread establishes a baseline, never charges its lifetime CPU or allocation to one interval. Missing or decreasing
+allocation counters make that interval's allocation unknown.
+
+Process CPU always comes from the process counter, never an inflated sum of thread readings. When consecutive
+process readings are unavailable or decrease, or independently measured thread CPU exceeds the process delta, the
+remainder is **Unknown**. The run's ledger stays incomplete until **Clear recording**, even after the affected point
+leaves the track. Measured times remain visible, but percentage shares and the stacked bar are suppressed, because
+known thread work cannot be divided by a partial or inconsistent process denominator.
+
+A resource lane below shows heap used and measured process CPU over the last 15 minutes. It is read only when you
+open it, and sized by the `bootui.resources.*`
 [properties](../PROPERTIES.md#resource-correlation).
 
 ### Safety and limits

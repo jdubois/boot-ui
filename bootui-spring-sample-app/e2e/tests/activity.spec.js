@@ -1,5 +1,6 @@
 // @ts-check
 import {acceptConfirm, expect, test} from './fixtures.js'
+import {registerResourceLedgerTests} from '../scenarios/resource-ledger.js'
 
 test.describe('Live Activity view', () => {
   test('merges requests, SQL and exceptions into one live stream', async ({openView, page}) => {
@@ -409,20 +410,5 @@ test.describe('Live Activity view', () => {
     await expect(textual).toContainText('retained')
   })
 
-  test('opens the CPU ledger of work outside requests on demand', async ({openView, page}) => {
-    await openView('activity', 'Live Activity')
-    const toggle = page.getByRole('button', {name: 'Resources', exact: true})
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    await toggle.click()
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-
-    const resources = page.locator('#activity-runtime-resources')
-    await expect(page.getByRole('heading', {name: 'Work outside requests'})).toHaveCount(1)
-    // The sampler needs two sweeps before it has an interval to split, so refresh until it does.
-    await expect(async () => {
-      await resources.getByRole('button', {name: 'Refresh'}).click()
-      await expect(resources.getByRole('rowheader', {name: 'JVM internals (GC, JIT, VM)'})).toBeVisible({timeout: 1000})
-    }).toPass({timeout: 15_000})
-    await expect(resources).toContainText('of CPU time went to work outside requests')
-  })
+  registerResourceLedgerTests(test, expect)
 })
