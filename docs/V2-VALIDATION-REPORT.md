@@ -377,10 +377,39 @@ The `f3e832014` agent browser exposed one additional selector ambiguity: the opt
 contained the same request path. The triage fixture now selects the row with the native **Change status** controls,
 not unrelated caught evidence. Its status/read-order assertions and production code remain unchanged.
 
-Final current-source native, browser, architecture, formatting, and documentation acceptance evidence is recorded
-only after it executes. The earlier green `93f1abcc4` tree does not validate this new composition. Existing
-performance misses remain separate and unwaived; these reviews and correctness repairs do not rerun or rescore the
-registered external-application study or provide release approval.
+### Final fourth-pass acceptance evidence
+
+The final tested source is `33eadcee6bb4631d02778eca46d8e0b02a93fb0e`, tree
+`67a86d444e859304e3a01858150c6c7ad4bf5999`. Its
+[Java 17 baseline](https://github.com/jdubois/boot-ui/actions/runs/38084967589) completed all 37 jobs successfully;
+the [JDK compatibility run](https://github.com/jdubois/boot-ui/actions/runs/38084967584) completed all six jobs
+successfully. Actual checkouts, logs, and XML were inspected. This later report-only update is not part of that
+tested tree, and the earlier `93f1abcc4` green result is not used as a proxy.
+
+| Surface | Actual executed result and limits |
+| --- | --- |
+| Coupled Java regressions | Java 17: 231 declared cases across 12 classes, 230 executed, zero failures/errors; one existing virtual-thread control was skipped because Java 17 lacks virtual threads. The new CPU-close, native-handoff, weak-identity, blank-binding, and aborted-response regressions all ran |
+| Whole Java and Vue | Engine: 8,829 declared cases, five skips; bridge: 449 declared, four skips; starter: 2,786, no skips; Quarkus runtime: 757, no skips. Each had zero failures/errors. Vue passed 2,150 tests in 146 files; the earlier local typed check covers the unchanged production UI bytes |
+| Native framework and agent integration | Java 21/25/27 each executed shared engine/adapters, agent forked-JVM tests, attached Spring scenarios, and Quarkus augmentation. SegmentMeter's 17 cases, including the virtual-thread control, executed without skips on those JDKs. Quarkus extension integration, LTS, staged consumer smoke tests, and published CLI jobs succeeded |
+| API, MCP, and CLI contracts | MVC/WebFlux API: 60/60 without skips; Quarkus API: 60 declared, 56 executed and four capability skips. MCP: 39/39/40; CLI: 21 per stack, all without failures/errors/skips |
+| Shared diagnostic browser cases | MVC: 43 passed, one capability skip; WebFlux: 39 passed, five capability skips; Quarkus: 37 passed, seven capability skips. All 48 new registered cases executed and passed on these default stacks; the 13 skips belong to already-existing unsupported capabilities |
+| Full browser selections | Default MVC/WebFlux/Quarkus: 349/150/268 passed with 18/12/15 respective skips. WebFlux with the agent: 161 passed, five skips. Java 25 agent browser: 369 passed, nine skips. Java 21 agent browser: 368 passed, nine skips, and one configured retry pass; its original sink assertion failure is qualified below |
+
+The Java 21 agent browser's request-value sink fixture initially observed one matching sink where two were
+required; its configured retry passed. That original assertion remains recorded and unexplained, not labelled
+infrastructure or erased by workflow success. No diagnostic acknowledgement case failed on the final source.
+
+The automatic benchmark artifacts retain budget misses on this source: default-agent 10.7% against 10%, journal
+10.7% against 5%, resources cumulative 10.9% against 10%, thread-activity cumulative 14.6% against 10%, and
+thread-activity A/B 22.5% against 10%. Environment A/B recorded 3.2% against 3% under its interval gate. Files A/B
+recorded 3.7% against 3%, with an interval of -0.5% to 6.1% and `enforced=true`; its actual benchmark test passed
+under the unchanged 30% fail-above ceiling, which does not pass the 3% budget. A green workflow is not budget
+acceptance, and no performance threshold, workload, sensor default, or budget was relaxed by these fixes.
+
+The nine confirmed correctness roots are repaired and their applicable current-source gates have executed.
+Original product RED, failed fixture heads, native capability skips, and local activation/load-guard failures remain
+separately preserved. Performance acceptance, the registered study, human sign-off, release-candidate designation,
+main-merge authorization, and administrative prerequisites remain separate and unchanged.
 
 ## Release sign-off
 
