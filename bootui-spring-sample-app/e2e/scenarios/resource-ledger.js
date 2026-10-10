@@ -94,7 +94,22 @@ export function registerResourceLedgerTests(test, expect) {
       await assertAttribution(resources, fixture.internalCpuNanos >= 0)
       await expect(resources.getByRole('row', {name: /^Requests /})).toContainText('10.0 ms')
       await expect(resources.getByRole('row', {name: /^worker-N /})).toContainText('30.0 ms')
-      await expect(resources.locator('polyline.runtime-resources__heap')).toBeVisible()
+      await expect(resources.locator('svg')).toBeVisible()
+      const heapLine = resources.locator('polyline.runtime-resources__heap')
+      await expect(heapLine).toHaveCount(1)
+      const points = await heapLine.getAttribute('points')
+      if (!points) throw new Error('Heap lane has no coordinates')
+      const coordinates = points
+        .trim()
+        .split(/\s+/)
+        .map((pair) => pair.split(',').map(Number))
+      expect(coordinates).toHaveLength(2)
+      for (const pair of coordinates) {
+        expect(pair).toHaveLength(2)
+        expect(pair.every(Number.isFinite)).toBe(true)
+      }
+      expect(coordinates.map(([x]) => x)).toEqual([0, 100])
+      expect(coordinates.map(([, y]) => y)).toEqual([2, 2])
       await expect(resources.locator('polyline.runtime-resources__cpu')).toHaveCount(knownProcess ? 1 : 0)
     })
   }
