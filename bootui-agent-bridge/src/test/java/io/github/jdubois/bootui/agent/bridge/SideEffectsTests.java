@@ -65,17 +65,31 @@ class SideEffectsTests {
     }
 
     @Test
-    void anEarlierSlotReaderCannotMoveGenerationBackwardsOrDisableTheNewReader() throws Exception {
+    void anEarlierSlotReaderCannotMoveGenerationBackwardsOrDisableTheNewReader() {
         SideEffects.slotReaders(true, 20L);
         SideEffects.slotReaders(true, 10L);
         SideEffects.slotReaders(false, 10L);
 
-        assertThat(SideEffects.generation).isEqualTo(20L);
-        java.lang.reflect.Field readers = SideEffects.class.getDeclaredField("slotReaders");
-        readers.setAccessible(true);
-        assertThat(readers.getBoolean(null)).isTrue();
+        assertThat(SideEffects.generation()).isEqualTo(20L);
+        assertThat(SideEffects.slotReaders()).isTrue();
         SideEffects.slotReaders(false, 20L);
-        assertThat(readers.getBoolean(null)).isFalse();
+        assertThat(SideEffects.slotReaders()).isFalse();
+    }
+
+    @Test
+    void anEarlierSideEffectClaimCannotReplaceTheNewReadersGeneration() {
+        claim(List.of(SideEffects.PROCESSES));
+        Claim earlier = AgentBridge.current();
+        long next = earlier.generation + 1L;
+        SideEffects.slotReaders(true, next);
+
+        SideEffects.claimed(earlier);
+        SideEffects.slotReaders(false, earlier.generation);
+
+        assertThat(SideEffects.generation()).isEqualTo(next);
+        assertThat(SideEffects.slotReaders()).isTrue();
+        SideEffects.slotReaders(false, next);
+        assertThat(SideEffects.slotReaders()).isFalse();
     }
 
     @Test

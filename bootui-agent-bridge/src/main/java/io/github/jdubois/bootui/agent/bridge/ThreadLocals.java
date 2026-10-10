@@ -263,7 +263,7 @@ public final class ThreadLocals {
             if (!testing && !scanned(self)) {
                 return 0L;
             }
-            long generation = SideEffects.generation;
+            long generation = SideEffects.generation();
             SideEffects.Owner owner = new SideEffects.Owner();
             if (!owned) {
                 if (scope != null && scope.depth == EXPLICIT) {
@@ -409,7 +409,7 @@ public final class ThreadLocals {
                 NESTED.increment();
                 return;
             }
-            long generation = SideEffects.generation;
+            long generation = SideEffects.generation();
             if (frame.slotGeneration[index] != generation
                     || (frame.slotRequest[index] == 0L && frame.slotExecution[index] == 0L)) {
                 UNOWNED.increment();

@@ -392,7 +392,7 @@ public final class SecuritySinks {
             // Nothing is allocated before the stream is known unfiltered and the sensor records on this thread.
             CodePaths.Frame existing = CodePaths.FRAME.get();
             Serial serial = existing == null ? null : existing.serial;
-            long generation = SideEffects.generation;
+            long generation = SideEffects.generation();
             if (serial != null && serial.depth > 0) {
                 // Another stream's outermost read inside a tracked one, as a class's readObject reading embedded
                 // bytes: part of it. Or state an outermost exit never closed, past its age or of another run.
@@ -781,7 +781,7 @@ public final class SecuritySinks {
             return null;
         }
         Claim claim = AgentBridge.current();
-        if (claim == null || !claim.armed || claim.generation != SideEffects.generation) {
+        if (claim == null || !claim.armed || claim.generation != SideEffects.generation()) {
             return null;
         }
         if (Reentrancy.sideEffectsSkipped() || Thread.currentThread().getName().startsWith("bootui-")) {
@@ -878,7 +878,7 @@ public final class SecuritySinks {
                 int folded = (targetHash ^ (targetHash >>> 24)) & 0xFFFFFF;
                 key = ((long) (hook + 1) << 56) | ((callerHash & 0xFFFFFFFFL) << 24) | folded;
                 found = new long[2];
-                int result = SIGHTINGS.find(SideEffects.generation, key, found);
+                int result = SIGHTINGS.find(SideEffects.generation(), key, found);
                 if (result == SideEffects.Sightings.FOUND && found[1] == JDK_INTERNAL && found[0] != check(caller)) {
                     // Another caller sharing the key: never let the JDK's verdict hide it; asked again below.
                     result = SideEffects.Sightings.MISSING;
@@ -904,7 +904,7 @@ public final class SecuritySinks {
             }
             if (jdk(caller)) {
                 if (key != 0L) {
-                    SIGHTINGS.put(SideEffects.generation, key, check(caller), JDK_INTERNAL);
+                    SIGHTINGS.put(SideEffects.generation(), key, check(caller), JDK_INTERNAL);
                 }
                 JDK_REQUESTS.increment();
                 return null;
@@ -915,7 +915,7 @@ public final class SecuritySinks {
             long packed = ((long) outside << 32) | (own & 0xFFFFFFFFL);
             int origin = application ? ORIGIN_APPLICATION : ORIGIN_LIBRARY;
             if (key != 0L) {
-                SIGHTINGS.put(SideEffects.generation, key, packed, origin);
+                SIGHTINGS.put(SideEffects.generation(), key, packed, origin);
             }
             return new long[] {packed, origin};
         }

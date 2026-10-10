@@ -475,7 +475,7 @@ public final class ThreadActivity {
             frame = CodePaths.frame();
             token = open(frame);
             Claim claim = AgentBridge.current();
-            if (claim == null || claim.generation != SideEffects.generation) {
+            if (claim == null || claim.generation != SideEffects.generation()) {
                 return;
             }
             List<ThreadTracker.Entry> reports = new ArrayList<ThreadTracker.Entry>(1);
@@ -503,7 +503,7 @@ public final class ThreadActivity {
         Resources.requestEnded(requested, request);
         try {
             if ((SideEffects.mask & SideEffects.MASK_THREADS) == 0
-                    || requested != SideEffects.generation
+                    || requested != SideEffects.generation()
                     || request == 0L) {
                 return;
             }
@@ -520,7 +520,7 @@ public final class ThreadActivity {
      */
     static void sweep(Claim claim) {
         try {
-            if (claim == null || claim.generation != SideEffects.generation) {
+            if (claim == null || claim.generation != SideEffects.generation()) {
                 return;
             }
             State state = STATE.get();

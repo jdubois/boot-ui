@@ -108,7 +108,7 @@ public final class Blocking {
                 return;
             }
             Thread thread = Thread.currentThread();
-            long current = SideEffects.generation;
+            long current = SideEffects.generation();
             long id = thread.getId();
             for (int attempt = 0; attempt < PROBES; attempt++) {
                 int start = index(id);
@@ -233,7 +233,7 @@ public final class Blocking {
                 return 0L;
             }
             Loop loop = find(thread.getId());
-            if (loop == null || loop.generation != SideEffects.generation) {
+            if (loop == null || loop.generation != SideEffects.generation()) {
                 return 0L;
             }
             if (Reentrancy.sideEffectsSkipped()) {
@@ -284,7 +284,7 @@ public final class Blocking {
             Claim claim = AgentBridge.current();
             if (claim == null
                     || !claim.armed
-                    || claim.generation != SideEffects.generation
+                    || claim.generation != SideEffects.generation()
                     || (SideEffects.mask & SideEffects.MASK_BLOCKING) == 0) {
                 return;
             }

@@ -218,6 +218,20 @@ counted as additional defects or silently labelled harness noise. The corrected 
 nine files with no unhandled errors, and its typed build and owned formatting checks passed. The final assertions
 are the formatting-normalized equivalent of the RED assertions.
 
+The first published head, `573c316513eb9aa128dd37be1a76c8a473e1ca8f`, genuinely failed the bridge bytecode
+guard on Java 17, 21, 25, and 27: its initial synchronization introduced forbidden JVM monitors. The correction uses
+an immutable generation/reader snapshot published by compare-and-set, retaining the stale-generation checks
+without changing or weakening the architecture guard. A bounded review found no blocking defect in that repair.
+The subsequent 13 selected bridge classes executed 238 cases without failures, errors, or skips, including the
+unchanged bytecode guard and the additional earlier-claim regression; these are narrower than whole-source CI.
+
+That head's browser runs also exposed two fixture errors: unavailable capture reports correctly offer a disabled
+**Resume**, not **Pause**, and WebSockets show the reason both in their static availability notice and their single
+action alert. The scenarios now assert the actual native state and target the semantic action alert, without
+changing production UI or weakening refusal/state assertions. The Java 21 agent browser additionally recorded one
+request-value sink assertion failure before its configured retry passed; that original failure remains recorded,
+not labelled infrastructure or explained by these fixture corrections.
+
 The shared browser scenario adds 19 cases per runtime. Actual Playwright discovery registered 28 cases on each
 of MVC, WebFlux, and Quarkus, including the nine previously delivered cases. Discovery is not execution: native
 capability guards preserve WebFlux's absent Hibernate integration, metadata-only WebSockets, Quarkus's unavailable

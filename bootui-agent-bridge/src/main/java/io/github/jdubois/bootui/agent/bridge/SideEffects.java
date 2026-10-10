@@ -637,8 +637,7 @@ public final class SideEffects {
     /** The sensors the agent enabled once their hooks passed their self-test. */
     private static volatile int enabled;
 
-    static volatile long generation = -1L;
-    private static final Object GENERATION_LOCK = new Object();
+    private static final AtomicReference<SlotReaders> SLOT_READERS = new AtomicReference<>(new SlotReaders(-1L, false));
     private static volatile boolean off;
     private static volatile String offReason;
     static volatile Thread selfTestThread;
@@ -732,7 +731,7 @@ public final class SideEffects {
             frame = CodePaths.FRAME.get();
             long nanos = System.nanoTime() - token;
             Claim claim = AgentBridge.current();
-            if (claim == null || !claim.armed || claim.generation != generation || (mask & MASK_PROCESSES) == 0) {
+            if (claim == null || !claim.armed || claim.generation != generation() || (mask & MASK_PROCESSES) == 0) {
                 return;
             }
             RECORDED[HOOK_PROCESS_START].increment();
@@ -1163,7 +1162,7 @@ public final class SideEffects {
     }
 
     static boolean recording(Claim claim, int bit) {
-        return claim != null && claim.armed && claim.generation == generation && (mask & bit) != 0;
+        return claim != null && claim.armed && claim.generation == generation() && (mask & bit) != 0;
     }
 
     private static int failure(Throwable thrown) {
@@ -2040,7 +2039,7 @@ public final class SideEffects {
             frame.sideEffectOpen = MASK_ENVIRONMENT;
             // Stamped as every hook's entry does, so a depth left open by an exit that never ran is recovered from.
             frame.sideEffectSince = since;
-            long now = generation;
+            long now = generation();
             boolean slotted = slotted(frame, now);
             int top = frame.slots - 1;
             Seen seen = frame.environmentSeen;
@@ -2102,7 +2101,23 @@ public final class SideEffects {
      * Whether a sensor outside Side Effects reads the owner slots, as the caught-exceptions sensor does (PLAN-v2
      * M5-6a): the slots are then pushed and popped while no side-effect sensor records too.
      */
-    private static volatile boolean slotReaders;
+    private static final class SlotReaders {
+        final long generation;
+        final boolean reading;
+
+        SlotReaders(long generation, boolean reading) {
+            this.generation = generation;
+            this.reading = reading;
+        }
+    }
+
+    static long generation() {
+        return SLOT_READERS.get().generation;
+    }
+
+    static boolean slotReaders() {
+        return SLOT_READERS.get().reading;
+    }
 
     /**
      * A sensor outside Side Effects starts ({@code reading}) or stops reading the owner slots for claim generation
@@ -2111,14 +2126,15 @@ public final class SideEffects {
      */
     static void slotReaders(boolean reading, long readerGeneration) {
         try {
-            synchronized (GENERATION_LOCK) {
-                if (readerGeneration < generation) {
+            while (true) {
+                SlotReaders current = SLOT_READERS.get();
+                if (readerGeneration < current.generation) {
                     return;
                 }
-                if (reading) {
-                    generation = readerGeneration;
+                SlotReaders next = new SlotReaders(reading ? readerGeneration : current.generation, reading);
+                if (SLOT_READERS.compareAndSet(current, next)) {
+                    return;
                 }
-                slotReaders = reading;
             }
         } catch (Throwable ex) {
             AgentBridge.error(ex);
@@ -2134,8 +2150,10 @@ public final class SideEffects {
      */
     static void scopeBegin(long[] captured, boolean attempted) {
         try {
+            SlotReaders readers = SLOT_READERS.get();
+            long generation = readers.generation;
             CodePaths.Frame frame;
-            if (mask == 0 && !slotReaders) {
+            if (mask == 0 && !readers.reading) {
                 // A stack in use stays balanced while a sensor is off, as between a claim and its self-test.
                 frame = CodePaths.FRAME.get();
                 if (frame == null || frame.slots == 0) {
@@ -2196,7 +2214,7 @@ public final class SideEffects {
                 return null;
             }
             Claim claim = AgentBridge.current();
-            if (claim == null || !claim.armed || claim.generation != generation) {
+            if (claim == null || !claim.armed || claim.generation != generation()) {
                 return null;
             }
             return CodePaths.captureOwner(claim);
@@ -2235,8 +2253,9 @@ public final class SideEffects {
      */
     static void handoff(Object[] payload, long snapshotGeneration, boolean pooled) {
         try {
+            SlotReaders readers = SLOT_READERS.get();
             CodePaths.Frame frame;
-            if (mask == 0 && !slotReaders) {
+            if (mask == 0 && !readers.reading) {
                 frame = CodePaths.FRAME.get();
                 if (frame == null || frame.slots == 0) {
                     return;
@@ -2244,7 +2263,7 @@ public final class SideEffects {
             } else {
                 frame = CodePaths.frame();
             }
-            long current = generation;
+            long current = readers.generation;
             long request = snapshotGeneration == current
                             && payload != null
                             && payload.length > 0
@@ -2483,7 +2502,7 @@ public final class SideEffects {
         }
         long key = ((long) (hook + 1) << 56) | ((long) ((method + 1) & 0xFFFFFF) << 32) | (targetHash & 0xFFFFFFFFL);
         long[] found = new long[2];
-        int result = SIGHTINGS.find(generation, key, found);
+        int result = SIGHTINGS.find(generation(), key, found);
         if (result == Sightings.FOUND) {
             return found;
         }
@@ -2492,7 +2511,7 @@ public final class SideEffects {
             return new long[] {0L, CONTEXT_NONE};
         }
         long[] walked = walk(claim, env);
-        SIGHTINGS.put(generation, key, walked[0], (int) walked[1]);
+        SIGHTINGS.put(generation(), key, walked[0], (int) walked[1]);
         return walked;
     }
 
@@ -3884,9 +3903,11 @@ public final class SideEffects {
                     break;
                 }
             }
-            synchronized (GENERATION_LOCK) {
-                if (claim.generation > generation) {
-                    generation = claim.generation;
+            while (true) {
+                SlotReaders current = SLOT_READERS.get();
+                if (claim.generation <= current.generation
+                        || SLOT_READERS.compareAndSet(current, new SlotReaders(claim.generation, current.reading))) {
+                    break;
                 }
             }
             while (true) {
@@ -3911,10 +3932,11 @@ public final class SideEffects {
                 // Rewritten when another writer changed what it reads meanwhile, as an adapter registering an event
                 // loop: once every writer returns, the mask matches the state, without a monitor.
                 Claim claim = AgentBridge.current();
-                int claimed =
-                        claim != null && claim.armed && claim.generation == generation && !off ? claimedMask(claim) : 0;
+                int claimed = claim != null && claim.armed && claim.generation == generation() && !off
+                        ? claimedMask(claim)
+                        : 0;
                 value = claimed & enabled & ~budgetOff;
-                if ((value & MASK_BLOCKING) != 0 && Blocking.loopsGeneration == generation) {
+                if ((value & MASK_BLOCKING) != 0 && Blocking.loopsGeneration == generation()) {
                     value |= MASK_LOOPS;
                 }
                 claimedBits = claimed;
@@ -3939,28 +3961,28 @@ public final class SideEffects {
         long current;
         do {
             on = (mask & MASK_SECURITY_SINKS) != 0;
-            current = generation;
+            current = generation();
             if (RequestValues.sensorGeneration() != (on ? current : Long.MIN_VALUE)) {
                 RequestValues.sensor(on, current);
             }
         } while (on != ((mask & MASK_SECURITY_SINKS) != 0)
-                || current != generation
+                || current != generation()
                 || RequestValues.sensorGeneration() != (on ? current : Long.MIN_VALUE));
     }
 
     /** What {@link #refresh()} would write to {@link #claimedBits} now. */
     private static int recomputedClaim() {
         Claim claim = AgentBridge.current();
-        return claim != null && claim.armed && claim.generation == generation && !off ? claimedMask(claim) : 0;
+        return claim != null && claim.armed && claim.generation == generation() && !off ? claimedMask(claim) : 0;
     }
 
     /** What {@link #refresh()} would write now. */
     private static int recomputed() {
         Claim claim = AgentBridge.current();
-        int value = claim != null && claim.armed && claim.generation == generation && !off
+        int value = claim != null && claim.armed && claim.generation == generation() && !off
                 ? claimedMask(claim) & enabled & ~budgetOff
                 : 0;
-        if ((value & MASK_BLOCKING) != 0 && Blocking.loopsGeneration == generation) {
+        if ((value & MASK_BLOCKING) != 0 && Blocking.loopsGeneration == generation()) {
             value |= MASK_LOOPS;
         }
         return value;
@@ -4252,7 +4274,7 @@ public final class SideEffects {
                     sensor = i;
                 }
             }
-            map.put("generation", Long.valueOf(generation));
+            map.put("generation", Long.valueOf(generation()));
             map.put("active", Boolean.valueOf(sensor != 0 && (mask & (1 << sensor)) != 0));
             Map<String, Object> recorded = new LinkedHashMap<String, Object>();
             for (int i = 0; i < HOOKS.length; i++) {
@@ -4295,7 +4317,7 @@ public final class SideEffects {
                 map.put("sightingsFull", Long.valueOf(SIGHTINGS_FULL.sum()));
             }
             if (sensor == SENSOR_BLOCKING) {
-                Blocking.putStatus(map, generation);
+                Blocking.putStatus(map, generation());
             }
             if (sensor == SENSOR_THREADS) {
                 ThreadActivity.putStatus(map);
@@ -4359,7 +4381,7 @@ public final class SideEffects {
     /** Tests only: forgets the ring, the table, the switches, and the counters; the exit worker stays handed out. */
     static void reset() {
         PendingSideEffects.reset();
-        slotReaders = false;
+        SLOT_READERS.set(new SlotReaders(-1L, false));
         RING.set(null);
         INTERNS.set(null);
         COUNTERS.reset();
@@ -4409,7 +4431,6 @@ public final class SideEffects {
         gate = 0;
         claimedBits = 0;
         enabled = 0;
-        generation = -1L;
         Blocking.reset();
         ThreadActivity.reset();
         ThreadLocals.reset();

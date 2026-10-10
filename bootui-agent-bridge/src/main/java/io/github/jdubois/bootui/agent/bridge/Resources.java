@@ -337,7 +337,7 @@ public final class Resources {
     static void requestEnded(long requested, long request) {
         try {
             if ((SideEffects.mask & SideEffects.MASK_RESOURCES) == 0
-                    || requested != SideEffects.generation
+                    || requested != SideEffects.generation()
                     || request == 0L) {
                 return;
             }
@@ -350,7 +350,7 @@ public final class Resources {
     /** On the drain thread, before it drains: what requests left open, what was reclaimed, what closed late. */
     static void sweep(Claim claim) {
         try {
-            if (claim == null || claim.generation != SideEffects.generation || TRACKER.size() == 0) {
+            if (claim == null || claim.generation != SideEffects.generation() || TRACKER.size() == 0) {
                 return;
             }
             if (kinds == 0 || (SideEffects.mask & SideEffects.MASK_RESOURCES) == 0) {

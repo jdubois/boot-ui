@@ -437,11 +437,11 @@ class BlockingTests {
             });
         }
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-        while (Blocking.loops(SideEffects.generation) > 0 && System.nanoTime() < deadline) {
+        while (Blocking.loops(SideEffects.generation()) > 0 && System.nanoTime() < deadline) {
             System.gc();
             Thread.sleep(20L);
         }
-        assertThat(Blocking.loops(SideEffects.generation)).isZero();
+        assertThat(Blocking.loops(SideEffects.generation())).isZero();
         assertThat(SideEffects.status(SideEffects.BLOCKING)).containsEntry("eventLoopRegistrationsRefused", 0L);
     }
 
