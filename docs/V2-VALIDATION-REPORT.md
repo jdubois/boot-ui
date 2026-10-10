@@ -362,8 +362,10 @@ failed the three unmount fixtures: the trace showed Health assets successfully l
 the shell's out-in page transition unfinished. The test now uses the native sidebar navigation and resumes the
 clock until Health renders and the profile is absent, then pauses again before releasing the pending response.
 This validates component disposal rather than a frozen transition; no production navigation code changed.
-The subsequent `0f3945025` fixture still attempted its sidebar click before resuming the clock, blocking
-Playwright's animation-frame actionability checks. Clock resumption is now ordered before the native click.
+The subsequent `0f3945025` and `840b93dd8` fixtures still waited for a nonexistent exact accessible name:
+the sidebar's native `aria-label` includes availability details. The navigation selector now uses the native Health
+route link's href. Clock resumption remains ordered before the click, and disposal is still asserted before the
+old response is released.
 
 Final current-source native, browser, architecture, formatting, and documentation acceptance evidence is recorded
 only after it executes. The earlier green `93f1abcc4` tree does not validate this new composition. Existing
