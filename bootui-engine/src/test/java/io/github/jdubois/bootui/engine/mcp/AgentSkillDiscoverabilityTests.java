@@ -121,11 +121,12 @@ class AgentSkillDiscoverabilityTests {
     @Test
     void noUncheckedDocumentCarriesAnInstallCommand() throws IOException {
         Path root = RepositoryFiles.root();
+        List<Path> documentedPaths =
+                DOCUMENTED_SURFACES.stream().map(root::resolve).toList();
 
         try (Stream<Path> markdown = Files.walk(root)) {
             List<Path> unchecked = markdown.filter(AgentSkillDiscoverabilityTests::isSourceMarkdown)
-                    .filter(path ->
-                            !DOCUMENTED_SURFACES.contains(root.relativize(path).toString()))
+                    .filter(path -> !documentedPaths.contains(path))
                     .filter(AgentSkillDiscoverabilityTests::carriesAnInstallCommand)
                     .map(root::relativize)
                     .toList();
