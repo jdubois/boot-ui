@@ -357,6 +357,12 @@ The fixture now checks the native DTO discriminator and advances that transition
 resource profile is absent before releasing its old response. Production code and the no-retry/lifecycle assertions
 remain unchanged; the original failing run is retained, not labelled infrastructure or product RED.
 
+The first fixture follow-up, `59d5ebca81d3faf0618b15762f747610cb06e9b6`, fixed migration registration but still
+failed the three unmount fixtures: the trace showed Health assets successfully loaded while the paused clock left
+the shell's out-in page transition unfinished. The test now uses the native sidebar navigation and resumes the
+clock until Health renders and the profile is absent, then pauses again before releasing the pending response.
+This validates component disposal rather than a frozen transition; no production navigation code changed.
+
 Final current-source native, browser, architecture, formatting, and documentation acceptance evidence is recorded
 only after it executes. The earlier green `93f1abcc4` tree does not validate this new composition. Existing
 performance misses remain separate and unwaived; these reviews and correctness repairs do not rerun or rescore the

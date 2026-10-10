@@ -180,10 +180,9 @@ export function registerDiagnosticAcknowledgementTests(test, expect, acceptConfi
           await page.locator('.insight-profile').getByRole('button', {name: 'Stop now', exact: true}).click()
         }
         await expect.poll(() => Boolean(pending)).toBe(true)
-        await page.evaluate(() => {
-          location.hash = '#/health'
-        })
-        await page.clock.runFor(1000)
+        await page.getByRole('link', {name: 'Health', exact: true}).click()
+        // Let the lazy route's out-in transition finish before freezing timers for the disposal assertion.
+        await page.clock.resume()
         await expect(
           page
             .locator('main h2')
@@ -191,6 +190,7 @@ export function registerDiagnosticAcknowledgementTests(test, expect, acceptConfi
             .first()
         ).toBeVisible()
         await expect(page.locator('.insight-profile')).toHaveCount(0)
+        await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 1000))
         await pending.fulfill({json: running})
         await page.clock.runFor(6000)
         expect(reads).toBe(phase === 'poll' ? 2 : 1)
