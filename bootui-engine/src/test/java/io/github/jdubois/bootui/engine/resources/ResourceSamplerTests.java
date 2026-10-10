@@ -569,9 +569,19 @@ class ResourceSamplerTests {
             assertThat(point.sequence()).isEqualTo(7);
             assertThat(point.heapUsedBytes()).isPositive();
             assertThat(point.liveThreads()).isPositive();
-            if (point.processCpuNanos() >= 0 && point.internalCpuNanos() >= 0) {
-                assertThat(point.requestCpuNanos() + point.familiesCpuNanos() + point.internalCpuNanos())
-                        .isEqualTo(point.processCpuNanos());
+            long measuredThreadCpu = point.requestCpuNanos() + point.familiesCpuNanos();
+            assertThat(point.requestCpuNanos()).isNotNegative();
+            assertThat(point.familiesCpuNanos()).isNotNegative();
+            if (point.internalCpuNanos() >= 0) {
+                assertThat(point.processCpuNanos()).isNotNegative();
+                assertThat(measuredThreadCpu + point.internalCpuNanos()).isEqualTo(point.processCpuNanos());
+            } else {
+                assertThat(point.internalCpuNanos()).isEqualTo(-1);
+                if (point.processCpuNanos() >= 0) {
+                    assertThat(measuredThreadCpu).isGreaterThan(point.processCpuNanos());
+                } else {
+                    assertThat(point.processCpuNanos()).isEqualTo(-1);
+                }
             }
         });
         assertThat(jvmTrack.families()).contains(ResourceTrack.BOOTUI_FAMILY);
