@@ -120,7 +120,9 @@ async function fetchStatus({preserveActionMessage = false} = {}) {
   }
 }
 
-async function toggle() {
+async function toggle(event) {
+  // The native switch follows the accepted report, not the click.
+  if (event?.target instanceof HTMLInputElement) event.target.checked = enabled.value
   if (readOnly.value) {
     flash(readOnlyReason.value, 'warning')
     return

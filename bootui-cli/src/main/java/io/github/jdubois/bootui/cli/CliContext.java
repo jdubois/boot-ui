@@ -4,9 +4,9 @@ import io.github.jdubois.bootui.client.BootUiCatalog;
 import io.github.jdubois.bootui.client.BootUiClient;
 import io.github.jdubois.bootui.client.BootUiClientException;
 import io.github.jdubois.bootui.client.BootUiClientOptions;
+import io.github.jdubois.bootui.client.JsonParseException;
 import io.github.jdubois.bootui.client.JsonValue;
 import io.github.jdubois.bootui.client.JsonWriter;
-import io.github.jdubois.bootui.client.JsonParseException;
 import io.github.jdubois.bootui.client.ToolOutcome;
 import io.github.jdubois.bootui.client.ToolResult;
 import java.io.PrintWriter;
@@ -209,13 +209,15 @@ final class CliContext {
                 && "http".equals(status.get("transport").asString(null))
                 && status.get("enabled").isBoolean()
                 && tools.isArray()
-                && tools.values().stream().allMatch(tool -> tool.isObject()
-                        && !tool.get("name").asString("").isBlank()
-                        && tool.get("action").isBoolean());
+                && tools.values().stream()
+                        .allMatch(tool -> tool.isObject()
+                                && !tool.get("name").asString("").isBlank()
+                                && tool.get("action").isBoolean());
         if (!valid) {
-            throw new BootUiClientException(action
-                    ? UNKNOWN_MCP_OUTCOME
-                    : "The target did not return a valid BootUI MCP server status report.");
+            throw new BootUiClientException(
+                    action
+                            ? UNKNOWN_MCP_OUTCOME
+                            : "The target did not return a valid BootUI MCP server status report.");
         }
         emit(status, status.toJson());
         return ExitCodes.SUCCESS;

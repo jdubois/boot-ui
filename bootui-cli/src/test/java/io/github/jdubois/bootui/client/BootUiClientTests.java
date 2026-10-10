@@ -421,8 +421,15 @@ class BootUiClientTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"", "<html>password=do-not-print</html>", "not JSON", "null", "[]",
-            "{\"error\":{},\"reason\":[\"not a reason\"]}"})
+    @ValueSource(
+            strings = {
+                "",
+                "<html>password=do-not-print</html>",
+                "not JSON",
+                "null",
+                "[]",
+                "{\"error\":{},\"reason\":[\"not a reason\"]}"
+            })
     void directPanelFaultsDoNotSurfaceUnvalidatedErrorBodies(String body) {
         status = 403;
         responseBody = body;

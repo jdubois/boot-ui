@@ -606,22 +606,28 @@ class BootUiCliTests {
     }
 
     private static Stream<Arguments> invalidMcpResponses() {
-        return Stream.of("status", "enable", "disable").flatMap(command ->
-                Stream.of(false, true).flatMap(json ->
-                        Stream.concat(
-                                Stream.of("", " \t ", "{", "<html>not JSON</html>", "null", "{}", "[]",
-                                        "{\"enabled\":true}",
-                                        "{\"serverName\":\"other\",\"transport\":\"http\",\"enabled\":true,\"tools\":[]}",
-                                        "{\"serverName\":\"bootui\",\"transport\":\"http\",\"enabled\":\"false\",\"tools\":[]}",
-                                        "{\"serverName\":\"bootui\",\"transport\":\"http\",\"enabled\":false,\"tools\":{}}")
+        return Stream.of("status", "enable", "disable")
+                .flatMap(command -> Stream.of(false, true)
+                        .flatMap(json -> Stream.concat(
+                                Stream.of(
+                                                "",
+                                                " \t ",
+                                                "{",
+                                                "<html>not JSON</html>",
+                                                "null",
+                                                "{}",
+                                                "[]",
+                                                "{\"enabled\":true}",
+                                                "{\"serverName\":\"other\",\"transport\":\"http\",\"enabled\":true,\"tools\":[]}",
+                                                "{\"serverName\":\"bootui\",\"transport\":\"http\",\"enabled\":\"false\",\"tools\":[]}",
+                                                "{\"serverName\":\"bootui\",\"transport\":\"http\",\"enabled\":false,\"tools\":{}}")
                                         .map(body -> Arguments.of(command, json, 200, body)),
                                 Stream.of(Arguments.of(command, json, 204, "")))));
     }
 
     @ParameterizedTest
     @MethodSource("validMcpResponses")
-    void directMcpCommandsAcceptTheActualStatusIncludingUnknownFields(
-            String command, boolean json, boolean enabled) {
+    void directMcpCommandsAcceptTheActualStatusIncludingUnknownFields(String command, boolean json, boolean enabled) {
         responseBody = mcpStatus(enabled);
 
         Result result = json ? run("mcp", command, "--json") : run("mcp", command);
@@ -632,15 +638,15 @@ class BootUiCliTests {
         else assertThat(result.out).contains("bootui").contains(Boolean.toString(enabled));
         assertThat(requests).singleElement().satisfies(request -> {
             assertThat(request.method).isEqualTo(command.equals("status") ? "GET" : "POST");
-            assertThat(request.path).isEqualTo(command.equals("status")
-                    ? "/bootui/api/mcp-server" : "/bootui/api/mcp-server/toggle");
+            assertThat(request.path)
+                    .isEqualTo(command.equals("status") ? "/bootui/api/mcp-server" : "/bootui/api/mcp-server/toggle");
         });
     }
 
     private static Stream<Arguments> validMcpResponses() {
-        return Stream.of("status", "enable", "disable").flatMap(command ->
-                Stream.of(false, true).flatMap(json ->
-                        Stream.of(false, true).map(enabled -> Arguments.of(command, json, enabled))));
+        return Stream.of("status", "enable", "disable")
+                .flatMap(command -> Stream.of(false, true)
+                        .flatMap(json -> Stream.of(false, true).map(enabled -> Arguments.of(command, json, enabled))));
     }
 
     @ParameterizedTest
@@ -654,8 +660,10 @@ class BootUiCliTests {
 
         assertThat(result.exitCode).isEqualTo(ExitCodes.ERROR);
         assertThat(result.out).isEmpty();
-        assertThat(result.err).contains("bootui.panels.mcp-server.read-only=true")
-                .doesNotContain("--token").doesNotContain("outcome is unknown");
+        assertThat(result.err)
+                .contains("bootui.panels.mcp-server.read-only=true")
+                .doesNotContain("--token")
+                .doesNotContain("outcome is unknown");
         assertThat(requests).hasSize(1);
     }
 

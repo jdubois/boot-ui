@@ -874,7 +874,7 @@ function toggleFlow() {
           :aria-expanded="showDatabaseInfo"
           @click="toggleDatabaseInfo"
         >
-          <i class="bi bi-database-add me-1"></i>Use a database
+          <i class="bi bi-database-add me-1" aria-hidden="true"></i>Use a database
         </button>
         <button
           v-if="report"

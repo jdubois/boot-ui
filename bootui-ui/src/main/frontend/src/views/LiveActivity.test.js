@@ -1490,10 +1490,9 @@ describe('LiveActivity', () => {
     wrapper = mountLiveActivity()
     await flushPromises()
 
-    await wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('Use a database'))
-      .trigger('click')
+    const disclosure = wrapper.findAll('button').find((b) => b.text().includes('Use a database'))
+    expect(disclosure.find('i').attributes('aria-hidden')).toBe('true')
+    await disclosure.trigger('click')
     await flushPromises()
 
     expect(wrapper.text()).toContain('reuse the existing one while the runtime journal is recording')

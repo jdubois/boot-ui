@@ -170,9 +170,13 @@ describe('McpServer', () => {
     expect(wrapper.get('#mcp-enabled-toggle').element.checked).toBe(true)
   })
 
-  it.each(['invalid JSON', 'empty', 'wrong shape'])(
-    'preserves accepted status after an %s acknowledgement and reports unknown outcome',
-    async (kind) => {
+  it.each(
+    ['invalid JSON', 'empty', 'wrong shape'].flatMap((kind) =>
+      [false, true].map((initiallyEnabled) => ({kind, initiallyEnabled}))
+    )
+  )(
+    'preserves accepted status $initiallyEnabled after a $kind acknowledgement and reports unknown outcome',
+    async ({kind, initiallyEnabled}) => {
       document.cookie = 'XSRF-TOKEN=test-token'
       let reads = 0
       const fetchMock = vi.fn((url) => {
@@ -185,16 +189,16 @@ describe('McpServer', () => {
         }
         reads++
         return reads === 1
-          ? Promise.resolve(jsonResponse(mcpStatus({enabled: true})))
+          ? Promise.resolve(jsonResponse(mcpStatus({enabled: initiallyEnabled})))
           : Promise.reject(new Error('status temporarily unreachable'))
       })
       vi.stubGlobal('fetch', fetchMock)
       wrapper = mount(McpServer)
       await flushPromises()
       wrapper.getComponent(PanelHeader).vm.$emit('update:autoRefresh', false)
-      await wrapper.get('#mcp-enabled-toggle').trigger('change')
+      await wrapper.get('#mcp-enabled-toggle').setValue(!initiallyEnabled)
       await flushPromises()
-      expect(wrapper.get('#mcp-enabled-toggle').element.checked).toBe(true)
+      expect(wrapper.get('#mcp-enabled-toggle').element.checked).toBe(initiallyEnabled)
       expect(wrapper.text()).toContain('action outcome is unknown')
       expect(wrapper.text()).not.toContain('MCP server disabled.')
       expect(reads).toBe(2)
