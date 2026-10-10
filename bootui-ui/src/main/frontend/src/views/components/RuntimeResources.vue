@@ -12,7 +12,7 @@ const resources = ref(null)
 const loading = ref(false)
 const error = ref('')
 
-const INTERNAL = 'JVM internals (GC, JIT, VM)'
+const INTERNAL = 'Unclassified (JVM and unobserved threads)'
 const REQUESTS = 'Requests'
 
 async function load() {
@@ -29,10 +29,12 @@ async function load() {
   }
 }
 
-// Requests, each thread family, and the JVM's own work: together they are the process's CPU time.
+const attributionComplete = computed(() => resources.value?.totals?.internalCpuNanos >= 0)
+
+// Independently measured counters are still useful when their remainder cannot be reconciled.
 const breakdown = computed(() => {
   const totals = resources.value?.totals
-  if (!totals || totals.processCpuNanos <= 0) return []
+  if (!totals) return []
   const parts = [
     {label: REQUESTS, nanos: totals.requestCpuNanos, kind: 'requests'},
     ...Object.entries(totals.familyCpuNanos ?? {}).map(([family, nanos]) => ({
@@ -43,12 +45,16 @@ const breakdown = computed(() => {
     {label: INTERNAL, nanos: totals.internalCpuNanos, kind: 'internal'}
   ]
   return parts
-    .filter((part) => part.nanos > 0)
-    .map((part) => ({...part, percent: (100 * part.nanos) / totals.processCpuNanos}))
+    .filter((part) => part.nanos > 0 || (part.kind === 'internal' && part.nanos < 0))
+    .map((part) => ({
+      ...part,
+      percent:
+        attributionComplete.value && totals.processCpuNanos > 0 ? (100 * part.nanos) / totals.processCpuNanos : null
+    }))
     .sort((a, b) => b.nanos - a.nanos)
 })
 
-const outsideRequestsPercent = computed(() =>
+const uncreditedPercent = computed(() =>
   breakdown.value.filter((part) => part.kind !== 'requests').reduce((sum, part) => sum + part.percent, 0)
 )
 
@@ -124,12 +130,21 @@ onMounted(load)
         No CPU time measured yet: the sampler needs two sweeps, or this JVM does not report process CPU time.
       </p>
       <template v-else>
+        <p v-if="!attributionComplete" class="small mb-2">
+          CPU attribution is incomplete: some process readings were unavailable or inconsistent with thread readings.
+          Measured times are shown without percentage shares. Measured process CPU:
+          {{ formatDuration(resources.totals.processCpuNanos) }} (known intervals only).
+        </p>
+        <p v-else class="small mb-2">
+          {{ percent(uncreditedPercent) }} of this run's {{ formatDuration(resources.totals.processCpuNanos) }} of CPU
+          time was not attributed to requests.
+        </p>
         <p class="small mb-2">
-          {{ percent(outsideRequestsPercent) }} of this run's {{ formatDuration(resources.totals.processCpuNanos) }} of
-          CPU time went to work outside requests. Requests on virtual threads count in their carrier threads' family,
+          The unclassified remainder includes JVM internals and threads without consecutive readings; it is not proof
+          that this work ran outside requests. Requests on virtual threads count in their carrier threads' family,
           because the JVM does not measure virtual threads.
         </p>
-        <div class="runtime-resources__stack mb-2" aria-hidden="true">
+        <div v-if="attributionComplete" class="runtime-resources__stack mb-2" aria-hidden="true">
           <span
             v-for="part in breakdown"
             :key="part.label"
@@ -141,13 +156,13 @@ onMounted(load)
         <div class="table-responsive">
           <table class="table table-sm small mb-2 runtime-resources__table">
             <caption class="visually-hidden">
-              Process CPU time by where it went
+              Measured CPU time and attribution
             </caption>
             <thead>
               <tr>
                 <th scope="col">Where</th>
                 <th scope="col" class="text-end">CPU time</th>
-                <th scope="col" class="text-end">Share</th>
+                <th v-if="attributionComplete" scope="col" class="text-end">Share</th>
               </tr>
             </thead>
             <tbody>
@@ -161,8 +176,8 @@ onMounted(load)
                   <code v-if="part.kind === 'family'">{{ part.label }}</code>
                   <template v-else>{{ part.label }}</template>
                 </th>
-                <td class="text-end">{{ formatDuration(part.nanos) }}</td>
-                <td class="text-end">{{ percent(part.percent) }}</td>
+                <td class="text-end">{{ part.nanos < 0 ? 'Unknown' : formatDuration(part.nanos) }}</td>
+                <td v-if="attributionComplete" class="text-end">{{ percent(part.percent) }}</td>
               </tr>
             </tbody>
           </table>

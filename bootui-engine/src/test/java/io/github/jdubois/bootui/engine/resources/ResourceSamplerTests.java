@@ -116,6 +116,416 @@ class ResourceSamplerTests {
     }
 
     @Test
+    void intervalPromotedCappedThreadDoesNotChargeItsLifetimeCounters() {
+        ResourceSampler sampler = sampler(2);
+        probe.thread(1, "worker-1", 100_000_000, 1_000);
+        probe.thread(2, "ended-1", 200_000_000, 2_000);
+        probe.thread(3, "old-unread-1", 1_000_000_000, 2_000_000);
+        probe.processCpu = 2_000_000_000;
+        sampler.sweep(0, 0);
+
+        probe.threads.remove(2L);
+        probe.thread(1, "worker-1", 115_000_000, 7_000);
+        probe.processCpu += 20_000_000;
+        sampler.sweep(1_000, 1_000_000_000);
+
+        Point promoted = track.points().get(0);
+        assertThat(promoted.processCpuNanos()).isEqualTo(20_000_000);
+        assertThat(promoted.familiesCpuNanos()).isEqualTo(15_000_000);
+        assertThat(promoted.internalCpuNanos()).isEqualTo(5_000_000);
+        assertThat(promoted.allocatedBytes()).isEqualTo(-1);
+        assertBalanced(promoted);
+
+        probe.thread(1, "worker-1", 120_000_000, 8_000);
+        probe.thread(3, "old-unread-1", 1_010_000_000, 2_002_000);
+        probe.processCpu += 20_000_000;
+        sampler.sweep(2_000, 2_000_000_000);
+
+        Point measured = track.points().get(1);
+        assertThat(measured.processCpuNanos()).isEqualTo(20_000_000);
+        assertThat(measured.familiesCpuNanos()).isEqualTo(15_000_000);
+        assertThat(measured.internalCpuNanos()).isEqualTo(5_000_000);
+        assertThat(measured.allocatedBytes()).isEqualTo(3_000);
+        assertBalanced(measured);
+    }
+
+    @Test
+    void intervalFirstSeenThreadLeavesItsUnbaselinedWorkInTheRemainder() {
+        ResourceSampler sampler = sampler(2);
+        probe.thread(1, "worker-1", 100, 1_000);
+        sampler.sweep(0, 0);
+
+        probe.thread(1, "worker-1", 110, 1_200);
+        probe.thread(2, "new-worker-1", 1_000, 20_000);
+        probe.processCpu = 20;
+        sampler.sweep(0, 1);
+
+        Point point = track.points().get(0);
+        assertThat(point.processCpuNanos()).isEqualTo(20);
+        assertThat(point.familiesCpuNanos()).isEqualTo(10);
+        assertThat(point.internalCpuNanos()).isEqualTo(10);
+        assertThat(point.allocatedBytes()).isEqualTo(-1);
+        assertBalanced(point);
+    }
+
+    @Test
+    void intervalCapChurnRebaselinesReappearingThreadIdentities() {
+        ResourceSampler sampler = sampler(1);
+        for (int i = 0; i < 10; i++) {
+            probe.threads.clear();
+            long id = 1 + i % 2;
+            probe.thread(id, "worker-" + id, 1_000 + i * 10, 10_000 + i * 100);
+            probe.thread(3, "unread-1", 10_000, 100_000);
+            probe.processCpu = i * 20;
+            sampler.sweep(i, i);
+        }
+
+        assertThat(track.points()).hasSize(9).allSatisfy(point -> {
+            assertThat(point.processCpuNanos()).isEqualTo(20);
+            assertThat(point.familiesCpuNanos()).isZero();
+            assertThat(point.internalCpuNanos()).isEqualTo(20);
+            assertThat(point.allocatedBytes()).isEqualTo(-1);
+            assertThat(point.unreadThreads()).isEqualTo(1);
+            assertBalanced(point);
+        });
+        assertThat(track.totals().processCpuNanos()).isEqualTo(180);
+        assertThat(track.families()).hasSizeLessThanOrEqualTo(ResourceTrack.MAX_FAMILIES + 1);
+    }
+
+    @Test
+    void intervalUnavailableCpuDoesNotSuppressKnownAllocation() {
+        ResourceSampler sampler = sampler(1);
+        probe.thread(1, "worker-1", -1, 1_000);
+        sampler.sweep(0, 0);
+        probe.thread(1, "worker-1", -1, 1_600);
+        probe.processCpu = 20;
+        sampler.sweep(0, 1);
+
+        Point point = track.points().get(0);
+        assertThat(point.allocatedBytes()).isEqualTo(600);
+        assertThat(point.familiesCpuNanos()).isZero();
+        assertThat(point.internalCpuNanos()).isEqualTo(20);
+        assertBalanced(point);
+    }
+
+    @Test
+    void intervalRecoveredCpuRequiresAFreshBaseline() {
+        ResourceSampler sampler = sampler(1);
+        probe.thread(1, "worker-1", 1_000, 100);
+        sampler.sweep(0, 0);
+        probe.thread(1, "worker-1", -1, 200);
+        probe.processCpu = 10;
+        sampler.sweep(0, 1);
+        probe.thread(1, "worker-1", 2_000, 300);
+        probe.processCpu = 20;
+        sampler.sweep(0, 2);
+
+        Point recovered = track.points().get(1);
+        assertThat(recovered.processCpuNanos()).isEqualTo(10);
+        assertThat(recovered.familiesCpuNanos()).isZero();
+        assertThat(recovered.internalCpuNanos()).isEqualTo(10);
+        assertThat(recovered.allocatedBytes()).isEqualTo(100);
+        assertBalanced(recovered);
+
+        probe.thread(1, "worker-1", 2_020, 400);
+        probe.processCpu = 50;
+        sampler.sweep(0, 3);
+        Point measured = track.points().get(2);
+        assertThat(measured.familiesCpuNanos()).isEqualTo(20);
+        assertThat(measured.internalCpuNanos()).isEqualTo(10);
+        assertThat(measured.allocatedBytes()).isEqualTo(100);
+        assertBalanced(measured);
+    }
+
+    @Test
+    void intervalBackwardsThreadCpuRebaselinesWithoutSuppressingAllocation() {
+        ResourceSampler sampler = sampler(1);
+        probe.thread(1, "worker-1", 1_000, 100);
+        sampler.sweep(0, 0);
+        probe.thread(1, "worker-1", 500, 200);
+        probe.processCpu = 20;
+        sampler.sweep(0, 1);
+        probe.thread(1, "worker-1", 510, 300);
+        probe.processCpu = 40;
+        sampler.sweep(0, 2);
+
+        Point reset = track.points().get(0);
+        assertThat(reset.processCpuNanos()).isEqualTo(20);
+        assertThat(reset.familiesCpuNanos()).isZero();
+        assertThat(reset.internalCpuNanos()).isEqualTo(20);
+        assertThat(reset.allocatedBytes()).isEqualTo(100);
+        assertBalanced(reset);
+        Point measured = track.points().get(1);
+        assertThat(measured.familiesCpuNanos()).isEqualTo(10);
+        assertThat(measured.internalCpuNanos()).isEqualTo(10);
+        assertThat(measured.allocatedBytes()).isEqualTo(100);
+        assertBalanced(measured);
+    }
+
+    @Test
+    void intervalUnavailableAllocationIsNotReportedAsHealthyZero() {
+        ResourceSampler sampler = sampler(1);
+        probe.thread(1, "worker-1", -1, -1);
+        sampler.sweep(0, 0);
+        probe.processCpu = 20;
+        sampler.sweep(0, 1);
+
+        Point point = track.points().get(0);
+        assertThat(point.allocatedBytes()).isEqualTo(-1);
+        assertThat(point.internalCpuNanos()).isEqualTo(20);
+        assertBalanced(point);
+    }
+
+    @Test
+    void intervalRecoveredAllocationRequiresAFreshBaselineWhileCpuStaysKnown() {
+        ResourceSampler sampler = sampler(1);
+        probe.thread(1, "worker-1", 100, 1_000);
+        sampler.sweep(0, 0);
+        probe.thread(1, "worker-1", 110, -1);
+        probe.processCpu = 20;
+        sampler.sweep(0, 1);
+        probe.thread(1, "worker-1", 120, 5_000);
+        probe.processCpu = 40;
+        sampler.sweep(0, 2);
+        probe.thread(1, "worker-1", 130, 5_100);
+        probe.processCpu = 60;
+        sampler.sweep(0, 3);
+
+        assertThat(track.points().get(0).allocatedBytes()).isEqualTo(-1);
+        assertThat(track.points().get(1).allocatedBytes()).isEqualTo(-1);
+        assertThat(track.points().get(2).allocatedBytes()).isEqualTo(100);
+        assertThat(track.points()).allSatisfy(point -> {
+            assertThat(point.familiesCpuNanos()).isEqualTo(10);
+            assertThat(point.internalCpuNanos()).isEqualTo(10);
+            assertBalanced(point);
+        });
+    }
+
+    @Test
+    void intervalBackwardsAllocationIsUnknownAndRebaselinesTheCounter() {
+        ResourceSampler sampler = sampler(1);
+        probe.thread(1, "worker-1", 100, 1_000);
+        sampler.sweep(0, 0);
+        probe.thread(1, "worker-1", 110, 500);
+        probe.processCpu = 20;
+        sampler.sweep(0, 1);
+        probe.thread(1, "worker-1", 120, 700);
+        probe.processCpu = 40;
+        sampler.sweep(0, 2);
+
+        assertThat(track.points().get(0).allocatedBytes()).isEqualTo(-1);
+        assertThat(track.points().get(1).allocatedBytes()).isEqualTo(200);
+        assertThat(track.points()).allSatisfy(ResourceSamplerTests::assertBalanced);
+    }
+
+    @Test
+    void intervalBackwardsProcessCpuIsUnknownWithoutLosingThreadMeasurements() {
+        ResourceSampler sampler = sampler(1);
+        probe.thread(1, "worker-1", 100);
+        probe.processCpu = 1_000;
+        sampler.sweep(0, 0);
+        probe.thread(1, "worker-1", 110);
+        probe.processCpu = 500;
+        sampler.sweep(0, 1);
+        probe.thread(1, "worker-1", 120);
+        probe.processCpu = 520;
+        sampler.sweep(0, 2);
+
+        Point reset = track.points().get(0);
+        assertThat(reset.processCpuNanos()).isEqualTo(-1);
+        assertThat(reset.internalCpuNanos()).isEqualTo(-1);
+        assertThat(reset.familiesCpuNanos()).isEqualTo(10);
+        Point measured = track.points().get(1);
+        assertThat(measured.processCpuNanos()).isEqualTo(20);
+        assertThat(measured.familiesCpuNanos()).isEqualTo(10);
+        assertThat(measured.internalCpuNanos()).isEqualTo(10);
+        assertBalanced(measured);
+    }
+
+    @Test
+    void intervalRecoveredProcessCpuRequiresTwoKnownObservations() {
+        ResourceSampler sampler = sampler(1);
+        probe.thread(1, "worker-1", 100);
+        probe.processCpu = -1;
+        sampler.sweep(0, 0);
+        probe.thread(1, "worker-1", 110);
+        probe.processCpu = 1_000;
+        sampler.sweep(0, 1);
+        probe.thread(1, "worker-1", 120);
+        probe.processCpu = 1_020;
+        sampler.sweep(0, 2);
+
+        Point recovered = track.points().get(0);
+        assertThat(recovered.processCpuNanos()).isEqualTo(-1);
+        assertThat(recovered.internalCpuNanos()).isEqualTo(-1);
+        assertThat(recovered.familiesCpuNanos()).isEqualTo(10);
+        assertBalanced(track.points().get(1));
+    }
+
+    @Test
+    void intervalThreadCounterSkewPreservesMeasurementsAndMakesTheRemainderUnknown() {
+        ResourceSampler sampler = sampler(1);
+        probe.thread(1, "worker-1", 100, 1_000);
+        sampler.sweep(0, 0);
+        probe.thread(1, "worker-1", 130, 1_100);
+        probe.processCpu = 20;
+        sampler.sweep(0, 1);
+
+        Point skewed = track.points().get(0);
+        assertThat(skewed.processCpuNanos()).isEqualTo(20);
+        assertThat(skewed.familiesCpuNanos()).isEqualTo(30);
+        assertThat(skewed.internalCpuNanos()).isEqualTo(-1);
+        assertThat(skewed.allocatedBytes()).isEqualTo(100);
+        assertThat(track.totals().processCpuNanos()).isEqualTo(20);
+        assertThat(track.totals().familyCpuNanos()).containsEntry("worker-N", 30L);
+        assertThat(track.totals().internalCpuNanos()).isEqualTo(-1);
+
+        probe.thread(1, "worker-1", 135, 1_200);
+        probe.processCpu = 40;
+        sampler.sweep(0, 2);
+        assertBalanced(track.points().get(1));
+        assertThat(track.totals().processCpuNanos()).isEqualTo(40);
+        assertThat(track.totals().familyCpuNanos()).containsEntry("worker-N", 35L);
+        assertThat(track.totals().internalCpuNanos()).isEqualTo(-1);
+
+        track.clear();
+        assertThat(track.totals().internalCpuNanos()).isZero();
+        probe.thread(1, "worker-1", 140, 1_300);
+        probe.processCpu = 60;
+        sampler.sweep(0, 3);
+        assertThat(track.totals().processCpuNanos()).isEqualTo(20);
+        assertThat(track.totals().internalCpuNanos()).isEqualTo(15);
+        assertThat(track.totals().familyCpuNanos()).containsEntry("worker-N", 5L);
+    }
+
+    @Test
+    void intervalUnknownProcessMakesTheRunLedgerIncompleteEvenAfterRecovery() {
+        ResourceSampler sampler = sampler(1);
+        probe.thread(1, "worker-1", 100);
+        probe.processCpu = -1;
+        sampler.sweep(0, 0);
+        probe.thread(1, "worker-1", 110);
+        sampler.sweep(0, 1);
+        assertThat(track.totals().processCpuNanos()).isZero();
+        assertThat(track.totals().familyCpuNanos()).containsEntry("worker-N", 10L);
+        assertThat(track.totals().internalCpuNanos()).isEqualTo(-1);
+
+        probe.thread(1, "worker-1", 120);
+        probe.processCpu = 1_000;
+        sampler.sweep(0, 2);
+        probe.thread(1, "worker-1", 130);
+        probe.processCpu = 1_020;
+        sampler.sweep(0, 3);
+
+        assertBalanced(track.points().get(2));
+        assertThat(track.totals().processCpuNanos()).isEqualTo(20);
+        assertThat(track.totals().familyCpuNanos()).containsEntry("worker-N", 30L);
+        assertThat(track.totals().internalCpuNanos()).isEqualTo(-1);
+    }
+
+    @Test
+    void intervalZeroMeasuredProcessCpuIsNotInflatedByPositiveThreadCpu() {
+        ResourceSampler sampler = sampler(1);
+        probe.thread(1, "worker-1", 100);
+        sampler.sweep(0, 0);
+        probe.thread(1, "worker-1", 110);
+        sampler.sweep(0, 1);
+
+        Point point = track.points().get(0);
+        assertThat(point.processCpuNanos()).isZero();
+        assertThat(point.familiesCpuNanos()).isEqualTo(10);
+        assertThat(point.internalCpuNanos()).isEqualTo(-1);
+        assertThat(track.totals().processCpuNanos()).isZero();
+        assertThat(track.totals().internalCpuNanos()).isEqualTo(-1);
+    }
+
+    @Test
+    void intervalIncompleteRemainderStaysUnknownAfterItsPointLeavesTheRing() {
+        track.add(new Point(0, 0, 1, 20, 0, -1, new long[] {30}, 0, 0, 0, 0, 0, 0, 0));
+        for (int i = 1; i <= ResourceTrack.CAPACITY; i++) {
+            track.add(new Point(i, i, 1, 20, 0, 10, new long[] {10}, 0, 0, 0, 0, 0, 0, 0));
+        }
+
+        assertThat(track.points()).hasSize(ResourceTrack.CAPACITY).allSatisfy(ResourceSamplerTests::assertBalanced);
+        assertThat(track.totals().processCpuNanos()).isEqualTo(20L * (ResourceTrack.CAPACITY + 1));
+        assertThat(track.totals().internalCpuNanos()).isEqualTo(-1);
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void intervalFirstRequestObservationBaselinesAnOpenSegmentsProgress() {
+        long main = Thread.currentThread().getId();
+        ResourceSampler sampler = sampler(1);
+        probe.thread(1_002, "old-worker-1", 1_000);
+        sampler.sweep(0, 0);
+
+        readings.set(Thread.currentThread(), 100, 0);
+        assertThat(meter.begin("r1")).isTrue();
+        try {
+            probe.threads.clear();
+            probe.thread(main, "http-nio-8080-exec-1", 1_000);
+            probe.processCpu = 20;
+            sampler.sweep(0, 1);
+            Point firstSeen = track.points().get(0);
+            assertThat(firstSeen.processCpuNanos()).isEqualTo(20);
+            assertThat(firstSeen.requestCpuNanos()).isZero();
+            assertThat(firstSeen.familiesCpuNanos()).isZero();
+            assertThat(firstSeen.internalCpuNanos()).isEqualTo(20);
+            assertBalanced(firstSeen);
+
+            probe.thread(main, "http-nio-8080-exec-1", 1_010);
+            probe.processCpu = 40;
+            sampler.sweep(0, 2);
+            Point measured = track.points().get(1);
+            assertThat(measured.requestCpuNanos()).isEqualTo(10);
+            assertThat(measured.familiesCpuNanos()).isZero();
+            assertThat(measured.internalCpuNanos()).isEqualTo(10);
+            assertBalanced(measured);
+        } finally {
+            meter.take("r1");
+        }
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void intervalRecoveredRequestCpuDoesNotCreditWorkDuringTheUnknownInterval() {
+        long main = Thread.currentThread().getId();
+        ResourceSampler sampler = sampler(1);
+        probe.thread(main, "http-nio-8080-exec-1", 100, 0);
+        readings.set(Thread.currentThread(), 100, 0);
+        assertThat(meter.begin("r1")).isTrue();
+        try {
+            sampler.sweep(0, 0);
+            probe.thread(main, "http-nio-8080-exec-1", -1, 100);
+            probe.processCpu = 20;
+            sampler.sweep(0, 1);
+            probe.thread(main, "http-nio-8080-exec-1", 1_000, 200);
+            probe.processCpu = 40;
+            sampler.sweep(0, 2);
+
+            Point recovered = track.points().get(1);
+            assertThat(recovered.processCpuNanos()).isEqualTo(20);
+            assertThat(recovered.requestCpuNanos()).isZero();
+            assertThat(recovered.familiesCpuNanos()).isZero();
+            assertThat(recovered.internalCpuNanos()).isEqualTo(20);
+            assertBalanced(recovered);
+
+            readings.set(Thread.currentThread(), 1_010, 300);
+            meter.switchTo(null);
+            probe.thread(main, "http-nio-8080-exec-1", 1_020, 400);
+            probe.processCpu = 70;
+            sampler.sweep(0, 3);
+            Point measured = track.points().get(2);
+            assertThat(measured.requestCpuNanos()).isEqualTo(10);
+            assertThat(measured.familiesCpuNanos()).isEqualTo(10);
+            assertThat(measured.internalCpuNanos()).isEqualTo(10);
+            assertBalanced(measured);
+        } finally {
+            meter.take("r1");
+        }
+    }
+
+    @Test
     void theTrackKeepsItsMostRecentPointsAndTheRunsTotals() {
         track.family("pool-N-thread-N");
         for (int i = 0; i < ResourceTrack.CAPACITY + 5; i++) {
@@ -159,7 +569,7 @@ class ResourceSamplerTests {
             assertThat(point.sequence()).isEqualTo(7);
             assertThat(point.heapUsedBytes()).isPositive();
             assertThat(point.liveThreads()).isPositive();
-            if (point.processCpuNanos() >= 0) {
+            if (point.processCpuNanos() >= 0 && point.internalCpuNanos() >= 0) {
                 assertThat(point.requestCpuNanos() + point.familiesCpuNanos() + point.internalCpuNanos())
                         .isEqualTo(point.processCpuNanos());
             }
@@ -210,6 +620,11 @@ class ResourceSamplerTests {
         return families;
     }
 
+    private static void assertBalanced(Point point) {
+        assertThat(point.requestCpuNanos() + point.familiesCpuNanos() + point.internalCpuNanos())
+                .isEqualTo(point.processCpuNanos());
+    }
+
     /** Threads, process CPU, and heap the test sets. */
     private static final class FakeProbe implements ResourceSampler.Probe {
 
@@ -217,7 +632,11 @@ class ResourceSamplerTests {
         private long processCpu;
 
         void thread(long id, String name, long cpu) {
-            threads.put(id, new ThreadReading(id, name, cpu, 0));
+            thread(id, name, cpu, 0);
+        }
+
+        void thread(long id, String name, long cpu, long allocated) {
+            threads.put(id, new ThreadReading(id, name, cpu, allocated));
         }
 
         @Override
