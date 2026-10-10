@@ -1702,7 +1702,8 @@ invocations, its window, a **Stop**, or the end of the run. The card refreshes e
 
 - **Bounds hold where the method runs.** The agent counts invocations and checks the window in the probe's own advice,
   so a probe never records past its bound even if removing its instrumentation is slow or fails; such a removal is
-  reported on the probe. A probe ends with its run: a DevTools restart, a Quarkus live reload, or BootUI disabled. When
+  reported on the probe. A probe ends with its run: a DevTools restart, a Quarkus live reload, or BootUI disabled.
+  A delayed lifecycle callback from an earlier run never ends a newer run's probe. When
   the run ended with a restart or a reload, the previous run's copy of the class is not retransformed again: the probe's
   transformer is only removed, and the advice left in that copy records nothing until it is unloaded. While the panel
   is read-only, a running probe still ends by itself within its window.
@@ -1862,6 +1863,15 @@ with `bootui.agent.sensors` as the other way to turn it on or off.
 Runtime Insights' [run comparison](overview.md#runtime-insights) reads these rows too: under **Outside the JVM**, it
 lists the hosts, file patterns, processes, and variable names a route, a job, or startup uses now and did not in the
 previous run, or no longer uses, for each sensor that recorded the whole of both runs.
+
+An HTTP response does not mean its executor work has finished. A comparison withholds a missing key for an owner
+whose native request/job scope or propagated work is still pending, while keeping observed additions and comparisons of settled owners.
+It qualifies pending ownership across a serialized drain, retrying at most once if handoffs changed meanwhile; a
+racing read, an undrained ring, or hidden, unresolved, or oversized owner metadata makes absence unknown and the
+comparison **Partial**, not a claim that the owner was never exercised. The bridge keeps at most 1,024 primitive scope markers
+for the current claim and at most 256 pending owner names per summary; overflow stays unknown. Summaries retain normalized, masked owner
+labels, never correlation ids. Older summaries without this metadata, and metadata omitted to fit the summary's
+byte budget, cannot establish absence; their observed keys remain usable.
 
 The panel has one tab per sensor group:
 

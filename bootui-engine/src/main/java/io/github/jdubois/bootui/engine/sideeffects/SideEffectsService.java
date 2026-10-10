@@ -580,14 +580,12 @@ public final class SideEffectsService implements AutoCloseable {
             if (current == null) {
                 return;
             }
-            access.sideEffectsFlushThread();
-            current.drainNow();
+            RunSideEffects frozen = qualifiedSnapshot(current, read(), true);
             synchronized (lock) {
                 if (ended != null) {
                     return;
                 }
-                current.store.resolve(SideEffectsService.this::names, clock.getAsLong(), 0L);
-                ended = snapshot(current, read());
+                ended = frozen;
                 publish(current);
             }
         } catch (RuntimeException ex) {
@@ -644,12 +642,13 @@ public final class SideEffectsService implements AutoCloseable {
                 }
             }
             AgentEvidence.Read read = read();
-            Run current = shownReason(read) == null ? settledRun() : current();
+            Run current = current();
             if (current == null) {
                 return null;
             }
+            RunSideEffects snapshot = qualifiedSnapshot(current, read, false);
             synchronized (lock) {
-                return ended != null ? ended : snapshot(current, read);
+                return ended != null ? ended : snapshot;
             }
         } catch (RuntimeException ex) {
             log.log(Level.FINE, "BootUI could not read the run's side effects", ex);
@@ -675,7 +674,7 @@ public final class SideEffectsService implements AutoCloseable {
     }
 
     /** The run's side effects now, under the lock: its keys, and each compared sensor's verdicts. */
-    private RunSideEffects snapshot(Run current, AgentEvidence.Read read) {
+    private RunSideEffects snapshot(Run current, AgentEvidence.Read read, PendingCut pending) {
         String hidden = shownReason(read);
         if (hidden != null) {
             return RunSideEffects.unavailable(
@@ -745,7 +744,169 @@ public final class SideEffectsService implements AutoCloseable {
             String startupReason = reason != null ? reason : startupReason(current, id);
             sensors.add(new RunSideEffects.Sensor(id, reason, startupReason, omitted));
         }
-        return new RunSideEffects(null, routesHidden, sensors, kept);
+        Set<String> ownerKeys = new java.util.LinkedHashSet<>();
+        boolean startupPending = false;
+        for (PendingOwnerId owner : pending.owners()) {
+            if (owner.requestId() != null) {
+                ownerKeys.add(owner.requestId());
+            } else if (owner.executionId() != null) {
+                ownerKeys.add(SideEffectsStore.EXECUTION_KEY + owner.executionId());
+            }
+            startupPending |= owner.startup();
+        }
+        Map<String, String> named;
+        try {
+            named = names(ownerKeys);
+        } catch (RuntimeException ex) {
+            log.log(Level.FINE, "BootUI could not resolve pending side-effect owners", ex);
+            return new RunSideEffects(
+                    null, routesHidden, sensors, kept, List.of(), "pending owner names could not be resolved");
+        }
+        Set<RunSideEffects.PendingOwner> pendingOwners = new java.util.LinkedHashSet<>();
+        if (startupPending) {
+            pendingOwners.add(new RunSideEffects.PendingOwner(SideEffectsRowDto.STARTUP, "startup"));
+        }
+        String unknown = pending.unknownReason();
+        for (String key : ownerKeys) {
+            boolean execution = key.startsWith(SideEffectsStore.EXECUTION_KEY);
+            String owner = named.get(key);
+            if ((!execution && routesHidden) || owner == null) {
+                unknown = routesHidden && !execution
+                        ? "a pending owner's HTTP route was hidden"
+                        : "a pending owner could not be named";
+                continue;
+            }
+            owner = SideEffectOrigins.maskPath(owner);
+            if (owner.length() > RunSideEffects.MAX_OWNER_LENGTH) {
+                unknown = "a pending owner's label exceeded its metadata bound";
+                continue;
+            }
+            pendingOwners.add(new RunSideEffects.PendingOwner(
+                    execution ? SideEffectsRowDto.EXECUTION : SideEffectsRowDto.ROUTE, owner));
+        }
+        return new RunSideEffects(null, routesHidden, sensors, kept, List.copyOf(pendingOwners), unknown);
+    }
+
+    private RunSideEffects qualifiedSnapshot(Run current, AgentEvidence.Read read, boolean ending) {
+        String hidden = shownReason(read);
+        if (hidden != null) {
+            return RunSideEffects.unavailable(
+                    "Side Effects was not shown when the run's side effects were read: " + hidden);
+        }
+        RunSideEffects snapshot = null;
+        String unknown = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            PendingCut pending = pendingCut(current);
+            if (ending) {
+                access.sideEffectsFlushThread();
+            }
+            current.drainNow();
+            current.retryHolders();
+            synchronized (lock) {
+                if (ending) {
+                    current.store.resolve(SideEffectsService.this::names, clock.getAsLong(), 0L);
+                } else {
+                    current.resolve(true);
+                }
+                snapshot = snapshot(current, read, pending);
+                publish(current);
+            }
+            String ring = pendingRingReason(current);
+            PendingCut after = pendingCut(current);
+            if (pending.qualified()
+                    && after.qualified()
+                    && pending.generation() == after.generation()
+                    && pending.revision() == after.revision()) {
+                return ring == null ? snapshot : snapshot.unknownAbsence(ring);
+            }
+            unknown = !pending.qualified() ? pending.unknownReason() : after.unknownReason();
+        }
+        return snapshot.unknownAbsence(
+                unknown == null ? "pending ownership changed while the agent's evidence was drained" : unknown);
+    }
+
+    private PendingCut pendingCut(Run current) {
+        return pendingCut(current.claim.pendingSideEffects(), current.generation, current.store.readyAt());
+    }
+
+    static PendingCut pendingCut(Map<String, Object> metadata, long expectedGeneration, long readyAt) {
+        if (metadata == null
+                || !metadata.containsKey("unknownReason")
+                || (metadata.get("unknownReason") != null && !(metadata.get("unknownReason") instanceof String))) {
+            return new PendingCut(
+                    expectedGeneration,
+                    -1L,
+                    false,
+                    List.of(),
+                    "pending side-effect ownership metadata was missing or malformed");
+        }
+        String unknown = metadata.get("unknownReason") instanceof String reason ? reason : null;
+        if (!Boolean.TRUE.equals(metadata.get("qualified"))
+                || !(metadata.get("generation") instanceof Long generation)
+                || generation != expectedGeneration
+                || !(metadata.get("revision") instanceof Long revision)
+                || revision < 0
+                || !(metadata.get("writers") instanceof Integer writers)
+                || writers != 0
+                || !(metadata.get("owners") instanceof List<?> rawOwners)
+                || rawOwners.size() > 1024) {
+            return new PendingCut(
+                    expectedGeneration,
+                    -1L,
+                    false,
+                    List.of(),
+                    unknown == null ? "pending side-effect ownership could not be qualified" : unknown);
+        }
+        List<PendingOwnerId> owners = new ArrayList<>();
+        for (Object raw : rawOwners) {
+            if (!(raw instanceof long[] owner)
+                    || owner.length != 5
+                    || owner[0] != expectedGeneration
+                    || owner[3] < 0
+                    || owner[3] > SideEffectRecord.EXECUTION_OWN
+                    || owner[4] <= 0) {
+                return new PendingCut(
+                        expectedGeneration, revision, false, List.of(), "a pending side-effect owner was malformed");
+            }
+            String request = SideEffectRecord.requestId(owner[1]);
+            String execution = SideEffectRecord.executionId(owner[2], (int) owner[3]);
+            if (request == null && execution == null) {
+                unknown = "a pending side-effect owner could not be decoded";
+            } else {
+                owners.add(new PendingOwnerId(request, execution, owner[4] < readyAt));
+            }
+        }
+        return new PendingCut(generation, revision, true, owners, unknown);
+    }
+
+    record PendingOwnerId(String requestId, String executionId, boolean startup) {}
+
+    record PendingCut(
+            long generation, long revision, boolean qualified, List<PendingOwnerId> owners, String unknownReason) {}
+
+    private String pendingRingReason(Run current) {
+        Map<String, Object> status = access.status();
+        Map<String, Object> claim = AgentBridgeAccess.map(status, "claim");
+        if (claim == null
+                || !(claim.get("generation") instanceof Long generation)
+                || generation != current.generation
+                || !Boolean.TRUE.equals(claim.get("armed"))) {
+            return "the agent's claim changed or ended while side-effect coverage was read";
+        }
+        for (String id : COMPARED_SENSORS) {
+            Map<String, Object> sensor = AgentBridgeAccess.map(status, id);
+            if (sensor == null
+                    || !(sensor.get("generation") instanceof Long sensorGeneration)
+                    || sensorGeneration != current.generation
+                    || !(sensor.get("ringSize") instanceof Long size)
+                    || size < 0) {
+                return "the agent's pending ring coverage could not be qualified for this claim";
+            }
+            if (size != 0L) {
+                return "the agent still holds unpublished or undrained side-effect records";
+            }
+        }
+        return null;
     }
 
     /**

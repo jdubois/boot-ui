@@ -2281,6 +2281,7 @@ public final class SideEffects {
             frame.slotExecution = new long[SLOTS];
             frame.slotKind = new int[SLOTS];
             frame.slotSource = new int[SLOTS];
+            frame.slotPending = new long[SLOTS];
         }
         int index = frame.slots;
         if (index < SLOTS) {
@@ -2289,6 +2290,9 @@ public final class SideEffects {
             frame.slotExecution[index] = execution;
             frame.slotKind[index] = kind;
             frame.slotSource[index] = source;
+            frame.slotPending[index] = PendingSideEffects.open(slotGeneration, request, execution, kind);
+        } else if (request != 0L || execution != 0L) {
+            PendingSideEffects.unknown(slotGeneration, "owner slot depth exceeded its bound");
         }
         frame.slots = index + 1;
     }
@@ -2301,12 +2305,21 @@ public final class SideEffects {
         }
         if (index < SLOTS && frame.slotSource[index] != source) {
             SLOT_MISMATCHES.increment();
+            if (frame.slotRequest[index] != 0L || frame.slotExecution[index] != 0L) {
+                PendingSideEffects.unknown(
+                        frame.slotGeneration[index], "an owned scope ended with an unmatched boundary");
+            }
             return;
         }
         flush(frame);
         if (frame.threadLocals != null) {
             // The thread-locals scope this slot opened, if any, closes while the slot still names its owner.
             ThreadLocals.popping(frame, index);
+        }
+        flush(frame);
+        if (index < SLOTS) {
+            PendingSideEffects.closed(frame.slotGeneration[index], frame.slotPending[index]);
+            frame.slotPending[index] = 0L;
         }
         frame.slots = index;
     }
@@ -3403,6 +3416,19 @@ public final class SideEffects {
         }
     }
 
+    /** Bounded primitive pending owners for this token, for the engine's private completeness cut. Never throws. */
+    public static Map<String, Object> pending(long token) {
+        try {
+            return PendingSideEffects.snapshot(token);
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+            Map<String, Object> unavailable = new LinkedHashMap<String, Object>();
+            unavailable.put("qualified", Boolean.FALSE);
+            unavailable.put("unknownReason", "pending side-effect ownership could not be read");
+            return unavailable;
+        }
+    }
+
     /** One record's owner and thread. */
     static final class Owner {
         long generation;
@@ -3827,6 +3853,7 @@ public final class SideEffects {
      */
     static void claimed(Claim claim) {
         try {
+            PendingSideEffects.claimed(claim.generation);
             claimedOnce = true;
             if (RING.get() == null) {
                 RING.compareAndSet(null, new AgentRing.Ring(DEFAULT_CAPACITY, RECORD, COUNTERS));
@@ -4007,6 +4034,7 @@ public final class SideEffects {
     /** Loads and links what the advice and recording use, before the transformer instruments anything. */
     public static void warm() {
         try {
+            PendingSideEffects.warm();
             commandName(new ProcessBuilder("warm").command(), false);
             ownerOf(null, new Owner());
             agentWork(true);
@@ -4322,6 +4350,7 @@ public final class SideEffects {
 
     /** Tests only: forgets the ring, the table, the switches, and the counters; the exit worker stays handed out. */
     static void reset() {
+        PendingSideEffects.reset();
         slotReaders = false;
         RING.set(null);
         INTERNS.set(null);

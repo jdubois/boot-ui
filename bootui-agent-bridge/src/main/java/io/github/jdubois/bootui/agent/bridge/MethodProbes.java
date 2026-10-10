@@ -660,12 +660,12 @@ public final class MethodProbes {
 
     // ---- the run ---------------------------------------------------------------------------------------------------
 
-    /** A new claim generation: every probe of another generation ends with its run. Never throws. */
+    /** A new claim or release: only probes preceding its captured generation end with their run. Never throws. */
     static void claimed(long generation) {
         try {
             for (int i = 0; i < SLOTS; i++) {
                 Probe probe = SLOT.get(i);
-                if (probe != null && probe.generation != generation) {
+                if (probe != null && probe.generation < generation) {
                     end(probe, END_RUN);
                 }
             }
@@ -674,9 +674,18 @@ public final class MethodProbes {
         }
     }
 
-    /** A disarm or a release: every probe ends with its run. Never throws. */
-    static void endAll() {
-        claimed(Long.MIN_VALUE);
+    /** A disarm ends only its own generation, even when a newer claim has already started a probe. Never throws. */
+    static void disarmed(long generation) {
+        try {
+            for (int i = 0; i < SLOTS; i++) {
+                Probe probe = SLOT.get(i);
+                if (probe != null && probe.generation == generation) {
+                    end(probe, END_RUN);
+                }
+            }
+        } catch (Throwable ex) {
+            AgentBridge.error(ex);
+        }
     }
 
     // ---- internals -------------------------------------------------------------------------------------------------

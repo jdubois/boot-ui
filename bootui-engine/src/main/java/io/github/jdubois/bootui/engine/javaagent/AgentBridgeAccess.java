@@ -683,6 +683,21 @@ public final class AgentBridgeAccess {
         }
     }
 
+    /** Internal scope ownership, never status counters; missing older-agent metadata is explicitly unknown. */
+    public Map<String, Object> sideEffectsPending(long token) {
+        if (!sideEffectsSupported() || sideEffects.pending() == null) {
+            return Map.of("unknownReason", "the agent has no pending side-effect ownership metadata");
+        }
+        try {
+            Object value = sideEffects.pending().invoke(token);
+            return value instanceof Map<?, ?>
+                    ? copy(value)
+                    : Map.of("unknownReason", "the agent's pending ownership response was malformed");
+        } catch (Throwable ex) {
+            return Map.of("unknownReason", "the agent's pending side-effect ownership could not be read");
+        }
+    }
+
     /**
      * The strings the side-effect records of claim {@code generation} refer to, from id {@code from}, or {@code null}
      * when their table belongs to another generation or without the sensors' bridge.
@@ -837,7 +852,8 @@ public final class AgentBridgeAccess {
             MethodHandle interned,
             MethodHandle recordingCleared,
             MethodHandle flushThread,
-            MethodHandle requestEnded) {
+            MethodHandle requestEnded,
+            MethodHandle pending) {
 
         static SideEffectsHandles bind(Class<?> bridge) {
             try {
@@ -850,9 +866,18 @@ public final class AgentBridgeAccess {
                                 sideEffects, "interned", MethodType.methodType(String[].class, long.class, int.class)),
                         recordingCleared(lookup, sideEffects),
                         flushThread(lookup, sideEffects),
-                        requestEnded(lookup, bridge));
+                        requestEnded(lookup, bridge),
+                        pending(lookup, sideEffects));
             } catch (Throwable ex) {
                 // An agent of this protocol from before M5-5a: no side-effect sensors.
+                return null;
+            }
+        }
+
+        private static MethodHandle pending(MethodHandles.Lookup lookup, Class<?> sideEffects) {
+            try {
+                return lookup.findStatic(sideEffects, "pending", MethodType.methodType(Map.class, long.class));
+            } catch (ReflectiveOperationException | LinkageError ex) {
                 return null;
             }
         }

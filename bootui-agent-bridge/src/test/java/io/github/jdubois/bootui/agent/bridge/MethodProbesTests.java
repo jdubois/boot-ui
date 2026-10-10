@@ -7,6 +7,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
@@ -18,7 +22,7 @@ class MethodProbesTests {
 
     static final String KEY = "com.example.shop.PriceService#quote(I)J";
 
-    private final List<Map<String, Object>> calls = new ArrayList<>();
+    private final List<Map<String, Object>> calls = new CopyOnWriteArrayList<>();
     private final ThreadLocal<String> request = new ThreadLocal<>();
     private Supplier<Object> capture;
     private Function<Object, AutoCloseable> reopen;
@@ -253,6 +257,135 @@ class MethodProbesTests {
         MethodProbes.activate(0, second);
         AgentBridge.disarm(next);
         assertThat(MethodProbes.poll(0, second)).isEqualTo(MethodProbes.ENDING);
+
+        MethodProbes.removed(0, second, null);
+        long releasedToken = claim("dev");
+        long released = id(MethodProbes.start(releasedToken, Map.of("method", KEY)));
+        MethodProbes.activate(0, released);
+        AgentBridge.release("shop", "dev");
+        assertThat(MethodProbes.poll(0, released)).isEqualTo(MethodProbes.ENDING);
+        assertThat(MethodProbes.endReason(0, released)).isEqualTo(MethodProbes.END_RUN);
+    }
+
+    @Test
+    void anOlderClaimResumingAfterCaptureNeverEndsANewerRunsProbe() throws Exception {
+        CountDownLatch capturing = new CountDownLatch(1);
+        CountDownLatch resume = new CountDownLatch(1);
+        AtomicReference<Map<String, Object>> answer = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Supplier<Object> olderCapture = () -> {
+            capturing.countDown();
+            try {
+                if (!resume.await(10, TimeUnit.SECONDS)) {
+                    throw new AssertionError("the old claim was not resumed");
+                }
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(ex);
+            }
+            return null;
+        };
+        Function<Object, AutoCloseable> olderReopen = snapshot -> () -> {};
+        Thread older = new Thread(
+                () -> {
+                    try {
+                        answer.set(AgentBridge.claim(
+                                Map.of(
+                                        "application",
+                                        "shop",
+                                        "mode",
+                                        "dev",
+                                        "packages",
+                                        List.of("com.example.shop"),
+                                        "sensors",
+                                        List.of("inventory", "code-paths")),
+                                olderCapture,
+                                olderReopen));
+                    } catch (Throwable ex) {
+                        failure.set(ex);
+                    }
+                },
+                "old-probe-claim");
+        older.start();
+        try {
+            assertThat(capturing.await(10, TimeUnit.SECONDS)).isTrue();
+            long token = claim("dev");
+            long generation = AgentBridge.current().generation;
+            long id = id(MethodProbes.start(token, Map.of("method", KEY)));
+            assertThat(MethodProbes.activate(0, id)).isTrue();
+            assertThat(MethodProbes.poll(0, id)).isEqualTo(MethodProbes.ACTIVE);
+
+            resume.countDown();
+            older.join(10_000L);
+
+            assertThat(older.isAlive()).isFalse();
+            assertThat(failure.get()).isNull();
+            assertThat(answer.get()).containsEntry("status", AgentBridge.ARMED);
+            assertThat((Long) answer.get().get("generation")).isLessThan(generation);
+            assertThat(AgentBridge.current().generation).isEqualTo(generation);
+            assertThat(AgentBridge.current().armed).isTrue();
+            assertThat(MethodProbes.poll(0, id)).isEqualTo(MethodProbes.ACTIVE);
+            assertThat(MethodProbes.endReason(0, id)).isNull();
+        } finally {
+            resume.countDown();
+            older.join(10_000L);
+            java.lang.ref.Reference.reachabilityFence(olderCapture);
+            java.lang.ref.Reference.reachabilityFence(olderReopen);
+        }
+    }
+
+    @Test
+    void aDelayedDisarmsCapturedGenerationNeverEndsANewerRunsProbe() throws Exception {
+        claim("dev");
+        long endedGeneration = AgentBridge.current().generation;
+        delayedCleanup(() -> MethodProbes.disarmed(endedGeneration));
+    }
+
+    @Test
+    void aDelayedReleasesCapturedCutoffNeverEndsANewerRunsProbe() throws Exception {
+        claim("dev");
+        long releaseCutoff = AgentBridge.current().generation + 1L;
+        delayedCleanup(() -> MethodProbes.claimed(releaseCutoff));
+    }
+
+    private void delayedCleanup(Runnable cleanup) throws Exception {
+        CountDownLatch captured = new CountDownLatch(1);
+        CountDownLatch resume = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread older = new Thread(
+                () -> {
+                    try {
+                        captured.countDown();
+                        if (!resume.await(10, TimeUnit.SECONDS)) {
+                            throw new AssertionError("the older cleanup was not resumed");
+                        }
+                        cleanup.run();
+                    } catch (Throwable ex) {
+                        failure.set(ex);
+                    }
+                },
+                "delayed-probe-cleanup");
+        older.start();
+        try {
+            assertThat(captured.await(10, TimeUnit.SECONDS)).isTrue();
+            claim("dev");
+            long token = claim("dev");
+            long generation = AgentBridge.current().generation;
+            long id = id(MethodProbes.start(token, Map.of("method", KEY)));
+            assertThat(MethodProbes.activate(0, id)).isTrue();
+
+            resume.countDown();
+            older.join(10_000L);
+
+            assertThat(older.isAlive()).isFalse();
+            assertThat(failure.get()).isNull();
+            assertThat(AgentBridge.current().generation).isEqualTo(generation);
+            assertThat(MethodProbes.poll(0, id)).isEqualTo(MethodProbes.ACTIVE);
+            assertThat(MethodProbes.endReason(0, id)).isNull();
+        } finally {
+            resume.countDown();
+            older.join(10_000L);
+        }
     }
 
     @Test

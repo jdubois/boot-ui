@@ -56,7 +56,7 @@ class RunSideEffectsSummaryTests {
                 RunSummary.of(RunIdentity.start(), new JournalAggregates().snapshot(), null, sideEffects, 2),
                 RunHistory.MAX_SUMMARY_BYTES);
 
-        assertThat(encoded[4]).isEqualTo((byte) 14);
+        assertThat(encoded[4]).isEqualTo((byte) 15);
         assertThat(RunSummaryCodec.decode(encoded).sideEffects()).isEqualTo(sideEffects);
 
         byte[] none = RunSummaryCodec.encode(
@@ -68,6 +68,71 @@ class RunSideEffectsSummaryTests {
         assertThat(RunSummaryCodec.decode(older).sideEffects()).isNull();
         assertThat(RunSummaryCodec.decode(older).aggregates().overflowed())
                 .doesNotContainKey(JournalAggregates.LEGACY_TABLE_EDGES);
+    }
+
+    @Test
+    void genuineVersion14SideEffectsKeepTheirPositiveKeysButHaveUnknownPendingCoverage() throws IOException {
+        try (var fixture = getClass().getResourceAsStream("/journal/pre-pending-side-effects-v14.bin")) {
+            assertThat(fixture).isNotNull();
+            byte[] bytes = fixture.readAllBytes();
+            assertThat(bytes).hasSize(403);
+            assertThat(bytes[4]).isEqualTo((byte) 14);
+            RunSideEffects legacy = RunSummaryCodec.decode(bytes).sideEffects();
+            assertThat(legacy.keys()).singleElement().satisfies(key -> {
+                assertThat(key.owner()).isEqualTo("GET /reports");
+                assertThat(key.target()).isEqualTo("/tmp/report.csv");
+            });
+            assertThat(legacy.absenceUnknownReason()).isEqualTo(RunSideEffects.UNKNOWN_OWNERSHIP);
+        }
+    }
+
+    @Test
+    void pendingNamesAndUnknownnessRoundTripAndForcedByteTrimmingNeverQualifiesEmpty() {
+        var pending = List.of(new RunSideEffects.PendingOwner("route", "GET /reports"));
+        RunSideEffects effects = new RunSideEffects(null, false, run().sensors(), List.of(), pending, null);
+        RunSummary summary = RunSummary.of(RunIdentity.start(), new JournalAggregates().snapshot(), null, effects, 2);
+        assertThat(RunSummaryCodec.decode(RunSummaryCodec.encode(summary, RunHistory.MAX_SUMMARY_BYTES))
+                        .sideEffects())
+                .isEqualTo(effects);
+        RunHistory history = new RunHistory(5, RunHistory.MAX_SUMMARY_BYTES, null);
+        history.record(summary);
+        assertThat(history.summaries().get(0).sideEffects()).isEqualTo(effects);
+
+        List<RunSideEffects.PendingOwner> owners = new ArrayList<>();
+        List<RunSideEffects.Key> keys = new ArrayList<>();
+        for (int i = 0; i < RunSideEffects.MAX_PENDING_OWNERS; i++) {
+            String owner = "GET /" + "x".repeat(300) + i;
+            owners.add(new RunSideEffects.PendingOwner("route", owner));
+            keys.add(key("files", "write", "/data/" + "y".repeat(200) + i, owner));
+        }
+        RunSideEffects large = new RunSideEffects(null, false, run().sensors(), keys, owners, null);
+        RunSideEffects fitted = RunSummaryCodec.fitSideEffects(large, RunSummaryCodec.SIDE_EFFECTS_MAX_BYTES);
+        assertThat(RunSummaryCodec.sideEffectsBytes(fitted))
+                .isLessThanOrEqualTo(RunSummaryCodec.SIDE_EFFECTS_MAX_BYTES);
+        assertThat(fitted.absenceUnknownReason()).contains("byte budget");
+        assertThat(fitted.pendingOwners()).isEmpty();
+        byte[] forced = RunSummaryCodec.encode(
+                RunSummary.of(RunIdentity.start(), new JournalAggregates().snapshot(), null, large, 2), 4096);
+        assertThat(forced.length).isLessThanOrEqualTo(4096);
+        RunSideEffects trimmed = RunSummaryCodec.decode(forced).sideEffects();
+        assertThat(trimmed.absenceUnknownReason()).contains("byte budget");
+        assertThat(trimmed.pendingOwners()).isEmpty();
+        assertThat(trimmed.sensor("files").omittedKeys()).isPositive();
+    }
+
+    @Test
+    void pendingLabelBoundsCannotCreateTruncatedOwnerCollisionsOrHealthyEmpty() {
+        RunSideEffects oversized = new RunSideEffects(
+                null,
+                false,
+                run().sensors(),
+                List.of(),
+                List.of(new RunSideEffects.PendingOwner("route", "x".repeat(RunSideEffects.MAX_OWNER_LENGTH + 1))),
+                null);
+        assertThat(oversized.pendingOwners()).isEmpty();
+        assertThat(oversized.absenceUnknownReason()).contains("bound");
+        RunSideEffects missing = new RunSideEffects(null, false, run().sensors(), List.of(), null, null);
+        assertThat(missing.absenceUnknownReason()).isEqualTo(RunSideEffects.UNKNOWN_OWNERSHIP);
     }
 
     @Test
@@ -236,7 +301,9 @@ class RunSideEffectsSummaryTests {
                         new RunSideEffects.Sensor("files", null, null, 0),
                         new RunSideEffects.Sensor("processes", null, null, 0),
                         new RunSideEffects.Sensor("environment", null, null, 0)),
-                List.of(keys));
+                List.of(keys),
+                List.of(),
+                null);
     }
 
     private static RunSideEffects.Key key(String sensor, String kind, String target, String route) {

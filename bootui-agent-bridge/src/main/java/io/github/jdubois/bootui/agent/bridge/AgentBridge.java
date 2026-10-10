@@ -326,7 +326,7 @@ public final class AgentBridge {
             Claim next = current.disarmed();
             if (CLAIM.compareAndSet(current, next)) {
                 CodePaths.refresh();
-                MethodProbes.endAll();
+                MethodProbes.disarmed(current.generation);
                 SideEffects.refresh();
                 CaughtExceptions.refresh();
                 // Request values never outlive the claim they were pushed under (PLAN-v2 M5-6b).
@@ -359,7 +359,7 @@ public final class AgentBridge {
             SlotSwitches.save(current);
             if (CLAIM.compareAndSet(current, null)) {
                 CodePaths.refresh();
-                MethodProbes.endAll();
+                MethodProbes.claimed(generation);
                 SideEffects.refresh();
                 CaughtExceptions.refresh();
                 // Request values never outlive the claim they were pushed under (PLAN-v2 M5-6b).

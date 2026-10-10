@@ -1,7 +1,9 @@
 package sideeffectsapp;
 
 import io.github.jdubois.bootui.agent.bridge.SideEffects;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Path;
 
 /**
  * An application class outside BootUI's packages that starts a process the way the processes sensor's advice on
@@ -15,6 +17,16 @@ public final class Launcher {
     public static void writeFile(String name) {
         long token = SideEffects.fileOpening(SideEffects.HOOK_FILE_OUTPUT_STREAM);
         SideEffects.fileOpened(token, SideEffects.HOOK_FILE_OUTPUT_STREAM, SideEffects.KIND_FILE_WRITE, name, null);
+    }
+
+    /** Writes a real file while reporting the same open hook as the files sensor's advice. */
+    public static void writeFile(Path path) throws IOException {
+        long token = SideEffects.fileOpening(SideEffects.HOOK_FILE_OUTPUT_STREAM);
+        try (FileOutputStream stream = new FileOutputStream(path.toFile())) {
+            SideEffects.fileOpened(
+                    token, SideEffects.HOOK_FILE_OUTPUT_STREAM, SideEffects.KIND_FILE_WRITE, path.toString(), null);
+            stream.write(1);
+        }
     }
 
     /** A system property read, as the environment sensor's advice on {@code System.getProperty} reports it. */
