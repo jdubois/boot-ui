@@ -215,7 +215,10 @@ public final class JournalActivityFeed {
                 executions.putIfAbsent(event.executionId(), event.executionId());
             }
             recordWorkEnd(lastWorkEnds, event);
-            if (event.payload() instanceof SqlPayload sql && event.requestId() != null && isSelect(sql.sql())) {
+            if (event.payload() instanceof SqlPayload sql
+                    && sql.executed()
+                    && event.requestId() != null
+                    && isSelect(sql.sql())) {
                 countSelect(selectsByRequest.computeIfAbsent(event.requestId(), id -> new HashMap<>()), sql.sql());
             }
         }
@@ -367,7 +370,7 @@ public final class JournalActivityFeed {
                         label.route(),
                         label.source().name(),
                         event.requestId()));
-            } else if (payload instanceof SqlPayload) {
+            } else if (payload instanceof SqlPayload sql && sql.executed()) {
                 sqlTimes.add(event.epochMillis());
                 long ms = millis(event);
                 slowestQueryMs = slowestQueryMs == null ? ms : Math.max(slowestQueryMs, ms);
@@ -470,8 +473,12 @@ public final class JournalActivityFeed {
                     event,
                     severity,
                     truncate(text.sql(sql.sql())),
-                    sql.dataSource(),
-                    durationMs,
+                    sql.executed()
+                            ? sql.dataSource()
+                            : sql.provenance() == SqlPayload.Provenance.PREPARATION
+                                    ? "SQL preparation; execution not observed"
+                                    : "SQL capture; execution unverified",
+                    sql.executed() ? durationMs : null,
                     null,
                     null,
                     null,
@@ -876,7 +883,7 @@ public final class JournalActivityFeed {
     /** Keeps, per handoff execution, when the last SQL statement, REST call, or message recorded under it ended. */
     static void recordWorkEnd(Map<String, Long> lastWorkEnds, RuntimeEvent event) {
         if (!ExecutionIds.isAsync(event.executionId())
-                || !(event.payload() instanceof SqlPayload
+                || !(event.payload() instanceof SqlPayload sql && sql.executed()
                         || event.payload() instanceof RestClientPayload
                         || event.payload() instanceof MessagingPayload)) {
             return;
@@ -1063,7 +1070,10 @@ public final class JournalActivityFeed {
         for (JournalEntry entry : batch) {
             RuntimeEvent event = entry.event();
             recordWorkEnd(lastWorkEnds, event);
-            if (event.payload() instanceof SqlPayload sql && event.requestId() != null && isSelect(sql.sql())) {
+            if (event.payload() instanceof SqlPayload sql
+                    && sql.executed()
+                    && event.requestId() != null
+                    && isSelect(sql.sql())) {
                 if (!countSelect(pendingSelects.computeIfAbsent(event.requestId(), id -> new HashMap<>()), sql.sql())) {
                     overflow.accept(1);
                 }

@@ -41,7 +41,7 @@ public final class CodePathStamps {
 
     /** The call kind of {@code payload}: {@link #SQL}, {@link #REST}, {@link #CACHE}, {@link #AI}, or -1. */
     public static int kind(Object payload) {
-        if (payload instanceof SqlPayload) {
+        if (payload instanceof SqlPayload sql && sql.executed()) {
             return SQL;
         }
         if (payload instanceof RestClientPayload) {

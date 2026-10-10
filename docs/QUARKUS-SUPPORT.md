@@ -459,6 +459,11 @@ request whose sessions executed no statement at all; fewer executions than prepa
 over several tables counts once. If the journal records ORM but the Hibernate panel is disabled, `safe-method-dml`
 leaves out unverified preparations and names the limitation; timed JDBC executions are still counted.
 
+The SQL feeders carry explicit provenance: the inspector records preparation, while the JDBC proxy records execution,
+even when its measured duration is zero. Preparation rows remain in SQL Trace and journal timelines with execution
+explicitly unverified, but do not count toward execution statistics, rankings, N+1 badges, observed table access, or confirmed
+`event-loop-blocking`. A mixed ORM and manual-JDBC application retains both sources without a global ORM/Quarkus flag.
+
 ::: details The optional durable JDBC persistence backend
 
 `bootui.activity.persistence.enabled` is implemented identically to Spring. Every engine class — `ActivityStore`,

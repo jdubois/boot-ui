@@ -103,6 +103,7 @@ public final class LazySqlAfterHandler implements Observation {
                 for (RuntimeEvent event : request.children(JournalSource.SQL)) {
                     // Work a propagated task did is work-after-response's, not lazy loading in the response.
                     if (!(event.payload() instanceof SqlPayload sql)
+                            || !sql.executed()
                             || sql.phase() != RequestPhase.RESPONSE
                             || ExecutionIds.isAsync(event.executionId())) {
                         continue;

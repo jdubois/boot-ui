@@ -192,17 +192,15 @@ public final class RuntimeModelProjection {
                     && SqlShapes.writes(sql.sql()).stream().anyMatch(write -> !write.exact())) {
                 ambiguousWrites++;
             }
-            if (event.payload() instanceof SqlPayload sql
-                    && event.durationNanos() <= 0
-                    && !SqlShapes.writes(sql.sql()).isEmpty()) {
+            if (event.payload() instanceof SqlPayload sql && !sql.executed()) {
                 unverifiedPreparations++;
             }
             observe(builder, owner, event);
         }
         if (unverifiedPreparations > 0) {
-            limitations.add(unverifiedPreparations + " SQL event(s) had no measured execution duration; their"
-                    + " possible write targets are omitted from the model because preparation alone does not"
-                    + " establish a write.");
+            limitations.add(unverifiedPreparations + " SQL event(s) did not establish execution; their"
+                    + " possible read and write targets are omitted from the model because preparation alone does not"
+                    + " establish database access.");
         }
         if (ambiguousWrites > 0) {
             limitations.add(ambiguousWrites + " retained SQL event(s) named ambiguous write targets; their candidate"

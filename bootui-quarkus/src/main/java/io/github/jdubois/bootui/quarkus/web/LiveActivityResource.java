@@ -652,7 +652,10 @@ public class LiveActivityResource {
             return Source.panelDisabled("SQL Trace");
         }
         SqlSnapshot sql = sqlSnapshot();
-        return sql.available() ? Source.of(sql.entries()) : Source.unavailable(sql.unavailableWarning());
+        SqlTraceRecorder recorder = sqlRecorder.isResolvable() ? sqlRecorder.get() : null;
+        return sql.available()
+                ? Source.of(sql.entries(), recorder == null ? null : recorder.executionCaptureLimitation())
+                : Source.unavailable(sql.unavailableWarning());
     }
 
     private Source<ExceptionDetailDto> exceptionSource() {
@@ -838,7 +841,7 @@ public class LiveActivityResource {
             return new SqlSnapshot(List.of(), false, warning);
         }
         boolean exposeParameters = rec.isCaptureParameters() && exposure.valueExposure() != ValueExposure.METADATA_ONLY;
-        return new SqlSnapshot(rec.report(exposeParameters).entries(), true, null);
+        return new SqlSnapshot(rec.entries(exposeParameters), true, null);
     }
 
     private List<SecurityLogEventDto> securityEvents(boolean securityAvailable) {

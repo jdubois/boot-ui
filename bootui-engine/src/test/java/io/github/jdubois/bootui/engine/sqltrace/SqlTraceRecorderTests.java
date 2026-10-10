@@ -27,6 +27,62 @@ import org.junit.jupiter.api.Test;
 
 class SqlTraceRecorderTests {
 
+    @Test
+    void profileQualificationFollowsCaptureDeclarationsNotEvictableRows() {
+        SqlTraceRecorder recorder = recorder(true, false, 1, 100);
+        assertThat(recorder.executionCaptureLimitation()).isNull();
+        recorder.registerCaptureSource("orm", SqlPayload.Provenance.PREPARATION);
+        assertThat(recorder.executionCaptureLimitation()).contains("preparation", "not execution evidence");
+        recorder.recordPreparation("select * from orders", "orm");
+        recorder.clear();
+        assertThat(recorder.recent()).isEmpty();
+        assertThat(recorder.executionCaptureLimitation()).contains("preparation", "execution timing");
+        recorder.registerCaptureSource(null, SqlPayload.Provenance.UNKNOWN);
+        assertThat(recorder.executionCaptureLimitation()).contains("unknown", "unverified");
+    }
+
+    @Test
+    void preparationIsRetainedButDoesNotManufactureExecutionsOrStatistics() {
+        SqlTraceRecorder recorder = recorder(true, false, 10, 100);
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+        recorder.registerDataSource("db");
+        for (int i = 0; i < 6; i++) {
+            recorder.recordPreparation("select * from orders", "db");
+        }
+        recorder.recordNanos(
+                StatementType.PREPARED,
+                Category.SELECT,
+                "select * from orders",
+                List.of(),
+                0,
+                true,
+                null,
+                null,
+                0,
+                "c1",
+                "main");
+
+        assertThat(recorder.report(false).entries()).hasSize(7);
+        assertThat(recorder.entries(false)).hasSize(1);
+        assertThat(recorder.stats().totalQueries()).isEqualTo(1);
+        assertThat(recorder.topStatements()).singleElement().satisfies(group -> {
+            assertThat(group.executions()).isEqualTo(1);
+            assertThat(group.potentialNPlusOne()).isFalse();
+        });
+        assertThat(recorder.report(false).warnings())
+                .anyMatch(warning -> warning.contains("6 SQL capture(s) observed preparation only"));
+        assertThat(new SqlTraceInsightsService(recorder)
+                        .insights(List.of(), java.util.Set.of(), RouteTemplateResolver.empty())
+                        .notes())
+                .anyMatch(note -> note.contains("excluded from rankings"));
+        assertThat(published).hasSize(7);
+        assertThat(published.subList(0, 6))
+                .allSatisfy(event -> assertThat(((SqlPayload) event.payload()).provenance())
+                        .isEqualTo(SqlPayload.Provenance.PREPARATION));
+        assertThat(((SqlPayload) published.get(6).payload()).executed()).isTrue();
+    }
+
     private SqlTraceRecorder recorder(boolean enabled, boolean captureParameters, int maxEntries, long slowMillis) {
         return recorder(enabled, captureParameters, false, maxEntries, slowMillis);
     }

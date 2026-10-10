@@ -167,7 +167,7 @@ class RunEdgeDiffTests {
     }
 
     @Test
-    void zeroDurationPreparedDmlDoesNotEstablishAnyTableAccessEdge() {
+    void preparationDoesNotEstablishAnyTableAccessEdge() {
         RuntimeEvent prepared = new RuntimeEvent(
                 JournalSource.SQL,
                 1_000,
@@ -178,7 +178,16 @@ class RunEdgeDiffTests {
                 "http-1",
                 null,
                 false,
-                sql("insert into audit_log select id from products"));
+                new SqlPayload(
+                        "insert into audit_log select id from products",
+                        null,
+                        "db",
+                        false,
+                        null,
+                        null,
+                        -1,
+                        0,
+                        SqlPayload.Provenance.PREPARATION));
         RuntimeEvent completed = new RuntimeEvent(
                 JournalSource.HTTP,
                 1_001,

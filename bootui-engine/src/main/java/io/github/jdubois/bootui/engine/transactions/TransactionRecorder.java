@@ -340,7 +340,7 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
         int statements = 0;
         Set<String> connections = new HashSet<>();
         for (SqlTraceRecorder.CapturedStatement statement : sqlTraceRecorder.recent()) {
-            if (!transaction.thread.equals(statement.thread())) {
+            if (!statement.executed() || !transaction.thread.equals(statement.thread())) {
                 continue;
             }
             long timestamp = statement.timestamp();

@@ -55,6 +55,7 @@ public final class EventLoopBlocking implements Observation {
     public Evaluation evaluate(InsightsSnapshot snapshot) {
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
+        long unverified = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
                 snapshot.byRoute().entrySet()) {
             List<ProjectedRequest> requests = route.getValue();
@@ -64,6 +65,10 @@ public final class EventLoopBlocking implements Observation {
                 Map<String, Integer> perRequest = new LinkedHashMap<>();
                 for (RuntimeEvent event : request.children(JournalSource.SQL)) {
                     if (event.threadKind() == ThreadKind.EVENT_LOOP && event.payload() instanceof SqlPayload sql) {
+                        if (!sql.executed()) {
+                            unverified++;
+                            continue;
+                        }
                         String site = sql.callSite() != null ? sql.callSite() : SqlShapes.fingerprint(sql.sql());
                         sites.computeIfAbsent(
                                         site,
@@ -80,7 +85,14 @@ public final class EventLoopBlocking implements Observation {
             sites.forEach(
                     (site, found) -> findings.add(finding(route.getKey(), site, found, requests.size(), snapshot)));
         }
-        return new Evaluation(eligible, findings);
+        return new Evaluation(
+                eligible,
+                findings,
+                unverified == 0
+                        ? null
+                        : InsightText.counted(unverified, "SQL capture")
+                                + " on event-loop threads did not establish JDBC execution and are not counted:"
+                                + " preparation alone does not prove blocking.");
     }
 
     private Finding finding(String route, String site, Site found, long eligible, InsightsSnapshot snapshot) {
@@ -108,7 +120,8 @@ public final class EventLoopBlocking implements Observation {
                 found.rows.stream().map(row -> row.get(0)).distinct().limit(3).toList(),
                 List.of("Request", "Thread", "Statement", "Time (ms)"),
                 found.rows,
-                List.of("Counts timed JDBC statements; other blocking calls, such as file or synchronous HTTP I/O,"
+                List.of("Counts observed JDBC executions, including a measured zero duration; SQL preparation alone"
+                        + " does not count. Other blocking calls, such as file or synchronous HTTP I/O,"
                         + " are not recorded."));
     }
 

@@ -106,7 +106,10 @@ public final class SplitTransactionWrites implements Observation {
     }
 
     static boolean committedWrite(RuntimeEvent event) {
-        return event.payload() instanceof SqlPayload sql && !sql.failed() && SafeMethodDml.isDml(sql.sql());
+        return event.payload() instanceof SqlPayload sql
+                && sql.executed()
+                && !sql.failed()
+                && SafeMethodDml.isDml(sql.sql());
     }
 
     private Finding finding(

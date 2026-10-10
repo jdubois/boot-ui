@@ -3,11 +3,15 @@ package io.github.jdubois.bootui.core.dto;
 import java.util.List;
 
 /**
- * A single captured JDBC statement execution.
+ * A single captured SQL statement.
  *
  * <p>Populated by BootUI's hand-written JDBC tracing proxy (no third-party
  * database-proxy library). Parameter bindings are only present when parameter
  * capture is explicitly enabled and value exposure permits it.</p>
+ *
+ * <p>The SQL Trace panel also retains Quarkus ORM preparation rows for compatibility, qualified by its report's
+ * warnings. Their zero duration and {@code success} field do not establish execution or outcome. Execution-only
+ * projections exclude them using the recorder's internal provenance, never by duration or {@code statementType}.</p>
  *
  * @param id sequence number, increasing in execution order
  * @param timestamp epoch milliseconds when the statement completed

@@ -83,6 +83,10 @@ class BootUiQuarkusSqlTraceOrmCaptureTest {
         assertThat(report.path("totalCaptured").asLong())
                 .as("at least one statement was captured")
                 .isGreaterThan(0);
+        assertThat(report.path("stats").path("totalQueries").asLong())
+                .as("the inspector observed preparation, not actual JDBC execution")
+                .isZero();
+        assertThat(report.path("warnings").toString()).contains("preparation only", "excluded from execution");
 
         // Call-site capture defaults on (bootui.sql-trace.capture-call-site) and must resolve the first
         // application frame even through the StatementInspector feeder, which runs deep inside Hibernate's own

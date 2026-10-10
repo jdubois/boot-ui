@@ -58,7 +58,7 @@ final class TransactionWindows {
 
     /** Whether {@code statement} can be placed: it has a monotonic completion and every transaction an interval. */
     boolean canPlace(RuntimeEvent statement) {
-        return complete && statement.payload() instanceof SqlPayload sql && sql.completedNanos() >= 0;
+        return complete && statement.payload() instanceof SqlPayload sql && sql.executed() && sql.completedNanos() >= 0;
     }
 
     /** The innermost transaction containing {@code statement}, or {@code null} when it ran outside all of them. */

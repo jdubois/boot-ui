@@ -189,10 +189,12 @@ function finish(doc) {
  * @param {any} timing
  * @returns {string}
  */
-export function timingText(timing) {
+export function timingText(timing, sqlAvailable = true) {
   if (!timing) return ''
-  let text = `${plural(timing.sqlCount ?? 0, 'SQL statement')}, ${formatDuration(timing.sqlMs ?? 0)} in SQL`
-  if (timing.sqlPercent != null) text += ` (${formatNumber(timing.sqlPercent)}% of the request)`
+  let text = sqlAvailable
+    ? `${plural(timing.sqlCount ?? 0, 'SQL statement')}, ${formatDuration(timing.sqlMs ?? 0)} in SQL`
+    : 'SQL execution timing unavailable'
+  if (sqlAvailable && timing.sqlPercent != null) text += ` (${formatNumber(timing.sqlPercent)}% of the request)`
   if (timing.restCallCount) {
     text += `; ${plural(timing.restCallCount, 'REST client call')}, ${formatDuration(timing.restCallMs)} outbound`
   }
@@ -232,7 +234,8 @@ function requestSection(doc, profile, level) {
   if (request.durationMs != null) lines.push(bullet('Duration', formatDuration(request.durationMs)))
   if (request.principal) lines.push(bullet('Principal', inlineCode(request.principal)))
   if (request.traceId) lines.push(bullet('Trace id', inlineCode(request.traceId)))
-  if (profile.timing) lines.push(bullet('Timing', timingText(profile.timing)))
+  if (profile.timing)
+    lines.push(bullet('Timing', timingText(profile.timing, profileSections(profile).SQL?.available !== false)))
   if (profile.approximate) {
     lines.push(bullet('Correlation', 'approximate; some signals were matched by time window only'))
   }

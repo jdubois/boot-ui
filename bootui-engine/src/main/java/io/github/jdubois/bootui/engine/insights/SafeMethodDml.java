@@ -72,11 +72,15 @@ public final class SafeMethodDml implements Observation {
                 Map<StatementKey, String> callSites = new LinkedHashMap<>();
                 boolean preparationsExecuted = preparationsExecuted(snapshot, request);
                 for (RuntimeEvent event : request.children(JournalSource.SQL)) {
-                    boolean prepared = preparation(snapshot, event);
+                    if (!(event.payload() instanceof SqlPayload sql)
+                            || sql.provenance() == SqlPayload.Provenance.UNKNOWN) {
+                        continue;
+                    }
+                    boolean prepared = preparation(event);
                     if (prepared && (hiddenOrm || !preparationsExecuted)) {
                         continue;
                     }
-                    if (event.payload() instanceof SqlPayload sql && !sql.failed() && isDml(sql.sql())) {
+                    if (!sql.failed() && isDml(sql.sql())) {
                         StatementKey key = new StatementKey(SqlShapes.fingerprint(sql.sql()), prepared);
                         perRequest.computeIfAbsent(key, f -> new int[1])[0]++;
                         callSites.putIfAbsent(key, sql.callSite());
@@ -149,11 +153,10 @@ public final class SafeMethodDml implements Observation {
     private record StatementKey(String fingerprint, boolean prepared) {}
 
     /**
-     * Whether {@code event} is a statement Quarkus's Hibernate statement inspector saw when it was prepared, with no
-     * duration because the inspector cannot see it execute.
+     * Whether the feeder observed preparation only, regardless of stack, statement type, or elapsed time.
      */
-    static boolean preparation(InsightsSnapshot snapshot, RuntimeEvent event) {
-        return snapshot.stack() == InsightsStack.QUARKUS && event.durationNanos() <= 0;
+    static boolean preparation(RuntimeEvent event) {
+        return event.payload() instanceof SqlPayload sql && sql.provenance() == SqlPayload.Provenance.PREPARATION;
     }
 
     /**

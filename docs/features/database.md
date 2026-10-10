@@ -639,10 +639,9 @@ keep using the fixed, pre-registered set above.
 
 :::
 
-::: details On Quarkus: two feeders reach Spring parity
+::: details On Quarkus: JDBC executions and ORM preparations
 
-The panel is identical, running over the same engine recorder (buffer, grouping, stats, N+1 detection, and call-site
-capture are byte-identical to Spring). Capture comes from two complementary feeders:
+The panel uses the same engine recorder and DTO contract as Spring. Capture comes from two complementary feeders:
 
 - an `@Alternative` Agroal `DataSource` that wraps the default pool with the same JDK-proxy tracer. It handles manual
   JDBC access and is gated on a datasource being present.
@@ -650,11 +649,14 @@ capture are byte-identical to Spring). Capture comes from two complementary feed
   unit (gated on `quarkus-hibernate-orm`; SQL from a named persistence unit is not traced). This is needed because
   Hibernate ORM resolves its pool from Agroal's own registry and so bypasses the CDI `DataSource`.
 
-Between them the panel reaches parity with Spring whether SQL originates from raw JDBC or the ORM. Statement text, type,
-category, execution count, and N+1 detection are full-fidelity; for ORM SQL the per-statement duration, affected-row
-count, and bound parameters are not available (the `StatementInspector` SPI exposes only the SQL text at prepare time,
-with no execution-end hook), so those degrade cleanly while never leaking ORM parameter values. Both feeders are wired in
-dev/test only and never in production.
+The inspector observes **preparation only**, not JDBC execution: text, type, category, and call site are known, but
+whether that particular statement ran, succeeded, or changed rows is not. Preparation rows remain visible in the
+capture list and `totalCaptured`, with a report warning; their compatibility fields (`durationMicros: 0`, `success:
+true`) do not establish an execution or outcome. They are excluded from execution statistics, rankings, N+1 badges,
+request database-access claims, and Runtime Insights' confirmed event-loop blocking. ORM session metrics can measure
+aggregate statement time but cannot prove which preparation executed. Manual JDBC executions, including a measured
+zero duration, still count normally beside ORM preparations. Both feeders are wired in dev/test only and never in
+production, and the inspector never captures bound parameter values.
 
 :::
 

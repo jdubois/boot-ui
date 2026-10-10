@@ -161,6 +161,13 @@ public final class JournalAggregates implements JournalListener {
     private Long runReadyAtEpochMillis;
     private RuntimeJournal journal;
     private boolean completenessVerified;
+    private final long[] processedForCompleteness = new long[SOURCES];
+    private long sqlPreparations;
+    private long sqlUnknown;
+    private long windowSqlPreparations;
+    private long windowSqlUnknown;
+    private long sqlUnscopedExecutions;
+    private long windowSqlUnscopedExecutions;
     private Map<JournalSource, Long> missedBeforeBinding = Map.of();
     private Map<JournalSource, Long> windowMissed = Map.of();
     private final long[] failedAggregations = new long[SOURCES];
@@ -180,7 +187,7 @@ public final class JournalAggregates implements JournalListener {
         lifetime.putAll(missedBeforeBinding);
         Map<JournalSource, Long> window = new EnumMap<>(JournalSource.class);
         for (JournalSource source : JournalSource.values()) {
-            long missing = Math.max(0, missed.getOrDefault(source, 0L) - runCounts[source.ordinal()]);
+            long missing = Math.max(0, missed.getOrDefault(source, 0L) - processedForCompleteness[source.ordinal()]);
             if (missing > 0) {
                 window.put(source, missing);
             }
@@ -315,11 +322,26 @@ public final class JournalAggregates implements JournalListener {
 
     private void accept(RuntimeEvent event) {
         int source = event.source().ordinal();
+        processedForCompleteness[source]++;
+        RuntimeEventPayload payload = event.payload();
+        if (payload instanceof SqlPayload sql && !sql.executed()) {
+            if (sql.provenance() == SqlPayload.Provenance.PREPARATION) {
+                sqlPreparations++;
+                windowSqlPreparations++;
+            } else {
+                sqlUnknown++;
+                windowSqlUnknown++;
+            }
+            return;
+        }
+        if (payload instanceof SqlPayload sql && (journal == null || !journal.coversSqlExecution(sql.dataSource()))) {
+            sqlUnscopedExecutions++;
+            windowSqlUnscopedExecutions++;
+        }
         runCounts[source]++;
         runNanos[source] += Math.max(0, event.durationNanos());
         firstEpochMillis = Math.min(firstEpochMillis, event.epochMillis());
         lastEpochMillis = Math.max(lastEpochMillis, event.epochMillis());
-        RuntimeEventPayload payload = event.payload();
         if (payload instanceof GcPayload gc) {
             collected(gc, Math.max(0, event.durationNanos()));
             return;
@@ -928,6 +950,10 @@ public final class JournalAggregates implements JournalListener {
         traceAiAttributionExpiry = 0;
         traceAiUnowned = 0;
         Arrays.fill(runCounts, 0);
+        Arrays.fill(processedForCompleteness, 0);
+        windowSqlPreparations = 0;
+        windowSqlUnknown = 0;
+        windowSqlUnscopedExecutions = 0;
         Arrays.fill(runNanos, 0);
         firstEpochMillis = Long.MAX_VALUE;
         lastEpochMillis = Long.MIN_VALUE;
@@ -1048,6 +1074,33 @@ public final class JournalAggregates implements JournalListener {
         overflowed.put("unattributedExecutions", unattributedExecutions);
         overflowed.put(OPEN_EXECUTIONS, (long) pendingExecutions.size());
         if (journal != null && completenessVerified) {
+            overflowed.put(JournalCompleteness.SQL_PROVENANCE, 1L);
+            overflowed.put(JournalCompleteness.SQL_PREPARATIONS, sqlPreparations);
+            overflowed.put(JournalCompleteness.SQL_UNKNOWN, sqlUnknown);
+            overflowed.put(JournalCompleteness.SQL_WINDOW_PREPARATIONS, windowSqlPreparations);
+            overflowed.put(JournalCompleteness.SQL_WINDOW_UNKNOWN, windowSqlUnknown);
+            overflowed.put(JournalCompleteness.SQL_UNSCOPED, sqlUnscopedExecutions);
+            overflowed.put(JournalCompleteness.SQL_WINDOW_UNSCOPED, windowSqlUnscopedExecutions);
+            SqlCaptureScopes.Snapshot scope = journal.sqlCaptureScope();
+            overflowed.put(JournalCompleteness.SQL_SCOPE_INCOMPLETE, scope.incomplete() ? 1L : 0L);
+            String executions = scope.fingerprint(true);
+            String preparations = scope.fingerprint(false);
+            if (executions != null) {
+                overflowed.put(JournalCompleteness.SQL_EXECUTION_SOURCE + executions, 1L);
+            }
+            if (preparations != null) {
+                overflowed.put(JournalCompleteness.SQL_PREPARATION_SOURCE + preparations, 1L);
+            }
+            overflowed.put(
+                    JournalCompleteness.SQL_EXECUTION_COVERAGE,
+                    !scope.executions().isEmpty()
+                                    && scope.preparations().isEmpty()
+                                    && !scope.incomplete()
+                                    && sqlPreparations == 0
+                                    && sqlUnknown == 0
+                                    && sqlUnscopedExecutions == 0
+                            ? 1L
+                            : 0L);
             overflowed.put(JournalCompleteness.VERIFIED, 1L);
             overflowed.put(JournalCompleteness.CLEARS, clearBoundary.clears());
             overflowed.put(JournalCompleteness.CLEAR_AT, clearBoundary.epochMillis());

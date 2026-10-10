@@ -74,7 +74,7 @@ public final class ObservedEdges {
     public static List<Target> targets(RuntimeEvent event) {
         Object payload = event.payload();
         if (payload instanceof SqlPayload sql) {
-            if (event.durationNanos() <= 0 && !SqlShapes.writes(sql.sql()).isEmpty()) {
+            if (!sql.executed()) {
                 return List.of();
             }
             Set<String> tables = SqlShapes.tables(sql.sql());

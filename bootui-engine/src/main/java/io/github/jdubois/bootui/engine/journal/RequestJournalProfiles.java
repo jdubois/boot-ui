@@ -229,6 +229,9 @@ public final class RequestJournalProfiles {
                 : RouteLabel.of(
                         payload.method(), payload.path(), payload.routeTemplate(), payload.operation(), resolver());
         List<String> notes = new ArrayList<>();
+        if (children.stream().anyMatch(entry -> entry.event().payload() instanceof SqlPayload sql && !sql.executed())) {
+            notes.add("Unverified SQL captures do not establish execution, database time, or touched tables.");
+        }
         List<RequestHandoffDto> handoffs =
                 handoffs(children, start, Math.max(0, http.durationNanos()), payload != null);
 
@@ -330,7 +333,7 @@ public final class RequestJournalProfiles {
                 handoffEvents.add(event);
             } else if (ExecutionIds.isAsync(event.executionId())) {
                 int[] counts = work.computeIfAbsent(event.executionId(), id -> new int[3]);
-                if (event.payload() instanceof SqlPayload) {
+                if (event.payload() instanceof SqlPayload sql && sql.executed()) {
                     counts[0]++;
                 } else if (event.payload() instanceof RestClientPayload) {
                     counts[1]++;
@@ -462,6 +465,9 @@ public final class RequestJournalProfiles {
     private RequestTimelineItemDto item(JournalEntry entry, ActivityEntryDto row, long requestStart) {
         RuntimeEvent event = entry.event();
         Long durationMicros = event.durationNanos() < 0 ? null : event.durationNanos() / 1_000;
+        if (event.payload() instanceof SqlPayload sql && !sql.executed()) {
+            durationMicros = null;
+        }
         // Every source stamps when its work started (RuntimeEvent), so the offset needs no per-source correction.
         long startMillis = event.epochMillis();
         String threadKind =
@@ -567,7 +573,7 @@ public final class RequestJournalProfiles {
         Set<String> models = new LinkedHashSet<>();
         for (JournalEntry entry : children) {
             RuntimeEventPayload payload = entry.event().payload();
-            if (payload instanceof SqlPayload sql) {
+            if (payload instanceof SqlPayload sql && sql.executed()) {
                 for (String table : SqlShapes.tables(sql.sql())) {
                     add(tables, table);
                 }

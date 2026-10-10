@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.insights;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunChangeDto;
@@ -26,6 +27,8 @@ import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.journal.SynchronousJournals;
 import io.github.jdubois.bootui.engine.model.RuntimeModelService;
 import io.github.jdubois.bootui.engine.model.StructureSnapshot;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +37,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.IntPredicate;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 
 class JournalCompletenessTests {
@@ -668,6 +672,10 @@ class JournalCompletenessTests {
             journal = SynchronousJournals.create(
                     new RuntimeJournalSettings(true, count, bytes, 100, 0, 0, sources), drops);
             journal.addListener(aggregates);
+            // The fixture's SQL events all model this successfully installed traced datasource.
+            SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, false, false, 10, 100, 2000, 200, 5);
+            recorder.setRuntimeEventSink(journal);
+            SqlTracingProxies.wrapNamed(mock(DataSource.class), recorder, "db");
         }
 
         RunStart start() {

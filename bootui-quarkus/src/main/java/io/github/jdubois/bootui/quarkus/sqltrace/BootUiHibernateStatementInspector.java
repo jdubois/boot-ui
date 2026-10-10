@@ -1,13 +1,10 @@
 package io.github.jdubois.bootui.quarkus.sqltrace;
 
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
-import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
-import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
 import io.quarkus.hibernate.orm.PersistenceUnitExtension;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
 
@@ -20,8 +17,8 @@ import org.hibernate.resource.jdbc.spi.StatementInspector;
  * {@link StatementInspector} closes that gap: Quarkus wires it into the persistence unit (via
  * {@link PersistenceUnitExtension}), so Hibernate calls {@link #inspect(String)} as it prepares each
  * statement and the SQL is recorded into the same buffer the panel and SSE stream already serve. Between the
- * two mechanisms the Quarkus SQL Trace panel reaches parity with Spring (whose Hibernate uses the wrapped
- * {@code DataSource} bean), regardless of whether SQL originates from the ORM or from raw JDBC.</p>
+ * two mechanisms the Quarkus SQL Trace panel sees ORM preparations beside manual JDBC executions. Spring's
+ * Hibernate uses the wrapped {@code DataSource} bean and therefore supplies actual execution evidence.</p>
  *
  * <p><strong>Deliberately not gated by a CDI scope alone: the deployment processor excludes it from bean
  * discovery unless the {@code HIBERNATE_ORM} capability is present (dev/test only).</strong> It statically
@@ -35,8 +32,8 @@ import org.hibernate.resource.jdbc.spi.StatementInspector;
  * unchanged) if no recorder is present — Hibernate always implies an Agroal datasource, so in practice it is
  * resolvable. Honest fidelity caveat: the {@code StatementInspector} SPI exposes only the SQL text at prepare
  * time with no execution-end hook, so per-statement duration, affected-row counts and bound parameters are
- * not available for ORM SQL (duration is recorded as {@code 0} microseconds); statement text, type, category, execution
- * count and N+1 detection are full-fidelity. Bound parameters are never captured here, so the panel cannot
+ * not available for ORM SQL (duration is recorded as {@code 0} microseconds). Statement text, type and category
+ * describe preparation only; the journal explicitly distinguishes it from execution. Bound parameters are never captured here, so the panel cannot
  * leak ORM parameter values regardless of {@code bootui.sql-trace.capture-parameters}. The unqualified
  * {@link PersistenceUnitExtension} binds only the <em>default</em> persistence unit, so SQL issued by a named
  * persistence unit/datasource is not captured here (the common single-datasource case, including the sample
@@ -62,6 +59,12 @@ public class BootUiHibernateStatementInspector implements StatementInspector {
     @Inject
     public BootUiHibernateStatementInspector(Instance<SqlTraceRecorder> recorder) {
         this.recorder = recorder;
+        if (recorder.isResolvable()) {
+            recorder.get()
+                    .registerCaptureSource(
+                            DATA_SOURCE_NAME,
+                            io.github.jdubois.bootui.engine.journal.SqlPayload.Provenance.PREPARATION);
+        }
     }
 
     @Override
@@ -78,19 +81,7 @@ public class BootUiHibernateStatementInspector implements StatementInspector {
             if (registered.compareAndSet(false, true)) {
                 rec.registerDataSource(DATA_SOURCE_NAME);
             }
-            rec.record(
-                    StatementType.PREPARED,
-                    SqlTracingProxies.categoryOf(sql),
-                    sql,
-                    List.of(),
-                    // Microseconds: the SPI has no execution-end hook, so no duration can be measured here.
-                    0L,
-                    true,
-                    null,
-                    null,
-                    0,
-                    null,
-                    Thread.currentThread().getName());
+            rec.recordPreparation(sql, DATA_SOURCE_NAME);
         }
         return sql;
     }

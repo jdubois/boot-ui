@@ -42,6 +42,59 @@ class RequestJournalProfilesTests {
     }
 
     @Test
+    void preparationAndUnknownRowsAreQualifiedAndDoNotEstablishTouchedTablesOrDatabaseTime() {
+        offer(child(
+                "r1",
+                JournalSource.SQL,
+                1_001,
+                0,
+                new SqlPayload(
+                        "select * from unexecuted",
+                        null,
+                        "db",
+                        false,
+                        null,
+                        null,
+                        5,
+                        0,
+                        SqlPayload.Provenance.PREPARATION)));
+        offer(child("r1", JournalSource.SQL, 1_002, 0, new SqlPayload("select * from executed", null, "db", false)));
+        offer(child(
+                "r1",
+                JournalSource.SQL,
+                1_003,
+                1_000_000,
+                new SqlPayload(
+                        "select * from unverified",
+                        null,
+                        "db",
+                        false,
+                        null,
+                        null,
+                        7,
+                        0,
+                        SqlPayload.Provenance.UNKNOWN)));
+        offer(http("r1", 1_000, 5_000_000, null));
+        journal.dispatchPending();
+
+        RequestJournalProfileDto profile = profiles(null).profile("r1");
+
+        assertThat(profile.timeline()).hasSize(3);
+        assertThat(profile.timeline().get(0).detail()).contains("preparation", "execution not observed");
+        assertThat(profile.timeline().get(0).durationMicros()).isNull();
+        assertThat(profile.timeline().get(1).durationMicros()).isZero();
+        assertThat(profile.timeline().get(2).detail()).isEqualTo("SQL capture; execution unverified");
+        assertThat(profile.timeline().get(2).durationMicros()).isNull();
+        assertThat(profile.touched().tables()).containsExactly("executed");
+        assertThat(profile.notes())
+                .contains("Unverified SQL captures do not establish execution, database time, or touched tables.");
+        assertThat(profiles(panel -> !panel.equals(BootUiPanels.SQL_TRACE))
+                        .profile("r1")
+                        .timeline())
+                .isEmpty();
+    }
+
+    @Test
     void aRequestsWorkIsPlacedAtItsStartOnOneTimelineWithItsResourcesPausesAndTouchedResources() {
         offer(gc("G1 Young Generation", 8, 1_010, 3));
         offer(child("r1", JournalSource.CONNECTION, 1_002, 20_000_000, new ConnectionPayload("orders", 500_000, 2)));

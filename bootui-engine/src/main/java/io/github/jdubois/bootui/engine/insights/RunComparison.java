@@ -190,6 +190,12 @@ public final class RunComparison {
         sharedSources.removeIf(source -> !sourceVisible(source, hiddenPanels));
         boolean partial = completenessLimitations(now, "This run", sharedSources, httpVisible, limitations)
                 | completenessLimitations(then, "Run " + before.ordinal(), sharedSources, httpVisible, limitations);
+        if (sharedSources.contains(JournalSource.SQL) && !JournalCompleteness.sqlScopesComparable(now, then)) {
+            partial = true;
+            limitations.add("SQL execution coverage is unqualified or the registered traced-JDBC scopes differ:"
+                    + " preparations and unknown captures cannot establish execution. SQL rates, novelty and absence"
+                    + " are not compared in either direction; confirmed executions remain available.");
+        }
         partial |= before.omittedEntries() > 0 || before.omittedEdges() > 0;
         if (start == null || previousStart == null) {
             limitations.add(
@@ -442,11 +448,15 @@ public final class RunComparison {
         List<RuntimeRunChangeDto> edges = new ArrayList<>();
         diff.added().stream()
                 .filter(edge -> comparableEdge(edge, sharedSources, hiddenPanels))
+                .filter(edge ->
+                        edge.edge().toType() != NodeType.TABLE || JournalCompleteness.sqlScopesComparable(now, then))
                 .filter(edge -> before.omittedEdges() == 0 && JournalCompleteness.edgeAbsenceKnown(then, edge.edge()))
                 .filter(edge -> JournalCompleteness.edgeCountsKnown(now, edge.edge()))
                 .forEach(edge -> edges.add(edge(edge, true, run)));
         diff.removed().stream()
                 .filter(edge -> comparableEdge(edge, sharedSources, hiddenPanels))
+                .filter(edge ->
+                        edge.edge().toType() != NodeType.TABLE || JournalCompleteness.sqlScopesComparable(now, then))
                 .filter(edge -> JournalCompleteness.edgeAbsenceKnown(now, edge.edge()))
                 .filter(edge -> JournalCompleteness.edgeCountsKnown(then, edge.edge()))
                 .forEach(edge -> edges.add(edge(edge, false, run)));
@@ -497,6 +507,7 @@ public final class RunComparison {
             JournalSource source,
             JournalSource root) {
         return shared.contains(source)
+                && (source != JournalSource.SQL || JournalCompleteness.sqlScopesComparable(now, then))
                 && JournalCompleteness.countersComplete(now, source, root)
                 && JournalCompleteness.countersComplete(then, source, root);
     }

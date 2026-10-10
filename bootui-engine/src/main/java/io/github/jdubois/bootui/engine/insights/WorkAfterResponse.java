@@ -203,7 +203,7 @@ public final class WorkAfterResponse implements Observation {
                     && handoff.executionId() != null
                     && handoff.executionId().equals(child.executionId())
                     && HandoffWindow.attributed(event.epochMillis(), child.epochMillis(), maxHandoffMillis)
-                    && (child.payload() instanceof SqlPayload
+                    && (child.payload() instanceof SqlPayload sql && sql.executed()
                             || child.payload() instanceof RestClientPayload
                             || child.payload() instanceof MessagingPayload)) {
                 last = Math.max(last, endMicros(child));
@@ -255,7 +255,7 @@ public final class WorkAfterResponse implements Observation {
                                             + HandoffWindow.RESPONSE_TIMESTAMP_SLACK_MICROS)) {
                 continue;
             }
-            if (child.payload() instanceof SqlPayload) {
+            if (child.payload() instanceof SqlPayload statement && statement.executed()) {
                 sql++;
             } else if (child.payload() instanceof RestClientPayload) {
                 rest++;

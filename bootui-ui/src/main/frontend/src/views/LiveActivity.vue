@@ -450,8 +450,11 @@ const paused = computed(() => !autoRefresh.value)
 const timingSummary = computed(() => {
   const timing = profile.value?.timing
   if (!timing) return ''
-  let text = `${timing.sqlCount} SQL statement(s), ${formatMillis(timing.sqlMs)} ms in SQL`
-  if (timing.sqlPercent != null) {
+  const sqlAvailable = profileSections(profile.value).SQL?.available !== false
+  let text = sqlAvailable
+    ? `${timing.sqlCount} SQL statement(s), ${formatMillis(timing.sqlMs)} ms in SQL`
+    : 'SQL execution timing unavailable'
+  if (sqlAvailable && timing.sqlPercent != null) {
     text += ` (${timing.sqlPercent}% of request)`
   }
   if (timing.restCallCount) {
