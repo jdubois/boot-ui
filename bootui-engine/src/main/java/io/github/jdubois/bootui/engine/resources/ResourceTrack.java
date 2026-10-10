@@ -12,9 +12,10 @@ import java.util.Map;
  * ring of the {@value #CAPACITY} most recent, plus the run's totals. It lives with the journal's aggregates, outside the
  * evidence budget, and costs a bounded few hundred kilobytes.
  *
- * <p>Each point's CPU parts sum to the process CPU of its interval: the requests' share, each thread family's share,
- * and the JVM's own work (GC, JIT, and VM threads, plus threads that ended or that the sweep did not read). It stores
- * the journal's sequence number when it was taken, which places it among the events by order, not by clock.</p>
+ * <p>Each coherent point's CPU parts sum to measured process CPU: the requests' share, each thread family's share,
+ * and the unclassified remainder (GC, JIT, VM threads, and work without consecutive thread readings). Missing or
+ * inconsistent process readings leave the remainder unknown, including in run totals until cleared. Each point
+ * stores the journal's sequence number, which places it among the events by order, not by clock.</p>
  *
  * <p>Thread-safe: the sampler adds points, and readers take copies.</p>
  */
@@ -40,6 +41,7 @@ public final class ResourceTrack {
     private long processCpuNanos;
     private long requestCpuNanos;
     private long internalCpuNanos;
+    private boolean internalCpuKnown = true;
     private long[] familyCpuNanos = new long[0];
 
     /** The index of {@code family}, registering it while there is room, else the index of {@link #OTHER_FAMILY}. */
@@ -62,6 +64,10 @@ public final class ResourceTrack {
         sweeps++;
         if (point.processCpuNanos() >= 0) {
             processCpuNanos += point.processCpuNanos();
+        }
+        if (point.processCpuNanos() < 0 || point.internalCpuNanos() < 0) {
+            internalCpuKnown = false;
+        } else {
             internalCpuNanos += point.internalCpuNanos();
         }
         requestCpuNanos += point.requestCpuNanos();
@@ -98,7 +104,7 @@ public final class ResourceTrack {
                 byFamily.put(families.get(i), familyCpuNanos[i]);
             }
         }
-        return new Totals(sweeps, processCpuNanos, requestCpuNanos, internalCpuNanos, byFamily);
+        return new Totals(sweeps, processCpuNanos, requestCpuNanos, internalCpuKnown ? internalCpuNanos : -1, byFamily);
     }
 
     /** Drops every point and total, for <b>Clear recording</b>; the family names are kept. */
@@ -110,19 +116,21 @@ public final class ResourceTrack {
         processCpuNanos = 0;
         requestCpuNanos = 0;
         internalCpuNanos = 0;
+        internalCpuKnown = true;
         familyCpuNanos = new long[0];
     }
 
     /**
      * One sweep. CPU values are the interval's, in nanoseconds; {@code processCpuNanos} and {@code internalCpuNanos} are
-     * {@code -1} when the JVM does not report process CPU time.
+     * {@code -1} when consecutive process readings are unavailable or decrease. The remainder is also {@code -1}
+     * when measured thread CPU exceeds measured process CPU.
      *
      * @param epochMillis when the sweep ran, for display only
      * @param sequence the journal's last sequence number when the sweep ran
      * @param intervalNanos the interval's length
      * @param processCpuNanos the process's CPU time in the interval
      * @param requestCpuNanos the share the scope readings credited to requests
-     * @param internalCpuNanos the JVM's own work: process CPU minus every thread read
+     * @param internalCpuNanos unclassified process CPU after measured thread deltas, or {@code -1} when unknown
      * @param familyCpuNanos each family's share, indexed as {@link ResourceTrack#families()}
      * @param unreadThreads platform threads beyond {@code bootui.resources.max-threads}, whose CPU counts as internal
      * @param heapUsedBytes heap used
@@ -172,9 +180,9 @@ public final class ResourceTrack {
      * The run's totals.
      *
      * @param sweeps the sweeps recorded, including those the ring evicted
-     * @param processCpuNanos the process's CPU time over the sweeps
+     * @param processCpuNanos the process's CPU time over the sweeps with known process deltas
      * @param requestCpuNanos the requests' share
-     * @param internalCpuNanos the JVM's own work
+     * @param internalCpuNanos unclassified process CPU, or {@code -1} if any interval's remainder was unknown
      * @param familyCpuNanos each family's share, the non-zero ones only
      */
     public record Totals(

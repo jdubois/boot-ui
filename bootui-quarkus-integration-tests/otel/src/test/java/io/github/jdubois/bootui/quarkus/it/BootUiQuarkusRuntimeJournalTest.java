@@ -52,11 +52,25 @@ class BootUiQuarkusRuntimeJournalTest {
                 .isLessThan(Duration.ofMillis(900).toNanos());
         assertThat(last.heapUsedBytes()).isPositive();
         assertThat(points).allSatisfy(point -> {
-            if (point.processCpuNanos() >= 0) {
-                assertThat(point.requestCpuNanos() + point.familiesCpuNanos() + point.internalCpuNanos())
-                        .isEqualTo(point.processCpuNanos());
+            long measuredThreadCpu = point.requestCpuNanos() + point.familiesCpuNanos();
+            assertThat(point.requestCpuNanos()).isNotNegative();
+            assertThat(point.familiesCpuNanos()).isNotNegative();
+            if (point.internalCpuNanos() >= 0) {
+                assertThat(point.processCpuNanos()).isNotNegative();
+                assertThat(measuredThreadCpu + point.internalCpuNanos()).isEqualTo(point.processCpuNanos());
+            } else {
+                assertThat(point.internalCpuNanos()).isEqualTo(-1);
+                if (point.processCpuNanos() >= 0) {
+                    assertThat(measuredThreadCpu).isGreaterThan(point.processCpuNanos());
+                } else {
+                    assertThat(point.processCpuNanos()).isEqualTo(-1);
+                }
             }
         });
+        assertThat(points)
+                .anySatisfy(point -> assertThat(point.processCpuNanos()).isPositive());
+        assertThat(points)
+                .anySatisfy(point -> assertThat(point.familiesCpuNanos()).isPositive());
         assertThat(aggregates.resourceTrack().families()).contains(ResourceTrack.BOOTUI_FAMILY);
     }
 
