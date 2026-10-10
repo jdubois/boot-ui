@@ -17,7 +17,7 @@ const props = defineProps({
   readOnly: {type: Boolean, default: false},
   readOnlyReason: {type: String, default: ''}
 })
-const emit = defineEmits(['flash'])
+const emit = defineEmits(['flash', 'loaded'])
 
 const {confirm} = useConfirm()
 const status = ref(null)
@@ -77,9 +77,16 @@ async function load() {
     const res = await apiFetch('api/activity/journal')
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const loaded = await res.json()
-    if (isCurrent()) status.value = loaded
+    if (typeof loaded?.enabled !== 'boolean') throw new Error('Invalid runtime journal status response')
+    if (isCurrent()) {
+      status.value = loaded
+      emit('loaded', loaded)
+    }
   } catch (err) {
-    if (isCurrent()) error.value = formatLoadError(err, 'Could not load the runtime journal status')
+    if (isCurrent()) {
+      error.value = formatLoadError(err, 'Could not load the runtime journal status')
+      emit('loaded', null)
+    }
   } finally {
     if (isCurrent()) loading.value = false
   }

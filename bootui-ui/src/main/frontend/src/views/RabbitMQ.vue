@@ -24,13 +24,18 @@ const filter = ref('')
 const directionFilter = ref('')
 const busy = ref(false)
 const lastFetched = ref(null)
+let reportVersion = 0
 
 async function fetchRabbit() {
+  const version = reportVersion
   error.value = null
   try {
-    report.value = await getJson('api/rabbitmq')
+    const loaded = await getJson('api/rabbitmq')
+    if (version !== reportVersion) return
+    report.value = loaded
     lastFetched.value = Date.now()
   } catch (e) {
+    if (version !== reportVersion) return
     error.value = describeLoadError(e, 'Unable to load captured RabbitMQ activity')
   }
 }
@@ -43,7 +48,7 @@ onMounted(() => {
   }
 })
 
-const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchRabbit, {
+const {autoRefresh, loading, initialLoading, load, loadAfterCurrent} = useAutoRefresh(fetchRabbit, {
   enabled: manifestAvailable,
   initialLoading: false
 })
@@ -116,7 +121,8 @@ async function clearAll() {
   try {
     const res = await apiFetch('api/rabbitmq', {method: 'DELETE'})
     if (!res.ok && res.status !== 204) throw new Error(`HTTP ${res.status}`)
-    await load()
+    reportVersion++
+    await loadAfterCurrent()
     flash('Cleared captured RabbitMQ activity.', 'success')
   } catch (e) {
     show(formatLoadError(e, 'Could not clear captured RabbitMQ activity'), 'danger')

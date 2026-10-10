@@ -369,7 +369,7 @@ describe('Runtime Insights panel', () => {
 
     expect(shown(wrapper.get('#insights-panel-changes'))).toBe(false)
     const link = wrapper.get('.insight-comparison-link')
-    expect(link.text()).toBe('1 change since run 4')
+    expect(link.text()).toBe('1 framework change since run 4')
     await link.trigger('click')
     expect(shown(wrapper.get('#insights-panel-changes'))).toBe(true)
     expect(wrapper.get('#insights-tab-changes').attributes('aria-selected')).toBe('true')

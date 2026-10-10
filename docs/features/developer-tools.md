@@ -14,6 +14,9 @@ loopback unless non-loopback access is explicitly enabled, which requires authen
 
 Enable it with `bootui.mcp.enabled=ON`, or use the toggle at the top of the panel. The toggle overrides the configured
 property for the lifetime of the running application, and the panel shows when the live state is an override.
+The toggle acknowledges only a valid MCP status report. An empty or malformed reply reports an unknown action
+outcome, preserves the last accepted status, and re-reads without retrying the toggle. A poll started before the action
+cannot overwrite its acknowledgement.
 
 ### Connecting a client
 
@@ -214,6 +217,10 @@ this panel reports what terminals and CI jobs did. There is no response-limit co
 applies no response byte budget.
 
 ## Spring DevTools
+
+LiveReload and restart controls require their documented JSON acknowledgements; an empty, malformed, or unrecognized
+reply reports an unknown outcome and re-reads status without retrying. Restart reconnect polling starts only after
+the application acknowledges that the restart was scheduled.
 
 ![BootUI Spring DevTools panel](../images/bootui-devtools.webp)
 

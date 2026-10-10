@@ -207,7 +207,7 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
           <li v-for="reason in extraReasons" :key="reason">{{ reason }}</li>
         </ul>
         <p v-if="compared && sections.length === 0" class="mb-0 mt-2">
-          No eligible route or execution changed what it ran, called, or raised.
+          No changes were found in the compared framework behavior or runtime-model edges.
         </p>
 
         <div

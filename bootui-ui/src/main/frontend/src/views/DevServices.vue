@@ -1,11 +1,16 @@
 <script setup>
-import {apiFetch, getJson} from '../api.js'
+import {ApiError, apiFetch, getJson} from '../api.js'
 import {computed, inject, ref} from 'vue'
 import {formatClockTime} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useConfirm} from '../utils/useConfirm.js'
+import {
+  diagnosticActionError,
+  getDiagnosticAcknowledgement,
+  isDevServiceRestartAcknowledgement
+} from '../utils/diagnosticAcknowledgement.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
@@ -22,22 +27,27 @@ const logs = ref(null)
 const actionMessage = ref(null)
 const busyService = ref(null)
 const lastFetched = ref(null)
+let reportVersion = 0
 
 async function fetchReport(options = {}) {
+  const version = reportVersion
   error.value = null
   if (!options.preserveActionMessage) {
     actionMessage.value = null
   }
   try {
-    report.value = await getJson('api/dev-services')
+    const loaded = await getJson('api/dev-services')
+    if (version !== reportVersion) return
+    report.value = loaded
     lastFetched.value = Date.now()
     syncSelectedService()
   } catch (e) {
+    if (version !== reportVersion) return
     error.value = describeLoadError(e, 'Unable to load Dev Services')
   }
 }
 
-const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchReport)
+const {autoRefresh, loading, initialLoading, load, loadAfterCurrent} = useAutoRefresh(fetchReport)
 
 const filtered = computed(() => {
   if (!report.value) return []
@@ -172,13 +182,21 @@ async function restart(service) {
   actionMessage.value = null
   busyService.value = service.id
   try {
-    const res = await apiFetch(serviceActionUrl(service, 'restart'), {method: 'POST'})
-    if (!res.ok) throw new Error(await responseMessage(res))
-    const result = await res.json()
-    await load({preserveActionMessage: true})
+    const result = await getDiagnosticAcknowledgement(serviceActionUrl(service, 'restart'), {method: 'POST'}, (body) =>
+      isDevServiceRestartAcknowledgement(body, service.id)
+    )
+    reportVersion++
+    await loadAfterCurrent({preserveActionMessage: true})
     actionMessage.value = {type: 'success', text: result.message}
   } catch (e) {
-    actionMessage.value = {type: 'danger', text: formatLoadError(e, 'Unable to restart service')}
+    actionMessage.value = {
+      type: e instanceof ApiError ? 'warning' : 'danger',
+      text: diagnosticActionError(e, 'Unable to restart service')
+    }
+    if (!(e instanceof ApiError) || e.status >= 500) {
+      reportVersion++
+      await loadAfterCurrent({preserveActionMessage: true})
+    }
   } finally {
     busyService.value = null
   }

@@ -823,6 +823,8 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **Diagnostic acknowledgements stay honest.** Comparisons qualify outside-JVM evidence, mutation reads cannot restore
+  stale state, malformed acknowledgements report unknown outcomes, and MCP panel refusals preserve their policy reason.
 - **Agent sensor lifecycle.** Reclaims during release preserve bean instrumentation, and failed class restoration prevents
   reinstallation ([Java Agent](docs/features/java-agent.md#claims-and-lifecycle)).
 - **Incomplete runs no longer invent absent work.** Capture gaps yield partial comparisons and unknown unexercised

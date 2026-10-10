@@ -384,5 +384,75 @@ class BootUiClientTests {
         assertThat(requests.get(1).body).isEqualTo("{\"enabled\":false}");
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void preservesThePanelPolicyReasonWithoutAnAuthenticationHint(boolean write) {
+        status = 403;
+        responseBody = """
+                {"error":"BootUI panel access denied","panel":"mcp-server",
+                 "reason":"Panel 'mcp-server' is read-only (bootui.panels.mcp-server.read-only=true)"}
+                """;
+
+        assertThatThrownBy(() -> {
+                    if (write) {
+                        client().post("/mcp-server/toggle", "{\"enabled\":true}");
+                    } else {
+                        client().get("/mcp-server");
+                    }
+                })
+                .isInstanceOf(BootUiClientException.class)
+                .hasMessageContaining("HTTP 403")
+                .hasMessageContaining("BootUI panel access denied")
+                .hasMessageContaining("bootui.panels.mcp-server.read-only=true")
+                .hasMessageNotContaining("--token");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {401, 403})
+    void preservesAnAuthenticationRefusalAndItsUsefulHint(int httpStatus) {
+        status = httpStatus;
+        responseBody = "{\"error\":\"BootUI is only accessible from localhost\"}";
+
+        assertThatThrownBy(() -> client().get("/mcp-server"))
+                .isInstanceOf(BootUiClientException.class)
+                .hasMessageContaining("HTTP " + httpStatus)
+                .hasMessageContaining("only accessible from localhost")
+                .hasMessageContaining("--token");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "<html>password=do-not-print</html>", "not JSON", "null", "[]",
+            "{\"error\":{},\"reason\":[\"not a reason\"]}"})
+    void directPanelFaultsDoNotSurfaceUnvalidatedErrorBodies(String body) {
+        status = 403;
+        responseBody = body;
+
+        assertThatThrownBy(() -> client().post("/mcp-server/toggle", "{}"))
+                .isInstanceOf(BootUiClientException.class)
+                .hasMessageContaining("HTTP 403")
+                .hasMessageNotContaining("do-not-print")
+                .hasMessageNotContaining("not a reason");
+    }
+
+    @Test
+    void directPanelTransportFailureRemainsAClientError() {
+        BootUiClient unreachable = new BootUiClient(
+                new BootUiClientOptions("http://localhost:1", "/bootui/api", null, Duration.ofSeconds(2)));
+
+        assertThatThrownBy(() -> unreachable.post("/mcp-server/toggle", "{}"))
+                .isInstanceOf(BootUiClientException.class)
+                .hasMessageContaining("Cannot reach BootUI")
+                .hasMessageContaining("--url");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {200, 204})
+    void genericPanelPostsStillAcceptBodylessSuccess(int httpStatus) {
+        status = httpStatus;
+        responseBody = "";
+
+        assertThat(client().post("/bodyless-action", "{}").isMissing()).isTrue();
+    }
+
     private record RecordedRequest(String method, String path, String authorization, String body) {}
 }

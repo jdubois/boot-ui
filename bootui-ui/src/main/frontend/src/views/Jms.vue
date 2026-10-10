@@ -24,13 +24,18 @@ const filter = ref('')
 const directionFilter = ref('')
 const busy = ref(false)
 const lastFetched = ref(null)
+let reportVersion = 0
 
 async function fetchJms() {
+  const version = reportVersion
   error.value = null
   try {
-    report.value = await getJson('api/jms')
+    const loaded = await getJson('api/jms')
+    if (version !== reportVersion) return
+    report.value = loaded
     lastFetched.value = Date.now()
   } catch (e) {
+    if (version !== reportVersion) return
     error.value = describeLoadError(e, 'Unable to load captured JMS activity')
   }
 }
@@ -43,7 +48,7 @@ onMounted(() => {
   }
 })
 
-const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchJms, {
+const {autoRefresh, loading, initialLoading, load, loadAfterCurrent} = useAutoRefresh(fetchJms, {
   enabled: manifestAvailable,
   initialLoading: false
 })
@@ -115,7 +120,8 @@ async function clearAll() {
   try {
     const response = await apiFetch('api/jms', {method: 'DELETE'})
     if (!response.ok && response.status !== 204) throw new Error(`HTTP ${response.status}`)
-    await load()
+    reportVersion++
+    await loadAfterCurrent()
     flash('Cleared captured JMS activity.', 'success')
   } catch (e) {
     show(formatLoadError(e, 'Could not clear captured JMS activity'), 'danger')

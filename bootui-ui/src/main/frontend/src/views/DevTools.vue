@@ -1,7 +1,13 @@
 <script setup>
-import {apiFetch, getJson} from '../api.js'
+import {ApiError, apiFetch, getJson} from '../api.js'
 import {computed, onUnmounted, ref} from 'vue'
-import {formatLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import {
+  diagnosticActionError,
+  getDiagnosticAcknowledgement,
+  isDevToolsAcknowledgement,
+  isDevToolsStatus
+} from '../utils/diagnosticAcknowledgement.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
@@ -17,11 +23,14 @@ const props = defineProps(panelProps)
 const {readOnly, readOnlyReason} = usePanelState(props)
 const {confirm} = useConfirm()
 const status = ref(null)
+const error = ref(null)
 const actionLoading = ref(null)
 const {message: banner, flash, clear} = useFlashMessage(8000)
 const restarting = ref(false)
 const lastFetched = ref(null)
 let reconnectTimer = null
+let statusVersion = 0
+let disposed = false
 
 const restartReady = computed(() => status.value?.restartAvailable && !status.value?.restartPending)
 const liveReloadReady = computed(() => status.value?.liveReloadAvailable)
@@ -34,12 +43,19 @@ const liveReloadDisabled = computed(
 )
 const autoRefreshEnabled = computed(() => !restarting.value)
 
-async function fetchStatus() {
+async function fetchStatus({preserveActionMessage = false} = {}) {
+  const version = statusVersion
+  error.value = null
   try {
-    status.value = await getJson('api/devtools')
+    const loaded = await getJson('api/devtools')
+    if (!isDevToolsStatus(loaded)) throw new Error('Invalid Spring DevTools status response')
+    if (version !== statusVersion) return
+    status.value = loaded
     lastFetched.value = Date.now()
   } catch (e) {
-    flash(formatLoadError(e, 'Could not load Spring DevTools status'), 'danger')
+    if (version !== statusVersion) return
+    error.value = describeLoadError(e, 'Could not load Spring DevTools status')
+    if (!preserveActionMessage) flash(formatLoadError(e, 'Could not load Spring DevTools status'), 'danger')
   }
 }
 
@@ -50,17 +66,16 @@ async function triggerLiveReload() {
   }
   actionLoading.value = 'livereload'
   try {
-    const res = await apiFetch('api/devtools/livereload', {method: 'POST'})
-    const result = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      flash(result.message || result.error || `HTTP ${res.status}`, 'warning')
-      await load()
-      return
-    }
-    flash(result.message || 'LiveReload triggered.', result.status === 'triggered' ? 'success' : 'warning')
-    await load()
+    const result = await getDiagnosticAcknowledgement('api/devtools/livereload', {method: 'POST'}, (body) =>
+      isDevToolsAcknowledgement(body, 'livereload')
+    )
+    statusVersion++
+    flash(result.message, result.status === 'triggered' ? 'success' : 'warning')
+    await loadAfterCurrent({preserveActionMessage: true})
   } catch (e) {
-    flash(formatLoadError(e, 'Could not trigger LiveReload'), 'danger')
+    statusVersion++
+    flash(diagnosticActionError(e, 'Could not trigger LiveReload'), e instanceof ApiError ? 'warning' : 'danger')
+    await loadAfterCurrent({preserveActionMessage: true})
   } finally {
     actionLoading.value = null
   }
@@ -84,41 +99,48 @@ async function restart() {
 
   actionLoading.value = 'restart'
   try {
-    const res = await apiFetch('api/devtools/restart', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({confirm: true})
-    })
-    const result = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      flash(result.message || result.error || `HTTP ${res.status}`, 'warning')
-      await load()
-      return
-    }
+    const result = await getDiagnosticAcknowledgement(
+      'api/devtools/restart',
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({confirm: true})
+      },
+      (body) => isDevToolsAcknowledgement(body, 'restart')
+    )
+    statusVersion++
     restarting.value = true
-    flash(result.message || 'Restart scheduled.', 'success')
+    flash(result.message, 'success')
     pollUntilOnline()
   } catch (e) {
-    flash(formatLoadError(e, 'Could not schedule restart'), 'danger')
+    statusVersion++
+    flash(diagnosticActionError(e, 'Could not schedule restart'), e instanceof ApiError ? 'warning' : 'danger')
+    await loadAfterCurrent({preserveActionMessage: true})
   } finally {
     actionLoading.value = null
   }
 }
 
 function pollUntilOnline() {
+  if (disposed) return
   clearReconnectTimer()
   reconnectTimer = setTimeout(async () => {
     try {
       const res = await apiFetch('api/devtools', {cache: 'no-store'})
       if (res.ok) {
-        status.value = await res.json()
+        const loaded = await res.json()
+        if (!isDevToolsStatus(loaded)) throw new Error('Invalid Spring DevTools status response')
+        if (disposed) return
+        statusVersion++
+        status.value = loaded
+        error.value = null
         lastFetched.value = Date.now()
         restarting.value = false
         flash('Application is available again.', 'success')
         return
       }
-    } catch {
-      // Expected while DevTools is restarting the application.
+    } catch (e) {
+      if (!disposed) error.value = describeLoadError(e, 'Waiting for the application to restart')
     }
     pollUntilOnline()
   }, 1500)
@@ -135,9 +157,13 @@ function showReadOnlyMessage() {
   flash(readOnlyReason.value, 'warning')
 }
 
-const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus, {enabled: autoRefreshEnabled})
+const {autoRefresh, loading, load, loadAfterCurrent} = useAutoRefresh(fetchStatus, {enabled: autoRefreshEnabled})
 
-onUnmounted(clearReconnectTimer)
+onUnmounted(() => {
+  disposed = true
+  statusVersion++
+  clearReconnectTimer()
+})
 </script>
 
 <template>
@@ -147,6 +173,7 @@ onUnmounted(clearReconnectTimer)
       title="Spring DevTools"
       subtitle="Trigger Spring Boot DevTools LiveReload notifications or restart the local application."
       :loading="loading || restarting"
+      :error="error"
       :last-fetched="lastFetched"
       v-model:auto-refresh="autoRefresh"
       @refresh="load"

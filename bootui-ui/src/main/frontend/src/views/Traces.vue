@@ -29,13 +29,18 @@ const selectedTraceId = ref(null)
 const detailLoading = ref(false)
 const busy = ref(false)
 const lastFetched = ref(null)
+let reportVersion = 0
 
 async function fetchTraces() {
+  const version = reportVersion
   error.value = null
   try {
-    report.value = await getJson('api/traces')
+    const loaded = await getJson('api/traces')
+    if (version !== reportVersion) return
+    report.value = loaded
     lastFetched.value = Date.now()
   } catch (e) {
+    if (version !== reportVersion) return
     error.value = describeLoadError(e, 'Unable to load traces')
   }
 }
@@ -85,8 +90,9 @@ async function clearAll() {
   try {
     const res = await apiFetch('api/traces', {method: 'DELETE'})
     if (!res.ok && res.status !== 204) throw new Error(`HTTP ${res.status}`)
+    reportVersion++
     closeDrawer()
-    await load()
+    await loadAfterCurrent()
     flash('Cleared retained traces.', 'success')
   } catch (e) {
     show(formatLoadError(e, 'Could not clear traces'), 'danger')
@@ -182,7 +188,7 @@ function shortId(id) {
   return id.length > 8 ? id.substring(0, 8) : id
 }
 
-const {autoRefresh, loading, load} = useAutoRefresh(fetchTraces)
+const {autoRefresh, loading, load, loadAfterCurrent} = useAutoRefresh(fetchTraces)
 </script>
 
 <template>

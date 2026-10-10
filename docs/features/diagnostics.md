@@ -24,6 +24,8 @@ embedded receiver. The empty state points at whichever model applies.
 
 Trace data resets on application restart and through the panel's clear action, which keeps no lifetime count. When `bootui.telemetry.enabled=false`,
 the sidebar dims the panel and the view shows a disabled state, so an empty list never reads as "no traces yet".
+After a confirmed clear, a fresh read runs once any outstanding poll finishes, even with auto-refresh off. A response
+started before the clear cannot restore old traces; newly captured traces in the post-clear read remain visible.
 
 ### Trace value exposure
 

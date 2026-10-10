@@ -564,7 +564,7 @@ class BootUiCliTests {
 
     @Test
     void mcpEnableTogglesThePanelRatherThanReachingPastIt() {
-        responseBody = "{\"enabled\":true}";
+        responseBody = mcpStatus(true);
 
         Result result = run("mcp", "enable");
 
@@ -578,13 +578,108 @@ class BootUiCliTests {
 
     @Test
     void mcpDisableSendsTheOppositeState() {
-        responseBody = "{\"enabled\":false}";
+        responseBody = mcpStatus(false);
 
-        run("mcp", "disable");
+        Result result = run("mcp", "disable");
 
+        assertThat(result.exitCode).isZero();
         assertThat(requests)
                 .singleElement()
                 .satisfies(request -> assertThat(request.body).isEqualTo("{\"enabled\":false}"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidMcpResponses")
+    void directMcpCommandsRejectMissingOrUnrecognizedReports(String command, boolean json, int code, String body) {
+        status = code;
+        responseBody = body;
+
+        Result result = json ? run("mcp", command, "--json") : run("mcp", command);
+
+        assertThat(result.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(result.out).isEmpty();
+        assertThat(result.err).isNotBlank();
+        assertThat(requests).hasSize(1);
+        if (!command.equals("status")) {
+            assertThat(result.err).contains("outcome is unknown").contains("not retried");
+        }
+    }
+
+    private static Stream<Arguments> invalidMcpResponses() {
+        return Stream.of("status", "enable", "disable").flatMap(command ->
+                Stream.of(false, true).flatMap(json ->
+                        Stream.concat(
+                                Stream.of("", " \t ", "{", "<html>not JSON</html>", "null", "{}", "[]",
+                                        "{\"enabled\":true}",
+                                        "{\"serverName\":\"other\",\"transport\":\"http\",\"enabled\":true,\"tools\":[]}",
+                                        "{\"serverName\":\"bootui\",\"transport\":\"http\",\"enabled\":\"false\",\"tools\":[]}",
+                                        "{\"serverName\":\"bootui\",\"transport\":\"http\",\"enabled\":false,\"tools\":{}}")
+                                        .map(body -> Arguments.of(command, json, 200, body)),
+                                Stream.of(Arguments.of(command, json, 204, "")))));
+    }
+
+    @ParameterizedTest
+    @MethodSource("validMcpResponses")
+    void directMcpCommandsAcceptTheActualStatusIncludingUnknownFields(
+            String command, boolean json, boolean enabled) {
+        responseBody = mcpStatus(enabled);
+
+        Result result = json ? run("mcp", command, "--json") : run("mcp", command);
+
+        assertThat(result.exitCode).isZero();
+        assertThat(result.err).isEmpty();
+        if (json) assertThat(result.out.strip()).isEqualTo(responseBody);
+        else assertThat(result.out).contains("bootui").contains(Boolean.toString(enabled));
+        assertThat(requests).singleElement().satisfies(request -> {
+            assertThat(request.method).isEqualTo(command.equals("status") ? "GET" : "POST");
+            assertThat(request.path).isEqualTo(command.equals("status")
+                    ? "/bootui/api/mcp-server" : "/bootui/api/mcp-server/toggle");
+        });
+    }
+
+    private static Stream<Arguments> validMcpResponses() {
+        return Stream.of("status", "enable", "disable").flatMap(command ->
+                Stream.of(false, true).flatMap(json ->
+                        Stream.of(false, true).map(enabled -> Arguments.of(command, json, enabled))));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"status", "enable", "disable"})
+    void directMcpPanelRefusalsPreserveTheirReasonAndExistingErrorExit(String command) {
+        status = 403;
+        responseBody = "{\"error\":\"BootUI panel access denied\",\"panel\":\"mcp-server\","
+                + "\"reason\":\"Panel 'mcp-server' is read-only (bootui.panels.mcp-server.read-only=true)\"}";
+
+        Result result = run("mcp", command, "--json");
+
+        assertThat(result.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(result.out).isEmpty();
+        assertThat(result.err).contains("bootui.panels.mcp-server.read-only=true")
+                .doesNotContain("--token").doesNotContain("outcome is unknown");
+        assertThat(requests).hasSize(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"status", "enable", "disable"})
+    void directMcpAuthenticationRefusalsKeepTheirGuidance(String command) {
+        status = 401;
+        responseBody = "{\"error\":\"Authentication required\"}";
+
+        Result result = run("mcp", command, "--json");
+
+        assertThat(result.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(result.out).isEmpty();
+        assertThat(result.err).contains("Authentication required").contains("--token");
+        assertThat(requests).hasSize(1);
+    }
+
+    private static String mcpStatus(boolean enabled) {
+        return "{\"enabled\":" + enabled + ",\"configuredMode\":\"AUTO\",\"overridden\":true,"
+                + "\"serverName\":\"bootui\",\"serverVersion\":\"1.20.0\",\"transport\":\"http\","
+                + "\"endpoint\":\"/bootui/api/mcp\",\"protocolVersion\":\"2025-06-18\","
+                + "\"maxResults\":200,\"toolCount\":1,\"tools\":[{\"name\":\"get_overview\","
+                + "\"description\":\"Overview\",\"panel\":\"overview\",\"action\":false,"
+                + "\"panelEnabled\":true,\"panelReadOnly\":false}],\"future\":{\"value\":42}}";
     }
 
     @Test

@@ -1,7 +1,12 @@
 <script setup>
-import {apiFetch, getJson} from '../api.js'
+import {ApiError, getJson} from '../api.js'
 import {computed, ref} from 'vue'
-import {formatLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import {
+  diagnosticActionError,
+  getDiagnosticAcknowledgement,
+  isMcpServerStatus
+} from '../utils/diagnosticAcknowledgement.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
@@ -17,10 +22,12 @@ import UnavailableState from './components/UnavailableState.vue'
 const props = defineProps(panelProps)
 const {readOnly, readOnlyReason, manifestAvailable, manifestUnavailableReason} = usePanelState(props)
 const status = ref(null)
+const error = ref(null)
 const toggling = ref(false)
 const lastFetched = ref(null)
 const {message: banner, flash, clear} = useFlashMessage(8000)
 const {copiedKey, copyToClipboard} = useCopyToClipboard(2000)
+let statusVersion = 0
 
 const enabled = computed(() => status.value?.enabled === true)
 const actionTools = computed(() => (status.value?.tools ?? []).filter((tool) => tool.action))
@@ -97,12 +104,19 @@ function clientPanelId(id) {
   return `mcp-client-${id}-panel`
 }
 
-async function fetchStatus() {
+async function fetchStatus({preserveActionMessage = false} = {}) {
+  const version = statusVersion
+  error.value = null
   try {
-    status.value = await getJson('api/mcp-server')
+    const loaded = await getJson('api/mcp-server')
+    if (!isMcpServerStatus(loaded)) throw new Error('Invalid MCP server status response')
+    if (version !== statusVersion) return
+    status.value = loaded
     lastFetched.value = Date.now()
   } catch (e) {
-    flash(formatLoadError(e, 'Could not load MCP server status'), 'danger')
+    if (version !== statusVersion) return
+    error.value = describeLoadError(e, 'Could not load MCP server status')
+    if (!preserveActionMessage) flash(formatLoadError(e, 'Could not load MCP server status'), 'danger')
   }
 }
 
@@ -114,28 +128,30 @@ async function toggle() {
   const target = !enabled.value
   toggling.value = true
   try {
-    const res = await apiFetch('api/mcp-server/toggle', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({enabled: target})
-    })
-    const result = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      flash(result.message || result.error || `HTTP ${res.status}`, 'warning')
-      await load()
-      return
-    }
+    const result = await getDiagnosticAcknowledgement(
+      'api/mcp-server/toggle',
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enabled: target})
+      },
+      isMcpServerStatus
+    )
+    statusVersion++
     status.value = result
     lastFetched.value = Date.now()
     flash(result.enabled ? 'MCP server enabled.' : 'MCP server disabled.', result.enabled ? 'success' : 'secondary')
+    await loadAfterCurrent({preserveActionMessage: true})
   } catch (e) {
-    flash(formatLoadError(e, 'Could not toggle the MCP server'), 'danger')
+    statusVersion++
+    flash(diagnosticActionError(e, 'Could not toggle the MCP server'), e instanceof ApiError ? 'warning' : 'danger')
+    await loadAfterCurrent({preserveActionMessage: true})
   } finally {
     toggling.value = false
   }
 }
 
-const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus, {enabled: manifestAvailable})
+const {autoRefresh, loading, load, loadAfterCurrent} = useAutoRefresh(fetchStatus, {enabled: manifestAvailable})
 </script>
 
 <template>
@@ -145,6 +161,7 @@ const {autoRefresh, loading, load} = useAutoRefresh(fetchStatus, {enabled: manif
       title="MCP Server"
       subtitle="Expose BootUI advisors and read-only diagnostics to local AI agents over the Model Context Protocol."
       :loading="loading"
+      :error="error"
       :last-fetched="lastFetched"
       v-model:auto-refresh="autoRefresh"
       @refresh="load"

@@ -210,20 +210,33 @@ public final class BootUiClient implements AutoCloseable {
     private String describeFailure(HttpResponse<String> response) {
         int status = response.statusCode();
         String detail = "";
+        boolean panelRefusal = false;
         try {
-            String message = JsonValue.parse(response.body()).get("error").asString(null);
-            if (message != null) {
-                detail = ": " + message;
-            }
-        } catch (RuntimeException notJson) {
+            JsonValue body = JsonValue.parse(response.body());
+            String error = nonblankString(body.get("error"));
+            String reason = nonblankString(body.get("reason"));
+            String message = nonblankString(body.get("message"));
+            String specific = reason != null ? reason : message;
+            if (error != null) detail = ": " + error;
+            if (specific != null && !specific.equals(error)) detail += ": " + specific;
+            panelRefusal = status == 403
+                    && nonblankString(body.get("panel")) != null
+                    && reason != null
+                    && "BootUI panel access denied".equals(error);
+        } catch (JsonParseException notJson) {
             // A non-JSON error body carries nothing worth surfacing; the status already says what happened.
         }
-        if (status == 401 || status == 403) {
+        if (status == 401 || (status == 403 && !panelRefusal)) {
             return "BootUI refused the request (HTTP " + status
                     + ")" + detail
                     + ". A non-loopback --url needs --token, and BootUI only answers requests it considers local.";
         }
         return "BootUI answered HTTP " + status + detail;
+    }
+
+    private static String nonblankString(JsonValue value) {
+        String text = value.asString(null);
+        return text == null || text.isBlank() ? null : text;
     }
 
     private static JsonValue parse(String body, String url) {

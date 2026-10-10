@@ -254,6 +254,9 @@ the offset after any failure or silently rescan to recover. See [agent paginatio
 HTTP `503` alone is not a policy refusal. The CLI checks the target's BootUI catalog and reports endpoint disablement
 only when `enabled` is `false` and `tools` is empty. An outage, an invalid catalog, or a wrong target exits `1`, not
 the policy-skip code `2`; a catalog that still reports `enabled: true` cannot turn an outage into a skip.
+Direct MCP panel commands preserve BootUI's specific panel-policy reason on HTTP `403`, rather than suggesting an
+authentication token can bypass a disabled or read-only panel. Their existing exit codes are unchanged; actual
+authentication refusals keep the token/local-access guidance, and non-JSON error bodies are not printed.
 
 A command whose tool this application does not advertise exits `1` and says why: "This application does not expose
 'get_kafka_activity'." followed by the panel's own reason, such as a missing library or the Java agent, or the stacks
@@ -414,6 +417,11 @@ bootui mcp status
 bootui mcp enable
 bootui mcp disable
 ```
+
+These commands require a recognizable BootUI MCP status report with a typed `enabled` value, not an empty or generic
+JSON success. Missing, malformed, or unrecognized replies exit `1` without printing a successful result; an
+unconfirmed toggle reports an unknown outcome and is never retried automatically. This validation is specific to
+the MCP commands, not the dependency-free client's general support for bodyless panel actions.
 
 ## The Command Line panel
 
