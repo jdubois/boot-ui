@@ -180,9 +180,9 @@ export function registerDiagnosticAcknowledgementTests(test, expect, acceptConfi
           await page.locator('.insight-profile').getByRole('button', {name: 'Stop now', exact: true}).click()
         }
         await expect.poll(() => Boolean(pending)).toBe(true)
-        await page.getByRole('link', {name: 'Health', exact: true}).click()
         // Let the lazy route's out-in transition finish before freezing timers for the disposal assertion.
         await page.clock.resume()
+        await page.getByRole('link', {name: 'Health', exact: true}).click()
         await expect(
           page
             .locator('main h2')
