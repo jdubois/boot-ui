@@ -415,16 +415,23 @@ the rule and threshold of the [failure-preserving buffer](diagnostics.md#failure
 Persisted rows contain only the journal-rendered, `MASKED` view: no bind values, principals, exception or log messages,
 or email subjects. This is a 2.0 change from the former buffer-polling persistence path; applications that relied on
 those details must read the bounded live panel evidence instead.
-The journal is the only source of durable history in 2.0: with `bootui.runtime-journal.enabled=false`, persistence logs
-a warning and writes nothing.
+The journal is the only source of durable history in 2.0. With `bootui.runtime-journal.enabled=false`, configured
+startup persistence logs a warning and writes nothing. The runtime datasource action instead rejects an unavailable,
+disabled, or closed journal with HTTP `409` before creating a table or switching storage; it never silently enables
+capture.
 When a source panel is disabled, its older rows are also hidden. A history page scans past hidden rows within a
 bounded read budget and keeps a continuation cursor when older rows remain; a page can be empty while **Load older**
 is still available.
 
 You do not have to edit configuration or restart to turn this on. While persistence is inactive, a "Currently saving N
 events in memory" tip appears with a **Use a database** button. If the application already has a `DataSource`, a **Use
-the existing datasource** action checks it, creates the table, and hot-switches the running instance with no dropped
-entries and no restart. It is confirmation-gated like every other state-changing action. The switch is **runtime-only**:
+the existing datasource** action checks it, creates the table, starts its journal subscriber against the new store,
+and only then hot-switches the running instance, without losing events dispatched during the switch or requiring a
+restart. Concurrent requests start only one capture; repeats are no-ops once persistence is active. If capture cannot
+start after schema verification, HTTP `500` states that the table may already exist but in-memory storage remains
+active; BootUI does not delete a host database table to undo the attempt. Journal shutdown between registration and
+publication also rejects the switch and closes its unused capture/store.
+It is confirmation-gated like every other state-changing action. The switch is **runtime-only**:
 nothing is written to disk, so a restart reverts to in-memory unless the property is also set in configuration. With no
 `DataSource` present, the button links to the setup documentation instead.
 

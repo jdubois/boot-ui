@@ -1,13 +1,13 @@
 package io.github.jdubois.bootui.autoconfigure.stream;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.http.MediaType;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -46,7 +46,8 @@ public final class BootUiChangeStream implements AutoCloseable {
     private final String label;
     private final long coalesceMillis;
     private final CopyOnWriteArrayList<SseEmitter> emitters = new CopyOnWriteArrayList<>();
-    private final AtomicBoolean flushPending = new AtomicBoolean(false);
+    private boolean flushPending;
+    private boolean closed;
 
     private final Object schedulerLock = new Object();
     private ScheduledExecutorService scheduler;
@@ -71,7 +72,14 @@ public final class BootUiChangeStream implements AutoCloseable {
      */
     public SseEmitter open() {
         SseEmitter emitter = new SseEmitter(0L);
+        emitter.onCompletion(() -> remove(emitter));
+        emitter.onTimeout(() -> remove(emitter));
+        emitter.onError(error -> remove(emitter));
         synchronized (schedulerLock) {
+            if (closed) {
+                emitter.complete();
+                return emitter;
+            }
             if (emitters.size() >= MAX_CONCURRENT_STREAMS) {
                 emitter.completeWithError(
                         new IllegalStateException("Too many concurrent BootUI " + label + " streams"));
@@ -80,9 +88,6 @@ public final class BootUiChangeStream implements AutoCloseable {
             emitters.add(emitter);
             ensureScheduler();
         }
-        emitter.onCompletion(() -> remove(emitter));
-        emitter.onTimeout(() -> remove(emitter));
-        emitter.onError(error -> remove(emitter));
         return emitter;
     }
 
@@ -91,30 +96,38 @@ public final class BootUiChangeStream implements AutoCloseable {
      * listening, otherwise schedules a single coalesced flush. Safe to call from any thread.
      */
     public void signal() {
-        if (emitters.isEmpty()) {
-            return;
-        }
-        if (flushPending.compareAndSet(false, true)) {
-            synchronized (schedulerLock) {
-                ScheduledExecutorService current = scheduler;
-                if (current == null) {
-                    // Last emitter disconnected between the empty check and here.
-                    flushPending.set(false);
-                    return;
-                }
-                try {
-                    current.schedule(this::flush, coalesceMillis, TimeUnit.MILLISECONDS);
-                } catch (RejectedExecutionException ex) {
-                    flushPending.set(false);
-                }
+        synchronized (schedulerLock) {
+            ScheduledExecutorService current = scheduler;
+            if (closed || emitters.isEmpty() || current == null || flushPending) {
+                return;
+            }
+            flushPending = true;
+            try {
+                current.schedule(() -> flush(current), coalesceMillis, TimeUnit.MILLISECONDS);
+            } catch (RejectedExecutionException ex) {
+                flushPending = false;
+                System.getLogger(BootUiChangeStream.class.getName())
+                        .log(System.Logger.Level.DEBUG, "BootUI " + label + " stream scheduler rejected a flush", ex);
             }
         }
     }
 
-    private void flush() {
-        flushPending.set(false);
-        flushCount.incrementAndGet();
-        for (SseEmitter emitter : emitters) {
+    private void flush(ScheduledExecutorService owner) {
+        List<SseEmitter> subscribers;
+        synchronized (schedulerLock) {
+            if (closed || scheduler != owner) {
+                return;
+            }
+            flushPending = false;
+            flushCount.incrementAndGet();
+            subscribers = List.copyOf(emitters);
+        }
+        for (SseEmitter emitter : subscribers) {
+            synchronized (schedulerLock) {
+                if (closed || scheduler != owner) {
+                    return;
+                }
+            }
             try {
                 emitter.send(SseEmitter.event()
                         .name("update")
@@ -127,11 +140,12 @@ public final class BootUiChangeStream implements AutoCloseable {
     }
 
     private void remove(SseEmitter emitter) {
-        emitters.remove(emitter);
         synchronized (schedulerLock) {
+            emitters.remove(emitter);
             if (emitters.isEmpty() && scheduler != null) {
                 scheduler.shutdownNow();
                 scheduler = null;
+                flushPending = false;
             }
         }
     }
@@ -148,16 +162,18 @@ public final class BootUiChangeStream implements AutoCloseable {
 
     @Override
     public void close() {
-        for (SseEmitter emitter : emitters) {
-            emitter.complete();
-        }
-        emitters.clear();
+        List<SseEmitter> subscribers;
         synchronized (schedulerLock) {
+            closed = true;
+            subscribers = List.copyOf(emitters);
+            emitters.clear();
+            flushPending = false;
             if (scheduler != null) {
                 scheduler.shutdownNow();
                 scheduler = null;
             }
         }
+        subscribers.forEach(SseEmitter::complete);
     }
 
     // ── testing hooks ─────────────────────────────────────────────────────────
