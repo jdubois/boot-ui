@@ -1,12 +1,21 @@
 package io.github.jdubois.bootui.engine.journal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.engine.activity.ActivityCaptureCoordinator;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
+import io.github.jdubois.bootui.engine.activity.ActivitySequencer;
 import io.github.jdubois.bootui.engine.activity.ActivityStore;
 import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
@@ -32,6 +41,52 @@ class JournalActivityCaptureTests {
     @AfterEach
     void close() {
         journal.close();
+    }
+
+    @Test
+    void startingCaptureAfterTheJournalClosedCannotReturnARunningHandle() {
+        journal.close();
+        assertThatThrownBy(() -> start(null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("closed");
+    }
+
+    @Test
+    void registrationFailureKeepsCleanupFailureAsSuppressedEvidence() {
+        RuntimeJournal failing = mock(RuntimeJournal.class);
+        IllegalStateException registration = new IllegalStateException("registration failed");
+        IllegalStateException cleanup = new IllegalStateException("cleanup failed");
+        doThrow(registration).when(failing).addListener(any());
+        doThrow(cleanup).when(failing).removeListener(any());
+        assertThatThrownBy(() -> JournalActivityCapture.start(
+                        failing,
+                        new JournalActivityFeed(0, 3, null),
+                        new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 200, entry -> false),
+                        panel -> true))
+                .isSameAs(registration)
+                .hasSuppressedException(cleanup);
+    }
+
+    @Test
+    void failedRegistrationDetachesEvenAPartiallyRegisteredCapture() {
+        RuntimeJournal failing = spy(journal);
+        doAnswer(invocation -> {
+                    journal.addListener(invocation.getArgument(0));
+                    throw new IllegalStateException("registration failed after adding listener");
+                })
+                .when(failing)
+                .addListener(any());
+        assertThatThrownBy(() -> JournalActivityCapture.start(
+                        failing,
+                        new JournalActivityFeed(0, 3, null),
+                        new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 200, entry -> false),
+                        panel -> true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("registration failed");
+        verify(failing).removeListener(any(JournalActivityCapture.class));
+        offer("after-failure", null, JournalSource.HTTP, new HttpPayload("GET", "/a", "/a", null, 200));
+        journal.dispatchPending();
+        assertThat(store.entries()).isEmpty();
     }
 
     @Test

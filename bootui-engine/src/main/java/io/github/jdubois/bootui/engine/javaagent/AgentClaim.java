@@ -259,6 +259,14 @@ public final class AgentClaim {
         this.handoffs = null;
     }
 
+    /** This claim's internal pending side-effect owners, or explicit unknown coverage after it ended. */
+    public Map<String, Object> pendingSideEffects() {
+        Long granted = token;
+        return granted == null || ended.get()
+                ? Map.of("unknownReason", "this side-effect claim is not armed")
+                : access.sideEffectsPending(granted);
+    }
+
     /** The handoffs attached, or {@code null}. */
     public AgentHandoffs handoffs() {
         return handoffs;

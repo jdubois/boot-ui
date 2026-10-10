@@ -236,7 +236,7 @@ class RunSummaryTests {
                 RunSummary.of(new RunIdentity("sql-shapes", 2, 1000), aggregates.snapshot(), 2000),
                 RunHistory.MAX_SUMMARY_BYTES);
 
-        assertThat(encoded[4]).isEqualTo((byte) 14);
+        assertThat(encoded[4]).isEqualTo((byte) 15);
         assertThat(new String(encoded, StandardCharsets.UTF_8)).doesNotContain("zzsecretzz", "secondsecret");
         RunSummary decoded = RunSummaryCodec.decode(encoded);
         assertThat(decoded.aggregates().statements()).singleElement().satisfies(statement -> {

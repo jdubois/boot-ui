@@ -15,15 +15,67 @@ import java.util.Objects;
  * @param routesHidden whether HTTP Exchanges was hidden when the run ended, so its route owners are one hidden label
  * @param sensors the compared sensors, in catalog order
  * @param keys the keys, at most {@value #MAX_KEYS_PER_SENSOR} per sensor, most frequent first
+ * @param pendingOwners owners whose buffered work may still add keys, names only, bounded and masked
+ * @param absenceUnknownReason why the pending-owner cut could not qualify absence, or {@code null}
  */
-public record RunSideEffects(String unavailableReason, boolean routesHidden, List<Sensor> sensors, List<Key> keys) {
+public record RunSideEffects(
+        String unavailableReason,
+        boolean routesHidden,
+        List<Sensor> sensors,
+        List<Key> keys,
+        List<PendingOwner> pendingOwners,
+        String absenceUnknownReason) {
 
     /** The keys kept per sensor. */
     public static final int MAX_KEYS_PER_SENSOR = 250;
 
+    public static final int MAX_PENDING_OWNERS = 256;
+    public static final int MAX_OWNER_LENGTH = 1024;
+    public static final String UNKNOWN_OWNERSHIP = "pending ownership completeness was not recorded";
+
+    /** Earlier producers supplied no pending-owner evidence, not a verified empty set. */
+    public RunSideEffects(String unavailableReason, boolean routesHidden, List<Sensor> sensors, List<Key> keys) {
+        this(unavailableReason, routesHidden, sensors, keys, List.of(), UNKNOWN_OWNERSHIP);
+    }
+
     public RunSideEffects {
         sensors = sensors == null ? List.of() : List.copyOf(sensors);
         keys = keys == null ? List.of() : List.copyOf(keys);
+        if (pendingOwners == null) {
+            pendingOwners = List.of();
+            absenceUnknownReason = UNKNOWN_OWNERSHIP;
+        } else if (pendingOwners.size() > MAX_PENDING_OWNERS
+                || pendingOwners.stream()
+                        .anyMatch(owner -> owner.owner().length() > MAX_OWNER_LENGTH
+                                || (!"route".equals(owner.scope())
+                                        && !"execution".equals(owner.scope())
+                                        && !"startup".equals(owner.scope())))) {
+            pendingOwners = List.of();
+            absenceUnknownReason = "pending ownership exceeded its metadata bound";
+        } else {
+            pendingOwners = List.copyOf(pendingOwners);
+        }
+    }
+
+    /** Why a missing key of this owner cannot establish absence, or {@code null}. */
+    public String absenceReason(String scope, String owner) {
+        if (absenceUnknownReason != null) {
+            return absenceUnknownReason;
+        }
+        return pendingOwners.contains(new PendingOwner(scope, owner)) ? "its owner's work is still pending" : null;
+    }
+
+    /** Keeps positive keys while refusing absence when the read or metadata could not be qualified. */
+    public RunSideEffects unknownAbsence(String reason) {
+        return new RunSideEffects(unavailableReason, routesHidden, sensors, keys, pendingOwners, reason);
+    }
+
+    /** Names only: raw correlation ids never travel in a summary or baseline. */
+    public record PendingOwner(String scope, String owner) {
+        public PendingOwner {
+            Objects.requireNonNull(scope, "scope");
+            Objects.requireNonNull(owner, "owner");
+        }
     }
 
     /** A run that kept no keys, for {@code reason}. */

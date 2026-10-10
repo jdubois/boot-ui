@@ -93,7 +93,16 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
             ActivityCaptureCoordinator coordinator,
             Predicate<String> panelEnabled) {
         JournalActivityCapture capture = new JournalActivityCapture(journal, feed, coordinator, panelEnabled);
-        journal.addListener(capture);
+        try {
+            journal.addListener(capture);
+        } catch (RuntimeException ex) {
+            try {
+                capture.close();
+            } catch (RuntimeException cleanup) {
+                ex.addSuppressed(cleanup);
+            }
+            throw ex;
+        }
         return capture;
     }
 

@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.BooleanSupplier;
 import java.util.function.IntConsumer;
 
 /**
@@ -110,6 +111,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     private final ThreadKinds threadKinds = new ThreadKinds();
     private final Thread dispatcher;
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final Object lifecycle = new Object();
     private final Runnable beforeQueueOffer;
     private final IntConsumer beforeQueueDrain;
     private final long dispatcherPollMillis;
@@ -521,16 +523,59 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         return settings.records(source);
     }
 
-    /** Registers a listener for every batch accepted from now on. */
+    /** Registers a listener for every batch accepted from now on; a closed journal rejects registration. */
     public void addListener(JournalListener listener) {
         Objects.requireNonNull(listener, "listener must not be null");
+        if (closed.get()) {
+            throw new IllegalStateException("The runtime journal is closed.");
+        }
         if (listener instanceof JournalAggregates aggregates) {
             synchronized (processing) {
                 aggregates.bind(this, processedSourceCounts());
-                listeners.add(listener);
+                try {
+                    registerListener(listener);
+                } catch (RuntimeException ex) {
+                    try {
+                        aggregates.unbind(this);
+                    } catch (RuntimeException cleanup) {
+                        ex.addSuppressed(cleanup);
+                    }
+                    throw ex;
+                }
             }
         } else {
+            registerListener(listener);
+        }
+    }
+
+    private void registerListener(JournalListener listener) {
+        synchronized (lifecycle) {
+            if (closed.get()) {
+                throw new IllegalStateException("The runtime journal is closed.");
+            }
             listeners.add(listener);
+        }
+    }
+
+    /** Whether this enabled journal is still open for new capture work. */
+    public boolean isOpen() {
+        return settings.enabled() && !closed.get();
+    }
+
+    /**
+     * Commits a bounded state publication while the journal is still open, atomically with close admission.
+     * The commit must perform no I/O, registration, cleanup, or other blocking work; any required application
+     * lock must already be held. Capture setup and teardown belong outside this gate.
+     *
+     * @throws IllegalStateException when the journal closed or is disabled before the commit
+     */
+    public boolean commitWhileOpen(BooleanSupplier commit) {
+        Objects.requireNonNull(commit, "commit must not be null");
+        synchronized (lifecycle) {
+            if (!isOpen()) {
+                throw new IllegalStateException("The runtime journal is closed or disabled.");
+            }
+            return commit.getAsBoolean();
         }
     }
 
@@ -763,10 +808,12 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
      */
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) {
-            return;
+        synchronized (lifecycle) {
+            if (!closed.compareAndSet(false, true)) {
+                return;
+            }
+            running = false;
         }
-        running = false;
         synchronized (this) {
             if (gcSource != null) {
                 gcSource.close();

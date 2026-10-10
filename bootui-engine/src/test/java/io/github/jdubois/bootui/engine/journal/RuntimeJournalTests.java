@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.journal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
@@ -29,6 +30,39 @@ class RuntimeJournalTests {
     @AfterEach
     void closeJournals() {
         journals.forEach(RuntimeJournal::close);
+    }
+
+    @Test
+    void closedJournalRejectsNewListenersAndPublicationWithoutRunningTheCommit() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        journal.close();
+        assertThat(journal.settings().enabled()).isTrue();
+        assertThat(journal.isOpen()).isFalse();
+        assertThatThrownBy(() -> journal.addListener(entries -> {}))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("closed");
+        assertThatThrownBy(() -> journal.addListener(new JournalAggregates()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("closed");
+        AtomicInteger committed = new AtomicInteger();
+        assertThatThrownBy(() -> journal.commitWhileOpen(() -> {
+                    committed.incrementAndGet();
+                    return true;
+                }))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("closed");
+        assertThat(committed).hasValue(0);
+    }
+
+    @Test
+    void disabledJournalStillAcceptsStartupListenersButCannotPublishNewCapture() {
+        RuntimeJournal journal = journal(RuntimeJournalSettings.disabled(), false);
+        journal.addListener(entries -> {});
+        journal.addListener(new JournalAggregates());
+        assertThat(journal.isOpen()).isFalse();
+        assertThatThrownBy(() -> journal.commitWhileOpen(() -> true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("disabled");
     }
 
     @Test

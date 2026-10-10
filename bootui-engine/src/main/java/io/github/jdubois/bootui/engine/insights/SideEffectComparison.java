@@ -87,11 +87,17 @@ final class SideEffectComparison {
             int notExercised = 0;
             int withheldAdded = 0;
             int withheldRemoved = 0;
+            int pendingAdded = 0;
+            int pendingRemoved = 0;
             for (Map.Entry<String, RunSideEffects.Key> entry : after.entrySet()) {
                 RunSideEffects.Key key = entry.getValue();
                 if (!key.sensor().equals(id)
                         || before.containsKey(entry.getKey())
                         || (STARTUP.equals(key.scope()) && startupNotCompared != null)) {
+                    continue;
+                }
+                if (previous.absenceReason(key.scope(), key.owner()) != null) {
+                    pendingAdded++;
                     continue;
                 }
                 if (!exercised(key, previousOwners, exercisedBefore)) {
@@ -113,7 +119,9 @@ final class SideEffectComparison {
                         || (STARTUP.equals(key.scope()) && startupNotCompared != null)) {
                     continue;
                 }
-                if (!exercised(key, currentOwners, exercised)) {
+                if (current.absenceReason(key.scope(), key.owner()) != null) {
+                    pendingRemoved++;
+                } else if (!exercised(key, currentOwners, exercised)) {
                     notExercised++;
                     changes.add(change(key, RuntimeSideEffectChangeDto.NOT_EXERCISED, true));
                 } else if (currentCut) {
@@ -128,12 +136,44 @@ final class SideEffectComparison {
                 partial = true;
                 notes.add(cutNote(previousCut, currentCut, withheldAdded, withheldRemoved));
             }
+            boolean previousPending = previous.absenceUnknownReason() != null
+                    || !previous.pendingOwners().isEmpty();
+            boolean currentPending = current.absenceUnknownReason() != null
+                    || !current.pendingOwners().isEmpty();
+            boolean pending = previousPending || currentPending;
+            if (pending) {
+                partial = true;
+                if (pendingAdded > 0) {
+                    notes.add(pendingAdded + " missing previous-run keys are not reported new: "
+                            + (previous.absenceUnknownReason() == null
+                                    ? "their owners' work was still pending"
+                                    : previous.absenceUnknownReason()));
+                }
+                if (pendingRemoved > 0) {
+                    notes.add(pendingRemoved + " missing current-run keys are not reported gone: "
+                            + (current.absenceUnknownReason() == null
+                                    ? "their owners' work is still pending"
+                                    : current.absenceUnknownReason()));
+                }
+                if (previousPending && pendingAdded == 0) {
+                    notes.add("previous-run absence is unqualified: "
+                            + (previous.absenceUnknownReason() == null
+                                    ? "some owners' work was still pending"
+                                    : previous.absenceUnknownReason()));
+                }
+                if (currentPending && pendingRemoved == 0) {
+                    notes.add("current-run absence is unqualified: "
+                            + (current.absenceUnknownReason() == null
+                                    ? "some owners' work is still pending"
+                                    : current.absenceUnknownReason()));
+                }
+            }
             if (startupNotCompared != null) {
                 notes.add("its startup is not compared: " + startupNotCompared);
             }
             sensors.add(new RuntimeSideEffectSensorDto(
                     id,
-                    previousCut || currentCut
+                    previousCut || currentCut || pending
                             ? RuntimeSideEffectSensorDto.PARTIAL
                             : RuntimeSideEffectSensorDto.COMPARED,
                     notes.isEmpty() ? null : capitalize(String.join("; ", notes)) + ".",
