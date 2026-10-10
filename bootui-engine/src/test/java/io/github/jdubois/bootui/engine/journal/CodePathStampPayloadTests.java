@@ -51,7 +51,7 @@ class CodePathStampPayloadTests {
 
         // Fixed parts, with every string counted as the payload's own: the stamp's long is in them.
         assertThat(sql.estimatedBytes())
-                .isEqualTo(40
+                .isEqualTo(48
                         + JournalDictionary.retained(null, "select 1")
                         + JournalDictionary.retained(null, "A.b:1")
                         + JournalDictionary.retained(null, "db"));

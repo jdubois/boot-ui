@@ -75,8 +75,10 @@ public final class AnonymousDataReach implements Observation {
                 boolean incomplete = false;
                 boolean preparationsExecuted = SafeMethodDml.preparationsExecuted(snapshot, request);
                 for (RuntimeEvent event : request.children(JournalSource.SQL)) {
-                    if (event.payload() instanceof SqlPayload sql && !sql.failed()) {
-                        boolean preparation = SafeMethodDml.preparation(snapshot, event);
+                    if (event.payload() instanceof SqlPayload sql
+                            && sql.provenance() != SqlPayload.Provenance.UNKNOWN
+                            && !sql.failed()) {
+                        boolean preparation = SafeMethodDml.preparation(event);
                         if (preparation && (hiddenOrm || !preparationsExecuted)) {
                             continue;
                         }

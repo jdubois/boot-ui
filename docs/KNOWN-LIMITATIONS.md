@@ -46,8 +46,10 @@ See [Quarkus design notes](QUARKUS-SUPPORT.md) for the panel-by-panel detail.
   Spring DevTools, and Transactions do not apply to Quarkus; JMS is not available yet.
 - **No transaction capture.** SQL statements carry no transaction id, and `transaction-across-remote-call` and
   `split-transaction-writes` are unavailable.
-- **Hibernate ORM statements are preparations.** Their durations are unknown, so ORM SQL time is not part of
-  `route-time-breakdown`; plain JDBC statements are timed.
+- **Hibernate ORM statement inspection observes preparation, not execution.** Rows stay visible and qualified, but
+  do not establish execution counts, touched tables, N+1 queries, or event-loop blocking. ORM session metrics can
+  supply aggregate SQL time to `route-time-breakdown`, not prove which inspected statement executed; plain JDBC
+  executions are timed and counted even at zero duration.
 - **No cache events and no WebSocket frames.** `quarkus-cache` exposes no access listener.
 - **`route-time-breakdown` has no authentication phase**, run-start facts are a live-reload total without steps, and
   application events are recorded on the observer side only.

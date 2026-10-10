@@ -108,6 +108,12 @@ public final class SqlTraceInsightsService {
         notes.add("Rankings cover the " + entries.size() + " statement executions currently retained in the "
                 + "SQL Trace buffer of " + recorder.getMaxEntries()
                 + ". They are diagnostic evidence for this window, not lifetime metrics.");
+        long unexecuted =
+                recorder.recent().stream().filter(entry -> !entry.executed()).count();
+        if (unexecuted > 0) {
+            notes.add(unexecuted + " retained SQL capture(s) do not establish execution and are excluded from rankings"
+                    + " and attribution; preparation alone does not prove database access.");
+        }
         if (recorder.evicted() > 0) {
             notes.add("Older executions have been dropped from the buffer, so totals and percentiles "
                     + "under-report work that has already aged out.");

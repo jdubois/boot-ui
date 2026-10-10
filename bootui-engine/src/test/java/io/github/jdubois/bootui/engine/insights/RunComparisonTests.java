@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.insights;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import io.github.jdubois.bootui.core.dto.RuntimeRunChangeDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonDto;
@@ -30,9 +31,12 @@ import io.github.jdubois.bootui.engine.journal.SynchronousJournals;
 import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.List;
 import java.util.Map;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 
 class RunComparisonTests {
@@ -817,6 +821,10 @@ class RunComparisonTests {
 
         Run() {
             journal.addListener(aggregates);
+            // All SQL in this fixture belongs to this installed traced datasource.
+            SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, false, false, 10, 100, 2000, 200, 5);
+            recorder.setRuntimeEventSink(journal);
+            SqlTracingProxies.wrapNamed(mock(DataSource.class), recorder, "dataSource");
         }
 
         void request(String method, String route, int status, long millis, RuntimeEventPayload... children) {

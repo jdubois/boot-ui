@@ -81,8 +81,22 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     private final JournalDictionary dictionary;
     private final EvidenceRing ring;
     private final List<JournalListener> listeners = new CopyOnWriteArrayList<>();
+    private final SqlCaptureScopes sqlCaptureScopes = new SqlCaptureScopes();
     private final LongAdder[] accepted = adders();
     private final LongAdder[] dropped = adders();
+
+    @Override
+    public void registerSqlCapture(String dataSource, SqlPayload.Provenance provenance) {
+        sqlCaptureScopes.register(dataSource, provenance);
+    }
+
+    SqlCaptureScopes.Snapshot sqlCaptureScope() {
+        return sqlCaptureScopes.snapshot();
+    }
+
+    boolean coversSqlExecution(String dataSource) {
+        return sqlCaptureScopes.coversExecution(dataSource);
+    }
     /** Per source, when the journal last dropped one of its offered events, by the wall clock; 0 while it dropped none. */
     private final java.util.concurrent.atomic.AtomicLongArray droppedAt =
             new java.util.concurrent.atomic.AtomicLongArray(JournalSource.values().length);

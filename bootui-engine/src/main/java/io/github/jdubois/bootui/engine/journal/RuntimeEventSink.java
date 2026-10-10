@@ -52,4 +52,7 @@ public interface RuntimeEventSink {
     default boolean records(JournalSource source) {
         return true;
     }
+
+    /** Declares the actual feeder's scope, independently of whether it has emitted a statement yet. */
+    default void registerSqlCapture(String dataSource, SqlPayload.Provenance provenance) {}
 }

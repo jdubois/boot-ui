@@ -852,6 +852,14 @@ the disabled opening panels for the kinds of work they examine, or say **not app
 remain visible. On Quarkus, when the journal records ORM but the Hibernate panel is disabled,
 `safe-method-dml` leaves out unverified prepared writes, names that limitation, and still counts timed JDBC executions.
 
+SQL capture retains explicit **execution**, **preparation**, or **unknown** provenance from its feeder. In particular,
+Quarkus Hibernate's statement inspector observes preparations only: an event-loop preparation is not confirmed JDBC
+blocking, even when it carries the request's identity and monotonic timestamp. Confirmed blocking, repeated SELECTs,
+observed table access, and after-response JDBC work require execution provenance. Zero-duration executed JDBC remains
+eligible; neither duration nor the `PREPARED` statement type establishes provenance. Preparation rows remain visible
+in the journal timeline with no measured duration and an explicit qualification. Write-preparation findings remain
+separate, qualified facts rather than proof of executed writes.
+
 The header states the window the journal retains, and a coverage strip shows how each source's events are linked to a
 request: by request id, by execution id, by trace id, or not at all. `bootui.runtime-insights.ai-token-threshold` sets
 the tokens of one model call above which AI usage reports its route from that call alone.
@@ -973,6 +981,11 @@ an event refused by the journal did not. A source that dropped events withholds 
 claims, without hiding reliable HTTP, REST-client, cache, or unrelated execution evidence. Such a comparison is
 **Partly compared** (`PARTIAL`), with its limits, never an empty successful “no change.” Genuine older summaries without
 completeness metadata remain readable, but unknown completeness cannot supply verified zero counts.
+SQL rates, statement novelty and absence, and table-edge comparisons also require matching, qualified traced-JDBC
+capture scopes in both runs. Preparation-only or unknown captures, confirmed executions outside the declared scope,
+or legacy summaries missing SQL execution qualification yield `PARTIAL` instead of inferred zero or no change.
+Confirmed executions and unaffected comparisons remain available. A qualified scope describes only its traced JDBC
+feeders, never complete database coverage of the application.
 After **Clear recording**, only complete requests and executions that started after the clear supply per-unit
 statistics. A crossing completion, or a message whose start is unknown, cannot turn cleared SQL into a reduction;
 fresh requests on the same route and fresh executions of the same job remain comparable. The remaining window cannot

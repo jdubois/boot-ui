@@ -27,6 +27,17 @@ public final class JournalCompleteness {
     static final String CROSSING_ERRORS = PREFIX + "crossing-errors:";
     static final String CROSSING_EXECUTION = PREFIX + "crossing-execution:";
     static final String CROSSING_OVERFLOW = PREFIX + "crossing-overflow";
+    static final String SQL_PROVENANCE = PREFIX + "sql-provenance";
+    static final String SQL_EXECUTION_COVERAGE = PREFIX + "sql-execution-coverage";
+    static final String SQL_EXECUTION_SOURCE = PREFIX + "sql-execution-source:";
+    static final String SQL_PREPARATION_SOURCE = PREFIX + "sql-preparation-source:";
+    static final String SQL_PREPARATIONS = PREFIX + "sql-preparations";
+    static final String SQL_UNKNOWN = PREFIX + "sql-unknown";
+    static final String SQL_WINDOW_PREPARATIONS = PREFIX + "sql-window-preparations";
+    static final String SQL_WINDOW_UNKNOWN = PREFIX + "sql-window-unknown";
+    static final String SQL_UNSCOPED = PREFIX + "sql-unscoped";
+    static final String SQL_WINDOW_UNSCOPED = PREFIX + "sql-window-unscoped";
+    static final String SQL_SCOPE_INCOMPLETE = PREFIX + "sql-scope-incomplete";
 
     private JournalCompleteness() {}
 
@@ -90,6 +101,7 @@ public final class JournalCompleteness {
 
     public static boolean countersComplete(AggregatesSnapshot snapshot, JournalSource source, JournalSource root) {
         return windowComplete(snapshot, source)
+                && (source != JournalSource.SQL || sqlExecutionQualified(snapshot))
                 && windowComplete(snapshot, root)
                 && (root == JournalSource.HTTP
                         ? snapshot.run().unattributedRequests() == 0
@@ -98,6 +110,30 @@ public final class JournalCompleteness {
                         : snapshot.overflowed().getOrDefault("unattributedExecutions", 0L) == 0)
                 && (source != JournalSource.AI
                         || snapshot.overflowed().getOrDefault(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 0L) == 0);
+    }
+
+    public static boolean sqlExecutionQualified(AggregatesSnapshot snapshot) {
+        return snapshot.overflowed().getOrDefault(SQL_PROVENANCE, 0L) == 1
+                && snapshot.overflowed().getOrDefault(SQL_EXECUTION_COVERAGE, 0L) == 1
+                && snapshot.overflowed().getOrDefault(SQL_PREPARATIONS, 0L) == 0
+                && snapshot.overflowed().getOrDefault(SQL_UNKNOWN, 0L) == 0
+                && snapshot.overflowed().getOrDefault(SQL_UNSCOPED, 0L) == 0
+                && snapshot.overflowed().getOrDefault(SQL_SCOPE_INCOMPLETE, 0L) == 0
+                && !sqlExecutionScope(snapshot).isEmpty();
+    }
+
+    /** Only registered traced-JDBC scope, never an inventory of all database access in the application. */
+    public static java.util.Set<String> sqlExecutionScope(AggregatesSnapshot snapshot) {
+        return snapshot.overflowed().keySet().stream()
+                .filter(key -> key.startsWith(SQL_EXECUTION_SOURCE))
+                .map(key -> key.substring(SQL_EXECUTION_SOURCE.length()))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    public static boolean sqlScopesComparable(AggregatesSnapshot now, AggregatesSnapshot then) {
+        return sqlExecutionQualified(now)
+                && sqlExecutionQualified(then)
+                && sqlExecutionScope(now).equals(sqlExecutionScope(then));
     }
 
     public static String absenceReason(RuntimeJournal journal, String noun) {

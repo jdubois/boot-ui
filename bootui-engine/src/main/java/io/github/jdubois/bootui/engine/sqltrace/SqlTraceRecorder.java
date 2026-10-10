@@ -21,7 +21,9 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.journal.SqlCaptureScopes;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
+import io.github.jdubois.bootui.engine.journal.SqlPayload.Provenance;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.spi.CorrelationContext;
@@ -110,7 +112,56 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
             String requestId,
             String executionId,
             String threadKind,
-            String requestPhase) {
+            String requestPhase,
+            Provenance provenance) {
+        /** A captured JDBC execution, preserving the original constructor's contract. */
+        public CapturedStatement(
+                long id,
+                long timestamp,
+                String sql,
+                StatementType statementType,
+                Category category,
+                long durationMicros,
+                boolean success,
+                String errorMessage,
+                Long affectedRows,
+                int batchSize,
+                String connectionId,
+                String thread,
+                String traceId,
+                List<String> parameters,
+                String callSite,
+                String requestId,
+                String executionId,
+                String threadKind,
+                String requestPhase) {
+            this(
+                    id,
+                    timestamp,
+                    sql,
+                    statementType,
+                    category,
+                    durationMicros,
+                    success,
+                    errorMessage,
+                    affectedRows,
+                    batchSize,
+                    connectionId,
+                    thread,
+                    traceId,
+                    parameters,
+                    callSite,
+                    requestId,
+                    executionId,
+                    threadKind,
+                    requestPhase,
+                    Provenance.EXECUTION);
+        }
+
+        public boolean executed() {
+            return provenance == Provenance.EXECUTION;
+        }
+
         /** Without BootUI's execution identity. */
         public CapturedStatement(
                 long id,
@@ -233,6 +284,7 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
 
         public CapturedStatement {
             parameters = parameters == null ? List.of() : List.copyOf(parameters);
+            provenance = provenance == null ? Provenance.UNKNOWN : provenance;
         }
 
         /** A captured execution without BootUI's request identity. */
@@ -293,6 +345,7 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
     private final AtomicBoolean recording;
     private volatile boolean idleSuspended = false;
     private final Set<String> dataSourceNames = new ConcurrentSkipListSet<>();
+    private final SqlCaptureScopes sqlCaptureScopes = new SqlCaptureScopes();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
     private final CorrelationSource correlation = new CorrelationSource();
     private final ThreadKinds threadKinds = new ThreadKinds();
@@ -399,6 +452,12 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
     @Override
     public void setRuntimeEventSink(RuntimeEventSink journal) {
         this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+        SqlCaptureScopes.Snapshot scope = sqlCaptureScopes.snapshot();
+        scope.executions().forEach(name -> this.journal.registerSqlCapture(name, Provenance.EXECUTION));
+        scope.preparations().forEach(name -> this.journal.registerSqlCapture(name, Provenance.PREPARATION));
+        if (scope.incomplete()) {
+            this.journal.registerSqlCapture(null, Provenance.UNKNOWN);
+        }
     }
 
     public void setThreadKindClassifier(ThreadKindClassifier classifier) {
@@ -472,6 +531,16 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
     public void registerDataSource(String name) {
         if (name != null && !name.isBlank()) {
             dataSourceNames.add(name);
+        }
+    }
+
+    /** Registers a successfully installed feeder, never a claim about SQL outside that feeder's scope. */
+    public void registerCaptureSource(String name, Provenance provenance) {
+        if (!enabled) {
+            return;
+        }
+        if (sqlCaptureScopes.register(name, provenance)) {
+            journal.registerSqlCapture(name, provenance);
         }
     }
 
@@ -559,6 +628,55 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
             String connectionId,
             String thread,
             String dataSource) {
+        capture(
+                statementType,
+                category,
+                sql,
+                parameters,
+                durationNanos,
+                success,
+                errorMessage,
+                affectedRows,
+                batchSize,
+                connectionId,
+                thread,
+                dataSource,
+                Provenance.EXECUTION);
+    }
+
+    /** Records only SQL inspection: no JDBC execution, outcome, or elapsed database time was observed. */
+    public void recordPreparation(String sql, String dataSource) {
+        registerCaptureSource(dataSource, Provenance.PREPARATION);
+        capture(
+                StatementType.PREPARED,
+                SqlTracingProxies.categoryOf(sql),
+                sql,
+                List.of(),
+                0,
+                true,
+                null,
+                null,
+                0,
+                null,
+                Thread.currentThread().getName(),
+                dataSource,
+                Provenance.PREPARATION);
+    }
+
+    private void capture(
+            StatementType statementType,
+            Category category,
+            String sql,
+            List<String> parameters,
+            long durationNanos,
+            boolean success,
+            String errorMessage,
+            Long affectedRows,
+            int batchSize,
+            String connectionId,
+            String thread,
+            String dataSource,
+            Provenance provenance) {
         if (!enabled || BootUiJdbcCaptureGuard.isSuppressed()) {
             return;
         }
@@ -612,7 +730,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                     context.requestId(),
                     context.executionId(),
                     threadKind.name(),
-                    phase == null ? null : phase.name());
+                    phase == null ? null : phase.name(),
+                    provenance);
             buffer.add(entry, failedOrSlow);
         }
         if (toJournal) {
@@ -630,12 +749,15 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                     phase,
                     completedNanos,
                     dataSource,
-                    codePathStamp);
+                    codePathStamp,
+                    provenance);
         }
         if (panel) {
             totalCaptured.incrementAndGet();
             notifyListeners();
-            enrichActiveSpan(traceId);
+            if (provenance == Provenance.EXECUTION) {
+                enrichActiveSpan(traceId);
+            }
         }
     }
 
@@ -654,7 +776,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
             RequestPhase phase,
             long completedNanos,
             String dataSource,
-            long codePathStamp) {
+            long codePathStamp,
+            Provenance provenance) {
         try {
             journal.offer(RuntimeEvent.of(
                     JournalSource.SQL,
@@ -673,7 +796,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                             frames,
                             phase,
                             completedNanos,
-                            codePathStamp)));
+                            codePathStamp,
+                            provenance)));
         } catch (RuntimeException ex) {
             // Publishing never disturbs the statement it observes.
         }
@@ -758,6 +882,7 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
 
     private boolean suspectsNPlusOne(String traceId) {
         List<SqlTraceEntryDto> forTrace = recent().stream()
+                .filter(CapturedStatement::executed)
                 .filter(entry -> traceId.equals(entry.traceId()))
                 .map(entry -> toDto(entry, false))
                 .toList();
@@ -854,6 +979,9 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
         long deletes = 0;
         long others = 0;
         for (CapturedStatement entry : snapshot.newestFirst()) {
+            if (!entry.executed()) {
+                continue;
+            }
             total++;
             totalDurationMicros += entry.durationMicros();
             maxDurationMicros = Math.max(maxDurationMicros, entry.durationMicros());
@@ -904,6 +1032,9 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
     private List<SqlTraceGroupDto> topStatements(TieredCaptureBuffer.Snapshot<CapturedStatement> snapshot) {
         Map<String, Aggregate> byStatement = new LinkedHashMap<>();
         for (CapturedStatement entry : snapshot.newestFirst()) {
+            if (!entry.executed()) {
+                continue;
+            }
             String sql = entry.sql() == null ? "" : entry.sql();
             Aggregate aggregate = byStatement.computeIfAbsent(sql, key -> new Aggregate(key, entry.category()));
             aggregate.executions++;
@@ -939,7 +1070,7 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
      * unavailable case (no data source / tracing off); this method covers the available, wrapped case.
      */
     public SqlTraceReport report(boolean exposeParameters) {
-        // One snapshot feeds every section, so the entries, statistics, and retention counts always reconcile.
+        // Preparation rows stay visible; execution statistics exclude them.
         TieredCaptureBuffer.Snapshot<CapturedStatement> snapshot = buffer.snapshot();
         return new SqlTraceReport(
                 true,
@@ -966,11 +1097,28 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
      * aggregations it will not read.
      */
     public List<SqlTraceEntryDto> entries(boolean exposeParameters) {
-        return recent().stream().map(entry -> toDto(entry, exposeParameters)).toList();
+        return recent().stream()
+                .filter(CapturedStatement::executed)
+                .map(entry -> toDto(entry, exposeParameters))
+                .toList();
     }
 
     private List<String> warnings(boolean exposeParameters, TieredCaptureBuffer.Snapshot<CapturedStatement> snapshot) {
         List<String> warnings = new ArrayList<>();
+        long preparations = snapshot.newestFirst().stream()
+                .filter(entry -> entry.provenance() == Provenance.PREPARATION)
+                .count();
+        long unknown = snapshot.newestFirst().stream()
+                .filter(entry -> entry.provenance() == Provenance.UNKNOWN)
+                .count();
+        if (preparations > 0) {
+            warnings.add(preparations + " SQL capture(s) observed preparation only, not execution. These rows have no"
+                    + " measured duration or outcome and are excluded from execution statistics and rankings.");
+        }
+        if (unknown > 0) {
+            warnings.add(unknown + " SQL capture(s) have unknown execution provenance and are excluded from execution"
+                    + " statistics and rankings; neither execution nor preparation is established.");
+        }
         if (!isRecording()) {
             warnings.add("Recording is paused. Resume it to capture new queries.");
         }

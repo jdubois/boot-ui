@@ -138,6 +138,42 @@ class AppEventObservationsTests {
     }
 
     @Test
+    void preparingAWriteWithinAnAfterCommitListenerIsNotAnExecutedWrite() {
+        long start = 1_000 * MS;
+        offer(
+                "r1",
+                new Child(
+                        JournalSource.TRANSACTION,
+                        20 * MS,
+                        new TransactionPayload("OrderService.ship", false, false, false, start)),
+                new Child(
+                        JournalSource.APP_EVENT,
+                        10 * MS,
+                        AppEventPayload.listener(
+                                PLACED,
+                                "AuditListener#onShipped",
+                                "AFTER_COMMIT",
+                                AppEventPayload.RAN,
+                                null,
+                                start + 15 * MS)),
+                new Child(
+                        JournalSource.SQL,
+                        0,
+                        new SqlPayload(
+                                "insert into audit values (?)",
+                                null,
+                                "db",
+                                false,
+                                null,
+                                null,
+                                start + 18 * MS,
+                                0,
+                                SqlPayload.Provenance.PREPARATION)));
+
+        assertThat(observations(AfterCommitWrites.KIND)).isEmpty();
+    }
+
+    @Test
     void neitherObservationAppliesOnQuarkusWhereNoListenerIsSkippedAndNoTransactionIsRecorded() {
         RuntimeInsightsService service = new RuntimeInsightsService(journal, null, null, InsightsStack.QUARKUS, null);
         request("/api/orders", AppEventPayload.published(PLACED, 0));

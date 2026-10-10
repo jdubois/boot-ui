@@ -90,7 +90,7 @@ public final class ProxyBypass implements Observation {
                         cachesSeen.add(cache.cacheName());
                         continue;
                     }
-                    if (!(child.payload() instanceof SqlPayload sql) || sql.frames() == null) {
+                    if (!(child.payload() instanceof SqlPayload sql) || !sql.executed() || sql.frames() == null) {
                         continue;
                     }
                     List<String> frames = sql.frames().frames();

@@ -831,6 +831,8 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
   execution id, while hidden, missing, and outbound anchors stay unavailable ([Profiles](docs/features/overview.md#the-per-request-profiler)).
 - **Diagnostic state stays current.** Late reads cannot undo sensor switches or repopulate old activity queries,
   and invalid action replies report an unknown outcome ([Live Activity](docs/features/overview.md#live-activity)).
+- **SQL preparation is not confirmed JDBC execution.** Quarkus ORM inspection no longer manufactures blocking,
+  execution counts, or observed table access ([SQL Trace](docs/features/database.md#sql-trace)).
 - **CLI failures are not successful answers or policy skips.** Empty tool replies, wrong targets, and outages now
   fail explicitly; endpoint disablement requires a valid disabled catalog ([CLI](docs/CLI.md#exit-codes)).
 - **MCP correlation ids cannot exceed the response budget.** An unanswerable request gets bodyless HTTP `413` before

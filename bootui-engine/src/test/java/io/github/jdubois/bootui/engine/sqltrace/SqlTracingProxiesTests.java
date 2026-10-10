@@ -64,6 +64,7 @@ class SqlTracingProxiesTests {
         CapturedStatement entry = recorder.recent().get(0);
         assertThat(entry.sql()).isEqualTo(sql);
         assertThat(entry.statementType()).isEqualTo(StatementType.PREPARED);
+        assertThat(entry.executed()).isTrue();
         assertThat(entry.category()).isEqualTo(Category.SELECT);
         assertThat(entry.success()).isTrue();
         assertThat(entry.connectionId()).startsWith("conn-");
@@ -148,6 +149,7 @@ class SqlTracingProxiesTests {
         assertThat(published).singleElement().satisfies(event -> {
             assertThat(event.source()).isEqualTo(JournalSource.SQL);
             assertThat(((SqlPayload) event.payload()).dataSource()).isEqualTo("ordersDataSource");
+            assertThat(((SqlPayload) event.payload()).executed()).isTrue();
         });
     }
 

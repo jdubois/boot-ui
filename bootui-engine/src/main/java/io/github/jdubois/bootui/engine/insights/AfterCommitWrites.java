@@ -90,6 +90,7 @@ public final class AfterCommitWrites implements Observation {
         List<RuntimeEvent> writes = new ArrayList<>();
         for (RuntimeEvent statement : request.children(JournalSource.SQL)) {
             if (!(statement.payload() instanceof SqlPayload sql)
+                    || !sql.executed()
                     || sql.completedNanos() < from
                     || sql.completedNanos() > to
                     || !SafeMethodDml.isDml(sql.sql())

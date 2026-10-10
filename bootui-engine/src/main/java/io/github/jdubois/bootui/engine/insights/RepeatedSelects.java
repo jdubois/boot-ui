@@ -26,8 +26,8 @@ import java.util.function.IntFunction;
  * <p>The default agent list omits a finding only when it is insufficient, every duration is known, at least one is
  * measured, the sum across affected requests is under {@value #DEFAULT_LIST_FLOOR_NANOS} nanoseconds, and no affected
  * request repeated the statement {@value #HIGH_REPEAT_KEEP} or more times. A sufficient finding stays however cheap, so
- * a local-database N+1 is not hidden. Unmeasured time, including Quarkus ORM preparations recorded as {@code 0}, is not
- * treated as cheap.
+ * a local-database N+1 is not hidden. Unmeasured execution time is not treated as cheap. Preparation-only SQL is not
+ * counted as an execution.
  *
  * <p>With the BootUI agent's {@code code-paths} sensor ({@code docs/PLAN-v2.md} §5.14, M5-4c), statements carry the stamp
  * of the instrumented method that was innermost on their thread when they ran: the finding names that method, the one
@@ -149,7 +149,7 @@ public final class RepeatedSelects implements Observation {
         Map<String, Repeat> counts = new LinkedHashMap<>();
         String firstFingerprint = null;
         for (RuntimeEvent event : request.children(JournalSource.SQL)) {
-            if (!(event.payload() instanceof SqlPayload sql)) {
+            if (!(event.payload() instanceof SqlPayload sql) || !sql.executed()) {
                 continue;
             }
             String fingerprint = SqlShapes.fingerprint(sql.sql());
@@ -236,8 +236,6 @@ public final class RepeatedSelects implements Observation {
         if (unknownTime) {
             limitations.add(UNKNOWN_REPEAT_TIME);
         } else if (!measured) {
-            // Quarkus ORM capture records preparations as 0: StatementInspector has no execution-end hook, and
-            // SqlTraceRecorder clamps a negative duration to 0, so the journal cannot tell that from a timed 0.
             limitations.add(UNMEASURED_REPEAT_TIME);
         } else {
             limitations.add(

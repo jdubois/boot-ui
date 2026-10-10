@@ -282,7 +282,16 @@ class OrmObservationsTests {
                     "executor-thread-1",
                     null,
                     false,
-                    new io.github.jdubois.bootui.engine.journal.SqlPayload(sql, null, "<default>", false)));
+                    new io.github.jdubois.bootui.engine.journal.SqlPayload(
+                            sql,
+                            null,
+                            "<default>",
+                            false,
+                            null,
+                            null,
+                            -1,
+                            0,
+                            io.github.jdubois.bootui.engine.journal.SqlPayload.Provenance.PREPARATION)));
         }
         if (timedJdbc) {
             journal.offer(RuntimeEvent.of(

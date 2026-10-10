@@ -120,8 +120,10 @@ public final class SqlTracingProxies {
         }
         DataSource target = unwrapForeignTracedProxy(dataSource);
         Class<?>[] advertised = interfaces.length == 0 ? DATA_SOURCE_INTERFACES : interfaces;
-        return (DataSource) Proxy.newProxyInstance(
+        DataSource traced = (DataSource) Proxy.newProxyInstance(
                 dataSourceProxyClassLoader(target), advertised, new DataSourceHandler(target, recorder, name));
+        recorder.registerCaptureSource(name, io.github.jdubois.bootui.engine.journal.SqlPayload.Provenance.EXECUTION);
+        return traced;
     }
 
     /**

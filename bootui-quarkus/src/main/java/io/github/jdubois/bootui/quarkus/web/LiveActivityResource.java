@@ -838,7 +838,7 @@ public class LiveActivityResource {
             return new SqlSnapshot(List.of(), false, warning);
         }
         boolean exposeParameters = rec.isCaptureParameters() && exposure.valueExposure() != ValueExposure.METADATA_ONLY;
-        return new SqlSnapshot(rec.report(exposeParameters).entries(), true, null);
+        return new SqlSnapshot(rec.entries(exposeParameters), true, null);
     }
 
     private List<SecurityLogEventDto> securityEvents(boolean securityAvailable) {

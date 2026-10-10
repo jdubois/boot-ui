@@ -1048,7 +1048,7 @@ public final class RouteTimeBreakdown implements Observation {
                 } else if (child.payload() instanceof OrmPayload orm) {
                     hibernate += orm.hibernateNanos();
                     ormStatements += Math.max(0, orm.statementNanos());
-                } else if (child.source() == JournalSource.SQL) {
+                } else if (child.payload() instanceof SqlPayload sql && sql.executed()) {
                     measuredSql = true;
                 }
             }
@@ -1161,7 +1161,10 @@ public final class RouteTimeBreakdown implements Observation {
         private static long[] interval(RuntimeEvent child, long startNanos, long duration) {
             long from;
             long to;
-            if (child.payload() instanceof SqlPayload sql && sql.completedNanos() >= 0 && child.durationNanos() > 0) {
+            if (child.payload() instanceof SqlPayload sql
+                    && sql.executed()
+                    && sql.completedNanos() >= 0
+                    && child.durationNanos() > 0) {
                 to = sql.completedNanos() - startNanos;
                 from = to - child.durationNanos();
             } else if (child.payload() instanceof RestClientPayload call
