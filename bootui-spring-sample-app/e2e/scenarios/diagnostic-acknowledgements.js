@@ -69,7 +69,9 @@ export function registerDiagnosticAcknowledgementTests(test, expect, acceptConfi
         else fresh = route
       })
       await openView('exceptions', 'Exceptions')
-      const row = page.locator('table tbody tr', {hasText: '/api/sample/boom'})
+      const row = page
+        .locator('table tbody tr', {hasText: '/api/sample/boom'})
+        .filter({has: page.getByRole('group', {name: 'Change status', exact: true})})
       await expect(row).toHaveCount(1)
       const autoRefresh = page.getByRole('checkbox', {name: 'Toggle auto-refresh'})
       await autoRefresh.uncheck()

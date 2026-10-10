@@ -373,6 +373,9 @@ verified UI, explicitly activated on an isolated loopback port, and tested local
 then all 44 diagnostic scenarios completed with 39 passes and five native capability skips. The first local launch
 left BootUI inactive and returned 404 before test bodies; it is a harness activation failure, not product RED.
 Both local sample processes were stopped after the bounded check.
+The `f3e832014` agent browser exposed one additional selector ambiguity: the optional caught-in-code table also
+contained the same request path. The triage fixture now selects the row with the native **Change status** controls,
+not unrelated caught evidence. Its status/read-order assertions and production code remain unchanged.
 
 Final current-source native, browser, architecture, formatting, and documentation acceptance evidence is recorded
 only after it executes. The earlier green `93f1abcc4` tree does not validate this new composition. Existing
