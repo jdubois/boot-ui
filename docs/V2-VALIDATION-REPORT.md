@@ -359,13 +359,20 @@ remain unchanged; the original failing run is retained, not labelled infrastruct
 
 The first fixture follow-up, `59d5ebca81d3faf0618b15762f747610cb06e9b6`, fixed migration registration but still
 failed the three unmount fixtures: the trace showed Health assets successfully loaded while the paused clock left
-the shell's out-in page transition unfinished. The test now uses the native sidebar navigation and resumes the
+the shell's out-in page transition unfinished. The fixture tried native sidebar navigation while resuming the
 clock until Health renders and the profile is absent, then pauses again before releasing the pending response.
 This validates component disposal rather than a frozen transition; no production navigation code changed.
 The subsequent `0f3945025` and `840b93dd8` fixtures still waited for a nonexistent exact accessible name:
-the sidebar's native `aria-label` includes availability details. The navigation selector now uses the native Health
-route link's href. Clock resumption remains ordered before the click, and disposal is still asserted before the
-old response is released.
+the sidebar's native `aria-label` can include availability details. The native sidebar link was also hidden in a
+collapsed group on `e160a6d58`. The fixture now changes the hash route
+with the clock already resumed, independently of sidebar expansion, and asserts Health plus component disposal
+before releasing the old response. These fixture failures are not product correctness findings.
+
+Before publishing that final fixture correction, the current WebFlux sample was packaged using the already-built
+verified UI, explicitly activated on an isolated loopback port, and tested locally: all three unmount cases passed,
+then all 44 diagnostic scenarios completed with 39 passes and five native capability skips. The first local launch
+left BootUI inactive and returned 404 before test bodies; it is a harness activation failure, not product RED.
+Both local sample processes were stopped after the bounded check.
 
 Final current-source native, browser, architecture, formatting, and documentation acceptance evidence is recorded
 only after it executes. The earlier green `93f1abcc4` tree does not validate this new composition. Existing

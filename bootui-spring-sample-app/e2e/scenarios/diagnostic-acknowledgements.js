@@ -182,7 +182,9 @@ export function registerDiagnosticAcknowledgementTests(test, expect, acceptConfi
         await expect.poll(() => Boolean(pending)).toBe(true)
         // Let the lazy route's out-in transition finish before freezing timers for the disposal assertion.
         await page.clock.resume()
-        await page.locator('.bootui-nav-link[href$="#/health"]').click()
+        await page.evaluate(() => {
+          location.hash = '#/health'
+        })
         await expect(
           page
             .locator('main h2')
