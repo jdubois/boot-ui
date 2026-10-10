@@ -26,6 +26,145 @@ computed the result. See [Rerun results](#rerun-results) and the
 The external-validity result also trips §2.3's gate after M3: fewer than 50 % of external-application observations
 were judged useful.
 
+## Supplementary implementation audit, 2026-10-09 to 2026-10-10
+
+This later pass examines implementation defects, missing regression coverage, and inconsistencies before release.
+It does **not** rerun or rescore the registered external-application study below. Its starting source,
+`32f3a614289f0afdb43249c985212c3a7c17468d`, passed the
+[Java 17 baseline](https://github.com/jdubois/boot-ui/actions/runs/37970180730) and
+[JDK compatibility run](https://github.com/jdubois/boot-ui/actions/runs/37970180799).
+Green workflows did not establish observation usefulness, a universal overhead bound, or release authorization.
+
+The audit followed shared engine behavior through the adapters and browser, MCP, and CLI consumers. Independent
+reviews covered the Java agent, engine/adapters, and MCP/CLI; direct review covered UI state, documentation, release
+guards, and actual executed and skipped CI steps. This was a bounded, evidence-driven pass, not a claim that every
+changed line received independent review. Its 19 confirmed implementation findings were resolved in the eight
+focused PRs below; the remaining evidence qualifications and human release decision are separate.
+
+| Area | Confirmed correction | Delivery |
+| --- | --- | --- |
+| CLI response honesty | Empty successful HTTP bodies no longer fabricate JSON success; an outage is not intentional disablement; discovery validates the BootUI catalog envelope | [#1412](https://github.com/jdubois/boot-ui/pull/1412), merged into `v2` |
+| Diagnostic UI state | Superseded reads cannot undo sensor switches or repopulate an old activity query; malformed mutation replies report an unknown outcome instead of invented success | [#1413](https://github.com/jdubois/boot-ui/pull/1413), merged into `v2` |
+| Release readiness | Negative or pending sign-off cannot authorize release, live rehearsal cannot dispatch past failed prerequisites, and the runbook orders prerequisites without a circular gate | [#1415](https://github.com/jdubois/boot-ui/pull/1415), merged into `v2`; the human decision remains pending |
+| WebSocket execution profiles | Retained, visible handler-execution anchors can be selected and labelled; absent, hidden, outbound, and non-execution anchors remain unavailable | [#1416](https://github.com/jdubois/boot-ui/pull/1416), merged into `v2` |
+| Transactional event fallback | A listener executed outside a transaction is immediate, not `AFTER_COMMIT`; genuine imperative and reactive callbacks and optional-dependency absence retain their respective behavior | [#1417](https://github.com/jdubois/boot-ui/pull/1417), merged into `v2` |
+| Journal completeness | Admission loss, disabled sources, clear boundaries, pending ownership, and attribution/cardinality caps cannot manufacture removed behavior, new exception signatures, or unexercised routes; unaffected comparisons and positive execution facts remain usable | [#1418](https://github.com/jdubois/boot-ui/pull/1418), merged into `v2` |
+| Agent worker lifecycle | Deterministic worker tests reproduced lost reinstall and bean instrumentation during reclaim, and reinstall after false or throwing class restoration; permanent failure and later-release precedence are preserved | [#1419](https://github.com/jdubois/boot-ui/pull/1419), merged into `v2` |
+| SQL execution provenance | Preparation, unknown capture, and confirmed execution remain distinct, including zero-duration JDBC; comparisons require qualified matching capture scope, and preparation-only profiles no longer report a healthy zero | [#1420](https://github.com/jdubois/boot-ui/pull/1420), reviewed follow-up `6a4cd12c` merged into `v2` |
+
+### Integration evidence and its limits
+
+Some reviewed PRs became conflicting only because another reviewed fix had landed. Their mechanical conflict
+merges used `[skip ci]` under the established branch policy, with unchanged owned source, independently validated
+inherited fixes, and a targeted check of the resolved composition. These mechanical heads have **no replacement-head
+full CI**. The acceptance evidence is explicitly the original tested source plus byte equivalence and resolved
+checks, not an invented workflow on the later head.
+
+| PR | Source with actual CI | Mechanical delivered head | Resolved local check |
+| --- | --- | --- | --- |
+| [#1413](https://github.com/jdubois/boot-ui/pull/1413) | `a3526193ee7da7d2b19483436eddb59b935311cf`; full frontend, typed build, browser and relevant JDK lanes | `7644f782c50bc063eaa21f6afef49495f39b00b2`; UI tree and feature documentation unchanged | 160 focused frontend cases and formatting |
+| [#1417](https://github.com/jdubois/boot-ui/pull/1417) | `a966d64258b012ddbff4d772c0d566c83cf1d510`; [baseline](https://github.com/jdubois/boot-ui/actions/runs/37996802939), [JDK](https://github.com/jdubois/boot-ui/actions/runs/37996803044), and [docs](https://github.com/jdubois/boot-ui/actions/runs/37996802944) passed | `8abba683987229232b4911f61b9b5f0a3d7ddd7c`; six owned Java/test files unchanged | 33 engine, multicaster, absence, MVC/WebFlux/backoff, and real Modulith cases, no failures/errors/skips |
+| [#1418](https://github.com/jdubois/boot-ui/pull/1418) | `2694e6b76d07f28614723cdcd53f44c1ff8f4a0b`; [baseline](https://github.com/jdubois/boot-ui/actions/runs/37999587287), [JDK](https://github.com/jdubois/boot-ui/actions/runs/37999587299), and [docs](https://github.com/jdubois/boot-ui/actions/runs/37999587280) passed | `e127fde64c7a1009ac75bb2eba6c6fd5f44ff745`; 27 owned Java/JS/Vue production and test files unchanged | 240 engine cases, seven controller cases, and reactor formatting, no failures/errors/skips |
+| [#1419](https://github.com/jdubois/boot-ui/pull/1419) | `def556cab31eacdeb34fe94281f5caef9c98db90`; [baseline](https://github.com/jdubois/boot-ui/actions/runs/38003855945) and supported Java 21/25 gates passed; Java 27 warning below remains | `17f2aadf97163b5fcddc5d03ff3137e97c36f431`; owned runtime/test blobs unchanged | 17 lifecycle and five handler cases, no failures/errors/skips |
+
+The separate pristine-head checks for [#1415](https://github.com/jdubois/boot-ui/pull/1415) and
+[#1416](https://github.com/jdubois/boot-ui/pull/1416) encountered database-image-fetch timeouts before affected test
+bodies ran. Each terminal workflow received one specifically authorized failed-job-only retry. The retries passed,
+including previously blocked live database and downstream conformance tests; already successful jobs were not
+rerun. The original bootstrap failures remain recorded rather than being described as successful test execution.
+
+The agent's local forked tests used explicitly capped child JVMs, including its JDI launch. Those validation-only
+helper changes were restored byte-for-byte before delivery; the production agent jar was unchanged. The 53-case
+local result therefore does not replace the pristine-head Java 17 CI result.
+
+### Starting-source measurements
+
+The starting source `32f3a614289f0afdb43249c985212c3a7c17468d` also supplied these completed measurements in
+[run 37970180730](https://github.com/jdubois/boot-ui/actions/runs/37970180730). They are supplementary source-pinned
+results, not amendments of the registered study or measurements of the later combined fixes.
+
+| Measurement | Actual result and qualification |
+| --- | --- |
+| Journal throughput | Fifteen alternating pairs, 16 clients, 10-second warm-up and 15-second measurements, Java 17.0.20.1 with four processors, BootUI enabled without the agent in both arms. Median journal-on throughput was 89.9% of journal-off: **10.1% overhead against a 5% target, not met**; 96.5% distribution-free interval 5.4-12.6%; median p99 29.48 ms on versus 26.69 ms off; zero drops. No statistically established improvement over the older 14.1% result is claimed. |
+| Default-agent throughput | The same pair count, clients, warm-up, measurement duration, JDK and processor count. Median throughput was 91.1% of no-agent throughput: **8.9% overhead, met on the median only**; 96.5% interval 4.3-11.4% crosses the 10% target. Median p99 was 26.48 ms with the agent and 24.14 ms without it. |
+| Sample correlation | MVC with tracing on and off: SQL 24/24 and security/cache/messaging/exceptions 8/8 in each phase. WebFlux with tracing on: SQL 16/16 and cache/exceptions 8/8. Quarkus with tracing on and off: journal SQL 16/16 and exceptions 8/8. All exercised runners had zero misattribution and drops; raw-executor SQL remained unowned. This does not establish WebFlux tracing-off or Quarkus security/cache coverage. |
+| Honesty fixture harness | 2,679 declared cases, 2,678 executed, no failures/errors, one intentional assumption skip. This does not replace the registered external counterexample result of 21/22. |
+| MCP transport | Actual MVC, WebFlux and Quarkus response-budget fixtures ran without skips; shared conformance ran 39/39/40 cases without failures/errors/skips. This is transport-fixture evidence, not external MCP-client certification. |
+
+### Final combined-source evidence
+
+The SQL follow-up landed as `f957c930899b2eb634575afc55dc2634e726b806`. Its tree,
+`6cbab38148ecf3c1d7cdde9c2af61931d9dd7524`, is exactly the tree CI actually checked out at
+`377a252d894c7c7b5b59dde06bd7c57691049748`, combining `f8769f158e7634d5e8fa3a19707f5551ac510661`
+and the reviewed SQL follow-up. The following evidence therefore covers that landed implementation tree, not just
+the PR's head SHA. It does not include this later documentation-only report edit or designate an approved release
+candidate.
+
+The [Java 17 baseline](https://github.com/jdubois/boot-ui/actions/runs/38011856264) completed 19 successful jobs and
+one configured placeholder skip. The [JDK compatibility run](https://github.com/jdubois/boot-ui/actions/runs/38011856223)
+completed six successful jobs, including Java 27, and the
+[documentation run](https://github.com/jdubois/boot-ui/actions/runs/38011856211) passed. Across the PR's 27 contexts,
+26 succeeded and one was skipped. These job/context totals do not turn skipped test bodies into executed tests.
+
+| Surface | Actual executed evidence and limits |
+| --- | --- |
+| Engine and SQL profiles | Java 17 engine: 8,773 declared tests, zero failures/errors, five skips. The 52 service tests had zero failures/errors/skips. All 42 nested profile cases actually ran; their enclosing class's zero count does not mean those cases were missing. Java 27 engine: 8,773 declared tests, zero failures/errors, two skips. |
+| Vue UI | 142 test files and 1,925 tests passed; the typed build passed. This is the combined tree's UI evidence, not a replacement of the registered observation-usefulness study. |
+| Shared contracts | MCP: 39/39/40 cases on MVC/WebFlux/Quarkus. API: 60 cases on MVC and 60 on WebFlux; Quarkus declared 60, executed 56 and skipped four. CLI: 21 cases on each stack. |
+| Quarkus browser | Default suite: 228 passed, zero failures, eight skips. Agent suite: 239 passed, zero failures, one skip. All three coupled ORM, clipboard, and JDBC assertions passed; skipped cases remain outside the executed coverage. |
+| Consumer and platform checks | Published CLI pin exercised exit codes 0/1/2; five staged consumers, Quarkus LTS and extension integration tests, and the other browser stack variants passed. These are the exercised fixtures and stacks, not universal consumer certification. |
+| Formatting | Root Spotless passed in actual full CI on the tree identical to the landed implementation. This report changes Markdown only. |
+
+**Combined-source agent measurements.** The baseline run above measured source
+`377a252d894c7c7b5b59dde06bd7c57691049748` on Java 17.0.20.1 with four processors, 16 clients,
+10-second warm-up and 15-second samples. Both benchmark verdicts use `gate=median` and `enforced=false`.
+
+| Workload | Actual result and qualification |
+| --- | --- |
+| Default agent | Fifteen alternating pairs: **5.4% median overhead against a 10% budget, met**; 96.5% distribution-free interval 0.8-9.9%; median p99 34.06 ms with the agent versus 31.39 ms without it. The interval stays below 10% for this sampled workload; it is not a universal bound. |
+| I/O route | Nine alternating pairs: **8.8% median overhead against a 10% budget, met on the median only**; 96.1% distribution-free interval 7.9-12.9% crosses the target; median p99 38.15 ms with the agent versus 33.67 ms without it. The successful report-only verdict does not establish an interval-wide pass. |
+
+No statistically established improvement over the earlier measurements is claimed. The historical I/O miss of
+12.0% and starting-source journal miss of 10.1% remain **Not met** on their stated sources. The combined-source
+`JournalOverheadBenchmarkIT` was skipped: journal throughput was **not remeasured** on this tree.
+
+**Read-only release rehearsal.** The coordinator's rehearsal on actual CI source
+`377a252d894c7c7b5b59dde06bd7c57691049748`, against `main` at `56a114`, reported 35 passing checks,
+two pending checks and one informational check. The temporary candidate was unreferenced, cleanup completed, and
+no release or repository state was changed. Human release approval and 1.x Maven Central publishing permission
+remain pending; the Pages policy remains informational. This was not a live rehearsal or release authorization.
+The preserved raw log's SHA-256 is
+`761c63030c7a2f35255dfb9913242f128f5d0607068ed72672e9fc4c61e65c68`.
+
+### Remaining qualifications
+
+- **Java 27 early warning.** On source `def556cab31eacdeb34fe94281f5caef9c98db90`,
+  [job 114068068098](https://github.com/jdubois/boot-ui/actions/runs/38003855944/job/114068068098) genuinely failed
+  `ResourcesBehaviorsIT.everyResourcesBehaviorPassesBeforeOpenTelemetry`: the pooled JDK HttpClient connection's
+  required library-owned `LEFT_OPEN` record was absent. The child exited normally and resource self-tests passed.
+  This historical failure remains unexplained, not labelled infrastructure or a confirmed flake. Java 27 is
+  informational under the unchanged compatibility policy; workflow success does not make this failed job pass. The exercised
+  files/network/resources claim does not enable the application-method transformer changed by #1419.
+  On the combined source `377a252d894c7c7b5b59dde06bd7c57691049748`, Java 27's `ResourcesBehaviorsIT`
+  ran all five cases without failures/errors/skips. That later pass does not retroactively pass or explain the failure.
+- **Workload-specific overhead miss.** Source `a966d64258b012ddbff4d772c0d566c83cf1d510`,
+  [run 37996802939](https://github.com/jdubois/boot-ui/actions/runs/37996802939), measured the I/O route with 16 clients,
+  nine alternating pairs, 10-second warm-up and 15-second samples on Java 17.0.20.1 with four processors. Median
+  paired throughput was 88.0% of the no-agent run: **12.0% overhead against a 10% budget, not met**, with a 96.1%
+  distribution-free interval of 6.0-18.5%. Median p99 was 40.59 ms with the agent and 34.62 ms without it. This
+  nonblocking benchmark failure (`enforced=false`) remains a failure despite a successful workflow; it is not a
+  universal estimate or a measurement of the final combined candidate.
+- **SQL first-head failures remain recorded.** [#1420](https://github.com/jdubois/boot-ui/pull/1420)'s first head,
+  `1f9398dc94aff57dc18b0d525fbc8f9e35fea76f`, genuinely failed the preparation fixture in whole-engine runs on
+  Java 17, 21, 25, and 27. Two Quarkus browser assertions also failed, exposing preparation-only profiles' healthy-zero
+  SQL copy. The 610 targeted tests and one genuine codec `VERSION 14` binary fixture (1,515 bytes, from source
+  `89d50`, hash prefix `c2ca7edc`) are narrower evidence, not substitutes for corrected-head whole-engine,
+  conformance, browser, and consumer CI.
+- **Release authorization remains pending.** The combined implementation's executed evidence is recorded above,
+  separately from earlier sources, skipped measurements, and the unchanged registered study. Human approval,
+  candidate designation, and the remaining release prerequisites are not supplied by green workflows or this audit.
+  The Release sign-off fields below remain `PENDING`/`TODO`.
+
 ## Release sign-off
 
 **Not signed off.** This section is the release decision for 2.0.0 ([v2 plan](PLAN-v2.md) §4.3). M4-20's registered
