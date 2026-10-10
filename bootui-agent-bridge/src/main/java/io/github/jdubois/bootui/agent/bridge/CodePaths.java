@@ -791,6 +791,7 @@ public final class CodePaths {
      * inside an entry point, or at the exit of a call that outlived calls whose exits were lost.
      */
     private static void resetFrame(Frame frame) {
+        PendingSideEffects.frameFailed(frame);
         if (frame.tree != null && frame.tree.generation == generation) {
             // Possibly inconsistent: never back to the pool, and its slot is free again.
             CREATED.decrementAndGet();
@@ -1192,6 +1193,7 @@ public final class CodePaths {
         long[] slotExecution;
         int[] slotKind;
         int[] slotSource;
+        long[] slotPending;
 
         /** The slots pushed, which may exceed the stack's size: those past it name no owner. */
         int slots;

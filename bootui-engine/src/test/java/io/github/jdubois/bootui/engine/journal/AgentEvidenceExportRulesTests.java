@@ -173,6 +173,11 @@ class AgentEvidenceExportRulesTests {
             "RunSideEffects.routesHidden",
             "RunSideEffects.sensors",
             "RunSideEffects.keys",
+            // Pending completeness: normalized, masked owner labels and BootUI's reason, never bridge correlation ids.
+            "RunSideEffects.pendingOwners",
+            "RunSideEffects.absenceUnknownReason",
+            "PendingOwner.scope",
+            "PendingOwner.owner",
             "Sensor.id",
             "Sensor.reason",
             "Sensor.startupReason",

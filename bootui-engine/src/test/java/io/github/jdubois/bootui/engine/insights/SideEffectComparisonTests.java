@@ -77,6 +77,56 @@ class SideEffectComparisonTests {
     }
 
     @Test
+    void pendingOwnersWithholdOnlyDirectionalAbsenceNotObservedOrUnrelatedFacts() {
+        RunSideEffects previous = run(
+                whole(),
+                key("files", "write", "/tmp/report.csv", "route", "GET /orders"),
+                key("files", "write", "/tmp/settled.csv", "route", "GET /settled"));
+        RunSideEffects current = new RunSideEffects(
+                null,
+                false,
+                whole(),
+                List.of(key("processes", "process", "new-tool", "route", "GET /orders")),
+                List.of(new RunSideEffects.PendingOwner("route", "GET /orders")),
+                null);
+        var compared =
+                SideEffectComparison.compare(previous, current, (scope, owner) -> true, (scope, owner) -> true, false);
+        assertThat(compared.partial()).isTrue();
+        assertThat(compared.changes())
+                .extracting(RuntimeSideEffectChangeDto::target, RuntimeSideEffectChangeDto::change)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("new-tool", RuntimeSideEffectChangeDto.ADDED),
+                        org.assertj.core.groups.Tuple.tuple("/tmp/settled.csv", RuntimeSideEffectChangeDto.REMOVED));
+        assertThat(compared.sensors().get(1).status()).isEqualTo(RuntimeSideEffectSensorDto.PARTIAL);
+        assertThat(compared.sensors().get(1).reason()).contains("not reported gone", "pending");
+        assertThat(compared.sensors())
+                .allSatisfy(sensor -> assertThat(sensor.notExercised()).isZero());
+
+        var reversed =
+                SideEffectComparison.compare(current, previous, (scope, owner) -> true, (scope, owner) -> true, false);
+        assertThat(reversed.changes())
+                .extracting(RuntimeSideEffectChangeDto::target, RuntimeSideEffectChangeDto::change)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("/tmp/settled.csv", RuntimeSideEffectChangeDto.ADDED),
+                        org.assertj.core.groups.Tuple.tuple("new-tool", RuntimeSideEffectChangeDto.REMOVED));
+        assertThat(reversed.sensors().get(1).reason()).contains("not reported new", "pending");
+    }
+
+    @Test
+    void legacyUnknownAbsenceNeverSuppressesAConfirmedPositiveFromThatRun() {
+        RunSideEffects previous = new RunSideEffects(
+                null, false, whole(), List.of(key("files", "write", "/tmp/old.csv", "route", "GET /orders")));
+        RunSideEffects current = run(whole(), key("processes", "process", "new-tool", "route", "GET /orders"));
+        var compared = SideEffectComparison.compare(previous, current, ORDERS_EXERCISED, ORDERS_EXERCISED, false);
+        assertThat(compared.changes()).singleElement().satisfies(change -> {
+            assertThat(change.target()).isEqualTo("/tmp/old.csv");
+            assertThat(change.change()).isEqualTo(RuntimeSideEffectChangeDto.REMOVED);
+        });
+        assertThat(compared.sensors().get(2).reason()).contains(RunSideEffects.UNKNOWN_OWNERSHIP);
+        assertThat(compared.sensors().get(2).status()).isEqualTo(RuntimeSideEffectSensorDto.PARTIAL);
+    }
+
+    @Test
     void anOwnerThatDidSomethingElseOutsideTheJvmThisRunCountsAsExercised() {
         RunSideEffects previous = run(whole(), key("processes", "process", "git", "execution", "scheduled Sync.run"));
         RunSideEffects current =
@@ -214,7 +264,9 @@ class SideEffectComparisonTests {
                 whole(),
                 List.of(
                         key("network", "connect", "a:443", "route", SideEffectComparison.HIDDEN_ROUTE),
-                        key("network", "connect", "b:443", "route", SideEffectComparison.HIDDEN_ROUTE)));
+                        key("network", "connect", "b:443", "route", SideEffectComparison.HIDDEN_ROUTE)),
+                List.of(),
+                null);
         RunSideEffects current = run(
                 whole(),
                 key("network", "connect", "a:443", "route", "GET /orders"),
@@ -241,7 +293,7 @@ class SideEffectComparisonTests {
         }
         RuntimeSideEffectChangesDto changes = SideEffectComparison.compare(
                 run(whole()),
-                new RunSideEffects(null, false, whole(), keys),
+                new RunSideEffects(null, false, whole(), keys, List.of(), null),
                 ORDERS_EXERCISED,
                 ORDERS_EXERCISED,
                 false);
@@ -272,8 +324,25 @@ class SideEffectComparisonTests {
                 .startsWith("`GET /orders` resolved `db.internal` in the previous run");
     }
 
+    @Test
+    void anOwnedStartupScopeNeverEstablishesStartupAbsenceUntilItSettles() {
+        RunSideEffects previous = run(whole(), key("files", "write", "/tmp/startup.csv", "startup", "startup"));
+        RunSideEffects pending = new RunSideEffects(
+                null, false, whole(), List.of(), List.of(new RunSideEffects.PendingOwner("startup", "startup")), null);
+        var incomplete =
+                SideEffectComparison.compare(previous, pending, (scope, owner) -> true, (scope, owner) -> true, false);
+        assertThat(incomplete.changes()).isEmpty();
+        assertThat(incomplete.partial()).isTrue();
+        assertThat(incomplete.sensors().get(1).reason()).contains("not reported gone", "pending");
+        var settled = SideEffectComparison.compare(
+                previous, run(whole()), (scope, owner) -> true, (scope, owner) -> true, false);
+        assertThat(settled.changes())
+                .singleElement()
+                .satisfies(change -> assertThat(change.change()).isEqualTo(RuntimeSideEffectChangeDto.REMOVED));
+    }
+
     private static RunSideEffects run(List<RunSideEffects.Sensor> sensors, RunSideEffects.Key... keys) {
-        return new RunSideEffects(null, false, sensors, List.of(keys));
+        return new RunSideEffects(null, false, sensors, List.of(keys), List.of(), null);
     }
 
     private static List<RunSideEffects.Sensor> whole() {

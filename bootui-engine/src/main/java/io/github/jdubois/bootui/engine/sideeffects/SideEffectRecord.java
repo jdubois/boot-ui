@@ -104,11 +104,19 @@ record SideEffectRecord(
 
     /** The request id as BootUI writes it, 16 hexadecimal digits, or {@code null}. */
     String requestId() {
+        return requestId(request);
+    }
+
+    static String requestId(long request) {
         return request == 0L ? null : String.format("%016x", request);
     }
 
     /** The id of the execution no request owns this happened in, 16 hexadecimal digits, or {@code null}. */
     String executionId() {
+        return executionId(execution, executionKind);
+    }
+
+    static String executionId(long execution, int executionKind) {
         return execution == 0L || executionKind != EXECUTION_OWN ? null : String.format("%016x", execution);
     }
 }

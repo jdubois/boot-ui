@@ -39,7 +39,8 @@ import java.util.function.ToLongFunction;
  * buckets. When the summary exceeds the bound, the least-used entries of each aggregate and the least-observed edges are
  * left out, halving how many are kept until it fits, and the header counts what was left out, and how many edges.</p>
  *
- * <p>Version 14 keeps explicit aggregate-completeness metadata in a reserved limit-map namespace: admission drops,
+ * <p>Version 15 adds qualified pending-owner completeness to side effects; older summaries have unknown absence,
+ * never verified empty pending ownership. Version 14 keeps explicit aggregate-completeness metadata in a reserved limit-map namespace: admission drops,
  * recorded sources, and clear boundaries. Earlier versions have unknown completeness, never verified zero loss.
  * Version 13 adds the run's application to its header, so runs of different applications sharing a JVM are never
  * compared; an earlier summary reads with none, and is compared with any application, as before. Version 12 adds what
@@ -53,7 +54,7 @@ final class RunSummaryCodec {
 
     private static final int MAGIC = 0x42555253;
 
-    private static final int VERSION = 14;
+    private static final int VERSION = 15;
 
     /** The most bytes a summary's side effects take, so they never crowd out the aggregates. */
     static final int SIDE_EFFECTS_MAX_BYTES = 48 * 1024;
@@ -66,9 +67,26 @@ final class RunSummaryCodec {
         RunSideEffects sideEffects = fitSideEffects(summary.sideEffects(), SIDE_EFFECTS_MAX_BYTES);
         byte[] bytes = encode(summary.header(), full, 0, 0, sideEffects);
         int limit = largestDimension(full);
+        AggregatesSnapshot kept = full;
         while (bytes.length > maxBytes && limit > 0) {
             limit /= 2;
-            AggregatesSnapshot kept = trim(full, limit);
+            kept = trim(full, limit);
+            bytes = encode(
+                    summary.header(),
+                    kept,
+                    entries(full) - entries(kept),
+                    full.edges().size() - kept.edges().size(),
+                    sideEffects);
+        }
+        if (bytes.length > maxBytes && sideEffects != null) {
+            int fixed = encode(
+                            summary.header(),
+                            kept,
+                            entries(full) - entries(kept),
+                            full.edges().size() - kept.edges().size(),
+                            null)
+                    .length;
+            sideEffects = fitSideEffects(sideEffects, Math.max(0, maxBytes - fixed));
             bytes = encode(
                     summary.header(),
                     kept,
@@ -308,6 +326,15 @@ final class RunSummaryCodec {
         if (sideEffects == null || sideEffectsBytes(sideEffects) <= maxBytes) {
             return sideEffects;
         }
+        if (!sideEffects.pendingOwners().isEmpty()) {
+            sideEffects = new RunSideEffects(
+                    sideEffects.unavailableReason(),
+                    sideEffects.routesHidden(),
+                    sideEffects.sensors(),
+                    sideEffects.keys(),
+                    List.of(),
+                    "pending ownership metadata exceeded the summary byte budget");
+        }
         Map<String, Integer> perSensor = new LinkedHashMap<>();
         sideEffects.keys().forEach(key -> perSensor.merge(key.sensor(), 1, Integer::sum));
         int limit =
@@ -343,7 +370,13 @@ final class RunSummaryCodec {
                     sensor.startupReason(),
                     sensor.omittedKeys() + omitted.getOrDefault(sensor.id(), 0L)));
         }
-        return new RunSideEffects(sideEffects.unavailableReason(), sideEffects.routesHidden(), sensors, keys);
+        return new RunSideEffects(
+                sideEffects.unavailableReason(),
+                sideEffects.routesHidden(),
+                sensors,
+                keys,
+                sideEffects.pendingOwners(),
+                sideEffects.absenceUnknownReason());
     }
 
     /** The bytes {@code sideEffects} takes alone, its strings included as if none were shared. */
@@ -673,6 +706,12 @@ final class RunSummaryCodec {
                 string(key.client());
                 number(key.count());
             }
+            string(sideEffects.absenceUnknownReason());
+            number(sideEffects.pendingOwners().size());
+            for (RunSideEffects.PendingOwner owner : sideEffects.pendingOwners()) {
+                string(owner.scope());
+                string(owner.owner());
+            }
         }
 
         void histogram(LatencyHistogram histogram) {
@@ -929,7 +968,26 @@ final class RunSummaryCodec {
                     keys.add(new RunSideEffects.Key(sensor, kind, target, scope, owner, client, count));
                 }
             }
-            return new RunSideEffects(unavailable, routesHidden, sensors, keys);
+            if (version < 15) {
+                return new RunSideEffects(unavailable, routesHidden, sensors, keys);
+            }
+            String unknown = string();
+            long count = number();
+            if (count < 0 || count > RunSideEffects.MAX_PENDING_OWNERS) {
+                throw new IllegalArgumentException("Invalid pending-owner count in run summary");
+            }
+            int pendingCount = (int) count;
+            List<RunSideEffects.PendingOwner> pending = new ArrayList<>(pendingCount);
+            for (int i = 0; i < pendingCount; i++) {
+                String scope = string();
+                String owner = string();
+                if (scope == null || owner == null) {
+                    unknown = "pending ownership metadata could not be read";
+                } else {
+                    pending.add(new RunSideEffects.PendingOwner(scope, owner));
+                }
+            }
+            return new RunSideEffects(unavailable, routesHidden, sensors, keys, pending, unknown);
         }
 
         LatencyHistogram histogram() {
