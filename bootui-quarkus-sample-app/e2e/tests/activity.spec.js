@@ -176,7 +176,7 @@ test.describe('Live Activity view (Quarkus)', () => {
   })
 
   test('opens a per-request profile drawer with a reduced profile', async ({openView, page}) => {
-    // product-search always runs SQL, so the request reliably has SQL to correlate in the drawer.
+    // ORM inspection records preparation, not a confirmed JDBC execution.
     const search = await page.request.get('/api/sample/product-search')
     expect(search.ok()).toBeTruthy()
 
@@ -192,11 +192,12 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(drawer).toContainText('Request profile')
     await expect(drawer).toContainText('/api/sample/product-search')
 
-    // Quarkus's reduced profile has no time-window/thread heuristic to fall back on, so a
-    // request-id- or trace-id-correlated SQL execution is always "exact", never the "approximate" fallback Spring's
-    // fuller profiler can show.
-    await expect(drawer.getByText('exact', {exact: true})).toBeVisible()
+    const sql = drawer.locator('section', {has: page.getByRole('heading', {name: /^SQL/})}).first()
+    await expect(sql).toContainText('SQL preparation is not execution evidence')
+    await expect(sql.getByText('exact', {exact: true})).toHaveCount(0)
     await expect(drawer.getByText('approximate', {exact: true})).toHaveCount(0)
+    await expect(drawer).toContainText('SQL execution timing unavailable')
+    await expect(drawer).not.toContainText('0 SQL statement(s)')
 
     // The reduced-profile explanation is real, load-bearing UI copy (ExecutionProfileAssembler's notes),
     // not an internal implementation detail — a developer reads this to know why Quarkus's profile is
@@ -215,6 +216,7 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(journal.getByRole('heading', {name: 'Recorded by the runtime journal'})).toHaveCount(1)
     await expect(journal).toContainText('GET /api/sample/product-search')
     await expect(journal.locator('.request-journal__source', {hasText: /^sql$/}).first()).toBeVisible()
+    await expect(journal).toContainText('SQL preparation; execution not observed')
 
     const deepDives = drawer.locator('.request-code-path')
     await expect(deepDives.getByRole('link', {name: 'Open the JFR profile in Runtime Insights'})).toBeVisible()
@@ -300,7 +302,7 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(drawer).toHaveCount(0)
   })
 
-  test('Copy for AI previews the profile Markdown with its SQL and copies it exactly', async ({
+  test('Copy for AI qualifies ORM preparation and copies the profile exactly', async ({
     browserName,
     context,
     openView,
@@ -330,13 +332,36 @@ test.describe('Live Activity view (Quarkus)', () => {
 
     const preview = drawer.getByRole('textbox', {name: 'Markdown export preview'})
     await expect(preview).toHaveValue(/# BootUI request profile: `GET \/api\/sample\/product-search`/)
-    await expect(preview).toHaveValue(/## SQL \(exact, request id\)/)
-    await expect(preview).toHaveValue(/```sql\n/)
+    await expect(preview).toHaveValue(/## SQL \(unavailable\)/)
+    await expect(preview).toHaveValue(/SQL preparation is not execution evidence/)
+    await expect(preview).toHaveValue(/SQL execution timing unavailable/)
+    await expect(preview).not.toHaveValue(/```sql\n/)
+    await expect(preview).not.toHaveValue(/0 SQL statements/)
 
     await drawer.getByRole('button', {name: 'Copy Markdown'}).click()
     await expect(drawer.getByRole('button', {name: 'Copied'})).toBeVisible()
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(await preview.inputValue())
     expect(writes).toEqual([])
+  })
+
+  test('manual JDBC retains exact execution evidence and SQL in the copied profile', async ({openView, page}) => {
+    const joined = await page.request.get('/api/insights/orders/joined')
+    expect(joined.ok()).toBeTruthy()
+    await openView('activity', 'Live Activity')
+    const row = page.locator('.activity-table tbody tr', {hasText: '/api/insights/orders/joined'}).first()
+    await expect(row).toBeVisible({timeout: 15_000})
+    await row.getByRole('button', {name: /Profile/}).click()
+    const drawer = page.locator('.activity-drawer')
+    const sql = drawer.locator('section', {has: page.getByRole('heading', {name: /^SQL/})}).first()
+    await expect(sql.getByText('exact', {exact: true})).toBeVisible()
+    await expect(sql).toContainText('request id')
+    await expect(sql).toContainText('insight_orders')
+    await expect(drawer).toContainText('Only confirmed JDBC executions are included')
+    await drawer.getByRole('button', {name: 'Copy for AI'}).click()
+    const preview = drawer.getByRole('textbox', {name: 'Markdown export preview'})
+    await expect(preview).toHaveValue(/## SQL \(exact, request id\)/)
+    await expect(preview).toHaveValue(/```sql\n/)
+    await expect(preview).toHaveValue(/insight_orders/)
   })
 
   test('pauses and resumes the live feed', async ({openView, page}) => {

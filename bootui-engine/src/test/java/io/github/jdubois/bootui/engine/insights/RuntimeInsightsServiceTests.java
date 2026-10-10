@@ -699,7 +699,19 @@ class RuntimeInsightsServiceTests {
         request(
                 "GET",
                 "/api/products/{id}",
-                new Child(JournalSource.SQL, 0, new SqlPayload("insert into audit (id) values (1)", null, "db", false)),
+                new Child(
+                        JournalSource.SQL,
+                        0,
+                        new SqlPayload(
+                                "insert into audit (id) values (1)",
+                                null,
+                                "db",
+                                false,
+                                null,
+                                null,
+                                -1,
+                                0,
+                                SqlPayload.Provenance.PREPARATION)),
                 new Child(JournalSource.ORM, 1_000, orm()));
 
         RuntimeInsightsReportDto report = new RuntimeInsightsService(

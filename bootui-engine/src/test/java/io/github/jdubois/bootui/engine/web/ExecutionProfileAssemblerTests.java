@@ -40,6 +40,34 @@ class ExecutionProfileAssemblerTests {
 
     private final ExecutionProfileAssembler assembler = new ExecutionProfileAssembler();
 
+    @Test
+    void unverifiedSqlCoverageQualifiesEmptyProfilesAndKeepsConfirmedExecutions() {
+        HttpExchangeDto request = request("req-1", "/orders", "trace-a", null, 1_000L, 50L);
+        String limitation = "SQL preparation is not execution evidence.";
+        for (List<SqlTraceEntryDto> statements :
+                List.of(List.<SqlTraceEntryDto>of(), List.of(sql(1, "select 1", "trace-a", 0L, 1_010L)))) {
+            ProfileEvidence evidence = new ProfileEvidence(
+                    List.of(request), ProfileEvidence.Source.of(statements, limitation), null, null, null, null, null);
+            RequestProfileDto profile = assembler.requestProfile("req-1", evidence, ProfileCapabilities.traceIdOnly());
+            assertThat(profile.notes()).contains(limitation);
+            assertThat(section(profile, "SQL").available()).isEqualTo(!statements.isEmpty());
+            assertThat(profile.sql()).hasSize(statements.size());
+            if (statements.isEmpty()) {
+                assertThat(section(profile, "SQL").unavailableReason()).isEqualTo(limitation);
+            } else {
+                assertThat(section(profile, "SQL").tier()).isEqualTo("TRACE_ID");
+                assertThat(profile.sqlGroups())
+                        .singleElement()
+                        .satisfies(group -> assertThat(group.executions()).isEqualTo(1));
+            }
+        }
+        ProfileEvidence emptyJdbc = new ProfileEvidence(
+                List.of(request), new ProfileEvidence.Source<>(true, null, List.of()), null, null, null, null, null);
+        assertThat(section(assembler.requestProfile("req-1", emptyJdbc, ProfileCapabilities.traceIdOnly()), "SQL")
+                        .available())
+                .isTrue();
+    }
+
     /** Spring WebFlux and Quarkus: trace id only. */
     @Nested
     class TraceIdOnly {

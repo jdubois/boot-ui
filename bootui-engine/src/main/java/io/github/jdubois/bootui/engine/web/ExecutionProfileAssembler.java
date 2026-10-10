@@ -426,6 +426,9 @@ public final class ExecutionProfileAssembler {
     }
 
     private static void sqlNotes(Context context, Section<SqlTraceEntryDto> section, List<String> notes) {
+        if (section.source().qualification() != null) {
+            notes.add(section.source().qualification());
+        }
         if (section.uses(CorrelationTier.REQUEST_ID)) {
             notes.add(requestIdNote("SQL statements"));
         }
@@ -823,8 +826,15 @@ public final class ExecutionProfileAssembler {
         int total = section.records().size();
         return new RequestProfileSectionDto(
                 section.type(),
-                section.source().available(),
-                section.source().unavailableReason(),
+                section.source().available()
+                        && !(TYPE_SQL.equals(section.type())
+                                && total == 0
+                                && section.source().qualification() != null),
+                TYPE_SQL.equals(section.type())
+                                && total == 0
+                                && section.source().qualification() != null
+                        ? section.source().qualification()
+                        : section.source().unavailableReason(),
                 section.tier() == null ? null : section.tier().name(),
                 bounded(section.childTiers()).stream().map(Enum::name).toList(),
                 total,

@@ -28,6 +28,20 @@ import org.junit.jupiter.api.Test;
 class SqlTraceRecorderTests {
 
     @Test
+    void profileQualificationFollowsCaptureDeclarationsNotEvictableRows() {
+        SqlTraceRecorder recorder = recorder(true, false, 1, 100);
+        assertThat(recorder.executionCaptureLimitation()).isNull();
+        recorder.registerCaptureSource("orm", SqlPayload.Provenance.PREPARATION);
+        assertThat(recorder.executionCaptureLimitation()).contains("preparation", "not execution evidence");
+        recorder.recordPreparation("select * from orders", "orm");
+        recorder.clear();
+        assertThat(recorder.recent()).isEmpty();
+        assertThat(recorder.executionCaptureLimitation()).contains("preparation", "execution timing");
+        recorder.registerCaptureSource(null, SqlPayload.Provenance.UNKNOWN);
+        assertThat(recorder.executionCaptureLimitation()).contains("unknown", "unverified");
+    }
+
+    @Test
     void preparationIsRetainedButDoesNotManufactureExecutionsOrStatistics() {
         SqlTraceRecorder recorder = recorder(true, false, 10, 100);
         List<RuntimeEvent> published = new ArrayList<>();

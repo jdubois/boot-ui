@@ -59,18 +59,31 @@ public record ProfileEvidence(
      * @param available whether the source panel is enabled and capturing
      * @param unavailableReason why it is not, or {@code null}
      * @param records the captured records; empty when unavailable
+     * @param qualification a bounded note about unverified evidence outside the confirmed records, or {@code null}
      * @param <T> the record type
      */
-    public record Source<T>(boolean available, String unavailableReason, List<T> records) {
+    public record Source<T>(boolean available, String unavailableReason, List<T> records, String qualification) {
 
         public Source {
             records = available ? nonNull(records) : List.of();
             unavailableReason = available ? null : unavailableReason;
+            if (qualification != null && qualification.length() > 512) {
+                throw new IllegalArgumentException("A profile source qualification must not exceed 512 characters");
+            }
+        }
+
+        public Source(boolean available, String unavailableReason, List<T> records) {
+            this(available, unavailableReason, records, null);
         }
 
         /** An enabled, capturing source. */
         public static <T> Source<T> of(List<T> records) {
             return new Source<>(true, null, records);
+        }
+
+        /** Confirmed records remain usable while a bounded note names unverified evidence outside them. */
+        public static <T> Source<T> of(List<T> records, String qualification) {
+            return new Source<>(true, null, records, qualification);
         }
 
         /** A source that cannot contribute, with the reason shown in the profile. */

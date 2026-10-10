@@ -652,7 +652,10 @@ public class LiveActivityResource {
             return Source.panelDisabled("SQL Trace");
         }
         SqlSnapshot sql = sqlSnapshot();
-        return sql.available() ? Source.of(sql.entries()) : Source.unavailable(sql.unavailableWarning());
+        SqlTraceRecorder recorder = sqlRecorder.isResolvable() ? sqlRecorder.get() : null;
+        return sql.available()
+                ? Source.of(sql.entries(), recorder == null ? null : recorder.executionCaptureLimitation())
+                : Source.unavailable(sql.unavailableWarning());
     }
 
     private Source<ExceptionDetailDto> exceptionSource() {

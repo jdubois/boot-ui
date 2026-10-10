@@ -1103,6 +1103,21 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                 .toList();
     }
 
+    /** Capture declarations survive buffer eviction; an empty execution list cannot certify ORM execution timing. */
+    public String executionCaptureLimitation() {
+        SqlCaptureScopes.Snapshot scope = sqlCaptureScopes.snapshot();
+        String preparation = scope.preparations().isEmpty()
+                ? ""
+                : "SQL preparation is not execution evidence; execution timing for inspected ORM statements is"
+                        + " unavailable. Only confirmed JDBC executions are included.";
+        String unknown = !scope.incomplete()
+                ? ""
+                : "SQL capture provenance or scope is unknown; execution timing for unverified statements is unavailable.";
+        return preparation.isEmpty() && unknown.isEmpty()
+                ? null
+                : preparation.isEmpty() ? unknown : unknown.isEmpty() ? preparation : preparation + " " + unknown;
+    }
+
     private List<String> warnings(boolean exposeParameters, TieredCaptureBuffer.Snapshot<CapturedStatement> snapshot) {
         List<String> warnings = new ArrayList<>();
         long preparations = snapshot.newestFirst().stream()

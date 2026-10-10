@@ -131,6 +131,29 @@ function mountLiveActivity(options = {}) {
 describe('LiveActivity', () => {
   let wrapper
 
+  it('does not present unavailable SQL execution timing as measured zero', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        activityReport(),
+        requestProfile({
+          sqlGroups: [],
+          timing: {sqlCount: 0, sqlMs: 0, sqlPercent: 0, restCallCount: 1, restCallMs: 12},
+          sections: [{type: 'SQL', available: false, unavailableReason: 'Only SQL preparation was observed.'}]
+        })
+      )
+    )
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+    const drawer = wrapper.get('.activity-drawer')
+    expect(drawer.text()).toContain('SQL execution timing unavailable')
+    expect(drawer.text()).toContain('1 REST client call(s), 12 ms outbound')
+    expect(drawer.text()).not.toContain('0 SQL statement(s)')
+    expect(drawer.text()).not.toContain('0% of request')
+  })
+
   afterEach(() => {
     wrapper?.unmount()
     wrapper = null

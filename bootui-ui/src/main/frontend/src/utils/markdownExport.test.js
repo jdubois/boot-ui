@@ -194,6 +194,23 @@ describe('Markdown primitives', () => {
 })
 
 describe('profileMarkdown', () => {
+  it('qualifies unavailable SQL execution timing without hiding measured outbound calls', () => {
+    const {markdown} = profileMarkdown(
+      profile({
+        sqlGroups: [],
+        exceptions: [],
+        timing: {sqlCount: 0, sqlMs: 0, sqlPercent: 0, restCallCount: 1, restCallMs: 12},
+        sections: [{type: 'SQL', available: false, unavailableReason: 'SQL preparation is not execution evidence.'}]
+      })
+    )
+    expect(markdown).toContain('- **Timing:** SQL execution timing unavailable; 1 REST client call, 12 ms outbound')
+    expect(markdown).toContain('## SQL (unavailable)')
+    expect(markdown).toContain('SQL preparation is not execution evidence.')
+    expect(markdown).not.toContain('0 SQL statements')
+    expect(markdown).not.toContain('0% of the request')
+    expect(markdown).not.toContain('```sql')
+  })
+
   it('renders the request, normalized SQL with N+1 call sites, exceptions, and notes', () => {
     const {markdown, omissions} = profileMarkdown(profile())
 
