@@ -243,7 +243,7 @@ The shared browser scenario adds 19 cases per runtime. Actual Playwright discove
 of MVC, WebFlux, and Quarkus, including the nine previously delivered cases. Discovery is not execution: native
 capability guards preserve WebFlux's absent Hibernate integration, metadata-only WebSockets, Quarkus's unavailable
 transactions, and its read-only configuration. Every test mutation is intercepted rather than sent to the app.
-Current-source browser execution remains a CI gate, not a claim supplied by these registration counts.
+Discovery is not counted as execution; the final source's actual browser results are recorded below.
 
 The documentation checks passed: 11 workshop cases, the 66-page production build, installer publication and
 shellcheck, three fragment/link cases, and seven changelog cases. The historical release sign-off and registered
@@ -253,6 +253,28 @@ The required `main`-into-`v2` synchronization used a merge commit, not a rebase.
 Windows skill-documentation path test and Docker-free Quarkus demo configuration; the plans, dependency versions,
 and reviewed runtime code were unchanged by that synchronization.
 
+### Final corrected-source evidence
+
+The corrected implementation is `93f1abcc4b8b04fdd1c94e5b4c40b8e3f50f66e8`, tree
+`a6d4ae4fa1dce1ebcaf986ebf9d595540c1c5a81`. Its
+[Java 17 baseline](https://github.com/jdubois/boot-ui/actions/runs/38059582952) completed all 37 jobs successfully,
+and its [JDK compatibility run](https://github.com/jdubois/boot-ui/actions/runs/38059582951) completed all six jobs
+successfully. The evidence below comes from their actual source checkouts, logs, and JUnit artifacts, not from an
+earlier head's green status. This later report-only documentation update is not part of that tested tree.
+
+| Surface | Executed evidence and limits |
+| --- | --- |
+| Correctness regressions and guards | All 17 selected classes executed 203 cases with no failures, errors, or skips, including the bridge bytecode guard, Spring thread-local architecture guard, stale trackers/readers, scheduled scopes, baseline bounds, and final owner drain |
+| Whole Java and Vue selections | Engine: 8,824 declared cases, zero failures/errors, five skips; bridge: 449 declared cases, zero failures/errors, four skips; Spring starter: 2,785 cases, zero failures/errors/skips. Vue: 2,087 tests in 146 files passed; the earlier local typed build covers the unchanged UI production bytes. Skipped cases are not executed coverage |
+| Shared contracts | MVC/WebFlux API: 60/60 cases without skips; Quarkus API: 60 declared, 56 executed, four capability skips. MCP: 39/39/40 cases and CLI: 21 per stack, without failures/errors/skips |
+| Shared diagnostic browser scenarios | MVC: 27 passed, one capability skip; WebFlux: 23 passed, five capability skips; Quarkus: 21 passed, seven capability skips. Of the 57 new registered cases, 44 actually executed and passed; 13 were unsupported native capabilities, not invented parity |
+| Browser suites and agent variants | Default MVC/WebFlux/Quarkus suites: 333/134/252 passed, with 18/12/15 respective skips. Java 21 and 25 agent browser suites each passed 353 cases with nine skips, including 27 executed diagnostic scenarios and one capability skip. The other configured agent, OpenTelemetry, JaCoCo, and custom-mount jobs succeeded |
+| Native integration and consumers | Java 21/25/27 each executed shared-engine/adapters, agent forked JVMs, attached Spring scenarios, and actual Quarkus augmentation. Quarkus extension integration, the LTS lane, staged distribution smoke tests, and the published CLI checks succeeded |
+
+The source-pinned CI artifacts and original failed-head logs are preserved separately from the local RED/GREEN
+controls. The first-head monitor violation, the later raw-thread-local violation, and the original browser fixture
+failures remain failures on their stated sources; this later success does not retroactively pass them.
+
 ### Remaining acceptance qualifications
 
 The reviewed integrated source's [baseline run](https://github.com/jdubois/boot-ui/actions/runs/38048272117)
@@ -261,10 +283,17 @@ performance failure, not infrastructure or a passed gate; the user excluded perf
 correctness task, and no workload or threshold was relaxed. Earlier source-specific throughput misses and the
 registered study's results remain on their original sources.
 
-The three reviews and targeted regression results are not exhaustive proof of every advisor, database, browser,
-or native framework path. The shared browser scenarios and whole-source CI remain separate evidence gates for the
-newly composed fixes. Human sign-off, release-candidate designation, main-merge authorization, and administrative
-prerequisites are unchanged.
+The final source's automatic report-only benchmarks also retained failures: journal overhead was 9.7% against
+5%; default-agent I/O 13.7% against 10%; resources cumulative 10.1% against 10%; request-value matching cumulative
+13.1% against 10%; and thread-activity cumulative 15.4% against 10%. The checks and request-value A/B legs each
+reported 3.1% against 3%, and thread-activity A/B reported 13.7% against 10%. These are failures under their
+individual recorded gates, not budget acceptance supplied by the successful workflow. No statistically established
+improvement, performance remediation, changed default, or relaxed workload/threshold is claimed.
+
+The three reviews and executed regressions, browser scenarios, and native CI do not exhaust every advisor,
+database, browser, or framework path. The correctness task is complete on the recorded source; performance
+acceptance, human sign-off, release-candidate designation, main-merge authorization, and administrative
+prerequisites remain separate and unchanged.
 
 ## Release sign-off
 
