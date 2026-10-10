@@ -183,7 +183,14 @@ export function registerDiagnosticAcknowledgementTests(test, expect, acceptConfi
         await page.evaluate(() => {
           location.hash = '#/health'
         })
-        await expect(page.locator('main h2').filter({hasText: /^Health$/})).toBeVisible()
+        await page.clock.runFor(1000)
+        await expect(
+          page
+            .locator('main h2')
+            .filter({hasText: /^Health/})
+            .first()
+        ).toBeVisible()
+        await expect(page.locator('.insight-profile')).toHaveCount(0)
         await pending.fulfill({json: running})
         await page.clock.runFor(6000)
         expect(reads).toBe(phase === 'poll' ? 2 : 1)
@@ -254,7 +261,7 @@ export function registerDiagnosticAcknowledgementTests(test, expect, acceptConfi
           const response = await page.request.get(`/bootui/api/${id}/${readPath}`)
           expect(response.ok()).toBeTruthy()
           const native = await response.json()
-          expect(native.available).toBe(true)
+          expect(id === 'flyway' ? native.flywayPresent : native.liquibasePresent).toBe(true)
           const enabled = id === 'flyway' ? 'migrateEnabled' : 'updateEnabled'
           const database = native.databases.find((candidate) => candidate[enabled])
           test.skip(!database, `No native ${action} target is enabled on ${manifest.platform}.`)

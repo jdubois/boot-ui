@@ -350,6 +350,13 @@ build passed, and root Spotless plus all three frontend/browser formatting check
 blank-property tests preserve explicit source lists. Playwright discovery registered 44 cases on each of the three
 default stacks, including 16 additions per stack; discovery does not establish their execution.
 
+The first published fourth-pass head, `f18158d140b2ba81c160de538328d0333edd60ad`, exposed browser-fixture errors
+in real WebFlux execution: migration reports carry `flywayPresent` or `liquibasePresent`, not an `available` field,
+and the paused-clock navigation fixture did not advance the hash-router transition before checking unmount.
+The fixture now checks the native DTO discriminator and advances that transition, explicitly asserting that the
+resource profile is absent before releasing its old response. Production code and the no-retry/lifecycle assertions
+remain unchanged; the original failing run is retained, not labelled infrastructure or product RED.
+
 Final current-source native, browser, architecture, formatting, and documentation acceptance evidence is recorded
 only after it executes. The earlier green `93f1abcc4` tree does not validate this new composition. Existing
 performance misses remain separate and unwaived; these reviews and correctness repairs do not rerun or rescore the
