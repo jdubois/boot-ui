@@ -13,6 +13,11 @@ import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.JdbcActivityStore;
 import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.journal.JournalActivityCapture;
+import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -202,19 +207,33 @@ abstract class AbstractJdbcActivityStoreLiveTests {
                 Duration.ofDays(7),
                 INSTANCE);
         SwitchableActivityStore store = new SwitchableActivityStore(new InMemoryActivityStore(200));
-        try {
+        try (var journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start())) {
             ActivitySwitchResponse response = new ActivitySwitchService()
-                    .useExistingDataSource(store, settings, dataSource(), new ActivitySwitchRequest(true));
-            assertThat(response.status()).as(response.body().message()).isEqualTo(200);
-            assertThat(response.body().status()).isEqualTo("success");
-            assertThat(store.persistent()).isTrue();
+                    .useExistingDataSource(
+                            store,
+                            settings,
+                            dataSource(),
+                            new ActivitySwitchRequest(true),
+                            journal,
+                            (target, captureSettings) -> JournalActivityCapture.start(
+                                    target,
+                                    captureSettings,
+                                    entry -> false,
+                                    journal,
+                                    new JournalActivityFeed(0, 5, null),
+                                    panel -> true));
+            try (var capture = response.capture()) {
+                assertThat(response.status()).as(response.body().message()).isEqualTo(200);
+                assertThat(response.body().status()).isEqualTo("success");
+                assertThat(store.persistent()).isTrue();
 
-            store.appendBatch(List.of(
-                    stored(INSTANCE, 1, entry("1", "REQUEST", 100, "OK", "first")),
-                    stored(INSTANCE, 2, entry("2", "REQUEST", 200, "OK", "second"))));
+                store.appendBatch(List.of(
+                        stored(INSTANCE, 1, entry("1", "REQUEST", 100, "OK", "first")),
+                        stored(INSTANCE, 2, entry("2", "REQUEST", 200, "OK", "second"))));
 
-            // The read GET /bootui/api/activity issues on every request once persistence is active.
-            assertThat(ids(store.query(ActivityQuery.firstPage(INSTANCE)))).containsExactly("2", "1");
+                // The read GET /bootui/api/activity issues on every request once persistence is active.
+                assertThat(ids(store.query(ActivityQuery.firstPage(INSTANCE)))).containsExactly("2", "1");
+            }
         } finally {
             store.close();
         }

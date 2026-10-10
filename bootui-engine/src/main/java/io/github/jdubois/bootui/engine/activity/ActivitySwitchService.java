@@ -2,6 +2,9 @@ package io.github.jdubois.bootui.engine.activity;
 
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import java.util.Objects;
+import java.util.function.BiFunction;
 import javax.sql.DataSource;
 
 /**
@@ -9,12 +12,9 @@ import javax.sql.DataSource;
  * mirroring {@code FlywayService}'s shape: this owns idempotency, availability and confirmation gating,
  * plus the switch itself, so both adapters report identical outcomes and messages.
  *
- * <p>Unlike Flyway (which acts against an already-configured target), this action's whole point is to
- * move a <em>running</em> instance from the in-memory default to durable persistence without a restart:
- * on success, {@link ActivitySwitchResponse#newSettings()} carries the settings the caller must start a
- * journal capture with (see {@code JournalActivityCapture#start}) — the store itself was already
- * swapped by this method, but capturing new entries into it is the caller's separate responsibility,
- * since only the caller holds the runtime journal.</p>
+ * <p>A runtime switch requires an enabled journal and a running capture before publishing its durable
+ * store. The adapter supplies native capture wiring and owns the returned capture's shutdown. Configured
+ * startup capture can still defer until journal injection; a user action cannot.</p>
  */
 public final class ActivitySwitchService {
 
@@ -26,17 +26,41 @@ public final class ActivitySwitchService {
 
     private static final String ALREADY_ACTIVE = "Live Activity is already using durable persistence.";
 
+    private static final String JOURNAL_UNAVAILABLE = "Live Activity cannot start durable history because the runtime"
+            + " journal is unavailable, disabled (bootui.runtime-journal.enabled=false), or closed. No database table was"
+            + " created and in-memory storage remains active.";
+
+    private static final System.Logger LOG = System.getLogger(ActivitySwitchService.class.getName());
+
     /**
      * Switches {@code store} from in-memory to a durable {@link BufferedActivityStore} reusing {@code
      * dataSource}, gated by confirmation. Idempotent: if {@code store} is already persistent (including
      * a race against a concurrent call to this same method), this is a no-op that reports success rather
      * than an error.
+     *
+     * @param journal the available capture source; a runtime action cannot defer until injection
+     * @param startCapture starts a subscriber writing to the supplied candidate store, not {@code store};
+     *     returns its running handle, cleaning up any partial registration itself if it throws
      */
     public ActivitySwitchResponse useExistingDataSource(
             SwitchableActivityStore store,
             ActivityPersistenceSettings currentSettings,
             DataSource dataSource,
-            ActivitySwitchRequest request) {
+            ActivitySwitchRequest request,
+            RuntimeJournal journal,
+            BiFunction<ActivityStore, ActivityPersistenceSettings, ActivityCapture> startCapture) {
+        synchronized (store) {
+            return switchWithCapture(store, currentSettings, dataSource, request, journal, startCapture);
+        }
+    }
+
+    private ActivitySwitchResponse switchWithCapture(
+            SwitchableActivityStore store,
+            ActivityPersistenceSettings currentSettings,
+            DataSource dataSource,
+            ActivitySwitchRequest request,
+            RuntimeJournal journal,
+            BiFunction<ActivityStore, ActivityPersistenceSettings, ActivityCapture> startCapture) {
         if (store.persistent()) {
             return alreadyActive(currentSettings);
         }
@@ -45,6 +69,9 @@ public final class ActivitySwitchService {
         }
         if (!confirmed(request)) {
             return response(400, "blocked", CONFIRMATION_REQUIRED, currentSettings.tableName(), null);
+        }
+        if (journal == null || !journal.isOpen()) {
+            return response(409, "unavailable", JOURNAL_UNAVAILABLE, currentSettings.tableName(), null);
         }
 
         ActivityPersistenceSettings newSettings = currentSettings.withEnabledSharedMode();
@@ -56,12 +83,44 @@ public final class ActivitySwitchService {
                     500, "failed", "Failed to switch to a database: " + ex.getMessage(), newSettings.tableName(), null);
         }
 
-        if (!store.attemptSwitchToPersistent(durable)) {
-            // Lost a race against a concurrent switch attempt: some other caller already made the store
-            // persistent, so this attempt's freshly built durable store is unused. Close it (rather than
-            // leak its flush scheduler thread) and report the same idempotent outcome as the check above.
+        ActivityCapture capture;
+        try {
+            // The subscriber writes directly to the candidate, including batches dispatched before publication.
+            capture = Objects.requireNonNull(startCapture.apply(durable, newSettings), "capture did not start");
+        } catch (RuntimeException ex) {
             durable.close();
-            return alreadyActive(currentSettings);
+            LOG.log(System.Logger.Level.WARNING, "Failed to start Live Activity durable capture", ex);
+            return response(
+                    500,
+                    "failed",
+                    "Failed to start Live Activity capture. The database table may already have been created,"
+                            + " but in-memory storage remains active.",
+                    newSettings.tableName(),
+                    null);
+        }
+        boolean installed = false;
+        try {
+            installed = journal.commitWhileOpen(() -> store.attemptSwitchToPersistent(durable));
+            if (!installed) {
+                return alreadyActive(currentSettings);
+            }
+        } catch (RuntimeException ex) {
+            LOG.log(System.Logger.Level.WARNING, "Failed to publish Live Activity durable capture", ex);
+            return response(
+                    500,
+                    "failed",
+                    "Failed to publish Live Activity capture; the runtime journal must remain open until publication."
+                            + " The database table may already have been created, but in-memory storage remains active.",
+                    newSettings.tableName(),
+                    null);
+        } finally {
+            if (!installed) {
+                try {
+                    capture.close();
+                } finally {
+                    durable.close();
+                }
+            }
         }
         return new ActivitySwitchResponse(
                 200,
@@ -72,7 +131,8 @@ public final class ActivitySwitchService {
                                 + " restart reverts to in-memory storage unless you also set"
                                 + " bootui.activity.persistence.enabled=true.",
                         newSettings.tableName()),
-                newSettings);
+                newSettings,
+                capture);
     }
 
     private ActivitySwitchResponse alreadyActive(ActivityPersistenceSettings currentSettings) {
@@ -85,6 +145,7 @@ public final class ActivitySwitchService {
 
     private ActivitySwitchResponse response(
             int status, String result, String message, String tableName, ActivityPersistenceSettings newSettings) {
-        return new ActivitySwitchResponse(status, new ActivitySwitchResult(result, message, tableName), newSettings);
+        return new ActivitySwitchResponse(
+                status, new ActivitySwitchResult(result, message, tableName), newSettings, null);
     }
 }

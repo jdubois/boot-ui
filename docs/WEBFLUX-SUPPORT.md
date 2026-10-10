@@ -422,6 +422,12 @@ renders the runtime journal's retained events, as on every stack. The merge belo
 `bootui.runtime-journal.enabled=false`, or an explicit diagnostic `?source=buffers` request. Configuring
 `bootui.activity.feed-source=buffers` is no longer supported and fails startup; the property accepts only `journal`.
 
+The runtime datasource switch shares MVC and Quarkus's journal admission: an absent, disabled, or closed journal returns
+HTTP `409` before schema or store mutation, while configured startup capture may still wait for journal injection.
+A successful switch owns one subscriber writing directly to the candidate durable store before it is published.
+Capture-start failure leaves in-memory storage active and reports that schema verification may already have created
+the table ([Durable history](features/overview.md#durable-history)).
+
 | Panel         | Reactive source                                                                                                          |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | Live Activity | `ReactiveLiveActivityController` merges requests, SQL, exceptions, security, cache, scheduled tasks, messaging, mail, REST client calls and fault-tolerance events through `LiveActivityAssembler`. The journal-first path also shows journal-only types, including transactions, logs and ORM observations. `ExecutionProfileAssembler` supplies exact request-id and optional trace-id profiles; serving-thread/time-window tiers are unavailable. The shared `ReactiveBootUiChangeStream` refreshes on source changes and completed application requests. |

@@ -39,6 +39,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityCapture;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
+import io.github.jdubois.bootui.engine.activity.ActivityStore;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchResponse;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
@@ -287,16 +288,7 @@ public class ReactiveLiveActivityController implements InitializingBean {
             return null;
         }
         if (current.settings().enabled()) {
-            JournalActivityCapture capture = JournalActivityCapture.start(
-                    activityStore,
-                    settings,
-                    reservedEntries,
-                    current,
-                    new JournalActivityFeed(
-                            properties.getActivity().getRequestSlowThresholdMs(),
-                            properties.getActivity().getNPlusOneThreshold(),
-                            captureRoutes),
-                    properties::isPanelEnabled);
+            ActivityCapture capture = startCapture(activityStore, settings, current);
             unsubscribers.add(capture::close);
             return capture;
         }
@@ -304,6 +296,20 @@ public class ReactiveLiveActivityController implements InitializingBean {
                 + " (bootui.runtime-journal.enabled=false), so no durable history is written: the journal is its only"
                 + " source in 2.0.");
         return null;
+    }
+
+    private ActivityCapture startCapture(
+            ActivityStore target, ActivityPersistenceSettings settings, RuntimeJournal journal) {
+        return JournalActivityCapture.start(
+                target,
+                settings,
+                reservedEntries,
+                journal,
+                new JournalActivityFeed(
+                        properties.getActivity().getRequestSlowThresholdMs(),
+                        properties.getActivity().getNPlusOneThreshold(),
+                        captureRoutes),
+                properties::isPanelEnabled);
     }
 
     /**
@@ -327,9 +333,12 @@ public class ReactiveLiveActivityController implements InitializingBean {
      */
     @EventListener(ContextClosedEvent.class)
     void shutdown() {
-        unsubscribers.forEach(Runnable::run);
-        unsubscribers.clear();
-        changeStream.close();
+        synchronized (activityStore) {
+            captureJournal = null;
+            unsubscribers.forEach(Runnable::run);
+            unsubscribers.clear();
+            changeStream.close();
+        }
     }
 
     /** The feed from the configured source, without the journal-only filters; for callers such as the MCP tools. */
@@ -514,18 +523,27 @@ public class ReactiveLiveActivityController implements InitializingBean {
     /**
      * Hot-switches Live Activity from in-memory to durable JDBC persistence. See
      * {@code LiveActivityController#useExistingDatasource} for the full rationale (confirmation gating,
-     * idempotency, capture poller startup on success), which applies unchanged here.
+     * idempotency, journal capture startup on success), which applies unchanged here.
      */
     @PostMapping("/use-existing-datasource")
     public ResponseEntity<ActivitySwitchResult> useExistingDatasource(
             @RequestBody(required = false) ActivitySwitchRequest request) {
         DataSource dataSource = BootUiEngineConfiguration.resolveActivityDataSource(dataSourceProvider);
-        ActivitySwitchResponse response = new ActivitySwitchService()
-                .useExistingDataSource(activityStore, persistenceSettings, dataSource, request);
-        if (response.newSettings() != null) {
-            startPersistence(response.newSettings());
+        synchronized (activityStore) {
+            RuntimeJournal journal = captureJournal;
+            ActivitySwitchResponse response = new ActivitySwitchService()
+                    .useExistingDataSource(
+                            activityStore,
+                            persistenceSettings,
+                            dataSource,
+                            request,
+                            journal,
+                            (target, settings) -> startCapture(target, settings, journal));
+            if (response.capture() != null) {
+                unsubscribers.add(response.capture()::close);
+            }
+            return ResponseEntity.status(HttpStatus.valueOf(response.status())).body(response.body());
         }
-        return ResponseEntity.status(HttpStatus.valueOf(response.status())).body(response.body());
     }
 
     /**

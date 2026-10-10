@@ -119,8 +119,7 @@ import org.eclipse.microprofile.config.Config;
  * <p>The optional JDBC persistence backend ({@code bootui.activity.persistence.enabled}) is served by the
  * shared {@link SwitchableActivityStore} bean, which always exists (even with persistence disabled, as a
  * bare in-memory store) so this resource can always inject it directly. {@code QuarkusActivityCapture}
- * owns the capture side (polling {@link #mergedReport} and appending whatever it has not yet captured into
- * the store), and {@link #activity} branches on the store's own live {@link SwitchableActivityStore#persistent()}
+ * owns the startup journal subscriber, and {@link #activity} branches on the store's own live {@link SwitchableActivityStore#persistent()}
  * state — not the static startup settings — so it correctly reflects a runtime switch: when persistent, the
  * store (which itself merges its in-memory hot cache with the durable backend) serves entries and
  * pagination instead of a fresh live re-merge. This is entirely additive: with persistence never enabled
@@ -134,7 +133,7 @@ import org.eclipse.microprofile.config.Config;
  * <p>{@link #useExistingDatasource} hot-switches Live Activity from in-memory to durable JDBC persistence
  * by reusing the host application's own {@code DataSource} — no restart required — mirroring the Spring
  * adapter's identically named controller action. On success it starts its own journal capture against the
- * newly durable store (held in {@link #switchCapture}, independent of {@code QuarkusActivityCapture}'s own
+ * candidate durable store before publishing it (held in {@link #switchCapture}, independent of {@code QuarkusActivityCapture}'s own
  * capture field: the two capture-creation paths are mutually exclusive, since a switch only succeeds when
  * the store was not already persistent, which is exactly the condition under which
  * {@code QuarkusActivityCapture}'s startup capture would not have been created) and closes it on
@@ -308,10 +307,13 @@ public class LiveActivityResource {
      * only succeeds when the store was not already persistent.
      */
     void onStop(@Observes ShutdownEvent event) {
-        ActivityCapture capture = switchCapture;
-        if (capture != null) {
-            capture.close();
-            switchCapture = null;
+        synchronized (activityStore) {
+            journal = null;
+            ActivityCapture capture = switchCapture;
+            if (capture != null) {
+                capture.close();
+                switchCapture = null;
+            }
         }
     }
 
@@ -495,12 +497,21 @@ public class LiveActivityResource {
     @Produces(MediaType.APPLICATION_JSON)
     public Response useExistingDatasource(ActivitySwitchRequest request) {
         DataSource dataSource = BootUiEngineProducer.resolveDataSource(dataSources);
-        ActivitySwitchResponse response = new ActivitySwitchService()
-                .useExistingDataSource(activityStore, persistenceSettings, dataSource, request);
-        if (response.newSettings() != null) {
-            switchCapture = startPersistence(activityStore, response.newSettings());
+        synchronized (activityStore) {
+            RuntimeJournal current = journal != null && journal.isResolvable() ? journal.get() : null;
+            ActivitySwitchResponse response = new ActivitySwitchService()
+                    .useExistingDataSource(
+                            activityStore,
+                            persistenceSettings,
+                            dataSource,
+                            request,
+                            current,
+                            (target, settings) -> startCapture(target, settings, current));
+            if (response.capture() != null) {
+                switchCapture = response.capture();
+            }
+            return Response.status(response.status()).entity(response.body()).build();
         }
-        return Response.status(response.status()).entity(response.body()).build();
     }
 
     /**
@@ -512,21 +523,24 @@ public class LiveActivityResource {
     public ActivityCapture startPersistence(ActivityStore store, ActivityPersistenceSettings settings) {
         RuntimeJournal current = journal != null && journal.isResolvable() ? journal.get() : null;
         if (current != null && current.settings().enabled()) {
-            return JournalActivityCapture.start(
-                    store,
-                    settings,
-                    reservedEntries,
-                    current,
-                    new JournalActivityFeed(
-                            buffer.slowThresholdMillis(),
-                            SqlTraceGrouping.DEFAULT_N_PLUS_ONE_THRESHOLD,
-                            declaredRoutes),
-                    panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel));
+            return startCapture(store, settings, current);
         }
         LOG.warn("Live Activity persistence is enabled, but the runtime journal is disabled"
                 + " (bootui.runtime-journal.enabled=false), so no durable history is written: the journal is its only"
                 + " source in 2.0.");
         return null;
+    }
+
+    private ActivityCapture startCapture(
+            ActivityStore target, ActivityPersistenceSettings settings, RuntimeJournal journal) {
+        return JournalActivityCapture.start(
+                target,
+                settings,
+                reservedEntries,
+                journal,
+                new JournalActivityFeed(
+                        buffer.slowThresholdMillis(), SqlTraceGrouping.DEFAULT_N_PLUS_ONE_THRESHOLD, declaredRoutes),
+                panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel));
     }
 
     /**

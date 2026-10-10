@@ -533,8 +533,13 @@ the live `SwitchableActivityStore`'s delegate from `InMemoryActivityStore` to a 
 starting its journal capture in the same step — is reused unchanged. `BootUiEngineProducer` `@Produces` a
 `SwitchableActivityStore` in front of it, rather than producing `ActivityStore` directly. A thin
 `LiveActivityResource#useExistingDatasource` mirrors Spring's controller method: 404 when no `DataSource` is present, 400
-when the request is not explicitly confirmed, 200-and-no-op when persistence is already active, and 200 with the store
-swapped and capturing on success — all behind the shared `LocalhostGuard` write floor. Every `GET /bootui/api/activity`
+when the request is not explicitly confirmed, 409 before any schema/store mutation when the runtime journal is
+unavailable, disabled, or closed, 200-and-no-op when persistence is already active, and 200 only after a journal subscriber
+has started against the candidate durable store and that store is published — all behind the shared `LocalhostGuard`
+write floor. Concurrent attempts start only one capture. Capture-start failure returns 500, leaves in-memory storage
+active, closes the unused capture/store, and discloses that the database table may already have been created; the
+host-owned table is not deleted. Configured startup's disabled-journal warning behavior is unchanged.
+Every `GET /bootui/api/activity`
 response carries the same `persistenceOption` field (`{"active": false, "dataSourceAvailable": true, "tableName":
 "bootui_activity"}`) the Vue UI reads to render the "Currently saving N events in memory" tip and the **Use a database**
 button/confirmation flow, so the panel behaves and looks identical on both adapters.

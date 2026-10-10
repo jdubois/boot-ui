@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.activity;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -384,16 +385,140 @@ class LiveActivityControllerTests {
     }
 
     @Test
-    void useExistingDatasourceSwitchesTheStoreAndStartsCapturingOnSuccess() throws Exception {
+    void runtimeSwitchRejectsDisabledJournalBeforeCreatingTheTable() throws Exception {
         DataSource dataSource = newDataSource();
+        SwitchableActivityStore store = defaultActivityStore();
+        BootUiProperties properties = new BootUiProperties();
+        properties.getRuntimeJournal().setEnabled(false);
         LiveActivityController controller = controllerWith(
                 empty(SqlTraceRecorder.class),
                 empty(ExceptionStore.class),
-                defaultActivityStore(),
+                store,
+                disabledSettings(),
+                provider(dataSource),
+                properties);
+        RuntimeJournal journal =
+                new RuntimeJournal(properties.getRuntimeJournal().toSettings(), RunIdentity.start());
+        try {
+            controller.setRuntimeJournal(journal, new JournalAggregates());
+            assertUnavailableSwitch(controller, store, dataSource);
+        } finally {
+            controller.shutdown();
+            journal.close();
+            store.close();
+        }
+    }
+
+    @Test
+    void runtimeSwitchRejectsAClosedJournalBeforeCreatingTheTable() throws Exception {
+        DataSource dataSource = newDataSource();
+        SwitchableActivityStore store = defaultActivityStore();
+        LiveActivityController controller = controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(ExceptionStore.class),
+                store,
+                disabledSettings(),
+                provider(dataSource),
+                new BootUiProperties());
+        RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start());
+        try {
+            controller.setRuntimeJournal(journal, new JournalAggregates());
+            journal.close();
+            assertThat(journal.settings().enabled()).isTrue();
+            assertUnavailableSwitch(controller, store, dataSource);
+        } finally {
+            controller.shutdown();
+            journal.close();
+            store.close();
+        }
+    }
+
+    @Test
+    void runtimeSwitchRejectsMissingJournalBeforeCreatingTheTableAndDoesNotDefer() throws Exception {
+        DataSource dataSource = newDataSource();
+        SwitchableActivityStore store = defaultActivityStore();
+        LiveActivityController controller = controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(ExceptionStore.class),
+                store,
+                disabledSettings(),
+                provider(dataSource),
+                new BootUiProperties());
+        try (RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start())) {
+            assertUnavailableSwitch(controller, store, dataSource);
+            controller.setRuntimeJournal(journal, new JournalAggregates());
+            assertThat(org.springframework.test.util.ReflectionTestUtils.getField(controller, "deferredCapture"))
+                    .isNull();
+        } finally {
+            controller.shutdown();
+            store.close();
+        }
+    }
+
+    private static void assertUnavailableSwitch(
+            LiveActivityController controller, SwitchableActivityStore store, DataSource dataSource) throws Exception {
+        ResponseEntity<ActivitySwitchResult> response =
+                controller.useExistingDatasource(new ActivitySwitchRequest(true));
+        try (var connection = dataSource.getConnection();
+                var tables = connection.getMetaData().getTables(null, null, "BOOTUI_ACTIVITY", null)) {
+            assertThat(tables.next())
+                    .as(
+                            "journal unavailable: response %s must not create an application database table",
+                            response.getStatusCode().value())
+                    .isFalse();
+        }
+        assertThat(response.getStatusCode().value()).isEqualTo(409);
+        assertThat(response.getBody().status()).isEqualTo("unavailable");
+        assertThat(response.getBody().message()).contains("runtime journal");
+        assertThat(store.persistent()).isFalse();
+    }
+
+    @Test
+    void runtimeSwitchReportsCaptureRegistrationFailureWithoutPublishingTheDurableStore() {
+        DataSource dataSource = newDataSource();
+        SwitchableActivityStore store = defaultActivityStore();
+        LiveActivityController controller = controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(ExceptionStore.class),
+                store,
+                disabledSettings(),
+                provider(dataSource),
+                new BootUiProperties());
+        RuntimeJournal journal = mock(RuntimeJournal.class);
+        when(journal.settings()).thenReturn(RuntimeJournalSettings.defaults());
+        when(journal.isOpen()).thenReturn(true);
+        when(journal.subscribe(any())).thenReturn(() -> {});
+        doThrow(new IllegalStateException("capture registration failed"))
+                .when(journal)
+                .addListener(any());
+        try {
+            controller.setRuntimeJournal(journal, new JournalAggregates());
+            ResponseEntity<ActivitySwitchResult> response =
+                    controller.useExistingDatasource(new ActivitySwitchRequest(true));
+            assertThat(response.getStatusCode().value()).isEqualTo(500);
+            assertThat(response.getBody().status()).isEqualTo("failed");
+            assertThat(response.getBody().message()).contains("capture", "table");
+            assertThat(store.persistent()).isFalse();
+        } finally {
+            controller.shutdown();
+            store.close();
+        }
+    }
+
+    @Test
+    void useExistingDatasourceSwitchesTheStoreAndStartsCapturingOnSuccess() throws Exception {
+        DataSource dataSource = newDataSource();
+        SwitchableActivityStore store = defaultActivityStore();
+        LiveActivityController controller = controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(ExceptionStore.class),
+                store,
                 disabledSettings(),
                 provider(dataSource),
                 buffersFeed());
+        RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start());
         try {
+            controller.setRuntimeJournal(journal, new JournalAggregates());
             ResponseEntity<ActivitySwitchResult> response =
                     controller.useExistingDatasource(new ActivitySwitchRequest(true));
 
@@ -407,8 +532,29 @@ class LiveActivityControllerTests {
             assertThat(afterSwitch.persistenceOption())
                     .isEqualTo(new ActivityPersistenceOptionDto(true, true, "bootui_activity"));
             assertThat(afterSwitch.pageInfo()).isNotNull();
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    1_000,
+                    2_000_000,
+                    CorrelationContext.forRequest("persisted-request"),
+                    "t",
+                    null,
+                    false,
+                    new HttpPayload("GET", "/persisted", "/persisted", null, 200)));
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+            assertThat(store.query(ActivityQuery.firstPage("instance-x")).entryDtos())
+                    .extracting(ActivityEntryDto::type)
+                    .contains("REQUEST");
         } finally {
             controller.shutdown();
+            journal.close();
+            store.close();
+        }
+        try (var connection = dataSource.getConnection();
+                var statement = connection.createStatement();
+                var rows = statement.executeQuery("SELECT COUNT(*) FROM bootui_activity")) {
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getInt(1)).isEqualTo(1);
         }
     }
 

@@ -1,6 +1,10 @@
 package io.github.jdubois.bootui.quarkus.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.ActivityPageInfo;
@@ -791,11 +795,103 @@ class LiveActivityResourceTests {
     }
 
     @Test
-    void useExistingDatasourceSwitchesTheStoreAndStartsCapturingOnSuccess() throws Exception {
+    void runtimeSwitchRejectsDisabledJournalBeforeCreatingTheTable() throws Exception {
+        DataSource dataSource = newH2DataSource();
+        SwitchableActivityStore store = new SwitchableActivityStore(new InMemoryActivityStore(200));
+        LiveActivityResource resource = resourceWith(store, disabledSettings(), satisfiedDataSource(dataSource));
+        RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.disabled(), RunIdentity.start());
+        try {
+            resource.setRuntimeJournal(
+                    new SatisfiedInstance<>(journal), new SatisfiedInstance<>(new JournalAggregates()));
+            assertUnavailableSwitch(resource, store, dataSource);
+        } finally {
+            cleanup(resource, store);
+            journal.close();
+        }
+    }
+
+    @Test
+    void runtimeSwitchRejectsAClosedJournalBeforeCreatingTheTable() throws Exception {
+        DataSource dataSource = newH2DataSource();
+        SwitchableActivityStore store = new SwitchableActivityStore(new InMemoryActivityStore(200));
+        LiveActivityResource resource = resourceWith(store, disabledSettings(), satisfiedDataSource(dataSource));
+        RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start());
+        try {
+            resource.setRuntimeJournal(
+                    new SatisfiedInstance<>(journal), new SatisfiedInstance<>(new JournalAggregates()));
+            journal.close();
+            assertThat(journal.settings().enabled()).isTrue();
+            assertUnavailableSwitch(resource, store, dataSource);
+        } finally {
+            cleanup(resource, store);
+            journal.close();
+        }
+    }
+
+    @Test
+    void runtimeSwitchRejectsMissingJournalBeforeCreatingTheTable() throws Exception {
         DataSource dataSource = newH2DataSource();
         SwitchableActivityStore store = new SwitchableActivityStore(new InMemoryActivityStore(200));
         LiveActivityResource resource = resourceWith(store, disabledSettings(), satisfiedDataSource(dataSource));
         try {
+            assertUnavailableSwitch(resource, store, dataSource);
+        } finally {
+            cleanup(resource, store);
+        }
+    }
+
+    private static void assertUnavailableSwitch(
+            LiveActivityResource resource, SwitchableActivityStore store, DataSource dataSource) throws Exception {
+        Response response = resource.useExistingDatasource(new ActivitySwitchRequest(true));
+        try (var connection = dataSource.getConnection();
+                var tables = connection.getMetaData().getTables(null, null, "BOOTUI_ACTIVITY", null)) {
+            assertThat(tables.next())
+                    .as(
+                            "journal unavailable: response %s must not create an application database table",
+                            response.getStatus())
+                    .isFalse();
+        }
+        assertThat(response.getStatus()).isEqualTo(409);
+        ActivitySwitchResult body = (ActivitySwitchResult) response.getEntity();
+        assertThat(body.status()).isEqualTo("unavailable");
+        assertThat(body.message()).contains("runtime journal");
+        assertThat(store.persistent()).isFalse();
+    }
+
+    @Test
+    void runtimeSwitchReportsCaptureRegistrationFailureWithoutPublishingTheDurableStore() {
+        DataSource dataSource = newH2DataSource();
+        SwitchableActivityStore store = new SwitchableActivityStore(new InMemoryActivityStore(200));
+        LiveActivityResource resource = resourceWith(store, disabledSettings(), satisfiedDataSource(dataSource));
+        RuntimeJournal journal = mock(RuntimeJournal.class);
+        when(journal.settings()).thenReturn(RuntimeJournalSettings.defaults());
+        when(journal.isOpen()).thenReturn(true);
+        doThrow(new IllegalStateException("capture registration failed"))
+                .when(journal)
+                .addListener(any());
+        try {
+            resource.setRuntimeJournal(
+                    new SatisfiedInstance<>(journal), new SatisfiedInstance<>(new JournalAggregates()));
+            Response response = resource.useExistingDatasource(new ActivitySwitchRequest(true));
+            assertThat(response.getStatus()).isEqualTo(500);
+            ActivitySwitchResult body = (ActivitySwitchResult) response.getEntity();
+            assertThat(body.status()).isEqualTo("failed");
+            assertThat(body.message()).contains("capture", "table");
+            assertThat(store.persistent()).isFalse();
+        } finally {
+            cleanup(resource, store);
+        }
+    }
+
+    @Test
+    void useExistingDatasourceSwitchesTheStoreAndStartsCapturingOnSuccess() throws Exception {
+        DataSource dataSource = newH2DataSource();
+        SwitchableActivityStore store = new SwitchableActivityStore(new InMemoryActivityStore(200));
+        LiveActivityResource resource = resourceWith(store, disabledSettings(), satisfiedDataSource(dataSource));
+        RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start());
+        try {
+            resource.setRuntimeJournal(
+                    new SatisfiedInstance<>(journal), new SatisfiedInstance<>(new JournalAggregates()));
             Response response = resource.useExistingDatasource(new ActivitySwitchRequest(true));
 
             assertThat(response.getStatus()).isEqualTo(200);
@@ -809,8 +905,28 @@ class LiveActivityResourceTests {
             assertThat(afterSwitch.persistenceOption())
                     .isEqualTo(new ActivityPersistenceOptionDto(true, true, "bootui_activity"));
             assertThat(afterSwitch.pageInfo()).isNotNull();
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    1_000,
+                    2_000_000,
+                    CorrelationContext.forRequest("persisted-request"),
+                    "t",
+                    null,
+                    false,
+                    new HttpPayload("GET", "/persisted", "/persisted", null, 200)));
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+            assertThat(store.query(ActivityQuery.firstPage("instance-a")).entryDtos())
+                    .extracting(ActivityEntryDto::type)
+                    .contains("REQUEST");
         } finally {
             cleanup(resource, store);
+            journal.close();
+        }
+        try (var connection = dataSource.getConnection();
+                var statement = connection.createStatement();
+                var rows = statement.executeQuery("SELECT COUNT(*) FROM bootui_activity")) {
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getInt(1)).isEqualTo(1);
         }
     }
 
