@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.javaagent.AgentThreadLocals;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
+import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
@@ -39,7 +40,7 @@ public final class ScheduledTaskRunObservationHandler implements ObservationHand
 
     private final ScheduledTaskRunStore store;
     private final BootUiSelfDataFilter selfDataFilter;
-    private final ThreadLocal<Map<ScheduledTaskObservationContext, RunScope>> scopes = new ThreadLocal<>();
+    private final ThreadLocal<Map<ScheduledTaskObservationContext, RunScope>> scopes = new BootUiThreadLocal<>();
 
     public ScheduledTaskRunObservationHandler(ScheduledTaskRunStore store, BootUiSelfDataFilter selfDataFilter) {
         this.store = store;

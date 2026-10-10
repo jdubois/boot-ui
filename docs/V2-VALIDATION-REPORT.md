@@ -225,7 +225,14 @@ without changing or weakening the architecture guard. A bounded review found no 
 The subsequent 13 selected bridge classes executed 238 cases without failures, errors, or skips, including the
 unchanged bytecode guard and the additional earlier-claim regression; these are narrower than whole-source CI.
 
-That head's browser runs also exposed two fixture errors: unavailable capture reports correctly offer a disabled
+The next head, `00fa39850aaa681f7ed7ec4308b733a40a4bd504`, passed those bridge rules but failed Spring's
+thread-local architecture guard on Java 21, 25, and 27: the new scheduled scope holder used a raw `ThreadLocal`.
+It now uses the existing `BootUiThreadLocal` marker so the agent does not report BootUI's own correlation
+bookkeeping as application thread-local state. The guard remains unchanged; nested restoration and removal of
+empty holders retain their behavior. The eight scheduled-scope cases and both Spring architecture checks then
+executed without failures, errors, or skips on the corrected source, each through its own `jvmRun1`.
+
+The first head's browser runs also exposed two fixture errors: unavailable capture reports correctly offer a disabled
 **Resume**, not **Pause**, and WebSockets show the reason both in their static availability notice and their single
 action alert. The scenarios now assert the actual native state and target the semantic action alert, without
 changing production UI or weakening refusal/state assertions. The Java 21 agent browser additionally recorded one
