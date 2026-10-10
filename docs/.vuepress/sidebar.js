@@ -57,7 +57,7 @@ const groups = [
   },
   {
     text: 'Reference',
-    docs: ['PROPERTIES.md', 'FRAMEWORK-SUPPORT.md', 'AI-AGENTS.md', 'CLI.md', 'WORKS-WITH.md']
+    docs: ['PROPERTIES.md', 'FRAMEWORK-SUPPORT.md', 'JETBRAINS.md', 'AI-AGENTS.md', 'CLI.md', 'WORKS-WITH.md']
   },
   {
     text: 'Diagnostic checks',

@@ -1,0 +1,7 @@
+.gradle/
+.gradle-user/
+.intellijPlatform/
+.kotlin/
+build/
+run/
+!gradle/wrapper/gradle-wrapper.jar

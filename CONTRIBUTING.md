@@ -44,6 +44,13 @@ bootui-quarkus-sample-app/           Reference Quarkus app
 docs/                                Public documentation source (VuePress)
 ```
 
+## JetBrains companion prototype
+
+The optional Kotlin JetBrains companion prototype lives in `plugins/jetbrains` and builds independently of Maven.
+Follow [`plugins/jetbrains/README.md`](plugins/jetbrains/README.md) for its JDK requirements, Gradle Wrapper commands,
+tests, IDE sandbox, and Plugin Verifier checks. Do not add IntelliJ dependencies to BootUI's runtime modules or include
+the plugin in Maven Central publication.
+
 ## Keeping framework-version references in sync
 
 Use the root Maven properties as the source of truth for the published adapters and public compatibility documentation:

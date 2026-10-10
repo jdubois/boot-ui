@@ -1,4 +1,13 @@
-# `plugins/` — the portable agent plugin payload
+# `plugins/` — optional client integrations
+
+`plugins/jetbrains` is an independently built **Kotlin JetBrains companion prototype**. It connects explicitly to one
+running local BootUI application, without replacing its runtime dependency or embedded console. See
+[`jetbrains/README.md`](jetbrains/README.md) for setup, build, and scope. It is not part of the Maven reactor or the
+Claude Code marketplace payload, and does not ship an AI chat or require an AI subscription.
+Its dependency-installation button previews an undoable edit to a selected Maven or Gradle build; it does not silently
+enable BootUI, reload the build, or run the application.
+
+## Portable agent plugin payload
 
 `plugins/bootui` is the curated, user-facing plugin payload documented in the
 [AI agents guide](https://www.julien-dubois.com/boot-ui/ai-agents). It carries two manifests because the same directory

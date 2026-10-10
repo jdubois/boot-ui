@@ -20,6 +20,15 @@
 - `bootui-quarkus-integration-tests`: Quarkus `@QuarkusTest` suites.
 - `bootui-quarkus-sample-app`: Quarkus sample app.
 
+## Independently built integrations
+
+`plugins/jetbrains` contains the optional Kotlin JetBrains companion prototype. It has its own Gradle Wrapper and
+IntelliJ Platform build, outside the Maven reactor and runtime release. It consumes existing local API endpoints;
+shared modules do not depend on IntelliJ or Kotlin. Its README records build, sandbox, and compatibility-verification
+commands. `plugins/bootui` remains the separate Claude Code plugin payload.
+The [JetBrains companion guide](JETBRAINS.md) covers source-built installation, dependency edits, running, connecting,
+and the prototype's current limits.
+
 ## Compatibility version source of truth
 
 Spring Boot and Quarkus compatibility references for the published adapters should follow the root `pom.xml` properties:
