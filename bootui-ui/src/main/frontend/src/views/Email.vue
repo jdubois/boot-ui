@@ -27,18 +27,23 @@ const filter = ref('')
 const selectedId = ref(null)
 const busy = ref(false)
 const lastFetched = ref(null)
+let reportVersion = 0
 
 async function fetchEmails() {
+  const version = reportVersion
   error.value = null
   try {
-    report.value = await getJson('api/email')
+    const loaded = await getJson('api/email')
+    if (version !== reportVersion) return
+    report.value = loaded
     lastFetched.value = Date.now()
   } catch (e) {
+    if (version !== reportVersion) return
     error.value = describeLoadError(e, 'Unable to load captured emails')
   }
 }
 
-const {autoRefresh, loading, load} = useAutoRefresh(fetchEmails)
+const {autoRefresh, loading, load, loadAfterCurrent} = useAutoRefresh(fetchEmails)
 
 const messages = computed(() => report.value?.messages ?? [])
 
@@ -107,8 +112,9 @@ async function clearAll() {
   try {
     const res = await apiFetch('api/email', {method: 'DELETE'})
     if (!res.ok && res.status !== 204) throw new Error(`HTTP ${res.status}`)
+    reportVersion++
     closeDrawer()
-    await load()
+    await loadAfterCurrent()
     flash('Cleared captured emails.', 'success')
   } catch (e) {
     show(formatLoadError(e, 'Could not clear captured emails'), 'danger')

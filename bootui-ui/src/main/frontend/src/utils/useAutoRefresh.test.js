@@ -4,6 +4,8 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {useAutoRefresh} from './useAutoRefresh.js'
 
+const mounted = []
+
 function harness(callback, options) {
   let api
   const wrapper = mount({
@@ -12,6 +14,7 @@ function harness(callback, options) {
       return () => null
     }
   })
+  mounted.push(wrapper)
   return {api, wrapper}
 }
 
@@ -26,6 +29,7 @@ describe('useAutoRefresh', () => {
   })
 
   afterEach(() => {
+    for (const wrapper of mounted.splice(0)) wrapper.unmount()
     vi.useRealTimers()
     vi.restoreAllMocks()
   })
@@ -190,5 +194,90 @@ describe('useAutoRefresh', () => {
     await next
     await flushPromises()
     expect(callback).toHaveBeenCalledTimes(2)
+  })
+
+  it('awaits the coalesced post-action read with its latest arguments', async () => {
+    let finishInitial
+    let finishFollowup
+    const callback = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishInitial = resolve
+          })
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishFollowup = resolve
+          })
+      )
+    const {api, wrapper} = harness(callback, {defaultEnabled: false})
+    const first = api.loadAfterCurrent({preserveActionMessage: false})
+    const second = api.loadAfterCurrent({preserveActionMessage: true})
+    let settled = false
+    Promise.resolve(second).then(() => {
+      settled = true
+    })
+    await flushPromises()
+    expect(settled).toBe(false)
+    finishInitial()
+    await flushPromises()
+    expect(callback).toHaveBeenLastCalledWith({preserveActionMessage: true})
+    expect(settled).toBe(false)
+    finishFollowup('fresh')
+    expect(await first).toBe('fresh')
+    expect(await second).toBe('fresh')
+    wrapper.unmount()
+  })
+
+  it.each(['unmount', 'disable'])('settles a queued post-action read on %s without invoking it', async (reason) => {
+    let finishInitial
+    const enabled = ref(true)
+    const callback = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          finishInitial = resolve
+        })
+    )
+    const {api, wrapper} = harness(callback, {enabled, defaultEnabled: false})
+    const pending = api.loadAfterCurrent()
+    if (reason === 'unmount') wrapper.unmount()
+    else enabled.value = false
+    await nextTick()
+    let settled = false
+    Promise.resolve(pending).then(() => {
+      settled = true
+    })
+    await flushPromises()
+    expect(settled).toBe(true)
+    finishInitial()
+    await flushPromises()
+    expect(callback).toHaveBeenCalledTimes(1)
+    if (reason !== 'unmount') wrapper.unmount()
+  })
+
+  it('delivers a queued read failure to its caller', async () => {
+    let finishInitial
+    const callback = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishInitial = resolve
+          })
+      )
+      .mockRejectedValueOnce(new Error('follow-up failed'))
+    const {api, wrapper} = harness(callback, {defaultEnabled: false})
+    const pending = api.loadAfterCurrent()
+    expect(pending).toBeInstanceOf(Promise)
+    const outcome = Promise.resolve(pending).then(
+      () => null,
+      (error) => error
+    )
+    finishInitial()
+    expect(await outcome).toEqual(new Error('follow-up failed'))
+    wrapper.unmount()
   })
 })

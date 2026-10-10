@@ -31,6 +31,69 @@ export function isDatasourceSwitchAcknowledgement(value) {
   )
 }
 
+export function isMcpServerStatus(value) {
+  return (
+    isRecord(value) &&
+    typeof value.enabled === 'boolean' &&
+    typeof value.overridden === 'boolean' &&
+    ['ON', 'OFF', 'AUTO'].includes(value.configuredMode) &&
+    ['serverName', 'serverVersion', 'transport', 'endpoint', 'protocolVersion'].every((key) =>
+      isNonemptyString(value[key])
+    ) &&
+    Number.isSafeInteger(value.maxResults) &&
+    value.maxResults > 0 &&
+    Number.isSafeInteger(value.toolCount) &&
+    value.toolCount >= 0 &&
+    Array.isArray(value.tools) &&
+    value.tools.every((tool) => isRecord(tool) && isNonemptyString(tool.name) && typeof tool.action === 'boolean')
+  )
+}
+
+export function isHttpSessionAcknowledgement(value, action, sessionKey) {
+  return (
+    isRecord(value) &&
+    value.status === (action === 'clear' ? 'cleared' : 'destroyed') &&
+    value.sessionKey === sessionKey &&
+    isNonemptyString(value.message) &&
+    Number.isSafeInteger(value.affectedAttributes) &&
+    value.affectedAttributes >= 0
+  )
+}
+
+export function isDevToolsAcknowledgement(value, action) {
+  return (
+    isRecord(value) &&
+    value.action === action &&
+    (action === 'restart' ? value.status === 'scheduled' : ['triggered', 'no_clients'].includes(value.status)) &&
+    isNonemptyString(value.message)
+  )
+}
+
+export function isDevToolsStatus(value) {
+  return (
+    isRecord(value) &&
+    ['restartAvailable', 'restartPending', 'liveReloadAvailable'].every((key) => typeof value[key] === 'boolean') &&
+    Number.isSafeInteger(value.liveReloadConnections) &&
+    value.liveReloadConnections >= 0
+  )
+}
+
+export function isCacheClearAcknowledgement(value) {
+  return (
+    isRecord(value) &&
+    value.status === 'cleared' &&
+    isNonemptyString(value.message) &&
+    Number.isSafeInteger(value.clearedCaches) &&
+    value.clearedCaches >= 0 &&
+    Array.isArray(value.caches) &&
+    value.caches.every(isNonemptyString)
+  )
+}
+
+export function isDevServiceRestartAcknowledgement(value, id) {
+  return isRecord(value) && value.id === id && value.status === 'restarted' && isNonemptyString(value.message)
+}
+
 // Recognize the report, not a particular installation outcome. Nullable diagnostics and future fields remain valid.
 export function isJavaAgentReport(value) {
   return (
@@ -68,7 +131,7 @@ export async function getDiagnosticAcknowledgement(input, init, accepts) {
 
 export function diagnosticActionError(error, context) {
   if (error instanceof ApiError) {
-    const detail = [error.body?.error, error.body?.reason, error.body?.message].find(isNonemptyString)
+    const detail = [error.body?.reason, error.body?.message, error.body?.error].find(isNonemptyString)
     return detail || error.message
   }
   return formatLoadError(error, context)

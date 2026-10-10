@@ -823,13 +823,14 @@ These removals ship with BootUI 2.0.0, from the `v2` branch.
 
 ### Fixed
 
+- **Diagnostic acknowledgements stay honest.** Comparisons qualify outside-JVM evidence, mutation reads cannot restore
+  stale state, malformed acknowledgements report unknown outcomes, and MCP panel refusals preserve their policy reason.
 - **Durable history requires a running capture.** The datasource action fails before switching storage when capture
   cannot run ([Durable history](docs/features/overview.md#durable-history)).
 - **MVC push streams recover after reconnect.** Disconnecting the last subscriber cancels its pending flush without
   blocking later subscriptions, and stale scheduler callbacks cannot consume a new generation's update.
 - **Resource sampler interval accounting.** Thread baselines prevent lifetime charges, and incomplete CPU ledgers show
   measured times without misleading shares ([Live Activity](docs/features/overview.md#live-activity)).
-
 - **Agent sensor lifecycle.** Reclaims during release preserve bean instrumentation, and failed class restoration prevents
   reinstallation ([Java Agent](docs/features/java-agent.md#claims-and-lifecycle)).
 - **Incomplete runs no longer invent absent work.** Capture gaps yield partial comparisons and unknown unexercised

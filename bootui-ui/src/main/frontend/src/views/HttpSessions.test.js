@@ -196,10 +196,24 @@ describe('HTTP Sessions', () => {
   it('posts confirmed clear and destroy actions using the opaque session key', async () => {
     const fetchMock = vi.fn((url) => {
       if (String(url).includes('/clear')) {
-        return Promise.resolve(jsonResponse({status: 'cleared', message: 'Cleared 2 HTTP session attributes.'}))
+        return Promise.resolve(
+          jsonResponse({
+            status: 'cleared',
+            message: 'Cleared 2 HTTP session attributes.',
+            sessionKey: 'session-key-one',
+            affectedAttributes: 2
+          })
+        )
       }
       if (String(url).includes('/invalidate')) {
-        return Promise.resolve(jsonResponse({status: 'destroyed', message: 'Destroyed HTTP session.'}))
+        return Promise.resolve(
+          jsonResponse({
+            status: 'destroyed',
+            message: 'Destroyed HTTP session.',
+            sessionKey: 'session-key-one',
+            affectedAttributes: 0
+          })
+        )
       }
       return Promise.resolve(jsonResponse(report()))
     })
@@ -239,4 +253,42 @@ describe('HTTP Sessions', () => {
     expect(wrapper.find('button.btn-outline-warning').attributes('disabled')).toBeDefined()
     expect(wrapper.find('button.btn-outline-danger').attributes('disabled')).toBeDefined()
   })
+
+  it.each(['invalid JSON', 'empty', 'wrong status', 'wrong session'])(
+    'does not invent session success from an %s acknowledgement',
+    async (kind) => {
+      document.cookie = 'XSRF-TOKEN=test-token'
+      let reads = 0
+      const fetchMock = vi.fn((url) => {
+        if (String(url).endsWith('/clear')) {
+          if (kind === 'invalid JSON' || kind === 'empty') {
+            return Promise.resolve(new Response(kind === 'empty' ? '' : 'not JSON'))
+          }
+          return Promise.resolve(
+            jsonResponse({
+              status: kind === 'wrong status' ? 'pending' : 'cleared',
+              sessionKey: kind === 'wrong session' ? 'another-session' : 'session-key-one',
+              message: 'Attributes cleared.',
+              affectedAttributes: 2
+            })
+          )
+        }
+        reads++
+        return Promise.resolve(jsonResponse(report()))
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const wrapper = mount(HttpSessions)
+      await flushPromises()
+      await wrapper.find('button.btn-outline-warning').trigger('click')
+      await flushPromises()
+      expect(wrapper.text()).toContain('action outcome is unknown')
+      expect(wrapper.text()).not.toContain('Clear attributes complete.')
+      expect(wrapper.text()).not.toContain('Attributes cleared.')
+      expect(wrapper.text()).toContain('session-...')
+      expect(reads).toBe(2)
+      expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/clear'))).toHaveLength(1)
+      wrapper.unmount()
+      document.cookie = 'XSRF-TOKEN=; Max-Age=0'
+    }
+  )
 })

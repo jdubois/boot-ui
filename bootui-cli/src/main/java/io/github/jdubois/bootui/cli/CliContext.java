@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.client.BootUiCatalog;
 import io.github.jdubois.bootui.client.BootUiClient;
 import io.github.jdubois.bootui.client.BootUiClientException;
 import io.github.jdubois.bootui.client.BootUiClientOptions;
+import io.github.jdubois.bootui.client.JsonParseException;
 import io.github.jdubois.bootui.client.JsonValue;
 import io.github.jdubois.bootui.client.JsonWriter;
 import io.github.jdubois.bootui.client.ToolOutcome;
@@ -24,6 +25,9 @@ import java.util.function.Function;
  * once parsing has finished — {@code bootui beans --url …} sets them after the command has been selected.
  */
 final class CliContext {
+
+    private static final String UNKNOWN_MCP_OUTCOME =
+            "The MCP action outcome is unknown: no valid BootUI MCP server status acknowledgement was received. The action was not retried.";
 
     private final GlobalOptions options = new GlobalOptions();
     private final ToolManifest manifest;
@@ -173,11 +177,7 @@ final class CliContext {
 
     /** Reads the MCP Server panel. */
     int mcpStatus() {
-        return withClient(client -> {
-            JsonValue status = client.get(CliPaths.MCP_SERVER);
-            emit(status, status.toJson());
-            return ExitCodes.SUCCESS;
-        });
+        return withClient(client -> emitMcpStatus(client.get(CliPaths.MCP_SERVER), false));
     }
 
     /**
@@ -188,10 +188,39 @@ final class CliContext {
      */
     int mcpToggle(boolean enabled) {
         return withClient(client -> {
-            JsonValue status = client.post(CliPaths.MCP_TOGGLE, "{\"enabled\":" + enabled + "}");
-            emit(status, status.toJson());
-            return ExitCodes.SUCCESS;
+            JsonValue status;
+            try {
+                status = client.post(CliPaths.MCP_TOGGLE, "{\"enabled\":" + enabled + "}");
+            } catch (BootUiClientException failure) {
+                if (failure.getCause() instanceof JsonParseException) {
+                    throw new BootUiClientException(UNKNOWN_MCP_OUTCOME, failure);
+                }
+                throw failure;
+            }
+            return emitMcpStatus(status, true);
         });
+    }
+
+    private int emitMcpStatus(JsonValue status, boolean action) {
+        // Recognize the stable report envelope, not a particular state or the counters newer servers add.
+        JsonValue tools = status.get("tools");
+        boolean valid = status.isObject()
+                && "bootui".equals(status.get("serverName").asString(null))
+                && "http".equals(status.get("transport").asString(null))
+                && status.get("enabled").isBoolean()
+                && tools.isArray()
+                && tools.values().stream()
+                        .allMatch(tool -> tool.isObject()
+                                && !tool.get("name").asString("").isBlank()
+                                && tool.get("action").isBoolean());
+        if (!valid) {
+            throw new BootUiClientException(
+                    action
+                            ? UNKNOWN_MCP_OUTCOME
+                            : "The target did not return a valid BootUI MCP server status report.");
+        }
+        emit(status, status.toJson());
+        return ExitCodes.SUCCESS;
     }
 
     private static String status(BootUiCatalog.CatalogTool tool) {

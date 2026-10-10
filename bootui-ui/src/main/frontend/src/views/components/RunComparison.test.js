@@ -457,7 +457,7 @@ describe('RunComparison', () => {
     wrapper = mount(RunComparison)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('No eligible route or execution changed what it ran, called, or raised.')
+    expect(wrapper.text()).toContain('No changes were found in the compared framework behavior or runtime-model edges.')
   })
 
   it('shows why restart timing is unavailable for a selected non-adjacent run', async () => {
@@ -478,15 +478,76 @@ describe('RunComparison', () => {
 })
 
 describe('comparisonSummary', () => {
+  it('does not infer a settled zero from a truncated side-effect list or positive sensor totals', async () => {
+    const {sideEffectChanges, comparisonSummary} = await import('../../utils/runComparison.js')
+    const sideEffects = {
+      available: true,
+      partial: false,
+      changes: [],
+      changesTotal: 20,
+      sensors: [{sensor: 'network', status: 'COMPARED', added: 20, removed: 0, notExercised: 0}]
+    }
+    const value = {...compared, behavior: [], edges: [], sideEffects}
+    expect(sideEffectChanges(value).settled).toBe(false)
+    expect(comparisonSummary(value)).toContain('outside-JVM changes recorded')
+    expect(comparisonSummary(value)).toContain('outside-JVM evidence incomplete')
+  })
+
+  it.each([
+    ['COMPARED', false, 'ADDED'],
+    ['COMPARED', true, 'ADDED'],
+    ['PARTIAL', true, 'REMOVED'],
+    ['INSUFFICIENT', true, 'ADDED']
+  ])('names positive outside-JVM changes with %s framework evidence', async (status, partial, change) => {
+    const {comparisonSummary} = await import('../../utils/runComparison.js')
+    const summary = comparisonSummary({
+      ...compared,
+      status,
+      behavior: [],
+      edges: [],
+      sideEffects: {
+        available: true,
+        partial,
+        changesTotal: 20,
+        sensors: [
+          {sensor: 'network', status: partial ? 'PARTIAL' : 'COMPARED', added: 20, removed: 0, notExercised: 0}
+        ],
+        changes: [{change, sentence: 'GET /orders now connects to api.example.com:443'}]
+      }
+    })
+    expect(summary).toContain('outside-JVM changes recorded')
+    expect(summary).not.toContain('No change in behavior')
+    expect(summary).not.toContain('20 changes')
+    if (partial) expect(summary).toContain('incomplete')
+    if (status === 'INSUFFICIENT') expect(summary).toContain('needs more traffic')
+  })
+
+  it.each([
+    {available: false, unavailableReason: 'No agent'},
+    {available: true, partial: true, sensors: [], changes: [], changesTotal: 10},
+    {available: true, partial: false, sensors: [{status: 'NOT_COMPARED'}], changes: []},
+    {available: true, partial: false, sensors: [{status: 'COMPARED'}], changes: [{change: 'NOT_EXERCISED'}]}
+  ])('qualifies unsettled outside-JVM evidence instead of claiming a complete zero', async (sideEffects) => {
+    const {comparisonSummary} = await import('../../utils/runComparison.js')
+    const summary = comparisonSummary({...compared, behavior: [], edges: [], sideEffects})
+    expect(summary).toContain('outside-JVM evidence incomplete')
+    expect(summary).not.toContain('No change in behavior')
+    expect(summary).not.toContain('0 changes')
+  })
+
   it('names the changes since the run compared with, or the status otherwise', async () => {
     const {comparisonSummary} = await import('../../utils/runComparison.js')
-    expect(comparisonSummary(compared)).toBe('2 changes since run 4')
-    expect(comparisonSummary({...compared, behavior: [], edges: []})).toBe('No change in behavior since run 4')
+    expect(comparisonSummary(compared)).toBe('2 framework changes since run 4')
+    expect(comparisonSummary({...compared, behavior: [], edges: []})).toBe(
+      'No changes in compared framework behavior since run 4'
+    )
     expect(comparisonSummary({...compared, status: 'INSUFFICIENT'})).toBe('Compared with run 4: needs more traffic')
     expect(comparisonSummary({...compared, status: 'PARTIAL', behavior: [], edges: []})).toBe(
       'Partly compared with run 4: incomplete evidence'
     )
-    expect(comparisonSummary({...compared, status: 'PARTIAL'})).toBe('2 changes since run 4 (partly compared)')
+    expect(comparisonSummary({...compared, status: 'PARTIAL'})).toBe(
+      '2 framework changes since run 4 (partly compared)'
+    )
     expect(comparisonSummary({...compared, status: 'NO_PREVIOUS_RUN', previous: null})).toBe('No previous run')
     expect(comparisonSummary(null)).toBeNull()
   })

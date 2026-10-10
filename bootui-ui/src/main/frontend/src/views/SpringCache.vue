@@ -1,8 +1,13 @@
 <script setup>
-import {apiFetch, getJson} from '../api.js'
+import {ApiError, getJson} from '../api.js'
 import {computed, inject, ref} from 'vue'
 import {formatNumber, shortName} from '../utils/format.js'
-import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import {describeLoadError} from '../utils/loadError.js'
+import {
+  diagnosticActionError,
+  getDiagnosticAcknowledgement,
+  isCacheClearAcknowledgement
+} from '../utils/diagnosticAcknowledgement.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
@@ -25,18 +30,23 @@ const cacheFilter = ref('')
 const operationFilter = ref('')
 const busy = ref(null)
 const lastFetched = ref(null)
+let reportVersion = 0
 
 async function fetchReport() {
+  const version = reportVersion
   error.value = null
   try {
-    report.value = await getJson('api/cache')
+    const loaded = await getJson('api/cache')
+    if (version !== reportVersion) return
+    report.value = loaded
     lastFetched.value = Date.now()
   } catch (e) {
+    if (version !== reportVersion) return
     error.value = describeLoadError(e, 'Unable to load cache report')
   }
 }
 
-const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchReport)
+const {autoRefresh, loading, initialLoading, load, loadAfterCurrent} = useAutoRefresh(fetchReport)
 
 const caches = computed(() => {
   if (!report.value) return []
@@ -265,20 +275,24 @@ async function clearCaches(payload, busyKey) {
   busy.value = busyKey
   clear()
   try {
-    const res = await apiFetch('api/cache/clear', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload)
-    })
-    const result = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      flash(result.message || result.error || `HTTP ${res.status}`, 'warning')
-      return
-    }
-    flash(result.message || 'Cache cleared.', 'success')
-    await load()
+    const result = await getDiagnosticAcknowledgement(
+      'api/cache/clear',
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      },
+      isCacheClearAcknowledgement
+    )
+    reportVersion++
+    flash(result.message, 'success')
+    await loadAfterCurrent()
   } catch (e) {
-    flash(formatLoadError(e, 'Could not clear cache'), 'danger')
+    flash(diagnosticActionError(e, 'Could not clear cache'), e instanceof ApiError ? 'warning' : 'danger')
+    if (!(e instanceof ApiError) || e.status >= 500) {
+      reportVersion++
+      await loadAfterCurrent()
+    }
   } finally {
     busy.value = null
   }

@@ -1,12 +1,17 @@
 <script setup>
-import {apiFetch, getJson} from '../api.js'
+import {ApiError, getJson} from '../api.js'
 import {computed, ref} from 'vue'
 import {formatNumber, shortName} from '../utils/format.js'
-import {describeLoadError, formatLoadError} from '../utils/loadError.js'
+import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
+import {
+  diagnosticActionError,
+  getDiagnosticAcknowledgement,
+  isHttpSessionAcknowledgement
+} from '../utils/diagnosticAcknowledgement.js'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -24,18 +29,25 @@ const {message: banner, flash, clear} = useFlashMessage()
 const busy = ref(null)
 const expanded = ref(new Set())
 const lastFetched = ref(null)
+let reportVersion = 0
 
 async function fetchSessions() {
+  const version = reportVersion
   error.value = null
   try {
-    report.value = await getJson('api/http-sessions')
+    const loaded = await getJson('api/http-sessions')
+    if (version !== reportVersion) return
+    report.value = loaded
     lastFetched.value = Date.now()
   } catch (e) {
+    if (version !== reportVersion) return
     error.value = describeLoadError(e, 'Unable to load HTTP sessions')
   }
 }
 
-const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchSessions, {enabled: manifestAvailable})
+const {autoRefresh, loading, initialLoading, load, loadAfterCurrent} = useAutoRefresh(fetchSessions, {
+  enabled: manifestAvailable
+})
 
 const sessions = computed(() => report.value?.sessions || [])
 const filteredSessions = computed(() => {
@@ -149,20 +161,24 @@ async function mutateSession(session, action, label) {
   busy.value = `${session.sessionKey}:${action}`
   clear()
   try {
-    const res = await apiFetch(`api/http-sessions/${encodeURIComponent(session.sessionKey)}/${action}`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({confirm: true})
-    })
-    const result = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      flash(result.message || result.error || `Could not ${label.toLowerCase()} (HTTP ${res.status})`, 'warning')
-      return
-    }
-    flash(result.message || `${label} complete.`, 'success')
-    await load()
+    const result = await getDiagnosticAcknowledgement(
+      `api/http-sessions/${encodeURIComponent(session.sessionKey)}/${action}`,
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({confirm: true})
+      },
+      (body) => isHttpSessionAcknowledgement(body, action, session.sessionKey)
+    )
+    reportVersion++
+    flash(result.message, 'success')
+    await loadAfterCurrent()
   } catch (e) {
-    flash(formatLoadError(e, `Could not ${label.toLowerCase()}`), 'danger')
+    flash(diagnosticActionError(e, `Could not ${label.toLowerCase()}`), e instanceof ApiError ? 'warning' : 'danger')
+    if (!(e instanceof ApiError) || e.status >= 500) {
+      reportVersion++
+      await loadAfterCurrent()
+    }
   } finally {
     busy.value = null
   }

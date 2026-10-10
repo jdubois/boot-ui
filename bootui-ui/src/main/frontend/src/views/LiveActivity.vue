@@ -117,6 +117,43 @@ const showJournal = ref(false)
 // The CPU ledger and resource track, opened on demand like the journal status (docs/PLAN-v2.md §5.11).
 const showResources = ref(false)
 const switchingToDatabase = ref(false)
+const journalStatus = ref(null)
+const journalStatusLoading = ref(false)
+const journalStatusError = ref('')
+let journalStatusToken = 0
+const datasourceSwitchReason = computed(() => {
+  if (journalStatusLoading.value) return 'Checking the runtime journal status before switching.'
+  if (journalStatusError.value) return journalStatusError.value
+  if (!journalStatus.value) return 'The runtime journal status must be checked before switching.'
+  return journalStatus.value.enabled
+    ? ''
+    : 'The runtime journal is disabled. Enable bootui.runtime-journal.enabled to save events to a database.'
+})
+
+async function loadJournalStatus() {
+  const token = ++journalStatusToken
+  journalStatusLoading.value = true
+  journalStatusError.value = ''
+  try {
+    const loaded = await getJson('api/activity/journal')
+    if (typeof loaded?.enabled !== 'boolean') throw new Error('Invalid runtime journal status response')
+    if (disposed || token !== journalStatusToken) return
+    journalStatus.value = loaded
+  } catch (err) {
+    if (disposed || token !== journalStatusToken) return
+    journalStatus.value = null
+    journalStatusError.value = formatLoadError(err, 'Could not verify the runtime journal status')
+  } finally {
+    if (token === journalStatusToken) journalStatusLoading.value = false
+  }
+}
+
+function onJournalStatus(loaded) {
+  journalStatusToken++
+  journalStatusLoading.value = false
+  journalStatus.value = typeof loaded?.enabled === 'boolean' ? loaded : null
+  journalStatusError.value = journalStatus.value ? '' : 'Could not verify the runtime journal status.'
+}
 
 const profile = ref(null)
 const profileLoading = ref(false)
@@ -278,6 +315,7 @@ async function loadOlder() {
 
 function toggleDatabaseInfo() {
   showDatabaseInfo.value = !showDatabaseInfo.value
+  if (showDatabaseInfo.value && dataSourceAvailable.value) void loadJournalStatus()
 }
 
 // Hot-switches this running instance from the in-memory buffer to the existing DataSource, gated by
@@ -286,6 +324,10 @@ function toggleDatabaseInfo() {
 async function useExistingDatasource() {
   if (readOnly.value) {
     flash(readOnlyReason.value, 'warning')
+    return
+  }
+  if (datasourceSwitchReason.value) {
+    flash(datasourceSwitchReason.value, 'warning')
     return
   }
   const confirmed = await confirm({
@@ -832,7 +874,7 @@ function toggleFlow() {
           :aria-expanded="showDatabaseInfo"
           @click="toggleDatabaseInfo"
         >
-          <i class="bi bi-database-add me-1"></i>Use a database
+          <i class="bi bi-database-add me-1" aria-hidden="true"></i>Use a database
         </button>
         <button
           v-if="report"
@@ -865,6 +907,7 @@ function toggleFlow() {
       :read-only="readOnly"
       :read-only-reason="readOnlyReason"
       @flash="flash"
+      @loaded="onJournalStatus"
     />
 
     <RuntimeResources v-if="showResources" id="activity-runtime-resources" />
@@ -886,13 +929,18 @@ function toggleFlow() {
         <template v-if="dataSourceAvailable">
           <p class="mb-2">
             A <code>DataSource</code> is already configured in this application. You can configure a dedicated, second
-            datasource just for Live Activity, or reuse the existing one right now.
+            datasource just for Live Activity, or reuse the existing one while the runtime journal is recording.
           </p>
+          <p v-if="datasourceSwitchReason" class="mb-2" role="note">{{ datasourceSwitchReason }}</p>
           <div class="d-flex flex-wrap align-items-center gap-2">
             <SpinnerButton
               :loading="switchingToDatabase"
-              :disabled="readOnly || switchingToDatabase"
-              :title="readOnly ? readOnlyReason : 'Switch this running instance to the existing datasource'"
+              :disabled="readOnly || switchingToDatabase || Boolean(datasourceSwitchReason)"
+              :title="
+                readOnly
+                  ? readOnlyReason
+                  : datasourceSwitchReason || 'Switch this running instance to the existing datasource'
+              "
               class="btn btn-sm btn-outline-primary"
               icon="bi-database-up"
               label="Use the existing datasource"

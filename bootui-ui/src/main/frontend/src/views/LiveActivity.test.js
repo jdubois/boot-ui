@@ -107,6 +107,7 @@ function requestProfile(overrides = {}) {
 
 function stubFetch(activity, profile, journalProfile = {available: false, unavailableReason: 'Not retained.'}) {
   return vi.fn((url) => {
+    if (url === 'api/activity/journal') return Promise.resolve(jsonResponse({enabled: true}))
     if (typeof url === 'string' && url.startsWith('api/activity/request/') && url.endsWith('/journal')) {
       return Promise.resolve(jsonResponse(journalProfile))
     }
@@ -1489,15 +1490,50 @@ describe('LiveActivity', () => {
     wrapper = mountLiveActivity()
     await flushPromises()
 
-    await wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('Use a database'))
-      .trigger('click')
+    const disclosure = wrapper.findAll('button').find((b) => b.text().includes('Use a database'))
+    expect(disclosure.find('i').attributes('aria-hidden')).toBe('true')
+    await disclosure.trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('reuse the existing one right now')
+    expect(wrapper.text()).toContain('reuse the existing one while the runtime journal is recording')
     expect(wrapper.findAll('button').find((b) => b.text().includes('Use the existing datasource'))).toBeTruthy()
   })
+
+  it.each([
+    ['disabled', {enabled: false}, 'runtime journal is disabled'],
+    ['malformed', {}, 'runtime journal status'],
+    ['unavailable', null, 'runtime journal status']
+  ])(
+    'qualifies the configured datasource when the journal is %s without changing datasource presence',
+    async (kind, journal, reason) => {
+      const activity = activityReport({
+        persistenceOption: {active: false, dataSourceAvailable: true, tableName: 'bootui_activity'}
+      })
+      const fetchMock = vi.fn((url) => {
+        if (url === 'api/activity/journal') {
+          return journal === null
+            ? Promise.reject(new Error('journal unavailable'))
+            : Promise.resolve(jsonResponse(journal))
+        }
+        return Promise.resolve(jsonResponse(activity))
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      wrapper = mountLiveActivity()
+      await flushPromises()
+      expect(fetchMock.mock.calls.some(([url]) => url === 'api/activity/journal')).toBe(false)
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text().includes('Use a database'))
+        .trigger('click')
+      await flushPromises()
+      const action = wrapper.findAll('button').find((button) => button.text().includes('Use the existing datasource'))
+      expect(action.attributes('disabled')).toBeDefined()
+      expect(wrapper.text()).toContain('already configured')
+      expect(wrapper.text()).toContain(reason)
+      expect(fetchMock.mock.calls.some(([url]) => url === 'api/activity/use-existing-datasource')).toBe(false)
+      expect(wrapper.text()).toContain('GET /api/todos')
+    }
+  )
 
   it.each(['success', 'already-active'])(
     'switches to the database with a %s acknowledgement and a custom table',
@@ -1511,6 +1547,7 @@ describe('LiveActivity', () => {
         persistenceOption: {active: true, dataSourceAvailable: true, tableName: 'bootui_activity'}
       })
       const fetchMock = vi.fn((url) => {
+        if (url === 'api/activity/journal') return Promise.resolve(jsonResponse({enabled: true}))
         if (url === 'api/activity/use-existing-datasource') {
           persistedNow = true
           return Promise.resolve(
@@ -1585,6 +1622,7 @@ describe('LiveActivity', () => {
         persistenceOption: {active: false, dataSourceAvailable: true, tableName: 'custom_activity'}
       })
       const fetchMock = vi.fn((url) => {
+        if (url === 'api/activity/journal') return Promise.resolve(jsonResponse({enabled: true}))
         if (url === 'api/activity/use-existing-datasource') {
           return Promise.resolve(new Response(body, {status: 200}))
         }
@@ -1601,6 +1639,7 @@ describe('LiveActivity', () => {
         .findAll('button')
         .find((button) => button.text().includes('Use a database'))
         .trigger('click')
+      await flushPromises()
       await wrapper
         .findAll('button')
         .find((button) => button.text().includes('Use the existing datasource'))
@@ -1625,9 +1664,11 @@ describe('LiveActivity', () => {
       persistenceOption: {active: false, dataSourceAvailable: true, tableName: 'custom_activity'}
     })
     const fetchMock = vi.fn((url) =>
-      url === 'api/activity/use-existing-datasource'
-        ? Promise.resolve(new Response(body, {status: code, headers: {'content-type': 'application/json'}}))
-        : Promise.resolve(jsonResponse(before))
+      url === 'api/activity/journal'
+        ? Promise.resolve(jsonResponse({enabled: true}))
+        : url === 'api/activity/use-existing-datasource'
+          ? Promise.resolve(new Response(body, {status: code, headers: {'content-type': 'application/json'}}))
+          : Promise.resolve(jsonResponse(before))
     )
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mountLiveActivity()
@@ -1636,6 +1677,7 @@ describe('LiveActivity', () => {
       .findAll('button')
       .find((button) => button.text().includes('Use a database'))
       .trigger('click')
+    await flushPromises()
     await wrapper
       .findAll('button')
       .find((button) => button.text().includes('Use the existing datasource'))

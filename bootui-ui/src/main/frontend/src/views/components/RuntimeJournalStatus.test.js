@@ -59,6 +59,20 @@ describe('RuntimeJournalStatus', () => {
     expect(text).toContain('sql 900')
     expect(text).toContain('None: every event was recorded.')
     expect(wrapper.find('i.bi-journal-text').attributes('aria-hidden')).toBe('true')
+    expect(wrapper.emitted('loaded')[0][0].enabled).toBe(true)
+  })
+
+  it('emits an unknown status instead of a disabled-looking report after a malformed read', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => respond({}))
+    )
+    const wrapper = mount(RuntimeJournalStatus)
+    await flushPromises()
+    expect(wrapper.emitted('loaded')).toEqual([[null]])
+    expect(wrapper.text()).toContain('Invalid runtime journal status response')
+    expect(wrapper.text()).not.toContain('The runtime journal is disabled.')
+    wrapper.unmount()
   })
 
   it('lists the previous runs it keeps, newest first, or says why none are kept', async () => {

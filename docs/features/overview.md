@@ -434,6 +434,9 @@ publication also rejects the switch and closes its unused capture/store.
 It is confirmation-gated like every other state-changing action. The switch is **runtime-only**:
 nothing is written to disk, so a restart reverts to in-memory unless the property is also set in configuration. With no
 `DataSource` present, the button links to the setup documentation instead.
+Opening the database disclosure checks the runtime journal status on demand. The switch remains disabled with an
+explanation while capture is disabled, unavailable, or cannot be verified; datasource presence alone does not prove
+events can be saved. Configured startup persistence still uses its normal deferred initialization.
 
 The datasource switch and **Clear recording** report success only after a valid JSON acknowledgement. An empty,
 malformed, or unrecognized acknowledgement reports an unknown outcome and re-reads the feed or journal status,
@@ -984,6 +987,9 @@ run exercised its owner, and **gone** only when this run did (its route served a
 something else outside the JVM); otherwise its owner was **not exercised** in one of the runs. A run that kept only
 part of a sensor's keys marks it **partly compared** and withholds the rows that part could make wrong. Work on a
 thread no request or execution owns is not compared. The keys travel in the run summary, so in the baseline file too.
+The run-summary link counts framework behavior and runtime-model changes separately from outside-JVM evidence.
+Recorded outside-JVM additions or removals remain visible in that summary, and partial, unavailable, truncated, or
+not-exercised evidence is qualified rather than presented as a complete zero.
 On a laptop, warmup and noise dominate latency while
 the work identical requests do is stable, so comparison leads with behavior: per route or execution (scheduled jobs
 and consumed messages), the statements, REST calls, AI calls, cache misses, and tokens per request or execution.

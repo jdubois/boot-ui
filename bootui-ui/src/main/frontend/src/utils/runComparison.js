@@ -92,15 +92,36 @@ export function comparisonSummary(comparison) {
   if (['COMPARED', 'PARTIAL', 'INSUFFICIENT'].includes(comparison.status)) {
     const changes = (comparison.behavior?.length ?? 0) + (comparison.edges?.length ?? 0)
     const run = comparison.previous ? `run ${comparison.previous.ordinal}` : 'the previous run'
-    if (comparison.status === 'INSUFFICIENT') return `Compared with ${run}: needs more traffic`
-    if (comparison.status === 'PARTIAL') {
-      return changes === 0
-        ? `Partly compared with ${run}: incomplete evidence`
-        : `${changes} ${changes === 1 ? 'change' : 'changes'} since ${run} (partly compared)`
-    }
-    return changes === 0
-      ? `No change in behavior since ${run}`
-      : `${changes} ${changes === 1 ? 'change' : 'changes'} since ${run}`
+    const frameworkSummary =
+      comparison.status === 'INSUFFICIENT'
+        ? `Compared with ${run}: needs more traffic`
+        : comparison.status === 'PARTIAL'
+          ? changes === 0
+            ? `Partly compared with ${run}: incomplete evidence`
+            : `${changes} framework ${changes === 1 ? 'change' : 'changes'} since ${run} (partly compared)`
+          : changes === 0
+            ? `No changes in compared framework behavior since ${run}`
+            : `${changes} framework ${changes === 1 ? 'change' : 'changes'} since ${run}`
+    const outside = comparison.sideEffects
+    if (!outside) return frameworkSummary
+    const rows = outside.changes ?? []
+    const positive =
+      outside.available &&
+      (rows.some((row) => ['ADDED', 'REMOVED'].includes(row.change)) ||
+        (outside.sensors ?? []).some(
+          (sensor) => sensor.status !== 'NOT_COMPARED' && (sensor.added > 0 || sensor.removed > 0)
+        ))
+    const incomplete =
+      !outside.available ||
+      outside.partial ||
+      !(outside.sensors ?? []).some((sensor) => sensor.status === 'COMPARED') ||
+      (outside.sensors ?? []).some((sensor) => sensor.status !== 'COMPARED' || sensor.notExercised > 0) ||
+      rows.some((row) => row.change === 'NOT_EXERCISED') ||
+      (outside.changesTotal ?? 0) > rows.length
+    const qualifications = []
+    if (positive) qualifications.push('outside-JVM changes recorded')
+    if (incomplete) qualifications.push('outside-JVM evidence incomplete')
+    return qualifications.length ? `${frameworkSummary}; ${qualifications.join('; ')}` : frameworkSummary
   }
   return comparisonStatusLabel(comparison.status)
 }
@@ -199,7 +220,11 @@ export function sideEffectChanges(comparison) {
     reason: null,
     partial: Boolean(changes.partial),
     // "Nothing changed" only when a sensor was compared and no row was withheld.
-    settled: !changes.partial && (changes.sensors ?? []).some((sensor) => sensor.status === 'COMPARED'),
+    settled:
+      !changes.partial &&
+      (changes.changesTotal ?? 0) <= (changes.changes?.length ?? 0) &&
+      (changes.sensors ?? []).some((sensor) => sensor.status === 'COMPARED') &&
+      (changes.sensors ?? []).every((sensor) => !(sensor.added > 0 || sensor.removed > 0 || sensor.notExercised > 0)),
     sensors: (changes.sensors ?? []).map(sideEffectSensor),
     rows: (changes.changes ?? []).map((change, index) => ({
       key: `${change.change}-${change.sensor}-${change.owner}-${change.kind}-${change.target}-${index}`,
