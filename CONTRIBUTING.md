@@ -571,7 +571,65 @@ Maven Central upload, it commits those exact contents, creates a GPG-signed
 annotated version tag, and atomically pushes the source branch plus tag. If the
 source branch advanced during preparation, the workflow aborts; it never rebases
 released contents. The selected branch must allow
-`github-actions[bot]` to push the release commit and tag.
+`bootui-release-jdubois[bot]` to push the release commit and tag. The dedicated
+release App is installed only on this repository, with **Contents: write** and
+**Metadata: read**. Its public App ID is `5287802`, client ID
+`Iv23ct2B2yNtEqqh93R1`, and slug `bootui-release-jdubois`; these identifiers are
+not secrets. Store its private key only as the `RELEASE_APP_PRIVATE_KEY`
+environment secret in `maven-central`, keeping the environment reviewer and GPG
+signing key unchanged.
+
+On `1.x`, the App bypasses only the pull-request requirement (ruleset `24934587`).
+The separate deletion/non-fast-forward ruleset (`24934343`) has no bypass actors:
+the App cannot delete the branch or force-push released history. Do not add the
+built-in Actions integration or administrators as bypass actors.
+
+The workflow mints a repository-scoped, Contents-write installation token after
+the verification build and version checks, immediately before sealing. A missing
+key, failed token mint, or unexpected App slug stops the run before the atomic
+push or publication; there is no `GITHUB_TOKEN` fallback. Git receives the
+masked BASIC credential through environment configuration that first clears
+checkout's old HTTP header, never through arguments or a persistent credential
+file. The action revokes the token at job end. The App's tag-push event is a
+no-op, isolated from the global release lock so it cannot displace a queued
+release; the original dispatch publishes the signed tag. Human signed-tag
+publication and explicit tagged continuations remain available.
+
+### Check release App credentials without a release
+
+After this wiring is reviewed and landed, separately authorize a check outside
+any active Release run. Inspect the workflow at the selected ref first:
+
+```bash
+gh workflow view release.yml --repo jdubois/boot-ui --ref 1.x --yaml
+```
+
+Confirm it contains the `release-app-check` job, its `check-release-app` condition,
+and the matching exclusion on `maven-central`. Then run:
+
+```bash
+gh workflow run release.yml --repo jdubois/boot-ui --ref 1.x -f version=check-release-app
+```
+
+This reserves a value of the **existing** `version` input rather than adding a
+new boolean input: the older default-branch input schema accepts the request.
+Never dispatch an unknown input such as `check_app_only`, or omit the reserved
+version when intending a credential-only check. An older selected ref that lacks
+this mode rejects the reserved value as an invalid release version before version
+rewriting, building, tagging, pushing, or uploading; it does not perform the check.
+The preflight above is still required because an older workflow imports signing
+credentials before validating the version.
+
+The credential-only job accepts only `main` or an `N.x` maintenance branch and
+uses the protected `maven-central` environment. It mints the same revocable,
+repository-scoped token, verifies the App slug, and reads only the source
+repository's identity. It does not import GPG keys, build, change versions,
+commit, tag, push, or contact the Central Portal; the publishing job is excluded
+regardless of `auto_publish` or `resume_after_publish`. A passing check proves
+credential/identity access, not the branch-bypass policy or a production push.
+Verify those separately before authorizing the next patch release.
+
+### Release preflight and recovery
 
 Before dispatching, cut `CHANGELOG.md`'s `[Unreleased]` heading to
 `## [VERSION] - YYYY-MM-DD`, complete the notes, and land them on the source branch
@@ -599,12 +657,13 @@ tagged with the Maven project version. Publication entry points require a signed
 annotated tag whose version matches the Maven project. Configure these repository
 or environment secrets before running it:
 
-| Secret                   | Value                                            |
-| ------------------------ | ------------------------------------------------ |
-| `MAVEN_CENTRAL_USERNAME` | Sonatype Central Portal user token username      |
-| `MAVEN_CENTRAL_PASSWORD` | Sonatype Central Portal user token password      |
-| `GPG_PRIVATE_KEY`        | ASCII-armored private key used to sign artifacts |
-| `MAVEN_GPG_PASSPHRASE`   | Passphrase for the GPG private key               |
+| Secret                    | Value                                             |
+| ------------------------- | ------------------------------------------------- |
+| `MAVEN_CENTRAL_USERNAME`   | Sonatype Central Portal user token username       |
+| `MAVEN_CENTRAL_PASSWORD`   | Sonatype Central Portal user token password       |
+| `GPG_PRIVATE_KEY`          | ASCII-armored private key used to sign artifacts  |
+| `MAVEN_GPG_PASSPHRASE`     | Passphrase for the GPG private key                |
+| `RELEASE_APP_PRIVATE_KEY` | Dedicated release App key, in `maven-central` only |
 
 Manual runs publish automatically by default; disable `auto_publish` when you
 want to review and publish the deployment in the Central Portal. The release commit

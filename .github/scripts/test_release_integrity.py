@@ -64,6 +64,144 @@ class ReleaseIntegrityTests(unittest.TestCase):
         result = self.check(WORKFLOW.read_text(encoding="utf-8"))
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_release_app_identity_and_modes_are_pinned(self):
+        for old, new, message in (
+            ("RELEASE_APP_CLIENT_ID: Iv23ct2B2yNtEqqh93R1", "RELEASE_APP_CLIENT_ID: other", "public release App"),
+            ("RELEASE_APP_SLUG: bootui-release-jdubois", "RELEASE_APP_SLUG: other", "public release App"),
+            (
+                "    if: github.event_name == 'workflow_dispatch' && inputs.version == 'check-release-app'",
+                "    if: always()",
+                "credential-only isolation",
+            ),
+            (
+                "inputs.version != 'check-release-app')",
+                "inputs.version != 'unrecognized-check')",
+                "duplicate-publication guard",
+            ),
+            (
+                "&& (github.event_name != 'push' || github.actor != 'bootui-release-jdubois[bot]')",
+                "",
+                "duplicate-publication guard",
+            ),
+            (
+                "&& 'app-tag-noop' || 'release'",
+                "&& 'release' || 'release'",
+                "no-op concurrency isolation",
+            ),
+        ):
+            with self.subTest(old=old):
+                self.assert_rejected(self.mutate(old, new), message)
+
+    def test_release_app_tokens_are_pinned_scoped_and_revoked(self):
+        for old, new in (
+            (
+                "uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0",
+                "uses: actions/create-github-app-token@v3",
+            ),
+            ("client-id: ${{ env.RELEASE_APP_CLIENT_ID }}", "client-id: other"),
+            ("private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}", "private-key: ${{ secrets.OTHER_KEY }}"),
+            ("owner: ${{ github.repository_owner }}", "owner: other"),
+            ("repositories: ${{ github.event.repository.name }}", "repositories: all"),
+            ("permission-contents: write", "permission-contents: read"),
+            ("skip-token-revoke: false", "skip-token-revoke: true"),
+        ):
+            with self.subTest(old=old):
+                self.assert_rejected(self.mutate(old, new, count=2), "release App")
+        for extra in ("permission-administration: write", "github-api-url: https://example.invalid", "app-id: 5287802"):
+            with self.subTest(extra=extra):
+                self.assert_rejected(
+                    self.mutate(
+                        "          permission-contents: write\n",
+                        f"          permission-contents: write\n          {extra}\n",
+                        count=2,
+                    ),
+                    "release App tokens may request only",
+                )
+
+    def test_release_app_push_token_is_minted_after_all_preparation(self):
+        content = WORKFLOW.read_text(encoding="utf-8")
+        start = content.index("      - name: Mint fresh release push token\n")
+        end = content.index("      - name: Seal release commit and tag\n")
+        token_step = content[start:end]
+        content = content[:start] + content[end:]
+        before = content.index("      - name: Prepare release version\n")
+        content = content[:before] + token_step + content[before:]
+        self.assert_rejected(content, "after version preparation")
+        self.assert_rejected(content, "verification must precede")
+        self.assert_rejected(
+            self.mutate(
+                "      - name: Seal release commit and tag\n",
+                "      - name: Long build\n        run: sleep 3600\n\n      - name: Seal release commit and tag\n",
+            ),
+            "immediately before sealing",
+        )
+
+    def test_preparation_minting_and_sealing_conditions_and_handoffs_are_required(self):
+        for old, new in (
+            ("VERSION=\"${REQUESTED_VERSION#v}\"", "VERSION=1.20.1"),
+            ("RELEASE_APP_TOKEN: ${{ steps.release-app-push.outputs.token }}", "RELEASE_APP_TOKEN: fallback"),
+            ("TOKEN_APP_SLUG: ${{ steps.release-app-push.outputs.app-slug }}", "TOKEN_APP_SLUG: fallback"),
+            (
+                '[[ -n "$RELEASE_APP_TOKEN" ]] || { echo "::error::Missing release App installation token"; exit 1; }',
+                "true",
+            ),
+        ):
+            with self.subTest(old=old):
+                self.assert_rejected(self.mutate(old, new), "sealing must validate")
+        condition = "        if: github.event_name == 'workflow_dispatch' && inputs.version != ''"
+        for name in ("Prepare release version", "Mint fresh release push token", "Seal release commit and tag"):
+            marker = f"      - name: {name}\n"
+            start = WORKFLOW.read_text(encoding="utf-8").index(marker)
+            content = WORKFLOW.read_text(encoding="utf-8")
+            end = content.index(condition, start)
+            content = content[:end] + content[end:].replace(condition, "        if: always()", 1)
+            self.assert_rejected(content, "must share the nonempty manual version condition")
+
+    def test_release_app_credential_check_is_read_only_and_environment_gated(self):
+        marker = '          APP_REPOSITORY="$(gh api "repos/$GITHUB_REPOSITORY" --jq .full_name)"\n'
+        for command in ("git push origin main", "git tag v1.20.1", "./mvnw deploy", "gh release create v1.20.1", "gpg --import key", "gh api --method POST repos/other"):
+            with self.subTest(command=command):
+                self.assert_rejected(
+                    self.mutate(marker, marker + f"          {command}\n"),
+                    "credential-only App check must not",
+                )
+        for old, new, message in (
+            (
+                '[[ "$GITHUB_REF_TYPE" == "branch" && ( "$GITHUB_REF_NAME" == "main" || "$GITHUB_REF_NAME" =~ ^[1-9][0-9]*\\.x$ ) ]]',
+                "true",
+                "restricted to main or maintenance",
+            ),
+            ('[[ -n "$GH_TOKEN" ]]', "true", "rejects a missing token"),
+            ('[[ "$APP_REPOSITORY" == "$GITHUB_REPOSITORY" ]]', "true", "repository identity verification"),
+            ("          persist-credentials: false", "          persist-credentials: true", "no persisted credential"),
+            (
+                "GH_TOKEN: ${{ steps.release-app-check.outputs.token }}",
+                "GH_TOKEN: ${{ github.token }}",
+                "no persisted credential",
+            ),
+        ):
+            with self.subTest(old=old):
+                self.assert_rejected(self.mutate(old, new), message)
+        content = WORKFLOW.read_text(encoding="utf-8")
+        start, end = content.index("  release-app-check:\n"), content.index("  maven-central:\n")
+        check_job = content[start:end]
+        for old, new in (("environment: maven-central", "environment: other"), ("contents: read", "contents: write")):
+            self.assert_rejected(content[:start] + check_job.replace(old, new) + content[end:], "read-only checkout")
+
+    def test_release_app_push_credential_is_masked_and_transport_is_pinned(self):
+        for old, new in (
+            ('          echo "::add-mask::$APP_GIT_AUTH"', "          true"),
+            ("          export GIT_CONFIG_COUNT=2", "          export GIT_CONFIG_COUNT=1"),
+            ("          export GIT_CONFIG_VALUE_0=", "          export GIT_CONFIG_VALUE_0=old"),
+            ('          export GIT_CONFIG_VALUE_1="AUTHORIZATION: basic $APP_GIT_AUTH"', "          true"),
+        ):
+            with self.subTest(old=old):
+                self.assert_rejected(self.mutate(old, new), "masked App credential")
+        self.assert_rejected(
+            self.mutate("          export GIT_CONFIG_COUNT=2", '          git config http.extraheader "$RELEASE_APP_TOKEN"\n          export GIT_CONFIG_COUNT=2'),
+            "never appear in Git arguments",
+        )
+
     def test_plugin_version_update_and_verification_are_required(self):
         for old, new, message in (
             (PLUGIN_VERSION_UPDATE, "// no update", "portable plugin release version update"),
