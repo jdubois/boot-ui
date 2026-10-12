@@ -163,6 +163,10 @@ RUN mkdir -p /app/training && \
 # training so the recorded class-loading path already reflects the AOT startup
 # (not the slower dynamic path that would be replaced at runtime anyway).
 #
+# -XX:MaxMetaspaceSize also caps the buffer the JVM assembles the cache in, so it is raised for training
+# only: with the runtime's 171m the dump failed ("Unable to allocate from 'ro' region") once the class
+# set grew. The runtime limit is unchanged; a mapped cache does not count against it.
+#
 # The heap, GC and object-header flags (-Xms/-Xmx, -XX:+UseG1GC,
 # -XX:+UseCompactObjectHeaders) must match the runtime-stage JAVA_TOOL_OPTIONS
 # below: the JVM refuses to map an AOT cache whose UseCompactObjectHeaders (or
@@ -184,7 +188,7 @@ RUN cd /app/training && \
     /javaruntime/bin/java \
         -XX:AOTCacheOutput=/app/app.aot \
         -XX:+UnlockDiagnosticVMOptions -XX:-AOTAdapterCaching \
-        -Xms200m -Xmx200m -XX:MaxMetaspaceSize=171m \
+        -Xms200m -Xmx200m -XX:MaxMetaspaceSize=512m \
         -XX:+UseG1GC -XX:+UseCompactObjectHeaders \
         -Dspring.aot.enabled=true \
         -Dspring.context.exit=onRefresh \
