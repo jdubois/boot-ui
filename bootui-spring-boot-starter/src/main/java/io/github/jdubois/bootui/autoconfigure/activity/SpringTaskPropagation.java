@@ -36,7 +36,8 @@ final class SpringTaskPropagation {
     static boolean rescheduling() {
         return WALKER.walk(frames -> {
             boolean inSchedule = false;
-            for (StackWalker.StackFrame frame : (Iterable<StackWalker.StackFrame>) frames.limit(MAX_FRAMES)::iterator) {
+            // Collected eagerly: GraalVM native image's StackWalker rejects the lazy iterator over a limited stream.
+            for (StackWalker.StackFrame frame : frames.limit(MAX_FRAMES).toList()) {
                 boolean rescheduling = RESCHEDULING_RUNNABLE.equals(frame.getClassName());
                 if (inSchedule) {
                     return rescheduling && "run".equals(frame.getMethodName());
