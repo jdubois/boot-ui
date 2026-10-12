@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Next major, minor, or patch version to prepare. Leave empty to publish the selected tagged ref.
+        description: Next release version; empty publishes the selected tag. Use check-release-app for a credential-only check.
         required: false
         type: string
         default: ''
@@ -25,12 +25,62 @@ on:
         default: false
 
 concurrency:
-  group: ${{ github.workflow }}-release
+  # App tag pushes are no-ops and must not displace a queued release in the global lock.
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.actor == 'bootui-release-jdubois[bot]' && 'app-tag-noop' || 'release' }}
   cancel-in-progress: false
 
+env:
+  RELEASE_APP_CLIENT_ID: Iv23ct2B2yNtEqqh93R1
+  RELEASE_APP_SLUG: bootui-release-jdubois
+
 jobs:
+  release-app-check:
+    name: Check release App credential
+    if: github.event_name == 'workflow_dispatch' && inputs.version == 'check-release-app'
+    runs-on: ubuntu-latest
+    environment: maven-central
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout App check source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check App workflow integrity
+        run: bash .github/scripts/check-release-integrity.sh
+
+      - name: Check App credential source branch
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_TYPE" == "branch" && ( "$GITHUB_REF_NAME" == "main" || "$GITHUB_REF_NAME" =~ ^[1-9][0-9]*\.x$ ) ]] || { echo "::error::Check the release App only from main or a maintenance branch"; exit 1; }
+
+      - name: Create release App check token
+        id: release-app-check
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ env.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          skip-token-revoke: false
+
+      - name: Verify release App access
+        env:
+          GH_TOKEN: ${{ steps.release-app-check.outputs.token }}
+          TOKEN_APP_SLUG: ${{ steps.release-app-check.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          [[ -n "$GH_TOKEN" ]] || { echo "::error::Missing release App installation token"; exit 1; }
+          [[ "$TOKEN_APP_SLUG" == "$RELEASE_APP_SLUG" ]] || { echo "::error::Unexpected release App identity"; exit 1; }
+          APP_REPOSITORY="$(gh api "repos/$GITHUB_REPOSITORY" --jq .full_name)"
+          [[ "$APP_REPOSITORY" == "$GITHUB_REPOSITORY" ]] || { echo "::error::Release App cannot access the source repository"; exit 1; }
+
   maven-central:
     name: Maven Central
+    # The dispatch publishes the App-pushed tag; its push event must not publish again.
+    if: (github.event_name != 'workflow_dispatch' || inputs.version != 'check-release-app') && (github.event_name != 'push' || github.actor != 'bootui-release-jdubois[bot]')
     runs-on: ubuntu-latest
     environment: maven-central
     permissions:
@@ -222,6 +272,33 @@ jobs:
             exit 1
           fi
 
+      - name: Mint fresh release push token
+        id: release-app-push
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ env.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          skip-token-revoke: false
+
+      - name: Seal release commit and tag
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+          RELEASE_APP_TOKEN: ${{ steps.release-app-push.outputs.token }}
+          TOKEN_APP_SLUG: ${{ steps.release-app-push.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          VERSION="${REQUESTED_VERSION#v}"
+          TAG="v$VERSION"
+          SOURCE_BRANCH="$GITHUB_REF_NAME"
+          SOURCE_SHA="$GITHUB_SHA"
+          [[ -n "$RELEASE_APP_TOKEN" ]] || { echo "::error::Missing release App installation token"; exit 1; }
+          [[ "$TOKEN_APP_SLUG" == "$RELEASE_APP_SLUG" ]] || { echo "::error::Unexpected release App identity"; exit 1; }
+
           if [[ -n "$(git status --porcelain)" ]]; then
             # Stage every tracked file touched by the version bump, including nested poms.
             git add -u
@@ -271,6 +348,14 @@ jobs:
 
           # The branch update and tag creation must either both land or neither land. A race after
           # the explicit source check rejects this atomic push; released contents are never rebased.
+          # Clear checkout's inherited header; never put the App credential in arguments or a file.
+          APP_GIT_AUTH="$(printf 'x-access-token:%s' "$RELEASE_APP_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$APP_GIT_AUTH"
+          export GIT_CONFIG_COUNT=2
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0=
+          export GIT_CONFIG_KEY_1=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_1="AUTHORIZATION: basic $APP_GIT_AUTH"
           if ! git push --atomic origin \
             "HEAD:refs/heads/${SOURCE_BRANCH}" \
             "refs/tags/${TAG}:refs/tags/${TAG}"; then
@@ -278,6 +363,7 @@ jobs:
             echo "::error::Atomic release push failed. origin/$SOURCE_BRANCH is now $(git rev-parse "refs/remotes/origin/${SOURCE_BRANCH}"); expected $SOURCE_SHA. Aborting without rebasing or moving $TAG."
             exit 1
           fi
+          unset APP_GIT_AUTH GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1
 
           echo "Sealed release $TAG at $RELEASE_SHA and pushed its commit and signed annotated tag atomically."
           echo "PREPARED_TAG=$TAG" >> "$GITHUB_ENV"

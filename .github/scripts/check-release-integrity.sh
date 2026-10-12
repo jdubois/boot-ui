@@ -295,6 +295,154 @@ job_names() {
   awk '/^jobs:/ { jobs = 1; next } jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { gsub(/[ :]/, ""); print }' "$1"
 }
 
+step_block() {
+  awk -v step="      - name: $1" '
+    $0 == step { inside = 1; print; next }
+    inside && /^      - name:/ { exit }
+    inside { print }
+  ' "$WORKFLOW"
+}
+
+readonly APP_CLIENT_PIN='  RELEASE_APP_CLIENT_ID: Iv23ct2B2yNtEqqh93R1'
+readonly APP_SLUG_PIN='  RELEASE_APP_SLUG: bootui-release-jdubois'
+readonly APP_TOKEN_ACTION='        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0'
+readonly APP_CHECK_CONDITION="    if: github.event_name == 'workflow_dispatch' && inputs.version == 'check-release-app'"
+readonly APP_RELEASE_CONDITION="    if: (github.event_name != 'workflow_dispatch' || inputs.version != 'check-release-app') && (github.event_name != 'push' || github.actor != 'bootui-release-jdubois[bot]')"
+readonly APP_CONCURRENCY="  group: \${{ github.workflow }}-\${{ github.event_name == 'push' && github.actor == 'bootui-release-jdubois[bot]' && 'app-tag-noop' || 'release' }}"
+readonly PREPARE_CONDITION="        if: github.event_name == 'workflow_dispatch' && inputs.version != ''"
+app_check_job="$(job_block "$WORKFLOW" release-app-check)"
+release_job="$(job_block "$WORKFLOW" maven-central)"
+if [[ "$(grep -E '^    if:' <<<"$app_check_job" || true)" != "$APP_CHECK_CONDITION" ||
+  "$(grep -E '^    if:' <<<"$release_job" || true)" != "$APP_RELEASE_CONDITION" ]]; then
+  report_error 'credential-only isolation and App tag-event duplicate-publication guard must be preserved'
+fi
+require_literal "$APP_CONCURRENCY" 'App tag no-op concurrency isolation from queued releases'
+require_literal 'cancel-in-progress: false' 'non-cancelling global release lock'
+for pin in "$APP_CLIENT_PIN" "$APP_SLUG_PIN"; do
+  if [[ "$(grep -Fxc "$pin" "$WORKFLOW")" != "1" ]]; then
+    report_error 'the public release App identity must be pinned exactly once'
+  fi
+done
+app_client_uses="$(grep -v '^[[:space:]]*#' "$WORKFLOW" | grep -F 'RELEASE_APP_CLIENT_ID' | grep -vFx \
+  -e "$APP_CLIENT_PIN" -e '          client-id: ${{ env.RELEASE_APP_CLIENT_ID }}' || true)"
+app_slug_uses="$(grep -v '^[[:space:]]*#' "$WORKFLOW" | grep -F 'RELEASE_APP_SLUG' | grep -vFx \
+  -e "$APP_SLUG_PIN" \
+  -e '          [[ "$TOKEN_APP_SLUG" == "$RELEASE_APP_SLUG" ]] || { echo "::error::Unexpected release App identity"; exit 1; }' || true)"
+if [[ -n "$app_client_uses" || -n "$app_slug_uses" ]]; then
+  report_error 'the pinned release App identity may not be redefined'
+fi
+if [[ "$(grep -Fc "$APP_TOKEN_ACTION" "$WORKFLOW")" != "2" ||
+  "$(grep -Fc 'secrets.RELEASE_APP_PRIVATE_KEY' "$WORKFLOW")" != "2" ]]; then
+  report_error 'only the two pinned token actions may read the release App private key'
+fi
+for definition in 'Create release App check token|release-app-check' 'Mint fresh release push token|release-app-push'; do
+  step_name="${definition%%|*}"
+  step_id="${definition#*|}"
+  token_step="$(step_block "$step_name")"
+  for literal in \
+    "        id: $step_id" \
+    "$APP_TOKEN_ACTION" \
+    '          client-id: ${{ env.RELEASE_APP_CLIENT_ID }}' \
+    '          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}' \
+    '          owner: ${{ github.repository_owner }}' \
+    '          repositories: ${{ github.event.repository.name }}' \
+    '          permission-contents: write' \
+    '          skip-token-revoke: false'; do
+    if ! grep -Fxq -- "$literal" <<<"$token_step"; then
+      report_error "$step_name must use the pinned, revocable, repository-scoped release App token ('$literal')"
+    fi
+  done
+  if [[ "$(grep -c '^[[:space:]]*permission-' <<<"$token_step")" != "1" ]] ||
+    grep -Eq '^[[:space:]]*(github-api-url|enterprise|app-id):' <<<"$token_step"; then
+    report_error 'release App tokens may request only Contents write on the source repository GitHub API'
+  fi
+done
+for step in 'Prepare release version' 'Mint fresh release push token' 'Seal release commit and tag'; do
+  if [[ "$(grep -E '^        if:' <<<"$(step_block "$step")" || true)" != "$PREPARE_CONDITION" ]]; then
+    report_error 'preparation, App minting, and sealing must share the nonempty manual version condition'
+  fi
+done
+for literal in \
+  '    environment: maven-central' \
+  '      contents: read' \
+  '          persist-credentials: false' \
+  '          GH_TOKEN: ${{ steps.release-app-check.outputs.token }}' \
+  '          TOKEN_APP_SLUG: ${{ steps.release-app-check.outputs.app-slug }}' \
+  '          [[ "$TOKEN_APP_SLUG" == "$RELEASE_APP_SLUG" ]] || { echo "::error::Unexpected release App identity"; exit 1; }'; do
+  if ! grep -Fxq "$literal" <<<"$app_check_job"; then
+    report_error 'the credential-only App check must use maven-central, read-only checkout, and no persisted credential'
+  fi
+done
+if grep -Eq '(mvnw|git (push|commit|tag)|publish_central_bundle|gh release|gpg|curl|GPG_PRIVATE_KEY|MAVEN_CENTRAL_|--method)' <<<"$app_check_job"; then
+  report_error 'the credential-only App check must not build, sign, tag, mutate, or publish'
+fi
+require_literal '          [[ "$GITHUB_REF_TYPE" == "branch" && ( "$GITHUB_REF_NAME" == "main" || "$GITHUB_REF_NAME" =~ ^[1-9][0-9]*\.x$ ) ]] || { echo "::error::Check the release App only from main or a maintenance branch"; exit 1; }' \
+  'credential-only check restricted to main or maintenance branches'
+require_literal '          [[ -n "$GH_TOKEN" ]] || { echo "::error::Missing release App installation token"; exit 1; }' \
+  'credential-only check rejects a missing token'
+require_literal '          APP_REPOSITORY="$(gh api "repos/$GITHUB_REPOSITORY" --jq .full_name)"' \
+  'credential-only repository identity read'
+require_literal '          [[ "$APP_REPOSITORY" == "$GITHUB_REPOSITORY" ]] || { echo "::error::Release App cannot access the source repository"; exit 1; }' \
+  'credential-only repository identity verification'
+require_order '- name: Check App workflow integrity' '- name: Create release App check token' \
+  'integrity must be checked before reading the App credential'
+require_order '- name: Check App credential source branch' '- name: Create release App check token' \
+  'the App credential check source branch must be checked before minting'
+require_order '- name: Prepare release version' '- name: Mint fresh release push token' \
+  'the App push token must be minted after version preparation'
+require_order './mvnw -B -ntp -Prelease clean verify' '- name: Mint fresh release push token' \
+  'release verification must precede the fresh App push token'
+require_order 'echo "$stale_poms"' '- name: Mint fresh release push token' \
+  'all version preparation checks must precede the fresh App push token'
+if [[ "$(sed -n '/^      - name: Mint fresh release push token$/,/^      - name: Seal release commit and tag$/p' "$WORKFLOW" |
+  grep -c '^      - name:')" != "2" ]]; then
+  report_error 'the fresh App token must be minted immediately before sealing, with no intervening step'
+fi
+seal_step="$(step_block 'Seal release commit and tag')"
+for literal in \
+  '          RELEASE_APP_TOKEN: ${{ steps.release-app-push.outputs.token }}' \
+  '          TOKEN_APP_SLUG: ${{ steps.release-app-push.outputs.app-slug }}' \
+  '          VERSION="${REQUESTED_VERSION#v}"' \
+  '          TAG="v$VERSION"' \
+  '          SOURCE_BRANCH="$GITHUB_REF_NAME"' \
+  '          SOURCE_SHA="$GITHUB_SHA"' \
+  '          [[ -n "$RELEASE_APP_TOKEN" ]] || { echo "::error::Missing release App installation token"; exit 1; }' \
+  '          [[ "$TOKEN_APP_SLUG" == "$RELEASE_APP_SLUG" ]] || { echo "::error::Unexpected release App identity"; exit 1; }'; do
+  if ! grep -Fxq -- "$literal" <<<"$seal_step"; then
+    report_error "sealing must validate the fresh release App token and source handoff ('$literal')"
+  fi
+done
+require_order '[[ -n "$RELEASE_APP_TOKEN" ]]' 'git commit -m "Release $TAG"' \
+  'App authorization must be checked before committing release contents'
+previous_literal='git verify-tag "$TAG"'
+for literal in \
+  '          APP_GIT_AUTH="$(printf '"'"'x-access-token:%s'"'"' "$RELEASE_APP_TOKEN" | base64 | tr -d '"'"'\n'"'"')"' \
+  '          echo "::add-mask::$APP_GIT_AUTH"' \
+  '          export GIT_CONFIG_COUNT=2' \
+  '          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader' \
+  '          export GIT_CONFIG_VALUE_0=' \
+  '          export GIT_CONFIG_KEY_1=http.https://github.com/.extraheader' \
+  '          export GIT_CONFIG_VALUE_1="AUTHORIZATION: basic $APP_GIT_AUTH"' \
+  "          if ! git push --atomic origin \\"; do
+  if ! grep -Fxq -- "$literal" <<<"$seal_step"; then
+    report_error 'the atomic release push must reset checkout credentials and use the masked App credential through Git environment configuration'
+  fi
+  require_order "$previous_literal" "$literal" \
+    'the atomic release push must reset checkout credentials and use the masked App credential through Git environment configuration'
+  previous_literal="$literal"
+done
+require_literal '          unset APP_GIT_AUTH GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1' \
+  'App Git credential environment cleanup'
+if grep -Eq 'git .*[$](RELEASE_APP_TOKEN|APP_GIT_AUTH)' "$WORKFLOW"; then
+  report_error 'release App credentials must never appear in Git arguments or persistent configuration'
+fi
+for job in $(job_names "$WORKFLOW"); do
+  case "$job" in
+    release-app-check | maven-central) ;;
+    *) report_error "unexpected release job '$job' outside the credential-only isolation" ;;
+  esac
+done
+
 readonly GATE_RUN='run: bash .github/scripts/release-line-gate.sh'
 for file in "$WORKFLOW" "$PAGES_WORKFLOW" "$DOCKER_WORKFLOW"; do
   if grep -Eq 'BOOTUI_RELEASE_TAGS_FILE|BOOTUI_CENTRAL_URL|RELEASE_INTEGRITY_ROOT' "$file"; then
