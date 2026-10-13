@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import io.github.jdubois.bootui.spi.LowFootprintSuspendable;
 import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
@@ -62,7 +63,7 @@ import java.util.function.Predicate;
  * a lifetime counter: manual {@link #setStatus} calls never change it, so it keeps answering "has this
  * exact failure signature come back before?" across any number of later manual resolves.</p>
  */
-public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloadable {
+public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloadable, LowFootprintSuspendable {
 
     /** Number of leading frames that contribute to a group's fingerprint. */
     private static final int FINGERPRINT_FRAMES = 5;
@@ -88,6 +89,9 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
     private volatile SpanEnricher spanEnricher = SpanEnricher.NO_OP;
     private final CorrelationSource correlation = new CorrelationSource();
     private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
+
+    /** Whether low-footprint mode paused recording; one volatile read on the capture path. */
+    private volatile boolean paused;
 
     public ExceptionStore(int maxGroups, int maxOccurrencesPerGroup, int maxStackFrames) {
         this(maxGroups, maxOccurrencesPerGroup, maxStackFrames, throwable -> false);
@@ -167,7 +171,7 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
             String handler,
             String source,
             String traceId) {
-        if (throwable == null || ignore.test(throwable) || !markSeen(throwable)) {
+        if (paused || throwable == null || ignore.test(throwable) || !markSeen(throwable)) {
             return;
         }
         List<Frame> frames = buildFrames(throwable.getStackTrace());
@@ -352,6 +356,27 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
         }
         notifyListeners();
         return updated;
+    }
+
+    @Override
+    public String suspendId() {
+        return "exceptions";
+    }
+
+    @Override
+    public String suspendLabel() {
+        return "Exception capture";
+    }
+
+    /** Stops recording exceptions until {@link #resumeFromLowFootprint()}; retained groups are kept until cleared. */
+    @Override
+    public void suspendForLowFootprint() {
+        paused = true;
+    }
+
+    @Override
+    public void resumeFromLowFootprint() {
+        paused = false;
     }
 
     @Override

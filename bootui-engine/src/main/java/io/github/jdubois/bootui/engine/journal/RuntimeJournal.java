@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.resources.ResourceTrack;
 import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import io.github.jdubois.bootui.spi.LowFootprintSuspendable;
 import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
 import java.lang.System.Logger.Level;
@@ -48,7 +49,8 @@ import java.util.function.IntConsumer;
  * <p>Sequence numbers are unique within the run, and each event's id joins the run id and its sequence, so a restart
  * never collides with an earlier run.</p>
  */
-public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, MemoryOffloadable {
+public final class RuntimeJournal
+        implements RuntimeEventSink, AutoCloseable, MemoryOffloadable, LowFootprintSuspendable {
 
     /** The dispatcher thread's name. */
     public static final String DISPATCHER_THREAD = "bootui-journal-dispatch";
@@ -67,6 +69,9 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
      * routine share ends the pause early ({@link JournalQueue#awaitFilling}), so a burst never waits for it.
      */
     static final long DISPATCH_LINGER_NANOS = TimeUnit.MILLISECONDS.toNanos(1);
+
+    /** How long the dispatcher waits for an event while recording is paused; an offered marker wakes it at once. */
+    static final long PAUSED_POLL_MILLIS = 10_000;
 
     /** The dictionary's share of the byte bound, beyond which it interns nothing more. */
     static final int DICTIONARY_BYTES_PERCENT = 25;
@@ -173,6 +178,17 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     private ResourceSampler resourceSampler;
     private volatile boolean running;
 
+    /**
+     * Whether low-footprint mode paused recording: every {@code offer*} but {@link #offerMarker} refuses without
+     * counting a drop, at the price of one volatile read, and the dispatcher waits for {@link #PAUSED_POLL_MILLIS}.
+     */
+    private volatile boolean paused;
+
+    private boolean gcSuspended;
+    private boolean samplerSuspended;
+    private ResourceSettings resourceSettings;
+    private ResourceTrack resourceTrack;
+
     /** A journal whose dispatcher starts now, when {@code settings} enable it. */
     public RuntimeJournal(RuntimeJournalSettings settings, RunIdentity run) {
         this(settings, run, true, null, null, 250);
@@ -248,7 +264,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
      */
     @Override
     public boolean offer(RuntimeEvent event) {
-        if (event == null || !settings.records(event.source()) || isBootUiWork()) {
+        if (paused || event == null || !settings.records(event.source()) || isBootUiWork()) {
             return false;
         }
         return enqueue(event);
@@ -260,7 +276,8 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
      */
     @Override
     public boolean offerImported(RuntimeEvent event) {
-        if (event == null
+        if (paused
+                || event == null
                 || event.source() != JournalSource.AI
                 || !settings.records(event.source())
                 || isBootUiThread()) {
@@ -276,7 +293,8 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
      */
     @Override
     public boolean offerAgentRecord(RuntimeEvent event) {
-        if (event == null
+        if (paused
+                || event == null
                 || event.source() != JournalSource.AGENT_CAUGHT_EXCEPTIONS
                 || !settings.records(event.source())) {
             return false;
@@ -286,7 +304,8 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
 
     /**
      * Offers a {@code lifecycle} marker that BootUI publishes about its own action ({@link ControlMarkers}), which runs
-     * in BootUI's own request and would otherwise be dropped as BootUI's work.
+     * in BootUI's own request and would otherwise be dropped as BootUI's work. It is accepted while recording is
+     * paused: a marker is rare and bounded, and it is what makes a pause explicit in the history.
      */
     boolean offerMarker(RuntimeEvent event) {
         if (event == null || event.source() != JournalSource.LIFECYCLE || !settings.records(event.source())) {
@@ -360,7 +379,11 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
      * @return whether the source listens to at least one collector
      */
     public synchronized boolean startGcSource() {
-        if (gcSource == null && dispatcher != null && !closed.get() && settings.records(JournalSource.GC)) {
+        if (gcSource == null
+                && !gcSuspended
+                && dispatcher != null
+                && !closed.get()
+                && settings.records(JournalSource.GC)) {
             gcSource = GcEventSource.start(this);
         }
         return gcSource != null && gcSource.collectors() > 0;
@@ -375,9 +398,12 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
      */
     public synchronized boolean startResourceSampler(ResourceSettings resourceSettings, ResourceTrack track) {
         if (resourceSampler == null
+                && !samplerSuspended
                 && dispatcher != null
                 && !closed.get()
                 && settings.records(JournalSource.RESOURCES)) {
+            this.resourceSettings = resourceSettings;
+            this.resourceTrack = track;
             resourceSampler = ResourceSampler.start(resourceSettings, track, this::lastSequence);
         }
         return resourceSampler != null && !closed.get();
@@ -411,7 +437,9 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         while (running) {
             try {
                 JournalQueue queue = admission;
-                RuntimeEvent first = queue.poll(dispatcherPollMillis, TimeUnit.MILLISECONDS);
+                // Paused, nothing is offered but the rare marker, which wakes the wait: no need to wake every 250 ms.
+                long pollMillis = paused ? Math.max(dispatcherPollMillis, PAUSED_POLL_MILLIS) : dispatcherPollMillis;
+                RuntimeEvent first = queue.poll(pollMillis, TimeUnit.MILLISECONDS);
                 if (first == null) {
                     continue;
                 }
@@ -688,6 +716,131 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     /** Whether {@code listener} is told of each batch and of each clear. */
     boolean notifies(JournalListener listener) {
         return listeners.contains(listener);
+    }
+
+    @Override
+    public String suspendId() {
+        return "runtime-journal";
+    }
+
+    @Override
+    public String suspendLabel() {
+        return "Runtime journal recording";
+    }
+
+    /** Whether low-footprint mode paused recording. */
+    public boolean paused() {
+        return paused;
+    }
+
+    /**
+     * Stops recording events until {@link #resumeFromLowFootprint()}; the retained events stay until cleared. Events
+     * offered meanwhile are refused without being counted as dropped, apart from {@link ControlMarkers}.
+     */
+    @Override
+    public void suspendForLowFootprint() {
+        paused = true;
+    }
+
+    /**
+     * Records events again. Every source is marked as having lost events up to now, so a reader that judges what did
+     * not happen knows its evidence has a gap.
+     */
+    @Override
+    public void resumeFromLowFootprint() {
+        if (!paused) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        for (int source = 0; source < droppedAt.length(); source++) {
+            droppedAt.set(source, now);
+        }
+        paused = false;
+    }
+
+    /** The journal's recording, its GC listener, and its resource sampler, which low-footprint mode reports apart. */
+    @Override
+    public List<LowFootprintSuspendable> suspendableParts() {
+        return List.of(this, new GcPart(), new SamplerPart());
+    }
+
+    private synchronized void suspendGc() {
+        if (gcSource != null) {
+            gcSource.close();
+            gcSource = null;
+            gcSuspended = true;
+        }
+    }
+
+    private synchronized void resumeGc() {
+        if (gcSuspended) {
+            gcSuspended = false;
+            if (!closed.get() && settings.records(JournalSource.GC)) {
+                gcSource = GcEventSource.start(this);
+            }
+        }
+    }
+
+    private synchronized void suspendSampler() {
+        if (resourceSampler != null) {
+            resourceSampler.close();
+            resourceSampler = null;
+            samplerSuspended = true;
+        }
+    }
+
+    private synchronized void resumeSampler() {
+        if (samplerSuspended) {
+            samplerSuspended = false;
+            if (!closed.get() && resourceSettings != null && settings.records(JournalSource.RESOURCES)) {
+                // A new sampler, so its first sweep takes a fresh baseline instead of one spanning the pause.
+                resourceSampler = ResourceSampler.start(resourceSettings, resourceTrack, this::lastSequence);
+            }
+        }
+    }
+
+    private final class GcPart implements LowFootprintSuspendable {
+        @Override
+        public String suspendId() {
+            return "gc-events";
+        }
+
+        @Override
+        public String suspendLabel() {
+            return "GC event listener";
+        }
+
+        @Override
+        public void suspendForLowFootprint() {
+            suspendGc();
+        }
+
+        @Override
+        public void resumeFromLowFootprint() {
+            resumeGc();
+        }
+    }
+
+    private final class SamplerPart implements LowFootprintSuspendable {
+        @Override
+        public String suspendId() {
+            return "resource-sampler";
+        }
+
+        @Override
+        public String suspendLabel() {
+            return "Resource sampler";
+        }
+
+        @Override
+        public void suspendForLowFootprint() {
+            suspendSampler();
+        }
+
+        @Override
+        public void resumeFromLowFootprint() {
+            resumeSampler();
+        }
     }
 
     @Override

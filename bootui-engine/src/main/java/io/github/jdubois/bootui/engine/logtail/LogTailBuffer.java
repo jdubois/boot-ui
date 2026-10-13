@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.logtail;
 
 import io.github.jdubois.bootui.core.dto.LogLineDto;
 import io.github.jdubois.bootui.engine.support.BootUiThreadLocal;
+import io.github.jdubois.bootui.spi.LowFootprintSuspendable;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -39,7 +40,7 @@ import java.util.function.Consumer;
  * extends the re-entrancy guard across the hand-off: otherwise each delivered line could log a new line
  * that is captured and delivered in turn, without end.</p>
  */
-public final class LogTailBuffer {
+public final class LogTailBuffer implements LowFootprintSuspendable {
 
     /** Default line cap; matches the historical Spring Logback ring depth so its wire is byte-identical. */
     public static final int DEFAULT_MAX_LINES = 500;
@@ -53,6 +54,9 @@ public final class LogTailBuffer {
     private final CopyOnWriteArrayList<Consumer<LogLineDto>> subscribers = new CopyOnWriteArrayList<>();
     private final ThreadLocal<Boolean> appending = BootUiThreadLocal.withInitial(() -> Boolean.FALSE);
     private long totalBytes;
+
+    /** Whether low-footprint mode paused capture; subscribers stay connected and simply receive nothing new. */
+    private volatile boolean paused;
 
     public LogTailBuffer() {
         this(DEFAULT_MAX_LINES, Long.MAX_VALUE);
@@ -75,7 +79,10 @@ public final class LogTailBuffer {
 
     /** Appends a line, evicting oldest lines past the line/byte caps, then notifies subscribers. */
     public void add(LogLineDto line) {
-        if (line == null || Boolean.TRUE.equals(appending.get()) || Boolean.TRUE.equals(DELIVERY_THREAD.get())) {
+        if (paused
+                || line == null
+                || Boolean.TRUE.equals(appending.get())
+                || Boolean.TRUE.equals(DELIVERY_THREAD.get())) {
             return;
         }
         appending.set(Boolean.TRUE);
@@ -94,6 +101,34 @@ public final class LogTailBuffer {
         } finally {
             appending.set(Boolean.FALSE);
         }
+    }
+
+    @Override
+    public String suspendId() {
+        return "log-tail";
+    }
+
+    @Override
+    public String suspendLabel() {
+        return "Log Tail capture";
+    }
+
+    /**
+     * Stops capturing lines and drops the retained ones until {@link #resumeFromLowFootprint()}; connected streams
+     * stay open.
+     */
+    @Override
+    public void suspendForLowFootprint() {
+        paused = true;
+        synchronized (lines) {
+            lines.clear();
+            totalBytes = 0;
+        }
+    }
+
+    @Override
+    public void resumeFromLowFootprint() {
+        paused = false;
     }
 
     /** A snapshot of the currently retained lines, oldest first. */
