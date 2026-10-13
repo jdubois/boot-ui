@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import io.github.jdubois.bootui.spi.LowFootprintSuspendable;
 import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -36,7 +37,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * restart or via {@link #clear()}. Thread-safe: {@link #record} may be called concurrently from many
  * application threads while {@link #recentEvents()} is read from an HTTP request thread.</p>
  */
-public final class CacheActivityRecorder implements RuntimeEventPublisher, MemoryOffloadable {
+public final class CacheActivityRecorder implements RuntimeEventPublisher, MemoryOffloadable, LowFootprintSuspendable {
 
     private final boolean enabled;
     private final int maxEntries;
@@ -112,7 +113,7 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher, Memor
     }
 
     private void record(String managerName, String cacheName, CacheActivityOperation operation, Object key) {
-        if (!enabled) {
+        if (!enabled || lowFootprintPaused) {
             return;
         }
         try {
@@ -230,5 +231,29 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher, Memor
         } catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 is required but unavailable", ex);
         }
+    }
+
+    private volatile boolean lowFootprintPaused;
+
+    @Override
+    public String suspendId() {
+        return "cache";
+    }
+
+    @Override
+    public String suspendLabel() {
+        return "Cache activity capture";
+    }
+
+    /** Stops recording and drops what is retained, for low-footprint mode. */
+    @Override
+    public void suspendForLowFootprint() {
+        lowFootprintPaused = true;
+        offloadRetainedData();
+    }
+
+    @Override
+    public void resumeFromLowFootprint() {
+        lowFootprintPaused = false;
     }
 }

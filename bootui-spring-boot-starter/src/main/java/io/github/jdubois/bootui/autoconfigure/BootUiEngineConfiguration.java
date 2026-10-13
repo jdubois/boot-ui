@@ -107,6 +107,7 @@ import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.mappings.MappingsService;
+import io.github.jdubois.bootui.engine.memory.LowFootprintService;
 import io.github.jdubois.bootui.engine.memory.MemoryOffloadService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
@@ -138,6 +139,7 @@ import io.github.jdubois.bootui.spi.ErrorContractProvider;
 import io.github.jdubois.bootui.spi.FaultTolerancePolicyProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
+import io.github.jdubois.bootui.spi.LowFootprintSuspendable;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import io.github.jdubois.bootui.spi.ScheduledTaskProvider;
@@ -982,6 +984,31 @@ public class BootUiEngineConfiguration {
     @ConditionalOnMissingBean
     MemoryOffloadService bootUiMemoryOffloadService(ConfigurableListableBeanFactory beanFactory) {
         return new MemoryOffloadService(() -> createdOffloadables(beanFactory));
+    }
+
+    /**
+     * Low-footprint mode: pauses the recorders that implement {@code LowFootprintSuspendable} or the idle-reclaim SPI,
+     * then runs the offload above. Like the offload it reads only the singletons the context has already created.
+     */
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    LowFootprintService bootUiLowFootprintService(
+            ConfigurableListableBeanFactory beanFactory, MemoryOffloadService offloadService) {
+        return new LowFootprintService(() -> createdLowFootprintCandidates(beanFactory), offloadService);
+    }
+
+    static List<Object> createdLowFootprintCandidates(ConfigurableListableBeanFactory beanFactory) {
+        List<Object> candidates = new ArrayList<>();
+        for (String name : beanFactory.getSingletonNames()) {
+            Object singleton = beanFactory.getSingleton(name);
+            if ((singleton instanceof LowFootprintSuspendable
+                            || singleton instanceof io.github.jdubois.bootui.spi.IdleReclaimable)
+                    && !(singleton instanceof ScopedObject)) {
+                candidates.add(singleton);
+            }
+        }
+        return candidates;
     }
 
     static List<Object> createdOffloadables(ConfigurableListableBeanFactory beanFactory) {

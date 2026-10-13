@@ -6,6 +6,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,17 +40,36 @@ public final class ConsoleActivityTracker implements AutoCloseable {
     private final long idleTimeoutMillis;
     private final List<IdleReclaimable> buffers;
     private final LongSupplier clock;
+    private final BooleanSupplier resumeHold;
     private final AtomicBoolean idle = new AtomicBoolean(false);
 
     private volatile long lastActiveAtMillis;
     private final ScheduledExecutorService scheduler;
 
     public ConsoleActivityTracker(Duration idleTimeout, List<IdleReclaimable> buffers) {
-        this(idleTimeout, buffers, true, System::currentTimeMillis);
+        this(idleTimeout, buffers, () -> false);
+    }
+
+    /**
+     * @param resumeHold while it reports {@code true} (low-footprint mode is active) the tracker never resumes the
+     *     buffers: console activity does not refill what the developer asked BootUI to keep paused
+     */
+    public ConsoleActivityTracker(Duration idleTimeout, List<IdleReclaimable> buffers, BooleanSupplier resumeHold) {
+        this(idleTimeout, buffers, true, System::currentTimeMillis, resumeHold);
     }
 
     ConsoleActivityTracker(
             Duration idleTimeout, List<IdleReclaimable> buffers, boolean autoSchedule, LongSupplier clock) {
+        this(idleTimeout, buffers, autoSchedule, clock, () -> false);
+    }
+
+    ConsoleActivityTracker(
+            Duration idleTimeout,
+            List<IdleReclaimable> buffers,
+            boolean autoSchedule,
+            LongSupplier clock,
+            BooleanSupplier resumeHold) {
+        this.resumeHold = resumeHold;
         this.idleTimeoutMillis = Math.max(MIN_CHECK_INTERVAL_MILLIS, idleTimeout.toMillis());
         this.buffers = List.copyOf(buffers);
         this.clock = clock;
@@ -75,6 +95,10 @@ public final class ConsoleActivityTracker implements AutoCloseable {
      */
     public void markActive() {
         lastActiveAtMillis = clock.getAsLong();
+        if (idle.get() && held()) {
+            // Low-footprint mode keeps the buffers paused; turning it off resumes them.
+            return;
+        }
         if (idle.compareAndSet(true, false)) {
             for (IdleReclaimable buffer : buffers) {
                 try {
@@ -110,6 +134,14 @@ public final class ConsoleActivityTracker implements AutoCloseable {
                     "BootUI console idle for over {} ms; released {} live diagnostic buffer(s) to reclaim memory.",
                     idleTimeoutMillis,
                     buffers.size());
+        }
+    }
+
+    private boolean held() {
+        try {
+            return resumeHold.getAsBoolean();
+        } catch (RuntimeException ex) {
+            return false;
         }
     }
 

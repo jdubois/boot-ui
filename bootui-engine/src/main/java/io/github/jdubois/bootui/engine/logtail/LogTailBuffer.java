@@ -113,6 +113,11 @@ public final class LogTailBuffer implements LowFootprintSuspendable {
         return "Log Tail capture";
     }
 
+    /** Whether low-footprint mode paused capture, so an appender can skip work. */
+    public boolean paused() {
+        return paused;
+    }
+
     /**
      * Stops capturing lines and drops the retained ones until {@link #resumeFromLowFootprint()}; connected streams
      * stay open.

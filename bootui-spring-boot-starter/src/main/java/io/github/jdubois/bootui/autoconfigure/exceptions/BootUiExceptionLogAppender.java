@@ -77,6 +77,9 @@ public class BootUiExceptionLogAppender extends AppenderBase<ILoggingEvent> {
 
     @Override
     protected void append(ILoggingEvent event) {
+        if (store.paused()) {
+            return;
+        }
         IThrowableProxy proxy = event.getThrowableProxy();
         if (!(proxy instanceof ThrowableProxy throwableProxy)) {
             return;

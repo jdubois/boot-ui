@@ -74,6 +74,7 @@ public final class BufferedActivityStore implements ActivityStore {
     private final Object pendingLock = new Object();
     private final ScheduledExecutorService scheduler;
     private final long closeFlushTimeoutMillis;
+    private volatile boolean scheduledWorkPaused;
 
     public BufferedActivityStore(
             InMemoryActivityStore hotCache, ActivityStore durable, Duration flushInterval, int maxPendingEntries) {
@@ -105,11 +106,15 @@ public final class BufferedActivityStore implements ActivityStore {
         long intervalMillis = Math.max(1, flushInterval == null ? 5000 : flushInterval.toMillis());
         this.closeFlushTimeoutMillis =
                 Math.min(Math.max(intervalMillis, MIN_CLOSE_FLUSH_TIMEOUT_MILLIS), MAX_CLOSE_FLUSH_TIMEOUT_MILLIS);
-        scheduler.scheduleWithFixedDelay(this::safeFlush, intervalMillis, intervalMillis, TimeUnit.MILLISECONDS);
+        scheduler.scheduleWithFixedDelay(this::scheduledFlush, intervalMillis, intervalMillis, TimeUnit.MILLISECONDS);
         if (instanceId != null && retention != null && !retention.isNegative() && !retention.isZero()) {
             long pruneIntervalMillis = intervalMillis * 10;
             scheduler.scheduleWithFixedDelay(
-                    () -> safePrune(instanceId, retention),
+                    () -> {
+                        if (!scheduledWorkPaused) {
+                            safePrune(instanceId, retention);
+                        }
+                    },
                     pruneIntervalMillis,
                     pruneIntervalMillis,
                     TimeUnit.MILLISECONDS);
@@ -177,6 +182,19 @@ public final class BufferedActivityStore implements ActivityStore {
         safeFlush();
     }
 
+    /**
+     * Low-footprint mode: makes one final flush so nothing already captured is lost, then skips the scheduled flush
+     * and prune cycles until {@link #resumeScheduledWork()}.
+     */
+    void pauseScheduledWork() {
+        safeFlush();
+        scheduledWorkPaused = true;
+    }
+
+    void resumeScheduledWork() {
+        scheduledWorkPaused = false;
+    }
+
     private void safeFlush() {
         try {
             flush();
@@ -185,6 +203,12 @@ public final class BufferedActivityStore implements ActivityStore {
             // this must never propagate. flush() already narrows failures from the durable store into a
             // requeue; this is a last-resort safety net.
             log.log(Level.WARNING, "Unexpected failure while flushing Live Activity entries", ex);
+        }
+    }
+
+    private void scheduledFlush() {
+        if (!scheduledWorkPaused) {
+            safeFlush();
         }
     }
 

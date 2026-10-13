@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
+import io.github.jdubois.bootui.spi.LowFootprintSuspendable;
 import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.util.List;
 
@@ -34,7 +35,7 @@ import java.util.List;
  * enabled) is applied at <em>read</em> time (not at capture time), so a live change takes effect on the
  * next request without needing to re-capture anything.</p>
  */
-public final class EmailCaptureService implements RuntimeEventPublisher, MemoryOffloadable {
+public final class EmailCaptureService implements RuntimeEventPublisher, MemoryOffloadable, LowFootprintSuspendable {
 
     private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 
@@ -83,6 +84,9 @@ public final class EmailCaptureService implements RuntimeEventPublisher, MemoryO
      */
     public boolean capture(CapturedEmail email) {
         boolean sent = !devTrapEnabled;
+        if (lowFootprintPaused) {
+            return sent;
+        }
         CorrelationContext context = store.currentCorrelation();
         EmailStore.Entry entry = store.capture(email, sent);
         publish(email, entry, context);
@@ -185,5 +189,29 @@ public final class EmailCaptureService implements RuntimeEventPublisher, MemoryO
 
     private static String maskIfPresent(String value) {
         return value == null ? null : SecretMasker.MASKED_VALUE;
+    }
+
+    private volatile boolean lowFootprintPaused;
+
+    @Override
+    public String suspendId() {
+        return "email";
+    }
+
+    @Override
+    public String suspendLabel() {
+        return "Email capture";
+    }
+
+    /** Stops recording and drops what is retained, for low-footprint mode. */
+    @Override
+    public void suspendForLowFootprint() {
+        lowFootprintPaused = true;
+        offloadRetainedData();
+    }
+
+    @Override
+    public void resumeFromLowFootprint() {
+        lowFootprintPaused = false;
     }
 }

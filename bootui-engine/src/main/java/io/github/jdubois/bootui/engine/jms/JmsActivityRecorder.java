@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import io.github.jdubois.bootui.spi.LowFootprintSuspendable;
 import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -30,7 +31,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p><strong>Only metadata is captured, never the message body or arbitrary properties.</strong>
  * Provider-assigned message IDs are retained only as truncated SHA-256 hashes when enabled.
  */
-public final class JmsActivityRecorder implements RuntimeEventPublisher, MemoryOffloadable {
+public final class JmsActivityRecorder implements RuntimeEventPublisher, MemoryOffloadable, LowFootprintSuspendable {
 
     private static final int MAX_METADATA_LENGTH = 200;
 
@@ -252,7 +253,7 @@ public final class JmsActivityRecorder implements RuntimeEventPublisher, MemoryO
             String subscriptionName,
             String listenerId,
             CorrelationContext context) {
-        if (!enabled) {
+        if (!enabled || lowFootprintPaused) {
             return;
         }
         long nanos = durationNanos == null || durationNanos < 0 ? -1 : durationNanos;
@@ -374,5 +375,29 @@ public final class JmsActivityRecorder implements RuntimeEventPublisher, MemoryO
             return value;
         }
         return value.substring(0, MAX_METADATA_LENGTH);
+    }
+
+    private volatile boolean lowFootprintPaused;
+
+    @Override
+    public String suspendId() {
+        return "jms";
+    }
+
+    @Override
+    public String suspendLabel() {
+        return "JMS activity capture";
+    }
+
+    /** Stops recording and drops what is retained, for low-footprint mode. */
+    @Override
+    public void suspendForLowFootprint() {
+        lowFootprintPaused = true;
+        offloadRetainedData();
+    }
+
+    @Override
+    public void resumeFromLowFootprint() {
+        lowFootprintPaused = false;
     }
 }

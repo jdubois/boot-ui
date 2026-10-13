@@ -75,6 +75,9 @@ public class BootUiLogAppender extends AppenderBase<ILoggingEvent> {
 
     @Override
     protected void append(ILoggingEvent event) {
+        if (buffer.paused()) {
+            return;
+        }
         buffer.add(new LogLineDto(
                 event.getTimeStamp(),
                 event.getLevel().toString(),

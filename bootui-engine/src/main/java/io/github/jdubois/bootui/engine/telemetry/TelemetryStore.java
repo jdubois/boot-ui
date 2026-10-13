@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import io.github.jdubois.bootui.spi.LowFootprintSuspendable;
 import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -29,7 +30,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * {@link #resumeFromIdle()} as plain methods so an adapter can bridge them to
  * its own idle-reclaim mechanism without coupling the engine to it.</p>
  */
-public class TelemetryStore implements RuntimeEventPublisher, MemoryOffloadable {
+public class TelemetryStore implements RuntimeEventPublisher, MemoryOffloadable, LowFootprintSuspendable {
 
     static final int HARD_MAX_TRACES = 10_000;
 
@@ -145,6 +146,9 @@ public class TelemetryStore implements RuntimeEventPublisher, MemoryOffloadable 
 
     private boolean add(NormalizedSpan span, boolean selfSpan, boolean imported, boolean applicationSpan) {
         if (span == null || span.traceId() == null || span.traceId().isEmpty()) {
+            return false;
+        }
+        if (lowFootprintPaused) {
             return false;
         }
         CorrelationContext owner =
@@ -476,5 +480,29 @@ public class TelemetryStore implements RuntimeEventPublisher, MemoryOffloadable 
         private TraceBucket snapshot() {
             return new TraceBucket(traceId, spans);
         }
+    }
+
+    private volatile boolean lowFootprintPaused;
+
+    @Override
+    public String suspendId() {
+        return "telemetry";
+    }
+
+    @Override
+    public String suspendLabel() {
+        return "Trace and AI span capture";
+    }
+
+    /** Stops recording and drops what is retained, for low-footprint mode. */
+    @Override
+    public void suspendForLowFootprint() {
+        lowFootprintPaused = true;
+        offloadRetainedData();
+    }
+
+    @Override
+    public void resumeFromLowFootprint() {
+        lowFootprintPaused = false;
     }
 }

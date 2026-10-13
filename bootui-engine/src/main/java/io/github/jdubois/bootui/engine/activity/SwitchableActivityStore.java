@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.activity;
 
+import io.github.jdubois.bootui.spi.LowFootprintSuspendable;
 import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -20,9 +21,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * {@link BufferedActivityStore#close()} provides once a runtime switch has made a durable store the
  * active delegate.
  */
-public final class SwitchableActivityStore implements ActivityStore, MemoryOffloadable {
+public final class SwitchableActivityStore implements ActivityStore, MemoryOffloadable, LowFootprintSuspendable {
 
     private final AtomicReference<ActivityStore> delegate;
+    private volatile boolean lowFootprintPaused;
 
     public SwitchableActivityStore(ActivityStore initialDelegate) {
         this.delegate = new AtomicReference<>(initialDelegate);
@@ -30,6 +32,9 @@ public final class SwitchableActivityStore implements ActivityStore, MemoryOfflo
 
     @Override
     public void appendBatch(List<StoredActivityEntry> entries) {
+        if (lowFootprintPaused) {
+            return;
+        }
         delegate.get().appendBatch(entries);
     }
 
@@ -65,6 +70,9 @@ public final class SwitchableActivityStore implements ActivityStore, MemoryOfflo
             return false;
         }
         delegate.set(replacement);
+        if (lowFootprintPaused && replacement instanceof BufferedActivityStore buffered) {
+            buffered.pauseScheduledWork();
+        }
         return true;
     }
 
@@ -94,5 +102,37 @@ public final class SwitchableActivityStore implements ActivityStore, MemoryOfflo
      */
     ActivityStore delegate() {
         return delegate.get();
+    }
+
+    @Override
+    public String suspendId() {
+        return "live-activity";
+    }
+
+    @Override
+    public String suspendLabel() {
+        return "Live Activity capture";
+    }
+
+    /**
+     * Low-footprint mode: stops appending new entries, drops the in-memory ones, and for a durable store makes one final
+     * flush before its scheduled flush and prune cycles are skipped.
+     */
+    @Override
+    public synchronized void suspendForLowFootprint() {
+        lowFootprintPaused = true;
+        ActivityStore current = delegate.get();
+        if (current instanceof BufferedActivityStore buffered) {
+            buffered.pauseScheduledWork();
+        }
+        offloadRetainedData();
+    }
+
+    @Override
+    public synchronized void resumeFromLowFootprint() {
+        lowFootprintPaused = false;
+        if (delegate.get() instanceof BufferedActivityStore buffered) {
+            buffered.resumeScheduledWork();
+        }
     }
 }

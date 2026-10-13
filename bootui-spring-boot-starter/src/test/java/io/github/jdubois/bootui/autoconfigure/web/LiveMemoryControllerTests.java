@@ -15,11 +15,14 @@ import io.github.jdubois.bootui.core.dto.KubernetesMemoryRecommendationDto;
 import io.github.jdubois.bootui.core.dto.LiveMemoryReport;
 import io.github.jdubois.bootui.core.dto.MemoryCalculationDto;
 import io.github.jdubois.bootui.core.dto.MemoryPoolDto;
+import io.github.jdubois.bootui.engine.memory.LowFootprintService;
 import io.github.jdubois.bootui.engine.memory.MemoryOffloadService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
+import io.github.jdubois.bootui.spi.LowFootprintSuspendable;
 import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -72,6 +75,64 @@ class LiveMemoryControllerTests {
         return new MemoryOffloadService(() -> singletons);
     }
 
+    private static LiveMemoryController controller(MemoryReportProvider provider, List<Object> singletons) {
+        MemoryOffloadService offload = offloadService(singletons);
+        return new LiveMemoryController(provider, offload, new LowFootprintService(() -> singletons, offload));
+    }
+
+    @Test
+    void footprintRoutesToggleLowFootprintModeAndProjectTheStatus() throws Exception {
+        AtomicBoolean paused = new AtomicBoolean();
+        LowFootprintSuspendable part = new LowFootprintSuspendable() {
+            @Override
+            public String suspendId() {
+                return "test-part";
+            }
+
+            @Override
+            public String suspendLabel() {
+                return "Test part";
+            }
+
+            @Override
+            public void suspendForLowFootprint() {
+                paused.set(true);
+            }
+
+            @Override
+            public void resumeFromLowFootprint() {
+                paused.set(false);
+            }
+        };
+        MockMvc mvc = standaloneSetup(controller(stubbedProvider(), new ArrayList<>(List.of(part))))
+                .build();
+
+        mvc.perform(get("/bootui/api/live-memory/footprint").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active").value(false))
+                .andExpect(jsonPath("$.components.length()").value(0));
+
+        mvc.perform(post("/bootui/api/live-memory/footprint")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":true}")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active").value(true))
+                .andExpect(jsonPath("$.agentAttached").isBoolean())
+                .andExpect(jsonPath("$.components[0].id").value("test-part"))
+                .andExpect(jsonPath("$.components[0].suspended").value(true))
+                .andExpect(jsonPath("$.offload.gcRequested").value(true));
+        assertThat(paused).isTrue();
+
+        mvc.perform(post("/bootui/api/live-memory/footprint")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":false}")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active").value(false));
+        assertThat(paused).isFalse();
+    }
+
     @Test
     void offloadRouteEmptiesTheSuppliedStoresAndProjectsTheReport() throws Exception {
         List<String> retained = new ArrayList<>(List.of("a", "b", "c"));
@@ -93,8 +154,7 @@ class LiveMemoryControllerTests {
                 return size;
             }
         };
-        MockMvc mvc = standaloneSetup(new LiveMemoryController(
-                        stubbedProvider(), offloadService(new ArrayList<>(List.of(store, "not a store")))))
+        MockMvc mvc = standaloneSetup(controller(stubbedProvider(), new ArrayList<>(List.of(store, "not a store"))))
                 .build();
 
         mvc.perform(post("/bootui/api/live-memory/offload").accept(MediaType.APPLICATION_JSON))
@@ -114,7 +174,7 @@ class LiveMemoryControllerTests {
 
     @Test
     void liveMemoryRouteProjectsReport() throws Exception {
-        MockMvc mvc = standaloneSetup(new LiveMemoryController(stubbedProvider(), offloadService(new ArrayList<>())))
+        MockMvc mvc = standaloneSetup(controller(stubbedProvider(), new ArrayList<>()))
                 .build();
 
         mvc.perform(get("/bootui/api/live-memory").accept(MediaType.APPLICATION_JSON))
@@ -128,8 +188,7 @@ class LiveMemoryControllerTests {
     @Test
     void liveMemoryRoutePassesQueryParamsToProvider() throws Exception {
         MemoryReportProvider provider = stubbedProvider();
-        MockMvc mvc = standaloneSetup(new LiveMemoryController(provider, offloadService(new ArrayList<>())))
-                .build();
+        MockMvc mvc = standaloneSetup(controller(provider, new ArrayList<>())).build();
 
         mvc.perform(get("/bootui/api/live-memory")
                         .param("totalMemoryMb", "512")

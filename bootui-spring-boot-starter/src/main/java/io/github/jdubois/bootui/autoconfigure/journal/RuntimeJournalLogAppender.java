@@ -55,6 +55,9 @@ public final class RuntimeJournalLogAppender extends AppenderBase<ILoggingEvent>
 
     @Override
     protected void append(ILoggingEvent event) {
+        if (journal.paused()) {
+            return;
+        }
         if (!event.getLevel().isGreaterOrEqual(Level.WARN)) {
             return;
         }

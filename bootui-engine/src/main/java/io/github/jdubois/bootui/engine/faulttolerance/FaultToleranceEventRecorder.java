@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import io.github.jdubois.bootui.spi.LowFootprintSuspendable;
 import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -34,7 +35,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>Capture is fail-open: {@link #record} swallows its own failures so a protected call is never
  * disrupted by BootUI, and it becomes an immediate no-op when capture is disabled.</p>
  */
-public final class FaultToleranceEventRecorder implements RuntimeEventPublisher, MemoryOffloadable {
+public final class FaultToleranceEventRecorder
+        implements RuntimeEventPublisher, MemoryOffloadable, LowFootprintSuspendable {
 
     private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 
@@ -202,7 +204,7 @@ public final class FaultToleranceEventRecorder implements RuntimeEventPublisher,
             Long durationNanos,
             String failureCategory,
             String state) {
-        if (!enabled) {
+        if (!enabled || lowFootprintPaused) {
             return;
         }
         try {
@@ -362,5 +364,29 @@ public final class FaultToleranceEventRecorder implements RuntimeEventPublisher,
             return value;
         }
         return value.substring(0, MAX_METADATA_LENGTH);
+    }
+
+    private volatile boolean lowFootprintPaused;
+
+    @Override
+    public String suspendId() {
+        return "fault-tolerance";
+    }
+
+    @Override
+    public String suspendLabel() {
+        return "Fault tolerance event capture";
+    }
+
+    /** Stops recording and drops what is retained, for low-footprint mode. */
+    @Override
+    public void suspendForLowFootprint() {
+        lowFootprintPaused = true;
+        offloadRetainedData();
+    }
+
+    @Override
+    public void resumeFromLowFootprint() {
+        lowFootprintPaused = false;
     }
 }

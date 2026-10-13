@@ -45,6 +45,11 @@ public interface RuntimeEventSink {
         return offer(event);
     }
 
+    /** Whether low-footprint mode paused recording, so an appender can skip building an event. */
+    default boolean paused() {
+        return false;
+    }
+
     /**
      * Whether events of {@code source} are recorded, so a recorder can skip work only the journal needs, such as
      * walking the stack for application frames.

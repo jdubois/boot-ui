@@ -368,6 +368,11 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
         return "Exception capture";
     }
 
+    /** Whether low-footprint mode paused recording, so an appender can skip work. */
+    public boolean paused() {
+        return paused;
+    }
+
     /** Stops recording exceptions until {@link #resumeFromLowFootprint()}; retained groups are kept until cleared. */
     @Override
     public void suspendForLowFootprint() {

@@ -729,6 +729,7 @@ public final class RuntimeJournal
     }
 
     /** Whether low-footprint mode paused recording. */
+    @Override
     public boolean paused() {
         return paused;
     }

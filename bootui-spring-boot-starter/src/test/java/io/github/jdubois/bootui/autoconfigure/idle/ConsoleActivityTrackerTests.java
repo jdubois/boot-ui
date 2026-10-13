@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
@@ -27,6 +28,30 @@ class ConsoleActivityTrackerTests {
         assertThat(tracker.isIdle()).isTrue();
         assertThat(buffer.suspends).isEqualTo(1);
         assertThat(buffer.resumes).isZero();
+    }
+
+    @Test
+    void consoleActivityNeverResumesBuffersWhileTheResumeHoldIsRaised() {
+        AtomicLong clock = new AtomicLong(0);
+        AtomicBoolean hold = new AtomicBoolean(true);
+        RecordingBuffer buffer = new RecordingBuffer();
+        ConsoleActivityTracker tracker =
+                new ConsoleActivityTracker(TIMEOUT, List.of(buffer), false, clock::get, hold::get);
+
+        clock.set(11_000);
+        tracker.reclaimIfIdle();
+        clock.set(12_000);
+        tracker.markActive();
+
+        assertThat(buffer.resumes).isZero();
+        assertThat(tracker.isIdle()).isTrue();
+
+        hold.set(false);
+        clock.set(13_000);
+        tracker.markActive();
+
+        assertThat(buffer.resumes).isEqualTo(1);
+        assertThat(tracker.isIdle()).isFalse();
     }
 
     @Test

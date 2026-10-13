@@ -138,6 +138,40 @@ class BootUiEngineConfigurationTests {
     }
 
     @Test
+    void lowFootprintCandidatesAreTheCreatedSuspendableSingletonsOnly() {
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        io.github.jdubois.bootui.spi.LowFootprintSuspendable suspendable =
+                new io.github.jdubois.bootui.spi.LowFootprintSuspendable() {
+                    @Override
+                    public String suspendId() {
+                        return "x";
+                    }
+
+                    @Override
+                    public String suspendLabel() {
+                        return "X";
+                    }
+
+                    @Override
+                    public void suspendForLowFootprint() {}
+
+                    @Override
+                    public void resumeFromLowFootprint() {}
+                };
+        beanFactory.registerSingleton("suspendable", suspendable);
+        beanFactory.registerSingleton("plain", new Object());
+        beanFactory.registerBeanDefinition(
+                "lazySuspendable",
+                org.springframework.beans.factory.support.BeanDefinitionBuilder.genericBeanDefinition(Object.class)
+                        .setLazyInit(true)
+                        .getBeanDefinition());
+
+        assertThat(BootUiEngineConfiguration.createdLowFootprintCandidates(beanFactory))
+                .containsExactly(suspendable);
+        assertThat(beanFactory.containsSingleton("lazySuspendable")).isFalse();
+    }
+
+    @Test
     void postgresFactoryMapsEveryBoundWithoutReadingTheDatabase() {
         BootUiProperties properties = Binder.get(new MockEnvironment()
                         .withProperty("bootui.postgresql.max-sessions", "11")

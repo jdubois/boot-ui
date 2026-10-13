@@ -24,6 +24,7 @@ import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateStatisticsController;
 import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityFilter;
 import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityTracker;
+import io.github.jdubois.bootui.autoconfigure.idle.IdleBuffersLowFootprint;
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.CodeInventoryController;
@@ -74,6 +75,7 @@ import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.javaagent.AgentThreadLocals;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.memory.LowFootprintService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
@@ -82,6 +84,7 @@ import io.github.jdubois.bootui.engine.transactions.TransactionRecorder;
 import io.github.jdubois.bootui.engine.websocket.WebSocketActivityRecorder;
 import io.github.jdubois.bootui.engine.websocket.WebSocketService;
 import io.github.jdubois.bootui.engine.websocket.WebSocketSettings;
+import io.github.jdubois.bootui.spi.LowFootprintSuspendable;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
 import java.nio.file.Paths;
 import java.util.Set;
@@ -996,9 +999,24 @@ public class BootUiAutoConfiguration {
     @Bean(destroyMethod = "close")
     @ConditionalOnProperty(prefix = "bootui.free-on-idle", name = "enabled", matchIfMissing = true)
     public ConsoleActivityTracker bootUiConsoleActivityTracker(
-            BootUiProperties properties, ObjectProvider<IdleReclaimable> buffers) {
+            BootUiProperties properties,
+            ObjectProvider<IdleReclaimable> buffers,
+            ObjectProvider<LowFootprintService> lowFootprint) {
         return new ConsoleActivityTracker(
-                properties.getFreeOnIdle().getTimeout(), buffers.orderedStream().toList());
+                properties.getFreeOnIdle().getTimeout(), buffers.orderedStream().toList(), () -> {
+                    LowFootprintService service = lowFootprint.getIfAvailable();
+                    return service != null && service.active();
+                });
+    }
+
+    /**
+     * Low-footprint mode's handle on the Spring-side idle-reclaimable buffers (request and security correlation
+     * windows, SQL and trace capture bridges), which the engine cannot see: it suspends them like an idle console
+     * would and resumes them when the mode is turned off.
+     */
+    @Bean
+    public LowFootprintSuspendable bootUiIdleBuffersLowFootprint(ObjectProvider<IdleReclaimable> buffers) {
+        return new IdleBuffersLowFootprint(buffers);
     }
 
     @Bean
