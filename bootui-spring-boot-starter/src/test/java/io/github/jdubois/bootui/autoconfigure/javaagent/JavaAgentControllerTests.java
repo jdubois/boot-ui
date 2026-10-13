@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.javaagent;
 
+import static org.hamcrest.Matchers.hasItems;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -30,7 +31,7 @@ class JavaAgentControllerTests {
                 .andExpect(jsonPath("$.sensors.length()").value(0))
                 .andExpect(jsonPath("$.setup.jarFound").value(false))
                 .andExpect(jsonPath("$.setup.buildTool").value("UNKNOWN"))
-                .andExpect(jsonPath("$.setup.snippets[0].id").value("maven-download"))
-                .andExpect(jsonPath("$.setup.snippets[1].id").value("maven-plugin"));
+                .andExpect(jsonPath("$.setup.snippets[0].id").value("curl-download"))
+                .andExpect(jsonPath("$.setup.snippets[*].id").value(hasItems("maven-download", "maven-plugin")));
     }
 }
