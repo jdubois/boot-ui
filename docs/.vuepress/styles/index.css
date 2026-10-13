@@ -894,6 +894,24 @@ html.dark .hint-container.details summary:hover::before {
   order: 5;
 }
 
+.bootui-footer-note,
+.bootui-copyright {
+  margin: 0;
+}
+
+.bootui-page-footer {
+  margin-top: 2rem;
+  border-top: 1px solid var(--bootui-border);
+  padding: 1.5rem 2rem;
+  color: var(--bootui-text-muted);
+  text-align: center;
+}
+
+.bootui-copyright a {
+  color: var(--bootui-green-dark);
+  font-weight: 600;
+}
+
 [vp-content] code {
   border-radius: 0.45rem;
   color: var(--bootui-green-dark);

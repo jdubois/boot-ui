@@ -50,7 +50,8 @@ export default defineUserConfig({
   // The default theme renders home feature cards as plain divs, so swap in a version that can
   // link each card to the page it describes.
   alias: {
-    '@theme/VPHomeFeatures.vue': path.resolve(configDir, './components/HomeFeatures.vue')
+    '@theme/VPHomeFeatures.vue': path.resolve(configDir, './components/HomeFeatures.vue'),
+    '@theme/VPHomeFooter.vue': path.resolve(configDir, './components/HomeFooter.vue')
   },
   plugins: [
     cleanDocsPermalinksPlugin(),

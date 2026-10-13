@@ -4,6 +4,7 @@ import './styles/index.css'
 import RuleIndex from './components/RuleIndex.vue'
 import CookieConsent from './components/CookieConsent.vue'
 import CookieSettings from './components/CookieSettings.vue'
+import Layout from './layouts/Layout.vue'
 import {trackPageView} from './analytics.js'
 
 export default defineClientConfig({
@@ -11,6 +12,7 @@ export default defineClientConfig({
     app.component('RuleIndex', RuleIndex)
     app.component('CookieSettings', CookieSettings)
   },
+  layouts: {Layout},
   rootComponents: [CookieConsent],
   setup() {
     const route = useRoute()
