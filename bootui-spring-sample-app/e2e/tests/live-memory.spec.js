@@ -25,10 +25,10 @@ test.describe('Live Memory view', () => {
     await expect(rows.first().locator('td').nth(4)).toContainText(/%/)
   })
 
-  test('explains the shared Free BootUI memory action and lets the user cancel it', async ({openView, page}) => {
+  test('explains the shared low-footprint mode toggle and lets the user cancel it', async ({openView, page}) => {
     await openView('live-memory', 'Live Memory')
 
-    const info = page.getByRole('button', {name: 'What does Free BootUI memory do?'})
+    const info = page.getByRole('button', {name: 'What does low-footprint mode do?'})
     await expect(info).toHaveAttribute('aria-expanded', 'false')
     await info.click()
     await expect(info).toHaveAttribute('aria-expanded', 'true')
@@ -40,7 +40,7 @@ test.describe('Live Memory view', () => {
 
     // Cancel rather than confirm: the E2E servers are shared by parallel specs that rely on captured data.
     await page.getByTestId('memory-offload').click()
-    const dialog = page.getByRole('dialog', {name: 'Free BootUI memory?'})
+    const dialog = page.getByRole('dialog', {name: 'Turn on low-footprint mode?'})
     await expect(dialog).toBeVisible()
     await dialog.getByRole('button', {name: 'Cancel'}).click()
     await expect(dialog).toBeHidden()

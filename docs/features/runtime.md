@@ -82,13 +82,15 @@ pressure, non-heap growth, and pool-level saturation. Sizing controls live in th
 
 BootUI keeps its diagnostics — the runtime journal, Live Activity, HTTP exchanges, traces, SQL statements, messaging
 activity, exceptions, and more — in your application's heap, so they inflate the numbers every memory panel analyzes.
-Live Memory, JVM Tuning, Heap Dump, and the Memory advisor therefore share a **Free BootUI memory** button at the top
-right of the panel header. Its info button expands an explanation of what is cleared and what is kept.
+Live Memory, JVM Tuning, Heap Dump, and the Memory advisor therefore share a **Low-footprint mode** toggle at the top
+right of the panel header (it also frees memory, as described below). Its info button expands an explanation of what is cleared and what is kept.
 
 After you confirm, `POST /bootui/api/live-memory/offload` empties every BootUI capture buffer that exists, then
 requests a garbage collection, and the panel shows heap used before and after, the reclaimed estimate, and the number
-of buffered entries cleared; Live Memory, JVM Tuning, and Heap Dump reload their data. Recording keeps running, so the
-buffers fill again with new traffic. Settings, configuration overrides, dismissed rules, cached scan reports, and a
+of buffered entries cleared; Live Memory, JVM Tuning, and Heap Dump reload their data. The toggle then stays on: BootUI stops recording
+until you turn it off, and Exceptions, Log Tail, Live Activity, Runtime Insights, and the Scorecard show a "Paused by
+low-footprint mode" banner. If the BootUI Java agent is attached it keeps instrumenting the application, so the toggle
+warns you to run these panels without the agent for better results. Settings, configuration overrides, dismissed rules, cached scan reports, and a
 persisted Live Activity history are kept.
 
 ::: warning Cleared data is gone

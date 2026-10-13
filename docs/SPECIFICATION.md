@@ -1070,7 +1070,7 @@ Features:
 
 - The Live Memory panel shows live heap and non-heap usage summaries.
 - The Live Memory panel shows memory pool usage.
-- Live Memory, JVM Tuning, Heap Dump, and the Memory advisor share a **Free BootUI memory** header action with an
+- Live Memory, JVM Tuning, Heap Dump, and the Memory advisor share a **Low-footprint mode** header toggle with an
   expandable explanation. After a danger confirmation it calls `POST /bootui/api/live-memory/offload`, which empties
   every BootUI-owned capture buffer that already exists (runtime journal and its aggregates, in-memory Live Activity,
   HTTP exchanges, traces, SQL statements, REST client calls, transactions, Kafka/RabbitMQ/JMS/WebSocket activity, cache
