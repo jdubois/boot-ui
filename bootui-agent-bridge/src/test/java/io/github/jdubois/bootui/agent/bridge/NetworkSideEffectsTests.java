@@ -158,8 +158,9 @@ class NetworkSideEffectsTests {
                 .isEqualTo("db.internal:5432");
         assertThat(SideEffects.describe(InetSocketAddress.createUnresolved("fe80::1%en0", 443)))
                 .isEqualTo("[fe80::1?en0]:443");
-        assertThat(SideEffects.describe(UnixDomainSocketAddress.of("/var/run/docker.sock")))
-                .isEqualTo("unix:/var/run/docker.sock");
+        UnixDomainSocketAddress socket = UnixDomainSocketAddress.of("/var/run/docker.sock");
+        assertThat(SideEffects.describe(socket))
+                .isEqualTo("unix:" + socket.getPath().toString().replace('\\', '?'));
         assertThat(SideEffects.describe(InetSocketAddress.createUnresolved("a\nb c", 1)))
                 .isEqualTo("a?b?c:1");
         assertThat(SideEffects.describe(null)).isEqualTo("(none)");

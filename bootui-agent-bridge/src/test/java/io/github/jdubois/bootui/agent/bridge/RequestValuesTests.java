@@ -532,11 +532,11 @@ class RequestValuesTests {
             }
         });
         waiter.start();
-        // The same thread releases and retakes the lock every 60 ms, never holding it for the wait, and the waiter
-        // misses
-        // every release: modeled by the lock word moving straight to this thread's next token.
-        for (int i = 0; i < 6; i++) {
-            Thread.sleep(60);
+        // The same thread releases and retakes the lock every 10 ms, well inside the wait, and the waiter misses
+        // every release: modeled by the lock word moving straight to this thread's next token. The interval stays
+        // far below the wait so a descheduled runner cannot oversleep it into a legitimate takeover.
+        for (int i = 0; i < 36; i++) {
+            Thread.sleep(10);
             long next = (Long) token.invoke(null);
             assertThat(next)
                     .as("each acquisition's token is new, on the same thread")
@@ -545,7 +545,7 @@ class RequestValuesTests {
             held = next;
         }
         assertThat(waiter.isAlive())
-                .as("still waiting, after 360 ms of holds of 60 ms each")
+                .as("still waiting, after 360 ms of holds of 10 ms each")
                 .isTrue();
         assertThat((Long) RequestValues.status().get("lockTakeovers")).isEqualTo(before);
 
