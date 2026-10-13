@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Low-footprint mode** pauses BootUI's recording and frees its memory until switched off, through
+  `POST /api/live-memory/footprint` ([Live Memory](docs/features/runtime.md#low-footprint-mode)).
+
 ### Fixed
 
 - The Database advisor's `DB-RUNTIME-001` no longer counts executions that differ only in the length of a bound

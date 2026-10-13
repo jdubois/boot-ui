@@ -98,6 +98,26 @@ groups. The garbage collection request is only a hint: the JVM may defer it, and
 `bootui.panels.live-memory.read-only=true`, and hidden when the Live Memory panel is disabled.
 :::
 
+### Low-footprint mode
+
+Freeing memory once is not enough when BootUI keeps recording. Low-footprint mode turns it into a switch:
+`POST /bootui/api/live-memory/footprint` with `{"enabled": true}` pauses BootUI's recording, empties its buffers, and
+requests a garbage collection; `{"enabled": false}` resumes recording. `GET /bootui/api/live-memory/footprint` reports
+the state without changing anything.
+
+While the mode is on, the runtime journal (with its GC event listener and resource sampler), Exceptions, Log Tail, Live
+Activity, Kafka, RabbitMQ, JMS, cache, fault-tolerance, scheduled-task, email, and telemetry capture, and (on Spring)
+the HTTP exchange, SQL, transaction, REST client, security, and WebSocket buffers and the correlation registries record
+nothing. The response lists every component with `suspended` and an optional `failure`, `since` as
+`sinceEpochMillis`, and the offload report returned when the mode was turned on. Panels show what was captured before
+the pause, or nothing. Quarkus pauses the components it has already created and never creates a lazy one.
+
+The mode lives in memory only: it is off after a restart and never expires by itself. On Spring it coexists with
+[`bootui.free-on-idle`](../PROPERTIES.md): the idle tracker never resumes buffers while the mode is on. The BootUI Java
+agent is **not** paused; when it is attached, the response sets `agentAttached` and adds a warning, because for better
+results these panels should run without the agent. `POST /live-memory/offload` is unchanged. The action follows the same
+read-only rules as freeing memory.
+
 ## JVM Tuning
 
 ![BootUI JVM Tuning panel](../images/bootui-jvm-tuning.webp)
