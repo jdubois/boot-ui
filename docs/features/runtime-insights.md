@@ -343,4 +343,3 @@ A runtime without JFR, or a journal that does not record the `resources` source,
 This tab shows how the run's events were linked to requests, the checks that did not fully run, and **Not exercised in
 this run**: the application's declared routes that no request of this run reached, so nothing in the panel is mistaken
 for a verdict on a route that never ran.
-

@@ -504,4 +504,3 @@ remote system, because BootUI has not contacted it.
 
 The map is keyboard navigable (arrows move between nodes, Enter or Space selects) and supports protocol and free-text
 filters plus zoom. You can minimize it for a denser event-first view; the preference is remembered in the browser.
-

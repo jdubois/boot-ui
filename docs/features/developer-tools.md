@@ -85,7 +85,19 @@ tool error. `get_exception_detail` returns a group's stack trace, causes, and oc
 
 **Runtime and integration reads** are named `get_<panel>`, such as `get_overview`, `get_health`, `get_config`,
 `get_beans`, `get_mappings`, `get_loggers`, `get_metrics`, `get_threads`, `get_flyway_migrations`, `get_emails`,
-`get_kafka_activity`, `get_websockets`, and `get_github_dashboard`.
+`get_kafka_activity`, `get_websockets`, and `get_github_dashboard`. The other read tools are `get_ai_overview`,
+`get_cache_stats`, `get_claude_code_sessions`, `get_conditions`, `get_copilot_sessions`, `get_crac_report`,
+`get_database_advisor_report`, `get_database_connection_pools`, `get_dev_services`, `get_devtools_status`,
+`get_fault_tolerance`, `get_graalvm_report`, `get_heap_dump_report`, `get_hibernate_report`,
+`get_hibernate_statistics`, `get_http_sessions`, `get_jms_activity`, `get_jvm_tuning`, `get_liquibase_changesets`,
+`get_live_memory`, `get_memory_report`, `get_mysql_report`, `get_pentest_report`, `get_postgresql_report`,
+`get_profile_diff`, `get_rabbitmq_activity`, `get_rest_api_report`, `get_scheduled_tasks`, `get_security_report`,
+`get_spring_data_repositories`, `get_spring_report`, `get_spring_rule_violations`, `get_spring_security`,
+`get_startup_timeline`, and `get_vulnerabilities_report`.
+
+**Recording controls** — `clear_exceptions`, `clear_rest_client_traces`, `clear_sql_traces`, `clear_traces`,
+`clear_transactions`, `pause_rest_client_recording`, `pause_sql_trace_recording`, `pause_transaction_recording`,
+`resume_rest_client_recording`, `resume_sql_trace_recording`, and `resume_transaction_recording`.
 
 **Java agent** — `get_code_inventory`, `get_code_paths`, and `get_side_effects` (see
 [Code Inventory](java-agent.md#code-inventory), [Code Paths](java-agent.md#code-paths), and
