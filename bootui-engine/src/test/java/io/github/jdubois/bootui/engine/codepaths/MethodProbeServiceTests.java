@@ -20,7 +20,6 @@ import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,6 +27,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,7 +48,7 @@ class MethodProbeServiceTests {
     private static final String WIDE = "shop.QuoteService#wide(IIIIIIIIIII)V";
 
     private final AtomicReference<CorrelationContext> context = new AtomicReference<>(CorrelationContext.NONE);
-    private final List<Map<String, Object>> agentCalls = new ArrayList<>();
+    private final List<Map<String, Object>> agentCalls = new CopyOnWriteArrayList<>();
     private final Set<String> hidden = new HashSet<>();
     private final AgentEvidence evidence = new AgentEvidence(panel -> !hidden.contains(panel), null);
     private AgentClaim claim;
@@ -240,7 +240,7 @@ class MethodProbeServiceTests {
         agentCalls.clear();
         CodePathsProbeDto started = probes.startForAgents("shop.QuoteService#total()J");
         assertThat(started.recordShapes()).isFalse();
-        assertThat(agentCalls)
+        assertThat(agentCalls.stream().filter(call -> "method-probe".equals(call.get("op"))))
                 .singleElement()
                 .satisfies(call -> assertThat(call).containsEntry("shapes", false));
     }

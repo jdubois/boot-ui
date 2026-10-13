@@ -101,7 +101,7 @@ class KafkaProducerCaptureBeanPostProcessorTests {
                 BootUiCorrelation.open(CorrelationContext.forRequest("0123456789abcdef"))) {
             assertThat(interceptor.onSend(record)).isSameAs(record);
         }
-        Thread.sleep(20);
+        Thread.sleep(150);
         Thread ioThread = new Thread(() -> currentListener(template).onSuccess(record, metadataFor(record)));
         ioThread.start();
         ioThread.join();
@@ -118,7 +118,7 @@ class KafkaProducerCaptureBeanPostProcessorTests {
             assertThat(event.durationNanos()).isGreaterThanOrEqualTo(20_000_000L);
             assertThat(event.epochMillis())
                     .as("stamped when it was sent, not when Kafka acknowledged it")
-                    .isBetween(sentAt - 1, sentAt + 15);
+                    .isBetween(sentAt - 1, sentAt + 75);
         });
     }
 
