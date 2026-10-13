@@ -9,7 +9,7 @@
  * answer is held in memory for the current page session instead.
  */
 
-export const GA_MEASUREMENT_ID = 'G-V55EF46P7M'
+export const GA_MEASUREMENT_ID = 'G-92TRR0HJMQ'
 
 const CONSENT_STORAGE_KEY = 'bootui-analytics-consent'
 const CONSENT_EVENT = 'bootui:analytics-consent'

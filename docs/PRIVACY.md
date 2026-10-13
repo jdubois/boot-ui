@@ -30,7 +30,7 @@ The analytics consent controls below apply only to this documentation website, n
 
 ## Analytics on this website
 
-This website can use Google Analytics 4 (measurement ID `G-V55EF46P7M`) to count page views and understand which
+This website can use Google Analytics 4 (measurement ID `G-92TRR0HJMQ`) to count page views and understand which
 documentation pages are actually read.
 
 - **Nothing is loaded until you accept.** The Google Analytics script is not requested, and no analytics cookie is
