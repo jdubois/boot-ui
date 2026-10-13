@@ -359,10 +359,16 @@ class SegmentMeterTests {
     }
 
     private static void burn() {
+        // Windows reports thread CPU time in ticks of about 15 ms, so burn until the clock has visibly advanced.
+        java.lang.management.ThreadMXBean threads = java.lang.management.ManagementFactory.getThreadMXBean();
+        long startCpu = threads.getCurrentThreadCpuTime();
+        long deadline = System.nanoTime() + 2_000_000_000L;
         long sum = 0;
-        for (int i = 0; i < 20_000; i++) {
-            sum += new byte[128].length + Long.toString(i).length();
-        }
+        do {
+            for (int i = 0; i < 20_000; i++) {
+                sum += new byte[128].length + Long.toString(i).length();
+            }
+        } while (threads.getCurrentThreadCpuTime() - startCpu < 20_000_000L && System.nanoTime() < deadline);
         assertThat(sum).isPositive();
     }
 

@@ -269,7 +269,8 @@ class AgentSetupSnippetsTests {
     void theLocalRepositoryHonoursMavenRepoLocal() {
         assertThat(AgentSetupSnippets.localRepository(null, "/home/me")).isEqualTo(Path.of("/home/me/.m2/repository"));
         assertThat(AgentSetupSnippets.localRepository(" ", "/home/me")).isEqualTo(Path.of("/home/me/.m2/repository"));
-        assertThat(AgentSetupSnippets.localRepository("/cache/m2", "/home/me")).isEqualTo(Path.of("/cache/m2"));
+        assertThat(AgentSetupSnippets.localRepository("/cache/m2", "/home/me"))
+                .isEqualTo(Path.of("/cache/m2").toAbsolutePath());
         assertThat(AgentSetupSnippets.repositoryJar(Path.of("/cache/m2"), "2.0.0"))
                 .isEqualTo(Path.of("/cache/m2/com/julien-dubois/bootui/bootui-agent/2.0.0/bootui-agent-2.0.0.jar"));
         assertThat(AgentSetupSnippets.repositoryJar(null, "2.0.0")).isNull();
