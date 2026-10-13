@@ -73,6 +73,7 @@ async function withStubbedBrowser({storage = 'available'} = {}) {
 
   return {
     analytics,
+    store,
     injectedScripts,
     // gtag.js only runs some time after the tag is injected. Until then commands sit in the queue,
     // and they are delivered on load only if the opt-out flag is clear at that moment.
@@ -87,7 +88,7 @@ async function withStubbedBrowser({storage = 'available'} = {}) {
     // What another tab writing to the shared key looks like from here.
     writeInAnotherTab(value) {
       ;(listeners.get('storage') ?? []).forEach((handler) =>
-        handler({key: 'bootui-analytics-consent', newValue: value})
+        handler({key: 'jdubois-analytics-consent', newValue: value})
       )
     },
     configOptions: () => Array.from(globalThis.window.dataLayer ?? []).find((entry) => entry[0] === 'config')?.[2],
@@ -232,4 +233,29 @@ test('the choice is honoured for the session when it cannot be persisted', async
   analytics.setConsent('granted')
   assert.equal(disabled(), false)
   assert.deepEqual(pageViews(), ['/guide/', '/guide/panels/', '/guide/'], 'the page re-consent was given on')
+})
+
+test('the consent decision lives under the key shared across julien-dubois.com', async () => {
+  const {analytics, store} = await withStubbedBrowser()
+
+  analytics.setConsent('granted')
+
+  assert.equal(store.get('jdubois-analytics-consent'), 'granted')
+  assert.equal(store.has('bootui-analytics-consent'), false)
+})
+
+test('a legacy decision is migrated when the shared key is absent', async () => {
+  const {analytics, store} = await withStubbedBrowser()
+  store.set('bootui-analytics-consent', 'granted')
+
+  assert.equal(analytics.readConsent(), 'granted')
+  assert.equal(store.get('jdubois-analytics-consent'), 'granted')
+})
+
+test('the shared key outranks a legacy decision', async () => {
+  const {analytics, store} = await withStubbedBrowser()
+  store.set('bootui-analytics-consent', 'granted')
+  store.set('jdubois-analytics-consent', 'denied')
+
+  assert.equal(analytics.readConsent(), 'denied')
 })

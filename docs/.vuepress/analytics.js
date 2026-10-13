@@ -11,7 +11,9 @@
 
 export const GA_MEASUREMENT_ID = 'G-92TRR0HJMQ'
 
-const CONSENT_STORAGE_KEY = 'bootui-analytics-consent'
+// Shared by every julien-dubois.com site (same origin), so one decision covers all of them.
+const CONSENT_STORAGE_KEY = 'jdubois-analytics-consent'
+const LEGACY_CONSENT_STORAGE_KEY = 'bootui-analytics-consent'
 const CONSENT_EVENT = 'bootui:analytics-consent'
 const GRANTED = 'granted'
 const DENIED = 'denied'
@@ -39,7 +41,22 @@ export function readConsent() {
 
   try {
     const stored = window.localStorage.getItem(CONSENT_STORAGE_KEY)
-    return stored === GRANTED || stored === DENIED ? stored : null
+    if (stored === GRANTED || stored === DENIED) {
+      return stored
+    }
+
+    // Carry over a decision made before the key was shared, so readers are not asked twice.
+    const legacy = window.localStorage.getItem(LEGACY_CONSENT_STORAGE_KEY)
+    if (legacy !== GRANTED && legacy !== DENIED) {
+      return null
+    }
+
+    try {
+      window.localStorage.setItem(CONSENT_STORAGE_KEY, legacy)
+    } catch {
+      // The migrated answer is still honoured for this read.
+    }
+    return legacy
   } catch {
     // Private browsing modes can throw on access. Treat an unreadable store as "not asked yet"
     // rather than assuming consent.
