@@ -56,8 +56,7 @@ class SpringAgentScenarioIT {
                 "-Dspring.devtools.restart.enabled=false",
                 // The seeded report's title: a value Side Effects must never show (M5-5d).
                 "-Dsample.report.title=bootui-title-never-shown",
-                "-cp",
-                System.getProperty("java.class.path"),
+                ClassPathArgumentFile.write(directory),
                 AgentScenarioApplication.class.getName(),
                 "--server.port=" + port,
                 "--spring.profiles.active=dev",
