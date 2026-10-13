@@ -180,7 +180,8 @@ class WebFluxRuntimeJournalTest {
             assertThat(resources.measuredRequests())
                     .as("each request's segments, summed across its Reactor hops: " + resources)
                     .isEqualTo(3);
-            assertThat(resources.cpuNanos()).isPositive();
+            // Windows ticks thread CPU time at about 15 ms, so short requests can read zero.
+            assertThat(resources.cpuNanos()).isNotNegative();
             assertThat(resources.allocatedBytes()).isPositive();
         }
         assertThat(journal.entries())

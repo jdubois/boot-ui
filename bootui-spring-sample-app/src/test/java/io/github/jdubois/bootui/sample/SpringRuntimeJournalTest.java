@@ -223,7 +223,8 @@ class SpringRuntimeJournalTest {
         } else {
             assertThat(usages).allSatisfy(usage -> {
                 assertThat(usage.availability()).isEqualTo(ResourceUsage.Availability.AVAILABLE);
-                assertThat(usage.cpuNanos()).isPositive();
+                // Windows ticks thread CPU time at about 15 ms, so a short request can read zero.
+                assertThat(usage.cpuNanos()).isNotNegative();
                 assertThat(usage.allocatedBytes()).isPositive();
             });
             assertThat(route("GET /api/sample/products").resources().measuredRequests())
