@@ -8,27 +8,21 @@ These panels read the database your application is already connected to. The rul
 ![BootUI Database Connection Pools panel](../images/bootui-database-connection-pools.webp)
 
 The Database Connection Pools panel inspects supported JDBC pool beans. It is read-only: it never executes SQL,
-borrows a connection, or resizes a pool, and it fails closed when no supported pool implementation or pool bean is
-present.
+borrows a connection, or resizes a pool, and it fails closed when no supported pool is present.
 
-The connections each request held at once, from the runtime journal, are in [Runtime Insights](runtime-insights.md)
-(`connections-per-request`), which does not list them by default; this panel links to them, and the link opens Runtime Insights with
-every row shown.
+For each pool it shows the identity and library, the masked JDBC URL and username, the driver, the minimum and maximum
+sizing, and the timeout and lifetime settings. Closed and uninitialized pools carry an unavailable reason. A live chart
+polls bounded snapshots of active, idle, total, and pending connections every two seconds.
 
-For each pool it shows the pool identity and library, the masked JDBC URL and username, the driver, the minimum and maximum
-sizing, and the timeout and lifetime settings. Closed and uninitialized pools carry a clear unavailable reason. A live
-chart polls bounded snapshots of active, idle, total, and pending connections every two seconds, so you can watch
-saturation trends without leaving the console.
+The connections each request held at once are in [Runtime Insights](runtime-insights.md) (`connections-per-request`);
+this panel links to them.
 
 ::: details On Quarkus: served over Agroal
 
-The panel is served over **Agroal** (Quarkus' pool library) instead of HikariCP. A Quarkus provider maps the live Agroal
-pool configuration and `AgroalDataSourceMetrics` (active/available/awaiting counts) into the same DTO shape, so the panel
-looks and behaves identically. Pool metrics require `quarkus.datasource.jdbc.metrics.enabled=true`; with metrics disabled
-the pool configuration still renders but the live snapshot is marked unavailable. Each pool's **Pool library** reads
-`Agroal` (`implementation` in the JSON, `HikariCP` on Spring). Settings Agroal does not expose, the per-call validation
-timeout, the keepalive interval and the read-only flag, are `null` and render as "—"; a maximum lifetime of `0` is
-Agroal's default and means no limit.
+The panel is served over **Agroal** instead of HikariCP and looks the same. Pool metrics require
+`quarkus.datasource.jdbc.metrics.enabled=true`; with metrics disabled the configuration still renders but the live
+snapshot is marked unavailable. **Pool library** reads `Agroal`. Settings Agroal does not expose (validation timeout,
+keepalive interval, read-only flag) render as "—"; a maximum lifetime of `0` means no limit.
 
 :::
 
@@ -37,65 +31,48 @@ Agroal's default and means no limit.
 ![BootUI PostgreSQL panel](../images/bootui-postgresql.webp)
 
 The PostgreSQL panel reports what PostgreSQL itself says about the database your application is connected to. It
-reports the server's own numbers and leaves the judgement to you: there is no rule catalogue, no severity, and no
-score.
+reports the server's own numbers and leaves the judgement to you: there is no rule catalogue, severity, or score.
 
 Each datasource is one card. Its vital signs stay in view while the other sections are tabs, and each tab carries its
-row count, or a skipped or failed marker with a reason. A missing extension therefore never looks like an empty table.
+row count, or a skipped or failed marker with a reason, so a missing extension never looks like an empty table.
 
 Reads are explicit. Opening the panel shows the last report; PostgreSQL is queried when you choose **Run PostgreSQL
 read**. A second read adds a short list of what changed since the previous one, kept in memory only.
 
 | Section | What it shows |
 | --- | --- |
-| Vital signs | Cache hit ratio, rollbacks, connections, transaction-id age, database size, and deadlocks, always visible on the datasource card. |
-| Sessions | A live snapshot of `pg_stat_activity` at the instant of the read: each backend's state, wait event, blocking pids, transaction age, and statement. It lists the client backends of the database this datasource connects to, and ages are measured against the server's statement clock, so they stay true however long the read itself takes. |
+| Vital signs | Cache hit ratio, rollbacks, connections, transaction-id age, database size, and deadlocks. |
+| Sessions | A live snapshot of `pg_stat_activity`: state, wait event, blocking pids, transaction age, and statement. |
 | Statement ranking | The top normalized statements from `pg_stat_statements`, ranked by total execution time. |
-| Index usage | Index usage per relation, so you can see which indexes the server actually reads. |
+| Index usage | Which indexes the server actually reads. |
 | Largest relations | Relation size and access shape, including sequential and index access. |
-| Autovacuum health | Dead tuples, last (auto)vacuum and analyze, and a "due" estimate computed from the settings the server would apply to each relation. |
-| Replication, checkpoints and WAL | Connected replicas with their state and lag, plus checkpoint and WAL activity. |
+| Autovacuum health | Dead tuples, last (auto)vacuum and analyze, and a "due" estimate. |
+| Replication, checkpoints and WAL | Connected replicas with state and lag, plus checkpoint and WAL activity. |
 | Notable settings | A curated allow-list of operational settings. |
 
-Apart from Sessions, every section is cumulative since the last statistics reset.
+Apart from Sessions, every section is cumulative since the last statistics reset. The panel is available on all three
+stacks when a PostgreSQL datasource is configured; rendering the sidebar contacts no database. Use a read-only role
+that belongs to `pg_monitor` where you can.
 
 ::: details How it relates to the Database advisor and SQL Trace
 
-Three panels look at the database from three angles, and they complement each other:
-
-- **Database advisor** checks physical schema structure — keys, indexes, constraints, sequences, and Hibernate mapping
-  cross-references — from metadata and vendor catalogs.
-- **SQL Trace** shows statements this JVM recently issued through BootUI's local JDBC instrumentation.
+- **Database advisor** checks physical schema structure from metadata and vendor catalogs.
+- **SQL Trace** shows statements this JVM recently issued.
 - **PostgreSQL** reads PostgreSQL's own cumulative `pg_stat_*` and `pg_catalog` views, which include work from every
-  client of the database and statistics since the last reset.
+  client of the database.
 
 :::
 
 ::: details Safety and bounds
 
 The panel runs one read-only transaction per datasource, pinning `statement_timeout` to 5 seconds, `lock_timeout` to
-2 seconds, and the read budget to 15 seconds. Every statistics query runs inside its own savepoint, because one error
-would otherwise abort the shared transaction and make every later section report "current transaction is aborted"
-instead of its own content.
+2 seconds, and the read budget to 15 seconds. Every statistics query runs in its own savepoint, so one error does not
+abort the others.
 
-List sections are capped per datasource at 100 sessions, 100 statements, 500 indexes, 200 tables, 200 autovacuum rows,
-10 replicas, and 40 settings. These caps limit the statistics returned, not application data.
+BootUI refuses a connection already in manual-commit mode (for example
+`spring.datasource.hikari.auto-commit=false`) before issuing SQL, and never commits or rolls back that connection.
 
-`truncated` means a row cap was reached. Exhausting the time budget instead produces an explicit section reason and
-preserves the rows already read, and a budget-limited section with no retained rows is failed rather than shown as an
-empty successful read.
-
-When only **Statement ranking** reaches its cap, the panel shows one informational note inside that section: it shows
-the top 100 statements by total execution time, with the rest omitted. An expected top-N ranking produces no page-wide
-warning, duplicate limitations disclosure, or warning badge. Other row caps still produce **Limited results**, naming
-each affected datasource and section with its retained row count.
-
-The API, MCP, and CLI retain `PARTIAL` with `truncated=true` and report each capped section in `limitations`.
-Permission failures, timeouts, and other read problems stay explicit, including when a statement cap is also reached,
-in which case the page-wide warnings and limitations remain visible.
-
-Configure the row caps in the host application's `application.properties`. These keys and defaults are the same on
-Spring MVC, Spring WebFlux, and Quarkus:
+List sections are capped per datasource. These keys and defaults are the same on all three stacks:
 
 ```properties
 bootui.postgresql.max-sessions=100
@@ -107,85 +84,49 @@ bootui.postgresql.max-replicas=10
 bootui.postgresql.max-settings=40
 ```
 
-Every value must be a positive integer below `2147483647`; zero does not mean unlimited. Invalid values are rejected,
-not silently clamped. Restart the application after changing a limit. Limits apply independently to every datasource
-and to the same reads reached through the browser, API, MCP, and CLI. BootUI reads at most one extra row to detect
-truncation; it does not issue an extra count query or claim a total for the omitted rows. Raising these limits does
-not change the time budgets or the settings allow-list, and larger reads may still run out of time.
-See the [property reference](../PROPERTIES.md#postgresql) for each limit's scope.
+Values must be positive integers below `2147483647`; zero does not mean unlimited, and invalid values are rejected.
+Restart after changing a limit. See the [property reference](../PROPERTIES.md#postgresql).
 
-No baseline is written to disk; only the last value seen for each metric is kept in memory so the panel can show simple
-deltas. That baseline is merged rather than replaced, so a read that could not reach a section keeps the earlier value
-of that section instead of erasing it and reporting "no change" next time.
+`truncated` means a row cap was reached; exhausting the time budget produces an explicit section reason and keeps the
+rows already read. A top-100 statement ranking is an expected cap and shows one informational note, not a warning.
+The API, MCP, and CLI report `PARTIAL` with `truncated=true` and list capped sections in `limitations`.
 
-The **Notable settings** list excludes `statement_timeout`, `lock_timeout`, and
-`idle_in_transaction_session_timeout`: BootUI overrides these for its own read, so showing their current session
-values would misrepresent the application's settings. These safety pins remain in effect.
+The change baseline is never written to disk, and a section that could not be read keeps its earlier value. The
+**Notable settings** list excludes `statement_timeout`, `lock_timeout`, and `idle_in_transaction_session_timeout`,
+because BootUI overrides them for its own read.
 
-BootUI refuses a connection already in manual-commit mode before reading metadata or issuing SQL, and does not commit
-or roll back that connection. This includes pools configured to return connections with auto-commit disabled, such as
-`spring.datasource.hikari.auto-commit=false`, even when the borrowed connection has no active transaction. The read
-reports an error explaining this restriction; BootUI cannot safely distinguish a pool default from an
-application-owned transaction and does not change the application's transaction configuration.
-
-The autovacuum section's "due" column is computed from the settings the server would actually use for each relation:
-the cluster's `autovacuum_vacuum_threshold`, `autovacuum_vacuum_scale_factor` and — on PostgreSQL 18 and later —
-`autovacuum_vacuum_max_threshold`, each overridden by that table's own `reloptions`, and suppressed where the table sets
-`autovacuum_enabled = false`. Two approximations are stated in the
-section rather than hidden: the estimate comes from `pg_stat_user_tables`, whereas autovacuum itself uses
-`pg_class.reltuples`, and only the dead-tuple trigger is modelled, so an insert-only table that PostgreSQL 13 and later
-would vacuum via `autovacuum_vacuum_insert_threshold` reads as "not due for dead tuples".
-
-Values are gated by the global exposure policy. Session statement text is the verbatim text the client sent, so it is
-redacted, masked and truncated exactly like the normalized text from `pg_stat_statements`. Under `MASKED` or
-`METADATA_ONLY`, statement text has string literals
-and dollar-quoted bodies (`$$ ... $$`, `$tag$ ... $tag$`, which is how `CREATE FUNCTION` and `DO` blocks reach
-`pg_stat_statements`) replaced before it leaves the engine, and both session and replica client addresses are masked under
-`METADATA_ONLY`. Error messages from failed statistics reads are redacted the same way before becoming a diagnostic.
+Values follow the global exposure policy. Session and statement text is redacted, masked, and truncated: under `MASKED`
+or `METADATA_ONLY`, string literals and dollar-quoted bodies are replaced, and session and replica client addresses are
+masked under `METADATA_ONLY`. Error messages from failed reads are redacted the same way.
 
 :::
 
-::: details Availability and permissions
+::: details Permissions and missing visibility
 
-**Availability.** The panel is available on all three stacks when a PostgreSQL datasource is configured. That decision
-comes from declared configuration alone — the JDBC URL each datasource exposes, including through a wrapping driver
-such as `jdbc:aws-wrapper:postgresql://...`, or the Quarkus `db-kind` — so rendering the sidebar contacts no database.
-
-A datasource that declares no readable URL cannot be ruled out, so the panel stays available whenever the PostgreSQL
-driver is on the classpath. A non-PostgreSQL datasource reached by the read is then skipped with a clear diagnostic.
-
-**Permissions.** Use a read-only role that belongs to `pg_monitor` where you can. Without it, PostgreSQL restricts its
-statistics views in three different ways, none of which leaves anything in the result set to notice:
+Without `pg_monitor`, PostgreSQL silently restricts its views:
 
 | View | Restriction | Consequence |
 | ---- | ----------- | ----------- |
-| `pg_stat_activity` | Removes the rows of backends the role does not own | The session list silently shrinks to BootUI's own connections |
-| `pg_stat_statements` | Keeps every row but replaces the text with `<insufficient privilege>` | Statement ranking loses its statements |
-| `pg_stat_replication` | Lists every connected replica, but empties state, sync state, and lag | The replica count stays trustworthy while the rest degrades |
+| `pg_stat_activity` | Removes rows of backends the role does not own | The session list shrinks to BootUI's own connections |
+| `pg_stat_statements` | Replaces text with `<insufficient privilege>` | Statement ranking loses its statements |
+| `pg_stat_replication` | Empties state, sync state, and lag | The replica count stays right; the rest degrades |
 
-Because none of that is visible in the results, BootUI asks the server instead: it probes `pg_read_all_stats`
-membership before reading and marks the affected sections partially read when the privilege is missing. Statement
-ranking is also degraded whenever the placeholder actually appears, so a managed or forked PostgreSQL that answers the
-probe differently from the way it restricts the view is still reported accurately.
+BootUI probes `pg_read_all_stats` membership and marks the affected sections partially read. Statement ranking also
+requires the `pg_stat_statements` extension. On a standby, the replica list and primary-relative lag are not read
+(`replication.replicasAvailable=false`). A datasource that declares no readable URL keeps the panel available whenever
+the PostgreSQL driver is on the classpath; a non-PostgreSQL datasource is then skipped with a diagnostic.
 
-The connection total comes from `pg_stat_database`, which every role reads in full, so it stays correct either way.
-Statement ranking additionally requires `pg_stat_statements`.
-
-On a standby the replica list and primary-relative lag are not read; cascading replicas may still be connected.
-The report sets `replication.replicasAvailable=false` for this case and for a failed replica-list query.
-An empty list means no connected replicas only when `replicasAvailable=true`; failures in checkpoint or slot reads
-do not invalidate a successfully read replica list.
+The autovacuum "due" estimate uses the settings the server would apply to each relation, including per-table
+`reloptions`. It models only the dead-tuple trigger and reads `pg_stat_user_tables`, which the section states.
 
 :::
 
 ::: details Try it with the sample application
 
 The Spring MVC sample has a
-[`docker-postgresql` profile](https://github.com/jdubois/boot-ui/tree/main/bootui-spring-sample-app#run-it-with-docker-and-postgresql).
-It uses PostgreSQL for JPA and both migration tools, preloads `pg_stat_statements`, and creates the extension so
-Statement ranking is readable. Run `bootui-spring-sample-app/run-local-postgresql.sh` for the lightweight
-PostgreSQL-and-Redis stack; Kafka and Ollama are disabled, with no AI model downloads.
-No separate Maven profile is required.
+[`docker-postgresql` profile](https://github.com/jdubois/boot-ui/tree/main/bootui-spring-sample-app#run-it-with-docker-and-postgresql)
+that preloads `pg_stat_statements`. Run `bootui-spring-sample-app/run-local-postgresql.sh` for a lightweight
+PostgreSQL-and-Redis stack.
 
 :::
 
@@ -193,169 +134,105 @@ No separate Maven profile is required.
 
 ![BootUI MySQL panel](../images/bootui-mysql.webp)
 
-The MySQL panel is the operational sibling of the PostgreSQL panel. It reports what the connected server says, and
-which observations can be associated with this datasource's schema, from MySQL's own Performance Schema and
-Information Schema. That complements the Database advisor's schema-structure checks and SQL Trace's view of the
-statements this JVM issued.
+The MySQL panel is the operational sibling of the PostgreSQL panel. It reports what the connected server says, from
+MySQL's own Performance Schema and Information Schema. That complements the Database advisor's schema checks and SQL
+Trace's view of the statements this JVM issued.
 
-Each datasource is one card, with vital signs in view and the other sections as tabs. Counts and local filters describe
-the retained rows, and a section that could not be read names its reason, so incomplete evidence never reads as an idle
-server.
+Each datasource is one card, with vital signs in view and the other sections as tabs. A section that could not be read
+names its reason, so incomplete evidence never reads as an idle server. There are no grades, severities, or
+recommendations.
 
 Reads are explicit. Opening the panel shows the last in-memory report; MySQL is queried when you choose **Run MySQL
-read**. There are no grades, severities, recommendations, or contributions to Scorecard scores.
+read**.
 
 | Section | What it shows |
 | --- | --- |
-| Vital signs | Server-wide uptime, connections, buffer-pool and lock/log counters, always visible on the datasource card. |
-| Sessions and blocking | Default-schema-associated sessions with state age and optional transaction age, plus bounded row-lock relationships and separately identified metadata waits. |
-| Statement ranking | Normalized digests ranked by total execution time, with calls, durations, rows examined and sent, errors, and temporary-table evidence where collected. |
-| Index handler operations | Selected-schema handler-operation statistics, showing which indexes the server actually uses. |
-| Table estimates | Selected-schema engine, estimated rows and storage, and available table I/O. |
-| InnoDB | Allow-listed buffer and dirty-page, log-wait, lock and deadlock, and history-list evidence where available and enabled. |
-| Replication | The connected server's receiver and applier channel state, coordinator errors, and bounded worker and error summaries. |
+| Vital signs | Server-wide uptime, connections, buffer-pool and lock/log counters. |
+| Sessions and blocking | Sessions with state age and optional transaction age, plus row-lock relationships and metadata waits. |
+| Statement ranking | Normalized digests ranked by total execution time, with calls, durations, rows examined and sent, and errors. |
+| Index handler operations | Which indexes the server actually uses, for the selected schema. |
+| Table estimates | Engine, estimated rows and storage, and table I/O. |
+| InnoDB | Allow-listed buffer, log-wait, lock, deadlock, and history-list evidence. |
+| Replication | Receiver and applier channel state, coordinator errors, and worker summaries. |
 | Settings | A fixed safe allow-list of global settings. |
 
-Every value carries its scope — server-wide, selected schema, or default-schema-associated — and unknown values stay
-unknown instead of being shown as zero.
+Every value carries its scope (server-wide, selected schema, or default-schema-associated), and unknown values stay
+unknown instead of being shown as zero. The panel works on all three stacks with JDBC datasources, including named
+ones; R2DBC-only applications are unavailable.
 
 ::: tip Tested compatibility
-**Oracle MySQL 8.4 LTS and 9.7 LTS** are the tested server lines, using `mysql:8.4.6` and `mysql:9.7.2` on Java 17:
-
-| Stack | JDBC driver | Pool |
-| --- | --- | --- |
-| Spring MVC and WebFlux | Connector/J 9.7.0 | HikariCP 7.0.2 |
-| Quarkus | Connector/J 9.6.0 | Agroal 3.0.1 |
-
-Other Oracle MySQL Community and Enterprise versions, such as end-of-life 8.0 or Innovation releases like 9.6, are read
-anyway with an informational "not a tested server line" diagnostic; any section the server cannot answer reports its
-own reason, and a server that cannot establish the read-only session guards fails closed before any statistics query.
-Other compatible or managed flavors, such as Percona Server, are skipped. Other driver/pool combinations are not
-certified by this matrix. JDBC support does not imply R2DBC or reactive-client support.
+**Oracle MySQL 8.4 LTS and 9.7 LTS** are the tested server lines, with Connector/J 9.7.0 and HikariCP on Spring and
+Connector/J 9.6.0 and Agroal on Quarkus. Other Oracle MySQL versions are read with an informational "not a tested
+server line" diagnostic. Other flavors, such as Percona Server, are skipped.
 :::
 
 ::: warning MariaDB is read but not supported
-A MariaDB server reached through **MySQL Connector/J** (`jdbc:mysql://...`) is read on a best-effort basis. The report
-names its flavor `MARIADB`, the datasource carries an **Unsupported** badge, and every read adds an informational
-diagnostic. MariaDB 11.4 LTS and 11.8 LTS were checked manually; no automated test covers MariaDB, so any server
-change can break it. MariaDB Connector/J (`jdbc:mariadb:`) is not offered the panel at all.
-
-On MariaDB the panel uses MariaDB's own equivalents: the session `max_statement_time` (in seconds) instead of
-`max_execution_time`, `information_schema.INNODB_LOCK_WAITS` / `INNODB_LOCKS` / `INNODB_TRX` for row-lock waits
-(mapped to the same performance_schema thread IDs, and needing `PROCESS`), and InnoDB metrics' `ENABLED` column. Some
-evidence is unavailable:
-
-- **Replication receiver state.** MariaDB has no `performance_schema.replication_connection_status`, so a configured
-  channel shows its applier state only; its receiver state and error stay unknown, and the section says so.
-- **Counter changes between reads.** MariaDB has no `@@server_uuid` to prove the same server is observed twice, so no
-  comparison is computed.
-- **Two settings.** `super_read_only` and `information_schema_stats_expiry` do not exist on MariaDB and are omitted.
-
-MariaDB disables the metadata-lock instrument by default, so its reads are usually **Partial** until
-`performance_schema_instrument='wait/lock/metadata/sql/mdl=ON'` is set. MariaDB before 11.1 has no
-`transaction_read_only` variable: its read-only session guards cannot be established, and the read fails closed.
+A MariaDB server reached through MySQL Connector/J (`jdbc:mysql://...`) is read on a best-effort basis: the datasource
+carries an **Unsupported** badge and no automated test covers it. MariaDB Connector/J (`jdbc:mariadb:`) is not offered
+the panel. On MariaDB, replication receiver state is unknown, no counter comparison is computed, and reads are usually
+**Partial** until `performance_schema_instrument='wait/lock/metadata/sql/mdl=ON'` is set. MariaDB before 11.1 fails
+closed because its read-only session guards cannot be established.
 :::
 
 ::: details Try it with the sample application
 
 The Spring MVC sample has a
-[`docker-mysql` profile](https://github.com/jdubois/boot-ui/tree/main/bootui-spring-sample-app#run-it-with-docker-and-mysql).
-It replaces PostgreSQL with MySQL 8.4.6 for JPA and both migration tools, enables statement instrumentation, and
-provisions the sample account's diagnostic grants. Run `bootui-spring-sample-app/run-local-mysql.sh` for the
-lightweight MySQL-and-Redis stack; Kafka and Ollama are disabled, with no AI model downloads.
-No separate Maven profile is required.
-
-:::
-
-::: details What each section does and does not establish
-
-| Section | Precision and caveats |
-| --- | --- |
-| Vital signs | Server-wide counters, not this JVM's pool metrics; table storage estimates live in Table estimates, not in a schema-size vital sign. |
-| Sessions and blocking | A sleeping session can still hold a transaction; state age is not transaction age. |
-| Statement ranking | Normalized digests only — no raw or sampled SQL. |
-| Index handler operations | Handler-operation statistics, not query counts or physical disk reads. The null-index bucket includes inserts, so no recorded reads is not advice to drop an index. |
-| Table estimates | InnoDB estimates can be cached; BootUI does not run `COUNT(*)`, refresh statistics, or sum shared tablespace free space as reclaimable bytes. |
-| InnoDB | Allow-listed metrics where available and enabled. This is not PostgreSQL autovacuum. |
-| Replication | Basic channel evidence: no precise end-to-end lag, downstream topology discovery, or Group Replication administration. |
-| Settings | An allow-list, not a variable dump. Values changed for BootUI's inspection session are not presented as application defaults. |
+[`docker-mysql` profile](https://github.com/jdubois/boot-ui/tree/main/bootui-spring-sample-app#run-it-with-docker-and-mysql)
+that enables statement instrumentation and provisions the diagnostic grants. Run
+`bootui-spring-sample-app/run-local-mysql.sh` for a lightweight MySQL-and-Redis stack.
 
 :::
 
 ::: details Read and report contract
 
-These paths use the default API mount; custom `bootui.api-path` and application base paths apply normally.
-
-| Surface | Cached evidence — no connection or SQL | Explicit collection |
+| Surface | Cached evidence, no connection or SQL | Explicit collection |
 | --- | --- | --- |
 | REST | `GET /bootui/api/mysql` | `POST /bootui/api/mysql/read` |
 | MCP | `get_mysql_report` | `mysql_read` |
 | CLI | `bootui db mysql report` | `bootui db mysql read` |
 
 Over MCP and the CLI, the explicit read answers with a
-[summary](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls) — the read's status and each datasource's
-section coverage, without rows — and the cached report returns the rows. `postgresql_read` answers the same way for
-the PostgreSQL panel.
+[summary](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls) and the cached report returns the rows.
+Neither operation accepts SQL, a schema selector, or a server address; collection uses the application's existing
+datasources and credentials.
 
-Neither operation accepts SQL, a schema selector, or a server address. Collection uses the application's existing
-datasources and credentials. Global `bootui.read-only` or `bootui.panels.mysql.read-only` blocks the action even though
-it does not modify application data: it initiates external work. Cached reads remain allowed. Disabling
-`bootui.panels.mysql.enabled` blocks both. The existing localhost, Host, authentication, and cross-site-write guards
-apply; an overlapping read is refused, not queued or automatically retried.
+Global `bootui.read-only` or `bootui.panels.mysql.read-only` blocks the explicit read because it initiates external
+work; cached reads remain allowed. Disabling `bootui.panels.mysql.enabled` blocks both. An overlapping read is
+refused, not queued.
 
-Reports distinguish `NOT_READ`, `READ`, `PARTIAL`, `ERROR`, and `DISABLED`. `READ` means applicable sections completed
-within their declared scope, not that the database is healthy. A section is `AVAILABLE`, `SKIPPED`, or `FAILED`, with
-a reason when evidence is incomplete. Independent usable rows survive a failed section; no usable datasource evidence
-from a supported target means `ERROR`. No supported datasource means `DISABLED`. A successfully read empty replication
-list is different from unknown replication after a failed read.
-
-The cache contains sanitized data, not raw values saved for later masking. An exposure-policy change invalidates it
-and returns an explained `NOT_READ` state without SQL. A new explicit read is required, including after relaxing
-exposure. Collection is an interval, not an atomic cross-table snapshot, and the report can become stale.
+Reports are `NOT_READ`, `READ`, `PARTIAL`, `ERROR`, or `DISABLED`. `READ` means applicable sections completed within
+their scope, not that the database is healthy. A section is `AVAILABLE`, `SKIPPED`, or `FAILED`, with a reason when
+evidence is incomplete. The cache holds sanitized data; changing the exposure policy invalidates it and requires a new
+explicit read.
 
 :::
 
-::: details Scope, precision, and comparisons
+::: details Scope and precision
 
-- **Server** evidence can include other applications. Do not add repeated server counters from multiple pools pointing
-  at one instance.
-- **Selected schema** describes table/index metadata visible to the connected account. With no selected schema,
-  schema-specific sections are skipped; BootUI does not enumerate every database.
-- **Default-schema-associated** sessions and digests are not an inventory of every statement touching that schema:
-  fully qualified cross-schema SQL may be associated elsewhere.
-- Unknown values are `null`, not zero. Large/unsigned counters, byte sizes, and numeric identifiers are
-  **exact decimal strings in JSON**. Bounded row counts and typed duration fields are numbers; generic metrics carry
-  a nullable string `value` alongside their unit, scope, and source. Preserve exact strings when parsing or sorting;
-  do not coerce them through an unsafe JavaScript `Number`. Timer fields carry explicit millisecond/second units.
-- The first read has no invented rates. Later comparisons need compatible datasource, server identity, scope, and
-  counter provenance, with their own observation interval. Restart/reset or server-change evidence invalidates a
-  baseline; a partial read does not turn an older valid observation into a fresh one. Nothing is persisted to disk.
-  Counter comparisons use the status query's own observation window, not the later completion of all collectors.
-  Restart detection accounts for that window and integer-second uptime, so a slow subsequent section does not
-  masquerade as a restarted database.
+- **Server** evidence can include other applications; do not add server counters from multiple pools on one instance.
+- **Selected schema** sections are skipped when no schema is selected; BootUI never enumerates every database.
+- **Default-schema-associated** sessions and digests are not an inventory of every statement touching that schema.
+- Unknown values are `null`, not zero. Large counters, byte sizes, and identifiers are exact decimal strings in JSON;
+  do not coerce them through a JavaScript `Number`.
+- The first read has no invented rates. Comparisons need a compatible datasource, server identity, and counter
+  provenance; a restart or server change invalidates the baseline. Nothing is persisted to disk.
+- Statement ranking has normalized digests only, never raw SQL. Index handler statistics are not query counts, and
+  "no recorded reads" is not advice to drop an index. Table estimates can be cached; BootUI never runs `COUNT(*)`.
+  Replication evidence has no end-to-end lag.
 
 :::
 
 ::: details Safety and bounds
 
-The execution bounds are a **15-second cooperative total read budget**,
-a **5-second server SELECT limit**, a **2-second metadata-lock wait limit**, and **400 characters of displayed
-normalized statement text**. SELECTs use MySQL `MAX_EXECUTION_TIME` hints capped by the remaining budget; on MariaDB,
-which ignores that hint, each SELECT runs under `SET STATEMENT max_statement_time=... FOR` instead.
-The borrowed connection also gets a JDBC network guard of **at most 7 seconds**, retaining a tighter existing
-positive timeout, to bound control/SHOW I/O that SELECT limits do not cover.
+The execution bounds are a 15-second cooperative total read budget, a 5-second server SELECT limit
+(`MAX_EXECUTION_TIME`, or `SET STATEMENT max_statement_time` on MariaDB), a 2-second metadata-lock wait limit, and 400
+characters of displayed statement text. The borrowed connection also gets a JDBC network timeout of at most 7 seconds.
+BootUI uses neither `Statement.setQueryTimeout` nor `Statement.cancel`, avoiding Connector/J's auxiliary
+`KILL QUERY` connections. These are not hard end-to-end deadlines; connection-acquisition waits are controlled by the
+application pool.
 
-When `performance_schema.global_status` is denied or otherwise unreadable, the fallback is `SHOW GLOBAL STATUS`
-with a `WHERE Variable_name IN (...)` filter containing **17 fixed safe names**. That allow-list bounds output;
-**SHOW does not share SELECT's `MAX_EXECUTION_TIME` guarantee**. Its I/O is guarded by
-`Connection.setNetworkTimeout` at the smaller of an existing positive timeout and 7,000 ms, or 7,000 ms when none
-is set. The original network timeout is restored afterward.
-
-These are not a hard end-to-end deadline or a fresh 15 seconds per datasource. The application pool controls
-connection-acquisition waiting, which can exceed the cooperative budget; application connection/socket configuration
-remains separate. Raising a CLI timeout does not extend the collector's budget or change the pool. BootUI deliberately
-uses neither `Statement.setQueryTimeout` nor `Statement.cancel`, avoiding Connector/J's auxiliary `KILL QUERY`
-connections. The server and network guards do not depend on Connector/J's `enableQueryTimeouts` option being enabled.
+If `performance_schema.global_status` is unreadable, BootUI falls back to `SHOW GLOBAL STATUS` filtered to 17 fixed
+safe names.
 
 The seven startup row caps, identical across the three JDBC adapters, are:
 
@@ -369,88 +246,49 @@ bootui.mysql.max-replication-channels=10
 bootui.mysql.max-settings=40
 ```
 
-Each applies per datasource. Values must be positive integers below `2147483647`; invalid values fail startup, and
-zero is not unlimited. **Restart after changing a cap.** SQL-side bounds and an extra-row check distinguish exactly
-the cap from omitted rows, without counting the omitted inventory. Lock relationships and replication worker detail
-are bounded too; index limits must not silently cut a composite definition. Settings and InnoDB remain allow-listed.
-See the [property reference](../PROPERTIES.md#mysql).
+Each applies per datasource. Values must be positive integers below `2147483647`; invalid values fail startup, and zero
+is not unlimited. Restart after changing a cap. See the [property reference](../PROPERTIES.md#mysql).
 
-`truncated=true` means a BootUI row cap omitted results, not a failed query or timeout. MySQL digest overflow, disabled
-instrumentation, denied sources, and time exhaustion have separate explanations. Local filters cannot retrieve
-omitted rows, and there is no pagination/details API in this first scope. A cap-only `PARTIAL` report identifies the
-retained window without suggesting that a source failed or needs additional permissions. The MySQL UI treats these
-normal bounds as neutral **Limited** labels and section-local row-count notes, not a warning banner or amber
-partial-read badges. Actual permission problems, timeouts, unavailable instrumentation, and other read failures
-remain warnings or errors, including when a row cap is also reached. REST, MCP, and CLI still retain the honest
-`PARTIAL`/`truncated` coverage contract.
+`truncated=true` means a BootUI row cap omitted results, not a failed query. The UI shows row caps as neutral
+**Limited** labels; permission problems, timeouts, and unavailable instrumentation remain warnings or errors.
 
-Collection snapshots actual session settings, sets `transaction_read_only=1`, starts `START TRANSACTION READ ONLY`,
-and verifies the server read-only setting. It deliberately avoids `Connection.setReadOnly`: that hint can reroute a
-driver connection and need not propagate to the server. Manual-commit connections are refused before metadata or SQL,
-without commit or rollback; BootUI cannot distinguish a pool default from an application-owned transaction.
-
-After collection, BootUI rolls back only its own transaction and restores the original auto-commit, session settings,
-and network timeout before returning the connection. A restoration failure triggers JDBC abort before closing the
-pool handle. If abort also fails, one handle is quarantined rather than returned to the pool, and further collection
-is disabled until the pool and BootUI are restarted. Live tests verify cleanup and physical connection eviction
-with the driver/pool combinations listed above.
-Monitoring itself consumes resources even when no application data is changed.
+Collection sets `transaction_read_only=1`, starts `START TRANSACTION READ ONLY`, and verifies the server setting; it
+avoids `Connection.setReadOnly`. Manual-commit connections are refused before any SQL. Afterward, BootUI rolls back
+only its own transaction and restores the auto-commit, session settings, and network timeout. If restoration and abort
+both fail, the handle is quarantined and further collection is disabled until the pool and BootUI restart.
 
 No application rows, `LOCK_DATA` key values, `QUERY_SAMPLE_TEXT`, `PROCESSLIST_INFO`, or `TRX_QUERY` are selected.
-Only normalized digest text may be exposed, after masking, credential redaction, exposure policy, and length bounds.
-Metadata-only mode withholds statement text and sensitive addresses. Raw JDBC URLs, arbitrary server errors,
-replication secrets, and variable dumps are excluded in every mode. There are no session-kill controls, SQL console,
-query plans, DDL, maintenance commands, or controls to change server/application configuration or instrumentation.
+Only normalized digest text is exposed, after masking, credential redaction, the exposure policy, and length bounds;
+metadata-only mode withholds statement text and sensitive addresses. Raw JDBC URLs, arbitrary server errors,
+replication secrets, and variable dumps are excluded in every mode. There are no kill controls, SQL console, query
+plans, DDL, or controls to change server configuration.
 
 :::
 
 ::: details Availability and permissions
 
-The panel supports the same JDBC capability on **Spring MVC, Spring WebFlux, and Quarkus**, including default and named
-datasources. WebFlux does not require a servlet stack, but **R2DBC-only applications are unavailable**. On Quarkus,
-use the MySQL JDBC extension (`quarkus-jdbc-mysql`) and a configured JDBC datasource; a reactive MySQL client alone
-does not qualify. BootUI stays absent in Quarkus production builds.
+Sidebar discovery reads local declarations only, never a database; the explicit read verifies the connected server and
+reports unsupported targets. Routing datasources describe the actual connected server. On Quarkus, use
+`quarkus-jdbc-mysql` and a JDBC datasource; a reactive client alone does not qualify.
 
-Sidebar/tool discovery reads local declarations only, never a database. A candidate with unresolved vendor metadata
-is not proof of MySQL support: the explicit action verifies the connected server and reports unsupported targets.
-Wrapped/routing datasources must still lead to supported JDBC targets. Routing can select a replica; evidence
-describes the actual connected server, not a presumed primary. Quarkus requires an active JDBC MySQL declaration
-and Connector/J presence; unknown and reactive-only declarations are unavailable.
+Use the application's existing account and grant only the visibility the operator approves. There is no single
+`pg_monitor` equivalent, and BootUI never enables instruments or resets statistics. Do not grant `SUPER` or all of
+`performance_schema.*` just to make the panel complete.
 
-Use the application's existing account and grant only the visibility the operator approves. There is no MySQL
-equivalent of a single `pg_monitor` capability flag. Table readability, active-role privileges, collection enabled
-state, and timing availability are separate evidence.
-
-| Optional visibility | What to authorize and what it unlocks |
+| Optional visibility | What to authorize |
 | --- | --- |
-| Status and settings | Probe readability of `performance_schema.global_status` before requesting additional permissions. An explicit table grant is not universally required for it: the restricted MySQL 8.4.6 fixture reads it without one. An unreadable status source can fall back to fixed-name `SHOW GLOBAL STATUS`. Settings use fixed `@@global` expressions, not a `global_variables` table read. |
-| Session state | `SELECT` on `performance_schema.threads`. Reading `threads` exposes other users' thread rows **without `PROCESS`**; this is a meaningful permission decision. Current statement text is not selected, and `events_statements_current` is not required. |
-| Blocking | `SELECT` on `performance_schema.data_lock_waits`, `data_locks`, and `metadata_locks` for the corresponding wait evidence. On MariaDB, row-lock waits come from `information_schema.INNODB_LOCK_WAITS` / `INNODB_LOCKS` / `INNODB_TRX` instead, which need `PROCESS`. |
-| Statement ranking | `SELECT` on `performance_schema.events_statements_summary_by_digest`, with the relevant collection and timing enabled. Global digest collection depends on `global_instrumentation` and `statements_digest`, not `thread_instrumentation`. |
-| Table/index activity | `SELECT` on `performance_schema.table_io_waits_summary_by_table` and `table_io_waits_summary_by_index_usage`, with enabled global, handler, and matching object instrumentation. Information Schema object visibility still follows application-object permissions. |
-| Instrumentation explanation | `SELECT` on `performance_schema.setup_consumers`, `setup_instruments`, and `setup_objects`. Denied probes leave collection state unknown, not enabled. |
-| Replication | Table-specific `SELECT` on the receiver/applier status tables actually read: `replication_connection_status`, `replication_applier_status`, `replication_applier_status_by_coordinator`, and `replication_applier_status_by_worker` in `performance_schema`. No replication administration is needed. |
-| Additional InnoDB detail | Optional global `PROCESS` for `information_schema.innodb_trx` and `innodb_metrics`. Other readable sections remain useful without it. |
+| Status and settings | `performance_schema.global_status` is usually readable without a grant; otherwise the fixed `SHOW GLOBAL STATUS` fallback is used. Settings use fixed `@@global` expressions. |
+| Session state | `SELECT` on `performance_schema.threads`. This exposes other users' thread rows without `PROCESS`, so it is a real permission decision. |
+| Blocking | `SELECT` on `performance_schema.data_lock_waits`, `data_locks`, and `metadata_locks`. On MariaDB, `PROCESS` for `information_schema.INNODB_LOCK_WAITS`, `INNODB_LOCKS`, and `INNODB_TRX`. |
+| Statement ranking | `SELECT` on `performance_schema.events_statements_summary_by_digest`, with digest collection and timing enabled. |
+| Table and index activity | `SELECT` on `performance_schema.table_io_waits_summary_by_table` and `table_io_waits_summary_by_index_usage`, with matching object instrumentation. |
+| Instrumentation explanation | `SELECT` on `performance_schema.setup_consumers`, `setup_instruments`, and `setup_objects`. Denied probes leave state unknown, not enabled. |
+| Replication | `SELECT` on the `replication_connection_status` and `replication_applier_status*` tables in `performance_schema`. |
+| Additional InnoDB detail | Optional global `PROCESS` for `information_schema.innodb_trx` and `innodb_metrics`. |
 
-This is a capability map, not a blanket minimum-grant script: inspect the reported source and the role active on the
-application connection before changing permissions. Do not grant `SUPER`, use an administrative account, or grant all of
-`performance_schema.*` merely to make the panel complete. BootUI never enables consumers, instruments, or InnoDB
-metrics and never resets statistics.
-
-Table/index activity respects MySQL's effective object configuration: exact table, schema wildcard, then global
-wildcard. Object matching uses MySQL's identifier normalization; `%` is a whole-name wildcard, not a SQL `LIKE`
-pattern. At most 1,024 relevant table rules are inspected. Missing or bounded configuration evidence remains
-unknown rather than falling back to an assumed enabled rule. Uninstrumented/unknown objects retain readable
-catalog metadata, but affected activity counters are withheld; untimed objects retain counts but not durations.
-These limitations are explained per section rather than displayed as zero activity or `0 ms`.
-
-Metadata-lock evidence separately checks `wait/lock/metadata/sql/mdl`; an empty list with disabled or unknown
-instrumentation cannot establish absence. Like table I/O, metadata-lock collection needs global instrumentation,
-not the per-thread consumer. Sessions and independently read row-lock waits remain visible.
-
-Replication state/error tables remain readable when Performance Schema is disabled; BootUI does not use the
-transaction-timing columns that disappear in that mode. Coordinator-only errors are included, and an unread
-error source produces partial coverage rather than certifying zero errors.
+Uninstrumented or unknown objects keep their catalog metadata, but affected activity counters are withheld and
+explained per section, never shown as zero. An empty metadata-lock list with disabled instrumentation cannot establish
+absence.
 
 :::
 
@@ -458,27 +296,12 @@ error source produces partial coverage rather than certifying zero errors.
 
 | Situation | Interpretation and next step |
 | --- | --- |
-| No supported JDBC datasource / wrong vendor | Check the application's driver and datasource declarations. MariaDB Connector/J (`jdbc:mariadb:`) and reactive-only clients are outside this panel's scope; a MariaDB server is read only through MySQL Connector/J, and is unsupported. Do not create another monitoring pool automatically. |
-| Permission denied / inactive role | Keep readable sections. Review the named source with the operator; table access and the role active on this connection matter, not just a grant recorded elsewhere. |
-| Performance Schema, digests, or timing disabled | Missing evidence is not an idle workload or zero latency. Some status/replication evidence can remain readable with Performance Schema disabled. BootUI does not enable anything automatically. |
-| Manual-commit pool default | Collection is refused to protect application transactions. Review the pool contract; do not change application transaction settings just to silence the diagnostic. |
-| Restoration and abort both fail | The unsafe handle is quarantined and further collection is disabled. Restart the affected pool and BootUI before retrying; do not bypass the safeguard. |
-| Timeout / acquisition wait | Check section reasons and the pool/network timeout configuration separately. Completed evidence remains usable; a timeout is not truncation or a healthy empty section. |
-| Row cap only | Read the retained top-N window and named limitations. Raising a startup cap needs a restart and another authorized read; it cannot recover the old omitted rows or fix server digest overflow. |
-| No default schema / replication read unavailable | Schema-specific sections or channel state are unknown/skipped as explained. Do not infer an empty database or no replication from missing evidence. |
-
-:::
-
-::: details MySQL reference documentation
-
-Primary MySQL documentation: [thread scope and visibility](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/performance-schema-threads-table.html),
-[table privileges](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/performance-schema-table-characteristics.html),
-[lock data sensitivity](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/performance-schema-data-locks-table.html),
-[statement summaries and digest overflow](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/performance-schema-statement-summary-tables.html),
-[table estimates](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/information-schema-tables-table.html),
-[InnoDB metrics](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/information-schema-innodb-metrics-table.html),
-[replication evidence](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/performance-schema-replication-tables.html),
-and [Connector/J buffering and why its auxiliary cancellation path is avoided](https://docs.oracle.com/cd/E17952_01/connector-j-en/connector-j-reference-implementation-notes.html).
+| No supported JDBC datasource | Check the driver and datasource declarations. Do not create another monitoring pool. |
+| Permission denied | Readable sections are kept. Review the named source with the operator and the role active on this connection. |
+| Performance Schema, digests, or timing disabled | Missing evidence is not an idle workload. BootUI never enables anything. |
+| Manual-commit pool default | Collection is refused to protect application transactions; do not change transaction settings to silence it. |
+| Timeout or acquisition wait | Check section reasons and the pool and network timeouts. A timeout is not truncation. |
+| Row cap only | Read the retained top-N window. Raising a cap needs a restart and a new read. |
 
 :::
 
@@ -489,174 +312,101 @@ and [Connector/J buffering and why its auxiliary cancellation path is avoided](h
 The SQL Trace panel shows the SQL statements your application recently executed. Each row expands to the full
 statement, bound parameters, statement type, connection id, executing thread, call site, and error.
 
-Capture uses a hand-written JDBC tracing proxy built on the JDK's own dynamic-proxy support. BootUI bundles no
-third-party database-proxy library.
+Executions are kept in a bounded buffer, most recent first, with aggregate stats: total, average, and maximum time,
+slow-query and failure counts, per-category counters, and evictions. A slow-query threshold highlights expensive
+statements. Local-only **Pause**, **Resume**, and **Clear** actions stop recording or empty the retained window. Pausing
+stops only this panel's buffer: the [runtime journal](live-activity.md#runtime-journal) keeps recording. Over MCP and
+the CLI, the controls answer with a
+[compact acknowledgement](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls).
 
-Executions are retained in a bounded buffer, most recent first, alongside aggregate stats: total, average, and
-maximum time, slow-query and failure counts, per-category counters, and evictions. A configurable slow-query threshold
-highlights expensive statements, and local-only **Pause**, **Resume**, and **Clear** actions stop recording or empty
-the buffer without unwrapping the data source. Pausing stops only this panel's buffer: the
-[runtime journal](live-activity.md#runtime-journal) keeps recording statements and connections.
-**Clear** empties the retained window — the entries, the aggregate stats, and the top statements — and resets nothing
-else: the header's "captured since startup" count and the evictions are lifetime counts. Over MCP and the CLI, the
-controls answer with a [compact acknowledgement](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls)
-instead of the panel.
-
-The buffer keeps failure evidence longer than routine traffic: a share of it, 25% by default
-(`bootui.sql-trace.reserved-share-percent`), is reserved for the most recent failed and slow executions, so a burst of
-fast queries evicts routine executions first. The panel states how many executions it keeps, how many sit in that
-reserved share, and how many were evicted; see
+A share of the buffer, 25% by default (`bootui.sql-trace.reserved-share-percent`), is reserved for the most recent
+failed and slow executions, so a burst of fast queries evicts routine executions first; see
 [Failure-preserving retention](diagnostics.md#failure-preserving-retention).
 
-Statements are timed in nanoseconds and recorded in microseconds, as `durationMicros` on each execution, with
-`durationMillis` kept as a rounded compatibility field. Every aggregate — totals, averages, percentiles, shares, and
-route attribution — is summed from those microseconds and reported in fractional milliseconds.
-
-That resolution matters on a developer's own machine, where an ordinary primary-key read finishes in a few hundred
-microseconds. Whole-millisecond durations would report almost every statement as `0 ms` and leave the rankings with
-nothing to rank.
+Statements are timed in nanoseconds and recorded in microseconds (`durationMicros`), and every aggregate is reported in
+fractional milliseconds, so sub-millisecond statements still rank.
 
 Repeated `SELECT`s that look like an N+1 access pattern are flagged once they reach
-`bootui.sql-trace.n-plus-one-threshold`. A flagged group lists the distinct call sites — class, method, and line —
-most recently seen first and bounded to a handful, so you can go straight to the repository or service method causing
-the repetition.
+`bootui.sql-trace.n-plus-one-threshold`. A flagged group lists the distinct call sites (class, method, line), so you can
+go straight to the repository or service method causing the repetition.
 
 ::: details How capture works
 
-BootUI transparently wraps each `DataSource` bean and intercepts statement execution on the resulting
-`Connection`/`Statement`/`PreparedStatement`/`CallableStatement` objects, recording the SQL text, statement type, SQL
-category (`SELECT`/`INSERT`/`UPDATE`/`DELETE`/`DDL`/`OTHER`), wall-clock duration in microseconds, affected-row counts, batch size,
-originating connection, executing thread and its kind, the call site that triggered it (when call-site capture is
-enabled), and any failure. The thread kind — `WORKER`, `VIRTUAL_THREAD`, `EVENT_LOOP`, `REACTOR_SCHEDULER`, or `OTHER`
-— comes from the adapter that owns the thread, from its type rather than its name, so JDBC run on a Reactor Netty or
-Vert.x event loop reads `EVENT_LOOP`. REST client calls carry the kind of the thread they started on. On Spring MVC and
-Quarkus, each statement also records the phase of its request it ran in: `FILTERS` before the handler, `HANDLER` inside
-it, and `RESPONSE` once it has returned, while the body is serialized or a view renders, which is where lazy loading
-surfaces. Spring WebFlux exposes no hook between an annotated handler and its result writing, so its statements carry
-no phase rather than a guessed one. A Spring `DataSource` wrapper is never replaced, because its concrete type is part of your application's
-contract: instead, when it owns the only reference to a pool — as `spring.datasource.connection-fetch=lazy` does with
-`LazyConnectionDataSourceProxy` — the pool inside it is traced in place, and when its target is a bean that was traced
-on its own it is left alone so executions are not double-counted. Wrapping
-**fails open**: if a `DataSource` cannot be proxied it is left untouched so application database access is never
-compromised.
+BootUI wraps each `DataSource` bean with a JDK dynamic proxy and records the SQL text, statement type, category
+(`SELECT`, `INSERT`, `UPDATE`, `DELETE`, `DDL`, `OTHER`), duration, affected rows, batch size, connection, executing
+thread and its kind (`WORKER`, `VIRTUAL_THREAD`, `EVENT_LOOP`, `REACTOR_SCHEDULER`, `OTHER`), the call site when enabled,
+and any failure. On Spring MVC and Quarkus, each statement also records the request phase it ran in: `FILTERS`,
+`HANDLER`, or `RESPONSE` (where lazy loading surfaces). Spring WebFlux records no phase.
+
+A Spring `DataSource` wrapper is never replaced; when it owns the only reference to a pool (for example
+`LazyConnectionDataSourceProxy`), the pool inside is traced in place. Wrapping **fails open**: a `DataSource` that
+cannot be proxied is left untouched. On the JVM the proxy also advertises the vendor interfaces of the original bean,
+such as Oracle UCP's `PoolDataSource`, so by-type injection keeps working.
 
 :::
 
 ### Rankings
 
-Above the execution list, the panel ranks the retained window twice. Both tables deep-link into the filtered list
-below, so a slow ranking row is one click from the executions behind it.
+Above the execution list, the panel ranks the retained window twice. Both tables deep-link into the filtered list below.
 
-**Statement rankings** aggregate executions by normalized statement: literals and existing bind markers collapse to
-`?`, and `IN (…)` lists fold, so equivalent parameterized executions group together without ever exposing a bound
-value. You can rank by cumulative duration, slowest single execution, execution count, average duration, error count,
-p95, or p99, and each row also shows p50, p95, and p99 durations and the group's share of retained database time. Those
-figures are fractional milliseconds summed from the microsecond-resolution executions, so a window of sub-millisecond
-statements still ranks. A statement scoring zero on the selected criterion is not ranked for it, so "top by errors"
-never lists statements that never failed.
+**Statement rankings** aggregate executions by normalized statement: literals and bind markers collapse to `?` and
+`IN (…)` lists fold, so equivalent executions group together without exposing a bound value. Rank by cumulative
+duration, slowest execution, count, average, error count, p95, or p99; each row also shows p50, p95, p99 and its share
+of retained database time. **Most frequent statements** is the fallback when rankings are unavailable and keeps
+literal values.
 
-This is a different grouping from **Most frequent statements**, the fallback shown when statement rankings are
-unavailable, which keeps literal values so you can see the exact statements that repeated.
-
-**Database time by request route** attributes those executions back to the requests that issued them. Each row shows
-its requests, executions, distinct statements, error count, and share of retained database time, and expands to that
-route's own top statements.
+**Database time by request route** attributes executions back to the requests that issued them, with requests,
+executions, distinct statements, errors, and share of database time per route; each row expands to that route's top
+statements.
 
 ::: details How route grouping resolves a template
 
-Grouping uses the framework's own route template (`GET /api/sample/orders/{id}`) when the adapter can supply one,
-otherwise matches the captured path against the application's own declared route mappings, and falls back to a masked
-path — identifier-looking segments replaced with `{value}`, query string discarded — only when neither is available.
-Matching a declaration is deliberately strict: it must agree segment for segment and be the single most literal match,
-and two equally plausible declarations produce no template at all. That strictness is a privacy property as much as a
-grouping one, because masking alone cannot tell a word-shaped path parameter such as `/api/users/alice` from a fixed
-route segment.
+Grouping uses the framework's route template (`GET /api/sample/orders/{id}`) when available, otherwise matches the
+path against the application's declared route mappings, and falls back to a masked path (identifier-looking segments
+become `{value}`, query string discarded). Matching a declaration is strict, and ambiguous declarations produce no
+template, because masking alone cannot tell `/api/users/alice` from a fixed route segment.
 
 :::
 
 ### Attribution is evidence, not lifetime metrics
 
-These rankings are diagnostic evidence over a bounded capture window. They describe only the statements still in the
-buffer, and the panel states that window inline: retained statements, buffer size, evictions, and the age of the
-oldest retained execution. Because failed and slow executions outlive routine ones, a window that has evicted
-executions can over-represent them, and the panel notes that too.
+Rankings describe only the statements still in the buffer, and the panel states that window inline: retained
+statements, buffer size, evictions, and the age of the oldest execution. A window that has evicted executions can
+over-represent failed and slow ones.
 
-Attribution is conservative. It correlates a statement to a request in tiers, each requiring a single unambiguous
-candidate:
+Attribution is conservative. It correlates a statement to a request by trace id first, then by serving thread (JVM
+only), then by time window, each requiring a single unambiguous candidate. Executions that cannot be placed, or that
+matched several requests equally, go into explicit **Unattributed** and **Ambiguous** buckets.
 
-| Tier         | When used                                     |
-| ------------ | --------------------------------------------- |
-| Trace id     | Always tried first                            |
-| Serving thread | JVM only, where thread affinity is reliable |
-| Time window  | Last resort                                   |
-
-Executions it cannot place, and executions that more than one request matched equally well, go into explicit
-**Unattributed** and **Ambiguous** buckets rather than being dropped or guessed. A statement carrying a trace id that
-no retained request carries stays unattributed rather than falling to a weaker tier, and a statement already running
-when a request began is never absorbed into it.
-
-On Spring WebFlux and Quarkus a request is not pinned to one thread, so only trace-id and time-window correlation are
-used and the panel says so. On WebFlux the request evidence arrives with the OpenTelemetry integration; without it the
-panel reports route attribution as unavailable and names the requirement, while rankings still work. Quarkus has no
-per-request route template, so it resolves declared JAX-RS mappings after the fact and falls back to a masked path.
+On Spring WebFlux and Quarkus only trace-id and time-window correlation are used. On WebFlux, request evidence needs the
+OpenTelemetry integration; without it route attribution is reported unavailable while rankings still work.
 
 ### Privacy and configuration
 
-Parameter bindings are not captured by default. Even with capture enabled they are suppressed under metadata-only
-exposure and routed through BootUI's masking rules, with an inline warning when captured parameters are shown in clear
-text.
+Parameter bindings are not captured by default. When enabled, they are suppressed under metadata-only exposure and
+routed through BootUI's masking rules, with an inline warning when shown in clear text. Call sites are code metadata,
+not bound values, so `bootui.sql-trace.capture-call-site` (default `true`) is not privacy-gated.
 
-Call-site capture is a separate decision. A call site is metadata about your own code — class, method, line — never a
-bound value, so it is not privacy-gated. `bootui.sql-trace.capture-call-site` defaults to `true` and costs only a
-small, bounded stack walk per statement; set it to `false` to skip that walk.
-
-The panel fails closed when no `DataSource` bean is wrapped. Tracing, the initial recording state, parameter capture,
-call-site capture, buffer size, the slow-query and N+1 thresholds, and the SQL and parameter truncation limits are all
-configurable under `bootui.sql-trace.*`.
-
-The panel refreshes over Server-Sent Events rather than fixed-interval polling. The browser subscribes to
-`/bootui/api/sql-trace/stream`, and the server pushes a small coalesced notification the moment a statement is
-captured, the buffer is cleared, or recording is paused or resumed, prompting a re-fetch. The push carries no data, so
-masking, truncation, and exposure rules still apply through the regular endpoint, and bursts fold into a single
-refresh.
-
-When the auto-refresh toggle is off or the tab is hidden, the stream is closed. The panel falls back to its initial
-load when Server-Sent Events are unavailable.
+The panel fails closed when no `DataSource` bean is wrapped. Tracing, the initial recording state, parameter and
+call-site capture, buffer size, the slow-query and N+1 thresholds, and truncation limits are configurable under
+`bootui.sql-trace.*`. The panel refreshes over Server-Sent Events from `/bootui/api/sql-trace/stream`; the push
+carries no data, so masking and exposure rules still apply through the regular endpoint.
 
 ::: tip GraalVM native images are supported
-The tracing proxies cover a fixed set of standard JDBC interfaces, and BootUI registers those JDK proxies as
-native-image proxy metadata, so SQL Trace works in a native executable. If a proxy cannot be created, wrapping still
-fails open and the `DataSource` is left untraced rather than breaking startup.
-:::
-
-::: details Vendor-interface preservation on the JVM
-
-On the JVM (Spring MVC and WebFlux), the traced proxy also advertises every interface the original `DataSource` bean's
-concrete class implements, so a vendor-specific contract — such as Oracle UCP's `PoolDataSource` — survives wrapping and
-by-type/by-interface injection of that vendor interface keeps resolving to the traced proxy. This extra interface set is
-not used in a GraalVM native image, where the interface set must be known and registered at build time; native images
-keep using the fixed, pre-registered set above.
-
+BootUI registers the tracing proxies as native-image proxy metadata, so SQL Trace works in a native executable. If a
+proxy cannot be created, the `DataSource` is left untraced rather than breaking startup.
 :::
 
 ::: details On Quarkus: JDBC executions and ORM preparations
 
-The panel uses the same engine recorder and DTO contract as Spring. Capture comes from two complementary feeders:
+Capture comes from two feeders: an `@Alternative` Agroal `DataSource` wrapping the default pool for manual JDBC, and a
+`@PersistenceUnitExtension` Hibernate `StatementInspector` for ORM SQL of the default persistence unit (named units
+are not traced), because Hibernate resolves its pool from Agroal's own registry.
 
-- an `@Alternative` Agroal `DataSource` that wraps the default pool with the same JDK-proxy tracer. It handles manual
-  JDBC access and is gated on a datasource being present.
-- a `@PersistenceUnitExtension` Hibernate `StatementInspector` that records ORM-issued SQL for the default persistence
-  unit (gated on `quarkus-hibernate-orm`; SQL from a named persistence unit is not traced). This is needed because
-  Hibernate ORM resolves its pool from Agroal's own registry and so bypasses the CDI `DataSource`.
-
-The inspector observes **preparation only**, not JDBC execution: text, type, category, and call site are known, but
-whether that particular statement ran, succeeded, or changed rows is not. Preparation rows remain visible in the
-capture list and `totalCaptured`, with a report warning; their compatibility fields (`durationMicros: 0`, `success:
-true`) do not establish an execution or outcome. They are excluded from execution statistics, rankings, N+1 badges,
-request database-access claims, and Runtime Insights' confirmed event-loop blocking. ORM session metrics can measure
-aggregate statement time but cannot prove which preparation executed. Manual JDBC executions, including a measured
-zero duration, still count normally beside ORM preparations. Both feeders are wired in dev/test only and never in
-production, and the inspector never captures bound parameter values.
+The inspector observes preparation only. Those rows stay visible with a report warning, but their compatibility fields
+(`durationMicros: 0`, `success: true`) do not establish an execution or outcome, so they are excluded from statistics,
+rankings, N+1 badges, and confirmed event-loop blocking. Both feeders are wired in dev and test only, and the inspector
+never captures bound parameter values.
 
 :::
 
@@ -665,150 +415,92 @@ production, and the inspector never captures bound parameter values.
 ![BootUI Transactions panel](../images/bootui-transactions.webp)
 
 The Transactions panel shows the `@Transactional` boundaries your application recently ran: begin, commit, and
-rollback events, captured by BootUI's own listener wiring rather than a third-party observability library.
+rollback events, captured by BootUI's own listener wiring.
 
-On Spring MVC and WebFlux, BootUI contributes a `TransactionExecutionListener`, available since Spring Framework 6.1,
-through Spring Boot's standard transaction-manager customization, completing registration for user-defined
-`ConfigurableTransactionManager` beans after singleton initialization. It composes with your own transaction management
-and listeners rather than replacing them. Managers that do not implement the configurable listener SPI stay
-unobserved. On WebFlux this observes both the blocking transaction managers a reactive application still uses, such as
-`@Transactional` JDBC work run on a Reactor `boundedElastic` worker, which the WebFlux sample's
-`GET /api/sample/transaction-samples` generates, and a `ReactiveTransactionManager` such as R2DBC's, whose transactions
-may begin and complete on different threads and are recorded without a thread-bound parent or isolation
-([WebFlux support](../WEBFLUX-SUPPORT.md)).
+Transactions are kept in a bounded buffer, most recently completed first, with aggregate stats: total, average, and
+maximum duration, slow and connection-held counts, commit, rollback, and unknown outcomes, and nested count. The panel
+renders a parent and child tree, and each row expands to its thread, trace id, read-only flag, and any error. Slow and
+connection-hold thresholds flag transactions worth a closer look. Local-only **Pause**, **Resume**, and **Clear**
+actions stop recording or empty the buffer; pausing stops only this panel's buffer, and the
+[runtime journal](live-activity.md#runtime-journal) keeps recording.
 
-Reactive capture records physical begin/commit/rollback callbacks, not a full reactive parent or savepoint hierarchy.
-SQL and connection counts describe JDBC work on the begin thread within its time window: R2DBC statements and JDBC
-work moved to another thread are not counted, so zero counts are not evidence that no database work occurred.
+Transaction metadata (method names, propagation, isolation, threads, trace ids) is not sensitive, so it is not masked.
+The panel reports unavailable with a reason when no configurable transaction manager exists. Capture, the initial
+recording state, buffer size, and thresholds are configurable under `bootui.transactions.*`, and the panel refreshes
+over Server-Sent Events from `/bootui/api/transactions/stream`.
 
-Transactions are retained in a bounded ring buffer, most recently completed first, with aggregate stats: total,
-average, and maximum duration, slow and connection-held counts, commit, rollback, and unknown outcome counts, and a
-nested-transaction count.
+This panel is not applicable on Quarkus: Narayana's JTA exposes no comparable per-boundary listener hook, so the
+endpoint reports unavailable with that reason rather than forcing false parity.
 
-The panel renders a parent and child tree, so a root transaction's nested calls sit directly underneath it, and each
-row expands to its thread, trace id, read-only flag, and any error. Configurable slow-transaction and
-connection-hold-time thresholds flag transactions worth a closer look, and local-only **Pause**, **Resume**, and
-**Clear** actions stop recording or empty the buffer without deregistering the listener. Pausing stops only this
-panel's buffer: the [runtime journal](live-activity.md#runtime-journal) keeps recording transactions.
-**Clear** empties the retained window — the entries and the aggregate stats — and resets nothing else: the header's
-"captured since startup" count and the evictions are lifetime counts. Over MCP and the CLI, the controls answer with a
-[compact acknowledgement](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls) instead of the panel.
+::: details How capture works and what each transaction records
 
-::: details What each captured transaction records
+On Spring MVC and WebFlux, BootUI contributes a `TransactionExecutionListener` (Spring Framework 6.1+) through Spring
+Boot's transaction-manager customization. It composes with your own listeners; managers that do not implement the
+configurable listener SPI stay unobserved. On WebFlux this covers blocking managers used on a Reactor `boundedElastic`
+worker and a `ReactiveTransactionManager` such as R2DBC's, recorded without a thread-bound parent or isolation
+([WebFlux support](../WEBFLUX-SUPPORT.md)). SQL and connection counts describe JDBC work on the begin thread, so zero
+counts do not prove that no database work occurred.
 
-Each captured transaction records:
+Each transaction records the boundary name (typically `ClassName.methodName`), a best-effort `propagation`
+(`NEW` or `PARTICIPATING`), the isolation level, the outcome (`COMMITTED`, `ROLLED_BACK`, or `UNKNOWN`), timestamps and
+duration, the enclosing transaction id, the thread, and the trace id. Each entry is correlated by thread and time window
+to SQL Trace executions, showing how many statements and connections it touched.
 
-- the declared boundary name, typically `ClassName.methodName`.
-- a best-effort `propagation` classification. `NEW` means the manager actually started a transaction; `PARTICIPATING`
-  means it joined one already active on the same thread. Spring's listener SPI does not expose the declared `Propagation`
-  enum value itself.
-- the JDBC isolation level active at begin time.
-- the outcome — `COMMITTED`, `ROLLED_BACK`, or `UNKNOWN` when a begin/commit/rollback threw.
-- start/end timestamps and wall-clock duration.
-- the enclosing transaction's id, so nested transactions form a call tree.
-- the executing thread and, when present, the active Micrometer/W3C trace id.
-
-Each entry is also correlated, by thread and time window, to the executions already captured by the SQL Trace panel,
-surfacing the number of SQL statements and distinct JDBC connections a transaction touched without instrumenting anything
-twice.
+When the opt-in MCP Server is enabled on Spring MVC or WebFlux, `get_transactions` exposes the same bounded report.
 
 :::
-
-Transaction metadata — method names, propagation, isolation, thread names, trace ids — is not sensitive application
-data the way bound SQL parameters are, so none of it is masked or gated behind exposure settings.
-
-The panel fails closed and reports unavailable with a reason when no configurable transaction manager bean exists. A
-`ReactiveTransactionManager` over R2DBC is configurable too, so a WebFlux application that uses only R2DBC has its
-transactions recorded. Capture, the initial recording state, buffer size, and the slow-transaction and connection-hold
-thresholds are configurable under `bootui.transactions.*`.
-
-The panel refreshes over Server-Sent Events. The browser subscribes to `/bootui/api/transactions/stream`, and the
-server pushes a coalesced notification whenever a transaction completes, the buffer is cleared, or recording is paused
-or resumed. When the auto-refresh toggle is off or the tab is hidden, the stream is closed, and the panel falls back to
-its initial load when Server-Sent Events are unavailable.
-
-::: details Sample app scenarios and MCP exposure
-
-The Spring sample's product list and uncached product-search operations use explicit read-only service transactions, so
-loading or checking products produces representative entries here as well as in SQL Trace. Its sample action lab has a
-one-click transaction scenario set that generates committed, slow, rolled-back, and nested boundaries, plus a Hibernate
-second-level cache action that loads one entity through two persistence contexts to produce visible miss, put, and hit
-counters in Hibernate Statistics. When the opt-in MCP Server is enabled on Spring MVC or WebFlux, `get_transactions`
-exposes the same bounded, local-only report to an agent; it is not advertised on Quarkus because transaction capture is
-not available there.
-
-:::
-
-This panel is not applicable on Quarkus. Its transaction management goes through Narayana's JTA `TransactionManager`
-and `Synchronization` or the CDI `@Transactional` interceptor, neither of which exposes a comparable per-boundary
-listener hook without far more invasive instrumentation than Spring's opt-in registration. The Quarkus endpoint reports
-unavailable with that reason rather than forcing false parity.
 
 ## Hibernate Statistics
 
 ![BootUI Hibernate Statistics panel](../images/bootui-hibernate-statistics.webp)
 
 The Hibernate Statistics panel is a live, read-only view of Hibernate's own `org.hibernate.stat.Statistics` for the
-application's `SessionFactory`. It is a continuously refreshing runtime monitor, closer to Database Connection Pools or
-SQL Trace than to an advisor, and separate from the Hibernate advisor, which runs static on-demand checks.
+application's `SessionFactory`. It is a runtime monitor, separate from the Hibernate advisor's static checks.
 
-The snapshot covers session and transaction counts, entity and collection load, fetch, insert, update, delete,
-recreate, and remove counts, query execution counts with the slowest recorded query, and — when they are enabled —
-query-cache and second-level-cache hit, miss, and put counters, including per-region breakdowns.
+The snapshot covers session and transaction counts, entity and collection load, fetch, insert, update, delete counts,
+query execution counts with the slowest query, and, when enabled, query-cache and second-level-cache hit, miss, and put
+counters with per-region breakdowns.
 
-The panel needs a resolvable `SessionFactory` through `EntityManagerFactory#unwrap(SessionFactory.class)`. When
-statistics collection is off, it offers **Enable for this runtime**, which calls `Statistics#setStatisticsEnabled(true)`
-and starts collecting from that moment without rewriting your configuration. The persistent alternatives remain
-`hibernate.generate_statistics=true` and `quarkus.hibernate-orm.statistics=true`, which is the same HIB-CONFIG-007
-recommendation the [Hibernate advisor](../HIBERNATE-CHECKS.md) makes.
+When statistics collection is off, the panel offers **Enable for this runtime**, which calls
+`Statistics#setStatisticsEnabled(true)` without rewriting your configuration. The persistent alternatives are
+`hibernate.generate_statistics=true` and `quarkus.hibernate-orm.statistics=true` (the HIB-CONFIG-007 recommendation of
+the [Hibernate advisor](../HIBERNATE-CHECKS.md)). That toggle is the only mutation and follows the localhost,
+cross-site-write, and read-only policy; there is no reset action. The panel is identical on Quarkus.
 
-That toggle is the only mutation, and it is covered by BootUI's localhost, cross-site-write, and read-only policy.
-There is no reset or clear action, so BootUI never discards Hibernate's counters.
+::: details Known limitations
 
-::: details Two known limitations
-
-There is no per-entity or per-query drill-down beyond what `Statistics` itself exposes, and only the first resolved
-`EntityManagerFactory` is inspected, so a multi-persistence-unit application sees statistics for one unit.
-
-`bootui.monitoring.exclude-self` does not apply here. These are process-global counters on the `SessionFactory`, not
-per-request data, so there is nothing to attribute to BootUI. Its own entity-metamodel introspection opens no sessions
-or transactions, so it does not inflate the counters in practice, but that is a property of the implementation rather
-than an enforced filter.
+Only the first resolved `EntityManagerFactory` is inspected, so a multi-persistence-unit application sees one unit.
+There is no per-entity or per-query drill-down beyond what `Statistics` exposes. `bootui.monitoring.exclude-self` does
+not apply, because these are process-global counters.
 
 :::
-
-The panel is identical on Quarkus, gated on the same Hibernate ORM capability as the Hibernate advisor.
 
 ## Spring Data
 
 ![BootUI Spring Data panel](../images/bootui-data.webp)
 
 The Spring Data panel lists the application's Spring Data repositories with their interfaces, domain types, ID types,
-and query methods. It shows a clear empty state when Spring Data is absent or no repositories are registered.
+and query methods. It shows an empty state when Spring Data is absent or no repositories are registered.
 
 ## Flyway
 
 ![BootUI Flyway panel](../images/bootui-flyway.webp)
 
-The Flyway panel shows the schema migrations of each `Flyway` bean. Per database, it lists the current schema version
-with the applied and pending migrations: version, description, type, script, state, installed-by, installed-on,
-execution time, and checksum. Multiple and named datasources appear independently.
+The Flyway panel shows the schema migrations of each `Flyway` bean: per database, the current schema version with the
+applied and pending migrations (version, description, type, script, state, installed-by, installed-on, execution time,
+checksum). Multiple and named datasources appear independently.
 
-`migrate` and `clean` are confirmation-gated actions, available for trusted local sessions and blocked by
-`bootui.read-only=true` or `bootui.panels.flyway.read-only=true`. `clean` additionally requires `spring.flyway.clean-disabled=false`.
+`migrate` and `clean` are confirmation-gated actions for trusted local sessions, blocked by `bootui.read-only=true` or
+`bootui.panels.flyway.read-only=true`. `clean` additionally requires `spring.flyway.clean-disabled=false`.
 
-The panel shows a clear empty state when Flyway is absent or no `Flyway` beans exist.
-
-Quarkus uses the same `org.flywaydb.core.Flyway` library, so the panel is identical there. The adapter reads the active
-`io.quarkus.flyway.runtime.FlywayContainer` beans, one per default or `@FlywayDataSource`-named datasource, and offers
-the same actions, with `clean` honoring `quarkus.flyway.clean-disabled`. When the optional `quarkus-flyway` extension is
-absent, the panel says to add it rather than failing.
+Quarkus reads the active `FlywayContainer` beans (default or `@FlywayDataSource`-named) and offers the same actions,
+with `clean` honoring `quarkus.flyway.clean-disabled`. Without the `quarkus-flyway` extension, the panel says to add it.
 
 ::: details Spring Modulith module-aware migrations
-When module-aware Flyway migrations are active, the panel shows the root and module-specific history tables separately,
-so module-local migrations stay visible even though Spring Modulith creates those Flyway views only during migration.
-Those entries are read-only in BootUI, because Spring Modulith's migration strategy manages their history tables. This
-block is Spring-specific and is not reported on Quarkus.
+
+When module-aware Flyway migrations are active, the panel shows the root and module-specific history tables separately.
+Those entries are read-only in BootUI. This is Spring-specific and not reported on Quarkus.
+
 :::
 
 ## Liquibase
@@ -818,13 +510,9 @@ block is Spring-specific and is not reported on Quarkus.
 The Liquibase panel shows the change sets of each discovered Liquibase database: every `SpringLiquibase` bean on
 Spring Boot, and every active `LiquibaseFactory` on Quarkus, including `@LiquibaseDataSource`-named datasources.
 
-It reads the change-log history and the configured changelog, then lists the applied and pending change sets per
-database with their id, author, change-log, description, comments, execution type, date executed, order executed,
-checksum, tag, deployment id, contexts, and labels. Multiple and named datasources appear independently.
+It lists the applied and pending change sets per database with their id, author, change-log, description, execution
+type, date and order executed, checksum, tag, deployment id, contexts, and labels.
 
-`update` is a confirmation-gated action that applies pending change sets. It is available for trusted local sessions
-and blocked by `bootui.read-only=true` or `bootui.panels.liquibase.read-only=true`, enforced identically on both
-frameworks.
-
-The panel fails closed per database when its history cannot be read, and shows a clear empty state when Liquibase is
-absent or no Liquibase databases exist.
+`update` is a confirmation-gated action that applies pending change sets, blocked by `bootui.read-only=true` or
+`bootui.panels.liquibase.read-only=true` on both frameworks. The panel fails closed per database when its history
+cannot be read, and shows an empty state when Liquibase is absent.

@@ -2,151 +2,101 @@
 
 ## Scheduled Tasks
 
-Scheduled observations restore the worker's previous correlation when their scopes close, including nested
-reopenings and separate workers using the same observation. A completed job's execution id is not left on a pooled
-worker to attribute unrelated later work to that job.
-
 ![BootUI Scheduled Tasks panel](../images/bootui-scheduled-tasks.webp)
 
 The Scheduled Tasks panel lists the jobs registered with Spring's scheduling infrastructure, with their task type and
 trigger metadata, so background activity is visible during local development.
 
-Quarkus serves the same `/bootui/api/scheduled` contract from a different source: `@Scheduled` methods captured from
-the Jandex index at build time. Only annotation-discovered tasks are captured there.
+Quarkus serves the same `/bootui/api/scheduled` contract from `@Scheduled` methods captured at build time. Only
+annotation-discovered tasks are captured there.
 
-::: details How Quarkus captures scheduled tasks
-The runtime `io.quarkus.scheduler.Scheduler` exposes only trigger ids and next-fire times — neither of which the shared
-task contract carries — while the cron/`every` expressions and target method are known only at build time. So the
-Quarkus adapter captures every `@Scheduled` method from the application's Jandex index at **build time** (the same
-pattern as Architecture base-package and Vulnerabilities dependency capture). It maps each onto the same
-trigger/expression/initial-delay fields: a `cron` member becomes a `CRON` row, an `every` member a `FIXED_RATE` row (with
-the duration parsed to milliseconds), and a `delay`/`delayed` initial delay is carried through. The panel is available
-only when the `quarkus-scheduler` extension is present; programmatic `Scheduler.newJob()` jobs are not captured.
+::: details Quarkus capture and worker correlation
+
+The runtime `io.quarkus.scheduler.Scheduler` exposes only trigger ids and next-fire times, so the Quarkus adapter reads
+every `@Scheduled` method from the Jandex index at build time. A `cron` member becomes a `CRON` row, an `every` member
+a `FIXED_RATE` row, and an initial delay is carried through. The panel needs the `quarkus-scheduler` extension;
+programmatic `Scheduler.newJob()` jobs are not captured.
+
+Scheduled observations restore the worker's previous correlation when their scopes close, so a completed job's
+execution id is never left on a pooled worker to attribute unrelated later work.
+
 :::
 
 ## REST Client
 
 ![BootUI REST Client panel](../images/bootui-rest-client-trace.webp)
 
-The REST Client panel shows the outbound HTTP calls your application recently made, through Spring's REST clients or
-Quarkus REST Client Reactive proxies. Capture uses no third-party HTTP proxy library, and a capture failure never
-disrupts the call itself.
+The REST Client panel shows the outbound HTTP calls your application recently made, through Spring's `RestClient`,
+`RestTemplate`, and `WebClient`, or Quarkus REST Client Reactive proxies. A capture failure never disrupts the call.
 
-Each call records its method, host, path, sanitized query string, response status, wall-clock duration, success or
-failure, client type, a trace id when one is active, the executing thread, and, with call-site capture enabled, the
-call site in your own code that issued it.
-
-::: details How calls are intercepted
-When BootUI is active it customizes every auto-configured `RestClient` and `RestTemplate` with a shared
-`ClientHttpRequestInterceptor` (Spring), or hooks every `@RegisterRestClient` proxy via the MicroProfile
-`RestClientListener` SPI (Quarkus). Both instrumentation points let the request through and only best-effort record
-around it, so an instrumentation error never breaks the call.
-:::
+Each call records its method, host, path, sanitized query string, response status, duration, success or failure, client
+type, trace id, executing thread, and, with call-site capture enabled, the call site in your own code.
 
 ### Reading the panel
 
-Calls are retained in a bounded, most-recent-first buffer with aggregate stats: retained count, average and
-slowest duration, and a configurable slow-call count. A share of the buffer, 25% by default
-(`bootui.rest-client-trace.reserved-share-percent`), is reserved for the most recent failed, error-response, and slow
-calls, so routine calls are evicted first; the panel states the kept, reserved, and evicted counts, as described in
+Calls are kept in a bounded, most-recent-first buffer with aggregate stats: retained count, average and slowest
+duration, and slow-call count. A share of the buffer, 25% by default (`bootui.rest-client-trace.reserved-share-percent`),
+is reserved for the most recent failed, error-response, and slow calls; see
 [Failure-preserving retention](diagnostics.md#failure-preserving-retention). An outbound call can fail two ways, so
-unlike SQL Trace there are two failure counters:
+there are two counters:
 
-| Counter             | Counts                                                                                                   |
-| ------------------- | -------------------------------------------------------------------------------------------------------- |
-| **Failed**          | Transport-level failures, where the call never got a response: connection refused, timeout, DNS failure. |
-| **Error responses** | Calls that completed with a `4xx` or `5xx` status.                                                       |
+| Counter | Counts |
+| ------- | ------ |
+| **Failed** | Transport-level failures with no response: connection refused, timeout, DNS failure. |
+| **Error responses** | Calls that completed with a `4xx` or `5xx` status. |
 
-A **Most frequent calls** table groups calls by method, host, and normalized path, and flags high-frequency groups as
-_chatty_. Rows filter by HTTP method, a slow-only toggle, or free text, and each expands for full detail. Local-only
-**Pause**, **Resume**, and **Clear** actions stop recording or empty the buffer without removing instrumentation.
-Pausing stops only this panel's buffer: the [runtime journal](live-activity.md#runtime-journal) keeps recording calls.
-**Clear** empties the retained window — the entries, the aggregate stats, and the top calls — and resets nothing else:
-the header's "captured since startup" count and the evictions are lifetime counts. Over MCP and the CLI, the controls
-answer with a [compact acknowledgement](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls) instead of the
-panel.
-
-::: details Breakdowns, grouping, and chatty detection
-A per-method breakdown badges GET/POST/PUT/DELETE/other counts, and an "Instrumented clients" row lists which client
-types (`RestClient`, `RestTemplate`, `WebClient`, or `Quarkus REST Client Reactive`) are actually wired in. The panel
-groups calls by method, host, and normalized path — numeric and UUID segments collapse to `{id}`, so `/orders/1` and
-`/orders/2` group under `/orders/{id}`. It flags a group at or above `bootui.rest-client-trace.chatty-call-threshold`
-calls as a **chatty** (repeated-call) pattern. Unlike SQL's N+1 rule, which only flags repeated `SELECT`s, a chatty
-pattern is flagged for calls of _any_ HTTP method, since looping a `POST`/`PUT` per item is just as costly as looping a
-`GET`. A flagged group also lists the distinct call site(s) that issued it, most-recently-seen first and bounded to a
-handful of entries. Each call row expands to reveal the full URI, request headers when that adapter supports them, client
-type, trace id, executing thread, call site, and error message. Rows filter by HTTP method, a slow-only toggle, or free
-text across URI, host, method, client, and thread.
-:::
+A **Most frequent calls** table groups calls by method, host, and normalized path (numeric and UUID segments collapse to
+`{id}`) and flags groups at or above `bootui.rest-client-trace.chatty-call-threshold` as _chatty_, for any HTTP method.
+Rows filter by method, slow-only, or free text and expand to full detail. Local-only **Pause**, **Resume**, and **Clear** actions stop recording or empty the buffer; pausing
+stops only this panel's buffer, and the [runtime journal](live-activity.md#runtime-journal) keeps recording. Over MCP and
+the CLI, the controls answer with a
+[compact acknowledgement](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls).
 
 ### Privacy
 
 Spring retains the URI and masks query values by name. Quarkus is strictly metadata-only and never reads bodies,
-headers, or credentials. Call-site capture names only your own code — class, method, line — never a value, so it is not
-privacy-gated.
+headers, or credentials. Call sites are your own code (class, method, line), never a value, so
+`bootui.rest-client-trace.capture-call-site` (default `true`) is not privacy-gated.
 
 ::: details Exact redaction rules
 
-- **Spring** retains the URI and masks query values **by name** (the same `SecretMasker` rules Config and HTTP Exchanges
-  use, matched percent-decoded so a URL-encoded parameter name cannot slip through). URI authority credentials such as
-  `user:secret@host` are removed before buffering, and the client error message is flattened, credential-redacted, and
-  truncated — a transport exception routinely quotes the whole request URL. Request headers are withheld by default;
+- **Spring** masks query values by name with the same `SecretMasker` rules as Config and HTTP Exchanges, matched
+  percent-decoded. URI credentials such as `user:secret@host` are removed before buffering, and the client error
+  message is flattened, credential-redacted, and truncated. Request headers are withheld by default;
   `bootui.rest-client-trace.capture-headers=true` opts into bounded, exposure-aware header capture.
-- **Quarkus** is deliberately stricter: always metadata-only, it ignores that header property, never reads or retains
-  request/response bodies, arbitrary headers, authorization, cookies, credentials, or tokens, and strips URI
-  user-info/fragments plus masks sensitive path/query values **before storage**.
+- **Quarkus** is always metadata-only: it ignores the header property, never reads bodies, headers, authorization,
+  cookies, or tokens, and strips URI user-info and fragments and masks sensitive path and query values before storage.
+  Call-site attribution is best-effort there, because a reactive callback can run after the issuing stack unwound.
 
-`bootui.rest-client-trace.capture-call-site` defaults to `true` and only trades a small, defensively-bounded stack walk
-per call for the ability to see where a call came from. On Quarkus this attribution is best-effort, because a reactive
-client callback can run after the issuing stack has unwound.
 :::
 
 ### Availability and streaming
 
-The panel is available on all three stacks. The recorder bean is registered whenever the panel is enabled, because it
-also feeds Live Activity's REST entries.
-
-| Adapter        | Instrumentation                                                     | When the panel becomes available            |
-| -------------- | ------------------------------------------------------------------- | ------------------------------------------- |
-| Spring MVC     | `RestClientCustomizer` / `RestTemplateCustomizer` hooks             | Once the recorder has instrumented anything |
-| Spring WebFlux | `ExchangeFilterFunction` on the auto-configured `WebClient.Builder` | After that builder has customized a client  |
-| Quarkus        | `RestClientListener` SPI attaching a filter on every proxy          | When `quarkus-rest-client` is present       |
-
-The panel refreshes over Server-Sent Events rather than fixed-interval polling. Recent calls also surface in Live
-Activity, nested under the request that made them, with a deep link back here. That nesting uses BootUI's request id
-first on every stack, then the trace id and the serving thread on Spring MVC, and the trace id alone on WebFlux and
-Quarkus. A call's summary keeps the port its URI states, such as `localhost:8082`, so two local services on different
-ports stay distinct.
-
-::: details Per-adapter wiring detail
-On Spring, the customizer that wires a given client type fails open, skipping itself entirely when that client's Spring
-Boot module (for example `spring-boot-webclient`) is not on the classpath, so an app without `WebClient` simply never
-gets a `WebClient` customizer rather than failing startup. On WebFlux, `WebClient` calls are captured through an
-`ExchangeFilterFunction` installed by Spring Boot's auto-configured `WebClient.Builder`, and its reactive `/stream`
-endpoint provides the same pause/resume, clear, and live-refresh behavior without linking servlet classes.
-
-On Quarkus the manifest is capability-driven because REST Client proxies are built lazily: when `quarkus-rest-client` is
-present the panel stays visible and reports that no proxy has been initialized until the first one is built, then its SSE
-stream refreshes on the first captured call. The `QuarkusRestClientTraceListener` (registered via
-`ServiceProviderBuildItem` when the capability is present) attaches a `QuarkusRestClientTraceFilter` on every proxy. The
-filter runs after application request filters and before application response filters, so it brackets the transport
-without replacing application customization. Quarkus reports a pre-response transport failure to the response filter with
-status `0`; BootUI records that as a failed call with no invented HTTP status, while any real `4xx`/`5xx` response remains
-a transport-successful error response. The same `RestClientTraceRecorder` backs both adapters, so the panel shape is
-identical.
-:::
-
-::: details Streaming and Live Activity detail
-Because the trace buffer is genuinely event-driven, the browser subscribes to `/bootui/api/rest-client-trace/stream` and
-the server pushes a small coalesced notification the moment a call is captured, the buffer is cleared, or recording is
-paused/resumed. The push carries no data — masking and truncation still apply through the regular endpoint — and bursts
-of calls are folded into a single refresh so high-volume workloads do not flood the UI. Recent calls surface in Live
-Activity using BootUI's request id first, then a unique trace id, with a serving-thread fallback on Spring MVC only.
-The "chatty" grouping above
-is not yet surfaced as a row-level badge in the merged stream the way SQL's N+1 suspicion is — it is visible only in this
-panel's own "Most frequent calls" table. Tracing, the initial recording state, header capture, call-site capture, buffer
-size, the slow-call and chatty-call thresholds, and URI/header truncation limits are all configurable under
+The panel is available on all three stacks, and refreshes over Server-Sent Events from
+`/bootui/api/rest-client-trace/stream`. Recent calls also appear in Live Activity, nested under the request that made
+them, with a deep link back here. Capture, buffer size, and thresholds are configurable under
 `bootui.rest-client-trace.*`.
+
+::: details Interception, availability, and Quarkus wiring
+
+| Adapter | Instrumentation | When the panel becomes available |
+| ------- | --------------- | -------------------------------- |
+| Spring MVC | `RestClientCustomizer` and `RestTemplateCustomizer` hooks | Once the recorder has instrumented anything |
+| Spring WebFlux | `ExchangeFilterFunction` on the auto-configured `WebClient.Builder` | After that builder has customized a client |
+| Quarkus | `RestClientListener` SPI attaching a filter on every proxy | When `quarkus-rest-client` is present |
+
+Spring customizes every auto-configured `RestClient` and `RestTemplate` with a shared interceptor, and skips a client
+type whose Spring Boot module is not on the classpath. Quarkus attaches a filter to every `@RegisterRestClient` proxy
+through the MicroProfile `RestClientListener` SPI. Both let the request through and record around it, so an
+instrumentation error never breaks the call.
+
+Quarkus builds proxies lazily, so the panel stays visible and says no proxy has been initialized until the first call.
+A pre-response transport failure is recorded as a failed call with no invented HTTP status, while a real `4xx` or `5xx`
+stays a transport-successful error response.
+
+Live Activity nesting uses BootUI's request id first on every stack, then the trace id and serving thread on Spring MVC,
+and the trace id alone on WebFlux and Quarkus. The chatty grouping is visible only in this panel.
+
 :::
 
 ## Fault Tolerance
@@ -154,277 +104,166 @@ size, the slow-call and chatty-call thresholds, and URI/header truncation limits
 ![BootUI Fault Tolerance panel](../images/bootui-fault-tolerance.webp)
 
 The Fault Tolerance panel makes the application's protective policies visible. It lists every circuit breaker, retry,
-rate limiter, bulkhead, time limiter, and fallback the application declares, with the settings that actually apply, the
-protected operation, live circuit breaker state, and call counters where the library exposes them.
+rate limiter, bulkhead, time limiter, and fallback the application declares, with the settings that apply, the protected
+operation, live circuit breaker state, and call counters where the library exposes them. A bounded event feed below
+shows retried calls, exhausted retries, rejected calls, timeouts, short circuits, and state transitions.
 
-Below the inventory, a bounded event feed shows what the machinery did: retried calls, exhausted retries, rejected
-calls, timeouts, short circuits, and state transitions.
+Resilience4j and Spring Retry are supported on Spring MVC and WebFlux, and SmallRye Fault Tolerance on Quarkus; several
+can be active at once.
 
-Three providers are supported, and several can be active at once: Resilience4j and Spring Retry on Spring MVC and
-WebFlux, and SmallRye Fault Tolerance on Quarkus.
-
-The panel is capture-only. BootUI never opens, closes, resets, forces, or otherwise mutates a policy, and never
-triggers a protected call itself. Events also appear in Live Activity as `FAULT_TOLERANCE` entries, correlated with the
-request that produced them. Set `bootui.fault-tolerance.enabled=false` to keep the live inventory while recording no
+The panel is capture-only: BootUI never opens, closes, resets, or forces a policy, and never triggers a protected call.
+Events also appear in Live Activity as `FAULT_TOLERANCE` entries, correlated with their request, and clicking one opens
+this panel filtered to that policy. Set `bootui.fault-tolerance.enabled=false` to keep the inventory while recording no
 events.
 
 ::: details Per-provider sources and capture scope
 
-- **Resilience4j** — read live from the `CircuitBreakerRegistry`, `RetryRegistry`, `RateLimiterRegistry`,
-  `BulkheadRegistry`, `ThreadPoolBulkheadRegistry`, and `TimeLimiterRegistry` beans, including entries created lazily at
-  runtime. Resilience4j's own event publishers feed the event feed, so state transitions and retries appear without any
-  wrapping or proxying by BootUI. The first retry delay is inspected without a call result; when a custom interval
-  function needs a result to calculate it, the delay is omitted rather than guessed. Its provenance remains unknown.
-- **Spring Retry** — `@Retryable` metadata plus an additive `RetryListener` bean that records retry attempts and
-  exhaustion.
-- **SmallRye Fault Tolerance** — `@CircuitBreaker`, `@Retry`, `@Timeout`, `@Bulkhead`, `@RateLimit`, and `@Fallback`
-  annotations captured from the Jandex index at build time, with MicroProfile configuration overrides resolved at
-  runtime and marked `configured`. This includes the MicroProfile `enabled` switches, so a policy disabled through
-  configuration is listed with a leading `enabled` = `false` setting rather than shown as if it still applied. Live
-  circuit breaker state and state-transition events come from `CircuitBreakerMaintenance` for breakers carrying
-  `@CircuitBreakerName`; SmallRye publishes no per-call event stream, so retries and rejections are not individually
-  captured.
+- **Resilience4j** reads the circuit breaker, retry, rate limiter, bulkhead, thread-pool bulkhead, and time limiter
+  registries live, including entries created at runtime. Its own event publishers feed the event feed, with no wrapping
+  by BootUI. A first retry delay that needs a call result to calculate is omitted rather than guessed.
+- **Spring Retry** reads `@Retryable` metadata plus an additive `RetryListener` that records attempts and exhaustion.
+- **SmallRye Fault Tolerance** reads `@CircuitBreaker`, `@Retry`, `@Timeout`, `@Bulkhead`, `@RateLimit`, and
+  `@Fallback` from the Jandex index at build time, with MicroProfile configuration overrides resolved at runtime. A
+  policy disabled through configuration is listed with `enabled` = `false`. Circuit breaker state and transitions come
+  from `CircuitBreakerMaintenance` for breakers carrying `@CircuitBreakerName`; there is no per-call event stream, so
+  retries and rejections are not individually captured.
 
-Event capture is metadata only: policy name, outcome, attempt number, duration, the _simple name_ of a failure's
-exception class, and circuit breaker state. Method arguments, return values, payloads, and exception messages are never
-recorded. Clicking a Live Activity `FAULT_TOLERANCE` entry opens this panel filtered to that policy.
+Events are metadata only: policy name, outcome, attempt number, duration, the simple name of the exception class, and
+circuit breaker state. Arguments, return values, payloads, and exception messages are never recorded.
+
 :::
 
 ## WebSockets
 
 ![BootUI WebSockets panel](../images/bootui-websockets.webp)
 
-The WebSockets panel shows the endpoints your application declares, the connections currently open against them, the
-STOMP destinations those connections subscribed to, and a bounded log of recent frame metadata. It never records a
-message payload.
-
-It answers the questions a local WebSocket developer asks: is my endpoint mapped where I think, did the client really
-connect, did the subscription land on the destination I expected, and are frames flowing both ways?
+The WebSockets panel shows the endpoints your application declares, the connections open against them, the STOMP
+destinations those connections subscribed to, and a bounded log of recent frame metadata. It never records a message
+payload.
 
 ### The four tabs
 
-- **Endpoints** — each declared endpoint with its path, kind (`STOMP` or `HANDLER` on Spring, `ENDPOINT` on Quarkus), a
-  SockJS badge when enabled, the handler class, the number of open connections, whether BootUI has a frame-capture seam
-  installed, and the callbacks or `@MessageMapping` destinations it serves. When a STOMP broker is configured, the panel
-  also shows the broker prefixes, application destination prefixes, and user destination prefix, so a mis-prefixed
-  `/topic` versus `/app` destination is obvious at a glance.
-- **Sessions** — live connections with an opaque session id, negotiated path and subprotocol, open/closed state,
-  per-session frame and byte counters, and the remote address.
-- **Subscriptions** — each STOMP subscription mapped to its session and destination.
-- **Activity** — the recent frame log: timestamp, direction, frame type (`OPEN`, `TEXT`, `BINARY`, `PING`, `PONG`,
-  `CONNECT`, `SUBSCRIBE`, `UNSUBSCRIBE`, `CLOSE`), destination when the frame carries one, session, payload **size**, and
-  success/error category.
+- **Endpoints**: each endpoint with its path, kind (`STOMP`, `HANDLER`, or `ENDPOINT`), handler, open connections,
+  whether frame capture is installed, and the destinations and STOMP prefixes it serves.
+- **Sessions**: live connections with an opaque session id, state, frame and byte counters, and remote address.
+- **Subscriptions**: each STOMP subscription mapped to its session and destination.
+- **Activity**: the recent frame log, with direction, frame type, destination, payload **size**, and outcome.
 
 ### Capture-only and metadata-only
 
-BootUI never reads, decodes, buffers, or stores a message payload on any stack. Frame size comes from the transport's
-own counters and is omitted when unavailable.
+BootUI never reads, decodes, buffers, or stores a message payload on any stack; frame size comes from the transport's own
+counters. Raw session ids are replaced by a salted, one-way hash and destinations are redacted. BootUI never opens,
+closes, or writes to a connection.
 
-Raw session ids are replaced by a salted, one-way hash, and destinations are redacted, so you can correlate rows
-without a replayable identifier. Nothing about a WebSocket is touched on page load.
+Frame capture is installed only where the framework offers a sanctioned seam: Spring MVC with
+`@EnableWebSocketMessageBroker`. Spring WebFlux reports endpoint topology, and Quarkus reports endpoints and live
+connections, but neither supports frame capture; the panel shows the reason. Local-only **Pause/Resume** and **Clear**
+actions honor `bootui.panels.websockets.read-only`. Capture and caps are configurable under `bootui.websockets.*`.
 
-::: details How metadata-only capture works
-Frame size comes from the transport's own `getPayloadLength()` (Spring) or from the length of an already-materialized
-`byte[]` on the messaging channel, and is simply omitted when neither is available, so no application message is ever
-consumed or copied. Raw provider session ids are never exposed — each is replaced by a salted, per-process, one-way hash,
-and destinations are redacted into the buffer, so Spring's resolved user destinations (`/queue/x-user<simpSessionId>`)
-surface as `/queue/x-user{session}` rather than leaking a live, addressable identifier. BootUI reads the endpoint
-registry Spring or Quarkus already built and the connections that already exist, and never opens, closes, probes, or
-writes to a connection. Local-only **Pause/Resume** (frame capture) and **Clear** (buffer and counters) actions are
-available where capture is supported, and both honor `bootui.panels.websockets.read-only`.
-:::
+::: details Per-stack capture, journal, and gating
 
-### Where frame capture is installed
+On Spring MVC, BootUI registers a `WebSocketHandlerDecoratorFactory` and `ChannelInterceptor`s through the public
+`WebSocketMessageBrokerConfigurer` contract, so STOMP endpoints are badged **installed**. Native `WebSocketHandler`
+endpoints without the broker report topology and are badged **metadata**. On WebFlux, `@EnableWebSocketMessageBroker` is
+servlet-only; on Quarkus, WebSockets Next has no message-interception SPI. Spring MVC and Quarkus observe connection
+lifecycle; WebFlux has no session registry, so its Sessions table says so (`sessionTrackingSupported`).
 
-Frame capture is installed only where the framework offers a sanctioned seam, and the panel says which case applies.
-Spring MVC with `@EnableWebSocketMessageBroker` supports it. Spring WebFlux reports endpoint topology, and Quarkus
-reports endpoints and live connections, but neither supports frame capture; the concrete reason is shown.
+Separately, each inbound application message is an execution in the runtime journal on all three stacks: the SQL,
+exceptions, and calls its handler makes nest under a `WEBSOCKET` row in Live Activity, and a completed handler can be
+opened in a [journal-backed profile](live-activity.md#the-per-request-profiler). That covers the `@MessageMapping` or
+`@SubscribeMapping` method on Spring MVC, the synchronous work of a `WebSocketHandler` on WebFlux, and each
+`@OnTextMessage` or `@OnBinaryMessage` call on Quarkus. `bootui.websockets.enabled=false` turns it off.
 
-::: details Per-stack capture and session tracking
+Spring gates the panel on `spring-websocket` and `spring-messaging`. Quarkus gates it on `quarkus-websockets-next` and
+at least one `@WebSocket` endpoint, captured from the Jandex index.
 
-- On **Spring MVC** with `@EnableWebSocketMessageBroker`, BootUI registers a `WebSocketHandlerDecoratorFactory` plus
-  inbound and outbound `ChannelInterceptor`s through the public `WebSocketMessageBrokerConfigurer` contract, so STOMP
-  endpoints report `frameCaptureSupported=true` and are badged **installed**. Native `WebSocketHandler` endpoints
-  registered without the message broker report their full topology but are badged **metadata**, because decorating them
-  would require reaching into non-public state.
-- On **Spring WebFlux** and **Quarkus**, the panel reports endpoint topology but
-  `frameCaptureSupported=false` with the concrete reason: `@EnableWebSocketMessageBroker` is servlet-only, and Quarkus
-  WebSockets Next exposes no message-interception SPI.
-
-Separately from frame capture, each inbound application message is an execution in the runtime journal on all three
-stacks: the SQL, exceptions, and calls its handler makes nest under a `WEBSOCKET`
-row in Live Activity, and Runtime Insights reads it like a listener. On Spring MVC that is the `@MessageMapping` or
-`@SubscribeMapping` method a STOMP message reaches; on WebFlux, the work a `WebSocketHandler` does synchronously for each
-received message, through BootUI's `WebSocketHandlerAdapter`; on Quarkus, each `@OnTextMessage` or `@OnBinaryMessage`
-call. `bootui.websockets.enabled=false` turns it off with the panel's capture.
-
-A retained, completed inbound handler can also be opened by execution id in a
-[journal-backed profile](live-activity.md#the-per-request-profiler), with its recorded SQL, exceptions, and other enabled-panel
-work. The WebSockets panel must remain enabled; missing or hidden anchors never produce a profile from children alone.
-This does not extend capture to later asynchronous completion or add frame/session support on any stack.
-
-Live session tracking is reported with the same honesty through `sessionTrackingSupported` and
-`sessionTrackingUnavailableReason`: Spring MVC and Quarkus observe connection lifecycle, while Spring WebFlux exposes no
-session registry, so its empty Sessions table says _not supported on this stack_ instead of implying nothing is
-connected. Buffer sizes, initial capture state, and per-collection caps are configurable under `bootui.websockets.*`;
-every collection is independently truncated and the panel says when it was.
-:::
-
-### Availability and streaming
-
-The panel is available on all three stacks, with the capture difference above. It refreshes over Server-Sent Events
-on `/bootui/api/websockets/stream`, so a connection opening or a frame arriving pushes a coalesced change notification
-rather than polling on a timer.
-
-::: details Gating and streaming detail
-On Spring, the panel is gated on `spring-websocket` and `spring-messaging` being on the classpath. On Quarkus it is gated
-on `quarkus-websockets-next` being present and at least one `@WebSocket` endpoint being declared, with the endpoint
-topology captured at build time from the Jandex index and connection lifecycle observed through `@Open`/`@Closed` CDI
-events over `OpenConnections`. The SSE push carries no data — the regular endpoint still applies every masking, ordering,
-and truncation rule.
 :::
 
 ## AI Framework
 
 ![BootUI AI Framework panel](../images/bootui-ai.webp)
 
-The AI Framework panel summarizes Spring AI and LangChain4j activity from the OpenTelemetry spans their built-in
-observability emits. It groups chat client and chat model spans by conversation, showing request count, token usage for
-prompt, completion, and total, latency, model, and the prompt and response snippet when content capture is configured.
+The AI Framework panel summarizes Spring AI and LangChain4j activity from the OpenTelemetry spans their observability
+emits. It groups chat client and chat model spans by conversation, showing request count, token usage, latency, model,
+and the prompt and response snippet when content capture is configured. An inline chart shows token usage over recent
+calls, and vector store and embedding spans appear alongside. Data lives in memory only.
 
-AI calls and tokens per route, from the runtime journal, are in [Runtime Insights](runtime-insights.md)
-(`ai-usage-by-route`), which does not list them by default; this panel links to them, and the link opens Runtime Insights with
-every row shown.
+AI calls and tokens per route are in [Runtime Insights](runtime-insights.md) (`ai-usage-by-route`); this panel links to
+them, and the link opens Runtime Insights with every row shown.
 
-An inline chart shows total token usage over recent calls, and vector store and embedding spans appear alongside chat
-spans. The data comes from BootUI's local telemetry capture, lives in memory only, and is cleared on restart.
+The sidebar dims the panel when telemetry is disabled or neither framework is on the classpath, and the view shows a
+setup checklist. On Quarkus the panel is identical and needs `quarkus-opentelemetry`.
 
-### Availability and setup
+::: details Setup and content capture
 
-The sidebar dims the panel when telemetry is disabled or neither Spring AI nor LangChain4j is on the classpath, and the
-view explains the unavailable state with a setup checklist for each framework.
+Recent chats, token windows, spans, and attributes are bounded. With no framework detected, the checklist shows a Spring
+AI guide and a LangChain4j guide; on Quarkus it shows a single `quarkus-langchain4j` plus `quarkus-opentelemetry` guide
+with no embedded OTLP receiver. When prerequisites are ready but no chat spans have arrived, the panel shows a ready
+empty state.
 
-::: details Telemetry sourcing and setup states
-The BootUI starter captures local application spans automatically when telemetry is enabled, and cooperating local
-services can still send OTLP spans to the embedded receiver. As with the Traces panel, recent chats, model breakdowns,
-token-series windows, spans, and attributes are all bounded so large local runs stay responsive. When no framework is
-detected, the setup checklist shows two side-by-side guides — one for Spring AI and one for LangChain4j — explaining the
-dependency and configuration each needs to emit GenAI spans (including optional prompt/completion content capture). When
-both prerequisites are ready but no chat spans have arrived yet, the panel shows a ready empty state rather than setup
-guidance.
-:::
-
-::: details Content-capture configuration
-Prompt/response snippets appear only when the framework is configured to capture content. For Spring AI, set
+Prompt and response snippets appear only when the framework captures content. For Spring AI, set
 `spring.ai.chat.client.observations.log-prompt`, `spring.ai.chat.observations.log-prompt`, and
 `spring.ai.chat.observations.log-completion`. For LangChain4j, enable GenAI message-content capture on the OpenTelemetry
 instrumentation.
-:::
 
-The panel is identical on Quarkus, reading from the same in-memory telemetry store; GenAI spans are captured when the
-application depends on `quarkus-opentelemetry`.
-
-::: details Quarkus setup differences
-GenAI spans are captured when the application depends on `quarkus-opentelemetry` (for example alongside
-`quarkus-langchain4j`, or any OpenTelemetry GenAI instrumentation that emits the `gen_ai.*` semantic-convention spans).
-When no framework is detected, the setup checklist adapts to the platform: on Quarkus it shows a single LangChain4j guide
-using `quarkus-langchain4j` plus `quarkus-opentelemetry` and BootUI's in-process capture model — no embedded OTLP
-receiver — instead of the Spring AI / LangChain4j side-by-side guides.
 :::
 
 ### AI Framework value exposure
 
-Content capture only decides what the AI framework records; BootUI decides what it shows. Spans are stored as captured,
-and the chat detail (`GET /bootui/api/ai/chats/{spanId}`) applies the live `bootui.expose-values` and
-`bootui.mask-secrets` policy to the chat span's attributes and events on every read, using the
-[trace value exposure](diagnostics.md#trace-value-exposure) rule on Spring MVC, Spring WebFlux, and Quarkus. Under the
-default `MASKED`, captured prompts, completions, input and output messages, and exception messages and stack traces keep
-their text with secret-like assignments and authorization credentials masked, and an attribute whose key looks
-sensitive is masked. Under `METADATA_ONLY`, that text is omitted as `null` while the attribute keeps its key and type.
-Only `FULL` shows it verbatim. Token counts, models, providers, finish reasons, tool and vector operation names, and
-timings are metadata and are never masked, and the drawer still reports content capture as on when its text is
-withheld. A runtime change of the mode applies to the next read.
+The chat detail (`GET /bootui/api/ai/chats/{spanId}`) applies the live `bootui.expose-values` and
+`bootui.mask-secrets` policy on every read, using the [trace value exposure](diagnostics.md#trace-value-exposure) rule.
+Under the default `MASKED`, prompts, completions, and exception text have secret-like assignments and credentials
+masked. Under `METADATA_ONLY`, that text is omitted. Only `FULL` shows it verbatim. Token counts, models, finish
+reasons, and timings are never masked.
 
 ## Cache
 
 ![BootUI Cache panel](../images/bootui-cache.webp)
 
-The Cache panel inspects the application's cache infrastructure from one shared panel and report contract: Spring's
-cache abstraction on Spring Boot, and `quarkus-cache` on Quarkus.
+The Cache panel inspects the application's cache infrastructure through one shared contract: Spring's cache abstraction
+on Spring Boot, and `quarkus-cache` on Quarkus.
 
-On Spring Boot it lists cache manager beans, known caches, native implementations, safe local sizes, Micrometer cache
-metrics when they are registered, and the discovered `@Cacheable`, `@CachePut`, and `@CacheEvict` operations.
-
-Clear actions are enabled for local development and require explicit confirmation. Disable them with
-`bootui.cache.clear-enabled=false`.
+On Spring Boot it lists cache managers, caches, safe local sizes, Micrometer cache metrics when registered, and the
+discovered `@Cacheable`, `@CachePut`, and `@CacheEvict` operations. Clear actions need explicit confirmation; disable
+them with `bootui.cache.clear-enabled=false`.
 
 ### Tiering and hit ratios
 
-Each row discloses the backing tiers the cache implementation describes through its own public API, and the native
-effectiveness counters that implementation records. Tier detail sits behind a keyboard-operable disclosure so the table
-stays scannable, and provider statistics are never blended with Micrometer meters.
+Each row discloses the backing tiers the cache describes through its own public API, and the native counters it
+records. BootUI never fabricates a value: an unavailable counter is omitted rather than shown as zero, and reading tiers
+never contacts anything over the network.
 
-::: details What a tier and its counters carry
-A tier carries its level (`L0` is consulted first), implementation type, locality (in this JVM or remote), configured
-maximum entry count, and configured expiry. When the provider's own configuration makes a bare number misleading, it also
-carries a short **policy note** — a weight-bounded Caffeine cache, for instance, states that its bound is a total weight
-rather than an entry count. Counters are shown as their own labelled series — provider statistics are never blended with
-Micrometer meters, and both are rendered side by side when both exist. A Micrometer series that has recorded no request
-yet shows _ratio unknown_, rather than a misleading 0%.
-:::
+::: details What a tier carries and how honesty is preserved
 
-### Read from public APIs only
+A tier carries its level (`L0` is consulted first), implementation type, locality (this JVM or remote), configured
+maximum entries, and configured expiry, plus a short **policy note** when a bare number would mislead (a
+weight-bounded Caffeine cache states its bound is a total weight).
 
-Everything here comes from public, supported APIs, and BootUI never fabricates a value. Undescribed storage reports no
-tiers, an unavailable counter is omitted rather than shown as zero, statistics appear only while the provider is
-recording, and reading tiers and counters never contacts anything over the network.
+- A cache that does not describe its storage is marked _Not described_ with a reason; no tier is inferred.
+- Caffeine without `recordStats()` and Spring Data Redis without `enableStatistics()` report unavailable with the fix,
+  not an all-zero series.
+- A **hit ratio** is derived only from a hit and a miss counter the adapter declared comparable, when their sum is
+  positive. An idle cache shows _ratio unknown_, never "0%".
+- No Redis entry count is reported, because counting keys would be a network round trip. The Quarkus adapter reads a
+  Caffeine cache's entry count through `keySet()`, which copies the key set, so a very large cache pays a local cost
+  when opened.
+- Topologies are bounded (100 managers, 500 caches per manager, 20 tiers per cache), and truncation is stated in the
+  report's warnings.
 
-::: details Exactly how honesty is preserved
+For example, a `RedisCache` shows a remote tier with its time-to-live and, once
+`spring.cache.redis.enable-statistics=true`, the locally recorded gets, hits, misses, puts, and deletes. A
+`spring.cache.type=simple` cache shows one local map tier and reports that it records nothing.
 
-- A cache implementation that does not describe its storage reports **no tiers at all** and is marked _Not described_
-  with a reason, rather than having a tier inferred from its class name.
-- A counter a provider does not expose (Caffeine has no put or explicit-removal counter, for instance) is **omitted**,
-  never rendered as zero.
-- Statistics are reported as available only when the provider says it is **recording**. Caffeine without `recordStats()`
-  and Spring Data Redis without `enableStatistics()` both report unavailable with the reason and the fix, instead of an
-  all-zero series that reads like a cold cache.
-- A **hit ratio is derived only** from a hit and a miss counter the adapter declared comparable (same counter family,
-  scope, and window) and only when their sum is positive. An idle cache shows _ratio unknown_ with the reason, never "0%".
-- Reading tiers and counters **never contacts anything over the network**. No Redis entry count is reported, because
-  counting keys would be an unsolicited network round trip on panel render. Local reads stay cheap too, with one honest
-  exception: the Quarkus adapter reads a Caffeine cache's entry count through Quarkus' own `keySet()` accessor, which
-  copies the key set, so a very large Quarkus cache pays a proportional local cost when opened. The Quarkus extension is
-  dev/test-only and BootUI does not read entry counts anywhere else.
-- Large topologies are bounded (100 managers, 500 caches per manager, 20 tiers per cache) and truncation is stated in the
-  report's warnings rather than silently dropping rows.
-  :::
-
-::: details Concrete examples
-A Caffeine cache built with `recordStats()` shows hits, misses, requests, evictions, load successes/failures, a hit
-ratio, and its configured maximum size and expiry. A `RedisCache` shows a remote tier with its configured time-to-live
-and, once `spring.cache.redis.enable-statistics=true`, the locally recorded gets/hits/misses/puts/deletes with the
-instant they have been accumulating from. A `spring.cache.type=simple` cache shows one local in-memory map tier and
-honestly reports that a plain map records nothing.
 :::
 
 ::: details On Quarkus
 
-The same panel (kept under the shared id `cache`) is served over `quarkus-cache`, reading the live topology from the
-application's `CacheManager` and overlaying the same Micrometer metrics. Quarkus's public `CaffeineCache` interface
-exposes **no statistics accessor**, so hit/miss counters are reported unavailable and the panel points at Micrometer
-cache metrics instead. The panel is gated on the `quarkus-cache` extension (the `CACHE` capability).
-
-**How the topology, metrics, and clear action work**
-
-BootUI reads the live cache topology from the application's `io.quarkus.cache.CacheManager`, overlays the same Micrometer
-cache metrics (when a `quarkus-micrometer` registry is present and per-cache metrics are enabled), and the clear action
-evicts via `cache.invalidateAll()`. Tier metadata is reported the same way as on Spring: one local Caffeine tier per
-cache, with the maximum size and expiry configured under `quarkus.cache.caffeine."<name>".*`. Rather than reaching into
-Quarkus's internal `CaffeineCacheImpl` by reflection, the panel reports the hit and miss counters as unavailable with
-that reason. Because Quarkus binds caching with build-time annotations (`@CacheResult`, `@CacheInvalidate`,
-`@CacheInvalidateAll`) woven into methods, there is no runtime registry of cached operations, so the operations table is
-replaced by a short explanatory note and the panel shows cache names, metrics, and clear. The panel is reported
-unavailable, with a capability hint, on applications that do not use `quarkus-cache`.
+The same panel is served over `quarkus-cache`, reading the topology from the application's `CacheManager` and
+overlaying Micrometer metrics when a `quarkus-micrometer` registry is present. Clear uses `cache.invalidateAll()`. Tier
+metadata is one local Caffeine tier per cache, with limits from `quarkus.cache.caffeine."<name>".*`. Quarkus's public
+`CaffeineCache` exposes no statistics accessor, so hit and miss counters are unavailable and the panel points at
+Micrometer. Because `@CacheResult` and related annotations are woven at build time, there is no runtime registry of
+cached operations, so the operations table is replaced by a note. The panel is unavailable without `quarkus-cache`.
 
 :::
 
@@ -432,51 +271,33 @@ unavailable, with a capability hint, on applications that do not use `quarkus-ca
 
 ![BootUI Email panel](../images/bootui-email.webp)
 
-The Email panel captures outgoing application mail. It intercepts the application's `JavaMailSender` so every
-`send(...)` call is recorded into a bounded ring buffer before delegating to the real sender. It passes through by
-default, so application behaviour is unchanged.
+The Email panel captures outgoing application mail. It intercepts the application's `JavaMailSender` so every `send(...)`
+call is recorded into a bounded buffer before delegating to the real sender, so application behaviour is unchanged.
 
-Messages are listed newest first with their sender, recipients, subject, and attachment count. Opening one shows the
-parsed addresses, a sandboxed HTML preview, the plain-text alternative, and attachment metadata — name, type, size,
-never contents. Each message downloads as an `.eml` file, and the buffer can be cleared.
+Messages are listed newest first. Opening one shows the parsed addresses, a sandboxed HTML preview, the plain-text
+alternative, and attachment metadata (never contents). Each message downloads as an `.eml` file.
 
-Recipients, subjects, and bodies are revealed by default, consistent with HTTP Exchanges and SQL Trace. Opt into
-masking with `bootui.email.mask-content=true`.
+Recipients, subjects, and bodies are revealed by default, consistent with HTTP Exchanges and SQL Trace. Opt into masking
+with `bootui.email.mask-content=true`. The opt-in `bootui.email.dev-trap=true` records messages without sending them; it
+is off by default, so BootUI never silently swallows mail. The panel needs a `JavaMailSender` bean, for example from
+`spring-boot-starter-mail`, and otherwise reports an unavailable reason.
 
-An opt-in dev-trap mode, `bootui.email.dev-trap=true`, records messages without sending them. It is off by default, so
-BootUI never silently swallows application mail.
+::: details Masking, preview, and truncation
 
-The panel needs a `JavaMailSender` bean, from `spring-boot-starter-mail` for example. Without one it reports a clear
-unavailable reason.
+The HTML preview renders in a sandboxed iframe with scripts and same-origin access disabled. Email content is not a
+config secret, so the global `bootui.expose-values` flag does not mask it. `bootui.email.mask-content=true` reuses the
+name-based `SecretMasker` heuristic and is lifted only under `bootui.expose-values=FULL`. Each body is truncated at
+`bootui.email.max-body-length` characters (default 200,000) before the `bootui.email.max-entries` cap evicts entries.
+Attachment content is never captured.
 
-::: details Masking, HTML preview, dev-trap, and truncation detail
-Opening a message shows the parsed `from`/`to`/`cc`/`bcc`, an HTML preview rendered in a sandboxed iframe (scripts and
-same-origin access both disabled), the plain-text alternative, and attachment metadata (name/type/size, never contents).
-Email content is not treated as a config secret, so it is not masked by the global `bootui.expose-values` flag. Teams
-routing real customer PII through a shared dev environment can opt into masking with `bootui.email.mask-content=true`,
-which reuses the same name-based `SecretMasker` heuristic as Configuration/HTTP Exchanges and is only then lifted back
-under `bootui.expose-values=FULL`. The dev-trap mode is similar to MailDev/GreenMail. Each captured message's text/HTML
-body is truncated at `bootui.email.max-body-length` characters (default 200,000, matching
-`EmailStore.DEFAULT_MAX_BODY_LENGTH`) so a single oversized message cannot spike memory before the
-`bootui.email.max-entries` entry-count cap would evict it. Attachment content is never captured (metadata only), so this
-cap only applies to bodies.
 :::
 
 ::: details On Quarkus
 
-The panel is identical on Quarkus over the same `/bootui/api/email` contract, available when `quarkus-mailer` is on the
-classpath. One behaviour differs by necessity: because Quarkus fires its capture event _after_ the send, the
-recorded-but-not-sent distinction reflects Quarkus's own mock-mail mode (`quarkus.mailer.mock=true`, the default in dev
-and test) rather than a BootUI trap, and such messages are labelled **mock** instead of **dev-trap**.
-
-**Quarkus capture wiring and attachment sizes**
-
-The `.eml` bytes are produced by the shared engine renderer so they match Spring's. Quarkus's blocking/reactive/Mutiny
-`Mailer` beans all funnel through one internal mailer that fires a CDI `SentMail` event after every successful send, so a
-single `@Observes SentMail` observer captures every send style — the Quarkus analogue of Spring's
-`CapturingJavaMailSender` decorator. The panel is available when `quarkus-mailer` is on the classpath (and dark in
-production); otherwise it reports a clear unavailable reason. Attachment sizes are shown as unknown on Quarkus, since the
-sent-attachment API exposes none.
+The panel is identical over `/bootui/api/email` and available when `quarkus-mailer` is on the classpath. Quarkus fires
+its capture event after the send, so the recorded-but-not-sent state reflects Quarkus's mock-mail mode
+(`quarkus.mailer.mock=true`, the default in dev and test), and such messages are labelled **mock** instead of
+**dev-trap**. One `@Observes SentMail` observer captures every send style. Attachment sizes are unknown there.
 
 :::
 
@@ -484,40 +305,28 @@ sent-attachment API exposes none.
 
 ![BootUI Kafka panel](../images/bootui-kafka.webp)
 
-The Kafka panel is a filterable view over the same producer and consumer capture that feeds `MESSAGING` entries into
+The Kafka panel is a filterable view over the producer and consumer capture that also feeds `MESSAGING` entries into
 Live Activity. Every application-owned `KafkaTemplate` send and `@KafkaListener` consume is recorded into a bounded
-ring buffer, newest first, without altering delivery.
+buffer, newest first, without altering delivery.
 
-Each row shows the timestamp, direction, topic, partition, offset for consumed records, a short hash of the key,
-processing duration for consumes, success or failure with generic failure text, and, for consumed records, the consumer
-group id and listener identifier.
+Each row shows the direction, topic, partition, offset, a short hash of the key, processing duration, outcome, and for
+consumes the group id and listener. Message values and raw exception messages are never captured.
 
-Message values and raw exception messages are never captured. Only bounded metadata is retained.
+Filter by topic, key, group, listener, or direction, and clear the buffer. The panel needs a `KafkaTemplate` bean, for
+example from `spring-boot-starter-kafka`, and otherwise reports an unavailable reason. On Quarkus the same contract runs
+over SmallRye Reactive Messaging with reduced metadata: the listener identifier is the channel name, and the group id
+and producer duration are unavailable. It needs `quarkus-messaging-kafka` in a non-production launch.
 
-A text filter matches topic, key, group, and listener, a direction filter isolates produced or consumed records, and
-the buffer can be cleared. The panel needs a `KafkaTemplate` bean, from `spring-boot-starter-kafka` for example;
-without one it reports a clear unavailable reason.
+::: details Configuration and Quarkus specifics
 
-::: details Configuration and payload policy
-A produced record's offset isn't known at send time, and a producer send's duration is not exposed by either framework's
-callback. A Kafka payload is an arbitrary, potentially large and sensitive object with no generic masking strategy, so
-only metadata is retained. Capture is on by default whenever a Kafka integration is present and the panel is enabled, and
-is tuned through the same `bootui.kafka.*` properties Live Activity uses (`enabled`, `capture-key`, `max-entries`,
-`max-key-length`) — see `docs/PROPERTIES.md`. Turning off key capture (`bootui.kafka.capture-key=false`) is reflected
-with a notice instead of blank hashes, and turning off capture entirely (`bootui.kafka.enabled=false`) leaves
-already-captured messages visible with a similar notice.
-:::
+Capture is on whenever a Kafka integration is present and the panel is enabled, tuned through the `bootui.kafka.*`
+properties shared with Live Activity (`enabled`, `capture-key`, `max-entries`, `max-key-length`); see
+`docs/PROPERTIES.md`. A produced record's offset and a send's duration are not known at send time. Turning off key
+capture or capture entirely shows a notice, and already-captured messages stay visible.
 
-On Quarkus the same UI and `/bootui/api/kafka` contract run over the shared engine with the reduced metadata SmallRye
-Reactive Messaging exposes: the listener identifier is the channel name, and the consumer group id and producer
-duration are unavailable. The panel is available when `quarkus-messaging-kafka` is on the classpath in a non-production
-launch.
+On Quarkus, incoming deliveries carry connector metadata automatically, while outgoing messages are captured only when
+they already carry `OutgoingKafkaRecordMetadata`.
 
-::: details Quarkus capture specifics
-Configured `@Incoming`/`@Outgoing` channels determine whether the panel receives any activity. Incoming deliveries carry
-connector metadata automatically; outgoing messages are captured only when they already carry
-`OutgoingKafkaRecordMetadata`, so a payload-only emission that relies entirely on channel configuration is not recorded.
-Without the extension the panel reports a clear unavailable reason.
 :::
 
 ## RabbitMQ
@@ -527,37 +336,24 @@ Without the extension the panel reports a clear unavailable reason.
 The RabbitMQ panel is a filterable view over the AMQP publish and consume capture that also feeds `MESSAGING` entries
 into Live Activity.
 
-Each row shows the timestamp, direction (`PUBLISH` or `CONSUME`), exchange, routing key, queue on the consume side,
-processing duration for consumes, and success or failure. With `bootui.rabbitmq.capture-correlation-id` enabled — it defaults to `false` — a
-truncated SHA-256 hash of the correlation ID is shown too.
+Each row shows the direction (`PUBLISH` or `CONSUME`), exchange, routing key, queue, processing duration, and outcome.
+With `bootui.rabbitmq.capture-correlation-id` enabled (default
+`false`), a truncated SHA-256 hash of the correlation ID is shown too. Message bodies and arbitrary headers are never
+captured, and failure text is generic so an exception cannot leak payload or credentials.
 
-Message bodies and arbitrary headers are never captured. Only bounded routing metadata, timing, and outcome are
-retained, with generic failure text, so an exception message cannot leak payload or credential data.
+Capture is tuned under `bootui.rabbitmq.*`. The panel needs a `RabbitTemplate` bean, for example from
+`spring-boot-starter-amqp`, and otherwise reports an unavailable reason. On Quarkus the same contract runs over
+SmallRye Reactive Messaging with no producer exchange, consumer queue, or producer duration, while the routing key,
+outcome, and correlation-ID hash remain. It needs `quarkus-messaging-rabbitmq` in a non-production launch.
 
-Capture is on whenever a RabbitMQ integration is present and the panel is enabled, and is tuned under
-`bootui.rabbitmq.*`. The panel needs a `RabbitTemplate` bean, from `spring-boot-starter-amqp` for example; without one
-it reports a clear unavailable reason.
+::: details How interception works
 
-::: details How publish/consume is intercepted
-On Spring, BootUI installs a `MessagePostProcessor` on every `RabbitTemplate` bean via the public
-`addBeforePublishPostProcessors` API and prepends a `MethodInterceptor` to every
-`AbstractRabbitListenerContainerFactory`'s advice chain — composing with, not replacing, any existing post-processors or
-advice. On Quarkus, it hooks SmallRye Reactive Messaging's `OutgoingInterceptor`/`IncomingInterceptor` SPI, so the same
-recorder is fed from either framework. Spring publishes are captured at the supported before-publish hook and therefore
-represent a publish attempt; Quarkus publish ack/nack and both consumer paths represent terminal outcomes. The tuning
-properties are `bootui.rabbitmq.enabled`, `bootui.rabbitmq.capture-correlation-id`, `bootui.rabbitmq.max-entries`, and
-`bootui.rabbitmq.max-correlation-id-length`.
-:::
+On Spring, BootUI adds a `MessagePostProcessor` to every `RabbitTemplate` through `addBeforePublishPostProcessors` and
+prepends a `MethodInterceptor` to every listener container factory's advice chain, composing with existing ones. Spring
+publishes represent a publish attempt; Quarkus acks and nacks and both consumer paths represent terminal outcomes. On
+Quarkus, outgoing messages are captured only when they already carry `OutgoingRabbitMQMetadata`. The properties are
+`bootui.rabbitmq.enabled`, `capture-correlation-id`, `max-entries`, and `max-correlation-id-length`.
 
-On Quarkus the same UI and `/bootui/api/rabbitmq` contract run over the shared engine. SmallRye exposes no producer
-exchange, consumer queue, or producer duration at these callbacks, so those fields render as unavailable, while the
-routing key, the outcome, and the opt-in correlation-ID hash remain. The panel is available when
-`quarkus-messaging-rabbitmq` is on the classpath in a non-production launch.
-
-::: details Quarkus capture specifics
-Incoming deliveries carry connector metadata automatically; outgoing messages are captured only when they already carry
-`OutgoingRabbitMQMetadata`, so a payload-only emission that relies entirely on channel configuration is not recorded.
-Without the extension the panel reports a clear unavailable reason.
 :::
 
 ## JMS
@@ -567,24 +363,19 @@ Without the extension the panel reports a clear unavailable reason.
 The JMS panel is a filterable view over the Spring JMS producer and consumer capture that also feeds `MESSAGING`
 entries into Live Activity.
 
-Retained messages are listed newest first with their direction, sanitized queue or topic destination, processing
-duration, outcome, subscription and listener identifiers, and, when enabled, a short SHA-256 hash of the
-provider-assigned message ID.
+Rows show the direction, sanitized destination, processing duration, outcome, subscription and listener, and, when
+enabled, a SHA-256 hash of the message ID. Payloads, headers, raw message IDs, and exception messages are never
+captured.
 
-Payloads, arbitrary headers and properties, raw message IDs, and exception messages are never captured.
-
-Filter by destination, message-ID hash, subscription, listener, or failure type, narrow the table to produced or
-consumed messages, and reset the bounded buffer with the confirmation-gated clear action. The panel needs a
-`JmsTemplate` bean, from Spring Boot's Artemis starter for example; without one it stays visible with a clear
-unavailable reason.
+Filter by destination, message-ID hash, subscription, listener, or failure type, narrow to produced or consumed, and
+reset the buffer with the confirmation-gated clear action. The panel needs a `JmsTemplate` bean and otherwise stays
+visible with an unavailable reason. JMS capture is Spring-only: on Quarkus the route reports the panel as not yet
+available and points at the Kafka and RabbitMQ panels.
 
 ::: details Configuration and native-image support
-Capture uses the same `JmsActivityRecorder` as Live Activity, so both surfaces stay synchronized and clearing the panel
-also clears retained JMS entries from the merged feed. `bootui.jms.enabled`, `bootui.jms.capture-message-id`,
-`bootui.jms.max-entries`, and `bootui.jms.max-message-id-length` configure both surfaces. The Spring interception uses
-runtime class proxies, so the JMS panel reports unavailable in a GraalVM native image rather than claiming capture is
-active when those proxies cannot be generated.
-:::
 
-JMS capture is Spring-only today. On Quarkus the shared route stays visible but reports the panel as not yet
-available, and points at the Kafka and RabbitMQ panels backed by Reactive Messaging instead.
+The panel shares `JmsActivityRecorder` with Live Activity, so clearing it also clears retained JMS entries from the merged
+feed. `bootui.jms.enabled`, `capture-message-id`, `max-entries`, and `max-message-id-length` configure both surfaces. The
+Spring interception uses runtime class proxies, so the panel reports unavailable in a GraalVM native image.
+
+:::

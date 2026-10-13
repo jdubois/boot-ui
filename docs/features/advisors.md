@@ -12,16 +12,18 @@ safety.
 
 Architecture, Hibernate, Spring (the Quarkus application advisor on Quarkus), REST API, Memory, Security, and Database
 keep their reports compact: `violationCount` is the real count, while `sampleViolations` is a preview, normally at most
-ten entries per rule. Quarkus application and Quarkus Security keep their existing twenty-entry previews. Samples,
-counts, ordering, severities, recommendations, and dismissals do not change when you read more details.
+ten entries per rule.
 
-When a rule has more findings than samples, choose **View violations** to read its first bounded page inline. The
-default page of 100 covers findings such as 29 Architecture or 22 Hibernate violations in one request. Larger sets use
-**Previous** and **Next**, replacing the page rather than accumulating an unbounded list. **Back to samples** restores
-the compact preview. Opening the panel, receiving a report, and dismissing a rule never request detail pages. Detail
-reads remain available in read-only mode. Older reports without retrieval metadata still display their samples.
+When a rule has more findings than samples, choose **View violations** to read its first bounded page inline (100 by
+default). Larger sets use **Previous** and **Next**; **Back to samples** restores the preview. Opening a panel, receiving
+a report, and dismissing a rule never request detail pages. Detail reads work in read-only mode and never rescan.
 
-#### Snapshot and retention
+Only the latest scan's details are retained, up to `bootui.advisors.max-retained-violations` (default **10000**) across
+all rules of an advisor. When some counted details are missing, the panel says so through the retained count and a
+warning. Raising the limit needs a new scan to take effect. See the
+[property reference](../PROPERTIES.md#advisor-violation-retention).
+
+::: details Snapshot and retention
 
 Each report has additive `violationDetails` metadata:
 
@@ -34,38 +36,21 @@ Each report has additive `violationDetails` metadata:
 | `truncated`      | Some counted details are missing from the retained index.                                   |
 | `locationNotes`  | Why some [violation locations](#violation-locations) carry no source path; empty otherwise. |
 
-Only the latest snapshot is retained. While another scan is running, detail reads still refer to the previous
-completed snapshot; publishing its replacement changes the ID. Dismiss/restore changes neither the ID nor retained
-details. Detail reads never evaluate rules, inspect the application again, or query the database.
-
-`bootui.advisors.max-retained-violations` defaults to **10000**, is positive, and applies across all rules in each
-advisor's scan, including Hibernate persistence units. Summary samples remain independent of this budget. Raising
-the limit cannot recover missing details from an existing snapshot; an explicit new scan is needed. See the
-[property reference](../PROPERTIES.md#advisor-violation-retention).
-
-Retention completeness is **not evidence coverage or score eligibility**. `evidence`, scan notes, counts, and scores
-keep their existing meaning. A terminal detail page can still be truncated. The panel explicitly shows the retained
-count and missing-detail warning, never a false claim that every counted violation is visible. Existing upstream
-observation limits remain in effect.
-
-`truncated` can also describe counted findings whose source exposed only aggregate detail, not exhaustion of the
-configured budget. For example, Quarkus Security's `QS-AUTHZ-004` keeps its aggregate preview but retains endpoint
-identities only when available; legacy count-only observations have zero retained identities and explicit
-truncation. BootUI never fabricates endpoint identities to fill that gap. Memory rules that evaluate only a top-five
-input subset keep those existing count/observation bounds; detail paging does not broaden their scan scope.
+While another scan is running, detail reads still refer to the previous completed snapshot; publishing its replacement
+changes the ID. Dismiss and restore change neither the ID nor the retained details. Retention completeness is not
+evidence coverage or score eligibility. `truncated` can also mean the source exposed only aggregate detail, as for
+Quarkus Security's `QS-AUTHZ-004`; BootUI never fabricates identities to fill that gap.
+:::
 
 #### REST, MCP, and CLI retrieval
 
 Read the cached report first, then pass its `violationDetails.scanId` with every page request. An MCP or CLI scan
 answers with a [compact summary](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls) that carries the same
-`violationDetails` and at most ten `topFindings`, not the report; the REST scan still returns the report the panel renders.
+`violationDetails` and at most ten `topFindings`; the REST scan still returns the full report.
 
 ```text
 GET <api>/<advisor>/rules/<encoded-rule-id>/violations?scanId=<encoded-scan-id>&offset=0&limit=100
 ```
-
-The same read route is available on each advisor's supported MVC, WebFlux, and Quarkus stacks. These names identify
-the corresponding MCP read tool and generated CLI path:
 
 | Advisor / REST root | MCP tool                               | CLI command               |
 | ------------------- | -------------------------------------- | ------------------------- |
@@ -77,7 +62,10 @@ the corresponding MCP read tool and generated CLI path:
 | `security`          | `get_security_rule_violations`         | `security violations`     |
 | `database-advisor`  | `get_database_advisor_rule_violations` | `db violations`           |
 
-For example, after an explicitly requested Architecture scan:
+`scanId` and the rule ID are required. Offset defaults to zero and limit to 100, capped at 1000. See [MCP](../AI-AGENTS.md)
+and [CLI](../CLI.md) for setup.
+
+::: details Examples, page shape, and errors
 
 ```bash
 # Read only the cached report; this does not run a scan.
@@ -89,8 +77,6 @@ curl -sG http://localhost:8080/bootui/api/architecture/rules/ARCH-SPRING-004/vio
 bootui architecture violations ARCH-SPRING-004 --scan-id '<returned-scan-id>' --offset 0 --limit 100
 ```
 
-The equivalent MCP `tools/call` arguments are:
-
 ```json
 {
   "name": "get_architecture_rule_violations",
@@ -98,37 +84,32 @@ The equivalent MCP `tools/call` arguments are:
 }
 ```
 
-The page DTO contains `scanId`, `ruleId`, the full `violationCount`, `retainedCount`, `truncated`, sanitized
-`violations`, `page: {total, matched, offset, limit, returned, hasMore}`, and `locations`, described in
-[Violation locations](#violation-locations). `page.total` and `page.matched` count
-**retained** entries, not the full rule count. Check the identity on every response. To continue, set the next offset
-to `page.offset + page.returned` while `page.hasMore` is true, keeping the same scan ID; after the terminal page,
-still inspect `truncated`. Reaching the retained end yields an empty terminal page. A violating rule may have zero
-retained entries when earlier rules consumed the budget.
+The page contains `scanId`, `ruleId`, the full `violationCount`, `retainedCount`, `truncated`, sanitized `violations`,
+`page: {total, matched, offset, limit, returned, hasMore}`, and `locations`. `page.total` and `page.matched` count
+**retained** entries. To continue, set the next offset to `page.offset + page.returned` while `page.hasMore` is true,
+keeping the same scan ID, and still check `truncated` on the last page.
 
-`scanId` and rule ID are required. Offset defaults to zero and limit to 100; requested sizes are capped at 1000.
-Invalid, blank, negative, fractional, or overflowing arguments are rejected; limit must be positive. MCP and CLI
-also respect their configured result budgets. An MCP `-32003` response-byte refusal is an error, not an empty page:
-retry the **same scan ID and offset with a smaller limit**. See [MCP](../AI-AGENTS.md) and [CLI](../CLI.md) for setup.
-
-A missing/replaced snapshot returns **409**. Samples or the last accepted page remain visible; choose **Refresh cached
-report**, then **View violations** again. Refresh only reads the cached report; it never starts a scan. Other failures
-offer a local **Retry** without discarding the current view. A rule id outside the advisor's catalogue
-answers `Unknown advisor rule`, distinct from a catalogue rule without findings (passed, skipped, or failed); both return REST **404**, an MCP in-band
-client error, or CLI-facade **400** (CLI 404 is reserved for an unadvertised tool). Stale snapshots remain
-**409** through the CLI facade. Dismissed findings remain retrievable by ID, while the panel keeps its compact
-dismissed-rule summary.
-
-This contract does not apply to GraalVM/CRaC occurrences or Pentesting/Vulnerabilities, whose report models differ.
+Invalid, blank, negative, fractional, or overflowing arguments are rejected. An MCP `-32003` response-byte refusal is an
+error, not an empty page: retry the same scan ID and offset with a smaller limit. A missing or replaced snapshot returns
+**409**; choose **Refresh cached report** (it never starts a scan), then **View violations** again. A rule id outside the
+advisor's catalogue answers `Unknown advisor rule` (REST **404**, CLI-facade **400**). Dismissed findings remain
+retrievable by ID. GraalVM/CRaC occurrences, Pentesting, and Vulnerabilities use different report models and are not
+covered.
+:::
 
 ### Violation locations
 
-Architecture, REST API, and Hibernate findings that name exactly one code element also say where it is. Each rule
-result carries `sampleLocations`, aligned index-for-index with `sampleViolations`, and each detail page carries
-`locations`, aligned with `violations`. A `null` entry means that violation has no location; an empty list means none
-of the listed violations has one, as for every other advisor and for reports from older versions. The violation text,
-counts, severities, ordering, scan ID, dismissals, evidence, and score are unchanged by locations, so a client that
-reads only `sampleViolations` and `violations` sees exactly what it saw before.
+Architecture, REST API, and Hibernate findings that name exactly one code element also say where it is. Each rule result
+carries `sampleLocations` aligned with `sampleViolations`, and each detail page carries `locations` aligned with
+`violations`; a `null` entry means that violation has no location. Findings that span several elements (package cycles,
+duplicate routes) and findings of other advisors keep no location. Nothing is parsed from the violation text or guessed.
+
+In the panels, each row shows its location with a **Copy location** button, for example
+`com.example.OrderService#place (OrderService.java:42)`. The **Open locations in** selector is a per-browser preference,
+off (**None**) by default; **VS Code** or **IntelliJ IDEA** turns each location with a source path into an editor link
+(`vscode://file/…` or `idea://open?file=…`). BootUI never opens an editor or a file from the server.
+
+::: details Location fields and where they come from
 
 | Field        | Meaning                                                                                                    |
 | ------------ | ---------------------------------------------------------------------------------------------------------- |
@@ -140,60 +121,40 @@ reads only `sampleViolations` and `violations` sees exactly what it saw before.
 | `sourcePath` | The absolute local source path resolved during the scan, or `null`.                                        |
 | `precision`  | `LINE` when a line is known, `MEMBER` when only the member is, otherwise `CLASS`.                          |
 
-Where locations come from:
+- **Architecture** reads locations from ArchUnit's violating objects: the class, the member, and the line.
+- **REST API** points at the handler method, exception handler, throwing endpoint, or controller class.
+- **Hibernate** points at the entity class, the field or getter behind a mapped attribute, or a repository method. The JPA
+  metamodel has no line numbers, so these stay at `MEMBER` or `CLASS` precision.
 
-- **Architecture** reads them from ArchUnit's violating objects and their recorded source locations, never from the
-  report text: the class, the member, and the line of the access, call, or declaration. A lambda body is attributed to
-  the method or constructor ArchUnit reports; a compiler-generated member keeps its class and line but not its name.
-- **REST API** points at the handler method, exception handler, throwing endpoint, or controller class the finding
-  concerns, from the same ArchUnit model the rules read.
-- **Hibernate** points at the entity class, the Java field or getter behind a mapped attribute, or a repository method.
-  The JPA metamodel and reflection carry no line numbers, so these stay at `MEMBER` or `CLASS` precision.
+Source paths are resolved only during an explicit scan, through the Architecture advisor's bounded module and
+source-set lookup (see [Generated application code](../ARCHITECTURE-CHECKS.md#generated-application-code)). A class in a
+local Maven `target/classes` or Gradle `build/classes` directory maps to exactly one `.java` or `.kt` file. Classes read
+from an archive, other layouts, ambiguous matches, and an exhausted lookup budget keep a `null` path, and
+`violationDetails.locationNotes` says why. The lookup never follows symbolic links. Source paths describe the
+developer's own code, so they are not gated by the value-exposure policy.
 
-Findings that span several elements, such as package cycles, duplicate routes, or conflicting exception handlers, keep
-no location, as do configuration-level findings and every finding of the other advisors. Nothing is ever parsed out of
-the violation text or guessed.
-
-Source paths are resolved only while an explicit scan runs, through the Architecture advisor's bounded module and
-source-set lookup (see [Generated application code](../ARCHITECTURE-CHECKS.md#generated-application-code)). A class
-compiled into a local Maven `target/classes` or `target/test-classes`, or Gradle `build/classes/{java,kotlin}/*`,
-directory maps to exactly one `.java` or `.kt` file under its module's `src/main` or `src/test` tree or its
-generated-source roots. The lookup never follows symbolic links and reads only same-named candidate files, to learn
-their package and length. Classes read from an archive (an executable jar, an extracted `BOOT-INF/lib` jar, or a
-Quarkus `lib` directory), classes in any other layout, ambiguous matches, and an exhausted lookup budget keep a `null`
-path, and `violationDetails.locationNotes` says why. Detail reads serve the published records: they never scan,
-import classes, or touch the filesystem. Source paths describe the developer's own code, like SQL Trace call sites, so
-they are not gated by the value-exposure policy.
-
-A line is shown only when it belongs to the named member in the named file. Kotlin gives inlined code line numbers
-that map to the inline function's own body, in another file or the same one; BootUI reads the class's source map
-during the scan and keeps only the lines Kotlin maps one-to-one onto the class's own file. It drops any other line,
-any line past the end of the resolved file, and the lines of Kotlin classes read from an archive to `MEMBER` precision
-rather than show a wrong one.
-
-In the panels, each sample and detail row shows its location beside the text, with a keyboard-accessible **Copy
-location** button that copies, for example, `com.example.OrderService#place (OrderService.java:42)`. The **Open
-locations in** selector above the rule results is a per-browser preference, off (**None**) by default. Choosing **VS
-Code** or **IntelliJ IDEA** turns each location that has a source path into a link built from that editor's fixed URL
-scheme (`vscode://file/…` or `idea://open?file=…`). BootUI offers no custom template and no web URL, so a local path is
-never sent to a network address, and it never opens an editor or a file from the server.
+A line is shown only when it belongs to the named member in the named file. Lines from Kotlin inlined code, past the end
+of the file, or from archive-read Kotlin classes drop to `MEMBER` precision rather than show a wrong one.
+:::
 
 ### Score eligibility
 
 A report is not automatically eligible for a score. `SCANNED` and `PARTIAL` reports can score when a valid severity
-summary accompanies known-severity observed findings or proven completed applicable checks. `ERROR`, `DISABLED`, and
-`NOT_SCANNED` never score, and malformed evidence or severity data stays unscored with an explanation. An empty
-summary, an attempted count, a rule registry size, or an all-skipped or all-failed report does not establish a clean
-assessment. Findings, severity counts, statuses, and diagnostics are retained either way.
+summary accompanies known-severity findings or proven completed applicable checks. `ERROR`, `DISABLED`, and
+`NOT_SCANNED` never score, and malformed evidence stays unscored with an explanation. An empty summary, a rule registry
+size, or an all-skipped or all-failed report does not establish a clean assessment.
 
-The penalties are fixed: CRITICAL 25, HIGH 10, MEDIUM 3, LOW 1, and INFO or NONE 0, clamped and rounded to 0–100.
-Three MEDIUM findings keep an advisor at 91 whether another advisor runs or not, and usable partial evidence is
-included without a missing-check penalty. A partial 100 means no active penalties in the assessed evidence, not that
-unchecked work passed. No coverage percentage, confidence weight, or combined per-rule coverage total is inferred.
+The penalties are fixed: CRITICAL 25, HIGH 10, MEDIUM 3, LOW 1, and INFO or NONE 0, clamped and rounded to 0–100. A
+partial 100 means no active penalties in the assessed evidence, not that unchecked work passed.
 
-#### The evidence object
+Advisor panels show **Results available** for usable scored results, with reasons in a collapsed **Scan notes**
+disclosure. The Scorecard shows **Scan complete**, **Not scored**, or **Not applicable** (confirmed empty scope) and an
+**Open panel** link. Advisor panels use neutral score colors; the Scorecard uses green, amber, and red at the 80 and 50
+thresholds. See [Scorecard](scorecard.md).
 
-The backend's `evidence` object is the sole eligibility authority, and it exposes no completion or findings counters:
+::: details The evidence object and eligibility rules
+
+The backend's `evidence` object is the sole eligibility authority:
 
 | Field              | Meaning                                                                                                                                                                                                                                                              |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -201,145 +162,82 @@ The backend's `evidence` object is the sole eligibility authority, and it expose
 | `coverageComplete` | Applicable evidence is complete. Checks that do not apply are neutral; missing required observations and failures leave coverage incomplete.                                                                                                                         |
 | `limitations`      | An immutable, bounded, sanitized list of explanations for incomplete coverage.                                                                                                                                                                                       |
 
-The browser never reconstructs applicability from rule IDs, finding lists, or dependency details. MySQL and Oracle
-checks on a PostgreSQL-only application therefore stay neutral skipped diagnostics rather than becoming incomplete
-assessments or completed passes. Legacy reports without valid explicit evidence remain unscored, with their findings
-visible.
+The browser never reconstructs applicability. MySQL and Oracle checks on a PostgreSQL-only application stay neutral
+skipped diagnostics. A `SCANNED` report with `usable: false` and `coverageComplete: true` has no score and reads **Not
+applicable**, for example an Architecture import that found no classes. Legacy reports without valid evidence stay
+unscored.
 
-#### Eligibility is not coverage
-
-A `SCANNED` report with `usable: false`, `coverageComplete: true`, and no limitations has no score and reads **Not
-applicable**. A successful Architecture import that found no classes, or complete REST API discovery that found no
-supported controllers, is an empty assessed scope rather than a passing check: the Scorecard counts it as assessed
-without inventing a score. Missing discovery or legacy evidence stays unknown, and a generic lack of score never
-establishes that nothing applies.
-
-#### How results are labelled
-
-Advisor panels show **Results available** for usable scored results, including when coverage is limited. The Scorecard
-uses **Scan complete** for the same reports. Detailed reasons live in a collapsed, keyboard-accessible **Scan notes**
-disclosure in each panel, and scores with notes carry **Scan notes available** in their accessible names.
-
-Unscored reasons and whole-scan failures stay visible rather than collapsed inside advisor panels. The Scorecard keeps
-unscored cards compact with **Not scored**, or **Not applicable** for confirmed empty scope, and **Open panel** for the
-full explanation. Request failures stay visible on the card. The Scorecard summarizes how many advisors have scan notes,
-not how many checks could not run, because limitations can be aggregated or capped.
-
-Advisor panels use neutral score colors. The Scorecard restores green, amber, and red at the 80 and 50 thresholds to
-help prioritize review, without changing eligibility or implying application safety. See
-[Scorecard](scorecard.md) for its own eligibility policy.
-
-#### Dependency findings
-
-Known-severity dependency findings, including NONE, establish usability before dismissal. A fully assessed package also
-establishes usability when every retained advisory has a known severity, or the result is genuinely empty, and both
-`assessment.queryComplete` and `assessment.detailAssessmentComplete` are true. Query completion requires exhausting
-that dependency's pages; detail completion requires interpreting every returned advisory or confirming withdrawal.
-Missing, failed, capped, mismatched, and unresolved details are not a no-match.
-
-UNKNOWN findings stay visible and incur no penalty, but UNKNOWN-only evidence stays unscored even after dismissal,
-unless independent usable evidence exists. Dismissed known findings remain evidence while their penalties are removed.
-Neither an empty active count nor dismissing every advisory makes a dependency genuinely empty.
-
-Inventory, query, and detail gaps and UNKNOWN findings qualify an otherwise usable score rather than suppressing it.
-Optional EPSS enrichment never decides eligibility, and inventory coverage is only as reliable as the provider's
-report, not independent runtime verification.
-
-#### While a report is being replaced
+Known-severity dependency findings establish usability before dismissal. A fully assessed package does too when every
+retained advisory has a known severity, or the result is genuinely empty, and both `assessment.queryComplete` and
+`assessment.detailAssessmentComplete` are true. UNKNOWN findings stay visible with no penalty, and UNKNOWN-only evidence
+stays unscored unless independent usable evidence exists. Dismissed known findings remain evidence while their
+penalties are removed. Inventory, query, and detail gaps qualify a score rather than suppressing it. EPSS never decides
+eligibility.
 
 The last accepted report stays visible during a new request and when transport fails. A newly received report replaces
-that assessment: usable partial evidence contributes a qualified score, while failed, disabled, and unusable reports
-remove the previous score.
+it.
+:::
 
 ### Single-flight scans
 
 Expensive advisor actions are single-flight per scanner: a second tab, a Scorecard card, a REST caller, or an MCP tool
-cannot start a scanner while it is active. Duplicate REST requests fail immediately with the shared `409` busy
-response, and MCP reports the same message as an in-band tool error. The panel keeps the last completed report and
-Scorecard score visible and shows the conflict as a warning. Different scanners remain independent.
+cannot start a scanner while it is active. Duplicate requests fail immediately with the shared `409` busy response, and
+the panel keeps the last completed report visible. Different scanners remain independent.
 
 ### Dismissing findings
 
 Any finding can be dismissed when it does not apply to your project. **Dismiss** moves the rule into a collapsed
-_Dismissed rules_ list and removes it from the panel's finding count, severity bars, and known-findings score, in both
-the panel and the Scorecard. You can restore it at any time from that list.
-
-Dismissal changes penalties. It does not change application safety, observed evidence, or missing coverage.
-
-The panel's score recomputes immediately, and the Scorecard reads cached reports on navigation without rescanning, so a
-scan, dismissal, or restore started in a panel updates the score and eligibility in both places. A failed dismissal
-leaves the last accepted report visible and shows an error.
-
-Architecture, REST API, Spring and Quarkus, Database, Hibernate, Memory, Security, and Pentesting disable their scan,
-dismiss, and restore controls while a cached report, a scan, or a dismissal is pending, and when the panel is read-only
-or unavailable.
+_Dismissed rules_ list and removes it from the finding count, severity bars, and known-findings score, in both the panel
+and the Scorecard. Restore it at any time from that list. Dismissal changes penalties, not application safety, observed
+evidence, or missing coverage. Controls are disabled while a scan or dismissal is pending, and when the panel is
+read-only or unavailable.
 
 ::: details Where dismissals are stored
-Dismissals are applied server-side and persisted under the `dismissedRules` node of a local `.bootui/boot-ui.yml` file
-(next to the runtime overrides file), so they survive restarts and stay consistent between each panel and the Scorecard.
-The file is developer-local and intended to be git-ignored. Rule identifiers are globally unique across
-advisors, so a dismissal always targets exactly one rule.
-Pentesting scan reports themselves are not persisted: after a restart, findings and their dismissal flags appear when you
-explicitly run the first scan, not merely by opening the panel.
 
-`bootui.overrides-file` moves both files together: BootUI resolves `boot-ui.yml` in the same directory as the configured
-overrides file. That is what lets dismissals survive a container image rebuild — point the key at a mounted volume, or
-commit a baseline of accepted findings and copy it into the image. See
+Dismissals are persisted under the `dismissedRules` node of a local `.bootui/boot-ui.yml` file (next to the runtime
+overrides file), so they survive restarts and stay consistent between each panel and the Scorecard. The file is
+developer-local and intended to be git-ignored. Rule identifiers are globally unique across advisors. Pentesting scan
+reports are not persisted: findings and dismissal flags reappear after you explicitly run the first scan.
+
+`bootui.overrides-file` moves both files together, which lets dismissals survive a container image rebuild. See
 [Persisting console state across image rebuilds](../setup/environments.md#persisting-console-state-across-image-rebuilds).
 :::
 
 ### Kotlin applications
 
-The bytecode-driven advisors — Architecture, REST API, and Hibernate — are Kotlin-aware. They read compiled classes, so
-they work on Kotlin without configuration, and BootUI recognizes Kotlin constructs by bytecode name only: no
-`kotlin-stdlib` dependency is added to your application, and the behaviour is identical on Spring MVC, Spring WebFlux,
-and Quarkus because it lives in the shared engine.
+The bytecode-driven advisors (Architecture, REST API, Hibernate) are Kotlin-aware without configuration and without
+adding `kotlin-stdlib` to your application. Behaviour is identical on all three stacks.
 
-- Compiler-generated members and classes — `$suspendImpl` / `$default` bridges, `componentN` and `copy` accessors on
-  data classes, `Companion` and `DefaultImpls` holders, `WhenMappings` tables, and top-level `FooKt` file facades — are
-  filtered out, so they never appear as findings.
-- Suspending functions are judged on their declared signature: the implicit `kotlin.coroutines.Continuation` parameter
-  is hidden, the real result type is read from it, and `kotlin.Unit` counts as `void`.
-- Properties are judged as properties. A `lateinit var` on an entity is not a public field finding: the compiler must
-  leave its backing field public, but every access goes through the generated accessor pair. A `@JvmField var`, which
-  has no accessors, is still reported.
-- Nested types are read with their enclosing name. The variants of a `sealed class` exception hierarchy are not
-  renaming findings, because `ClaimException.AlreadyAssigned` already says what it is.
-- Suppressing the compiler's noise never suppresses your code. A call routed through a `$default` bridge is followed
-  through to the function it dispatches to, and a self-invocation written inside a lambda stays reported even though
-  the compiler hides the body in a synthetic method.
-- Where an idiomatic Java fix does not translate, the recommendation offers the Kotlin equivalent — marking a class
-  `open` or applying the `kotlin-spring` plugin instead of "remove `final`", and constructor `val` injection instead of
-  an `@Autowired lateinit var`.
+::: details What Kotlin awareness covers
+
+- Compiler-generated members and classes (`$default` bridges, data-class `componentN`/`copy`, `Companion`, `DefaultImpls`,
+  `WhenMappings`, `FooKt` file facades) never appear as findings.
+- Suspending functions are judged on their declared signature: the `Continuation` parameter is hidden and `kotlin.Unit`
+  counts as `void`.
+- A `lateinit var` on an entity is not a public-field finding; a `@JvmField var` still is.
+- Variants of a `sealed class` exception hierarchy are not renaming findings.
+- Suppressing compiler noise never suppresses your code: `$default` calls are followed through, and a self-invocation in a
+  lambda stays reported.
+- Recommendations offer the Kotlin equivalent, such as `open` or the `kotlin-spring` plugin and constructor `val`
+  injection.
 
 See [Architecture checks](../ARCHITECTURE-CHECKS.md), [REST API checks](../REST-API-CHECKS.md), and
-[Hibernate checks](../HIBERNATE-CHECKS.md) for the per-rule notes.
+[Hibernate checks](../HIBERNATE-CHECKS.md).
+:::
 
 ## Architecture
 
 ![BootUI Architecture panel](../images/bootui-architecture.webp)
 
 The Architecture panel runs a curated, zero-config [ArchUnit](https://www.archunit.org/) ruleset against the host
-application's own compiled classes at runtime. It detects the base package from the `@SpringBootApplication`
-configuration, imports the classes from that package, and evaluates a fixed set of universally-sensible hygiene rules:
-package cycles between slices, general coding practices (banned APIs, unsafe patterns, naming and immutability
-conventions), and Spring stereotype/proxy heuristics (no field injection, correct layering, no self-invocation,
-proxyable annotations, no injection or lifecycle annotations the container silently ignores). See [ARCHITECTURE-CHECKS.md](../ARCHITECTURE-CHECKS.md) for the full catalogue and what each rule
-inspects.
+application's own compiled classes. It evaluates package cycles, general coding practices, and Spring stereotype and
+proxy heuristics (no field injection, correct layering, no self-invocation). See
+[ARCHITECTURE-CHECKS.md](../ARCHITECTURE-CHECKS.md) for the full catalogue.
 
-Coding-practice checks (`ARCH-CODE-*`) exclude classes positively identified as generated, such as OpenAPI Generator's
-`ApiUtil`, without dismissing the same rule for handwritten code. During an explicit scan, a bounded local lookup
-matches compiled classes to generated Java/Kotlin sources in standard Maven/Gradle layouts, including OpenAPI
-Generator's default Gradle output, and checks module-local handwritten sources for conflicting ownership. Missing sources
-or uncertain ownership leave findings visible; lookup failures are reported as limitations. Package and framework checks keep the
-full class graph. See [generated-code scope and limitations](../ARCHITECTURE-CHECKS.md#generated-application-code).
-
-ArchUnit comes in transitively with `bootui-spring-boot-starter`, so the panel is available whenever a base package is
-resolvable. The scan runs on demand and caches its last report. Each rule carries a stable identifier, category,
-severity, and recommendation, and the results list shows only violating rules, sorted by severity and violation count.
-
-Generic rules are weaker than project-authored ArchUnit tests, so treat this panel as a starting point that complements
-a project-specific ArchUnit suite rather than replacing it.
+The scan runs on demand and caches its last report. The results list shows only violating rules, sorted by severity and
+violation count. Treat it as a starting point that complements a project-specific ArchUnit suite. Coding-practice
+checks (`ARCH-CODE-*`) exclude classes positively identified as generated; see
+[generated-code scope and limitations](../ARCHITECTURE-CHECKS.md#generated-application-code).
 
 > **Not available in GraalVM native images.** The advisor scans compiled `.class` files via ArchUnit's
 > `ClassFileImporter`, which is incompatible with a native executable; the panel moves to the sidebar's
@@ -347,77 +245,44 @@ a project-specific ArchUnit suite rather than replacing it.
 
 ::: details On Quarkus
 
-The panel runs the same shared ArchUnit ruleset and on-demand scan over the same report contract. Generic hygiene rules
-apply unchanged, except that the `java.util.logging` check is skipped (JUL is a built-in Quarkus logging API) and
-standard-annotation field injection is reported at LOW, since it is the Quarkus idiom. Spring-only annotation rules find
-no matching classes, while Jakarta-based and proxy rules evaluate with Quarkus-specific semantics.
+The panel runs the same ruleset and report contract. The `java.util.logging` check is skipped, standard-annotation field
+injection is reported at LOW, and Spring-only annotation rules find nothing. The Spring self-invocation rule is skipped
+because Arc supports intercepted self-invocation.
 
-**Quarkus proxy semantics and base-package discovery**
-
-Proxy rules receive the active platform explicitly. The Spring self-invocation rule is skipped because Arc supports
-intercepted self-invocation, and proxy visibility follows Arc's support for static interception and final-method
-transformation instead of Spring's proxy restrictions. On Spring, protected and package-private methods are accepted for
-Spring Boot's default class-based proxies, matching Spring Framework 6+ behavior — see
-[ARCHITECTURE-CHECKS.md](../ARCHITECTURE-CHECKS.md) for the per-rule detail.
-
-The one platform difference is base-package discovery. Quarkus has no `@SpringBootApplication` to read and no reliable
-runtime package scan under its classloader, so base packages are discovered at **build time** from the Jandex
-application index and supplied to the scanner. Discovery is single-module today: sibling modules in a multi-module build
-are not auto-discovered, and the `bootui.internal.base-packages` config key (a comma-separated package list) overrides it
-when needed. The scan still runs on demand and caches the last report, and dismissing a rule persists to
-`.bootui/boot-ui.yml` exactly as on Spring Boot.
-
+Quarkus has no `@SpringBootApplication` to read, so base packages are discovered at **build time** from the Jandex
+index. Discovery is single-module; the `bootui.internal.base-packages` key (comma-separated) overrides it.
 :::
 
 ## REST API
 
 ![BootUI REST API panel](../images/bootui-rest-api.webp)
 
-The REST API panel runs a curated, zero-config ruleset against the host application's own web layer — `@RestController`
-/ `@Controller` handler methods on Spring, or JAX-RS resources on Quarkus. Like the Architecture panel, it imports the
-compiled handlers from bounded base packages and derives a read-only model: HTTP method(s), path(s), parameters and
-annotations, return type, `produces`/`consumes`, validation flags, and declared throws. It then evaluates 60 stable rule
-definitions across eight categories, of which 53 can emit a finding: routing and HTTP-method mapping, resource naming,
-status codes and responses, input validation and binding, DTO and payload contracts, pagination, versioning and content
-negotiation, and error handling and documentation. The `RAPI-DOC-*` rules run only when Swagger or MicroProfile OpenAPI
-annotations are on the classpath.
+The REST API panel runs a curated, zero-config ruleset against the host application's web layer: `@RestController` /
+`@Controller` handlers on Spring, or JAX-RS resources on Quarkus. It derives a read-only model (methods, paths,
+parameters, return types, validation, declared throws) and evaluates 60 stable rule definitions across eight categories,
+of which 53 can emit a finding: routing, naming, status codes, validation, DTO contracts, pagination, versioning, and
+error handling and documentation. The `RAPI-DOC-*` rules run only when Swagger or MicroProfile OpenAPI annotations are
+present. Security concerns belong to the Security panel.
 
-Security concerns — CORS, authentication, authorization — belong to the Security panel and are out of scope here.
-
-The scan runs on demand and caches its last report. Each rule carries a stable identifier, category, severity,
-recommendation, and a learn-more link, and the results list shows only flagged rules, sorted by severity and finding
-count. These heuristics complement an API design review and contract testing rather than replacing them. See
+The scan runs on demand and caches its last report; the list shows only flagged rules. See
 [REST API checks](../REST-API-CHECKS.md) for the full catalogue.
 
 ### Declared error contract
 
-The panel also shows the application's **declared error contract**: every `@ControllerAdvice` / `@RestControllerAdvice`
-/ `@ExceptionHandler` method on Spring MVC and WebFlux, and every Jakarta REST `@Provider` `ExceptionMapper` and Quarkus
-REST `@ServerExceptionMapper` on Quarkus. Each row names:
+The panel also shows the application's **declared error contract**: every `@ControllerAdvice` /
+`@RestControllerAdvice` / `@ExceptionHandler` on Spring, and every Jakarta REST `ExceptionMapper` and Quarkus REST
+`@ServerExceptionMapper` on Quarkus. Each row names the handled exception type, the declaring method, the scope, the
+resolved precedence, the declared HTTP status, the response-body category, and the media types.
 
-- the handled exception type;
-- the declaring component and method;
-- the scope (application-wide, narrowed, or controller-local);
-- the resolved precedence;
-- the declared HTTP status;
-- the response-body category (RFC 9457 `ProblemDetail`, custom object, string, empty, or explicitly unresolved);
-- the declared media types.
+This is a pure declaration read: no handler is invoked and no request is synthesized, so anything the declarations
+cannot prove is reported as unresolved. Only the application's own declarations are listed. When a retained
+Exceptions-panel failure maps to exactly one declared handler, that panel links to the declaration here.
 
-This is a pure declaration read: no handler is instantiated or invoked, no request is synthesized, and no exception is
-thrown to observe a response — so anything the declarations cannot prove is reported as unresolved rather than guessed.
-Only the application's own declarations are listed. The handlers the framework contributes (Spring Boot's
-`BasicErrorController`, Quarkus's built-in RESTEasy Reactive and Jackson mappers) are identical everywhere, so an
-application that declares nothing shows an empty catalogue on all three stacks. When a retained Exceptions-panel failure
-can be attributed to exactly one declared handler, that panel links straight to the declaration here; ambiguous and
-unmatched failures stay unlinked.
-
-::: details Three cases reported as unresolved rather than guessed
+::: details Cases reported as unresolved
 
 - An advice that implements `Ordered` chooses its position at runtime, so its whole precedence group is ambiguous.
-- A Spring handler without `@ResponseBody` (directly or via `@RestControllerAdvice`) renders a view rather than a body,
-  so its body category is unresolved instead of read from the return type.
-- On Quarkus only `@Provider`-annotated `ExceptionMapper`s are listed, because an unregistered implementation never
-  participates in exception resolution.
+- A Spring handler without `@ResponseBody` renders a view, so its body category is unresolved.
+- On Quarkus only `@Provider`-annotated `ExceptionMapper`s are listed.
   :::
 
 > **Not available in GraalVM native images.** The advisor scans compiled `.class` files via ArchUnit's
@@ -428,98 +293,45 @@ unmatched failures stay unlinked.
 
 ![BootUI Spring panel](../images/bootui-spring.webp)
 
-The Spring panel runs an explicit, read-only scan of the host application's running Spring application context and
-`Environment`. It takes a bounded snapshot of selected bean groups (Jackson `ObjectMapper`s, `TaskExecutor`s,
-`DataSource`s) and feature flags, then evaluates a curated ruleset across bean wiring, configuration hygiene, profiles
-and environment, performance and concurrency (including virtual threads), web/HTTP settings, data and persistence,
-Actuator/management exposure, and reactive (WebFlux-only) checks. See [SPRING-CHECKS.md](../SPRING-CHECKS.md) for the
-full catalogue and remediation links.
+The Spring panel runs an explicit, read-only scan of the running Spring application context and `Environment`. It takes
+a bounded snapshot of selected bean groups and feature flags, then evaluates a curated ruleset across bean wiring,
+configuration hygiene, profiles, performance and concurrency (including virtual threads), web settings, data and
+persistence, Actuator exposure, and reactive (WebFlux-only) checks. See [SPRING-CHECKS.md](../SPRING-CHECKS.md).
 
-Because it runs inside the already-started application, it focuses on "started but suboptimal" states rather than fatal
-startup conditions. It complements the Architecture panel — which statically analyzes compiled bytecode — by inspecting
-the live, wired runtime context instead. The report is a heuristic review prompt, not a verdict: it never mutates the
-context, intercepts live traffic, or surfaces secrets. The ruleset detects whether the host runs the servlet (Spring
-MVC) or reactive (Spring WebFlux) stack and adjusts a handful of rules accordingly.
-
-Standard Boot scheduling observability and BootUI's cache-activity decoration do not by themselves make the assessment
-partial. The scheduler check observes registered tasks and the selected native scheduler; the cache check preserves the
-underlying native provider's identity without calling custom delegates. On MVC, OSIV is reported as present, confirmed
-absent, or unknown from actual registration metadata—not inferred absent from `spring.jpa.open-in-view=false`.
-Custom or unavailable registrations retain explicit coverage limitations, and evaluation failures have separate safe
-explanations. These evidence corrections do not change finding severities, score penalties or the report's JSON shape.
-
-This single framework-application advisor is **relabelled per framework**: **Spring** on the Spring Boot adapter,
-**Quarkus** on the Quarkus adapter — the same menu slot, `/bootui/api/spring` contract, and report shape. The
-[Quarkus](#quarkus) section below covers the Quarkus flavour.
+It focuses on "started but suboptimal" states and complements the Architecture panel by inspecting the live, wired
+context. It never mutates the context, intercepts traffic, or surfaces secrets. On MVC, Open Session in View is reported
+as present, confirmed absent, or unknown from actual registration metadata. This advisor is **relabelled per
+framework**: **Spring** on Spring Boot, **Quarkus** on Quarkus, with the same menu slot and `/bootui/api/spring`
+contract.
 
 ## Quarkus
 
 ![BootUI Quarkus panel](../images/bootui-quarkus.webp)
 
-On the Quarkus adapter the framework-application advisor above is relabelled **Quarkus** and runs a Quarkus-native idiom
-ruleset in place of the Spring rules. It takes the same explicit, read-only approach against the running application and
-its MicroProfile `Config`, but the rules target Quarkus idioms:
+On the Quarkus adapter the framework-application advisor is relabelled **Quarkus** and runs a Quarkus-native ruleset
+against the running application and its MicroProfile `Config`:
 
-- Resolved CDI/Arc scopes: public fields on normal-scoped beans, which client proxies do not delegate, and publicly
-  exposed state on singleton beans and REST resources.
-- Production configuration evidence, including schema actions, SQL and bind-parameter logging, and explicit in-memory
-  storage.
-- Effective managed REST-client timers, HTTP compression and request-draining configuration.
-- Conditional synchronized virtual-thread pinning on the running JDK 21-23.
+- Resolved CDI/Arc scopes: public fields on normal-scoped beans and public state on singleton beans and REST resources.
+- Production configuration evidence: schema actions, SQL and bind-parameter logging, explicit in-memory storage.
+- Managed REST-client timers, HTTP compression, and request-draining configuration.
+- Conditional synchronized virtual-thread pinning on JDK 21-23.
 
-Missing configuration annotations, production overrides, pool-size overrides, or clustered scheduling are not
-defects by themselves. Neither does a JDBC dependency alongside reactive endpoints prove event-loop blocking.
-The advisor keeps useful declarations as inspection information, and reports incomplete evidence explicitly
-instead of treating unreadable metadata or unseen production configuration as clean.
-
-It is the **same panel and menu slot** as the Spring advisor — the same `/spring` route, `/bootui/api/spring` endpoint,
-and report contract — so the shared UI simply renders the "Quarkus" label and copy. The report is a heuristic review
-prompt, not a verdict. See [QUARKUS-ADVISOR-CHECKS.md](../QUARKUS-ADVISOR-CHECKS.md) for the full catalogue and
-remediation links.
+Missing annotations or production overrides are not defects by themselves, and incomplete evidence is reported
+explicitly rather than treated as clean. See [QUARKUS-ADVISOR-CHECKS.md](../QUARKUS-ADVISOR-CHECKS.md).
 
 ## Database
 
 ![BootUI Database panel](../images/bootui-database-advisor.webp)
 
-The Database panel introspects the physical schema of every discovered application `DataSource` bean through plain JDBC
-`DatabaseMetaData` — tables, columns, primary keys, foreign keys, and indexes — and evaluates a fixed, on-demand ruleset
-of deterministic, low-false-positive structural checks. It never executes DDL and never queries application data. See
-[DATABASE-ADVISOR-CHECKS.md](../DATABASE-ADVISOR-CHECKS.md) for the full catalogue and remediation links.
+The Database panel introspects the physical schema of every discovered application `DataSource` through plain JDBC
+`DatabaseMetaData` (tables, columns, keys, indexes) and evaluates a fixed, on-demand ruleset of deterministic structural
+checks. It never executes DDL and never queries application data. See
+[DATABASE-ADVISOR-CHECKS.md](../DATABASE-ADVISOR-CHECKS.md).
 
-It reuses the same proxy-aware datasource discovery as Database Connection Pools and SQL Trace, de-duplicating by the
-physical pool behind BootUI's own SQL Trace proxy so a wrapped datasource is never introspected twice. Spring's
-delegating and routing `DataSource` wrappers are resolved rather than ignored: one is skipped only when the pool it
-forwards to is a bean of its own, so the pool inside a `LazyConnectionDataSourceProxy` (what
-`spring.datasource.connection-fetch=lazy` installs) is still inspected, and a routing datasource is expanded into its
-resolved targets, named `beanName[lookupKey]`.
-
-::: details The generic structural checks
-
-- A missing primary key, excluding framework-generated one-row identifier tables (Hibernate's `next_val` sequence
-  emulation and Spring Batch's `*_SEQ` tables).
-- A physical foreign key without a known complete leading-column access path, as a contextual review.
-- Exact ordinary-index definition overlap, not merely a shorter leading prefix.
-- A foreign-key column whose type disagrees with the column it references.
-- A redundant unique index duplicating the primary key.
-- Duplicate foreign-key constraints.
-- A narrow auto-generated primary key.
-- A MySQL invisible, MariaDB ignored or Oracle invisible index that writes still maintain.
-  :::
-
-### Bounded, honest scans
-
-Every scan runs under fixed bounds and reports exactly what it could not do:
-
-- at most 300 tables, 300 columns and 100 indexes per table, 500 rows per catalog query;
-- a cooperative 20-second budget and a 5-second timeout on every catalog statement.
-
-The budget cannot guarantee interruption of a blocking driver metadata call or connection acquisition.
-
-A reached bound is detected deterministically by reading one row past it, and the connection's original read-only state
-is restored before it returns to the pool. A datasource that could not be read, a refused table, a catalog view a role
-cannot see, a truncated scan, and every skipped or errored rule are reported as per-datasource statuses and
-diagnostics — never as passing checks, and never counted as findings. Credentials in a JDBC URL or a
-driver error message are always redacted.
+Each scan runs under fixed bounds (at most 300 tables, 300 columns and 100 indexes per table, a 20-second budget, a
+5-second timeout per catalog statement) and reports what it could not do. Unreadable datasources, truncated scans, and
+skipped or errored rules appear as statuses and diagnostics, never as passing checks. Credentials in JDBC URLs and
+driver errors are redacted.
 
 | Status     | Meaning                                     |
 | ---------- | ------------------------------------------- |
@@ -528,115 +340,74 @@ driver error message are always redacted.
 | `ERROR`    | Discovery failed or no schema could be read |
 | `DISABLED` | Successful discovery found no datasource    |
 
-A catalog query blocked by restricted privileges makes its rule report `SKIPPED` with that reason instead of silently
-reporting no findings.
+For **PostgreSQL**, **MySQL**, **MariaDB**, and **Oracle** (19c+), dialect-specific catalog checks run in addition to the
+generic ones. Every other database (H2, SQL Server, and so on) still runs the full generic ruleset. When a Hibernate
+metamodel is available, the panel also cross-references the physical schema against mapped JPA entities, and skips that
+half with a stated reason otherwise.
 
-### Dialect-specific augmentation
+::: details The generic structural checks
 
-For **PostgreSQL**, **MySQL**, **MariaDB** and **Oracle** (19c+), dialect-specific catalog augmentation runs in addition
-to the generic checks.
+- A missing primary key, excluding framework-generated one-row identifier tables.
+- A physical foreign key without a known leading-column access path, as a contextual review.
+- Exact ordinary-index definition overlap, not merely a shorter leading prefix.
+- A foreign-key column whose type disagrees with the column it references.
+- A redundant unique index duplicating the primary key.
+- Duplicate foreign-key constraints.
+- A narrow auto-generated primary key.
+- A MySQL invisible, MariaDB ignored, or Oracle invisible index that writes still maintain.
+  :::
 
 ::: details What each dialect adds
+
 **PostgreSQL:**
 
-- Invalid or broken indexes (`pg_index`, excluding partitioned index parents and one being built `CONCURRENTLY`).
-- A sequence nearing exhaustion, measured against the smaller of its own maximum and its **owning column's** capacity
-  (the classic `bigint` sequence feeding an `integer` column).
-- Constraints currently not validated, without inferring migration history.
-- A table publishing updates/deletes with no usable replica identity; INSERT-only publications are excluded.
-- An `UNLOGGED` table or leaf partition, truncated after a crash and absent from physical standbys.
+- Invalid or broken indexes.
+- A sequence nearing exhaustion, measured against the smaller of its own maximum and its owning column's capacity.
+- Constraints currently not validated.
+- A table publishing updates or deletes with no usable replica identity.
+- An `UNLOGGED` table or leaf partition.
 
 **MySQL/MariaDB:**
 
 - Tables on a non-transactional storage engine.
-- The legacy three-byte `utf8mb3` character set, with version-aware comparison-semantics guidance.
-  MariaDB 11.4.5+ supports `0900` collation names as aliases; older versions must not be assumed to support them.
-- An `AUTO_INCREMENT` counter nearing its column type's signed/unsigned capacity.
+- The legacy three-byte `utf8mb3` character set.
+- An `AUTO_INCREMENT` counter nearing its column type's capacity.
 
 **Oracle:**
 
-- Unusable indexes, including per-partition status for a partitioned index.
+- Unusable indexes, including per-partition status.
 - Disabled or unvalidated constraints.
-- A non-cycling sequence or `GENERATED ... AS IDENTITY` generator nearing exhaustion.
+- A non-cycling sequence or identity generator nearing exhaustion.
 
-PostgreSQL declarative partitioning is modelled explicitly, so a finding on a partitioned table is reported once on its
-parent instead of once per child partition.
+The dialect comes from `DatabaseMetaData.getDatabaseProductName()`, the version string, and the JDBC URL; MariaDB is
+detected as its own dialect even through the MySQL driver, and an "Oracle" product name is confirmed against
+`v$version` before Oracle checks run. Oracle reads use only `ALL_*` views and `SYS_CONTEXT`, with no `ojdbc`
+dependency in BootUI. Partitioned tables are reported once on the parent.
 :::
 
-::: details How the dialect is detected
-The dialect is detected from `DatabaseMetaData.getDatabaseProductName()`, the product version string, and the JDBC URL.
-MariaDB is detected as its own dialect even through the MySQL driver, which reports the product name as "MySQL". Catalog
-SQL is selected from the reported server version (MySQL 8.0's `IS_VISIBLE` versus MariaDB 10.6's `IGNORED`, PostgreSQL
-10's `pg_sequences`, PostgreSQL 11's `INCLUDE` columns, PostgreSQL 15's `NULLS NOT DISTINCT`).
-
-A driver-reported "Oracle" product name is confirmed against `v$version`/`product_component_version` before any
-Oracle-specific augmentation runs, since some Oracle-compatible databases report the same name. Oracle's own catalog
-reads are scoped to the session's `CURRENT_SCHEMA` through only `ALL_*` views and `SYS_CONTEXT`, with no production
-`ojdbc` dependency anywhere in BootUI.
-
-Every other database (H2, SQL Server, Tibero, EDB Postgres Advanced Server, etc.) still runs the full generic ruleset
-through the standard JDBC metadata fallback — it is never treated as unsupported.
-:::
-
-Where the vendor catalog can answer, index semantics JDBC cannot express are folded into the shared model — validity,
-partial predicates, expression and prefix key parts, access method, visibility, and (Oracle) whether an index backs a
-constraint or is a specialized type. Every index rule can then ask "does this index actually support that lookup, or
-enforce that uniqueness?" instead of comparing bare column-name lists.
-
-### Hibernate cross-reference
-
-When a Hibernate `EntityManagerFactory`/metamodel is also available for the same application, the panel additionally
-cross-references the physical schema against the mapped JPA entities, using the same shared metamodel reader the
-Hibernate panel uses. This half is skipped (with a clear reason, not silently dropped) when either a `DataSource` or a
-Hibernate metamodel is unavailable.
-
-::: details What the cross-reference checks
+::: details What the Hibernate cross-reference checks
 
 - An explicit association without a matching physical foreign-key constraint, excluding `NO_CONSTRAINT`.
-- An explicit declared table or column name not observed in complete scoped metadata.
-- Supported nondefault nullability declaration mismatches, not guessed Java-to-JDBC type mappings.
-  JDBC-reported views and materialized views (including secondary views) are excluded from this constraint
-  comparison, without suppressing genuine table mismatches or view-name/column-name checks. If only view
-  columns would be compared, the check is skipped with an informational diagnostic rather than a finding.
-- A nondefault declared `@Column(length=...)` longer than a positively bounded physical string column.
+- An explicit declared table or column name not observed in the scoped metadata.
+- Supported nondefault nullability mismatches, not guessed Java-to-JDBC type mappings.
+- A declared `@Column(length=...)` longer than a bounded physical string column.
 - A positive `@Column(precision=..., scale=...)` wider than a bounded physical `DECIMAL`/`NUMERIC` column.
-- A mapped unique constraint with no physical index that genuinely enforces it.
-- An explicitly named `@Id` declaring `GenerationType.IDENTITY` whose PostgreSQL/MySQL/MariaDB column reports no
-  auto-increment, identity, default or generated value.
+- A mapped unique constraint with no physical index that enforces it.
+- An explicitly named `@Id` with `GenerationType.IDENTITY` whose PostgreSQL/MySQL/MariaDB column reports no
+  auto-increment, identity, default, or generated value.
 
-Only entities with an _explicit_ `@Table(name = ...)` are cross-referenced — entities relying on the default naming
-strategy are skipped rather than guessed. Even explicit names remain logical names subject to a physical naming
-strategy: these are declaration-versus-observation reviews, not effective runtime-mapping validation.
-Matching honors a declared `catalog`/`schema`, and a mapped name that matches
-tables in several readable datasources is treated as ambiguous rather than attributed to an arbitrary one. An entity
-split across secondary tables has each column, join column, and unique constraint checked against the table it is
-actually pinned to. Composite foreign-key matching tolerates the physical constraint's own column order but not a
-different child-to-parent pairing, and verifies the referenced table when resolvable. Attributes whose persisted shape is
-decided by a converter, `@Enumerated`, or `@Lob` are not treated as known JDBC representations.
-The catalog documents four retired IDs, including annotation-only sequence-allocation inference.
-:::
-
-::: details Out of scope by design
-This panel proposes no query/workload-based optimizations, runs no execution-plan analysis, performs no partition
-discovery or management, and never suggests new indexes from observed usage — it is a structural, deterministic advisor
-in the same spirit as the Hibernate Advisor, not a tuning engine. Resolving a mapped entity's Hibernate-computed physical
-name (after the naming strategy runs), rather than an explicit `@Table`/`@Column` name, is also out of scope: the engine
-reads only the standard JPA metamodel API, not Hibernate-internal naming-strategy SPI, to stay
-provider-version-agnostic.
+Only entities with an explicit `@Table(name = ...)` are cross-referenced. These are declaration-versus-observation
+reviews, not validation of the effective runtime mapping, since the advisor reads only the standard JPA metamodel and
+does not resolve the physical naming strategy. A mapped name matching tables in several datasources is treated as
+ambiguous. The panel proposes no query-based optimizations, execution-plan analysis, or index suggestions from usage.
 :::
 
 ::: details On Quarkus
 
-The panel is identical, running the same shared rule engine over the same report contract. `DataSource` beans are
-discovered through `@Any Instance<DataSource>` unconditionally (`javax.sql.DataSource` is core JDK, so no capability
-gating is needed), and the Hibernate cross-reference reuses the same `EntityDiscoverySource` the Hibernate panel produces
-when `quarkus-hibernate-orm` is present. Arc reports BootUI's own `@Alternative` SQL Trace wrapper alongside the real
-Agroal pool it wraps, so the adapter de-duplicates by the physical pool behind the proxy — otherwise the same database
-would be introspected twice, doubling every finding. Datasource names come from the Agroal `@DataSource("...")`
-qualifier, read reflectively by annotation type name so the panel links no `io.quarkus.agroal`/`io.agroal` type and stays
-safe in an application with no JDBC datasource extension; a bean with no such qualifier falls back to positional naming
-(`default`, `datasource-2`, ...).
-
+The panel is identical, over the same report contract. `DataSource` beans are discovered through `@Any Instance<DataSource>`
+and de-duplicated by the physical pool behind BootUI's SQL Trace wrapper. Datasource names come from the Agroal
+`@DataSource("...")` qualifier, read reflectively so no `io.agroal` type is linked; otherwise they fall back to
+positional names (`default`, `datasource-2`). The Hibernate cross-reference needs `quarkus-hibernate-orm`.
 :::
 
 ## Hibernate
@@ -644,43 +415,29 @@ safe in an application with no JDBC datasource extension; a bean with no such qu
 ![BootUI Hibernate panel](../images/bootui-hibernate.webp)
 
 The Hibernate panel runs an explicit, read-only scan against the JPA `EntityManagerFactory` metamodel when Hibernate ORM
-is present. It reviews mapped entities, attributed persistence-unit observations, and verified Spring Data JPA repository metadata for
-common Hibernate/JPA performance and mapping risks such as eager fetching, problematic identifier generators, collection
-fetch pagination, unsafe cascades, cache misconfiguration, and risky `ddl-auto` values. The report is a review prompt,
-not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies mappings. See
-[HIBERNATE-CHECKS.md](../HIBERNATE-CHECKS.md) for the full catalogue and remediation links.
+is present. It reviews mapped entities, persistence-unit observations, and Spring Data JPA repository metadata for
+common performance and mapping risks: eager fetching, problematic identifier generators, collection fetch pagination,
+unsafe cascades, cache misconfiguration, and risky `ddl-auto` values. It never intercepts queries, invokes
+repositories, executes SQL, or modifies mappings. See [HIBERNATE-CHECKS.md](../HIBERNATE-CHECKS.md).
 
-The catalog has 72 active rules; eight declaration-only, unreachable, or cross-advisor duplicated checks are retired
-without reusing their identifiers (Open Session in View is reviewed by the Spring advisor's SPRING-JPA-001). Unavailable required observations and rule failures yield `PARTIAL` while retaining valid findings.
-The scan message distinguishes attempted-rule coverage from successful evaluation, and the report's `diagnostics` array
-(shown as **Scan diagnostics** in the panel, returned unchanged by REST, MCP and `bootui hibernate report --json`, and
-summarized as a table in the CLI's human-readable output) names every failed or
-incompletely evaluated rule, its persistence unit, the kind of evidence that was missing and bounded example subjects.
-`INFO` diagnostics mark advisor limits by design rather than missing application evidence, and the list is capped at
-200 entries without dropping any rule; failures are kept first. A finding whose rule was only partly evaluated carries a
-`coverageNote`. An empty findings list is not proof
-that every mapping or query was verified. XML overrides, auto-apply converters, custom generators and runtime query
-plans are not fully reconstructed.
+The catalog has 72 active rules. Unavailable observations and rule failures yield `PARTIAL` while keeping valid
+findings, and the report's `diagnostics` (**Scan diagnostics** in the panel) names every failed or incompletely evaluated
+rule. A finding whose rule was only partly evaluated carries a `coverageNote`. An empty findings list is not proof that
+every mapping or query was verified.
 
 ::: details On Quarkus
 
-The panel runs the same 72-rule registry and report contract when `quarkus-hibernate-orm` is present. Entities are
-discovered from the live JPA `EntityManagerFactory` metamodel (across all persistence units, de-duplicated by identity),
-and most mapping/identifier/fetch rules apply unchanged. Spring Data query rules skip when repository metadata is
-unavailable instead of reporting a clean result. Three platform differences are worth noting:
+The panel runs the same 72-rule registry when `quarkus-hibernate-orm` is present, discovering entities from the live
+`EntityManagerFactory` across all persistence units. Spring Data query rules skip when repository metadata is
+unavailable. Differences:
 
-- **Effective factory settings are unit-scoped.** Live native options include integration defaults and programmatic
-  settings; named units do not inherit the first factory's values. Native property translation supplements appropriate
-  declaration/application facts but is not proof of effective factory state.
-- **Bytecode enhancement is always enabled.** Quarkus enhances every entity unconditionally at build time with no
-  opt-out, so known-absent-enhancement findings do not fire with the verified adapter capability.
-- **Panache active-record entities are handled specially** (see below).
-
-**The Quarkus property-key mapping**
+- **Effective factory settings are unit-scoped.** Named units do not inherit the first factory's values.
+- **Bytecode enhancement is always enabled**, so known-absent-enhancement findings do not fire.
+- **Panache active-record entities** are handled specially (see below).
 
 | Spring / native Hibernate key                            | Quarkus equivalent                                                           |
 | -------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `ddl-auto` / `hbm2ddl.auto`                              | `quarkus.hibernate-orm.schema-management.strategy` (*)                       |
+| `ddl-auto` / `hbm2ddl.auto`                              | `quarkus.hibernate-orm.schema-management.strategy` (\*)                      |
 | `show-sql`                                               | `quarkus.hibernate-orm.log.sql`                                              |
 | `format_sql`                                             | `quarkus.hibernate-orm.log.format-sql`                                       |
 | `batch_size`                                             | `quarkus.hibernate-orm.jdbc.statement-batch-size`                            |
@@ -691,81 +448,55 @@ unavailable instead of reporting a clean result. Three platform differences are 
 | `query.fail_on_pagination_over_collection_fetch`         | `quarkus.hibernate-orm.query.fail-on-pagination-over-collection-fetch`       |
 | `cache.use_query_cache` / `cache.use_second_level_cache` | `quarkus.hibernate-orm.second-level-caching-enabled` (single unified toggle) |
 
-(*) In Quarkus 3.33.3.1, explicitly configured deprecated `quarkus.hibernate-orm.database.generation` takes precedence.
-Quarkus/Jakarta `create` is create-only; Hibernate `hbm2ddl.auto=create` is destructive. The advisor preserves that
-difference rather than treating the keys as interchangeable raw strings.
+(\*) In Quarkus 3.33.3.1, an explicitly configured deprecated `quarkus.hibernate-orm.database.generation` takes
+precedence. Quarkus/Jakarta `create` is create-only, while Hibernate `hbm2ddl.auto=create` is destructive; the advisor
+preserves that difference.
 
-A native `quarkus.hibernate-orm.log.bind-parameters` flag is also read as the neutral bind-parameter-logging signal. For
-any other `hibernate.*` key with no first-class Quarkus option (for example `hibernate.order_inserts` /
-`hibernate.order_updates`), the lookup falls back to Quarkus' generic `quarkus.hibernate-orm.unsupported-properties."..."`
-escape hatch. The advisor uses the bootstrapped factory options for supported facts rather than assuming that the
-presence or absence of a property proves a value. Unsupported Spring/Hikari-specific evidence is not guessed from an
-unrelated property, and no connection is acquired to inspect it.
-
-**Panache active-record entities**
-
-With verified Panache transformation capability, build-time bytecode rewriting makes public-field access on
-Hibernate-managed classes behave like getter/setter calls, so the public-persistent-field finding does not fire.
-Mere classpath presence is not proof that transformation ran. The `@GeneratedValue`-without-strategy finding
-ignores the `id` field Panache's own base entity declares (an application-declared identifier is still checked normally).
-Spring Data repository hints (missing-strategy-aware `isNew()` detection for assigned identifiers) are specific to Spring
-Data JPA's `save()` semantics: without verified, attributable JPA repository metadata, that check is inapplicable.
-Panache query methods are not inferred from names or generated bytecode.
-
+With verified Panache transformation, the public-persistent-field finding does not fire, and the `id` field of Panache's base entity is ignored by the `@GeneratedValue` check.
 :::
 
 ## Memory
 
 ![BootUI Memory panel](../images/bootui-memory.webp)
 
-The Memory panel runs an explicit, read-only scan over the live JVM management beans — heap and memory pools, garbage
-collection, threads, loaded classes, and an optional class histogram. It turns them into severity-ranked findings such as
-heap pressure, metaspace saturation, native-footprint risk inside a container, lifetime GC overhead, thread deadlocks,
-and collection bloat. It complements the raw Live Memory and Threads panels by diagnosing the data they expose. The scan
-is on demand and caches the last report; new rules are added as small, focused classes in the `memory` package. See
-[MEMORY-CHECKS.md](../MEMORY-CHECKS.md) for the full catalogue and remediation links. The shared
+The Memory panel runs an explicit, read-only scan over the live JVM management beans: heap and memory pools, garbage
+collection, threads, loaded classes, and an optional class histogram. It reports severity-ranked findings such as heap
+pressure, metaspace saturation, native-footprint risk inside a container, lifetime GC overhead, thread deadlocks, and
+collection bloat. It complements the Live Memory and Threads panels by diagnosing the data they expose. The scan is on
+demand and caches the last report. See [MEMORY-CHECKS.md](../MEMORY-CHECKS.md). The shared
 [Free BootUI memory](runtime.md#free-bootui-memory) header action drops BootUI's own buffers and requests a GC before
 you re-run the checks.
 
 ## Security
 
-The Security panel runs an explicit, read-only scan of the host application's security configuration to flag common
-hardening gaps across authentication, authorization, CSRF, session management, transport/security headers, CORS, method
-security, actuator exposure, OAuth2 resource-server validation, and configuration hygiene. The report is a review prompt,
-not a verdict: it never intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies the
-security configuration.
-
-The advisor supports **all three** runtime security stacks from the same panel, menu slot, and `/bootui/api/security`
-report contract.
+The Security panel runs an explicit, read-only scan of the application's security configuration to flag hardening gaps
+across authentication, authorization, CSRF, sessions, transport and headers, CORS, method security, actuator exposure,
+OAuth2 resource-server validation, and configuration hygiene. It never intercepts live traffic, exposes credentials,
+keys, or session identifiers, or modifies the configuration. The same panel and `/bootui/api/security` contract support
+all three stacks.
 
 ### Spring Boot (Spring Security)
 
 ![BootUI Security panel — Spring Security](../images/bootui-security.webp)
 
-On Spring Boot it analyses Spring Security when it is on the classpath: it inspects already-created
-`SecurityFilterChain` configuration and supported security metadata without executing application authorization
-managers, custom matchers or credential providers. Unsupported evidence remains incomplete rather than becoming a
-security verdict. See
-[SECURITY-CHECKS.md](../SECURITY-CHECKS.md) for the full catalogue and remediation links.
+On Spring Boot it analyses Spring Security when present: already-created `SecurityFilterChain` configuration and
+supported metadata, without executing authorization managers, custom matchers, or credential providers. Unsupported
+evidence stays incomplete rather than becoming a verdict. See [SECURITY-CHECKS.md](../SECURITY-CHECKS.md).
 
 ### Spring WebFlux
 
-On Spring Boot WebFlux it evaluates a dedicated 26-rule `SEC-RXF-*` catalogue over a framework-neutral observation of the
-application's `SecurityWebFilterChain` beans, reactive CORS/OAuth2 beans, and security-relevant configuration. The Spring
-adapter owns collection and excludes BootUI's own permit-all chain; the shared engine owns deterministic rule evaluation
-and never receives Spring types or secret values.
+On WebFlux it evaluates a dedicated 26-rule `SEC-RXF-*` catalogue over `SecurityWebFilterChain` beans, reactive
+CORS/OAuth2 beans, and security-relevant configuration, excluding BootUI's own permit-all chain.
 
 ::: details On Quarkus
 
 ![BootUI Security panel — Quarkus Security](../images/bootui-quarkus-security.webp)
 
-On Quarkus it runs a Quarkus-native ruleset instead, reading the application's HTTP permission policies, MicroProfile
-`Config`, and authorization-annotated endpoints: Elytron/OIDC authentication, `quarkus.http.auth.permission.*`
-authorization, TLS and transport policy, forwarded-header proxy trust, CORS (including the wildcard-origin-with-credentials trap), security response
-headers, and Jakarta/Quarkus annotations including `@RolesAllowed`, `@PermissionsAllowed`, and `@AuthorizationPolicy`. It
-surfaces the same severity-ranked prompts, so the shared UI only relabels the metrics ("Permission policies" in place of
-"Filter chains"). See [QUARKUS-CHECKS.md](../QUARKUS-CHECKS.md) for the full Quarkus catalogue and remediation links.
-
+On Quarkus it runs a Quarkus-native ruleset over the HTTP permission policies, MicroProfile `Config`, and annotated
+endpoints: Elytron/OIDC authentication, `quarkus.http.auth.permission.*` authorization, TLS and transport policy,
+forwarded-header proxy trust, CORS (including the wildcard-origin-with-credentials trap), response headers, and
+`@RolesAllowed`, `@PermissionsAllowed`, and `@AuthorizationPolicy`. The UI relabels metrics ("Permission policies" in
+place of "Filter chains"). See [QUARKUS-CHECKS.md](../QUARKUS-CHECKS.md).
 :::
 
 ## Pentesting
@@ -773,260 +504,161 @@ surfaces the same severity-ranked prompts, so the shared UI only relabels the me
 ![BootUI Pentesting panel](../images/bootui-pentesting.webp)
 
 The Pentesting panel runs explicit, local-only OWASP Top 10 2025 hygiene checks against the host application, not
-BootUI's `/bootui` routes. On an explicit scan it combines bounded framework metadata with at most one `GET` and one
-`OPTIONS` request to literal `127.0.0.1` under the validated application context path; the two-second client never
-follows redirects or uses configured proxies. Checks cover missing or unsafe browser-document headers, CORS behavior,
-cookie flags, verbose error exposure, Spring Security wiring, actuator exposure, and common Spring Boot hardening gaps.
-Quarkus CORS, OIDC, and TLS configuration is reviewed by the Security panel (`QS-*`) rather than duplicated here.
+BootUI's `/bootui` routes. A scan combines bounded framework metadata with at most one `GET` and one `OPTIONS` request to
+literal `127.0.0.1` under the application context path; the client never follows redirects or uses proxies. Checks cover
+browser-document headers, CORS, cookie flags, verbose errors, Spring Security wiring, actuator exposure, and common
+Spring Boot hardening gaps. Quarkus CORS, OIDC, and TLS are reviewed by the Security panel instead.
 
-It intentionally does not crawl discovered endpoints, send SQL/XSS/destructive payloads, contact external hosts, or
-include raw response bodies, cookie values, credentials, or full issuer URLs. Findings are heuristic review prompts, not
-proof of exploitability or a replacement for a full security assessment.
+It never crawls endpoints, sends SQL/XSS/destructive payloads, contacts external hosts, or includes raw response bodies,
+cookie values, credentials, or full issuer URLs. Findings are heuristic review prompts, not proof of exploitability.
 
-The 77 active checks each carry a stable identifier, OWASP 2025 category, evidence source, and recommendation.
-The panel shows **Findings by severity**, matching the other advisors, rather than a separate OWASP Top 10 coverage
-matrix. Severity bars summarize active, non-dismissed findings; category metadata is not a passing-check count.
-Failed or bounded-away evidence produces a `PARTIAL` scan. Usable known findings still score under the shared
-eligibility policy, with limits in **Scan notes**; skipped, failed, or unknown-only evidence cannot establish a score.
-See [PENTEST-CHECKS.md](../PENTEST-CHECKS.md) for the
-full catalogue, limits, mappings, and retired IDs.
+The 77 active checks each carry a stable `PT-*` identifier, OWASP 2025 category, evidence source, and recommendation.
+The panel shows **Findings by severity**. Failed or bounded-away evidence produces a `PARTIAL` scan. See
+[PENTEST-CHECKS.md](../PENTEST-CHECKS.md). Pentesting supports the shared [dismiss/restore workflow](#dismissing-findings)
+by exact `PT-*` ID; dismissal does not dismiss an equivalent Security advisor finding.
 
-Pentesting supports the shared [dismiss/restore workflow](#dismissing-findings) by exact `PT-*` check ID. Accepted
-findings remain in the JSON with `dismissed: true` and in a collapsed **Dismissed rules** list, but leave the finding
-counts, severity bars, and panel/Scorecard penalties. Restoring updates the cached report without another scan.
-Dismissal preserves observed evidence and coverage limits, and does not automatically dismiss an equivalent Security
-advisor finding.
-
-### Per-stack coverage
+::: details Per-stack coverage
 
 - **Spring MVC** is the complete reference collector.
-- **Spring WebFlux** still contributes Spring configuration and OAuth metadata, but explicitly reports MVC mapping and
-  servlet-filter evidence unavailable, even on a mixed MVC/WebFlux classpath; runtime classification follows the active
-  application context. Its reactive Security advisor owns `SecurityWebFilterChain` route policy.
-- **Quarkus** runs the same shared scanner/report contract and supplies its live port, root path, CORS, OIDC, and
-  selected/default/direct HTTP-listener TLS configuration, not unrelated client TLS keys, while explicitly marking
-  Spring endpoint/security metadata unavailable. Local HTTP does not assess proxy-edge HTTPS.
+- **Spring WebFlux** contributes Spring configuration and OAuth metadata, but reports MVC mapping and servlet-filter
+  evidence unavailable. Its reactive Security advisor owns `SecurityWebFilterChain` route policy.
+- **Quarkus** runs the same scanner and supplies its port, root path, CORS, OIDC, and HTTP-listener TLS configuration,
+  while marking Spring endpoint metadata unavailable. Local HTTP does not assess proxy-edge HTTPS.
 
-Platform-specific limitations remain explicit, so unsupported checks do not become a false clean result.
+Unsupported checks never become a false clean result.
+:::
 
 ## Vulnerabilities
 
 ![BootUI Vulnerabilities panel](../images/bootui-vulnerabilities.webp)
 
-The Vulnerabilities panel shows locally discovered dependency inventory and explicit OSV vulnerability lookup results,
-helping identify known-vulnerable dependencies from the running project's dependency set during the local development loop. Findings are
-ordered by severity first (dismissed findings sink to the bottom regardless of severity), with dependencies and
-advisories alphabetized within the same severity.
+The Vulnerabilities panel shows the locally discovered dependency inventory and explicit [OSV.dev](https://osv.dev/)
+lookup results, to identify known-vulnerable dependencies in the running project. Findings are ordered by severity
+(dismissed findings sink to the bottom), then alphabetically. OSV is contacted only on the user-initiated scan.
+`bootui.vulnerabilities.osv-enabled=false` disables scanning and `bootui.vulnerabilities.epss-enabled=false` disables
+EPSS enrichment, on both adapters.
 
-The [Vulnerabilities checks catalogue](../VULNERABILITIES-CHECKS.md) documents the interpretation rules, official
-sources/version caveats, full audit disposition, and deferred inventory limitations. A completed lookup is not proof
-of application safety or complete runtime discovery. Panel and Scorecard use the same
-[evidence-based eligibility](#score-eligibility), including qualification after dismissal and GET-only cached refresh.
+The [Vulnerabilities checks catalogue](../VULNERABILITIES-CHECKS.md) documents the interpretation rules and sources. A
+completed lookup is not proof of application safety or complete runtime discovery. Panel and Scorecard share the
+[evidence-based eligibility](#score-eligibility).
 
-An agent's `vulnerabilities_scan` answers with a
-[summary](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls): at most ten vulnerable dependencies, each
-with its most severe advisory, rather than every advisory's full OSV text. `get_vulnerabilities_report` then lists
-`limit` dependencies (10 by default), each with at most 5 advisories without their details; an exact `group:artifact`
-query lists all of one dependency's advisories, and an exact advisory id or alias returns that advisory whole.
+An agent's `vulnerabilities_scan` answers with a [summary](../AI-AGENTS.md#compact-answers-from-scans-and-capture-controls)
+of at most ten vulnerable dependencies. `get_vulnerabilities_report` lists `limit` dependencies (10 by default), each
+with at most 5 advisories without details; an exact `group:artifact` query lists all of one dependency's advisories, and
+an exact advisory id or alias returns that advisory whole.
 
 ### Severity scoring
 
-Severity is derived from [OSV.dev](https://osv.dev/)'s `severity[]` entries, whose `type` says how the `score` must be
-interpreted. BootUI computes `CVSS_V4` entries carrying a CVSS v4.0 vector and `CVSS_V3` entries carrying a CVSS
-v3.0/v3.1 vector, preferring v4 when both are valid; it never treats a bare number or another provider's scale as CVSS,
-and never compares v3 and v4 numbers on one scale. CVSS `0.0` is reported as `NONE`, matching FIRST's qualitative scale.
-An advisory with neither a parseable CVSS score nor a `database_specific` label renders as `UNKNOWN` rather than being
-silently dropped. A malicious-package advisory (an OSV `MAL-` ID from OpenSSF Malicious Packages) is always `CRITICAL`,
-with no CVSS score: it reports malware, which removing the dependency, not upgrading it, remediates.
+Severity is derived from OSV's `severity[]` entries: BootUI computes `CVSS_V4` and `CVSS_V3` vectors, preferring v4 when
+both are valid, and never treats a bare number as CVSS. CVSS `0.0` is `NONE`. An advisory with neither a parseable score
+nor a `database_specific` label renders as `UNKNOWN`. A malicious-package advisory (OSV `MAL-` ID) is always `CRITICAL`:
+removing the dependency, not upgrading it, remediates it.
 
 ::: details How a CVSS score is selected and parsed
-BootUI matches exact `Maven` ecosystem and `groupId:artifactId`, allowing only OSV's literal `*` package wildcard,
-not arbitrary globs or other Maven repository ecosystems. It evaluates the installed version against the union of
-explicit versions and supported Maven `ECOSYSTEM` ranges. Applicability is matched, not matched, or unresolved;
-unsupported `SEMVER`/`GIT` or malformed evidence never becomes an unaffected verdict. A positive OSV query retains
-the finding even when detail association is unsupported or contradictory, with `PARTIAL` and an explanation.
 
-Choose the highest valid v4 score across applicable matching package assessments, excluding unrelated branches, and
-only when none is valid the highest valid v3 Base score. The v4 preference spans the whole applicable set, so one
-entry's v3 number never competes with another's v4 number. GitHub Advisory Database records carrying both vectors take
-their own severity label from the v4 vector, so preferring v4 keeps BootUI's severity aligned with the source database.
-Only when no applicable package severity is supplied does top-level severity supply the fallback. OSV makes package
-and top-level severity mutually exclusive: invalid/unsupported applicable package severity must not borrow a
-conflicting top-level score. A recognized `database_specific.severity` label remains a compatibility fallback,
-otherwise the finding is `UNKNOWN`. `MODERATE` maps to `MEDIUM`; a valid zero remains `NONE`.
+BootUI matches the exact `Maven` ecosystem and `groupId:artifact`, and evaluates the installed version against explicit
+versions and supported Maven `ECOSYSTEM` ranges. Applicability is matched, not matched, or unresolved; unsupported or
+malformed evidence never becomes an unaffected verdict. A positive OSV query keeps the finding as `PARTIAL` even when
+detail association is unsupported or contradictory.
 
-A CVSS v3.0/v3.1 vector (for example `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`) uses the
-[FIRST CVSS v3.1 specification](https://www.first.org/cvss/v3.1/specification-document). All eight Base metrics are
-required. Valid metric orders and optional Temporal/Environmental metrics are accepted, but optional values are also
-validated; empty/trailing segments, unknown metrics, duplicates, and invalid values are rejected. Calculation remains
-**Base only**, with the specified scope and Roundup rules.
+It takes the highest valid v4 score across applicable package assessments, and only when none is valid the highest valid
+v3 Base score. Top-level severity is a fallback only when no applicable package severity is supplied. A recognized
+`database_specific.severity` label remains a compatibility fallback, otherwise `UNKNOWN`. `MODERATE` maps to `MEDIUM`.
 
-A CVSS v4.0 vector (for example `CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N`, 9.3) is scored with
-a port of FIRST's [reference calculator](https://github.com/FIRSTdotorg/cvss-v4-calculator), verified against it for
-every Base metric combination. All eleven Base metrics are required and every segment is validated as for v3. The
-vector is scored as published, so a supplied Threat metric such as GitHub's frequent `E:U` yields the CVSS-BT score
-GitHub itself labels. Supplemental metrics never change the score. CVSS v2 calculation is deferred, and unsupported
-vectors do not remove findings.
+v3.0/v3.1 vectors follow the [FIRST CVSS v3.1 specification](https://www.first.org/cvss/v3.1/specification-document)
+(Base metrics only). v4.0 vectors are scored with a port of FIRST's
+[reference calculator](https://github.com/FIRSTdotorg/cvss-v4-calculator); a supplied Threat metric such as `E:U` yields
+the CVSS-BT score, and supplemental metrics never change the score. Invalid segments, unknown metrics, and duplicates
+are rejected. CVSS v2 is not calculated.
 :::
 
 ### OSV querying and robustness
 
-Advisories carrying a `withdrawn` timestamp are excluded. OSV omits withdrawn records from POST query responses but
-returns them from `GET /v1/vulns/{id}`, so the scanner keeps a defensive detail-stage check. Detail fetches run with a
-small bounded concurrency (up to 10 at a time), with a configured advisory-detail cap. Request timeouts are not a
-whole-scan deadline; a total elapsed-time budget and retry policy remain deferred. A single detail fetch that fails
-(network hiccup, rate limiting) does not abort the whole scan: it is counted, the scan
-degrades to `PARTIAL`, and every advisory that _did_ fetch is kept.
+Withdrawn advisories are excluded. A failed advisory-detail fetch does not abort the scan: it is counted, the scan
+degrades to `PARTIAL`, and every advisory that did fetch is kept.
 
 ::: details Pagination, batching, and result validation
-OSV's `/v1/querybatch` endpoint returns a `next_page_token` per query when pagination is needed; upstream pagination
-thresholds can change. The scanner follows that token with follow-up calls, retaining validated pages incrementally,
-bounded by 20 page rounds per chunk so a pathological advisory can't loop the scan forever (degrading to `PARTIAL` if
-the bound is hit rather than silently truncating).
 
-OSV enforces a hard limit of 1,000 queries per `/v1/querybatch` request. The scanner partitions the already
-`max-packages`-bounded package list into batches of at most 1,000 before querying, so setting `max-packages` above
-1,000 does not make OSV reject the whole batch with an HTTP 400.
+The scanner follows OSV's `next_page_token` on `/v1/querybatch`, bounded by 20 page rounds per chunk (degrading to
+`PARTIAL` at the bound). The package list, already bounded by `bootui.vulnerabilities.max-packages`, is split into
+batches of at most 1,000 queries, OSV's hard limit. Detail fetches run with bounded concurrency (up to 10) and a
+configured advisory-detail cap. Request timeouts are not a whole-scan deadline.
 
-Responses are validated rather than trusted. Every successful response must contain exactly one structurally valid
-result per query, and every reported vulnerability reference must carry a non-blank id. Missing, short, and malformed
-result arrays fail visibly instead of reading as a clean scan. A repeated advisory id is fetched and reported once per
-dependency, and a detail response whose id does not match the request counts as a failed fetch.
-
-A later page or chunk failure preserves previous pages and completed queries as `PARTIAL`, including queries already
-completed in the same chunk as the failed page. Failure before any valid page is `ERROR`, with the local inventory
-retained.
-
-The counters are narrow on purpose. `packagesScanned` counts only queries exhausted without a token, including at the
-page cap, so a token-only empty page is not complete. `packagesSkipped` counts only the configured package-cap
-omission, and unfinished or failed work is explained in the message instead.
-
-Per-request streaming limits are 5 MiB for queries and 1 MiB for details and EPSS.
+Responses are validated, and malformed results fail visibly instead of reading as a clean scan. A later failure preserves earlier pages as `PARTIAL`; failure before any valid page is `ERROR`, with the local inventory retained.
 :::
 
 ### EPSS enrichment
 
-Each advisory whose own id or `aliases` includes a canonical `CVE-*` id is additionally enriched with
-[EPSS](https://www.first.org/epss/) (Exploit Prediction Scoring System) data from FIRST.org's free, unauthenticated API.
-EPSS reports the modeled probability that a CVE will be exploited in the wild in the next 30 days, plus the percentile
-that probability ranks against every other scored CVE — a likelihood-of-exploitation signal that complements, rather than
-replaces, CVSS's severity-if-exploited score. It renders as a secondary badge next to the severity/CVSS badge (for
-example "2.3% EPSS", with a tooltip spelling out the percentile).
-
-When several CVEs are available, the badge uses the **highest available per-CVE probability**, with the percentile from
-that same record and a stable CVE tie-break. This is a prioritization heuristic, not combined advisory/application
-exploit likelihood. A missing alias does not hide an available score; a valid zero is available, not unknown.
-
-::: details EPSS request and validation details
-Enrichment runs as one or more batched `GET /data/v1/epss?cve=...` requests per scan, each respecting FIRST's documented
-2,000-character maximum for the comma-separated `cve` parameter, alongside the OSV calls and following the same "network
-call only on the user-initiated scan action" pattern. Validate an object root, array `data`, and supplied numeric
-`total`/`offset`/`limit` metadata. Follow smaller service pages with progress validation, bounded to
-`min(20, requested CVE count)` pages per chunk. Returned ids must belong to the request, and probability/percentile
-values must be finite numbers from 0 to 1. EPSS lookups can be disabled independently of OSV scanning via
-`bootui.vulnerabilities.epss-enabled=false`, and a failed or unreachable EPSS request never fails the scan or discards
-the OSV results. Successful earlier pages/chunks and scores survive later failure. `scan.message` appends
-requested/available/no-data counts or an incomplete/failure explanation without changing OSV status. A successfully
-exhausted lookup with no row is no data, not zero; an empty body or malformed envelope is not a successful no-data
-response. No canonical CVE or disabled EPSS makes no FIRST call. Enrichment covers the own ID and at most 20 retained
-aliases; selected CVE/date/model provenance and date pinning across daily updates are not exposed by the unchanged DTO.
-:::
+Each advisory whose id or `aliases` include a `CVE-*` id is enriched with [EPSS](https://www.first.org/epss/) data from
+FIRST.org's free API: the modeled probability of exploitation in the next 30 days and its percentile. It renders as a
+secondary badge next to the severity badge (for example "2.3% EPSS"), using the highest available per-CVE probability.
+This is a prioritization heuristic, not a combined exploit likelihood. A failed or unreachable EPSS request never fails
+the scan or discards OSV results.
 
 ### Fix availability
 
-Each advisory carries unchanged `fixedVersions` and `fixAvailable` fields with evidence-backed candidate semantics.
-A candidate must be a `fixed` event closing a supported Maven `ECOSYSTEM` interval containing the installed version,
-be positively newer under Maven `ComparableVersion` qualifier ordering, and be proven unaffected across **all matching
-entries**, including explicit versions and overlapping/reintroduced intervals. Unknown comparison or unresolved target
-evidence does not establish a fix. Neither Git/SEMVER ranges nor `last_affected`/`limit` boundaries supply Maven upgrades.
-
-Applicable newer candidates are filtered before de-duplication, Maven ordering, and the ten-candidate limit. A false
-signal or empty list means no target was established under these rules, not that the dependency is safe or no upstream
-fix exists. Candidates are reported upgrade evidence, not guarantees of artifact publication, compatibility, or
-reachability remediation; BootUI does not install them.
+Each advisory carries `fixedVersions` and `fixAvailable`. A candidate must be a `fixed` event closing a supported Maven
+interval containing the installed version, be newer under Maven `ComparableVersion` ordering, and be unaffected across
+all matching entries. Git/SEMVER ranges and `last_affected`/`limit` boundaries supply no upgrades. A false signal or
+empty list means no target was established, not that the dependency is safe or that no upstream fix exists. Candidates
+are upgrade evidence, not guarantees of publication or compatibility; BootUI does not install them.
 
 ### Dismissing a vulnerability
 
-Like every other advisor, a vulnerability can be **dismissed** when it does not apply (already patched downstream,
-accepted risk, or a fix not yet available upstream) — see the shared dismiss/restore explanation at the top of this page.
-The one difference is the dismissal key's shape. Because a vulnerability is scoped to one dependency, it is keyed by
-`<vulnerability id>::<package name>` (for example `GHSA-xxxx-xxxx-xxxx::org.example:sample`) rather than a bare rule id.
-So dismissing a finding for one dependency never hides the same advisory id reported against a different dependency, and
-a dismissal survives a patch-version bump of the still-vulnerable dependency. Dismissed vulnerabilities stay visible
-(dimmed, with a _Restore_ button), are excluded from the per-dependency and panel-level vulnerable counts, and trigger a
-fresh deterministic ordering from the recomputed active severity. Dismiss/restore controls are disabled when the panel is
-read-only.
+A vulnerability can be **dismissed** like any other finding (see [Dismissing findings](#dismissing-findings)). Because it
+is scoped to one dependency, the key is `<vulnerability id>::<package name>` (for example
+`GHSA-xxxx-xxxx-xxxx::org.example:sample`). Dismissing a finding for one dependency never hides the same advisory on
+another, and a dismissal survives a patch-version bump of the still-vulnerable dependency. Dismissed vulnerabilities stay
+visible (dimmed, with a _Restore_ button) and leave the vulnerable counts. Controls are disabled when read-only.
 
 ::: details How Spring discovers dependencies
-The Spring adapter resolves coordinates from three sources, in decreasing order of authority:
 
-1. **The application's embedded CycloneDX SBOM** (`META-INF/sbom/application.cdx.json` or `META-INF/sbom/bom.json`, the
-   files Spring Boot's `/actuator/sbom` serves). Maven PURLs carry `groupId`, artifact, and version, for example
-   `pkg:maven/org.example/sample@1.0` — including the `groupId` no manifest header carries. This can identify artifacts
-   published without a Maven descriptor; PURL decoding limitations remain deferred below. A component the SBOM declares
-   not shipped — CycloneDX `scope: "excluded"`, or the `cdx:maven:package:test=true` property the CycloneDX Gradle
-   plugin sets on the test-classpath libraries it lists by default — is left out, together with the components nested
-   in it, unless the archive census below finds its JAR, so a mislabeled SBOM cannot hide a shipped library.
-2. **`META-INF/maven/*/*/pom.properties`** descriptors on the classpath, which Spring's resolver also sees inside a
-   repackaged archive's nested JARs.
-3. **`java.class.path` entries**, read through the Maven repository directory layout or an adjacent Maven POM (including
-   in nonstandard local-repository paths). A group id is only derived from a path when a literal `repository` directory
-   makes it unambiguous; it is never guessed from an arbitrary cache path. Classpath JAR filenames must match the
-   resolved artifact/version exactly (with an optional classifier) rather than merely sharing a version prefix. Inside a
-   repackaged fat JAR this source is dead, because `java.class.path` is then just the application archive.
+The Spring adapter resolves coordinates from three sources, in decreasing authority:
 
-Unreadable `pom.properties` resources, a malformed or unreadable SBOM, and unreadable classpath archives are each logged
-and skipped instead of failing the whole inventory.
+1. **The embedded CycloneDX SBOM** (`META-INF/sbom/application.cdx.json` or `META-INF/sbom/bom.json`). Maven PURLs carry
+   the `groupId` no manifest header carries. A component declared not shipped (`scope: "excluded"`, or the
+   `cdx:maven:package:test=true` property) is left out unless the archive census finds its JAR.
+2. **`META-INF/maven/*/*/pom.properties`** descriptors on the classpath, including inside a repackaged archive's nested
+   JARs.
+3. **`java.class.path` entries**, read through the Maven repository layout or an adjacent POM. A group id is derived from
+   a path only when a literal `repository` directory makes it unambiguous. Inside a repackaged fat JAR this source is
+   dead.
+
+Unreadable resources, a malformed SBOM, and unreadable archives are logged and skipped rather than failing the
+inventory.
 :::
 
 ### Runtime reach
 
 With the [BootUI agent](java-agent.md)'s `inventory` sensor recording this run, the dependency table gains a **Runtime
 reach** column and filter: whether each dependency's jar loaded classes in this JVM, and whether a class an advisory
-names did. It is a prioritization hint read when the panel loads, from evidence already in memory, and it never changes
-a finding's severity, score, counts, or Scorecard penalty: a class not loaded yet may load later in this run, or in
-another. Without the agent, or while the Code Inventory panel, whose evidence it is, is disabled, the column is absent
-and the table says why.
+names did. It is a prioritization hint that never changes a finding's severity, score, counts, or Scorecard penalty.
+Without the agent, or while the Code Inventory panel is disabled, the column is absent and the table says why.
 
-| Reach                  | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Named class loaded** | A class the advisory names loaded from this dependency's own jar. Names come from the advisory's structured OSV fields when it has any, else from fully qualified class names in its summary and details, marked _from the advisory text_: those may name a proof of concept's classes, so this is "a class the advisory mentions loaded", never "the vulnerable code ran".                                                                                                                                                                                    |
-| **Loaded**             | Classes of the jar loaded, with how many in this run and the route of the request that first loaded one (while HTTP Exchanges is visible). A jar loaded only before this run (an earlier DevTools or live-reload run, or before the agent's claim), or only by BootUI's own work, still reads as loaded, with that said.                                                                                                                                                                                                                                       |
-| **Not loaded yet**     | No class of the jar loaded in this JVM, and the evidence could have shown it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| **Unknown**            | The evidence cannot tell, with why: the agent's class-load recorder is not running or has not finished walking the classes already loaded, it saw more jars than it counts, the jar was not found or holds no classes (a starter, native code), classes of one of its packages were defined without a code-source location, a loaded jar with no Maven metadata and the artifact's name, or a shaded jar, may be this dependency, the jar serves web resources (WebJars, mvnpm), or the agent never records the artifact's classes (Byte Buddy, BootUI's own). |
+| Reach                  | Meaning                                                                                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Named class loaded** | A class the advisory names loaded from this dependency's own jar. This means "a class the advisory mentions loaded", never "the vulnerable code ran".                    |
+| **Loaded**             | Classes of the jar loaded in this run, with the route of the request that first loaded one (while HTTP Exchanges is visible).                                            |
+| **Not loaded yet**     | No class of the jar loaded in this JVM, and the evidence could have shown it. It may still load later.                                                                   |
+| **Unknown**            | The evidence cannot tell, with the reason: the recorder is not running, the jar was not found or holds no classes, it is shaded, or the agent never records its classes. |
 
 ::: details How reach is decided
-The agent keeps, per jar, a bounded set of 64-bit hashes of the class names it defined (8,192 per jar, 65,536 in all;
-past that, a class the advisory names reads as unknown, never as not loaded) with the run of each class's last load,
-JDK types only, so no class loader is pinned. Dependencies are matched to jars as the Code Inventory panel matches them
-(Maven metadata, shaded coordinates, then file name), the same version first. **Not loaded yet** needs every gate:
-the agent keeps class-name evidence, its recorder started before walking the classes already loaded and was never
-stopped since (a restarted recorder walks them again), no code source was past the agent's limit, the dependency's jar
-was found and holds classes, no class of one of its packages was defined without a code-source location (as Quarkus's
-generated beans are, in their library's package), and no loaded jar may be this dependency without saying so.
-A reason that applies to every row, such as the recorder not running, is said once above the table. An application jar holding the claimed packages (an uber or shaded jar, a sibling module's jar) is matched like any
-jar, so a dependency it bundles is never read as not loaded. Names mined from
-an advisory's text are looked for only in the dependency's own jar, so their absence says nothing (the text often names
-other artifacts' classes); a structured name not found there is also looked for in every other jar, and is unknown when one of them dropped names.
-OSV's Maven advisories carry no structured symbols today (none of 357 advisories sampled for 44 common packages did),
-and about one in five names a class in its text.
+
+The agent keeps, per jar, a bounded set of class-name hashes (8,192 per jar, 65,536 in all; past that, a class the
+advisory names reads as unknown, never as not loaded), for JDK types only, so no class loader is pinned. Dependencies are
+matched to jars as the Code Inventory panel matches them. Names come from the advisory's structured OSV fields, else
+from fully qualified class names in its summary and details, marked _from the advisory text_; text names are looked for
+only in the dependency's own jar, so their absence says nothing.
+
 :::
 
 ### Coverage
 
-A coordinate-based inventory can only scan what it can name, so the panel also reports what it _couldn't_. Alongside the
-inventory, BootUI takes a census of the application's real archives — the `BOOT-INF/lib/`/`WEB-INF/lib/` entries of a
-repackaged JAR or WAR, or JARs exposed through `java.class.path` and local application-classloader URLs when running
-exploded — and attributes each to a resolved coordinate. Both Spring MVC and WebFlux support the container layout
-produced by `java -Djarmode=tools -jar app.jar extract --layers --launcher`: after the extracted layers are merged,
-`java org.springframework.boot.loader.launch.JarLauncher` exposes `BOOT-INF/lib` JARs through its classloader even
-when `java.class.path` contains only the launch directory. The census does not recursively search directories or
-contact remote URLs.
-
-Archive counts and package counts answer different questions. An SBOM with 520 resolved packages can identify all
-325 runtime JARs: coverage reports 325 identified archives, while the scan reports how many of the 520 packages were
-queried. The SBOM alone does not establish complete archive coverage. The provider reports one of three states,
-subject to the discovery limitations below:
+A coordinate-based inventory can only scan what it can name, so the panel also reports what it couldn't. BootUI takes a
+census of the application's real archives (`BOOT-INF/lib/` or `WEB-INF/lib/` entries, or JARs on `java.class.path` and
+application-classloader URLs) and attributes each to a resolved coordinate. The `java -Djarmode=tools -jar app.jar
+extract --layers --launcher` layout is supported on Spring MVC and WebFlux. The census does not recursively search
+directories, extract nested JAR contents, or contact remote URLs.
 
 | `coverage.status` | Meaning                                                                                                                                                           |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1034,91 +666,45 @@ subject to the discovery limitations below:
 | `INCOMPLETE`      | Some archives were neither; they are counted and named, and the panel warns that they were not scanned.                                                           |
 | `UNAVAILABLE`     | Neither the classpath nor the application classloader exposes enumerable archives (for example under a native image), so coverage is unknown rather than claimed. |
 
-When coverage is incomplete the panel shows an "Unidentified JARs" metric and a warning naming the gap
-("139 of 325 JARs could not be identified and were not scanned"), with a collapsible list of the archive names and a
-pointer to adding the CycloneDX plugin to the build. Unidentified archives deliberately stay out of the scannable
-dependency table — they have no coordinates to show. The census does not extract nested JAR contents.
+When coverage is incomplete, the panel shows an "Unidentified JARs" metric and a warning with a collapsible list of
+archive names and a pointer to adding the CycloneDX plugin. Packages beyond `bootui.vulnerabilities.max-packages`
+(default `500`) are counted in `scan.packagesSkipped` and shown as a warning.
 
-Two kinds of archive are never in an SBOM yet are not a coverage gap, so Spring MVC and WebFlux look inside an archive
-that is still unidentified — reading only its manifest and entry names, streaming a nested `BOOT-INF/lib/` entry
-without extracting it — before reporting it:
+::: details First-party module JARs and `spring-boot-jarmode-tools`
 
-- **First-party module JARs.** A multi-module build packages each sibling module (`cart.jar`, `order.jar`, …) next to
-  its dependencies. An archive with at least one class, whose _every_ class lives in the application's base packages
-  (the `@SpringBootApplication` packages the Architecture advisor analyzes), is counted in `coverage.archivesFirstParty`
-  and named in `coverage.firstPartyArchives` (at most 200, with `firstPartyArchivesTruncated`) instead of as
-  unidentified. It is not scanned: it is the application, not a dependency. The check fails closed. An archive stays
-  unidentified when it has a single class outside the base packages, is resource-only, carries `META-INF/maven/`
-  descriptors (as published third-party JARs do), bundles another `.jar`, `.war`, or `.zip`, or when no base package, or only a single-segment one such as `com`,
-  is detected. When the Spring Boot `layers.idx` defines an `application` layer, only archives in that layer can be
-  first-party; Boot places project modules there and third-party JARs in `dependencies`. The index is found in the fat
-  JAR, next to `BOOT-INF/lib/` when the extracted layers are merged into one tree (as a layered image build does), or
-  in the sibling `application/BOOT-INF/` of an in-place `extract --layers` tree. An entry belongs to the first layer
-  listing it, as Spring Boot resolves it, and an index that is present but unreadable or malformed admits no archive. A nested `BOOT-INF/lib/` entry is inspected only when stored uncompressed, as Boot
-  writes it, and only its central directory and manifest are read. Residual limit: without a layers index, a library
-  relocated into the application's own package and stripped of its Maven descriptors is indistinguishable from
-  application code. An archive the index places in the `application` layer may also use the parent of a base package
-  when that parent has at least two segments, so sibling modules of a launcher in `com.acme.gateway` (for example
-  `com.acme.orders`) are recognized; layer placement alone is never enough, because a custom layering can put any
-  library there. Plain `extract` without `--layers` writes no index, so there only the base packages themselves
-  apply. A bare file name carried by two different archives (the census counts it once) is never first-party. Other
-  modules whose classes live outside the base packages are not recognized. The
-  panel lists them in a collapsed note, and `archivesFound = archivesIdentified + archivesUnidentified + archivesFirstParty`.
-- **`spring-boot-jarmode-tools`.** Spring Boot's build plugins add it at packaging time, so it is not a declared
-  dependency and is absent from the SBOM. When its file name, `Implementation-Title: Spring Boot Jarmode Tools`, and
-  `Implementation-Version` agree and every class the archive carries is under `org/springframework/boot/jarmode/tools/`, it is
-  identified as `org.springframework.boot:spring-boot-jarmode-tools:<version>`
-  (source "Spring Boot manifest") and scanned like any other dependency. It is the only archive identified from a
-  manifest.
+Two kinds of archive are never in an SBOM yet are not a coverage gap, so Spring MVC and WebFlux inspect an unidentified
+archive (manifest and entry names only) before reporting it:
 
-With both, a multi-module application extracted with `jarmode=tools extract --layers --launcher` and built with an SBOM
-reports `COMPLETE` coverage.
+- **First-party module JARs.** An archive with at least one class, all of them in the application's base packages, is
+  counted in `coverage.archivesFirstParty` and named in `coverage.firstPartyArchives` (at most 200). It is not scanned.
+  The check fails closed: a single class outside the base packages, a resource-only archive, `META-INF/maven/`
+  descriptors, a bundled `.jar`/`.war`/`.zip`, or no detectable base package keeps it unidentified. When the Spring Boot
+  `layers.idx` defines an `application` layer, only archives in that layer can be first-party.
+- **`spring-boot-jarmode-tools`.** Added by Spring Boot's build plugins at packaging time, so it is absent from the SBOM.
+  When its file name, manifest title and version agree and every class is under
+  `org/springframework/boot/jarmode/tools/`, it is identified as `org.springframework.boot:spring-boot-jarmode-tools`
+  and scanned.
 
-The scan status reports the same kind of gap for the `bootui.vulnerabilities.max-packages` bound: packages beyond it are
-counted in `scan.packagesSkipped` and surfaced as a warning, instead of letting `packagesScanned` present a truncated
-scan as a complete one. The default bound is `500`, sized to cover a typical Spring Boot application's full JAR set.
+With both, a multi-module application built with an SBOM reports `COMPLETE` coverage.
+:::
 
 ::: details On Quarkus
 
-The panel is identical: it lists the local inventory first and contacts OSV.dev only on the user-initiated scan, over the
-same report contract, CVSS/withdrawn/partial-failure handling, pagination/batch-chunking, EPSS enrichment, and
-dismiss/restore workflow. `bootui.vulnerabilities.osv-enabled=false` / `bootui.vulnerabilities.epss-enabled=false`
-disable on-demand scanning / EPSS enrichment on both adapters. The one platform difference is dependency discovery: the
-Quarkus inventory is captured at **build time** from the application's resolved runtime dependency model and read back at
-runtime (mirroring the Architecture panel's build-time base-package discovery). It does not require an SBOM to obtain
-those coordinates. Coverage is `COMPLETE` only when that model was captured and decoded whole: a missing or blank model
-(the build step never ran; a real Quarkus application always has runtime JARs), a malformed entry, or a coordinate the
-build step could not encode reports `UNAVAILABLE` instead, keeping every readable dependency. `COMPLETE` still reflects
-the build-time model, not an independent verification of the running classpath.
-
+The panel is identical and uses the same report contract and workflows. The one difference is dependency discovery: the
+inventory is captured at **build time** from the resolved runtime dependency model and needs no SBOM. Coverage is
+`COMPLETE` only when that model was captured and decoded whole; a missing or blank model, a malformed entry, or an
+unencodable coordinate reports `UNAVAILABLE`, keeping every readable dependency.
 :::
 
 ### Known limitations
 
-Inventory repairs are explicitly deferred. Reported coverage surfaces some gaps, but does not reliably diagnose all
-of them:
-
 - **Discovery can overclaim coverage.** Spring de-duplicates archive basenames and matches filenames without group
-  identity; case/classifier ambiguity can overstate identification. PURL literal-plus decoding and namespace rewriting,
-  SBOM runtime-scope attribution beyond test-only and `excluded` components, and a traversal cap on resolved
-  coordinates rather than inspected nodes need separate fixes.
-- **Without an SBOM, some JARs cannot be identified.** No JAR manifest header carries a `groupId` (the
-  `spring-boot-jarmode-tools` exception above works only because its group is fixed and known)
-  (`Implementation-Title` is a display name as often as an artifact id, and `Implementation-Vendor-Id` is not a group
-  id), so an application built without a CycloneDX SBOM cannot resolve coordinates for artifacts published with no Maven
-  descriptor — Spring Framework, Spring Boot, Spring Security, `tomcat-embed-*`, `hibernate-core`, `kotlin-stdlib`, the
-  PostgreSQL driver, and the `opentelemetry-*`/`micrometer-*` families among them. Archives detected as unidentified by
-  the census are reported through coverage, subject to the attribution limitations above. External hash-based
-  coordinate lookup would add another service and configuration surface, so it is deliberately not done.
-- **Shaded/uber JARs are invisible.** The inventory on both adapters is coordinate-based (one resolved JAR = one Maven
-  `groupId:artifactId:version`), so a vulnerable library relocated or repackaged inside a shaded/uber JAR carries no
-  `pom.properties`/build-time coordinate of its own and is invisible — the same reduced-fidelity honesty precedent
-  applied to other panels (for example Cache, Beans).
-- **No direct-vs-transitive provenance yet.** "Introduced through" is not tracked on either adapter. Quarkus could source
-  it from its build-time application dependency graph, but Spring's classpath-based inventory has no equivalent graph
-  today (adding one would need POM/Maven-plugin integration, a much larger change), so this is deferred rather than
-  shipped as a Quarkus-only asymmetry.
-- **Evidence is bounded, not exhaustive.** Distinct advisory IDs can count the same underlying CVE more than once;
-  alias-cluster merging would change dismissal semantics and is deferred. Full CVSS provenance,
-  selected EPSS CVE/date/model fields, cross-request date pinning, and a whole-scan deadline are also deferred.
-  Browser version sorting remains lexical for same-package rows rather than sharing the server's Maven ordering.
+  identity, so case or classifier ambiguity can overstate identification.
+- **Without an SBOM, some JARs cannot be identified.** No JAR manifest header carries a `groupId`, so artifacts published
+  without a Maven descriptor (Spring Framework, Spring Boot, `tomcat-embed-*`, `hibernate-core`, and others) cannot be
+  resolved. They appear through coverage as unidentified.
+- **Shaded/uber JARs are invisible.** The inventory is coordinate-based, so a library relocated inside a shaded JAR is
+  not seen.
+- **No direct-vs-transitive provenance.** "Introduced through" is not tracked on either adapter.
+- **Evidence is bounded, not exhaustive.** Distinct advisory IDs can count the same CVE more than once, and a whole-scan
+  deadline is not implemented. Browser version sorting is lexical for same-package rows.
