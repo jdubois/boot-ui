@@ -372,6 +372,10 @@ public final class ProbeBehaviors {
     }
 
     static void aReleaseEndsAndRemovesProbes() throws Exception {
+        // The restart above leaves the run's loaders to a throwaway copy, which the probe would wait on, unless the JVM
+        // happens to have collected it: claim again from this class's own loader.
+        CodePathsBehaviors.token = CodePathsBehaviors.claim(CodePathsBehaviors.sensors(true), beans());
+        CodePathsBehaviors.awaitSelfTests(true);
         long id = start(APP + "Quotes#m1()I", Map.of());
         await(id, probe -> Boolean.TRUE.equals(probe.get("advised")));
         AgentBridge.release("code-paths-behaviors", "dev");
