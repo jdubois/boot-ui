@@ -91,21 +91,14 @@ public final class JavaAgentService {
         Resolution resolution = resolve(status, bridgeClaim);
         List<String> warnings = new ArrayList<>();
         String bootUiVersion = settings.bootUiVersion();
-        if (agentVersion != null
-                && bootUiVersion != null
-                && !"unknown".equals(bootUiVersion)
-                && !agentVersion.equals(bootUiVersion)) {
-            warnings.add("The attached agent is version " + agentVersion + " and BootUI is version " + bootUiVersion
-                    + ": they speak the same protocol, but attach the bootui-agent jar of BootUI " + bootUiVersion
-                    + ".");
-        }
         if (!AgentBridgeAccess.items(agent, "sensors").isEmpty()
                 && !verifiedJdk(Runtime.version().feature())) {
             warnings.add(UNVERIFIED_JDK_WARNING.formatted(Runtime.version().feature()));
         }
         JavaAgentSetupDto setup = AgentSetupSnippets.setup(
                 bootUiVersion,
-                jar,
+                // An unusable agent's own jar is not the one to set up: point at the jar of this BootUI's version.
+                access.compatible() ? jar : null,
                 settings.repository(),
                 settings.stack(),
                 AgentSetupSnippets.detectBuildTool(settings.workingDirectory()));

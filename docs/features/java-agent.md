@@ -35,7 +35,16 @@ repository path:
 
 If the application's JVM has `-Dmaven.repo.local=...`, that repository is honored; Maven's own repository setting is
 not automatically a system property of the forked application JVM. When the jar is not present,
-the first tab is **Download the agent**:
+the first tab is **Download the agent (curl)**, which fetches the jar from Maven Central straight to that path and
+needs no Maven:
+
+```bash
+curl -fL --create-dirs -o ~/.m2/repository/com/julien-dubois/bootui/bootui-agent/<version>/bootui-agent-<version>.jar \
+  https://repo1.maven.org/maven2/com/julien-dubois/bootui/bootui-agent/<version>/bootui-agent-<version>.jar
+```
+
+**Download the agent** does the same with Maven, and the two Gradle tabs add a small `downloadBootuiAgent` task to your
+build file. Both resolve through your own proxy and mirror settings, which helps behind a corporate proxy:
 
 ```bash
 mvn dependency:get -Dartifact=com.julien-dubois.bootui:bootui-agent:<version>
@@ -60,7 +69,8 @@ snippets first. Available snippets include:
   Never export it in a shell: every JVM started there (Maven, the Gradle daemon, IDE tooling) would load the agent and
   print HotSpot's class-data-sharing warning.
 
-Every snippet tab has a **Copy** button. Snippet ids and labels are stable: `maven-download` (**Download the agent**),
+Every snippet tab has a **Copy** button. Snippet ids and labels are stable: `curl-download` (**Download the agent (curl)**), `maven-download` (**Download the agent**),
+`gradle-kotlin-download` and `gradle-groovy-download` (**Download the agent (Gradle, …)**),
 `maven-plugin` (**Spring Boot Maven plugin**), `gradle-kotlin`, `gradle-groovy`, `quarkus-dev`, `surefire`,
 `intellij`, and `java-tool-options`. The agent is not for production JVMs or AOT/native-image runs.
 
@@ -82,8 +92,9 @@ the panel. The report includes `state`, `reason`, `agentVersion`, `bootUiVersion
 | `FAILED` | The agent rejected or failed this application's claim. |
 | `DISABLED` | Agent support is disabled, including Quarkus production mode and a Spring application forced on in a disabled profile such as `prod`. |
 
-A different agent version on the same protocol is shown as a warning. Protocol mismatches are unavailable rather than
-best-effort.
+An agent only works with BootUI of its own version: a different version, like a protocol mismatch, is `UNAVAILABLE`
+(the reason names both versions) rather than best-effort, and the application never claims it. Attach the jar of the
+version BootUI reports. A BootUI built from source, with no version, accepts any agent of a matching protocol.
 
 ## Switching sensors at run time
 

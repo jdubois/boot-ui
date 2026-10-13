@@ -119,9 +119,54 @@ class AgentSetupSnippetsTests {
         List<JavaAgentSnippetDto> snippets = AgentSetupSnippets.snippets(
                 "1.19.0", JAR, false, AgentSetupSnippets.SPRING, AgentSetupSnippets.UNKNOWN);
 
-        assertThat(snippets.get(0).id()).isEqualTo("maven-download");
-        assertThat(snippets.get(0).text())
+        assertThat(snippets.get(0).id()).isEqualTo("curl-download");
+        assertThat(byId(snippets).get("maven-download").text())
                 .isEqualTo("mvn dependency:get -Dartifact=com.julien-dubois.bootui:bootui-agent:1.19.0");
+    }
+
+    @Test
+    void theCurlDownloadFetchesTheCentralJarToTheExpectedPath() {
+        String url =
+                "https://repo1.maven.org/maven2/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar";
+
+        assertThat(AgentSetupSnippets.curlDownload("1.19.0", "/tmp/my cache/agent.jar"))
+                .isEqualTo("curl -fL --create-dirs -o '/tmp/my cache/agent.jar' " + url);
+        assertThat(AgentSetupSnippets.curlDownload("1.19.0", "~/.m2/repository/agent.jar"))
+                .isEqualTo("curl -fL --create-dirs -o \"$HOME/.m2/repository/agent.jar\" " + url);
+        assertThat(AgentSetupSnippets.curlDownload("1.19.0", "C:\\Users\\me\\agent.jar"))
+                .startsWith("curl.exe -fL --create-dirs -o ");
+    }
+
+    @Test
+    void theGradleDownloadCopiesTheJarToItsFolderAndFollowsTheDetectedBuildTool() {
+        var gradle = AgentSetupSnippets.setup(
+                "1.19.0", null, directory.resolve("my $repo"), AgentSetupSnippets.SPRING, AgentSetupSnippets.GRADLE);
+        var maven = AgentSetupSnippets.setup(
+                "1.19.0", null, directory.resolve("repo"), AgentSetupSnippets.SPRING, AgentSetupSnippets.MAVEN);
+
+        assertThat(ids(gradle.snippets()).subList(0, 4))
+                .containsExactly("curl-download", "gradle-kotlin-download", "gradle-groovy-download", "maven-download");
+        assertThat(ids(maven.snippets()).subList(0, 4))
+                .containsExactly("curl-download", "maven-download", "gradle-kotlin-download", "gradle-groovy-download");
+        assertThat(byId(gradle.snippets()).get("gradle-kotlin-download").text())
+                .contains("bootuiAgent(\"com.julien-dubois.bootui:bootui-agent:1.19.0\")")
+                .contains("my \\$repo")
+                .contains("isTransitive = false");
+        assertThat(AgentSetupSnippets.gradleDownload("1.19.0", "~/.m2/r/agent.jar", false))
+                .contains("into System.getProperty('user.home') + '/.m2/r'");
+    }
+
+    @Test
+    void anUnknownBootUiVersionPrintsAPlaceholderNotTheWordUnknown() {
+        var setup = AgentSetupSnippets.setup(
+                "unknown", null, directory.resolve("repo"), AgentSetupSnippets.SPRING, AgentSetupSnippets.MAVEN);
+
+        assertThat(setup.jarPath()).doesNotContain("unknown").contains("<version>");
+        assertThat(setup.snippets())
+                .filteredOn(snippet -> snippet.id().contains("download"))
+                .hasSize(4)
+                .allSatisfy(snippet ->
+                        assertThat(snippet.text()).doesNotContain("unknown").contains("<version>"));
     }
 
     @ParameterizedTest
@@ -147,7 +192,7 @@ class AgentSetupSnippetsTests {
         assertThat(setup.jarFound()).isFalse();
         assertThat(setup.jarPath()).isEqualTo(jar.toString());
         assertThat(setup.buildTool()).isEqualTo(buildTool);
-        assertThat(setup.snippets().get(0).id()).isEqualTo("maven-download");
+        assertThat(setup.snippets().get(0).id()).isEqualTo("curl-download");
         assertThat(snippets.get("maven-download").text())
                 .isEqualTo("mvn dependency:get -Dartifact=com.julien-dubois.bootui:bootui-agent:1.19.0"
                         + " -Dmaven.repo.local=" + AgentSetupSnippets.shellQuoted(repository.toString()));
@@ -170,7 +215,7 @@ class AgentSetupSnippetsTests {
         assertThat(setup.jarPath())
                 .isEqualTo(
                         AgentSetupSnippets.repositoryJar(repository, "1.19.0").toString());
-        assertThat(setup.snippets().get(0).text())
+        assertThat(byId(setup.snippets()).get("maven-download").text())
                 .endsWith(" -Dmaven.repo.local=" + AgentSetupSnippets.shellQuoted(repository.toString()));
     }
 
@@ -187,7 +232,7 @@ class AgentSetupSnippetsTests {
         assertThat(setup.jarPath())
                 .isEqualTo(
                         AgentSetupSnippets.repositoryJar(repository, "1.19.0").toString());
-        assertThat(setup.snippets().get(0).text())
+        assertThat(byId(setup.snippets()).get("maven-download").text())
                 .endsWith(" -Dmaven.repo.local=" + AgentSetupSnippets.shellQuoted(repository.toString()));
         assertThat(byId(setup.snippets()).get("intellij").text()).isEqualTo("\"-javaagent:" + setup.jarPath() + "\"");
     }
@@ -198,7 +243,7 @@ class AgentSetupSnippetsTests {
         Path repository = directory.resolve("my cache\t/it's a \"quoted\" $HOME `pwd`; & | > * # repo");
         var setup = AgentSetupSnippets.setup(
                 "1.19.0", null, repository, AgentSetupSnippets.QUARKUS, AgentSetupSnippets.GRADLE);
-        String download = setup.snippets().get(0).text();
+        String download = byId(setup.snippets()).get("maven-download").text();
 
         Process process = new ProcessBuilder("/bin/sh", "-c", "mvn() { printf '%s\\n' \"$@\"; }; " + download)
                 .directory(directory.toFile())
@@ -226,7 +271,7 @@ class AgentSetupSnippetsTests {
         assertThat(setup.jarFound()).isFalse();
         assertThat(setup.jarPath())
                 .isEqualTo("~/.m2/repository/com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar");
-        assertThat(setup.snippets().get(0).text())
+        assertThat(byId(setup.snippets()).get("maven-download").text())
                 .isEqualTo("mvn dependency:get -Dartifact=com.julien-dubois.bootui:bootui-agent:1.19.0");
     }
 

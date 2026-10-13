@@ -12,42 +12,59 @@ const props = defineProps({
   attached: {type: Boolean, default: true}
 })
 
-const activeSnippetId = ref(null)
+const activeIds = ref({})
 const copyBlocked = ref(false)
 const {copiedKey, copyToClipboard} = useCopyToClipboard(2000)
 
-const snippets = computed(() => props.setup?.snippets ?? [])
-const activeSnippet = computed(() => snippets.value.find((snippet) => snippet.id === activeSnippetId.value) ?? null)
-const copiedActiveSnippet = computed(() => copiedKey.value === copyKey(activeSnippet.value))
-const hasDownload = computed(() => snippets.value.some((snippet) => snippet.id === 'maven-download'))
+// The download snippets get short tab names: the group heading already says what they download.
+const DOWNLOAD_LABELS = {
+  'curl-download': 'curl',
+  'maven-download': 'Maven',
+  'gradle-kotlin-download': 'Gradle (Kotlin)',
+  'gradle-groovy-download': 'Gradle (Groovy)'
+}
 
-watch(
-  snippets,
-  (items) => {
-    if (!items.length) {
-      activeSnippetId.value = null
-      return
+const snippets = computed(() => props.setup?.snippets ?? [])
+// Two choices in sequence, so two short tab strips instead of one long one: get the jar, then start with it.
+const groups = computed(() => {
+  const download = snippets.value
+    .filter((snippet) => snippet.id.endsWith('-download'))
+    .map((snippet) => ({...snippet, label: DOWNLOAD_LABELS[snippet.id] ?? snippet.label}))
+  const attach = snippets.value.filter((snippet) => !snippet.id.endsWith('-download'))
+  return [
+    {
+      key: 'download',
+      title: 'Get the jar',
+      hint: 'Maven and Gradle use your own mirror and proxy settings, which helps behind a corporate proxy.',
+      label: 'Java agent download snippets',
+      snippets: download
+    },
+    {
+      key: 'attach',
+      title: 'Start the application with it',
+      hint: 'Pick the tab for your build tool or IDE.',
+      label: 'Java agent setup snippets',
+      snippets: attach
     }
-    if (!items.some((snippet) => snippet.id === activeSnippetId.value)) {
-      activeSnippetId.value = items[0].id
-    }
-  },
-  {immediate: true}
-)
+  ].filter((group) => group.snippets.length)
+})
+
+function activeSnippet(group) {
+  return group.snippets.find((snippet) => snippet.id === activeIds.value[group.key]) ?? group.snippets[0]
+}
 
 function copyKey(snippet) {
   return snippet ? `java-agent-${snippet.id}` : null
 }
 
-async function copyActiveSnippet() {
+async function copySnippet(snippet) {
   copyBlocked.value = false
-  if (!activeSnippet.value) return
-  const copied = await copyToClipboard(activeSnippet.value.text, copyKey(activeSnippet.value))
+  const copied = await copyToClipboard(snippet.text, copyKey(snippet))
   copyBlocked.value = !copied
 }
 
-function selectSnippet(id) {
-  activeSnippetId.value = id
+function selectSnippet(group, id) {
+  activeIds.value = {...activeIds.value, [group.key]: id}
   copyBlocked.value = false
 }
 
@@ -59,83 +76,77 @@ function languageLabel(language) {
 <template>
   <section class="card java-agent-setup" aria-labelledby="java-agent-setup-title">
     <div class="card-body p-4">
-      <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
-        <div class="min-width-0">
-          <h3 id="java-agent-setup-title" class="h6 fw-bold mb-2">
-            <i class="bi bi-wrench-adjustable-circle me-2" aria-hidden="true"></i
-            >{{ attached ? 'Setup snippets' : 'Attach the agent' }}
-          </h3>
-          <ol v-if="!attached" class="java-agent-setup__steps small mb-3" data-testid="java-agent-setup-steps">
-            <li v-if="hasDownload">
-              The jar is not at the path below yet: download it with the <strong>Download the agent</strong> snippet.
-            </li>
-            <li>
-              Add the <code>-javaagent</code> option where you start the application: pick the tab for your build tool
-              or IDE, and copy it.
-            </li>
-            <li>
-              Restart the application. BootUI claims the agent and this panel shows <strong>Armed</strong>; if it
-              doesn’t, the status above says why.
-            </li>
-          </ol>
-          <dl class="row small mb-0">
-            <dt class="col-sm-4 text-muted fw-normal">Agent jar</dt>
-            <dd class="col-sm-8">
-              <code class="bootui-break-anywhere">{{ setup?.jarPath ?? '—' }}</code>
-            </dd>
-            <dt class="col-sm-4 text-muted fw-normal">Jar found</dt>
-            <dd class="col-sm-8">
-              <span :class="['badge', setup?.jarFound ? 'text-bg-success' : 'text-bg-secondary']">
-                {{ setup?.jarFound ? 'Found' : 'Not found' }}
-              </span>
-            </dd>
-            <dt class="col-sm-4 text-muted fw-normal">Build tool</dt>
-            <dd class="col-sm-8">{{ setup?.buildTool ?? 'UNKNOWN' }}</dd>
-          </dl>
-        </div>
-        <button
-          type="button"
-          class="btn btn-sm"
-          :class="copiedActiveSnippet ? 'btn-success' : 'btn-outline-secondary'"
-          :disabled="!activeSnippet"
-          :title="copiedActiveSnippet ? 'Copied!' : 'Copy snippet'"
-          @click="copyActiveSnippet"
-        >
-          <i :class="['bi', copiedActiveSnippet ? 'bi-check-lg' : 'bi-clipboard', 'me-1']" aria-hidden="true"></i>
-          {{ copiedActiveSnippet ? 'Copied!' : 'Copy' }}
-        </button>
-        <span class="visually-hidden" aria-live="polite">
-          {{ copiedActiveSnippet && activeSnippet ? `${activeSnippet.label} snippet copied` : '' }}
-        </span>
-      </div>
+      <h3 id="java-agent-setup-title" class="h6 fw-bold mb-3">
+        <i class="bi bi-wrench-adjustable-circle me-2" aria-hidden="true"></i
+        >{{ attached ? 'Setup snippets' : 'Attach the agent' }}
+      </h3>
+      <dl class="row small mb-4">
+        <dt class="col-sm-3 text-muted fw-normal">Agent jar</dt>
+        <dd class="col-sm-9">
+          <code class="bootui-break-anywhere">{{ setup?.jarPath ?? '—' }}</code>
+          <span :class="['badge ms-2', setup?.jarFound ? 'text-bg-success' : 'text-bg-secondary']">
+            {{ setup?.jarFound ? 'Found' : 'Not found' }}
+          </span>
+        </dd>
+        <dt class="col-sm-3 text-muted fw-normal">Build tool</dt>
+        <dd class="col-sm-9 mb-0">{{ setup?.buildTool ?? 'UNKNOWN' }}</dd>
+      </dl>
 
-      <div v-if="snippets.length" class="java-agent-snippets">
-        <PanelTabs
-          class="mb-3"
-          :tabs="snippets"
-          :selected="activeSnippetId"
-          id-prefix="java-agent"
-          label="Java agent setup snippets"
-          @select="selectSnippet"
-        />
-        <div
-          v-for="snippet in snippets"
-          v-show="snippet.id === activeSnippetId"
-          :id="`java-agent-panel-${snippet.id}`"
-          :key="`${snippet.id}-panel`"
-          role="tabpanel"
-          class="java-agent-snippet-panel"
-          :aria-labelledby="`java-agent-tab-${snippet.id}`"
-          tabindex="0"
-        >
-          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-            <h4 class="h6 mb-0">{{ snippet.label }}</h4>
-            <span class="badge text-bg-secondary">{{ languageLabel(snippet.language) }}</span>
+      <ol v-if="groups.length" class="java-agent-setup__groups list-unstyled mb-0">
+        <li v-for="(group, index) in groups" :key="group.key" class="java-agent-setup__group">
+          <div class="java-agent-setup__heading">
+            <span v-if="groups.length > 1" class="java-agent-setup__step" aria-hidden="true">{{ index + 1 }}</span>
+            <div class="min-width-0">
+              <h4 class="h6 fw-bold mb-0">{{ group.title }}</h4>
+              <p class="text-muted small mb-0">{{ group.hint }}</p>
+            </div>
           </div>
-          <pre class="java-agent-code rounded p-3 mb-0"><code>{{ snippet.text }}</code></pre>
-        </div>
-      </div>
+          <PanelTabs
+            class="mb-3"
+            :tabs="group.snippets"
+            :selected="activeSnippet(group).id"
+            id-prefix="java-agent"
+            :label="group.label"
+            @select="(id) => selectSnippet(group, id)"
+          />
+          <div
+            v-for="snippet in group.snippets"
+            v-show="snippet.id === activeSnippet(group).id"
+            :id="`java-agent-panel-${snippet.id}`"
+            :key="`${snippet.id}-panel`"
+            role="tabpanel"
+            class="java-agent-snippet-panel"
+            :aria-labelledby="`java-agent-tab-${snippet.id}`"
+            tabindex="0"
+          >
+            <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+              <span class="badge text-bg-secondary">{{ languageLabel(snippet.language) }}</span>
+              <button
+                type="button"
+                class="btn btn-sm"
+                :class="copiedKey === copyKey(snippet) ? 'btn-success' : 'btn-outline-secondary'"
+                :title="copiedKey === copyKey(snippet) ? 'Copied!' : `Copy ${snippet.label} snippet`"
+                @click="copySnippet(snippet)"
+              >
+                <i
+                  :class="['bi', copiedKey === copyKey(snippet) ? 'bi-check-lg' : 'bi-clipboard', 'me-1']"
+                  aria-hidden="true"
+                ></i>
+                {{ copiedKey === copyKey(snippet) ? 'Copied!' : 'Copy' }}
+              </button>
+              <span class="visually-hidden" aria-live="polite">
+                {{ copiedKey === copyKey(snippet) ? `${snippet.label} snippet copied` : '' }}
+              </span>
+            </div>
+            <pre class="java-agent-code rounded p-3 mb-0"><code>{{ snippet.text }}</code></pre>
+          </div>
+        </li>
+      </ol>
       <p v-else class="text-muted small mb-0">No setup snippets were returned for this runtime.</p>
+      <p v-if="!attached && groups.length" class="small text-muted mt-4 mb-0" data-testid="java-agent-setup-restart">
+        Then restart the application. BootUI claims the agent and this panel shows <strong>Armed</strong>; if it
+        doesn’t, the status above says why.
+      </p>
       <p v-if="copyBlocked" class="alert alert-warning small mt-3 mb-0">
         The browser blocked clipboard access, so nothing was copied. Select the snippet text and copy it manually.
       </p>
@@ -144,13 +155,33 @@ function languageLabel(language) {
 </template>
 
 <style scoped>
-.java-agent-setup__steps {
-  max-width: 72ch;
-  padding-inline-start: 1.25rem;
+.java-agent-setup__groups {
+  display: grid;
+  gap: 1.75rem;
 }
 
-.java-agent-setup__steps li + li {
-  margin-top: 0.25rem;
+.java-agent-setup__group {
+  min-width: 0;
+}
+
+.java-agent-setup__heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.java-agent-setup__step {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  border: 1px solid var(--bs-border-color);
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .java-agent-snippet-panel:focus-visible {

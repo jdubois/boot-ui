@@ -59,7 +59,10 @@ class JavaAgentServiceTests {
         assertThat(report.setup().snippets())
                 .extracting(JavaAgentSnippetDto::id)
                 .containsExactly(
+                        "curl-download",
                         "maven-download",
+                        "gradle-kotlin-download",
+                        "gradle-groovy-download",
                         "maven-plugin",
                         "gradle-kotlin",
                         "gradle-groovy",
@@ -127,13 +130,15 @@ class JavaAgentServiceTests {
         assertThat(disabled.reason()).isEqualTo(JavaAgentService.NOT_ENABLED_REASON);
         assertThat(unclaimed.state()).isEqualTo(JavaAgentReport.DORMANT);
         assertThat(unclaimed.reason()).isEqualTo(JavaAgentService.NOT_CLAIMED_REASON);
-        assertThat(disabled.agentVersion()).isEqualTo("1.19.0");
+        assertThat(disabled.agentVersion()).isEqualTo(io.github.jdubois.bootui.core.BootUiInfo.VERSION);
         assertThat(disabled.loadMode()).isEqualTo("javaagent");
-        assertThat(disabled.jarPath()).isEqualTo("/tmp/bootui-agent-1.19.0.jar");
+        assertThat(disabled.jarPath())
+                .isEqualTo("/tmp/bootui-agent-" + io.github.jdubois.bootui.core.BootUiInfo.VERSION + ".jar");
         assertThat(disabled.startupMicros()).isEqualTo(1234L);
         assertThat(disabled.setup().jarPath())
                 .as("the attached agent's own jar is the one to use")
-                .isEqualTo(Path.of("/tmp/bootui-agent-1.19.0.jar").toString());
+                .isEqualTo(Path.of("/tmp/bootui-agent-" + io.github.jdubois.bootui.core.BootUiInfo.VERSION + ".jar")
+                        .toString());
     }
 
     @Test
@@ -655,18 +660,17 @@ class JavaAgentServiceTests {
     }
 
     @Test
-    void anAgentOfAnotherVersionOnTheSameProtocolIsAWarning() {
+    void anAgentOfAnotherVersionIsUnavailableAndNamesBothVersions() {
         Bridges.StubAgent stub = Bridges.StubAgent.install();
-        stub.version = "1.18.0";
+        stub.version = "0.0.1-other";
+        AgentBridgeAccess access = Bridges.access();
 
-        JavaAgentReport report =
-                service(Bridges.access(), settings("spring", true, null)).report();
+        JavaAgentReport report = service(access, settings("spring", true, null)).report();
 
-        assertThat(report.warnings())
-                .singleElement()
-                .asString()
-                .contains("1.18.0")
-                .contains("1.19.0");
+        assertThat(access.compatible()).isFalse();
+        assertThat(report.state()).isEqualTo(JavaAgentReport.UNAVAILABLE);
+        assertThat(report.reason()).contains("0.0.1-other").contains(io.github.jdubois.bootui.core.BootUiInfo.VERSION);
+        assertThat(report.warnings()).isEmpty();
     }
 
     @Test

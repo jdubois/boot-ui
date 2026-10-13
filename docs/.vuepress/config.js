@@ -19,9 +19,7 @@ export default defineUserConfig({
   // The JVM Tuning panel is a memory-budget calculator, not a rule catalog, so its design record has
   // no checks to publish alongside the other catalogs. It stays in the repository for contributors
   // and the Runtime page links to it there.
-  // The validation rerun's data (docs/validation/) stays in the repository for reproducibility; only the report and the
-  // adjudication file that link to it are published.
-  pagePatterns: ['**/*.md', '!JVM-TUNING-CHECKS.md', '!validation/**', '!.vuepress', '!node_modules'],
+  pagePatterns: ['**/*.md', '!JVM-TUNING-CHECKS.md', '!.vuepress', '!node_modules'],
   lang: 'en-US',
   title: 'BootUI',
   description: 'A local-only developer console for Spring Boot and Quarkus applications.',

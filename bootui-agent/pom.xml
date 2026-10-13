@@ -146,10 +146,19 @@
 
     <build>
         <plugins>
-            <!-- Published: Maven Central receives a flattened, parentless POM (configured in the root POM). -->
+            <!--
+              Published: Maven Central receives a flattened, parentless POM (configured in the root POM). The jar shades
+              the bridge and Byte Buddy, so the published POM declares no dependencies: tools such as dependency:get
+              resolve even optional ones, and the bridge is never published.
+            -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>flatten-maven-plugin</artifactId>
+                <configuration>
+                    <pomElements>
+                        <dependencies>remove</dependencies>
+                    </pomElements>
+                </configuration>
             </plugin>
             <!--
               Compiles the caught-exceptions visit's Kotlin fixtures under src/test/kotlin (kotlinc's one-line

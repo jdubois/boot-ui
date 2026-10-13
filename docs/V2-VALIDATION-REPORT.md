@@ -4,6 +4,10 @@ This report checks whether Runtime Insights is worth reading on applications tha
 ([v2 plan](PLAN-v2.md) §2.2 and §2.4). It is filled in from an [early-adopter build](V2-EARLY-ADOPTERS.md) and rerun
 before 2.0.0.
 
+> The validation harness (`validation/`), the rerun's raw evidence (`docs/validation/`), and the adjudication file were
+> removed from the repository after the rerun; they remain in Git history and in the maintainer's archive. Paths to them
+> below are historical.
+
 **Draft, first run (2026-10-03), for the maintainer's review.** Built from `v2` at `fb4cc07e5` (version `1.19.0`).
 Every application ran with its own Maven repository seeded with that build, and each run proved it used it: the
 `runtime-insights` endpoint answered, and the resolved `bootui-engine` jar's SHA-256 matched the local build. Two
@@ -13,7 +17,7 @@ operator who ran each application gathered facts and code pointers but judged no
 **Rerun (2026-10-05), scored.** M4-20's rerun ran under the registered protocol (`m4-20-protocol-2`) on one build of
 `5bd7cb76e`; two reviewers judged it, the maintainer adjudicated it, recall was marked under his rule with his approval, and the registered scorer
 computed the result. See [Rerun results](#rerun-results) and the
-[adjudication file](V2-VALIDATION-ADJUDICATION.md). The first run's sections below are kept as they were.
+adjudication file. The first run's sections below are kept as they were.
 
 ## Release gates, first run
 
@@ -487,7 +491,7 @@ make the decision or supply the maintainer's signature.
 | Release candidate | `b113a72162d08235fce31f1d9930aa9718c2fc1b` (version `1.21.0`) |
 | Rerun date | 2026-10-05 (runs 09:38–10:29, time to first observation 10:53–11:23, Europe/Paris) |
 | Registered protocol | [Protocol for the rerun](#protocol-for-the-rerun), registered on 2026-10-05 (M4-20); `m4-20-protocol-2`, which superseded `m4-20-protocol-1` (see the amendment below): tag object `5f38a51affaeb11a8c35f9a1b0185d964dd23f7d`, commit `5bd7cb76eb532f1a72bf3a1ab8b018190c6214a2` |
-| Applications | Tuned: Spring PetClinic `500158f`, JHipster sample `6b000b5d`, Quarkus Super Heroes `d472e71d6`, WebFlux gateway `73b700b`, Kafka saga `a76daeb`. Holdouts: bookstore `2933f5f`, Timeless `0a90516` (pins and patches in [`validation/apps/`](https://github.com/jdubois/boot-ui/tree/v2/validation/apps)) |
+| Applications | Tuned: Spring PetClinic `500158f`, JHipster sample `6b000b5d`, Quarkus Super Heroes `d472e71d6`, WebFlux gateway `73b700b`, Kafka saga `a76daeb`. Holdouts: bookstore `2933f5f`, Timeless `0a90516` (pins and patches in `validation/apps/`) |
 | Reviewers and adjudicator | r1 on claude-opus-5.5 and r2 on gpt-6-sol, independent and one after the other; Julien Dubois, the maintainer, adjudicated the 26 disputed rows, advised by three blind models; his coordinator agent set the recall marks under his rule, and he approved them (see [Adjudication](#adjudication)) |
 | Known limitations | [Known limitations](KNOWN-LIMITATIONS.md) audited against delivered v2 source in [#1407](https://github.com/jdubois/boot-ui/pull/1407), reviewed head `312ddf2b7572c391b2d3a728b3b78cd32888bab9`, merged as `7d72176e1e5045bf345435e4bbe4c498bd29cef0`: shipped/deferred agent scope, all-generation snapshot bounds and ownership caveat, unavailable measurements, stack-specific gaps, and workload-specific overhead remain explicit |
 | Decision | APPROVE_RELEASE_2_0_0 |
@@ -790,9 +794,9 @@ need a registered rerun, and the pre-release overhead rerun remains in M4-23's [
 **Scored.** Run on 2026-10-05 under `m4-20-protocol-2`, exactly as registered: no registered file was changed. The
 maintainer adjudicated the 26 disputed rows and approved the recall marks set under his rule (see [Adjudication](#adjudication)), and the registered
 scorer, run from a detached checkout of the tag (`5bd7cb76e`, tag object `5f38a51af`, the one origin publishes), found no
-problem and wrote [`score.md`](https://github.com/jdubois/boot-ui/blob/v2/docs/validation/m4-20-rerun/score/score.md) and `score.json`. Every number below comes from them. Nothing
+problem and wrote `score.md` and `score.json`. Every number below comes from them. Nothing
 is pending in this section; the release sign-off's remaining `TODO`s are measures outside the rerun. The data that reproduces every number is in
-[`docs/validation/m4-20-rerun/`](https://github.com/jdubois/boot-ui/blob/v2/docs/validation/m4-20-rerun/README.md) (kept in the repository, not published on the documentation site): the evidence, the worksheet, both reviewers' files, the
+`docs/validation/m4-20-rerun/` (kept in the repository, not published on the documentation site): the evidence, the worksheet, both reviewers' files, the
 investigations, and the time to first observation.
 
 What the adjudication could and could not change: the default-visible score, the tuned and holdout scores, and so the
@@ -803,14 +807,14 @@ the per-kind gates, and the honesty rows judged as hiding something by one revie
 ### Adjudication
 
 **Who decided, and how.** The maintainer filled in every adjudication row himself, in
-[`adjudication.csv`](https://github.com/jdubois/boot-ui/blob/v2/docs/validation/m4-20-rerun/adjudication.csv). Unsure of his first answers, he had three advisory models (claude-opus-5, gpt-6.1-sol, and grok-4.7) judge the same 26 rows blind, with the
+`adjudication.csv`. Unsure of his first answers, he had three advisory models (claude-opus-5, gpt-6.1-sol, and grok-4.7) judge the same 26 rows blind, with the
 reviewers' names anonymized, and applied one rule: if the majority of the advisors agree, they know better than he does.
 That rule changed 18 of his 26 first answers; the other 8 rulings are his first answers, which a majority of the advisors
 confirmed. His first answers stay in his own workbook, which is not committed, and each committed reason says which way
 the advisors went ("Followed 3 of 3 advisory models (Informative, against my first Misleading): …"). The rulings remain
 the maintainer's: the protocol makes him the adjudicator, and the advisors are his means, not additional reviewers.
 
-The recall marks in [`recall.csv`](https://github.com/jdubois/boot-ui/blob/v2/docs/validation/m4-20-rerun/recall.csv) were set by the maintainer's coordinator agent under his rule,
+The recall marks in `recall.csv` were set by the maintainer's coordinator agent under his rule,
 the advisors' two-of-three majority, and he approved them; two marks were set by the protocol rather than by the
 majority:
 
@@ -956,7 +960,7 @@ timing (WebFlux marks no phases, which the rows disclose).
 ### Recall
 
 The maintainer marked the 52 registered items (see [Adjudication](#adjudication) for how), from the operator's
-[recall evidence](https://github.com/jdubois/boot-ui/blob/v2/docs/validation/m4-20-rerun/recall-evidence.md): for each item, the worksheet rows and every row of the full report
+recall evidence: for each item, the worksheet rows and every row of the full report
 naming its subject, with the checks and coverage lines.
 
 | Application | Known misses | Found, default list | Found, hidden only | Honest gap | Missed | Recall (default list) | Counterexamples violated |
@@ -1102,7 +1106,7 @@ Found during the rerun, not fixed under the tag, which freezes the harness; to f
 ## Protocol for the rerun
 
 **Registered on 2026-10-05, before any rerun** (PLAN-v2 M4-20, D35, D36). Every rule below is fixed before the rerun's
-evidence exists, and is implemented in the committed harness ([`validation/`](https://github.com/jdubois/boot-ui/blob/v2/validation/README.md)), so anyone can
+evidence exists, and is implemented in the committed harness (`validation/`), so anyone can
 recompute the numbers. The registration covers the whole harness: everything under `validation/` except its work
 area (`.work/`) and the first run's fixture (`scoring/fixtures/`), so the pins, patches, start commands, traffic, LLM
 stub, collector, rubric, reviewer prompt, known misses, and scoring scripts. Right before the rerun, after any addition
@@ -1208,9 +1212,9 @@ own kinds' gates.
 
 Two reviewers, on the different models `protocol.json` registers (`r1` on `claude-opus-5.5`, `r2` on `gpt-6-sol`; the
 first run did not record its models), each given the registered
-[reviewer prompt](https://github.com/jdubois/boot-ui/blob/v2/validation/REVIEWER-PROMPT.md) once, judge every row
+reviewer prompt once, judge every row
 independently, in one pass, with
-[the rubric](https://github.com/jdubois/boot-ui/blob/v2/validation/RUBRIC.md), the evidence, and the application's source; neither sees the other's file, nor
+the rubric, the evidence, and the application's source; neither sees the other's file, nor
 any score. Facts and hidden rows keep the first run's four judgments (Actionable, Informative, Noise, Misleading). A
 fact is **useful** when both reviewers judged it Actionable or Informative.
 
@@ -1251,7 +1255,7 @@ hidden rows.
 
 ### Recall: known misses, registered now
 
-[`validation/recall/known-misses.json`](https://github.com/jdubois/boot-ui/blob/v2/validation/recall/known-misses.json) lists, per application, the real
+`validation/recall/known-misses.json` lists, per application, the real
 problems a good report should surface and the counterexamples it must not present as problems, from the first run's
 Findings and reviews and from each application's known issues. The maintainer may add items before the registration
 tag is created, never after: the tag freezes the list with the rest of the harness. After the rerun, the maintainer marks each item found in the default list, found only in a hidden row, an
@@ -1344,7 +1348,7 @@ publication registry failed to start with a `BeanDefinitionOverrideException`. T
 
 ## How to judge an observation
 
-This is how the first run judged; the rerun applies [the rubric](https://github.com/jdubois/boot-ui/blob/v2/validation/RUBRIC.md) under the protocol above.
+This is how the first run judged; the rerun applies the rubric under the protocol above.
 Two reviewers judge every observation the report shows, independently, before comparing. Each judgment is one of:
 
 | Judgment | Meaning |

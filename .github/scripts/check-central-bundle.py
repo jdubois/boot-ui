@@ -12,7 +12,9 @@ release.yml before it uploads it, unsigned by stage-release-candidate.sh. The ch
 - every POM is flattened: no <parent>, explicit coordinates, no unresolved property, no dependency management,
   repositories, profiles or build, and the metadata Maven Central requires, identical to the root POM's;
 - every dependency has a literal version, and no compile or runtime dependency points at an unpublished BootUI
-  artifact (an optional one, such as the agent's shaded bridge, is never resolved by a consumer);
+  artifact (an optional one is never resolved transitively by a consumer);
+- bootui-agent declares no dependency at all: it shades its bridge and Byte Buddy, and `dependency:get` resolves even
+  an optional dependency of the artifact it fetches, so an unpublished one fails that command;
 - bootui-spring-boot-starter brings no web stack: no servlet or reactive web-server artifact at compile or
   runtime scope, so the application's own web starter decides between Spring MVC and Spring WebFlux.
 """
@@ -123,6 +125,8 @@ def check_pom(artifact, version, pom_path, errors):
         scope = text(dependency, "m:scope") or "compile"
         optional = text(dependency, "m:optional") == "true"
         coordinate = f"{group}:{name}"
+        if artifact == "bootui-agent":
+            error(f"the shaded agent must declare no dependency, found {coordinate}")
         if not group or not name or not dependency_version:
             error(f"dependency {coordinate} must declare groupId, artifactId and a literal version")
         if scope in ("test", "system", "import"):

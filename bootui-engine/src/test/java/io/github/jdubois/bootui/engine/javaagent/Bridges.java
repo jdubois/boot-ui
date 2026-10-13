@@ -31,7 +31,7 @@ final class Bridges {
     static final class StubAgent implements Function<Map<String, Object>, Map<String, Object>> {
 
         final List<Map<String, Object>> requests = new ArrayList<>();
-        String version = "1.19.0";
+        String version = io.github.jdubois.bootui.core.BootUiInfo.VERSION;
         Map<String, Object> installer;
         List<Object> sensors = new ArrayList<>();
         Map<String, Object> claimAnswer;

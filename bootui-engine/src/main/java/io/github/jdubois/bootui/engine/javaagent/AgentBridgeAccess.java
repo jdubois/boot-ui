@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.javaagent;
 
+import io.github.jdubois.bootui.core.BootUiInfo;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
@@ -56,6 +57,8 @@ public final class AgentBridgeAccess {
     private final boolean present;
     private final Integer protocol;
     private final String problem;
+    private volatile boolean versionChecked;
+    private volatile String versionProblem;
     private final MethodHandle attached;
     private final MethodHandle status;
     private final MethodHandle claim;
@@ -272,14 +275,50 @@ public final class AgentBridgeAccess {
         return protocol;
     }
 
-    /** Whether the bridge speaks {@link #EXPECTED_PROTOCOL} and every method handle is bound. */
+    /**
+     * Whether the bridge speaks {@link #EXPECTED_PROTOCOL}, every method handle is bound, and the agent is the jar of
+     * this BootUI's version. An agent of another version is left unused, so it never claims or records anything.
+     */
     public boolean compatible() {
+        return bound() && versionProblem() == null;
+    }
+
+    private boolean bound() {
         return present && problem == null && release != null;
     }
 
     /** Why a present bridge cannot be used, or {@code null}. */
     public String problem() {
-        return problem;
+        return problem != null ? problem : bound() ? versionProblem() : null;
+    }
+
+    /**
+     * Why the attached agent's version is not this BootUI's, or {@code null}: the same version, an agent that has not
+     * reported one yet, or a BootUI whose own version is unknown (a build from source). Once read, the answer is final.
+     */
+    private String versionProblem() {
+        if (versionChecked) {
+            return versionProblem;
+        }
+        String agentVersion;
+        try {
+            Object agent = ((Map<?, ?>) status.invoke()).get("agent");
+            Object read = agent instanceof Map<?, ?> map ? map.get("version") : null;
+            agentVersion = read == null ? null : read.toString();
+        } catch (Throwable ex) {
+            return null;
+        }
+        if (agentVersion == null) {
+            return null;
+        }
+        String own = BootUiInfo.VERSION;
+        if (own != null && !"unknown".equals(own) && !own.equals(agentVersion)) {
+            versionProblem = "the attached BootUI agent is version " + agentVersion + " and this BootUI is version "
+                    + own + "; an agent only works with BootUI of its own version, so attach bootui-agent-" + own
+                    + ".jar instead (the setup snippets below download it)";
+        }
+        versionChecked = true;
+        return versionProblem;
     }
 
     /** Whether the agent installed its handler in the bridge: false when the bridge is present but the agent failed. */
@@ -294,9 +333,9 @@ public final class AgentBridgeAccess {
         }
     }
 
-    /** The bridge's status ({@code AgentBridge.status()}), or an empty map without a compatible bridge. */
+    /** The bridge's status ({@code AgentBridge.status()}), or an empty map without a bound bridge (one of another version is still read, to report it). */
     public Map<String, Object> status() {
-        if (!compatible()) {
+        if (!bound()) {
             return Map.of();
         }
         try {
@@ -978,7 +1017,7 @@ public final class AgentBridgeAccess {
     private Map<String, Object> unavailable(String reason) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("status", UNAVAILABLE);
-        map.put("reason", reason != null ? reason : present ? problem : "the JVM runs without the BootUI agent");
+        map.put("reason", reason != null ? reason : present ? problem() : "the JVM runs without the BootUI agent");
         return map;
     }
 

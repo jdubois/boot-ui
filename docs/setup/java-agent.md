@@ -16,10 +16,12 @@ Open BootUI's **Java agent** panel, or run `bootui agent status`. Without the ag
 show the jar's expected path in your local Maven repository, with a **Download the agent** snippet when it is missing:
 
 ```bash
-mvn dependency:get -Dartifact=com.julien-dubois.bootui:bootui-agent:<version>
+curl -fL --create-dirs -o ~/.m2/repository/com/julien-dubois/bootui/bootui-agent/<version>/bootui-agent-<version>.jar \
+  https://repo1.maven.org/maven2/com/julien-dubois/bootui/bootui-agent/<version>/bootui-agent-<version>.jar
 ```
 
-Use the same version as BootUI.
+(`mvn dependency:get -Dartifact=com.julien-dubois.bootui:bootui-agent:<version>` works too.) The agent must be the same
+version as BootUI: any other version is reported `UNAVAILABLE`.
 
 ## 2. Add `-javaagent` to the development JVM
 

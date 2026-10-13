@@ -196,7 +196,7 @@ and ask permission first: it changes how the application is launched. It is opti
 only; never add it to a production or AOT-cached JVM.
 Read `bootui agent status --json` / `get_agent_status` first: the report includes the exact jar path and copyable
 Maven, Gradle, Quarkus dev, Surefire/Failsafe, IntelliJ, and `JAVA_TOOL_OPTIONS` snippets. If the jar is missing, follow
-the report's `maven-download` snippet before adding `-javaagent:<path>`.
+the report's `curl-download` snippet (the agent must be BootUI's exact version) before adding `-javaagent:<path>`.
 
 The default sensors are `executors`, `inventory`, `code-paths`, `processes`, `network`, `files`, `blocking`, and
 `resources`; `environment` is opt-in. Setting `bootui.agent.sensors` replaces the list rather than extending it.

@@ -31,6 +31,12 @@ const baseReport = {
     buildTool: 'MAVEN',
     snippets: [
       {
+        id: 'curl-download',
+        label: 'Download the agent (curl)',
+        language: 'shell',
+        text: 'curl -fL --create-dirs -o jar.jar https://repo1.maven.org/maven2/jar.jar'
+      },
+      {
         id: 'maven-download',
         label: 'Download the agent',
         language: 'shell',
@@ -73,20 +79,23 @@ describe('Java Agent panel', () => {
     expect(wrapper.text()).toContain('Not attached')
     expect(wrapper.text()).toContain('This JVM runs without the BootUI agent')
     expect(wrapper.text()).toContain('MAVEN')
-    expect(wrapper.get('#java-agent-tab-maven-download').attributes('aria-selected')).toBe('true')
-    expect(wrapper.get('#java-agent-tab-surefire').attributes('aria-selected')).toBe('false')
-    expect(wrapper.get('#java-agent-panel-maven-download').attributes('style') ?? '').not.toContain('display: none')
-    expect(wrapper.get('#java-agent-panel-surefire').attributes('style') ?? '').toContain('display: none')
+    expect(wrapper.get('#java-agent-tab-curl-download').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('#java-agent-tab-curl-download').text()).toBe('curl')
+    expect(wrapper.get('#java-agent-tab-maven-download').text()).toBe('Maven')
+    expect(wrapper.get('#java-agent-tab-surefire').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('#java-agent-panel-curl-download').attributes('style') ?? '').not.toContain('display: none')
+    expect(wrapper.get('#java-agent-panel-maven-download').attributes('style') ?? '').toContain('display: none')
 
-    await wrapper.get('#java-agent-tab-surefire').trigger('click')
+    await wrapper.get('#java-agent-tab-maven-download').trigger('click')
+    expect(wrapper.get('#java-agent-tab-maven-download').attributes('aria-selected')).toBe('true')
     expect(wrapper.get('#java-agent-tab-surefire').attributes('aria-selected')).toBe('true')
     expect(wrapper.get('#java-agent-panel-surefire').attributes('style') ?? '').not.toContain('display: none')
 
-    const copyButton = wrapper.findAll('button').find((button) => button.text().includes('Copy'))
+    const copyButton = wrapper.get('#java-agent-panel-surefire').get('button')
     await copyButton.trigger('click')
     await flushPromises()
 
-    expect(writeText).toHaveBeenCalledWith(baseReport.setup.snippets[1].text)
+    expect(writeText).toHaveBeenCalledWith(baseReport.setup.snippets.find((snippet) => snippet.id === 'surefire').text)
     expect(wrapper.text()).toContain('Copied!')
     expect(fetch).toHaveBeenCalledWith('api/java-agent', {})
   })
@@ -103,11 +112,14 @@ describe('Java Agent panel', () => {
       'java-agent-warnings-title'
     ])
     expect(wrapper.get('#java-agent-setup-title').text()).toBe('Attach the agent')
-    const steps = wrapper.get('[data-testid="java-agent-setup-steps"]').findAll('li')
-    expect(steps).toHaveLength(3)
-    expect(steps[0].text()).toContain('Download the agent')
-    expect(steps[2].text()).toContain('Armed')
-    expect(steps[2].text()).toContain('the status above says why')
+    const setup = wrapper.get('[aria-labelledby="java-agent-setup-title"]')
+    expect(setup.findAll('h4').map((heading) => heading.text())).toEqual([
+      'Get the jar',
+      'Start the application with it'
+    ])
+    const restart = wrapper.get('[data-testid="java-agent-setup-restart"]')
+    expect(restart.text()).toContain('Armed')
+    expect(restart.text()).toContain('the status above says why')
 
     const about = wrapper.get('[aria-labelledby="java-agent-about-title"]')
     expect(about.text()).toContain('A Java agent is a JAR the JVM loads at start-up')
@@ -136,17 +148,17 @@ describe('Java Agent panel', () => {
     for (const absent of ['Versions & runtime facts', 'No active claim', 'Runtime switches', 'No sensor installed']) {
       expect(text).not.toContain(absent)
     }
-    expect(wrapper.findAll('[role="tablist"]')).toHaveLength(1)
+    expect(wrapper.findAll('[role="tablist"]')).toHaveLength(2)
   })
 
   it('skips the download step once the jar is found', async () => {
-    const snippets = baseReport.setup.snippets.filter((snippet) => snippet.id !== 'maven-download')
+    const snippets = baseReport.setup.snippets.filter((snippet) => !snippet.id.endsWith('-download'))
     wrapper = mountPanel({...baseReport, setup: {...baseReport.setup, jarFound: true, snippets}})
     await flushPromises()
 
-    const steps = wrapper.get('[data-testid="java-agent-setup-steps"]').findAll('li')
-    expect(steps).toHaveLength(2)
-    expect(steps[0].text()).toContain('-javaagent')
+    expect(wrapper.findAll('[role="tablist"]')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('Get the jar')
+    expect(wrapper.text()).toContain('Start the application with it')
   })
 
   it.each(['DORMANT', 'ARMED', 'HELD', 'DISARMED', 'UNAVAILABLE', 'FAILED', 'DISABLED'])(
@@ -161,7 +173,7 @@ describe('Java Agent panel', () => {
       expect(sections).toContain('java-agent-sensors-title')
       expect(sections).not.toContain('java-agent-about-title')
       expect(wrapper.get('#java-agent-setup-title').text()).toBe('Setup snippets')
-      expect(wrapper.find('[data-testid="java-agent-setup-steps"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="java-agent-setup-restart"]').exists()).toBe(false)
       expect(wrapper.text()).toContain('No sensor installed: the agent installs the sensors this application asks for')
     }
   )

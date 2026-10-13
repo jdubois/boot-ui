@@ -42,7 +42,6 @@ const sidebarLabels = {
   'CLI.md': 'Command line',
   'V2-EARLY-ADOPTERS.md': 'Try 2.0 early',
   'V2-VALIDATION-REPORT.md': 'v2 validation report',
-  'V2-VALIDATION-ADJUDICATION.md': 'v2 validation adjudication',
   'V2-RELEASE.md': 'Releasing 2.0',
   'KNOWN-LIMITATIONS.md': 'Known limitations'
 }
@@ -133,7 +132,6 @@ const groups = [
       'PLAN-v2.md',
       'V2-EARLY-ADOPTERS.md',
       'V2-VALIDATION-REPORT.md',
-      'V2-VALIDATION-ADJUDICATION.md',
       'V2-RELEASE.md',
       'QUARKUS-SUPPORT.md',
       'WEBFLUX-SUPPORT.md'

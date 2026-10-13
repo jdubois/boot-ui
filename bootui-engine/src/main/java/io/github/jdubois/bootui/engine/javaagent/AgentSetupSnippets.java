@@ -28,6 +28,7 @@ public final class AgentSetupSnippets {
 
     static final String GROUP_PATH = "com/julien-dubois/bootui";
     static final String ARTIFACT_ID = "bootui-agent";
+    static final String CENTRAL = "https://repo1.maven.org/maven2";
     static final String COORDINATES = "com.julien-dubois.bootui:bootui-agent";
 
     private AgentSetupSnippets() {}
@@ -57,8 +58,8 @@ public final class AgentSetupSnippets {
     }
 
     /**
-     * The snippets for one stack, the detected build tool's first. A missing jar adds a {@code dependency:get} line
-     * first, using Maven's default local repository when the repository is unknown.
+     * The snippets for one stack, the detected build tool's first. A missing jar adds a {@code curl} line and a
+     * {@code dependency:get} line first, using Maven's default local repository when the repository is unknown.
      */
     public static List<JavaAgentSnippetDto> snippets(
             String version, String jarPath, boolean jarFound, String stack, String buildTool) {
@@ -73,11 +74,35 @@ public final class AgentSetupSnippets {
         List<JavaAgentSnippetDto> snippets = new ArrayList<>();
         if (!jarFound) {
             snippets.add(new JavaAgentSnippetDto(
+                    "curl-download", "Download the agent (curl)", "shell", curlDownload(version, jarPath)));
+            snippets.add(new JavaAgentSnippetDto(
                     "maven-download",
                     "Download the agent",
                     "shell",
-                    "mvn dependency:get -Dartifact=" + COORDINATES + ":" + version
+                    "mvn dependency:get -Dartifact=" + COORDINATES + ":" + shown(version)
                             + (repository == null ? "" : " -Dmaven.repo.local=" + shellQuoted(repository.toString()))));
+        }
+        if (!jarFound) {
+            // Gradle has no one-line download: a detached configuration resolves the jar through the build's own
+            // repositories and proxy settings, then copies it where BootUI looks for it.
+            JavaAgentSnippetDto gradleKotlin = new JavaAgentSnippetDto(
+                    "gradle-kotlin-download",
+                    "Download the agent (Gradle, Kotlin DSL)",
+                    "kotlin",
+                    gradleDownload(version, jarPath, true));
+            JavaAgentSnippetDto gradleGroovy = new JavaAgentSnippetDto(
+                    "gradle-groovy-download",
+                    "Download the agent (Gradle, Groovy DSL)",
+                    "groovy",
+                    gradleDownload(version, jarPath, false));
+            int mavenAt = snippets.size() - 1;
+            if (GRADLE.equals(buildTool)) {
+                snippets.add(mavenAt, gradleGroovy);
+                snippets.add(mavenAt, gradleKotlin);
+            } else {
+                snippets.add(gradleKotlin);
+                snippets.add(gradleGroovy);
+            }
         }
         if (QUARKUS.equals(stack)) {
             snippets.add(new JavaAgentSnippetDto(
@@ -134,6 +159,55 @@ public final class AgentSetupSnippets {
         snippets.add(new JavaAgentSnippetDto(
                 "java-tool-options", "JAVA_TOOL_OPTIONS", "shell", javaToolOptions(jarPath, run)));
         return List.copyOf(snippets);
+    }
+
+    /** A build-file task, run with {@code ./gradlew downloadBootuiAgent}, that copies the agent jar into its folder. */
+    static String gradleDownload(String version, String jarPath, boolean kotlin) {
+        String path = jarPath.replace('\\', '/');
+        String folder = path.contains("/") ? path.substring(0, path.lastIndexOf('/')) : ".";
+        String q = kotlin ? "\"" : "'";
+        String target;
+        if (folder.startsWith("~/")) {
+            String rest = quoteForGradle("/" + folder.substring(2), kotlin);
+            target = "System.getProperty(" + q + "user.home" + q + ") + " + rest;
+        } else {
+            target = quoteForGradle(folder, kotlin);
+        }
+        String coordinates = COORDINATES + ":" + shown(version);
+        return kotlin ? """
+                // Needs mavenCentral() (or your corporate mirror) in repositories. Run: ./gradlew downloadBootuiAgent
+                val bootuiAgent by configurations.creating { isTransitive = false }
+                dependencies { bootuiAgent("%s") }
+                tasks.register<Copy>("downloadBootuiAgent") {
+                    from(bootuiAgent)
+                    into(%s)
+                }""".formatted(coordinates, target) : """
+                // Needs mavenCentral() (or your corporate mirror) in repositories. Run: ./gradlew downloadBootuiAgent
+                configurations { bootuiAgent { transitive = false } }
+                dependencies { bootuiAgent '%s' }
+                tasks.register('downloadBootuiAgent', Copy) {
+                    from configurations.bootuiAgent
+                    into %s
+                }""".formatted(coordinates, target);
+    }
+
+    private static String quoteForGradle(String value, boolean kotlin) {
+        return kotlin
+                ? "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$") + "\""
+                : "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'";
+    }
+
+    /**
+     * A {@code curl} command that downloads the agent from Maven Central to {@code jarPath}, where BootUI looks for it.
+     * It needs no Maven. A Windows path selects {@code curl.exe}, which PowerShell would otherwise shadow with its
+     * {@code curl} alias for {@code Invoke-WebRequest}.
+     */
+    static String curlDownload(String version, String jarPath) {
+        boolean windows = jarPath.length() > 2 && jarPath.charAt(1) == ':' && Character.isLetter(jarPath.charAt(0));
+        String target = jarPath.startsWith("~/") ? "\"$HOME/" + jarPath.substring(2) + "\"" : shellQuoted(jarPath);
+        String v = shown(version);
+        return (windows ? "curl.exe" : "curl") + " -fL --create-dirs -o " + target + " " + CENTRAL + "/" + GROUP_PATH
+                + "/" + ARTIFACT_ID + "/" + v + "/" + ARTIFACT_ID + "-" + v + ".jar";
     }
 
     /**
@@ -198,7 +272,7 @@ public final class AgentSetupSnippets {
 
     /** The agent jar for {@code version} in a local Maven repository. */
     public static Path repositoryJar(Path repository, String version) {
-        if (repository == null || version == null || version.isBlank()) {
+        if (repository == null || !known(version)) {
             return null;
         }
         return repository
@@ -222,8 +296,17 @@ public final class AgentSetupSnippets {
         return UNKNOWN;
     }
 
+    /** The version to print: a placeholder when BootUI does not know its own (a build from source). */
+    private static String shown(String version) {
+        return known(version) ? version : "<version>";
+    }
+
+    private static boolean known(String version) {
+        return version != null && !version.isBlank() && !"unknown".equals(version);
+    }
+
     private static String repositoryJarPlaceholder(String version) {
-        String v = version == null || version.isBlank() ? "<version>" : version;
+        String v = shown(version);
         return "~/.m2/repository/" + GROUP_PATH + "/" + ARTIFACT_ID + "/" + v + "/" + ARTIFACT_ID + "-" + v + ".jar";
     }
 
