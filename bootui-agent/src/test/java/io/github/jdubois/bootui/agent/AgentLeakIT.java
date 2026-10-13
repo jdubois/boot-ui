@@ -55,7 +55,7 @@ class AgentLeakIT {
 
         Map<Integer, String> reached =
                 HeapWalk.read(dump).runsReachedByAgent("io/github/jdubois/bootui/agent/", RUN_CLASS);
-        java.nio.file.Files.deleteIfExists(dump);
+        discard(dump);
 
         assertThat(reached).as("runs the agent strongly reaches: %s", reached).isEmpty();
     }
@@ -65,7 +65,7 @@ class AgentLeakIT {
         Path dump = dump("thread-locals", List.of());
         Map<Integer, String> reached = HeapWalk.read(dump)
                 .runsReachedThroughThreadLocals(JVM_WIDE_THREADS, "io/github/jdubois/bootui/agent/", RUN_CLASS);
-        java.nio.file.Files.deleteIfExists(dump);
+        discard(dump);
 
         assertThat(reached)
                 .as("runs JVM-wide threads keep through thread-locals: %s", reached)
@@ -77,7 +77,7 @@ class AgentLeakIT {
         Path dump = dump("left-set", List.of("-Dbootui.agent.it.leave-context-set=true"));
         Map<Integer, String> reached = HeapWalk.read(dump)
                 .runsReachedThroughThreadLocals(JVM_WIDE_THREADS, "io/github/jdubois/bootui/agent/", RUN_CLASS);
-        java.nio.file.Files.deleteIfExists(dump);
+        discard(dump);
 
         assertThat(reached).isNotEmpty();
     }
@@ -104,12 +104,17 @@ class AgentLeakIT {
         Path dump = dump(name, options);
         Map<Integer, String> reached =
                 HeapWalk.read(dump).runsReachedByAgent("io/github/jdubois/bootui/agent/", RUN_CLASS);
+        discard(dump);
+        return reached;
+    }
+
+    /** The walk's memory maps release the dump only when collected, which Windows enforces; it lives under target/. */
+    private static void discard(Path dump) {
         try {
             java.nio.file.Files.deleteIfExists(dump);
         } catch (java.io.IOException windowsKeepsMappedFilesLocked) {
-            // The walk's memory maps release the dump only when collected; it lives under target/.
+            // Left for the next build's clean.
         }
-        return reached;
     }
 
     private static Path dump(String name, List<String> options) throws Exception {
