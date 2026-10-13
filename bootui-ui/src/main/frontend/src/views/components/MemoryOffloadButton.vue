@@ -1,13 +1,15 @@
 <script setup>
-import {computed, inject, onBeforeUnmount, ref, useId, watch} from 'vue'
+import {computed, inject, onBeforeUnmount, onMounted, ref, useId, watch} from 'vue'
 import {getJson} from '../../api.js'
 import {formatBytes, formatNumber} from '../../utils/format.js'
 import {describeLoadError} from '../../utils/loadError.js'
 import {useConfirm} from '../../utils/useConfirm.js'
+import {useLowFootprint} from '../../utils/useLowFootprint.js'
 
-// Shared "Free BootUI memory" header action for every panel that analyzes JVM memory. BootUI's
+// Shared "Low-footprint mode" header toggle for every panel that analyzes JVM memory. BootUI's
 // own capture buffers (runtime journal, traces, exchanges, events…) live in the same heap the panel
-// measures, so this lets the user drop them and request a GC before reading the numbers.
+// measures. Turning the mode on drops them, requests a GC, and pauses BootUI's background recording
+// until the user turns it off again.
 //
 // The endpoint belongs to the Live Memory panel (`POST api/live-memory/offload`), so its enabled,
 // available, and read-only state in the injected panel manifest decide whether the action is shown
@@ -18,10 +20,11 @@ const props = defineProps({
   followUp: {type: String, default: null}
 })
 
-const emit = defineEmits(['offloaded'])
+const emit = defineEmits(['offloaded', 'toggled'])
 
 const panels = inject('panels', ref(null))
 const {confirm} = useConfirm()
+const {status, refresh, setEnabled} = useLowFootprint()
 const id = useId()
 const disclosureId = `memory-offload-${id}`
 
@@ -30,6 +33,11 @@ const busy = ref(false)
 const report = ref(null)
 const failure = ref(null)
 const root = ref(null)
+const active = computed(() => status.value?.active === true)
+const agentAttached = computed(() => status.value?.agentAttached === true)
+const warnings = computed(() => status.value?.warnings ?? [])
+const suspendedComponents = computed(() => (status.value?.components ?? []).filter((c) => c.suspended))
+const failedComponents = computed(() => (status.value?.components ?? []).filter((c) => c.failure))
 
 const ownerPanel = computed(() => (panels.value?.panels ?? []).find((panel) => panel.id === 'live-memory') ?? null)
 // Fail closed: the destructive action stays hidden until the manifest is loaded and lists an enabled, available Live
@@ -41,11 +49,12 @@ const readOnly = computed(() => ownerPanel.value?.readOnly === true)
 const readOnlyReason = computed(() => ownerPanel.value?.readOnlyReason || 'BootUI actions are read-only.')
 const failedStores = computed(() => (report.value?.stores ?? []).filter((store) => !store.cleared))
 const clearedStores = computed(() => (report.value?.stores ?? []).filter((store) => store.cleared))
-const buttonTitle = computed(() =>
-  readOnly.value
-    ? readOnlyReason.value
-    : "Drop BootUI's buffered diagnostics and request a garbage collection so memory figures reflect your application"
-)
+const buttonTitle = computed(() => {
+  if (readOnly.value) return readOnlyReason.value
+  return active.value
+    ? 'Resume BootUI recording and background services'
+    : "Drop BootUI's buffered diagnostics, request a garbage collection, and pause BootUI's background recording"
+})
 
 function toggle() {
   open.value = !open.value
@@ -72,32 +81,55 @@ watch(open, (value) => {
   else document.removeEventListener('pointerdown', onDocumentPointer)
 })
 
+onMounted(() => {
+  if (visible.value && status.value === null) refresh()
+})
+
+watch(visible, (value) => {
+  if (value && status.value === null) refresh()
+})
+
 onBeforeUnmount(() => {
   if (typeof document !== 'undefined') document.removeEventListener('pointerdown', onDocumentPointer)
 })
 
-async function offload() {
+async function toggleMode() {
   if (busy.value || readOnly.value) return
+  if (active.value) {
+    await apply(false)
+    return
+  }
+  const agentNote = agentAttached.value
+    ? ' The BootUI Java agent is attached and keeps instrumenting your application; low-footprint mode does not pause it. ' +
+      'For better results, run these panels without the agent.'
+    : ''
   const confirmed = await confirm({
-    title: 'Free BootUI memory?',
+    title: 'Turn on low-footprint mode?',
     message:
       "BootUI's buffered diagnostics — runtime journal, traces, captured exchanges, SQL statements, " +
-      'messages, exceptions, and emails — will be discarded, then a garbage collection is requested. ' +
-      'Settings and configuration overrides are kept.',
-    confirmLabel: 'Free memory',
+      'messages, exceptions, log tail, and emails — will be discarded, a garbage collection is requested, and ' +
+      'BootUI stops recording until you turn the mode off. Settings and configuration overrides are kept.' +
+      agentNote,
+    confirmLabel: 'Turn on',
     danger: true,
     irreversible: true
   })
   if (!confirmed) return
+  await apply(true)
+}
+
+async function apply(enabled) {
   busy.value = true
   failure.value = null
   try {
-    report.value = await getJson('api/live-memory/offload', {method: 'POST'})
+    const next = await setEnabled(enabled)
+    report.value = enabled ? next.offload : null
     open.value = true
-    emit('offloaded', report.value)
+    emit('toggled', next)
+    if (enabled) emit('offloaded', next.offload)
   } catch (e) {
     report.value = null
-    failure.value = e?.body?.reason || describeLoadError(e, 'Unable to free BootUI memory').message
+    failure.value = e?.body?.reason || describeLoadError(e, 'Unable to change low-footprint mode').message
     open.value = true
   } finally {
     busy.value = false
@@ -107,24 +139,26 @@ async function offload() {
 
 <template>
   <div v-if="visible" ref="root" class="memory-offload" @keydown="onKeydown">
-    <div class="btn-group btn-group-sm" role="group" aria-label="BootUI memory">
+    <div class="btn-group btn-group-sm" role="group" aria-label="BootUI low-footprint mode">
       <button
         :aria-busy="busy || undefined"
+        :aria-pressed="active ? 'true' : 'false'"
+        :class="active ? 'btn-secondary active' : 'btn-outline-secondary'"
         :disabled="busy || readOnly"
         :title="buttonTitle"
-        class="btn btn-outline-secondary"
+        class="btn"
         data-testid="memory-offload"
         type="button"
-        @click="offload"
+        @click="toggleMode"
       >
         <span v-if="busy" aria-hidden="true" class="spinner-border spinner-border-sm me-1"></span>
-        <i v-else aria-hidden="true" class="bi bi-recycle me-1"></i>
-        {{ busy ? 'Freeing…' : 'Free BootUI memory' }}
+        <i v-else :class="active ? 'bi-pause-circle-fill' : 'bi-recycle'" aria-hidden="true" class="bi me-1"></i>
+        {{ busy ? (active ? 'Resuming…' : 'Pausing…') : active ? 'Low-footprint: on' : 'Low-footprint mode' }}
       </button>
       <button
         :aria-controls="disclosureId"
         :aria-expanded="open ? 'true' : 'false'"
-        aria-label="What does Free BootUI memory do?"
+        aria-label="What does low-footprint mode do?"
         class="btn btn-outline-secondary"
         data-testid="memory-offload-info"
         title="What does this do?"
@@ -137,7 +171,7 @@ async function offload() {
 
     <div v-show="open" :id="disclosureId" class="memory-offload__panel" data-testid="memory-offload-panel">
       <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
-        <strong class="memory-offload__title">Free BootUI memory</strong>
+        <strong class="memory-offload__title">Low-footprint mode</strong>
         <button aria-label="Close" class="btn-close btn-close-sm" type="button" @click="close"></button>
       </div>
 
@@ -164,13 +198,42 @@ async function offload() {
         </p>
         <p v-if="props.followUp" class="mb-0">{{ props.followUp }}</p>
       </div>
+      <div v-else-if="active" class="memory-offload__result" data-testid="memory-offload-active" role="status">
+        <p class="mb-1">
+          <strong>On.</strong> BootUI has paused {{ suspendedComponents.length }}
+          {{ suspendedComponents.length === 1 ? 'service' : 'services' }}; turn it off to resume them.
+        </p>
+      </div>
       <p v-else-if="failure" class="memory-offload__warning" role="alert">{{ failure }}</p>
+
+      <div v-if="active" class="memory-offload__result" data-testid="memory-offload-components">
+        <p
+          v-if="agentAttached || warnings.length"
+          class="mb-2 memory-offload__warning"
+          data-testid="memory-offload-agent"
+        >
+          <i aria-hidden="true" class="bi bi-exclamation-triangle me-1"></i>{{ warnings.join(' ') }}
+        </p>
+        <p v-if="failedComponents.length" class="mb-2 memory-offload__warning">
+          <i aria-hidden="true" class="bi bi-exclamation-triangle me-1"></i>Could not pause:
+          {{ failedComponents.map((c) => c.label).join(', ') }}.
+        </p>
+        <p class="mb-1">Paused:</p>
+        <ul class="mb-0 ps-3">
+          <li v-for="component in suspendedComponents" :key="component.id">{{ component.label }}</li>
+        </ul>
+      </div>
 
       <div class="memory-offload__explain">
         <p class="mb-2">
-          BootUI keeps diagnostics in your application's heap, so they inflate the figures this panel analyzes. This
-          action discards BootUI's buffered data and then asks the JVM to run a garbage collection, so measurements
-          reflect your application rather than BootUI.
+          BootUI keeps diagnostics in your application's heap and runs background recording that consumes CPU, so both
+          inflate the figures these panels analyze. Turning this mode on discards BootUI's buffered data, asks the JVM
+          to run a garbage collection, and pauses BootUI's recording: the runtime journal, resource sampler, GC
+          listener, Exceptions, Log Tail, and the other capture stores. Turning it off resumes them.
+        </p>
+        <p v-if="agentAttached && !active" class="mb-2 memory-offload__warning">
+          <i aria-hidden="true" class="bi bi-exclamation-triangle me-1"></i>The BootUI Java agent is attached and keeps
+          instrumenting your application. For better results, run these panels without the agent.
         </p>
         <p class="mb-1">Cleared:</p>
         <ul class="mb-2 ps-3">
@@ -181,7 +244,7 @@ async function offload() {
         </ul>
         <p class="mb-2">
           Kept: settings, configuration overrides, dismissed rules, scan reports, and persisted Live Activity history.
-          Buffers start filling again with new traffic.
+          Buffers start filling again once the mode is turned off. The mode resets when the application restarts.
         </p>
         <p class="mb-0 text-muted">
           The cleared data cannot be recovered. A garbage collection request is only a hint: the JVM may defer it, and

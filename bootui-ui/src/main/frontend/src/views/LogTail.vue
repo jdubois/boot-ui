@@ -3,6 +3,7 @@ import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {formatClockTime} from '../utils/format.js'
 import {resolveBootUiApiUrl} from '../utils/bootUiPath.js'
 import PanelHeader from './components/PanelHeader.vue'
+import LowFootprintBanner from './components/LowFootprintBanner.vue'
 
 const MAX_LINES = 2000
 
@@ -148,6 +149,7 @@ onBeforeUnmount(() => disconnect(false))
         <span :class="statusClass" aria-label="Log stream status" class="badge" role="status">{{ status }}</span>
       </template>
     </PanelHeader>
+    <LowFootprintBanner />
 
     <div class="row g-3 mb-3 align-items-end">
       <div class="col-lg-4">

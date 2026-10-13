@@ -6,6 +6,7 @@ const confirm = vi.fn()
 vi.mock('../../utils/useConfirm.js', () => ({useConfirm: () => ({confirm})}))
 
 import MemoryOffloadButton from './MemoryOffloadButton.vue'
+import {resetLowFootprintForTests} from '../../utils/useLowFootprint.js'
 
 const REPORT = {
   heapUsedBeforeBytes: 200 * 1024 * 1024,
@@ -20,6 +21,13 @@ const REPORT = {
   ],
   durationMillis: 42
 }
+
+const OFF = {active: false, sinceEpochMillis: null, agentAttached: false, components: [], warnings: [], offload: null}
+const COMPONENTS = [
+  {id: 'runtime-journal', label: 'Runtime journal recording', suspended: true, failure: null},
+  {id: 'log-tail', label: 'Log Tail capture', suspended: true, failure: null}
+]
+const ON = {...OFF, active: true, sinceEpochMillis: 1, components: COMPONENTS, offload: REPORT}
 
 function manifest(livePanel) {
   return ref({platform: 'spring-boot', panels: livePanel ? [livePanel] : []})
@@ -42,7 +50,8 @@ describe('MemoryOffloadButton', () => {
 
   beforeEach(() => {
     document.cookie = 'XSRF-TOKEN=test-token'
-    fetchMock = vi.fn(() => respond(REPORT))
+    resetLowFootprintForTests()
+    fetchMock = vi.fn((url, init) => respond(init?.method === 'POST' ? ON : OFF))
     vi.stubGlobal('fetch', fetchMock)
     confirm.mockReset()
   })
@@ -52,11 +61,16 @@ describe('MemoryOffloadButton', () => {
     document.body.innerHTML = ''
   })
 
-  it('makes no request on mount and keeps the explanation collapsed', () => {
+  it('only reads the status on mount and keeps the explanation collapsed', async () => {
     const wrapper = mountButton()
+    await flushPromises()
 
-    expect(fetchMock).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-testid="memory-offload"]').text()).toContain('Free BootUI memory')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][1]?.method).toBeUndefined()
+    expect(String(fetchMock.mock.calls[0][0])).toContain('api/live-memory/footprint')
+    const toggle = wrapper.get('[data-testid="memory-offload"]')
+    expect(toggle.text()).toContain('Low-footprint mode')
+    expect(toggle.attributes('aria-pressed')).toBe('false')
     const info = wrapper.get('[data-testid="memory-offload-info"]')
     expect(info.attributes('aria-expanded')).toBe('false')
     expect(info.attributes('aria-controls')).toBe(wrapper.get('[data-testid="memory-offload-panel"]').attributes('id'))
@@ -72,6 +86,7 @@ describe('MemoryOffloadButton', () => {
     expect(panel.isVisible()).toBe(true)
     expect(wrapper.get('[data-testid="memory-offload-info"]').attributes('aria-expanded')).toBe('true')
     expect(panel.text()).toContain('Runtime journal')
+    expect(panel.text()).toContain('pauses BootUI')
     expect(panel.text()).toContain('Kept: settings, configuration overrides')
     expect(panel.text()).toContain('only a hint')
     expect(panel.text()).toContain('-XX:+DisableExplicitGC')
@@ -88,20 +103,21 @@ describe('MemoryOffloadButton', () => {
     await flushPromises()
 
     expect(confirm).toHaveBeenCalledWith(expect.objectContaining({danger: true, irreversible: true}))
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method === undefined)).toBe(true)
     expect(wrapper.emitted('offloaded')).toBeUndefined()
   })
 
-  it('posts the offload, shows the heap result, and lets the host refresh', async () => {
+  it('posts the toggle, shows the heap result and paused services, and lets the host refresh', async () => {
     confirm.mockResolvedValue(true)
     const wrapper = mountButton({props: {followUp: 'Run memory checks again.'}})
 
     await wrapper.get('[data-testid="memory-offload"]').trigger('click')
     await flushPromises()
 
-    const [url, init] = fetchMock.mock.calls[0]
-    expect(String(url)).toContain('api/live-memory/offload')
+    const [url, init] = fetchMock.mock.calls.find(([, i]) => i?.method === 'POST')
+    expect(String(url)).toContain('api/live-memory/footprint')
     expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({enabled: true})
     expect(new Headers(init.headers).get('X-XSRF-TOKEN')).toBe('test-token')
     const result = wrapper.get('[data-testid="memory-offload-result"]')
     expect(result.attributes('role')).toBe('status')
@@ -111,20 +127,63 @@ describe('MemoryOffloadButton', () => {
     expect(result.text()).toContain('cleared from 2 stores')
     expect(result.text()).toContain('Run memory checks again.')
     expect(wrapper.emitted('offloaded')[0][0]).toEqual(REPORT)
+    expect(wrapper.get('[data-testid="memory-offload"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="memory-offload"]').text()).toContain('Low-footprint: on')
+    expect(wrapper.get('[data-testid="memory-offload-components"]').text()).toContain('Log Tail capture')
+  })
+
+  it('resumes without confirmation when the mode is already on', async () => {
+    fetchMock.mockImplementation((url, init) => respond(init?.method === 'POST' ? OFF : ON))
+    const wrapper = mountButton()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="memory-offload"]').attributes('aria-pressed')).toBe('true')
+
+    await wrapper.get('[data-testid="memory-offload"]').trigger('click')
+    await flushPromises()
+
+    expect(confirm).not.toHaveBeenCalled()
+    const post = fetchMock.mock.calls.find(([, i]) => i?.method === 'POST')
+    expect(JSON.parse(post[1].body)).toEqual({enabled: false})
+    expect(wrapper.get('[data-testid="memory-offload"]').attributes('aria-pressed')).toBe('false')
+  })
+
+  it('warns about the Java agent before and after turning the mode on', async () => {
+    const warning = 'The BootUI Java agent is attached. For better results, run these panels without the agent.'
+    fetchMock.mockImplementation((url, init) =>
+      respond(
+        init?.method === 'POST' ? {...ON, agentAttached: true, warnings: [warning]} : {...OFF, agentAttached: true}
+      )
+    )
+    confirm.mockResolvedValue(true)
+    const wrapper = mountButton()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="memory-offload"]').trigger('click')
+    await flushPromises()
+
+    expect(confirm.mock.calls[0][0].message).toContain('without the agent')
+    expect(wrapper.get('[data-testid="memory-offload-agent"]').text()).toContain('without the agent')
   })
 
   it('warns when explicit GC is disabled and names stores that could not be cleared', async () => {
     confirm.mockResolvedValue(true)
-    fetchMock.mockImplementation(() =>
-      respond({
-        ...REPORT,
-        reclaimedBytes: 0,
-        explicitGcDisabled: true,
-        stores: [
-          ...REPORT.stores,
-          {id: 'broken', label: 'Broken store', cleared: false, entriesCleared: 0, failure: 'boom'}
-        ]
-      })
+    fetchMock.mockImplementation((url, init) =>
+      respond(
+        init?.method === 'POST'
+          ? {
+              ...ON,
+              offload: {
+                ...REPORT,
+                reclaimedBytes: 0,
+                explicitGcDisabled: true,
+                stores: [
+                  ...REPORT.stores,
+                  {id: 'broken', label: 'Broken store', cleared: false, entriesCleared: 0, failure: 'boom'}
+                ]
+              }
+            }
+          : OFF
+      )
     )
     const wrapper = mountButton()
 
@@ -139,11 +198,13 @@ describe('MemoryOffloadButton', () => {
 
   it('surfaces the access-filter reason when the server refuses the action', async () => {
     confirm.mockResolvedValue(true)
-    fetchMock.mockImplementation(() =>
-      respond(
-        {error: 'BootUI panel access denied', panel: 'live-memory', reason: 'Disabled by bootui.read-only=true'},
-        403
-      )
+    fetchMock.mockImplementation((url, init) =>
+      init?.method === 'POST'
+        ? respond(
+            {error: 'BootUI panel access denied', panel: 'live-memory', reason: 'Disabled by bootui.read-only=true'},
+            403
+          )
+        : respond(OFF)
     )
     const wrapper = mountButton()
 

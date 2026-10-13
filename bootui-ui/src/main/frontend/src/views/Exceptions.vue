@@ -10,6 +10,7 @@ import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
+import LowFootprintBanner from './components/LowFootprintBanner.vue'
 import FoldedInsightsLink from './components/FoldedInsightsLink.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
@@ -282,6 +283,7 @@ onMounted(() => {
         />
       </template>
     </PanelHeader>
+    <LowFootprintBanner />
 
     <FlashBanner :message="banner" @dismiss="clear" />
 

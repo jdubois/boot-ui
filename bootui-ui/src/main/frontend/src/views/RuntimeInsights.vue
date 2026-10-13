@@ -26,6 +26,7 @@ import InsightCoverage from './components/InsightCoverage.vue'
 import InsightDetail from './components/InsightDetail.vue'
 import InsightNotExercised from './components/InsightNotExercised.vue'
 import PanelHeader from './components/PanelHeader.vue'
+import LowFootprintBanner from './components/LowFootprintBanner.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import PanelTabs from './components/PanelTabs.vue'
 import ResourceProfile from './components/ResourceProfile.vue'
@@ -365,6 +366,7 @@ provide(
         </button>
       </template>
     </PanelHeader>
+    <LowFootprintBanner />
 
     <PanelSkeleton v-if="initialLoading && manifestAvailable" />
 

@@ -13,6 +13,7 @@ import {
   scoreBandTone
 } from '../utils/scannerScore.js'
 import PanelHeader from './components/PanelHeader.vue'
+import LowFootprintBanner from './components/LowFootprintBanner.vue'
 import ScannerScoreCard from './components/ScannerScoreCard.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 
@@ -369,6 +370,7 @@ watch(
         </a>
       </template>
     </PanelHeader>
+    <LowFootprintBanner />
 
     <div v-if="panelsError" class="alert alert-danger" role="alert">
       {{ panelsError }}

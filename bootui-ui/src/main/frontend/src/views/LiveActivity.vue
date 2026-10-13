@@ -3,6 +3,7 @@ import {computed, defineAsyncComponent, inject, onBeforeUnmount, onMounted, ref,
 import {useRoute} from 'vue-router'
 import {ApiError, apiFetch, getJson} from '../api.js'
 import PanelHeader from './components/PanelHeader.vue'
+import LowFootprintBanner from './components/LowFootprintBanner.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import UnavailableState from './components/UnavailableState.vue'
 import AiExportPreview from './components/AiExportPreview.vue'
@@ -898,6 +899,7 @@ function toggleFlow() {
         </button>
       </template>
     </PanelHeader>
+    <LowFootprintBanner />
 
     <FlashBanner :message="banner" @dismiss="clearBanner" />
 
