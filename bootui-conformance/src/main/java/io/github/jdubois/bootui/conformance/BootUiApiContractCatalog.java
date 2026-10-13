@@ -846,7 +846,7 @@ public final class BootUiApiContractCatalog {
         springMvc(
                 actions, "http-sessions.invalidate", "http-sessions", "POST", "/http-sessions/session-key/invalidate");
         all(actions, "live-memory.offload", "live-memory", "POST", "/live-memory/offload");
-        spring(actions, "live-memory.footprint", "live-memory", "POST", "/live-memory/footprint");
+        all(actions, "live-memory.footprint", "live-memory", "POST", "/live-memory/footprint");
         all(actions, "heap-dump.capture", "heap-dump", "POST", "/heap-dump/capture");
         all(actions, "heap-dump.analyze", "heap-dump", "POST", "/heap-dump/analyze");
         all(actions, "heap-dump.delete", "heap-dump", "POST", "/heap-dump/delete");

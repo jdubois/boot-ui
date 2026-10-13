@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.quarkus;
 
+import io.github.jdubois.bootui.spi.IdleReclaimable;
+import io.github.jdubois.bootui.spi.LowFootprintSuspendable;
 import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.ArcContainer;
@@ -9,6 +11,7 @@ import jakarta.inject.Singleton;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * The {@link MemoryOffloadable} beans ArC has already created, for <b>Free BootUI memory</b>.
@@ -24,6 +27,18 @@ final class QuarkusMemoryOffloadCandidates {
     private QuarkusMemoryOffloadCandidates() {}
 
     static List<Object> created() {
+        return created(instance -> instance instanceof MemoryOffloadable);
+    }
+
+    /**
+     * The created components low-footprint mode can pause: {@link LowFootprintSuspendable} ones and {@link
+     * IdleReclaimable} ones the engine wraps. Read the same way, so it never creates a lazy store.
+     */
+    static List<Object> createdLowFootprint() {
+        return created(instance -> instance instanceof LowFootprintSuspendable || instance instanceof IdleReclaimable);
+    }
+
+    private static List<Object> created(Predicate<Object> wanted) {
         ArcContainer container = Arc.container();
         if (container == null) {
             return List.of();
@@ -35,7 +50,7 @@ final class QuarkusMemoryOffloadCandidates {
                 continue;
             }
             for (Object instance : context.getState().getContextualInstances().values()) {
-                if (instance instanceof MemoryOffloadable) {
+                if (wanted.test(instance)) {
                     offloadables.add(instance);
                 }
             }

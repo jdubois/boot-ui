@@ -66,6 +66,7 @@ import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import io.github.jdubois.bootui.engine.mappings.MappingsService;
+import io.github.jdubois.bootui.engine.memory.LowFootprintService;
 import io.github.jdubois.bootui.engine.memory.MemoryOffloadService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
@@ -520,6 +521,16 @@ public class BootUiEngineProducer {
     @Singleton
     public MemoryOffloadService memoryOffloadService() {
         return new MemoryOffloadService(QuarkusMemoryOffloadCandidates::created);
+    }
+
+    /**
+     * Low-footprint mode: pauses the BootUI recorders ArC has already created ({@link
+     * QuarkusMemoryOffloadCandidates#createdLowFootprint()}), then runs the offload above.
+     */
+    @Produces
+    @Singleton
+    public LowFootprintService lowFootprintService(MemoryOffloadService offloadService) {
+        return new LowFootprintService(QuarkusMemoryOffloadCandidates::createdLowFootprint, offloadService);
     }
 
     /**

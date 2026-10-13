@@ -77,7 +77,7 @@ public final class QuarkusExceptionLogHandler extends Handler {
 
     @Override
     public void publish(LogRecord record) {
-        if (record == null || Boolean.TRUE.equals(capturing.get())) {
+        if (record == null || store.paused() || Boolean.TRUE.equals(capturing.get())) {
             return;
         }
         Throwable thrown = record.getThrown();

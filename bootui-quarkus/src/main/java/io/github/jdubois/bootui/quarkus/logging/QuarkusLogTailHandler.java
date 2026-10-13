@@ -47,7 +47,7 @@ public final class QuarkusLogTailHandler extends Handler {
 
     @Override
     public void publish(LogRecord record) {
-        if (record == null) {
+        if (record == null || buffer.paused()) {
             return;
         }
         String logger = record.getLoggerName();
