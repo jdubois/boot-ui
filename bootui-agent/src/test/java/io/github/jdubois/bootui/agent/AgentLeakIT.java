@@ -104,7 +104,11 @@ class AgentLeakIT {
         Path dump = dump(name, options);
         Map<Integer, String> reached =
                 HeapWalk.read(dump).runsReachedByAgent("io/github/jdubois/bootui/agent/", RUN_CLASS);
-        java.nio.file.Files.deleteIfExists(dump);
+        try {
+            java.nio.file.Files.deleteIfExists(dump);
+        } catch (java.io.IOException windowsKeepsMappedFilesLocked) {
+            // The walk's memory maps release the dump only when collected; it lives under target/.
+        }
         return reached;
     }
 

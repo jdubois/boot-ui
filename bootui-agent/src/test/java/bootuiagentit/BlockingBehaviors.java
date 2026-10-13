@@ -29,6 +29,7 @@ import java.util.function.Supplier;
  */
 public final class BlockingBehaviors {
 
+    static final boolean IS_WINDOWS = System.getProperty("os.name", "").startsWith("Windows");
     static final String REQUEST = "00000000000000be";
     static final long REQUEST_BITS = 0xbeL;
 
@@ -235,7 +236,8 @@ public final class BlockingBehaviors {
                         && "it-loop-4".equals(string(record[SideEffects.R_TARGET]))
                         && record[SideEffects.R_NANOS] >= Blocking.MIN_PARK_NANOS
                         && "bootuiblockingapp.LoopWork#lockBriefly".equals(string((int) record[SideEffects.R_FRAMES]))
-                        && ((Long) blocking.get("shortParks")) >= 1L);
+                        // Windows' timer overshoots a microsecond park past the threshold, so none is short there.
+                        && (IS_WINDOWS || ((Long) blocking.get("shortParks")) >= 1L));
     }
 
     static void parkOffLoops() throws Exception {
