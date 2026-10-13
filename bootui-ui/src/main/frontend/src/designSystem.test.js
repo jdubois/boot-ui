@@ -22,7 +22,7 @@ function descriptorFor(file) {
 }
 
 function relative(file) {
-  return path.relative(sourceRoot, file)
+  return path.relative(sourceRoot, file).split(path.sep).join('/')
 }
 
 function staticClasses(node) {
