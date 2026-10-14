@@ -102,7 +102,7 @@
         <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
         <!-- Test-only: the agents the BootUI agent must coexist with (PLAN-v2 §5.13), in bootui-agent's forked-JVM tests
              and beside the Spring sample in its agent companion browser legs. JaCoCo's agent follows the plugin. -->
-        <opentelemetry-javaagent.version>2.31.1</opentelemetry-javaagent.version>
+        <opentelemetry-javaagent.version>2.32.0</opentelemetry-javaagent.version>
         <jacoco-agent.version>${jacoco-maven-plugin.version}</jacoco-agent.version>
         <central.autoPublish>true</central.autoPublish>
         <maven-antrun-plugin.version>3.2.0</maven-antrun-plugin.version>
