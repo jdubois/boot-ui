@@ -56,6 +56,7 @@ class BootUiAgentLiveReloadLeakIT {
 
     @TestHTTPResource
     URI baseUri;
+
     private final HttpClient client = HttpClient.newHttpClient();
 
     @Test
@@ -175,5 +176,4 @@ class BootUiAgentLiveReloadLeakIT {
         assertThat(response.statusCode()).as("GET " + path).isEqualTo(200);
         return response.body();
     }
-
 }
