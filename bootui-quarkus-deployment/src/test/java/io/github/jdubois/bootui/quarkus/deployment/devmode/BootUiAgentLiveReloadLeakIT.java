@@ -6,9 +6,10 @@ import bootuireloadapp.ReloadProbeResource;
 import com.sun.management.HotSpotDiagnosticMXBean;
 import io.github.jdubois.bootui.agent.HeapWalk;
 import io.quarkus.test.QuarkusDevModeTest;
-import io.quarkus.test.common.http.TestHTTPResource;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.management.ManagementFactory;
+import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -49,13 +50,12 @@ class BootUiAgentLiveReloadLeakIT {
     private static final String SENTINEL = "bootuireloadapp/ReloadProbeResource";
     private static final String AGENT = "io/github/jdubois/bootui/agent/";
 
+    private static final int PORT = port();
+
     @RegisterExtension
     static final QuarkusDevModeTest TEST = new QuarkusDevModeTest()
             .withApplicationRoot(jar -> jar.addClass(ReloadProbeResource.class)
-                    .addAsResource(new StringAsset("quarkus.http.port=0\n"), "application.properties"));
-
-    @TestHTTPResource
-    URI baseUri;
+                    .addAsResource(new StringAsset("quarkus.http.port=" + PORT + "\n"), "application.properties"));
 
     private final HttpClient client = HttpClient.newHttpClient();
 
@@ -168,12 +168,24 @@ class BootUiAgentLiveReloadLeakIT {
     }
 
     private String get(String path) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve(path))
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + PORT + path))
                 .timeout(Duration.ofSeconds(120))
                 .GET()
                 .build();
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).as("GET " + path).isEqualTo(200);
         return response.body();
+    }
+
+    private static int port() {
+        String configured = System.getProperty("bootui.it.port");
+        if (configured != null && !configured.isBlank()) {
+            return Integer.parseInt(configured.trim());
+        }
+        try (ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
+        } catch (IOException ex) {
+            throw new UncheckedIOException(ex);
+        }
     }
 }
