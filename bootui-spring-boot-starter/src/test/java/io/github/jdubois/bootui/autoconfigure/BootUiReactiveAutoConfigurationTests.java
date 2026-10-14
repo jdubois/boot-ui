@@ -571,8 +571,11 @@ class BootUiReactiveAutoConfigurationTests {
         webFluxRunner()
                 .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
                 .run(context -> {
+                    // The first request to each panel builds its lazy controller and runs a cold scan, which can
+                    // exceed the 5-second default on a slow runner.
                     WebTestClient client = WebTestClient.bindToApplicationContext(context.getSourceApplicationContext())
                             .configureClient()
+                            .responseTimeout(Duration.ofSeconds(30))
                             .defaultHeader(
                                     "Authorization",
                                     "Bearer "
