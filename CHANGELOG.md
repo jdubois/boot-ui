@@ -7,6 +7,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Agent no longer hangs beside the OpenTelemetry agent** when claimed while another thread loads classes.
+
 ## [2.1.0] - 2026-10-14
 
 This release adds a low-footprint mode that pauses BootUI's recording and frees its memory, and makes the Database
