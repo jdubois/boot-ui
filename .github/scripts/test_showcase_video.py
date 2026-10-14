@@ -38,7 +38,7 @@ class ShowcaseVideoTests(unittest.TestCase):
             )
 
     def test_each_site_line_can_select_its_own_media_release(self):
-        for release in ["showcase-video", "showcase-video-v2", "showcase-video-v2-r2"]:
+        for release in ["showcase-video", "showcase-video-v2", "showcase-video-v2-r2", "showcase-video-v2-r3"]:
             with self.subTest(release=release):
                 result = self.select_release({"release": release})
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -71,6 +71,7 @@ class ShowcaseVideoTests(unittest.TestCase):
             ("2", "showcase-video"),
             ("2", "showcase-video-v2"),
             ("2", "showcase-video-v2-r2"),
+            ("2", "showcase-video-v2-r3"),
         ]:
             with self.subTest(release_line=release_line, release=release):
                 self.assert_media_for_site_line(release, release_line)
