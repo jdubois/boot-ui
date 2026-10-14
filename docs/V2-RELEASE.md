@@ -118,7 +118,7 @@ to get past a timeout.
 
 The homepage MP4 lives outside Git as `bootui-showcase.mp4` on a media-only GitHub Release. Each branch selects
 that release in `docs/.vuepress/showcase-video.json`. `main` is the 2.0 line and selects
-`showcase-video-v2-r3`, with its matching poster, captions, and player copy. The earlier media releases
+`showcase-video-v2-r4`, with its matching poster, captions, and player copy. The earlier media releases
 (`showcase-video`, `showcase-video-v2`, `showcase-video-v2-r2`) remain hosted but are not selected. Keep all
 published media releases and assets intact. These media tags do not start with `v`, so they do not trigger the
 Maven Release workflow or count as a product version. A new product release does not require changing the
