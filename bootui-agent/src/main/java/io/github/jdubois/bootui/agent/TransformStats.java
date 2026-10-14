@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.agent;
 
 import io.github.jdubois.bootui.agent.bridge.SideEffects;
+import java.lang.instrument.ClassFileTransformer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -9,10 +10,15 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.agent.builder.AgentBuilder;
+import net.bytebuddy.asm.Advice;
+import net.bytebuddy.description.modifier.Visibility;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.dynamic.ClassFileLocator;
 import net.bytebuddy.dynamic.DynamicType;
+import net.bytebuddy.implementation.StubMethod;
+import net.bytebuddy.matcher.ElementMatchers;
 import net.bytebuddy.pool.TypePool;
 import net.bytebuddy.utility.JavaModule;
 
@@ -42,6 +48,11 @@ final class TransformStats {
 
     /** {@link #configure(AgentBuilder)}, also telling {@code redefinitions} of every retransformation batch's outcome. */
     AgentBuilder configure(AgentBuilder builder, AgentBuilder.RedefinitionStrategy.Listener redefinitions) {
+        warmTransformation();
+        return configureOnly(builder, redefinitions);
+    }
+
+    private AgentBuilder configureOnly(AgentBuilder builder, AgentBuilder.RedefinitionStrategy.Listener redefinitions) {
         AgentBuilder.RedefinitionListenable listenable = builder.disableClassFormatChanges()
                 .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
                 .with(AgentBuilder.RedefinitionStrategy.BatchAllocator.ForFixedSize.ofSize(64))
@@ -56,6 +67,57 @@ final class TransformStats {
                 .with(new BootstrapFallbackPoolStrategy())
                 .with(new Transformations())
                 .with(new AgentWork());
+    }
+
+    private static boolean transformationWarmed;
+
+    /** Whether the warm-up's advice was applied, which {@link #warmTransformation()} never reports otherwise. */
+    private static volatile boolean transformationWarmedUp;
+
+    static boolean transformationWarmedUp() {
+        return transformationWarmedUp;
+    }
+
+    /**
+     * Defines, once, the Byte Buddy classes a transformation loads on first use, before any BootUI transformer is
+     * registered. They are defined by the agent's class loader, which calls every registered transformer for each class
+     * it defines; first used from inside a transformer, as for a JDK class another agent's transformer was the first to
+     * load, a thread holding such a class's loading lock can wait for a JDK class that a second thread, running this
+     * transformer on that very class, is loading and waits on the same lock: a deadlock beside the OpenTelemetry agent.
+     * Every Byte Buddy class is defined, and a throwaway transformer applies advice to a generated class, so none of
+     * that is left for the first real class. Never fails an install.
+     */
+    static synchronized void warmTransformation() {
+        if (transformationWarmed) {
+            return;
+        }
+        transformationWarmed = true;
+        try {
+            if (TransformStats.class.getClassLoader() instanceof AgentClassLoader) {
+                // Every Byte Buddy class, not only the ones the dry run below reaches: advice binding, the type pool's
+                // lazy types, and a visitor's own helpers differ by what a sensor transforms.
+                ((AgentClassLoader) TransformStats.class.getClassLoader())
+                        .define("io.github.jdubois.bootui.agent.shaded.bytebuddy.");
+            }
+            byte[] bytes = new ByteBuddy()
+                    .subclass(Object.class)
+                    .name("bootui.warm.Up")
+                    .defineMethod("up", void.class, Visibility.PUBLIC)
+                    .intercept(StubMethod.INSTANCE)
+                    .make()
+                    .getBytes();
+            ClassFileTransformer warm = new TransformStats()
+                    .configureOnly(new AgentBuilder.Default(), null)
+                    .ignore(ElementMatchers.none())
+                    .type(ElementMatchers.named("bootui.warm.Up"))
+                    .transform((builder, type, classLoader, module, domain) ->
+                            builder.visit(Advice.to(WarmAdvice.class).on(ElementMatchers.named("up"))))
+                    .makeRaw();
+            transformationWarmedUp =
+                    warm.transform(TransformStats.class.getClassLoader(), "bootui/warm/Up", null, null, bytes) != null;
+        } catch (Throwable ignored) {
+            // Only a warm-up: the first real class pays for what it did not do.
+        }
     }
 
     AgentBuilder.RedefinitionStrategy.Listener redefinitionFailures() {
@@ -160,6 +222,15 @@ final class TransformStats {
             }
             return Collections.emptyList();
         }
+    }
+
+    /** The advice of {@link #warmTransformation()}'s generated class: does nothing. */
+    static final class WarmAdvice {
+
+        private WarmAdvice() {}
+
+        @Advice.OnMethodEnter(suppress = Throwable.class)
+        static void enter() {}
     }
 
     final class BootstrapFallbackPoolStrategy implements AgentBuilder.PoolStrategy {

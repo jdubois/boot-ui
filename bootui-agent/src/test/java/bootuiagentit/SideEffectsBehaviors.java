@@ -126,6 +126,8 @@ public final class SideEffectsBehaviors {
         process.getErrorStream().readAllBytes();
         process.waitFor(30, TimeUnit.SECONDS);
         long[] start = await(kind(SideEffects.KIND_PROCESS_START));
+        // The exit is reported asynchronously, and on Windows can land after the next check clears the records.
+        await(kind(SideEffects.KIND_PROCESS_EXIT));
         check(
                 "Runtime.exec records through ProcessBuilder (" + describe(RECORDS) + ")",
                 start != null && "java".equals(string(start[SideEffects.R_TARGET])));
@@ -143,6 +145,11 @@ public final class SideEffectsBehaviors {
         }
         await(records -> records.stream()
                         .filter(record -> record[SideEffects.R_KIND] == SideEffects.KIND_PROCESS_START)
+                        .count()
+                >= 2);
+        // Both exits are reported asynchronously: wait for them so that none lands in a later behavior's records.
+        await(records -> records.stream()
+                        .filter(record -> record[SideEffects.R_KIND] == SideEffects.KIND_PROCESS_EXIT)
                         .count()
                 >= 2);
         long starts = RECORDS.stream()

@@ -681,6 +681,8 @@ final class ApplicationMethodsSensor {
     private void install() {
         long started = System.nanoTime();
         state = "installing";
+        // Define what a transformation loads before the class-load recorder, or any transformer, is registered.
+        TransformStats.warmTransformation();
         // Link everything recording calls before a transformer can call it inside class loading.
         CodeInventory.warm();
         CodePaths.warm();
