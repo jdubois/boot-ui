@@ -82,7 +82,7 @@
         <spring-modulith.version>2.1.1</spring-modulith.version>
         <!-- testcontainers version is managed by the Spring Boot BOM (2.0.x) -->
         <!-- opentelemetry-proto remains on -alpha as the upstream project does not publish stable releases yet -->
-        <opentelemetry-proto.version>1.10.0-alpha</opentelemetry-proto.version>
+        <opentelemetry-proto.version>1.11.1-alpha</opentelemetry-proto.version>
         <!-- H2 for the migration-backed sample and integration modules. Flyway 12.x verifies H2 only through
              2.3.232 and logs an advisory warning on newer releases, but 2.5.252 is validated here: the Spring MVC,
              WebFlux, and Quarkus migration suites all apply their migrations and assert the Flyway panel contract. -->
