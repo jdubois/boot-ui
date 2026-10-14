@@ -2289,14 +2289,22 @@ public abstract class AbstractBootUiApiConformanceTest {
             assertThat(point.path("familyCpuNanos").size()).isLessThanOrEqualTo(families);
             long process = point.path("processCpuNanos").asLong();
             if (process >= 0) {
-                long parts = point.path("requestCpuNanos").asLong()
-                        + point.path("internalCpuNanos").asLong();
+                long internal = point.path("internalCpuNanos").asLong();
+                long parts = point.path("requestCpuNanos").asLong();
                 for (JsonNode family : point.path("familyCpuNanos")) {
                     parts += family.asLong();
                 }
-                assertThat(parts)
-                        .as("a point's CPU parts sum to the process's CPU")
-                        .isEqualTo(process);
+                if (internal < 0) {
+                    // Process CPU is coarsely quantized, so the sampler reports the remainder as unknown (-1)
+                    // when measured thread CPU exceeds it; the ledger then has no exact sum to check.
+                    assertThat(parts)
+                            .as("an unknown remainder means the measured thread CPU reached the process's CPU")
+                            .isGreaterThanOrEqualTo(process);
+                } else {
+                    assertThat(parts + internal)
+                            .as("a point's CPU parts sum to the process's CPU")
+                            .isEqualTo(process);
+                }
             }
         }
     }
