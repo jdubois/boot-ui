@@ -51,8 +51,9 @@ RUN chmod +x mvnw
 # so the runtime image only needs a glibc base and no extra shared libraries. The native-image tool
 # honors this via the NATIVE_IMAGE_OPTIONS environment variable, so it needs no pom changes and does
 # not affect a local, host `-Pnative` build. The GraalVM build image already ships the static zlib
-# (libz.a) this requires.
-ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC"
+# (libz.a) this requires. Use lighter compilation and fewer concurrent build threads to stay within
+# the hosted arm64 runner's native-image heap limit.
+ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC -O1 --parallelism=2"
 
 # Build the native executable for the sample app and its reactor dependencies.
 # The `native` profile (declared in bootui-spring-sample-app/pom.xml) runs Spring
