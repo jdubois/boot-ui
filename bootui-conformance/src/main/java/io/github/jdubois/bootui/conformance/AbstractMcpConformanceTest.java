@@ -1122,14 +1122,20 @@ public abstract class AbstractMcpConformanceTest {
             String path = requestProfileProbePath();
             Response traffic = probe().get(path);
             assertThat(traffic.status()).isEqualTo(200);
-            Response activity = probe().get("/bootui/api/activity?source=journal");
-            assertThat(activity.status()).isEqualTo(200);
             String id = null;
-            for (JsonNode entry : activity.json().path("entries")) {
-                if ("REQUEST".equals(entry.path("type").asText())
-                        && path.split("\\?", 2)[0].equals(entry.path("path").asText())) {
-                    id = entry.path("id").asText();
-                    break;
+            // The journal records a request after its response completes, so allow it to catch up.
+            for (int attempt = 0; attempt < 50 && id == null; attempt++) {
+                Response activity = probe().get("/bootui/api/activity?source=journal");
+                assertThat(activity.status()).isEqualTo(200);
+                for (JsonNode entry : activity.json().path("entries")) {
+                    if ("REQUEST".equals(entry.path("type").asText())
+                            && path.split("\\?", 2)[0].equals(entry.path("path").asText())) {
+                        id = entry.path("id").asText();
+                        break;
+                    }
+                }
+                if (id == null) {
+                    Thread.sleep(100);
                 }
             }
             assertThat(id).as("the sample request is retained by the journal").isNotBlank();
