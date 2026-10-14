@@ -193,7 +193,7 @@ jobs:
 
       - name: Publish Java test report
         if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a # v3.2.0
         with:
           name: Java tests (Surefire)
           path: '**/target/surefire-reports/TEST-*.xml'
@@ -203,7 +203,7 @@ jobs:
 
       - name: Publish frontend unit test report
         if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a # v3.2.0
         with:
           name: Frontend unit tests (Vitest)
           path: bootui-ui/src/main/frontend/test-results/vitest-junit.xml
@@ -320,7 +320,7 @@ jobs:
 
       - name: Publish Java test report
         if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a # v3.2.0
         with:
           name: Quarkus extension integration tests (Surefire)
           path: 'bootui-quarkus-integration-tests/*/target/surefire-reports/TEST-*.xml'
@@ -595,7 +595,7 @@ jobs:
 
       - name: Publish end-to-end test report
         if: env.SKIP_LEG != 'true' && (!cancelled())
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a # v3.2.0
         with:
           name: ${{ matrix.suite.report-name }}
           path: bootui-spring-sample-app/e2e/${{ matrix.suite.results-dir }}/junit/results.xml
@@ -1606,7 +1606,7 @@ jobs:
 
       - name: Publish Quarkus end-to-end test report
         if: env.SKIP_LEG != 'true' && (!cancelled())
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a # v3.2.0
         with:
           name: ${{ matrix.suite.report-name }}
           path: bootui-quarkus-sample-app/e2e/${{ matrix.suite.results-dir }}/junit/results.xml
