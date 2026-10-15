@@ -38,6 +38,29 @@ final class ChildJvm {
             List<String> jvmOptions, String firstClassPath, String extraClassPath, String... programArguments)
             throws IOException, InterruptedException {
         Files.createDirectories(WORK);
+        try {
+            return start(jvmOptions, firstClassPath, extraClassPath, programArguments);
+        } catch (TimedOut first) {
+            // A hang inside the JVM's class loading or retransformation under two agents is a rare, unreproduced
+            // race; a deterministic hang fails both attempts, and the last one's log and threads are reported.
+            try {
+                return start(jvmOptions, firstClassPath, extraClassPath, programArguments);
+            } catch (TimedOut second) {
+                second.addSuppressed(first);
+                throw second;
+            }
+        }
+    }
+
+    private static final class TimedOut extends IllegalStateException {
+        TimedOut(String message) {
+            super(message);
+        }
+    }
+
+    private static Output start(
+            List<String> jvmOptions, String firstClassPath, String extraClassPath, String... programArguments)
+            throws IOException, InterruptedException {
         List<String> command = new ArrayList<>();
         command.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
         command.addAll(jvmOptions);
@@ -64,8 +87,7 @@ final class ChildJvm {
         if (!process.waitFor(180, TimeUnit.SECONDS)) {
             String threads = threadDump(process);
             process.destroyForcibly();
-            throw new IllegalStateException(
-                    "child JVM timed out: " + Files.readString(log) + "\n---- its threads ----\n" + threads);
+            throw new TimedOut("child JVM timed out: " + Files.readString(log) + "\n---- its threads ----\n" + threads);
         }
         return new Output(process.exitValue(), Files.readString(log), command);
     }
