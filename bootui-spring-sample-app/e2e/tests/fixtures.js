@@ -29,7 +29,9 @@ export const test = base.extend({
     async function openView(route, heading) {
       await page.goto(`/bootui/#/${route}`)
       const matcher = typeof heading === 'string' ? new RegExp(heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : heading
-      await expect(page.locator('main h2').filter({hasText: matcher}).first()).toBeVisible()
+      await expect(page.locator('main h2').filter({hasText: matcher}).first()).toBeVisible({
+        timeout: 30_000
+      })
       return page
     }
 

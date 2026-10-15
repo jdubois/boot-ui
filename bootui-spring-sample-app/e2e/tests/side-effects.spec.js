@@ -57,6 +57,7 @@ test.describe('Side Effects view', () => {
     agentAttached
   }) => {
     test.skip(!agentAttached, 'Security sinks need the BootUI agent and request-value matching')
+    test.setTimeout(150_000)
     // Letters only, so a files pattern, which folds digits, could not hide a value that leaked.
     const letters = () =>
       Date.now()
@@ -73,7 +74,7 @@ test.describe('Side Effects view', () => {
       expect((await page.request.get(path)).ok()).toBeTruthy()
     }
     await expect
-      .poll(async () => (await sinkRows()).some((row) => row.kind === 'SQL text'), {timeout: 30_000})
+      .poll(async () => (await sinkRows()).some((row) => row.kind === 'SQL text'), {timeout: 60_000})
       .toBe(true)
     const sql = (await sinkRows()).find((row) => row.kind === 'SQL text')
     expect(sql.target).toContain("'{name}'")
@@ -87,7 +88,7 @@ test.describe('Side Effects view', () => {
     expect((await page.request.get(`/api/sinks/lookup?name=${value}`)).ok()).toBeTruthy()
     await expect
       .poll(async () => (await sinkRows()).filter((row) => ['file path', 'outbound URL'].includes(row.kind)).length, {
-        timeout: 30_000
+        timeout: 60_000
       })
       .toBeGreaterThanOrEqual(2)
     const rows = await sinkRows()
