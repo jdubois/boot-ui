@@ -22,10 +22,10 @@ touch bootui-spring-sample-app/target/classes/.workshop-reload
   '-Dspring-boot.run.arguments=--server.address=127.0.0.1 --spring.devtools.restart.trigger-file=.workshop-reload'
 ```
 
-On Windows, with the warmed 2.0.0 clone:
+On Windows, with the warmed 2.1.0 clone:
 
 ```powershell
-$agent = (Resolve-Path "bootui-agent/target/bootui-agent-2.0.0.jar" -ErrorAction Stop).Path
+$agent = (Resolve-Path "bootui-agent/target/bootui-agent-2.1.0.jar" -ErrorAction Stop).Path
 if ($agent.Contains(",")) { throw "Use an agent jar path without commas" }
 New-Item -ItemType File -Force bootui-spring-sample-app/target/classes/.workshop-reload -ErrorAction Stop | Out-Null
 .\mvnw.cmd -B -ntp "-Dmaven.repo.local=.m2" "-Dmaven.test.skip=true" `

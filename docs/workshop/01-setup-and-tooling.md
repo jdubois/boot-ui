@@ -14,7 +14,7 @@ your coding agent; a GitHub account alone does not establish Copilot access.
 Clone the released sample into a new directory:
 
 ```bash
-git clone --branch v2.0.0 --depth 1 https://github.com/jdubois/boot-ui.git workshop
+git clone --branch v2.1.0 --depth 1 https://github.com/jdubois/boot-ui.git workshop
 cd workshop
 git switch -c workshop-exercises
 ./mvnw -B -ntp -Dmaven.repo.local=.m2 -pl bootui-spring-sample-app -am install -DskipTests
@@ -46,16 +46,16 @@ exercise branch; do not send those changes as fixes to the BootUI project.
 Use the [CLI guide](../CLI.md) to review the installer. Pin it to the workshop release, rather than whatever is newest.
 
 ```bash
-curl -fsSL https://www.julien-dubois.com/boot-ui/install.sh | sh -s -- --version 2.0.0
+curl -fsSL https://www.julien-dubois.com/boot-ui/install.sh | sh -s -- --version 2.1.0
 ```
 
 On Windows PowerShell, after reviewing the script:
 
 ```powershell
-& ([scriptblock]::Create((Invoke-RestMethod https://www.julien-dubois.com/boot-ui/install.ps1))) -Version 2.0.0
+& ([scriptblock]::Create((Invoke-RestMethod https://www.julien-dubois.com/boot-ui/install.ps1))) -Version 2.1.0
 ```
 
-Open a new terminal if PATH changed. Do not mix a released 1.x CLI with the workshop's 2.0.0 sample/agent.
+Open a new terminal if PATH changed. Do not mix a released 1.x CLI with the workshop's 2.1.0 sample/agent.
 
 ### Install the consumer skill
 
@@ -136,7 +136,7 @@ The sample already has the starter. In a different Spring Boot app, the publishe
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-spring-boot-starter</artifactId>
-  <version>2.0.0</version>
+  <version>2.1.0</version>
 </dependency>
 ```
 

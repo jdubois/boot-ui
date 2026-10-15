@@ -1,7 +1,7 @@
 # BootUI v2 workshop exercise manifest
 
 The [participant entry](../docs/workshop/README.md) is the published course. This manifest freezes the teaching
-contract for facilitators. Participants use released **2.0.0** from **v2.0.0**, matched CLI/Java agent, and a disposable
+contract for facilitators. Participants use released **2.1.0** from **v2.1.0**, matched CLI/Java agent, and a disposable
 clone. No release/version change is made by these materials.
 
 ## Environment

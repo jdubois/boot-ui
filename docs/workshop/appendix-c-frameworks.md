@@ -36,7 +36,7 @@ On Windows, warm and launch with the wrapper:
 .\mvnw.cmd -B -ntp "-Dmaven.repo.local=.m2" `
   -pl "bootui-spring-webflux-sample-app,bootui-agent" -am install "-DskipTests"
 if ($LASTEXITCODE -ne 0) { throw "WebFlux warm build failed" }
-$agent = (Resolve-Path "bootui-agent/target/bootui-agent-2.0.0.jar" -ErrorAction Stop).Path
+$agent = (Resolve-Path "bootui-agent/target/bootui-agent-2.1.0.jar" -ErrorAction Stop).Path
 if ($agent.Contains(",")) { throw "Use an agent jar path without commas" }
 .\mvnw.cmd -B -ntp "-Dmaven.repo.local=.m2" "-Dmaven.test.skip=true" `
   -pl bootui-spring-webflux-sample-app spring-boot:run "-Dspring-boot.run.profiles=dev" `
@@ -78,7 +78,7 @@ The console is `http://localhost:8087/bootui`. For Windows:
   -pl "bootui-quarkus-sample-app,bootui-agent" -am install "-DskipTests"
 if ($LASTEXITCODE -ne 0) { throw "Quarkus warm build failed" }
 $repo = Join-Path (Get-Location) ".m2"
-$agent = (Resolve-Path "bootui-agent/target/bootui-agent-2.0.0.jar" -ErrorAction Stop).Path
+$agent = (Resolve-Path "bootui-agent/target/bootui-agent-2.1.0.jar" -ErrorAction Stop).Path
 .\mvnw.cmd -B -ntp "-Dmaven.repo.local=$repo" -f bootui-quarkus-sample-app/pom.xml `
   quarkus:dev "-Djvm.args=-javaagent:$agent" "-Dquarkus.http.host=127.0.0.1" "-Dquarkus.http.port=8087"
 ```

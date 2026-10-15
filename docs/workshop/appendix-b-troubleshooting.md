@@ -7,7 +7,7 @@ is incomplete; pairing is preferable to spending an entire chapter reinstalling 
 
 | Symptom | Check | Recovery |
 | --- | --- | --- |
-| Missing commands/features | Release tag/SHA, CLI and Java agent versions | Use the workshop's 2.0.0 components, not a 1.x CLI or moving branch |
+| Missing commands/features | Release tag/SHA, CLI and Java agent versions | Use the workshop's 2.1.0 components, not a 1.x CLI or moving branch |
 | JDK/toolchain failure | `java -version`, `JAVA_HOME`, wrapper output | Use a supported local JDK; early-access JDKs are not required |
 | Maven cannot find BootUI modules | Repository root and isolated `.m2` | Repeat Chapter 01's `-am install` warm build; then run just the sample |
 | First build is slow/offline | Dependency/toolchain download logs | Warm beforehand; use a helper's prepared checkpoint or pair |
