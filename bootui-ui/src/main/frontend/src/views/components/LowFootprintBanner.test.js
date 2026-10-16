@@ -37,4 +37,18 @@ describe('LowFootprintBanner', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="low-footprint-banner"]').exists()).toBe(false)
   })
+
+  it('turns the mode off from the banner', async () => {
+    const fetchMock = vi.fn((url, init) =>
+      respond({active: init?.method === 'POST' ? false : true, components: [], warnings: []})
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(LowFootprintBanner, {
+      global: {provide: {panels: ref({panels: [{id: 'live-memory', enabled: true, available: true}]})}}
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="low-footprint-banner-off"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="low-footprint-banner"]').exists()).toBe(false)
+  })
 })

@@ -1,4 +1,5 @@
 <script setup>
+import LowFootprintBanner from './components/LowFootprintBanner.vue'
 import {computed, nextTick, onMounted, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import {getJson} from '../api.js'
@@ -439,6 +440,7 @@ onMounted(() => {
       v-model:auto-refresh="autoRefresh"
       @refresh="refreshAll"
     />
+    <LowFootprintBanner />
 
     <p aria-live="polite" class="visually-hidden http-exchanges-copy-status" role="status">{{ copyStatus }}</p>
 

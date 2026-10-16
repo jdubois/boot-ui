@@ -1,4 +1,5 @@
 <script setup>
+import LowFootprintBanner from './components/LowFootprintBanner.vue'
 import {ApiError, getJson} from '../api.js'
 import {computed, inject, ref} from 'vue'
 import {formatNumber, shortName} from '../utils/format.js'
@@ -334,6 +335,7 @@ function showReadOnlyMessage() {
         />
       </template>
     </PanelHeader>
+    <LowFootprintBanner />
 
     <FlashBanner :message="banner" @dismiss="clear" />
 
