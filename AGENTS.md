@@ -82,3 +82,6 @@ For substantive Java development or Maven failure diagnosis, load the `bootui-ja
 `.github/skills/bootui-java-development/SKILL.md`. It covers investigation, reliable LSP use, focused validation, and
 on-demand change recipes. If the host cannot invoke skills, read that file directly. This develops BootUI itself;
 `skills/bootui/SKILL.md` is the separate consumer skill for installing and using BootUI in another application.
+
+To rubber duck a proposed design or implementation (in a session or a PR) with three different powerful models, load
+the `bootui-rubber-duck` repository skill at `.github/skills/bootui-rubber-duck/SKILL.md`.
