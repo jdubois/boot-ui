@@ -1,4 +1,5 @@
 <script setup>
+import LowFootprintBanner from './components/LowFootprintBanner.vue'
 import {ApiError, getJson} from '../api.js'
 import {computed, nextTick, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
@@ -370,6 +371,7 @@ function clearTrace() {
         />
       </template>
     </PanelHeader>
+    <LowFootprintBanner />
 
     <FlashBanner :message="banner" @dismiss="clearBanner" />
 

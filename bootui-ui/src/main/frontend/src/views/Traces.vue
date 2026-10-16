@@ -1,4 +1,5 @@
 <script setup>
+import LowFootprintBanner from './components/LowFootprintBanner.vue'
 import {apiFetch, getJson} from '../api.js'
 import {computed, inject, ref} from 'vue'
 import {formatDuration, formatTime} from '../utils/format.js'
@@ -201,6 +202,7 @@ const {autoRefresh, loading, load, loadAfterCurrent} = useAutoRefresh(fetchTrace
         />
       </template>
     </PanelHeader>
+    <LowFootprintBanner />
 
     <FlashBanner :message="banner" @dismiss="clear" />
 
