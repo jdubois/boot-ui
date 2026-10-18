@@ -298,11 +298,15 @@ public final class McpStreamingCall {
 
     /** The one terminal transition; {@code true} for the caller that made it. */
     private boolean end(EndKind kind, McpDispatchOutcome outcome) {
-        if (kind != EndKind.COMPLETED) {
-            progress.cancel();
-        }
         if (!end.compareAndSet(null, new End(kind, outcome))) {
+            if (kind != EndKind.COMPLETED) {
+                progress.cancel();
+            }
             return false;
+        }
+        if (kind != EndKind.COMPLETED) {
+            // Only after the terminal CAS: a tool that observes the cancellation must not win the end as a CANCELLED.
+            progress.cancel();
         }
         // Counted before anything is released or signalled, so whoever observes the end also sees its statistic.
         if (kind == EndKind.TIMED_OUT) {
