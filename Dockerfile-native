@@ -71,7 +71,9 @@ ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC -O1 --parallelism=
 RUN --mount=type=cache,target=/root/.m2 \
     --mount=type=cache,target=/root/.npm \
     --mount=type=secret,id=npmrc,target=/root/.npmrc \
-    ./mvnw -B -ntp -Pnative -DskipTests -pl bootui-spring-sample-app -am clean package
+    { ./mvnw -B -ntp -Pnative -DskipTests -pl bootui-spring-sample-app -am clean package > /tmp/native-build.log 2>&1 \
+      || { echo "Native build failed; last 300 log lines:"; tail -n 300 /tmp/native-build.log; exit 1; }; } \
+    && tail -n 40 /tmp/native-build.log
 
 # Move the native executable to a known path (the native-maven-plugin names it
 # after the module artifactId, i.e. bootui-spring-sample-app).
