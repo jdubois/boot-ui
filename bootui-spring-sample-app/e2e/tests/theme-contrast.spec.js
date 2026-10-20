@@ -133,6 +133,8 @@ test('keeps the theme picker opaque in every theme', async ({page}) => {
 })
 
 test('keeps the request profile drawer opaque in every theme', async ({page, openView}) => {
+  // Seven theme reloads plus a Live Activity view each outgrow the default 30s budget on a slow runner.
+  test.setTimeout(120_000)
   const search = await page.request.get('/api/sample/product-search')
   expect(search.ok()).toBeTruthy()
 
