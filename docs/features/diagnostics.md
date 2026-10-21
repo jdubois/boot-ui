@@ -107,6 +107,10 @@ the most recent occurrences with thread, source, and request context. Each occur
 request that threw it, so the profiler can attribute it exactly. The list updates live, and you can filter by text,
 capture source, triage status, or to application-originated exceptions only.
 
+Links from Live Activity's request profile and EXCEPTION rows open the exact retained group with `?id=<group id>`,
+not a class-name match. A linked request ID stays visible beside **Back to request profile**. If that group is no
+longer retained or the panel is disabled, the view explains why without selecting a different failure.
+
 ::: details How exceptions are captured and grouped
 
 Grouping uses a stable fingerprint derived from the exception type and the top stack frames. The stack view folds

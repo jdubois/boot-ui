@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Exact exception navigation** links failed request profiles and activity rows to their exception group's stack
+  trace and causes, with a return path to the request ([#1477](https://github.com/jdubois/boot-ui/issues/1477)).
+
 ## [2.1.0] - 2026-10-14
 
 This release redesigns the trace waterfall and request timeline, adds a low-footprint mode that pauses BootUI's

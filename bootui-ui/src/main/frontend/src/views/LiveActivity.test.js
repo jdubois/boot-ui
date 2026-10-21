@@ -132,6 +132,38 @@ function mountLiveActivity(options = {}) {
 describe('LiveActivity', () => {
   let wrapper
 
+  it('links profile exceptions to their own group IDs and preserves the profile ID', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        activityReport(),
+        requestProfile({
+          exceptions: [
+            {exceptionClassName: 'java.lang.IllegalStateException', exceptionGroupId: 'group-1'},
+            {exceptionClassName: 'java.lang.IllegalStateException', exceptionGroupId: 'group-2'},
+            {exceptionClassName: 'java.lang.IllegalStateException'}
+          ]
+        })
+      )
+    )
+    wrapper = mountLiveActivity({global: {stubs: {RouterLink: RouterLinkStub}}})
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+    const links = wrapper
+      .get('.activity-drawer')
+      .findAll('a[title]')
+      .filter((link) => /exception/i.test(link.attributes('title')))
+    expect(links.every((link) => link.classes().includes('btn-outline-secondary'))).toBe(true)
+    expect(links.every((link) => link.classes().includes('btn-sm'))).toBe(true)
+    expect(links.map((link) => JSON.parse(link.attributes('data-to')).query)).toEqual([
+      {id: 'group-1', request: 'req-1'},
+      {id: 'group-2', request: 'req-1'},
+      {q: 'java.lang.IllegalStateException'}
+    ])
+    expect(wrapper.get('.activity-drawer').text()).toContain('Group ID unavailable; opens a class-name search.')
+  })
+
   it('does not present unavailable SQL execution timing as measured zero', async () => {
     vi.stubGlobal(
       'fetch',
