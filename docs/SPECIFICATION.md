@@ -1071,20 +1071,32 @@ Features:
 - The Live Memory panel shows live heap and non-heap usage summaries.
 - The Live Memory panel shows memory pool usage.
 - Live Memory, JVM Tuning, Heap Dump, and the Memory advisor share a **Low-footprint mode** header toggle with an
-  expandable explanation. After a danger confirmation it calls `POST /bootui/api/live-memory/offload`, which empties
+  expandable explanation. After a danger confirmation it calls `POST /bootui/api/live-memory/footprint` with
+  `{"enabled":true}`, which pauses existing BootUI recorders and empties
   every BootUI-owned capture buffer that already exists (runtime journal and its aggregates, in-memory Live Activity,
   HTTP exchanges, traces, SQL statements, REST client calls, transactions, Kafka/RabbitMQ/JMS/WebSocket activity, cache
   events, scheduled runs, fault-tolerance events, exceptions with their triage status, security events, and captured
   emails) and then requests a garbage collection, so memory figures reflect the application rather than BootUI.
-  Recording state, settings, configuration overrides, dismissed rules, cached scan reports, run history, and a durable
+  Individual recording settings, configuration overrides, dismissed rules, cached scan reports, run history, and a durable
   Live Activity store are kept. Stores register through the engine's `MemoryOffloadable` port; adapters hand over only
   singletons already created, so the action never instantiates a lazy bean or loads an optional integration. The
-  response (`MemoryOffloadReport`) reports heap used before and after (`MemoryMXBean`), a non-negative reclaimed
+  status (`LowFootprintStatus`) reports suspension outcomes and warnings; its offload report gives heap used before and after (`MemoryMXBean`), a non-negative reclaimed
   estimate, the cleared entry count, each store's outcome (a failing store is reported, not fatal), and whether
   `-XX:+DisableExplicitGC` makes the collection request a no-op; `System.gc()` is only a hint. The action belongs to
   the Live Memory panel, which is therefore action-capable: global `bootui.read-only=true` or
   `bootui.panels.live-memory.read-only=true` refuses it with the canonical panel denial, and the button is disabled
-  with that reason. The UI makes no request until the user confirms.
+  with that reason. The UI makes no request until the user confirms. Panels whose captured data is paused show a
+  "Paused by low-footprint mode" banner with a **Turn off low-footprint mode** button that posts `{"enabled":false}`
+  under the same read-only policy; resume warnings and failures are announced, never hidden.
+- `GET /bootui/api/live-memory/footprint` reads the mode; posting `{"enabled":false}` releases its hold without
+  restoring cleared data. The one-shot `POST /bootui/api/live-memory/offload` clears and requests GC without holding
+  recording. MCP exposes `get_low_footprint`, `enable_low_footprint`, and `disable_low_footprint`, all without arguments
+  and under Live Memory policy; CLI projects them as `low-footprint status|enable|disable`. Both switches need approval
+  and are idempotent. The mode is process-local, off after restart, and has no expiry. The Java agent keeps running.
+  Affected MCP/CLI payloads add `lowFootprint` beside existing fields, naming actual suspended components, timestamp,
+  warnings, and a resume hint; browser REST DTOs stay unchanged. Mixed native/agent evidence is not wholly paused.
+  Recorder resumes and new method probes are refused while held; memory diagnostics and permitted scans stay usable.
+  See [the agent contract](AI-AGENTS.md#low-footprint-mode).
 - The JVM Tuning panel shows JVM input arguments. Their values pass through `SecretMasker` and the
   `bootui.expose-values` / `bootui.mask-secrets` policy before serialization, keeping each key visible:
   `-XX:OnError`/`-XX:OnOutOfMemoryError` commands are always masked, and `METADATA_ONLY` masks every `-D` value
@@ -3188,6 +3200,8 @@ Initial endpoints:
 | `/bootui/api/devtools/restart`               | POST   | Schedule a DevTools restart after explicit confirmation                                |
 | `/bootui/api/live-memory`                         | GET    | JVM memory report                                                                      |
 | `/bootui/api/live-memory/offload`                 | POST   | Clear BootUI's in-memory capture buffers and request a GC; blocked in read-only mode   |
+| `/bootui/api/live-memory/footprint`               | GET    | Read process-local low-footprint state without changing capture |
+| `/bootui/api/live-memory/footprint`               | POST   | Enable or disable the recording hold; blocked in read-only mode |
 | `/bootui/api/jvm-tuning`                 | GET    | JVM tuning advisor report                                                              |
 | `/bootui/api/heap-dump`                      | GET    | Heap dump capture inventory and latest value-free histogram report                     |
 | `/bootui/api/heap-dump/capture`              | POST   | Capture a local heap dump after explicit confirmation                                  |

@@ -17,6 +17,10 @@ class McpToolAnnotationsTests {
 
     @Test
     void actionsSayWhetherTheyDiscardStateRepeatSafelyOrLeaveTheMachine() {
+        assertThat(McpToolAnnotations.of("enable_low_footprint", true))
+                .isEqualTo(new McpToolAnnotations(false, true, true, false));
+        assertThat(McpToolAnnotations.of("disable_low_footprint", true))
+                .isEqualTo(new McpToolAnnotations(false, false, true, false));
         assertThat(McpToolAnnotations.of("clear_sql_traces", true))
                 .isEqualTo(new McpToolAnnotations(false, true, true, false));
         assertThat(McpToolAnnotations.of("pause_rest_client_recording", true))

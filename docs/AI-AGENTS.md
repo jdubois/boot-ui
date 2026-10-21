@@ -327,7 +327,7 @@ user; BootUI's own panel and read-only gates still apply.
 - **Core context and integration reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`,
   `get_mappings`, `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
   `get_cache_stats`,
-  `get_database_connection_pools`, `get_postgresql_report`, `get_mysql_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
+  `get_database_connection_pools`, `get_postgresql_report`, `get_mysql_report`, `get_metrics`, `get_live_memory`, `get_low_footprint`, `get_jvm_tuning`, `get_heap_dump_report`,
   `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
   `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
   `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_agent_status`, `get_devtools_status`,
@@ -347,7 +347,7 @@ user; BootUI's own panel and read-only gates still apply.
   `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`,
   `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`,
   `postgresql_read`, `mysql_read`, `analyze_heap_dump`, `trigger_devtools_livereload`, `start_method_probe`,
-  `enable_agent_sensor`, and `disable_agent_sensor`. The Java agent actions take a switchable sensor id such as
+  `enable_low_footprint`, `disable_low_footprint`, `enable_agent_sensor`, and `disable_agent_sensor`. The Java agent actions take a switchable sensor id such as
   `security-sinks`; use them only with the user's approval, and read `get_agent_status` to confirm the result. They
   require an attached, armed agent and are refused by Java Agent panel read-only policy. Overrides last only for this JVM.
   Enabling `security-sinks` includes its JDK checks; request-value matching additionally requires
@@ -359,6 +359,33 @@ user; BootUI's own panel and read-only gates still apply.
   Recorder results in Runtime Insights, enabling Hibernate statistics, the WebSockets capture switch, changing a logger
   level, and the other panel controls not listed above have no MCP tool or CLI
   command. An agent should point the user to the panel rather than work around it.
+
+### Low-footprint mode
+
+On Spring MVC, WebFlux, and Quarkus, `get_low_footprint` passively reads the existing mode; `enable_low_footprint`
+and `disable_low_footprint` switch it with **the user's approval**, without arguments. The CLI equivalents are
+`bootui low-footprint status`, `enable`, and `disable`. Live Memory disabled policy refuses all three; global or
+Live Memory read-only policy refuses both actions. CLI access does not require enabling the MCP server.
+
+Enabling pauses existing BootUI recorders, **irreversibly clears buffered diagnostics**, and requests GC, which the JVM
+may defer or ignore (`-XX:+DisableExplicitGC`). Repeated enable does no new clear or GC. The mode is process-local,
+starts off after restart, and never expires. Disabling releases the hold without restoring cleared data or changing an
+individual recorder's pause setting. Actions return compact state, warnings, failed components, and an optional
+offload summary; status lists each component's actual suspension outcome. Quarkus never creates a lazy store to pause
+it; components created after enabling are not held. Inspect failures rather than assuming every source stopped.
+
+Affected successful reads, including Overview's global context, add a top-level `lowFootprint` object beside their
+existing fields: `active`, `paused`, `sinceEpochMillis`, relevant component IDs, warnings, and a resume hint.
+`paused: true` means relevant buffered evidence is wholly or partly paused, **not that the application was idle**.
+Native statistics, configuration, memory diagnostics, permitted advisor scans, and the Java agent continue to work.
+Code Paths, Code Inventory, and Side Effects can lose journal correlation while instrumentation keeps running.
+Inactive and unaffected payloads are unchanged. Browser REST DTOs are not augmented.
+
+SQL, transaction, and REST-client resumes and new method probes are refused while held: disable the mode first with
+approval. Clear and pause controls remain usable and report effective `capturing: false` for a held recorder.
+MCP refusals are in-band `isError: true`; CLI refusals are HTTP 409 / exit `1`. Paused reads still succeed with exit
+`0`. Unknown or cleared IDs retain their normal errors. Older CLI binaries keep their existing commands and accept the
+additive JSON fields; new command leaves require a CLI whose bundled manifest includes them.
 
 ### Investigate one request
 

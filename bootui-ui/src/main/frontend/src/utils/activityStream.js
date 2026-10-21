@@ -72,6 +72,7 @@ function matchesText(entry, needle) {
  * Collapse runs of adjacent entries that share the same type, severity and summary into a single
  * row carrying an occurrence count, to cut noise from repeated activity. Order is preserved and the
  * first entry of each run is kept as the representative (so its id/timestamp drive interactions).
+ * Exceptions also keep distinct group identities separate, even when their visible summaries match.
  *
  * @param {Array<object>} entries already sorted newest-first
  * @returns {Array<object & {count: number}>}
@@ -84,7 +85,8 @@ export function groupEntries(entries) {
       previous &&
       previous.type === entry.type &&
       previous.severity === entry.severity &&
-      previous.summary === entry.summary
+      previous.summary === entry.summary &&
+      (entry.type !== 'EXCEPTION' || previous.exceptionGroupId === entry.exceptionGroupId)
     ) {
       previous.count += 1
       continue
@@ -157,9 +159,8 @@ export function markerPositions(entries) {
 /**
  * Build a deep link from a merged stream entry to the dedicated panel that owns that signal, so the
  * Live Activity view is a launchpad rather than a dead end. Most link types prefill the target panel's
- * free-text filter (read from {@code ?q=}) to surface the originating record; {@code MAIL} instead links
- * by {@code ?id=} since a captured email's entry id is the same stable id the Email panel uses to open
- * that exact message's detail drawer.
+ * free-text filter (read from {@code ?q=}) to surface the originating record. Exceptions with a retained
+ * group id and captured emails instead link by {@code ?id=} to open that exact record's detail.
  *
  * Returns {@code null} for entry types without a dedicated drill-down (for example SECURITY) or when
  * there is no useful needle to filter by.
@@ -182,6 +183,16 @@ export function deepLink(entry) {
     case 'REST_CLIENT':
       return entry.path ? {path: '/rest-client-trace', query: {q: entry.path}, label: 'Open in REST Client'} : null
     case 'EXCEPTION': {
+      if (typeof entry.exceptionGroupId === 'string' && entry.exceptionGroupId.trim()) {
+        return {
+          path: '/exceptions',
+          query: {
+            id: entry.exceptionGroupId,
+            ...(entry.parentId ? {request: entry.parentId} : {})
+          },
+          label: 'Open exception details'
+        }
+      }
       const needle = exceptionNeedle(entry.summary)
       return needle ? {path: '/exceptions', query: {q: needle}, label: 'Open in Exceptions'} : null
     }

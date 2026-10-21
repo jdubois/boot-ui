@@ -123,7 +123,7 @@ class ResourceProfileServiceTests {
             meter.begin(requestId);
             meter.switchTo(null);
             try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest(requestId))) {
-                long end = System.nanoTime() + 400_000_000L;
+                long end = System.nanoTime() + 1_200_000_000L;
                 long sum = 0;
                 while (System.nanoTime() < end) {
                     sum += new byte[256].length + Long.toString(sum).length();

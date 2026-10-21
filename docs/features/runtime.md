@@ -74,14 +74,10 @@ and more) in your application's heap, so they inflate the numbers every memory p
 Heap Dump, and the Memory advisor therefore share a **Low-footprint mode** toggle in the panel header. Its info button
 explains what is cleared and what is kept.
 
-After you confirm, `POST /bootui/api/live-memory/offload` empties every BootUI capture buffer, requests a garbage
+The one-shot `POST /bootui/api/live-memory/offload` empties every existing BootUI capture buffer, requests a garbage
 collection, and shows heap used before and after, the reclaimed estimate, and the number of buffered entries cleared.
-The toggle then stays on: BootUI stops recording until you turn it off. Exceptions, Log Tail, Live Activity, Runtime
-Insights, the Scorecard, HTTP Exchanges, Traces, SQL Trace, REST Client, Transactions, Kafka, RabbitMQ, JMS,
-WebSockets, Security Logs, Email, Fault Tolerance events, and AI Framework show a "Paused by low-footprint mode"
-banner for their captured data. The banner can turn the mode off; that action follows the Live Memory panel's
-read-only policy. Settings, configuration overrides, dismissed rules, cached scan reports, and persisted Live Activity
-history are kept.
+It does not hold recording; use low-footprint mode below for that. Settings, configuration overrides,
+dismissed rules, cached scan reports, and persisted Live Activity history are kept.
 
 ::: warning Cleared data is gone
 The discarded journal, traces, and captures cannot be recovered, and exception triage statuses are dropped with their
@@ -97,6 +93,24 @@ Low-footprint mode turns freeing memory into a switch: `POST /bootui/api/live-me
 `{"enabled": false}` resumes recording. `GET /bootui/api/live-memory/footprint` reports the state without changing
 anything. The mode lives in memory only: it is off after a restart and never expires by itself. It follows the same
 read-only rules as freeing memory.
+
+Exceptions, Log Tail, Live Activity, Runtime Insights, the Scorecard, HTTP Exchanges, Traces, SQL Trace, REST Client,
+Transactions, Kafka, RabbitMQ, JMS, WebSockets, Security Logs, Email, Fault Tolerance events, and AI Framework show a
+"Paused by low-footprint mode" banner for their captured data. Its **Turn off low-footprint mode** button calls the same
+endpoint and follows the Live Memory panel's read-only policy: when that policy forbids the action, the button is
+disabled and the banner shows the reason. A failure or a recorder that does not resume stays visible after the banner
+goes away.
+
+Agents use `get_low_footprint`, `enable_low_footprint`, and `disable_low_footprint`, or
+`bootui low-footprint status|enable|disable`. Both switches require approval and follow Live Memory panel policy.
+Enabling again does not clear buffers or request GC again; disabling again is also harmless. Individually paused
+recorders stay paused after the global hold is released. Suspension, offload, and resume failures remain explicit.
+
+Affected MCP/CLI results keep their existing fields and add `lowFootprint` with the active state, relevant component
+IDs, pause state, timestamp, warnings, and resume hint. This labels buffered evidence, not unaffected native statistics
+or agent instrumentation. Overview carries the global context. Inactive and unaffected results are unchanged; browser
+REST DTOs are unchanged. SQL, transaction, and REST-client resumes and new method probes are refused while held.
+Memory readings and scans remain usable. See [agent guidance](../AI-AGENTS.md#low-footprint-mode).
 
 The BootUI Java agent is **not** paused. When it is attached, the response sets `agentAttached` and adds a warning,
 because these panels give better results without the agent.

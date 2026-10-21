@@ -129,6 +129,46 @@ describe('bucketEntries', () => {
 })
 
 describe('deepLink', () => {
+  it('keeps same-summary exceptions from distinct groups separate before building their links', () => {
+    const base = {type: 'EXCEPTION', severity: 'ERROR', summary: 'java.lang.IllegalStateException: boom'}
+    const grouped = groupEntries([
+      {...base, id: 'one', exceptionGroupId: 'group-1'},
+      {...base, id: 'two', exceptionGroupId: 'group-2'},
+      {...base, id: 'legacy'}
+    ])
+    expect(grouped).toHaveLength(3)
+    expect(grouped.map((entry) => deepLink(entry).query)).toEqual([
+      {id: 'group-1'},
+      {id: 'group-2'},
+      {q: 'java.lang.IllegalStateException'}
+    ])
+  })
+
+  it.each(['group-one', 'group-two'])('links the exact exception group %s with its owning request', (id) => {
+    expect(
+      deepLink({
+        type: 'EXCEPTION',
+        exceptionGroupId: id,
+        summary: 'java.lang.IllegalStateException: same class',
+        parentId: 'request-7'
+      })
+    ).toEqual({
+      path: '/exceptions',
+      query: {id, request: 'request-7'},
+      label: 'Open exception details'
+    })
+  })
+
+  it.each([null, undefined, '', '   '])('falls back to a class search for an unusable group id %s', (id) => {
+    expect(
+      deepLink({type: 'EXCEPTION', exceptionGroupId: id, summary: 'java.lang.IllegalStateException: boom'})
+    ).toEqual({
+      path: '/exceptions',
+      query: {q: 'java.lang.IllegalStateException'},
+      label: 'Open in Exceptions'
+    })
+  })
+
   it('links a request entry to HTTP Exchanges filtered by path', () => {
     expect(deepLink({type: 'REQUEST', path: '/users', summary: 'GET /users → 200'})).toEqual({
       path: '/http-exchanges',

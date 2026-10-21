@@ -54,6 +54,7 @@ import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.web.context.reactive.GenericReactiveWebApplicationContext;
 import org.springframework.boot.webflux.autoconfigure.WebFluxProperties;
 import org.springframework.boot.webmvc.autoconfigure.WebMvcProperties;
@@ -75,6 +76,35 @@ import org.springframework.web.context.support.GenericWebApplicationContext;
  * package so it can call the package-private factory methods directly.</p>
  */
 class BootUiEngineConfigurationTests {
+
+    @Test
+    void existingLogTailBufferIsIncludedWithoutCreatingOrInstallingOne() {
+        var beanFactory = new DefaultListableBeanFactory();
+        var previous = io.github.jdubois.bootui.autoconfigure.web.BootUiLogAppender.find();
+        var appender = io.github.jdubois.bootui.autoconfigure.web.BootUiLogAppender.install(
+                new io.github.jdubois.bootui.engine.logtail.LogTailBuffer(10, 1024));
+        try {
+            assertThat(BootUiEngineConfiguration.createdLowFootprintCandidates(beanFactory))
+                    .contains(appender.buffer());
+            assertThat(BootUiEngineConfiguration.createdOffloadables(beanFactory))
+                    .contains(appender.buffer());
+            beanFactory.setBeanClassLoader(new FilteredClassLoader("ch.qos.logback"));
+            assertThat(BootUiEngineConfiguration.createdLowFootprintCandidates(beanFactory))
+                    .isEmpty();
+            assertThat(BootUiEngineConfiguration.createdOffloadables(beanFactory))
+                    .isEmpty();
+        } finally {
+            if (previous == null) {
+                appender.uninstall();
+            }
+        }
+        if (previous == null) {
+            assertThat(BootUiEngineConfiguration.createdLowFootprintCandidates(new DefaultListableBeanFactory()))
+                    .isEmpty();
+            assertThat(io.github.jdubois.bootui.autoconfigure.web.BootUiLogAppender.find())
+                    .isNull();
+        }
+    }
 
     /** M5-11: any agent evidence bean, BootUI's or the application's, is cleared with the journal, once. */
     @Test
@@ -109,6 +139,7 @@ class BootUiEngineConfigurationTests {
     @Test
     void memoryOffloadOnlyReachesSingletonsThatAlreadyExist() {
         DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        beanFactory.setBeanClassLoader(new FilteredClassLoader("ch.qos.logback"));
         JmsActivityRecorder created = new JmsActivityRecorder(true, false, 10, 64);
         beanFactory.registerSingleton("createdRecorder", created);
         beanFactory.registerSingleton("unrelated", "not offloadable");
@@ -126,6 +157,7 @@ class BootUiEngineConfigurationTests {
     @Test
     void memoryOffloadSkipsScopedProxiesSoItNeverCreatesTheirTarget() {
         DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        beanFactory.setBeanClassLoader(new FilteredClassLoader("ch.qos.logback"));
         Object scopedProxy = Proxy.newProxyInstance(
                 getClass().getClassLoader(),
                 new Class<?>[] {MemoryOffloadable.class, ScopedObject.class},
@@ -140,6 +172,7 @@ class BootUiEngineConfigurationTests {
     @Test
     void lowFootprintCandidatesAreTheCreatedSuspendableSingletonsOnly() {
         DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        beanFactory.setBeanClassLoader(new FilteredClassLoader("ch.qos.logback"));
         io.github.jdubois.bootui.spi.LowFootprintSuspendable suspendable =
                 new io.github.jdubois.bootui.spi.LowFootprintSuspendable() {
                     @Override

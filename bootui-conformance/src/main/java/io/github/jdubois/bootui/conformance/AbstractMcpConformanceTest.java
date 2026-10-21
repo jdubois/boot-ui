@@ -82,6 +82,40 @@ public abstract class AbstractMcpConformanceTest {
     private static final String MODERN = "2026-07-28";
 
     @Test
+    void testLowFootprintLifecycleAndPayloadMirrorsInBothProtocolEras() throws Exception {
+        assertThat(enableMcp()).isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            for (boolean modern : List.of(false, true)) {
+                LowFootprintContract.verify((tool, arguments) -> {
+                    Response response = modern
+                            ? modernRequest("tools/call", "1", tool, "\"arguments\":" + arguments)
+                            : probe().request(
+                                            "POST",
+                                            "/bootui/api/mcp",
+                                            Map.of("Content-Type", "application/json"),
+                                            McpCompactAnswerContract.call(tool, arguments));
+                    assertThat(response.status()).isEqualTo(200);
+                    JsonNode result = response.json().path("result");
+                    assertThat(result.path("isError").asBoolean())
+                            .as(response.body())
+                            .isFalse();
+                    try {
+                        JsonNode payload = new ObjectMapper()
+                                .readTree(result.path("content")
+                                        .get(0)
+                                        .path("text")
+                                        .asText());
+                        assertThat(result.path("structuredContent")).isEqualTo(payload);
+                        return payload;
+                    } catch (java.io.IOException ex) {
+                        throw new AssertionError("MCP content must be JSON", ex);
+                    }
+                });
+            }
+        }
+    }
+
+    @Test
     void testMcpAgentSensorSwitchRefusalsAreInBandWithTheirReasons() {
         assertThat(enableMcp()).isTrue();
         try (var cleanup = new ConformanceCleanup(this::disableMcp)) {

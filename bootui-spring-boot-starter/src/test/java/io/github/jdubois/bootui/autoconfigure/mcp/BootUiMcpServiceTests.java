@@ -32,6 +32,27 @@ import tools.jackson.databind.node.ObjectNode;
 class BootUiMcpServiceTests {
 
     @Test
+    void lowFootprintMetadataIsMergedIntoBothPayloadMirrors() {
+        var original = java.util.Map.of("entries", List.of(), "capturing", true, "nativeCount", 23);
+        var carried = new io.github.jdubois.bootui.engine.mcp.McpLowFootprint.Result(
+                original, java.util.Map.of("active", true, "paused", true), true);
+        var codec = advisorService(args -> carried);
+        var reply = codec.handle(advisorRequest("{\"id\":\"rule\",\"scanId\":\"scan\"}"))
+                .path("result");
+        String text = reply.path("content").get(0).path("text").asText();
+        assertThat(reply.path("structuredContent")).isEqualTo(objectMapper.readTree(text));
+        assertThat(reply.path("structuredContent").path("capturing").asBoolean())
+                .isFalse();
+        assertThat(reply.path("structuredContent").path("nativeCount").asInt()).isEqualTo(23);
+        assertThat(reply.path("structuredContent")
+                        .path("lowFootprint")
+                        .path("paused")
+                        .asBoolean())
+                .isTrue();
+        assertThat(reply.path("structuredContent").has("payload")).isFalse();
+    }
+
+    @Test
     void comparisonAdvertisesAnOptionalIdAndAcceptsOmission() {
         AtomicReference<McpArguments> received = new AtomicReference<>();
         BootUiMcpService comparison = new BootUiMcpService(

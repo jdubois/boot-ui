@@ -28,8 +28,11 @@ public record McpToolAnnotations(
         if (!action) {
             return new McpToolAnnotations(true, false, true, false);
         }
-        boolean destructive = name.startsWith("clear_");
-        boolean idempotent = destructive || name.startsWith("pause_") || name.startsWith("resume_");
+        boolean destructive = name.startsWith("clear_") || name.equals("enable_low_footprint");
+        boolean idempotent = destructive
+                || name.startsWith("pause_")
+                || name.startsWith("resume_")
+                || name.equals("disable_low_footprint");
         return new McpToolAnnotations(false, destructive, idempotent, OPEN_WORLD.contains(name));
     }
 }

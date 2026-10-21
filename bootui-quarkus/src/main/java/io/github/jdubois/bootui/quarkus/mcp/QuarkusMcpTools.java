@@ -7,10 +7,12 @@ import io.github.jdubois.bootui.engine.mcp.McpAgentSensorSwitches;
 import io.github.jdubois.bootui.engine.mcp.McpAgentViews;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpControlAcks;
+import io.github.jdubois.bootui.engine.mcp.McpLowFootprint;
 import io.github.jdubois.bootui.engine.mcp.McpScanSummaries;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
+import io.github.jdubois.bootui.engine.memory.LowFootprintService;
 import io.github.jdubois.bootui.engine.memory.MemoryAgentViews;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.web.AiResource;
@@ -158,7 +160,8 @@ public class QuarkusMcpTools {
             CodePathsResource codePaths,
             SideEffectsResource sideEffects,
             HibernateStatisticsResource hibernateStatistics,
-            WebSocketsResource webSockets) {
+            WebSocketsResource webSockets,
+            LowFootprintService lowFootprint) {
         this.availability = availability;
         List<McpTool> registry = new ArrayList<>();
 
@@ -788,7 +791,11 @@ public class QuarkusMcpTools {
                 availability,
                 tool("get_websockets", McpToolDescriptions.quarkus("get_websockets"), args -> webSockets.report()));
 
-        this.tools = List.copyOf(registry);
+        McpLowFootprint.tools(lowFootprint, McpToolCatalog.Stack.QUARKUS)
+                .forEach(tool -> addIfAvailable(registry, availability, tool));
+        this.tools = registry.stream()
+                .map(tool -> McpLowFootprint.decorate(tool, lowFootprint))
+                .toList();
     }
 
     /**

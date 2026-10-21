@@ -56,7 +56,8 @@ final class ArchitectureRuleRegistry {
             new NoDirectThreadInstantiationRule(),
             new AssertionsShouldHaveDetailMessageRule(),
             new StaticInjectionPointsAreIgnoredRule(),
-            new LegacyJavaxInjectionAnnotationsShouldBeMigratedRule());
+            new LegacyJavaxInjectionAnnotationsShouldBeMigratedRule(),
+            new HttpClientsShouldUseBootBuildersRule());
 
     private ArchitectureRuleRegistry() {}
 

@@ -69,7 +69,7 @@ class ReactorThreadLocalsScopesTests {
 
             ReactorThreadLocalsScopes.register();
 
-            assertThat(Schedulers.onSchedule(task)).isSameAs(task);
+            Schedulers.onSchedule(task).run();
             agent.verify(AgentThreadLocals::openUnowned, never());
         }
     }
@@ -83,7 +83,8 @@ class ReactorThreadLocalsScopesTests {
             ReactorThreadLocalsScopes scopes = ReactorThreadLocalsScopes.register();
             scopes.close();
 
-            assertThat(Schedulers.onSchedule(task)).isSameAs(task);
+            Schedulers.onSchedule(task).run();
+            agent.verify(AgentThreadLocals::openUnowned, never());
         }
     }
 }

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.reactive;
 
+import io.github.jdubois.bootui.autoconfigure.mcp.SpringMcpPayloads;
 import io.github.jdubois.bootui.core.dto.CliServerStatus;
 import io.github.jdubois.bootui.engine.cli.CliService;
 import io.github.jdubois.bootui.engine.cli.CliToolResponse;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Reactive WebFlux transport for the command-line endpoint at {@code /bootui/api/cli}.
@@ -27,9 +29,11 @@ import reactor.core.scheduler.Schedulers;
 public class ReactiveBootUiCliController {
 
     private final CliService service;
+    private final ObjectMapper mapper;
 
-    public ReactiveBootUiCliController(CliService service) {
+    public ReactiveBootUiCliController(CliService service, ObjectMapper mapper) {
         this.service = service;
+        this.mapper = mapper;
     }
 
     @GetMapping
@@ -45,7 +49,7 @@ public class ReactiveBootUiCliController {
                     return ResponseEntity.status(response.status().code())
                             .body(
                                     response.successful()
-                                            ? response.payload()
+                                            ? SpringMcpPayloads.render(response.payload(), mapper)
                                             : (Object) Map.of("error", response.error()));
                 })
                 .subscribeOn(Schedulers.boundedElastic());

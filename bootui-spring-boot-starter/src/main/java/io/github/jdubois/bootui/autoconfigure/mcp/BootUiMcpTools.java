@@ -72,10 +72,12 @@ import io.github.jdubois.bootui.engine.mcp.McpAgentSensorSwitches;
 import io.github.jdubois.bootui.engine.mcp.McpAgentViews;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpControlAcks;
+import io.github.jdubois.bootui.engine.mcp.McpLowFootprint;
 import io.github.jdubois.bootui.engine.mcp.McpScanSummaries;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
+import io.github.jdubois.bootui.engine.memory.LowFootprintService;
 import io.github.jdubois.bootui.engine.memory.MemoryAgentViews;
 import java.util.ArrayList;
 import java.util.List;
@@ -614,7 +616,8 @@ public class BootUiMcpTools {
             ObjectProvider<CopilotController> copilot,
             ObjectProvider<ClaudeCodeController> claudeCode,
             ObjectProvider<HibernateStatisticsController> hibernateStatistics,
-            ObjectProvider<WebSocketController> webSockets) {
+            ObjectProvider<WebSocketController> webSockets,
+            ObjectProvider<LowFootprintService> lowFootprint) {
         List<McpTool> registry = new ArrayList<>(tools);
 
         MetricsController metricsBean = metrics.getIfAvailable();
@@ -809,7 +812,15 @@ public class BootUiMcpTools {
         }
 
         this.panelsController = panels.getIfAvailable();
-        this.tools = List.copyOf(registry);
+        LowFootprintService footprint = lowFootprint.getIfAvailable();
+        if (footprint != null) {
+            registry.addAll(McpLowFootprint.tools(footprint, McpToolCatalog.Stack.SPRING_MVC));
+        }
+        this.tools = footprint == null
+                ? List.copyOf(registry)
+                : registry.stream()
+                        .map(tool -> McpLowFootprint.decorate(tool, footprint))
+                        .toList();
     }
 
     /** Test/extensibility hook that builds the registry from an explicit tool list. */

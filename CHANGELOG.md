@@ -7,9 +7,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Low-footprint MCP and CLI controls** pause and resume BootUI recording, with explicit paused-evidence
+  notices in affected diagnostic results ([#1479](https://github.com/jdubois/boot-ui/issues/1479)).
+- **`ARCH-SPRING-025` (LOW)** flags `RestClient.builder(..)`/`create(..)` and `WebClient.builder()`/`create(..)` when
+  Spring Boot's auto-configured builder is available, since those clients skip metrics, tracing, and shared
+  customizers ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-025---http-clients-should-be-built-from-spring-boots-auto-configured-builder); #1500).
+
 ### Changed
 
-- **Paused panels can resume low-footprint mode** with an in-banner action, and explain when capture is paused (#1478).
+- **Paused panels can turn low-footprint mode off** from their banner, and AI Framework now shows that banner too
+  ([#1478](https://github.com/jdubois/boot-ui/pull/1478)).
+
+### Fixed
+
+- **Exact exception navigation** links failed request profiles and activity rows to their exception group's stack
+  trace and causes, with a return path to the request ([#1477](https://github.com/jdubois/boot-ui/issues/1477)).
 
 ## [2.1.0] - 2026-10-14
 

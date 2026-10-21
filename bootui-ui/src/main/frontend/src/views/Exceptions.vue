@@ -1,6 +1,6 @@
 <script setup>
-import {apiFetch, getJson} from '../api.js'
-import {computed, onMounted, ref} from 'vue'
+import {ApiError, apiFetch, getJson} from '../api.js'
+import {computed, inject, nextTick, onBeforeUnmount, ref, watch} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatClockTime, formatRelative, formatNumber, shortName} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
@@ -20,7 +20,10 @@ import {exceptionMarkdown, loadExceptionCorrelation} from '../utils/markdownExpo
 import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
-const {readOnly, readOnlyReason} = usePanelState(props)
+const {readOnly, readOnlyReason, manifestAvailable, manifestUnavailableReason} = usePanelState(props)
+const panels = inject('panels', null)
+const manifestReady = computed(() => panels === null || panels.value !== null)
+const canLoad = computed(() => manifestReady.value && manifestAvailable.value)
 const {confirm} = useConfirm()
 
 const report = ref(null)
@@ -34,6 +37,10 @@ const statusFilter = ref('all')
 const appOnly = ref(false)
 const selectedId = ref(null)
 const detailLoading = ref(false)
+const detailError = ref(null)
+const drawer = ref(null)
+let detailVersion = 0
+let attemptedLink = null
 const busy = ref(false)
 // The "Copy for AI" preview of the open detail, or null while the detail itself is shown.
 const aiExport = ref(null)
@@ -62,16 +69,31 @@ async function fetchExceptions() {
 }
 
 async function openException(id) {
+  const version = ++detailVersion
   selectedId.value = id
   detail.value = null
+  detailError.value = null
   aiExport.value = null
   detailLoading.value = true
   try {
-    detail.value = await getJson(`api/exceptions/${encodeURIComponent(id)}`)
+    const loaded = await getJson(`api/exceptions/${encodeURIComponent(id)}`)
+    if (version !== detailVersion) return
+    if (loaded?.group?.id !== id) {
+      throw new Error('The requested exception group is unavailable.')
+    }
+    detail.value = loaded
   } catch (e) {
-    show(formatLoadError(e, 'Could not load exception detail'), 'danger')
+    if (version !== detailVersion) return
+    detailError.value =
+      e instanceof ApiError && e.status === 404
+        ? 'This exception group is no longer retained. It may have been cleared or evicted.'
+        : formatLoadError(e, 'Exception details unavailable')
   } finally {
-    detailLoading.value = false
+    if (version === detailVersion) {
+      detailLoading.value = false
+      await nextTick()
+      drawer.value?.[0]?.focus()
+    }
   }
 }
 
@@ -84,8 +106,11 @@ function toggleException(id) {
 }
 
 function closeDrawer() {
+  detailVersion++
+  detailLoading.value = false
   selectedId.value = null
   detail.value = null
+  detailError.value = null
   aiExport.value = null
 }
 
@@ -246,15 +271,57 @@ function requestLabel(item) {
 
 const {autoRefresh, loading, load, retryConnection, connectionState} = useEventStreamRefresh(
   'api/exceptions/stream',
-  fetchExceptions
+  fetchExceptions,
+  {enabled: canLoad, initialLoading: canLoad.value}
 )
 
 const route = useRoute()
-onMounted(() => {
-  const prefill = route?.query?.q
-  if (typeof prefill === 'string' && prefill) {
-    filter.value = prefill
-  }
+const linkedId = computed(() => {
+  const id = route?.query?.id
+  return typeof id === 'string' && id.trim() ? id : null
+})
+const originatingRequest = computed(() => {
+  const request = route?.query?.request
+  return typeof request === 'string' && request.trim() ? request : null
+})
+
+watch(
+  () => route?.query,
+  () => {
+    attemptedLink = null
+    closeDrawer()
+    filter.value = linkedId.value ? '' : typeof route?.query?.q === 'string' ? route.query.q : ''
+    sourceFilter.value = 'all'
+    statusFilter.value = 'all'
+    appOnly.value = false
+  },
+  {immediate: true}
+)
+
+watch(
+  [linkedId, report, canLoad],
+  () => {
+    if (!manifestReady.value) return
+    if (!manifestAvailable.value || report.value?.available === false) {
+      closeDrawer()
+      return
+    }
+    if (selectedId.value && report.value && !report.value.groups?.some((g) => g.id === selectedId.value)) {
+      closeDrawer()
+      detailError.value = 'This exception group is no longer retained. It may have been cleared or evicted.'
+    }
+    if (!linkedId.value || !report.value || attemptedLink === linkedId.value) return
+    attemptedLink = linkedId.value
+    if (report.value.groups?.some((g) => g.id === linkedId.value)) {
+      openException(linkedId.value)
+    } else {
+      detailError.value = 'This exception group is no longer retained. It may have been cleared or evicted.'
+    }
+  },
+  {immediate: true}
+)
+onBeforeUnmount(() => {
+  detailVersion++
 })
 </script>
 
@@ -287,9 +354,28 @@ onMounted(() => {
 
     <FlashBanner :message="banner" @dismiss="clear" />
 
-    <PanelSkeleton v-if="loading && !report" />
+    <div v-if="originatingRequest" class="mb-3 small">
+      <router-link
+        :to="{path: '/activity', query: {request: originatingRequest}}"
+        class="btn btn-sm btn-outline-secondary"
+      >
+        <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Back to request profile
+      </router-link>
+      <span class="text-muted ms-2"
+        >Request <code>{{ originatingRequest }}</code></span
+      >
+    </div>
+    <div v-if="linkedId" class="small text-muted mb-3">
+      Exception group <code>{{ linkedId }}</code>
+    </div>
+    <div v-if="!manifestAvailable" class="alert alert-info" role="status">
+      Exception details unavailable. {{ manifestUnavailableReason }}
+    </div>
+    <div v-else-if="detailError && !selectedId" class="alert alert-warning" role="status">{{ detailError }}</div>
 
-    <template v-else-if="report">
+    <PanelSkeleton v-if="!manifestReady || (loading && !report)" />
+
+    <template v-else-if="report && manifestAvailable">
       <div v-if="!report.available" class="alert alert-info small">
         Exception capture is disabled.
         <span v-if="report.unavailableReason">{{ report.unavailableReason }}.</span>
@@ -433,7 +519,13 @@ onMounted(() => {
                   </tr>
                   <tr v-if="g.id === selectedId" class="exception-detail-row">
                     <td class="p-0" colspan="6">
-                      <div class="exception-drawer card m-2">
+                      <div
+                        ref="drawer"
+                        class="exception-drawer card m-2"
+                        tabindex="-1"
+                        role="region"
+                        aria-label="Exception details"
+                      >
                         <div class="card-header d-flex justify-content-between align-items-center">
                           <div class="text-truncate">
                             <i class="bi bi-exclamation-octagon me-2"></i>
@@ -458,6 +550,7 @@ onMounted(() => {
                         </div>
                         <div class="card-body">
                           <div v-if="detailLoading" class="text-muted small">Loading detail…</div>
+                          <div v-else-if="detailError" class="alert alert-warning" role="status">{{ detailError }}</div>
                           <AiExportPreview
                             v-else-if="detail && aiExport"
                             :error="aiExport.error"
@@ -547,6 +640,7 @@ onMounted(() => {
 <style scoped>
 .exception-drawer {
   border: 1px solid var(--bootui-border);
+  contain: inline-size;
 }
 
 .exception-message {

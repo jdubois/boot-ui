@@ -148,6 +148,11 @@ is open. Opening a profile only reads evidence BootUI already captured. It captu
 service, and changes no state. Open Live Activity with `?request=<exchange id>`, as each HTTP Exchanges row's
 **Profile** link does, to open a request's profile directly.
 
+An exception's type in the profile links to its **exact exception group**, opening the stack trace and cause chain.
+The EXCEPTION feed row uses the same group link. **Back to request profile** preserves the originating request ID.
+Older entries without a group ID open a class-name search instead; BootUI never guesses a group. Cleared, evicted,
+or policy-disabled groups show an explicit unavailable state.
+
 Identical repeated `SELECT`s above `bootui.activity.n-plus-one-threshold` are flagged as a potential N+1. Each flagged
 group lists the call sites in your own code that issued it (class, method, and line, from
 `bootui.sql-trace.capture-call-site`, on by default), so you know which method to fix.

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.cli;
 
+import io.github.jdubois.bootui.autoconfigure.mcp.SpringMcpPayloads;
 import io.github.jdubois.bootui.core.dto.CliServerStatus;
 import io.github.jdubois.bootui.engine.cli.CliService;
 import io.github.jdubois.bootui.engine.cli.CliToolResponse;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The command-line endpoint at {@code /bootui/api/cli}: the same tool registry the MCP server exposes,
@@ -31,9 +33,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class BootUiCliController {
 
     private final CliService service;
+    private final ObjectMapper mapper;
 
-    public BootUiCliController(CliService service) {
+    public BootUiCliController(CliService service, ObjectMapper mapper) {
         this.service = service;
+        this.mapper = mapper;
     }
 
     @GetMapping
@@ -51,6 +55,9 @@ public class BootUiCliController {
             @PathVariable String name, @RequestBody(required = false) Map<String, Object> arguments) {
         CliToolResponse response = service.invoke(name, arguments);
         return ResponseEntity.status(response.status().code())
-                .body(response.successful() ? response.payload() : Map.of("error", response.error()));
+                .body(
+                        response.successful()
+                                ? SpringMcpPayloads.render(response.payload(), mapper)
+                                : Map.of("error", response.error()));
     }
 }

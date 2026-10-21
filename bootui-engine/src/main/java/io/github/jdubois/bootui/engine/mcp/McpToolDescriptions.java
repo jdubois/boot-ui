@@ -605,7 +605,7 @@ public final class McpToolDescriptions {
     private McpToolDescriptions() {}
 
     public static String spring(String name) {
-        return springDescription(name) + advisorGuidance(name, false) + compactAnswer(name);
+        return springDescription(name) + advisorGuidance(name, false) + compactAnswer(name) + footprintGuidance(name);
     }
 
     private static String springDescription(String name) {
@@ -689,7 +689,7 @@ public final class McpToolDescriptions {
     }
 
     public static String quarkus(String name) {
-        return quarkusDescription(name) + advisorGuidance(name, true) + compactAnswer(name);
+        return quarkusDescription(name) + advisorGuidance(name, true) + compactAnswer(name) + footprintGuidance(name);
     }
 
     private static String quarkusDescription(String name) {
@@ -724,6 +724,21 @@ public final class McpToolDescriptions {
     }
 
     private static String common(String name) {
+        if (name.equals("get_low_footprint")) {
+            return "Read low-footprint mode without changing recording: active, sinceEpochMillis, agentAttached, "
+                    + "components with suspension outcomes, and warnings. The Java agent is not paused.";
+        }
+        if (name.equals("enable_low_footprint")) {
+            return "Enable low-footprint mode: pause BootUI recording, irreversibly discard buffered diagnostics, "
+                    + "and request GC (a hint the JVM may ignore). Ask for approval first. Idempotent: enabling "
+                    + "again does not clear or request GC again. Returns a compact acknowledgement with offload "
+                    + "totals and failures; get_low_footprint lists component outcomes. The Java agent keeps running.";
+        }
+        if (name.equals("disable_low_footprint")) {
+            return "Disable low-footprint mode and release its recording hold. Cleared data cannot be recovered; "
+                    + "individually paused recorders stay paused. Ask for approval first. Idempotent. Returns a compact acknowledgement "
+                    + "with state and warnings; get_low_footprint lists component outcomes.";
+        }
         if (McpToolCatalog.byName(name)
                 .map(entry -> entry.schema() == McpToolSchema.RULE_VIOLATIONS)
                 .orElse(false)) {
@@ -746,6 +761,16 @@ public final class McpToolDescriptions {
             throw new IllegalArgumentException("Missing MCP tool description: " + name);
         }
         return description;
+    }
+
+    private static String footprintGuidance(String name) {
+        if (name.startsWith("resume_") || name.equals("start_method_probe")) {
+            return " Refused while low-footprint mode is active; call disable_low_footprint first with approval.";
+        }
+        return McpLowFootprint.affected(name)
+                ? " While relevant capture is held, lowFootprint identifies paused or partially paused evidence, "
+                        + "not a quiet application; native statistics and Java-agent instrumentation may still run."
+                : "";
     }
 
     /** What every active advisor scan answers with instead of its report (see {@link McpScanSummaries}). */

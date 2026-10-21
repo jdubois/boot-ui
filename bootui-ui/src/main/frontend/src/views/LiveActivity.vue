@@ -614,6 +614,15 @@ function entryLink(entry) {
   return deepLink(entry)
 }
 
+function profileExceptionLink(exception) {
+  return deepLink({
+    type: 'EXCEPTION',
+    summary: exception.exceptionClassName,
+    exceptionGroupId: exception.exceptionGroupId,
+    parentId: profileRequestId.value
+  })
+}
+
 function onRowClick(entry, event) {
   if (entry.profileable) {
     openProfile(entry, event.currentTarget instanceof HTMLElement ? event.currentTarget : null)
@@ -1666,12 +1675,22 @@ function toggleFlow() {
                 {{ sections.EXCEPTION.unavailableReason }}
               </p>
               <div v-for="(ex, index) in profile.exceptions" :key="index" class="small mb-1">
-                <code>{{ ex.exceptionClassName }}</code>
+                <router-link
+                  v-if="profileExceptionLink(ex)"
+                  :to="profileExceptionLink(ex)"
+                  class="btn btn-outline-secondary btn-sm align-baseline"
+                  :title="profileExceptionLink(ex).label"
+                  ><code>{{ ex.exceptionClassName }}</code></router-link
+                >
+                <code v-else>{{ ex.exceptionClassName }}</code>
                 <span v-if="ex.message" class="text-muted">: {{ ex.message }}</span>
                 <span v-if="childTierLabel(sections.EXCEPTION, index)" class="text-muted activity-child-tier">
                   · {{ childTierLabel(sections.EXCEPTION, index) }}</span
                 >
                 <span v-if="ex.location" class="d-block text-muted">{{ ex.location }}</span>
+                <span v-if="profileExceptionLink(ex) && !ex.exceptionGroupId?.trim()" class="d-block text-muted">
+                  Group ID unavailable; opens a class-name search.
+                </span>
               </div>
               <p v-if="sections.EXCEPTION?.truncationText" class="text-muted small mb-0">
                 {{ sections.EXCEPTION.truncationText }}

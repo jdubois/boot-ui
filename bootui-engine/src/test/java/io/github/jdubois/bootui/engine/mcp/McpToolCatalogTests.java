@@ -13,10 +13,10 @@ class McpToolCatalogTests {
 
     @Test
     void advertisesTheFullToolSurfacePerStack() {
-        assertThat(McpToolCatalog.entries()).hasSize(105);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(105);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(104);
-        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(89);
+        assertThat(McpToolCatalog.entries()).hasSize(108);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(108);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(107);
+        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(92);
     }
 
     @Test

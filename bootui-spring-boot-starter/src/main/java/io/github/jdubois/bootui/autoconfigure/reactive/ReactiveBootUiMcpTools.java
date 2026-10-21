@@ -60,10 +60,12 @@ import io.github.jdubois.bootui.engine.mcp.McpAgentSensorSwitches;
 import io.github.jdubois.bootui.engine.mcp.McpAgentViews;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpControlAcks;
+import io.github.jdubois.bootui.engine.mcp.McpLowFootprint;
 import io.github.jdubois.bootui.engine.mcp.McpScanSummaries;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
 import io.github.jdubois.bootui.engine.mcp.McpToolDescriptions;
+import io.github.jdubois.bootui.engine.memory.LowFootprintService;
 import io.github.jdubois.bootui.engine.memory.MemoryAgentViews;
 import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityAdvisorService;
 import java.util.ArrayList;
@@ -584,7 +586,8 @@ public class ReactiveBootUiMcpTools {
             ObjectProvider<ReactiveCopilotController> copilot,
             ObjectProvider<ReactiveClaudeCodeController> claudeCode,
             ObjectProvider<HibernateStatisticsController> hibernateStatistics,
-            ObjectProvider<ReactiveWebSocketController> webSockets) {
+            ObjectProvider<ReactiveWebSocketController> webSockets,
+            ObjectProvider<LowFootprintService> lowFootprint) {
         List<McpTool> registry = new ArrayList<>(tools);
 
         ReactiveSecurityController securityBean = security.getIfAvailable();
@@ -779,7 +782,15 @@ public class ReactiveBootUiMcpTools {
         }
 
         this.panelsController = panels.getIfAvailable();
-        this.tools = List.copyOf(registry);
+        LowFootprintService footprint = lowFootprint.getIfAvailable();
+        if (footprint != null) {
+            registry.addAll(McpLowFootprint.tools(footprint, McpToolCatalog.Stack.SPRING_WEBFLUX));
+        }
+        this.tools = footprint == null
+                ? List.copyOf(registry)
+                : registry.stream()
+                        .map(tool -> McpLowFootprint.decorate(tool, footprint))
+                        .toList();
     }
 
     ReactiveBootUiMcpTools(List<McpTool> tools) {

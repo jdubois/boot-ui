@@ -589,6 +589,38 @@ class McpDispatcherTests {
     }
 
     @Test
+    void lowFootprintUsesLiveMemoryPolicyForAllControlsWithoutInvokingRefusedActions() {
+        var service = org.mockito.Mockito.mock(io.github.jdubois.bootui.engine.memory.LowFootprintService.class);
+        var status = new io.github.jdubois.bootui.core.dto.LowFootprintStatus(
+                false, null, false, List.of(), List.of(), null);
+        org.mockito.Mockito.when(service.status()).thenReturn(status);
+        McpDispatcher dispatcher = new McpDispatcher(
+                McpLowFootprint.tools(service, McpToolCatalog.Stack.SPRING_MVC),
+                List.of(),
+                policy,
+                "1.0",
+                "",
+                50,
+                20,
+                diagnostics);
+        policy.readOnly.add("live-memory");
+        assertThat(dispatcher.dispatch(call("get_low_footprint"))).isEqualTo(new ToolCallResult(status));
+        for (String tool : List.of("enable_low_footprint", "disable_low_footprint")) {
+            assertThat(dispatcher.dispatch(call(tool)))
+                    .isEqualTo(new ToolCallError(
+                            "read-only:live-memory", McpDispatchOutcome.ToolErrorReason.PANEL_READ_ONLY));
+        }
+        policy.disabled.add("live-memory");
+        for (String tool : List.of("get_low_footprint", "enable_low_footprint", "disable_low_footprint")) {
+            assertThat(dispatcher.dispatch(call(tool)))
+                    .isEqualTo(new ToolCallError(
+                            "disabled:live-memory", McpDispatchOutcome.ToolErrorReason.PANEL_DISABLED));
+        }
+        org.mockito.Mockito.verify(service, org.mockito.Mockito.never()).enable();
+        org.mockito.Mockito.verify(service, org.mockito.Mockito.never()).disable();
+    }
+
+    @Test
     void readOnlyActionToolIsInBandError() {
         policy.readOnly.add("architecture");
 

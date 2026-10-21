@@ -169,7 +169,7 @@ those fields so the same UI build renders the correct sidebar and status on each
 > Pentesting, a Quarkus-native Security advisor, REST API, Memory) and the §5.3 capture panels (HTTP Exchanges, Live
 > Activity, Log Tail, SQL Trace, REST Client, Exceptions, Security Logs, Email, Kafka, RabbitMQ).
 > **Action-capable panels behave identically to Spring**, behind the shared `LocalhostGuard` write floor: Heap Dump
-> (capture/analyze/delete/download), Live Memory (free BootUI memory), Threads (download), the advisor scans, Loggers (set level), HTTP Probe, Cache
+> (capture/analyze/delete/download), Live Memory (free BootUI memory; low-footprint mode through browser, MCP, CLI), Threads (download), the advisor scans, Loggers (set level), HTTP Probe, Cache
 > (clear), Flyway (migrate/clean), Liquibase (update), Traces (clear), Email (clear), Kafka (clear), RabbitMQ (clear),
 > REST Client Reactive (clear + recording toggle), and the MCP Server toggle. Nine panels — **GraalVM**, **CRaC**,
 > **Conditions**, **Startup Timeline**, **HTTP Sessions**, **Spring Data**, **Spring Security**, **Spring DevTools**, and
@@ -262,7 +262,7 @@ panel and is not claimed beyond the native-image tests that exercise that capabi
 producer builds the shared engine `CliService` over the same `QuarkusMcpTools` registry and `QuarkusMcpPanelPolicy`, and
 a thin JAX-RS resource maps the outcome onto HTTP status codes. It is enabled by default (`bootui.cli.enabled`), needs
 no MCP toggle, and is pinned to the Spring stacks by the shared CLI conformance suite. Before runtime availability
-filtering, the registries declare 105 tools on Spring MVC, 104 on WebFlux, and 89 on Quarkus. Quarkus includes
+filtering, the registries declare 108 tools on Spring MVC, 107 on WebFlux, and 92 on Quarkus. Quarkus includes
 `enable_agent_sensor` and `disable_agent_sensor`
 (`bootui agent sensor enable|disable <id>`). These bounded actions require user approval and use the Java Agent panel's
 enabled/read-only policy and the same engine switch as REST. A running application advertises only those tools whose

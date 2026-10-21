@@ -248,7 +248,14 @@ public final class BootUiHttpProbe {
 
     private Response send(HttpRequest request) {
         try {
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response;
+            try {
+                response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            } catch (IOException ex) {
+                // A server that refuses a request without draining its body may reset the kept-alive connection
+                // (seen on Windows); the probe retries once on a fresh connection.
+                response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            }
             return response(response, response.body());
         } catch (IOException ex) {
             throw new IllegalStateException("HTTP request failed: " + request.uri(), ex);

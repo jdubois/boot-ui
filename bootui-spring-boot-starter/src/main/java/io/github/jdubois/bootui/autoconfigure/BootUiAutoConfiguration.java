@@ -643,8 +643,8 @@ public class BootUiAutoConfiguration {
 
         @Bean
         @Lazy
-        BootUiCliController bootUiCliController(CliService service) {
-            return new BootUiCliController(service);
+        BootUiCliController bootUiCliController(CliService service, ObjectProvider<ObjectMapper> objectMapper) {
+            return new BootUiCliController(service, objectMapper.getIfAvailable(ObjectMapper::new));
         }
     }
 
