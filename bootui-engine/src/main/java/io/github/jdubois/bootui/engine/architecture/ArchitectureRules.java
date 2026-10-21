@@ -14,6 +14,7 @@ import com.tngtech.archunit.core.domain.AccessTarget.MethodCallTarget;
 import com.tngtech.archunit.core.domain.Dependency;
 import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaCodeUnit;
 import com.tngtech.archunit.core.domain.JavaConstructor;
 import com.tngtech.archunit.core.domain.JavaConstructorCall;
@@ -2688,5 +2689,121 @@ final class LegacyJavaxInjectionAnnotationsShouldBeMigratedRule extends Abstract
                     }
                 })
                 .as("Legacy javax injection and lifecycle annotations should be migrated");
+    }
+}
+
+/**
+ * Flags HTTP clients built from Spring Framework's static factories, {@code RestClient.builder(..)} /
+ * {@code RestClient.create(..)} and {@code WebClient.builder()} / {@code WebClient.create(..)}, while Spring Boot's
+ * auto-configured builder is available.
+ *
+ * <p>Spring Boot exposes prototype {@code RestClient.Builder} and {@code WebClient.Builder} beans that carry the
+ * context's message converters or codecs, the {@code ObservationRegistry} ({@code http.client.requests} metrics and
+ * trace propagation), and every {@code RestClientCustomizer} / {@code WebClientCustomizer}. A client built from the
+ * static factory works but skips all of that, including BootUI's own REST client trace interceptor.</p>
+ *
+ * <p>Each client family is checked only when its Spring Boot module ({@code spring-boot-restclient} or
+ * {@code spring-boot-webclient}) is on the classpath, since without it there is no auto-configured builder to inject.
+ * Classes positively identified as generated, such as an OpenAPI Generator {@code ApiClient} whose default
+ * constructor calls {@code RestClient.builder()}, are not reported. {@code new RestTemplate(..)} is deliberately out
+ * of scope: some APIs still require a {@code RestOperations}, and SPRING-WIRING-007 already reviews RestTemplate.</p>
+ */
+final class HttpClientsShouldUseBootBuildersRule extends AbstractArchitectureRule {
+
+    static final String REST_CLIENT = "org.springframework.web.client.RestClient";
+    static final String WEB_CLIENT = "org.springframework.web.reactive.function.client.WebClient";
+    static final String REST_CLIENT_MODULE_MARKER = "org.springframework.boot.restclient.RestClientCustomizer";
+    static final String WEB_CLIENT_MODULE_MARKER = "org.springframework.boot.webclient.WebClientCustomizer";
+
+    private static final Set<String> FACTORY_METHODS = Set.of("builder", "create");
+
+    private final java.util.function.Predicate<String> classPresent;
+
+    HttpClientsShouldUseBootBuildersRule() {
+        this(HttpClientsShouldUseBootBuildersRule::isClassPresent);
+    }
+
+    HttpClientsShouldUseBootBuildersRule(java.util.function.Predicate<String> classPresent) {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-SPRING-025",
+                "HTTP clients should be built from Spring Boot's auto-configured builder",
+                ArchitectureCategory.SPRING_STEREOTYPES,
+                "LOW",
+                "Detects calls to RestClient.builder(..), RestClient.create(..), WebClient.builder(), or"
+                        + " WebClient.create(..) when Spring Boot's matching builder is available. Clients built"
+                        + " this way skip the context's message converters, the ObservationRegistry"
+                        + " (http.client.requests metrics and trace propagation), and every RestClientCustomizer"
+                        + " or WebClientCustomizer, so their calls are invisible to metrics, traces, and BootUI.",
+                "Inject Spring Boot's RestClient.Builder or WebClient.Builder and build from it. The builder bean"
+                        + " is a prototype; call clone() before building several clients from one instance. To"
+                        + " start from Boot's defaults on a fresh builder, use RestClientBuilderConfigurer.",
+                "https://docs.spring.io/spring-boot/reference/io/rest-client.html"));
+        this.classPresent = classPresent;
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        if (context.platform() != ArchitecturePlatform.SPRING) {
+            return null;
+        }
+        Set<String> owners = new HashSet<>();
+        if (classPresent.test(REST_CLIENT_MODULE_MARKER)) owners.add(REST_CLIENT);
+        if (classPresent.test(WEB_CLIENT_MODULE_MARKER)) owners.add(WEB_CLIENT);
+        if (owners.isEmpty()) {
+            return null;
+        }
+        JavaClasses handwritten = context.codingClasses();
+        DescribedPredicate<JavaClass> handwrittenClasses =
+                new DescribedPredicate<>("are not positively identified as generated") {
+                    @Override
+                    public boolean test(JavaClass type) {
+                        return handwritten.contain(type.getName());
+                    }
+                };
+        return classes()
+                .that(observed(handwrittenClasses, context))
+                .should(new ArchCondition<JavaClass>("not build HTTP clients from static factories") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        for (JavaMethodCall call : javaClass.getMethodCallsFromSelf()) {
+                            report(call, call.getTarget(), events);
+                        }
+                        for (JavaMethodReference reference : javaClass.getMethodReferencesFromSelf()) {
+                            report(reference, reference.getTarget(), events);
+                        }
+                    }
+
+                    private void report(
+                            com.tngtech.archunit.core.domain.JavaCodeUnitAccess<?> access,
+                            CodeUnitAccessTarget target,
+                            ConditionEvents events) {
+                        String owner = target.getOwner().getName();
+                        if (!owners.contains(owner) || !FACTORY_METHODS.contains(target.getName())) return;
+                        String client = owner.substring(owner.lastIndexOf('.') + 1);
+                        events.add(SimpleConditionEvent.violated(
+                                access,
+                                access.getOrigin().getFullName() + " builds a " + client + " with " + client + "."
+                                        + target.getName() + "(..) instead of Spring Boot's auto-configured " + client
+                                        + ".Builder " + access.getSourceCodeLocation()));
+                    }
+                })
+                .as("HTTP clients should be built from Spring Boot's auto-configured builder");
+    }
+
+    private static boolean isClassPresent(String name) {
+        ClassLoader[] loaders = {
+            HttpClientsShouldUseBootBuildersRule.class.getClassLoader(),
+            Thread.currentThread().getContextClassLoader()
+        };
+        for (ClassLoader loader : loaders) {
+            if (loader == null) continue;
+            try {
+                Class.forName(name, false, loader);
+                return true;
+            } catch (ClassNotFoundException | LinkageError ex) {
+                // Absent from this loader; try the next one.
+            }
+        }
+        return false;
     }
 }
