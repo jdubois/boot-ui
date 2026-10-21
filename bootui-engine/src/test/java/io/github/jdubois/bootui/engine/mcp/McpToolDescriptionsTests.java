@@ -10,6 +10,21 @@ import org.junit.jupiter.api.Test;
 class McpToolDescriptionsTests {
 
     @Test
+    void lowFootprintControlsAndAffectedReadsExplainApprovalAndPartialEvidenceOnEveryStack() {
+        for (Function<String, String> provider :
+                List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+            assertThat(provider.apply("get_low_footprint")).contains("without changing recording", "Java agent");
+            assertThat(provider.apply("enable_low_footprint")).contains("irreversibly", "approval", "Idempotent", "GC");
+            assertThat(provider.apply("disable_low_footprint"))
+                    .contains("approval", "individually paused", "Idempotent");
+            assertThat(provider.apply("get_side_effects")).contains("lowFootprint", "partially paused");
+            assertThat(provider.apply("get_live_memory")).doesNotContain("partially paused");
+            assertThat(provider.apply("get_method_probe")).doesNotContain("partially paused");
+            assertThat(provider.apply("start_method_probe")).contains("Refused", "disable_low_footprint");
+        }
+    }
+
+    @Test
     void agentStatusWarnsAboutSharedTasksAfterExecutorOverflowOnEveryStack() {
         for (Function<String, String> provider :
                 List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {

@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Low-footprint MCP and CLI controls** pause and resume BootUI recording, with explicit paused-evidence
+  notices in affected diagnostic results ([#1479](https://github.com/jdubois/boot-ui/issues/1479)).
+
 ## [2.1.0] - 2026-10-14
 
 This release redesigns the trace waterfall and request timeline, adds a low-footprint mode that pauses BootUI's

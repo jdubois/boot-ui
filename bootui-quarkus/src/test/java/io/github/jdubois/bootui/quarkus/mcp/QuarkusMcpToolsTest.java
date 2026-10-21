@@ -319,7 +319,8 @@ class QuarkusMcpToolsTest {
                         mock(CodePathsResource.class),
                         mock(SideEffectsResource.class),
                         mock(HibernateStatisticsResource.class),
-                        mock(WebSocketsResource.class))
+                        mock(WebSocketsResource.class),
+                        mock(io.github.jdubois.bootui.engine.memory.LowFootprintService.class))
                 .tools();
     }
 

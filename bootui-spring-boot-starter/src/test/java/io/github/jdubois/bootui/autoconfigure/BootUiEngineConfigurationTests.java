@@ -76,6 +76,36 @@ import org.springframework.web.context.support.GenericWebApplicationContext;
  */
 class BootUiEngineConfigurationTests {
 
+    @Test
+    void existingLogTailBufferIsIncludedWithoutCreatingOrInstallingOne() {
+        var beanFactory = new DefaultListableBeanFactory();
+        var previous = io.github.jdubois.bootui.autoconfigure.web.BootUiLogAppender.find();
+        var appender = io.github.jdubois.bootui.autoconfigure.web.BootUiLogAppender.install(
+                new io.github.jdubois.bootui.engine.logtail.LogTailBuffer(10, 1024));
+        try {
+            assertThat(BootUiEngineConfiguration.createdLowFootprintCandidates(beanFactory))
+                    .contains(appender.buffer());
+            assertThat(BootUiEngineConfiguration.createdOffloadables(beanFactory))
+                    .contains(appender.buffer());
+            beanFactory.setBeanClassLoader(
+                    new org.springframework.boot.test.context.FilteredClassLoader("ch.qos.logback"));
+            assertThat(BootUiEngineConfiguration.createdLowFootprintCandidates(beanFactory))
+                    .isEmpty();
+            assertThat(BootUiEngineConfiguration.createdOffloadables(beanFactory))
+                    .isEmpty();
+        } finally {
+            if (previous == null) {
+                appender.uninstall();
+            }
+        }
+        if (previous == null) {
+            assertThat(BootUiEngineConfiguration.createdLowFootprintCandidates(new DefaultListableBeanFactory()))
+                    .isEmpty();
+            assertThat(io.github.jdubois.bootui.autoconfigure.web.BootUiLogAppender.find())
+                    .isNull();
+        }
+    }
+
     /** M5-11: any agent evidence bean, BootUI's or the application's, is cleared with the journal, once. */
     @Test
     void theAgentEvidenceListensToTheJournalOnceWhoeverSuppliedIt() {

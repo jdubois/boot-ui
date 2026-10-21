@@ -32,6 +32,13 @@ final class TextRenderer {
 
     String render(JsonValue value) {
         StringBuilder out = new StringBuilder();
+        if (value.get("lowFootprint").get("paused").asBoolean(false)) {
+            out.append(bold("PAUSED by low-footprint mode"))
+                    .append(" - buffered evidence is incomplete; bootui low-footprint disable resumes recording.\n");
+        } else if (value.get("lowFootprint").get("active").asBoolean(false)) {
+            out.append(bold("Low-footprint mode active"))
+                    .append(" - relevant capture is not known to be paused; inspect lowFootprint warnings.\n");
+        }
         if (value.isObject()) {
             renderObject(value, out, 0);
         } else if (value.isArray()) {

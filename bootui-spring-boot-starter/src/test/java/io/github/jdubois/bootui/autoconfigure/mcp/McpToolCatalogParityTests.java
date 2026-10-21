@@ -39,6 +39,25 @@ import org.junit.jupiter.api.Test;
 class McpToolCatalogParityTests {
 
     @Test
+    void adapterSuspendablesHaveAnExplicitMetadataClassification() {
+        var classes = new com.tngtech.archunit.core.importer.ClassFileImporter()
+                .withImportOption(com.tngtech.archunit.core.importer.ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("io.github.jdubois.bootui.autoconfigure");
+        for (var type : classes) {
+            if (type.isInterface()
+                    || type.getModifiers().contains(com.tngtech.archunit.core.domain.JavaModifier.ABSTRACT)
+                    || !type.isAssignableTo(io.github.jdubois.bootui.spi.LowFootprintSuspendable.class)) {
+                continue;
+            }
+            var part = (io.github.jdubois.bootui.spi.LowFootprintSuspendable)
+                    mock(type.reflect(), org.mockito.Answers.CALLS_REAL_METHODS);
+            assertThat(io.github.jdubois.bootui.engine.mcp.McpLowFootprint.classifiedComponents())
+                    .as(type.getName())
+                    .contains(part.suspendId());
+        }
+    }
+
+    @Test
     void bothSpringStacksForwardEveryAdvisorPageArgumentToTheirNativeController() {
         for (Class<?> registry : List.of(BootUiMcpTools.class, ReactiveBootUiMcpTools.class)) {
             Map<String, Class<?>> controllerTypes = Map.of(

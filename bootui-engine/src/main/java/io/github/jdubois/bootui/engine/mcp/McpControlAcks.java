@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.mcp;
 
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
+import io.github.jdubois.bootui.core.dto.LowFootprintStatus;
 import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.TracesReport;
@@ -39,6 +40,37 @@ public final class McpControlAcks {
     public static final String CLEARED = "cleared";
 
     private McpControlAcks() {}
+
+    /** A mode switch reports totals and failures, not every successfully cleared store. */
+    public static Map<String, Object> lowFootprint(String action, LowFootprintStatus status) {
+        Map<String, Object> ack = new LinkedHashMap<>();
+        ack.put("action", action);
+        ack.put("active", status.active());
+        ack.put("sinceEpochMillis", status.sinceEpochMillis());
+        ack.put("agentAttached", status.agentAttached());
+        ack.put("warnings", status.warnings());
+        ack.put(
+                "failedComponents",
+                status.components().stream()
+                        .filter(component -> !component.suspended())
+                        .toList());
+        Map<String, Object> offload = null;
+        if (status.offload() != null) {
+            var report = status.offload();
+            offload = new LinkedHashMap<>();
+            offload.put("heapUsedBeforeBytes", report.heapUsedBeforeBytes());
+            offload.put("heapUsedAfterBytes", report.heapUsedAfterBytes());
+            offload.put("reclaimedBytes", report.reclaimedBytes());
+            offload.put("entriesCleared", report.entriesCleared());
+            offload.put("gcRequested", report.gcRequested());
+            offload.put("explicitGcDisabled", report.explicitGcDisabled());
+            offload.put(
+                    "failedStores",
+                    report.stores().stream().filter(store -> !store.cleared()).toList());
+        }
+        ack.put("offload", offload);
+        return ack;
+    }
 
     /** The acknowledgement for a SQL Trace control tool, from the report the panel returned after the action. */
     public static Map<String, Object> sqlTrace(String action, SqlTraceReport report) {

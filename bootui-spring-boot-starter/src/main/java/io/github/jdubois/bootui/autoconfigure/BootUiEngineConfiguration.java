@@ -1008,6 +1008,7 @@ public class BootUiEngineConfiguration {
                 candidates.add(singleton);
             }
         }
+        addCreatedLogTailBuffer(beanFactory, candidates);
         return candidates;
     }
 
@@ -1020,7 +1021,18 @@ public class BootUiEngineConfiguration {
                 offloadables.add(singleton);
             }
         }
+        addCreatedLogTailBuffer(beanFactory, offloadables);
         return offloadables;
+    }
+
+    private static void addCreatedLogTailBuffer(ConfigurableListableBeanFactory beanFactory, List<Object> candidates) {
+        // Log Tail's controller owns its buffer; it is not a Spring singleton itself.
+        if (ClassUtils.isPresent("ch.qos.logback.classic.LoggerContext", beanFactory.getBeanClassLoader())) {
+            var appender = io.github.jdubois.bootui.autoconfigure.web.BootUiLogAppender.find();
+            if (appender != null) {
+                candidates.add(appender.buffer());
+            }
+        }
     }
 
     @Bean

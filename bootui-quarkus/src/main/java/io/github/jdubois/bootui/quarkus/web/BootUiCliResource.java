@@ -1,8 +1,10 @@
 package io.github.jdubois.bootui.quarkus.web;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jdubois.bootui.core.dto.CliServerStatus;
 import io.github.jdubois.bootui.engine.cli.CliService;
 import io.github.jdubois.bootui.engine.cli.CliToolResponse;
+import io.github.jdubois.bootui.quarkus.mcp.QuarkusMcpPayloads;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
@@ -27,10 +29,12 @@ import java.util.Map;
 public class BootUiCliResource {
 
     private final CliService service;
+    private final ObjectMapper mapper;
 
     @Inject
-    public BootUiCliResource(CliService service) {
+    public BootUiCliResource(CliService service, ObjectMapper mapper) {
         this.service = service;
+        this.mapper = mapper;
     }
 
     @GET
@@ -51,7 +55,10 @@ public class BootUiCliResource {
     public Response invoke(@PathParam("name") String name, Map<String, Object> arguments) {
         CliToolResponse response = service.invoke(name, arguments);
         return Response.status(response.status().code())
-                .entity(response.successful() ? response.payload() : Map.of("error", response.error()))
+                .entity(
+                        response.successful()
+                                ? QuarkusMcpPayloads.render(response.payload(), mapper)
+                                : Map.of("error", response.error()))
                 .build();
     }
 }

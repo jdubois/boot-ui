@@ -17,6 +17,18 @@ class TextRendererTests {
     private final TextRenderer renderer = new TextRenderer(false);
 
     @Test
+    void pausedEvidenceGetsANoticeBeforeTheUnchangedPayload() {
+        String text = render("{\"groups\":[],\"lowFootprint\":{\"active\":true,\"paused\":true}}");
+        assertThat(text)
+                .startsWith("PAUSED by low-footprint mode")
+                .contains("bootui low-footprint disable", "groups: []");
+        assertThat(render("{\"groups\":[]}")).doesNotContain("PAUSED");
+        assertThat(render("{\"lowFootprint\":{\"active\":true,\"paused\":false}}"))
+                .startsWith("Low-footprint mode active")
+                .doesNotContain("PAUSED by");
+    }
+
+    @Test
     void scalarMembersRenderAsKeyValueLines() {
         String text = render("{\"uptime\":\"3h\",\"pid\":42,\"healthy\":true}");
 

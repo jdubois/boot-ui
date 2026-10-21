@@ -664,7 +664,7 @@ public class QuarkusMcpEnvelope {
         JsonNode payloadNode;
         String text;
         try {
-            payloadNode = objectMapper.valueToTree(call.payload());
+            payloadNode = objectMapper.valueToTree(QuarkusMcpPayloads.render(call.payload(), objectMapper));
             text = objectMapper.writeValueAsString(payloadNode);
         } catch (JsonProcessingException | RuntimeException | Error failure) {
             failureReporter.report("serializing a tool result", failure);

@@ -745,7 +745,7 @@ public class BootUiMcpService {
         JsonNode payloadNode;
         String text;
         try {
-            payloadNode = objectMapper.valueToTree(call.payload());
+            payloadNode = objectMapper.valueToTree(SpringMcpPayloads.render(call.payload(), objectMapper));
             text = objectMapper.writeValueAsString(payloadNode);
         } catch (RuntimeException | Error failure) {
             failureReporter.report("serializing a tool result", failure);
