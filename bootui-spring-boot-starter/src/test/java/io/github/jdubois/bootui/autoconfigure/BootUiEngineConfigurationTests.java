@@ -54,6 +54,7 @@ import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.web.context.reactive.GenericReactiveWebApplicationContext;
 import org.springframework.boot.webflux.autoconfigure.WebFluxProperties;
 import org.springframework.boot.webmvc.autoconfigure.WebMvcProperties;
@@ -87,8 +88,7 @@ class BootUiEngineConfigurationTests {
                     .contains(appender.buffer());
             assertThat(BootUiEngineConfiguration.createdOffloadables(beanFactory))
                     .contains(appender.buffer());
-            beanFactory.setBeanClassLoader(
-                    new org.springframework.boot.test.context.FilteredClassLoader("ch.qos.logback"));
+            beanFactory.setBeanClassLoader(new FilteredClassLoader("ch.qos.logback"));
             assertThat(BootUiEngineConfiguration.createdLowFootprintCandidates(beanFactory))
                     .isEmpty();
             assertThat(BootUiEngineConfiguration.createdOffloadables(beanFactory))
@@ -139,6 +139,7 @@ class BootUiEngineConfigurationTests {
     @Test
     void memoryOffloadOnlyReachesSingletonsThatAlreadyExist() {
         DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        beanFactory.setBeanClassLoader(new FilteredClassLoader("ch.qos.logback"));
         JmsActivityRecorder created = new JmsActivityRecorder(true, false, 10, 64);
         beanFactory.registerSingleton("createdRecorder", created);
         beanFactory.registerSingleton("unrelated", "not offloadable");
@@ -156,6 +157,7 @@ class BootUiEngineConfigurationTests {
     @Test
     void memoryOffloadSkipsScopedProxiesSoItNeverCreatesTheirTarget() {
         DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        beanFactory.setBeanClassLoader(new FilteredClassLoader("ch.qos.logback"));
         Object scopedProxy = Proxy.newProxyInstance(
                 getClass().getClassLoader(),
                 new Class<?>[] {MemoryOffloadable.class, ScopedObject.class},
@@ -170,6 +172,7 @@ class BootUiEngineConfigurationTests {
     @Test
     void lowFootprintCandidatesAreTheCreatedSuspendableSingletonsOnly() {
         DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        beanFactory.setBeanClassLoader(new FilteredClassLoader("ch.qos.logback"));
         io.github.jdubois.bootui.spi.LowFootprintSuspendable suspendable =
                 new io.github.jdubois.bootui.spi.LowFootprintSuspendable() {
                     @Override
