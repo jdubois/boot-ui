@@ -1,9 +1,11 @@
 import {config, flushPromises, mount} from '@vue/test-utils'
-import {afterEach, describe, expect, it, vi} from 'vitest'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {reactive, ref} from 'vue'
 
 import Exceptions from './Exceptions.vue'
 
-vi.mock('vue-router', () => ({useRoute: () => ({query: {}})}))
+const routeState = vi.hoisted(() => ({route: null}))
+vi.mock('vue-router', () => ({useRoute: () => routeState.route}))
 
 function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
@@ -136,8 +138,171 @@ function mockFetch(routes = {}) {
 config.global.stubs.RouterLink = {props: ['to'], template: '<a :href="JSON.stringify(to)"><slot /></a>'}
 
 describe('Exceptions', () => {
+  beforeEach(() => {
+    routeState.route = reactive({query: {}})
+  })
+
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it('opens the exact linked group, not another group of the same class, and preserves the originating request', async () => {
+    routeState.route.query = {id: 'second/group', request: 'request-7', q: 'not this filter'}
+    const second = group({id: 'second/group', message: 'Second failure'})
+    const fetchMock = mockFetch({
+      'api/exceptions': report({groups: [group(), second]}),
+      'api/exceptions/second%2Fgroup': {...detail(), group: second}
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(Exceptions, {attachTo: document.body})
+    try {
+      await flushPromises()
+      expect(fetchMock).toHaveBeenCalledWith('api/exceptions/second%2Fgroup', {})
+      expect(fetchMock).not.toHaveBeenCalledWith('api/exceptions/abc123', {})
+      expect(wrapper.get('.exception-drawer').text()).toContain('Second failure')
+      expect(wrapper.get('.exception-drawer').text()).toContain('Caused by: java.lang.NumberFormatException')
+      expect(document.activeElement).toBe(wrapper.get('.exception-drawer').element)
+      expect(JSON.parse(wrapper.get('a').attributes('href'))).toEqual({
+        path: '/activity',
+        query: {request: 'request-7'}
+      })
+      expect(wrapper.text()).toContain('request-7')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('keeps legacy class-name filtering without selecting an arbitrary group', async () => {
+    routeState.route.query = {q: 'IllegalStateException'}
+    const fetchMock = mockFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(Exceptions)
+    await flushPromises()
+    expect(wrapper.get('input').element.value).toBe('IllegalStateException')
+    expect(wrapper.text()).not.toContain('NullPointerException')
+    expect(wrapper.find('.exception-drawer').exists()).toBe(false)
+    expect(fetchMock.mock.calls).toHaveLength(2)
+    wrapper.unmount()
+  })
+
+  it('shows a stale group explicitly without opening another same-class group', async () => {
+    routeState.route.query = {id: 'evicted', request: 'request-7'}
+    const fetchMock = mockFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(Exceptions)
+    await flushPromises()
+    expect(wrapper.get('.alert-warning[role="status"]').text()).toContain('no longer retained')
+    expect(wrapper.text()).toContain('evicted')
+    expect(wrapper.text()).toContain('Back to request profile')
+    expect(wrapper.find('.exception-drawer').exists()).toBe(false)
+    expect(fetchMock.mock.calls).toHaveLength(2)
+    wrapper.unmount()
+  })
+
+  it.each([403, 404, 500])('reports a detail read rejected with HTTP %s inside the selected group', async (status) => {
+    routeState.route.query = {id: 'abc123'}
+    vi.stubGlobal(
+      'fetch',
+      mockFetch({
+        'api/exceptions/abc123': () => Promise.resolve(jsonResponse({}, false, status))
+      })
+    )
+    const wrapper = mount(Exceptions)
+    await flushPromises()
+    const drawer = wrapper.get('.exception-drawer')
+    expect(drawer.get('[role="status"]').text()).toContain(status === 404 ? 'no longer retained' : 'unavailable')
+    expect(drawer.find('.stack-pane').exists()).toBe(false)
+    expect(drawer.find('.exceptions-copy-ai').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('does not read disabled exception data, even with a group deep link', async () => {
+    routeState.route.query = {id: 'abc123', request: 'request-7'}
+    const fetchMock = mockFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(Exceptions, {props: {panel: {id: 'exceptions', enabled: false}}})
+    await flushPromises()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(wrapper.get('.alert-info[role="status"]').text()).toContain('bootui.panels.exceptions.enabled=false')
+    expect(wrapper.text()).toContain('Back to request profile')
+    wrapper.unmount()
+  })
+
+  it('waits for the shell manifest before loading a deep-linked group', async () => {
+    routeState.route.query = {id: 'abc123'}
+    const panels = ref(null)
+    const fetchMock = mockFetch({'api/exceptions/abc123': detail()})
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(Exceptions, {global: {provide: {panels}}})
+    await flushPromises()
+    expect(fetchMock).not.toHaveBeenCalled()
+    await wrapper.setProps({panel: {id: 'exceptions', enabled: false}})
+    panels.value = {panels: [{id: 'exceptions', enabled: false}]}
+    await flushPromises()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(wrapper.get('.alert-info[role="status"]').text()).toContain('Exception details unavailable')
+    wrapper.unmount()
+  })
+
+  it('does not display a successful response for a different group', async () => {
+    routeState.route.query = {id: 'abc123'}
+    vi.stubGlobal(
+      'fetch',
+      mockFetch({
+        'api/exceptions/abc123': {...detail(), group: group({id: 'different', message: 'Unrelated failure'})}
+      })
+    )
+    const wrapper = mount(Exceptions)
+    await flushPromises()
+    const drawer = wrapper.get('.exception-drawer')
+    expect(drawer.get('[role="status"]').text()).toContain('unavailable')
+    expect(drawer.text()).not.toContain('Unrelated failure')
+    expect(drawer.find('.stack-pane').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('removes open detail when a refreshed report no longer retains its group', async () => {
+    let reads = 0
+    routeState.route.query = {id: 'abc123'}
+    vi.stubGlobal(
+      'fetch',
+      mockFetch({
+        'api/exceptions': () => Promise.resolve(jsonResponse(reads++ ? report({groups: []}) : report())),
+        'api/exceptions/abc123': detail()
+      })
+    )
+    const wrapper = mount(Exceptions)
+    await flushPromises()
+    expect(wrapper.get('.exception-drawer').text()).toContain('Stack trace')
+    wrapper.findComponent({name: 'PanelHeader'}).vm.$emit('refresh')
+    await flushPromises()
+    expect(wrapper.find('.exception-drawer').exists()).toBe(false)
+    expect(wrapper.get('.alert-warning[role="status"]').text()).toContain('no longer retained')
+    wrapper.unmount()
+  })
+
+  it('ignores a late detail response when navigating to another group on the same route', async () => {
+    let resolveFirst
+    routeState.route.query = {id: 'abc123'}
+    const second = group({id: 'def456', message: 'Second failure'})
+    vi.stubGlobal(
+      'fetch',
+      mockFetch({
+        'api/exceptions': report({groups: [group(), second]}),
+        'api/exceptions/abc123': () => new Promise((resolve) => (resolveFirst = resolve)),
+        'api/exceptions/def456': {...detail(), group: second}
+      })
+    )
+    const wrapper = mount(Exceptions)
+    await flushPromises()
+    routeState.route.query = {id: 'def456'}
+    await flushPromises()
+    expect(wrapper.get('.exception-drawer').text()).toContain('Second failure')
+    resolveFirst(jsonResponse(detail()))
+    await flushPromises()
+    expect(wrapper.get('.exception-drawer').text()).toContain('Second failure')
+    expect(wrapper.get('.exception-drawer').text()).not.toContain('token=****** rejected')
+    wrapper.unmount()
   })
 
   it('keeps an acknowledged status after an older manual read finishes with auto-refresh off', async () => {
