@@ -6,7 +6,9 @@ import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {useDataState} from '../utils/panelState.js'
+import {useLowFootprint} from '../utils/useLowFootprint.js'
 import AiSetupChecklist from './components/AiSetupChecklist.vue'
+import LowFootprintBanner from './components/LowFootprintBanner.vue'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import FoldedInsightsLink from './components/FoldedInsightsLink.vue'
@@ -26,6 +28,8 @@ let detailRequest = 0
 
 const panels = inject('panels', ref(null))
 const platform = computed(() => panels.value?.platform ?? 'spring-boot')
+const {status: lowFootprintStatus} = useLowFootprint()
+const telemetryPaused = computed(() => lowFootprintStatus.value?.active === true)
 
 const isStale = computed(() => {
   if (autoRefresh.value || !lastUpdated.value) return false
@@ -507,6 +511,7 @@ const detectedFrameworkLabel = computed(() => {
         </button>
       </template>
     </PanelHeader>
+    <LowFootprintBanner />
 
     <PanelSkeleton v-if="initialLoading" />
     <template v-else-if="overview">
@@ -530,9 +535,13 @@ const detectedFrameworkLabel = computed(() => {
           <div>
             <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
               <h3 class="h5 mb-0">No AI chat completions recorded yet</h3>
-              <span class="badge text-bg-info">Telemetry ready</span>
+              <span v-if="telemetryPaused" class="badge text-bg-warning">Telemetry paused</span>
+              <span v-else class="badge text-bg-info">Telemetry ready</span>
             </div>
-            <p class="text-muted mb-0">
+            <p v-if="telemetryPaused" class="text-muted mb-0">
+              Low-footprint mode has paused AI telemetry capture. New usage will appear here after recording resumes.
+            </p>
+            <p v-else class="text-muted mb-0">
               BootUI's telemetry capture is active and an AI framework is detected. Exercise an AI chat flow; this panel
               will refresh automatically when the first completion span arrives.
             </p>

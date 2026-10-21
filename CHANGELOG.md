@@ -7,6 +7,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Paused panels can resume low-footprint mode** with an in-banner action, and explain when capture is paused (#1478).
+
 ## [2.1.0] - 2026-10-14
 
 This release redesigns the trace waterfall and request timeline, adds a low-footprint mode that pauses BootUI's

@@ -76,9 +76,12 @@ explains what is cleared and what is kept.
 
 After you confirm, `POST /bootui/api/live-memory/offload` empties every BootUI capture buffer, requests a garbage
 collection, and shows heap used before and after, the reclaimed estimate, and the number of buffered entries cleared.
-The toggle then stays on: BootUI stops recording until you turn it off, and Exceptions, Log Tail, Live Activity,
-Runtime Insights, and the Scorecard show a "Paused by low-footprint mode" banner. Settings, configuration overrides,
-dismissed rules, cached scan reports, and persisted Live Activity history are kept.
+The toggle then stays on: BootUI stops recording until you turn it off. Exceptions, Log Tail, Live Activity, Runtime
+Insights, the Scorecard, HTTP Exchanges, Traces, SQL Trace, REST Client, Transactions, Kafka, RabbitMQ, JMS,
+WebSockets, Security Logs, Email, Fault Tolerance events, and AI Framework show a "Paused by low-footprint mode"
+banner for their captured data. The banner can turn the mode off; that action follows the Live Memory panel's
+read-only policy. Settings, configuration overrides, dismissed rules, cached scan reports, and persisted Live Activity
+history are kept.
 
 ::: warning Cleared data is gone
 The discarded journal, traces, and captures cannot be recovered, and exception triage statuses are dropped with their
