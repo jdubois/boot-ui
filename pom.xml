@@ -95,7 +95,7 @@
         <picocli.version>4.7.7</picocli.version>
         <archunit.version>1.5.1</archunit.version>
         <!-- Test-scope only: compiles the engine's Kotlin advisor fixtures. No BootUI module ships Kotlin. -->
-        <kotlin.version>2.4.10</kotlin.version>
+        <kotlin.version>2.4.21</kotlin.version>
         <!-- Compile Kotlin in-process: with a per-worktree .m2 every build gets a differently-classpathed daemon that is
              never reused and outlives the build for hours. -->
         <kotlin.compiler.daemon>false</kotlin.compiler.daemon>
