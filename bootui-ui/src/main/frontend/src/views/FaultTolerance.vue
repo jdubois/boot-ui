@@ -1,4 +1,5 @@
 <script setup>
+import LowFootprintBanner from './components/LowFootprintBanner.vue'
 import {getJson} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
@@ -139,6 +140,7 @@ function hasMetrics(metrics) {
       v-model:auto-refresh="autoRefresh"
       @refresh="load"
     />
+    <LowFootprintBanner />
 
     <PanelSkeleton v-if="initialLoading && manifestAvailable" />
 

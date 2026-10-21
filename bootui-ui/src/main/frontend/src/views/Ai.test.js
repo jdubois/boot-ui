@@ -3,8 +3,10 @@ import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {parse as parseSfc} from '@vue/compiler-sfc'
 import {flushPromises, mount} from '@vue/test-utils'
+import {ref} from 'vue'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
+import {resetLowFootprintForTests} from '../utils/useLowFootprint.js'
 import Ai from './Ai.vue'
 import FlashBanner from './components/FlashBanner.vue'
 
@@ -123,7 +125,45 @@ describe('Ai', () => {
   afterEach(() => {
     wrapper?.unmount()
     wrapper = null
+    resetLowFootprintForTests()
     vi.unstubAllGlobals()
+  })
+
+  it('explains that telemetry is paused when low-footprint mode is active', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        if (url === 'api/ai/overview') {
+          return Promise.resolve(
+            jsonResponse({
+              enabled: true,
+              springAiDetected: true,
+              langChain4jDetected: false,
+              totalChats: 0,
+              totalInputTokens: 0,
+              totalOutputTokens: 0,
+              tokensByModel: {},
+              callsByModel: {},
+              recent: []
+            })
+          )
+        }
+        if (url.startsWith('api/ai/tokens')) return Promise.resolve(jsonResponse({buckets: []}))
+        if (url === 'api/live-memory/footprint') {
+          return Promise.resolve(jsonResponse({active: true, components: [], warnings: []}))
+        }
+        throw new Error(`Unexpected URL: ${url}`)
+      })
+    )
+
+    wrapper = mount(Ai, {
+      global: {provide: {panels: ref({panels: [{id: 'live-memory', enabled: true, available: true}]})}}
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="low-footprint-banner"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Telemetry paused')
+    expect(wrapper.text()).not.toContain("BootUI's telemetry capture is active")
   })
 
   it('uses native buttons and aria-sort for sortable table headers', async () => {
