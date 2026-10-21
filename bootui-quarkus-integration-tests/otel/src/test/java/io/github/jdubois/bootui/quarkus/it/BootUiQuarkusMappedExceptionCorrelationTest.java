@@ -28,6 +28,32 @@ import org.junit.jupiter.api.Test;
 @QuarkusTest
 class BootUiQuarkusMappedExceptionCorrelationTest {
 
+    /**
+     * The REQUEST entry is recorded when the response completes, which can trail the client's response on a
+     * slow runner, so poll the feed (bounded) instead of reading it once.
+     */
+    private JsonNode awaitRequestEntries(String path) {
+        JsonNode entries = null;
+        for (int attempt = 0; attempt < 50; attempt++) {
+            Response activity = probe().get("/bootui/api/activity");
+            assertThat(activity.status()).as("GET /bootui/api/activity status").isEqualTo(200);
+            entries = activity.json().path("entries");
+            for (JsonNode entry : entries) {
+                if ("REQUEST".equals(entry.path("type").asText())
+                        && path.equals(entry.path("path").asText())) {
+                    return entries;
+                }
+            }
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        return entries;
+    }
+
     @TestHTTPResource
     URL baseUrl;
 
@@ -42,10 +68,7 @@ class BootUiQuarkusMappedExceptionCorrelationTest {
                 .as("the ExceptionMapper must produce its own response, not a generic 500")
                 .isEqualTo(422);
 
-        Response activity = probe().get("/bootui/api/activity");
-        assertThat(activity.status()).as("GET /bootui/api/activity status").isEqualTo(200);
-
-        JsonNode entries = activity.json().path("entries");
+        JsonNode entries = awaitRequestEntries("/it/mapped-boom");
         assertThat(entries.isArray()).as("the activity feed must carry entries").isTrue();
 
         JsonNode request = null;
