@@ -900,6 +900,30 @@ Dismissing a rule removes all of its instances from the score.
   (`jakarta.annotation-api`, `jakarta.inject-api`). If Dagger or Guice deliberately owns a bean's `javax.inject`
   wiring, dismiss the finding.
 
+### ARCH-SPRING-025 - HTTP clients should be built from Spring Boot's auto-configured builder
+
+- **Severity**: LOW
+- **Inspects**: calls and method references to `RestClient.builder(..)` and `RestClient.create(..)` when
+  `spring-boot-restclient` is on the classpath, and to `WebClient.builder()` and `WebClient.create(..)` when
+  `spring-boot-webclient` is on the classpath. Spring only; the rule is skipped on Quarkus and when neither module is
+  present.
+- **Fires when**: application code builds a client from Spring Framework's static factory instead of Spring Boot's
+  auto-configured builder.
+- **Why it matters**: Spring Boot exposes prototype
+  [`RestClient.Builder` and `WebClient.Builder`](https://docs.spring.io/spring-boot/reference/io/rest-client.html) beans
+  that carry the context's message converters or codecs, the `ObservationRegistry` (`http.client.requests` metrics and
+  trace propagation), and every `RestClientCustomizer` or `WebClientCustomizer`. A client from the
+  [static factory](https://docs.spring.io/spring-framework/reference/integration/rest-clients.html) works but skips all
+  of that, so its calls are missing from metrics, traces, shared interceptors, and BootUI's REST client trace panel.
+- **Not reported**: clients built from an injected builder, `mutate()` on an existing client, and classes positively
+  identified as generated, such as an OpenAPI Generator `ApiClient` whose default constructor calls
+  `RestClient.builder()` when its `@Generated` source is available. Dismiss the finding for generated code that BootUI
+  cannot identify. `new RestTemplate(..)` is out of scope: some APIs still require a `RestOperations`, and
+  [SPRING-WIRING-007](SPRING-CHECKS.md#spring-wiring-007---review-resttemplate-migration) already reviews RestTemplate.
+- **Recommendation**: inject `RestClient.Builder` or `WebClient.Builder` and build from it. Call `clone()` before
+  building several clients from one builder instance. To start from Boot's defaults on a fresh builder, use
+  `RestClientBuilderConfigurer`.
+
 ## Retired rule IDs
 
 These IDs stay reserved and are never reused, so an existing dismissal can never silently hide a different check.

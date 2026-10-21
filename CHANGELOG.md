@@ -7,6 +7,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`ARCH-SPRING-025` (LOW)** flags `RestClient.builder(..)`/`create(..)` and `WebClient.builder()`/`create(..)` when
+  Spring Boot's auto-configured builder is available, since those clients skip metrics, tracing, and shared
+  customizers ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-025---http-clients-should-be-built-from-spring-boots-auto-configured-builder); #1500).
+
 ## [2.1.0] - 2026-10-14
 
 This release redesigns the trace waterfall and request timeline, adds a low-footprint mode that pauses BootUI's
