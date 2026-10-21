@@ -12,7 +12,7 @@ class ArchitectureRuleRegistryTests {
     void everyRuleHasACompleteAndUniqueDefinition() {
         List<ArchitectureRule> rules = ArchitectureRuleRegistry.activeRules();
 
-        assertThat(rules).hasSize(40);
+        assertThat(rules).hasSize(41);
         assertThat(rules).extracting(rule -> rule.definition().id()).doesNotHaveDuplicates();
         assertThat(rules).allSatisfy(rule -> {
             ArchitectureRuleDefinition definition = rule.definition();
@@ -58,6 +58,7 @@ class ArchitectureRuleRegistryTests {
                         "ARCH-SPRING-022",
                         "ARCH-SPRING-023",
                         "ARCH-SPRING-024",
+                        "ARCH-SPRING-025",
                         "ARCH-CODE-017",
                         "ARCH-CODE-018",
                         "ARCH-MOD-001");
@@ -81,7 +82,8 @@ class ArchitectureRuleRegistryTests {
                 "ARCH-SPRING-002", "LOW",
                 "ARCH-SPRING-011", "HIGH",
                 "ARCH-SPRING-023", "HIGH",
-                "ARCH-SPRING-024", "HIGH");
+                "ARCH-SPRING-024", "HIGH",
+                "ARCH-SPRING-025", "LOW");
         assertThat(ArchitectureRuleRegistry.activeRules())
                 .filteredOn(rule -> expected.containsKey(rule.definition().id()))
                 .hasSize(expected.size())
