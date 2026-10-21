@@ -180,6 +180,20 @@ without printing a fabricated result; literal JSON `null`, objects, arrays, and 
 `bootui tools` validates the BootUI catalog in both text and JSON modes, while accepting older catalogs and unknown
 extra fields.
 
+### Low-footprint mode
+
+`bootui low-footprint status` reads the mode without changing capture. With the user's approval,
+`bootui low-footprint enable` pauses existing BootUI recorders, clears buffered diagnostics irreversibly, and requests
+GC; `bootui low-footprint disable` releases the hold. Both are idempotent Live Memory actions under the existing
+disabled/read-only gates. The mode lasts until disabled or the process restarts; it does not pause the Java agent.
+
+Affected JSON results keep their existing fields and add `lowFootprint` with actual paused components, timestamp,
+warnings, and resume guidance. Human-readable output leads with a paused notice; `--json` stays byte-for-byte server
+output. Paused or partially paused evidence is not proof of an idle application, and successful reads still exit `0`.
+Individual recorder resumes and new probes refuse with exit `1` while held; disable first with approval.
+Older CLI binaries keep their existing commands, but cannot offer these new leaves without an updated manifest.
+See [the full agent contract](AI-AGENTS.md#low-footprint-mode) for partial failures and mixed native/agent evidence.
+
 ### Retrieve more than the advisor preview
 
 Architecture, Hibernate, Spring (the Quarkus application advisor on Quarkus), REST API, Memory, Security, and
@@ -551,6 +565,9 @@ exposes a tool is still what `bootui tools` says.
 | `bootui kafka` | `get_kafka_activity` | — | read | all |
 | `bootui loggers` | `get_loggers` | `--query`, `--limit` | read | all |
 | `bootui logs tail` | `get_log_tail` | `--query`, `--limit` | read | all |
+| `bootui low-footprint disable` | `disable_low_footprint` | — | action | all |
+| `bootui low-footprint enable` | `enable_low_footprint` | — | action | all |
+| `bootui low-footprint status` | `get_low_footprint` | — | read | all |
 | `bootui mail` | `get_emails` | — | read | all |
 | `bootui mappings` | `get_mappings` | `--query`, `--limit` | read | all |
 | `bootui memory heap analyze` | `analyze_heap_dump` | — | action | all |

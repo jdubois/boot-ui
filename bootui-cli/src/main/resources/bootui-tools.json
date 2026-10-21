@@ -12,7 +12,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Newest events and entry ids only.",
-      "description": "Newest events and entry ids only. For why a route is slow, what a reload changed, or what a test run did not exercise, call get_runtime_insights or get_runtime_run_comparison first. At most limit (25) entries; query selects an entry type (SQL, EXCEPTION, REST_CLIENT, ...), a severity (SLOW, WARN, ERROR), or text in the summary, detail, path, or method, such as a route; pageInfo.hasMore means more entries matched or older ones were not searched (a warning then names the window searched), and typeCounts counts every retained entry.",
+      "description": "Newest events and entry ids only. For why a route is slow, what a reload changed, or what a test run did not exercise, call get_runtime_insights or get_runtime_run_comparison first. At most limit (25) entries; query selects an entry type (SQL, EXCEPTION, REST_CLIENT, ...), a severity (SLOW, WARN, ERROR), or text in the summary, detail, path, or method, such as a route; pageInfo.hasMore means more entries matched or older ones were not searched (a warning then names the window searched), and typeCounts counts every retained entry. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui activity --query SQL --limit 20",
       "queryHelp": "an entry type (SQL, EXCEPTION, REST_CLIENT, ...), a severity (SLOW, WARN, ERROR), or text in the summary, detail, path, or method"
     },
@@ -76,7 +76,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the local AI-framework telemetry overview derived from already-captured OTLP spans.",
-      "description": "Return the local AI-framework telemetry overview derived from already-captured OTLP spans. This does not invoke a model, send a prompt, or make any network request. aiFrameworkDetected says whether any supported AI framework is present on every stack; springAiDetected is Spring AI only, so it is always false on Quarkus, and langChain4jDetected covers LangChain4j, including Quarkus LangChain4j.",
+      "description": "Return the local AI-framework telemetry overview derived from already-captured OTLP spans. This does not invoke a model, send a prompt, or make any network request. aiFrameworkDetected says whether any supported AI framework is present on every stack; springAiDetected is Spring AI only, so it is always false on Quarkus, and langChain4jDetected covers LangChain4j, including Quarkus LangChain4j. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui ai overview"
     },
     {
@@ -152,7 +152,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return current cache manager and cache statistics (hits, misses, size) for each configured cache.",
-      "description": "Return current cache manager and cache statistics (hits, misses, size) for each configured cache. Use to verify cache behavior before proposing a caching change.",
+      "description": "Return current cache manager and cache statistics (hits, misses, size) for each configured cache. Use to verify cache behavior before proposing a caching change. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui cache"
     },
     {
@@ -167,7 +167,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return Code Inventory: did the code that changed since the previous run execute in this run? Advertised only while the BootUI agent's inventory sensor records this run (see get_agent_status).",
-      "description": "Return Code Inventory: did the code that changed since the previous run execute in this run? Advertised only while the BootUI agent's inventory sensor records this run (see get_agent_status). Counts first (N of M tracked methods executed, changed, added, removed, dependencies), then at most limit (25) rows of query: changed (the default; methods changed or added since the previous DevTools restart or Quarkus live reload, not executed first, with the first request id and route that ran each), never-executed, not-tracked, executed, dependencies (declared jars not loaded in this run first), or a package, class, or method name. NOT_TRACKED is not NEVER_EXECUTED; a jar not loaded in this run is not proof it is unused.",
+      "description": "Return Code Inventory: did the code that changed since the previous run execute in this run? Advertised only while the BootUI agent's inventory sensor records this run (see get_agent_status). Counts first (N of M tracked methods executed, changed, added, removed, dependencies), then at most limit (25) rows of query: changed (the default; methods changed or added since the previous DevTools restart or Quarkus live reload, not executed first, with the first request id and route that ran each), never-executed, not-tracked, executed, dependencies (declared jars not loaded in this run first), or a package, class, or method name. NOT_TRACKED is not NEVER_EXECUTED; a jar not loaded in this run is not proof it is unused. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui code inventory --query changed",
       "queryHelp": "changed (the default), never-executed, not-tracked, executed, dependencies, or a package, class, or method name"
     },
@@ -183,7 +183,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return Code Paths: which application bean methods each route spends its time in, from the BootUI agent's code-paths sensor.",
-      "description": "Return Code Paths: which application bean methods each route spends its time in, from the BootUI agent's code-paths sensor. Advertised only while that sensor records this run (see get_agent_status). Without query, the routes slowest warm median first, at most limit (10), each with its top methods by self time; with query, the routes whose label, top methods, or any method their requests ran (a route's first request included) contain it, and for a single route its method nodes with the most self time. Times are per warm request; each node's calls list the SQL, REST client, cache, and AI calls recorded while it was the innermost instrumented method on their thread, whose time is part of its self time; calls recorded on another thread carry no stamp and show under no node. An assemblyOnly route's handler ran on an event loop, returned a reactive or asynchronous result, or BootUI could not tell where its work ran, so its tree times assembly, not the work. Node percentiles are approximate, from log2 buckets.",
+      "description": "Return Code Paths: which application bean methods each route spends its time in, from the BootUI agent's code-paths sensor. Advertised only while that sensor records this run (see get_agent_status). Without query, the routes slowest warm median first, at most limit (10), each with its top methods by self time; with query, the routes whose label, top methods, or any method their requests ran (a route's first request included) contain it, and for a single route its method nodes with the most self time. Times are per warm request; each node's calls list the SQL, REST client, cache, and AI calls recorded while it was the innermost instrumented method on their thread, whose time is part of its self time; calls recorded on another thread carry no stamp and show under no node. An assemblyOnly route's handler ran on an event loop, returned a reactive or asynchronous result, or BootUI could not tell where its work ran, so its tree times assembly, not the work. Node percentiles are approximate, from log2 buckets. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui code paths --query 'GET /orders'",
       "queryHelp": "empty (the slowest routes), or a route or method name"
     },
@@ -450,7 +450,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Clear BootUI's bounded in-memory exception groups and occurrences.",
-      "description": "Clear BootUI's bounded in-memory exception groups and occurrences. This does not suppress, handle, or change application exceptions. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Here retained counts exception groups, and totalCaptured is null: the panel keeps no lifetime count. Read the entries with get_exceptions.",
+      "description": "Clear BootUI's bounded in-memory exception groups and occurrences. This does not suppress, handle, or change application exceptions. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Here retained counts exception groups, and totalCaptured is null: the panel keeps no lifetime count. Read the entries with get_exceptions. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui exceptions clear"
     },
     {
@@ -465,7 +465,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "List recent exception groups, newest first.",
-      "description": "List recent exception groups, newest first. Use a returned id with get_exception_detail for stack frames, causes, and individual occurrences. With the BootUI agent's caught-exceptions sensor, caughtInCode summarizes exceptions application code caught: a finding was not seen rethrown or logged at WARN or above while the evidence was complete; unknown means incomplete evidence, never swallowed. totalExceptions counts the occurrences in the retained groups, so clear_exceptions resets it.",
+      "description": "List recent exception groups, newest first. Use a returned id with get_exception_detail for stack frames, causes, and individual occurrences. With the BootUI agent's caught-exceptions sensor, caughtInCode summarizes exceptions application code caught: a finding was not seen rethrown or logged at WARN or above while the evidence was complete; unknown means incomplete evidence, never swallowed. totalExceptions counts the occurrences in the retained groups, so clear_exceptions resets it. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui exceptions list"
     },
     {
@@ -480,7 +480,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return stack frames, causes, and occurrences for one exact exception-group id obtained from get_exceptions, or an EXCEPTION entry's exceptionGroupId in get_live_activity.",
-      "description": "Return stack frames, causes, and occurrences for one exact exception-group id obtained from get_exceptions, or an EXCEPTION entry's exceptionGroupId in get_live_activity. An unknown or cleared id is a tool error.",
+      "description": "Return stack frames, causes, and occurrences for one exact exception-group id obtained from get_exceptions, or an EXCEPTION entry's exceptionGroupId in get_live_activity. An unknown or cleared id is a tool error. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui exceptions show <id>",
       "idHelp": "An exception group id from 'bootui exceptions list' or 'bootui activity'."
     },
@@ -496,7 +496,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the configured Resilience4j and Spring Retry policy inventory with live counters and circuit breaker state, plus a bounded metadata-only event history.",
-      "description": "Return the configured Resilience4j and Spring Retry policy inventory with live counters and circuit breaker state, plus a bounded metadata-only event history. This read never opens, closes, resets, or otherwise mutates a policy.",
+      "description": "Return the configured Resilience4j and Spring Retry policy inventory with live counters and circuit breaker state, plus a bounded metadata-only event history. This read never opens, closes, resets, or otherwise mutates a policy. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui fault-tolerance"
     },
     {
@@ -630,7 +630,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return a bounded, newest-first snapshot of application HTTP request/response metadata.",
-      "description": "Return a bounded, newest-first snapshot of application HTTP request/response metadata. Correlate paths, statuses, and timings with live activity and traces. The retention object reports capacity and retained, reserved, and evicted counts: 5xx and slow exchanges are kept longer, so the window is not complete. At most limit (25) exchanges; page.hasMore means more were retained.",
+      "description": "Return a bounded, newest-first snapshot of application HTTP request/response metadata. Correlate paths, statuses, and timings with live activity and traces. The retention object reports capacity and retained, reserved, and evicted counts: 5xx and slow exchanges are kept longer, so the window is not complete. At most limit (25) exchanges; page.hasMore means more were retained. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui http exchanges --limit 20"
     },
     {
@@ -645,7 +645,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return route performance rankings over the retained HTTP exchanges: per method and route template, request and status-class counts, average, p50, p95, p99 and maximum duration, and share of request time, plus the evidence window.",
-      "description": "Return route performance rankings over the retained HTTP exchanges: per method and route template, request and status-class counts, average, p50, p95, p99 and maximum duration, and share of request time, plus the evidence window. limit is the number of routes per ranking criterion. Figures cover the retained window only, not service-level metrics.",
+      "description": "Return route performance rankings over the retained HTTP exchanges: per method and route template, request and status-class counts, average, p50, p95, p99 and maximum duration, and share of request time, plus the evidence window. limit is the number of routes per ranking criterion. Figures cover the retained window only, not service-level metrics. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui http routes --limit 5"
     },
     {
@@ -673,7 +673,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Compare this run with a kept one: id is optional, previous or a run id.",
-      "description": "Compare this run with a kept one: id is optional, previous or a run id. Omitted or previous selects the newest kept run including runs without HTTP traffic; runs lists the others. Comparability first, then codeChanges (with the BootUI agent: changed and added methods, executed or not, and the routes that ran them), then sideEffects (with the agent: hosts, file patterns, processes, and variable names a route, job, or startup uses new or no longer, per sensor COMPARED only when it recorded both runs whole, else NOT_COMPARED with the reason), then at most 8 behavior rows and edges; latency is left out. INSUFFICIENT and NOT_COMPARABLE never mean no change. Call after tests to verify a change. next names the follow-up calls. A run id no kept run has is a tool error naming previous and the kept run ids.",
+      "description": "Compare this run with a kept one: id is optional, previous or a run id. Omitted or previous selects the newest kept run including runs without HTTP traffic; runs lists the others. Comparability first, then codeChanges (with the BootUI agent: changed and added methods, executed or not, and the routes that ran them), then sideEffects (with the agent: hosts, file patterns, processes, and variable names a route, job, or startup uses new or no longer, per sensor COMPARED only when it recorded both runs whole, else NOT_COMPARED with the reason), then at most 8 behavior rows and edges; latency is left out. INSUFFICIENT and NOT_COMPARABLE never mean no change. Call after tests to verify a change. next names the follow-up calls. A run id no kept run has is a tool error naming previous and the kept run ids. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui insights compare previous",
       "idHelp": "Previous (the default), or a run id from the runs it answers with."
     },
@@ -689,7 +689,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "For a route, bean, class, method (Class#method, with parameter types for one overload, or a bare method name), repository, table, cache, host, or event type id: the routes this run exercised through it, those it did not, and those sharing a resource with it, at most 8 each with totals, a limitation naming the rest, or AMBIGUOUS with candidates.",
-      "description": "For a route, bean, class, method (Class#method, with parameter types for one overload, or a bare method name), repository, table, cache, host, or event type id: the routes this run exercised through it, those it did not, and those sharing a resource with it, at most 8 each with totals, a limitation naming the rest, or AMBIGUOUS with candidates. With the BootUI agent, a method's observed routes are those whose requests executed it; notObserved routes ran without showing it, which proves nothing. A checklist of what was and was not exercised, never a verdict that a change is safe. For AMBIGUOUS, NOT_FOUND, or UNAVAILABLE, next names the call that resolves it.",
+      "description": "For a route, bean, class, method (Class#method, with parameter types for one overload, or a bare method name), repository, table, cache, host, or event type id: the routes this run exercised through it, those it did not, and those sharing a resource with it, at most 8 each with totals, a limitation naming the rest, or AMBIGUOUS with candidates. With the BootUI agent, a method's observed routes are those whose requests executed it; notObserved routes ran without showing it, which proves nothing. A checklist of what was and was not exercised, never a verdict that a change is safe. For AMBIGUOUS, NOT_FOUND, or UNAVAILABLE, next names the call that resolves it. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui insights impact 'OrderService#total'",
       "idHelp": "A route, bean, class, Class#method or a bare method name, repository, table, cache, host, or event type."
     },
@@ -705,7 +705,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return what this run did that no single panel shows, compacted: coverage first, the checks that did not fully run, then at most limit (8) observations with an id, status, one sentence, counts, an exemplar request id for get_request_profile, a verify line, and whether the default list shows it.",
-      "description": "Return what this run did that no single panel shows, compacted: coverage first, the checks that did not fully run, then at most limit (8) observations with an id, status, one sentence, counts, an exemplar request id for get_request_profile, a verify line, and whether the default list shows it. query is empty, all, new, security, diff, latency, an observation kind, or a route, table, bean, or class; past the limit, listed rows come first and every kind is listed once before any kind twice. requests counts completed HTTP exchanges only: zero is not proof nothing ran when an observation names a request or execution, a non-HTTP limitation, or eviction says otherwise. A run-level observation with no exemplar does not. The empty query is the default list, which leaves several kinds out, for example time breakdowns, exception hotspots, repeated SELECTs, and garbage collection and heap rows; a limitation names each kind it left out with its count, and all, a kind, or a route lists them. An empty list means not exercised only when limitations say so. INSUFFICIENT, PARTIAL, NOT_APPLICABLE, and UNAVAILABLE are not successes. next names at most three follow-up calls, each a tool with its arguments and the equivalent bootui command.",
+      "description": "Return what this run did that no single panel shows, compacted: coverage first, the checks that did not fully run, then at most limit (8) observations with an id, status, one sentence, counts, an exemplar request id for get_request_profile, a verify line, and whether the default list shows it. query is empty, all, new, security, diff, latency, an observation kind, or a route, table, bean, or class; past the limit, listed rows come first and every kind is listed once before any kind twice. requests counts completed HTTP exchanges only: zero is not proof nothing ran when an observation names a request or execution, a non-HTTP limitation, or eviction says otherwise. A run-level observation with no exemplar does not. The empty query is the default list, which leaves several kinds out, for example time breakdowns, exception hotspots, repeated SELECTs, and garbage collection and heap rows; a limitation names each kind it left out with its count, and all, a kind, or a route lists them. An empty list means not exercised only when limitations say so. INSUFFICIENT, PARTIAL, NOT_APPLICABLE, and UNAVAILABLE are not successes. next names at most three follow-up calls, each a tool with its arguments and the equivalent bootui command. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui insights list --query security",
       "queryHelp": "empty (the default list), all (every observation), new, security, diff, latency, an observation kind such as repeated-selects, or a route, table, bean, or class"
     },
@@ -721,7 +721,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return one Runtime Insights observation by its id from get_runtime_insights, with every check to verify and at most 20 evidence rows.",
-      "description": "Return one Runtime Insights observation by its id from get_runtime_insights, with every check to verify and at most 20 evidence rows. Drill down with get_request_profile on its exemplar request. An unknown or evicted id is a tool error naming get_runtime_insights, which lists the current ids; available=false with a reason means Runtime Insights is unavailable.",
+      "description": "Return one Runtime Insights observation by its id from get_runtime_insights, with every check to verify and at most 20 evidence rows. Drill down with get_request_profile on its exemplar request. An unknown or evicted id is a tool error naming get_runtime_insights, which lists the current ids; available=false with a reason means Runtime Insights is unavailable. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui insights show <id>",
       "idHelp": "An observation id from 'bootui insights list'."
     },
@@ -736,7 +736,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the bounded local JMS activity snapshot captured from application templates and listeners.",
-      "description": "Return the bounded local JMS activity snapshot captured from application templates and listeners. This does not send, receive, clear, or contact a broker.",
+      "description": "Return the bounded local JMS activity snapshot captured from application templates and listeners. This does not send, receive, clear, or contact a broker. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui jms"
     },
     {
@@ -766,7 +766,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the bounded local Kafka activity snapshot captured from application producers and consumers.",
-      "description": "Return the bounded local Kafka activity snapshot captured from application producers and consumers. This does not publish, consume, clear, or contact a broker.",
+      "description": "Return the bounded local Kafka activity snapshot captured from application producers and consumers. This does not publish, consume, clear, or contact a broker. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui kafka"
     },
     {
@@ -796,9 +796,54 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the latest buffered application log snapshot.",
-      "description": "Return the latest buffered application log snapshot. Messages follow bootui.expose-values: secret-like assignments are masked by default and messages are omitted under METADATA_ONLY, but other sensitive text may remain; use them only in the local diagnostic context. At most limit (50) newest lines matching query (level, logger, thread, or message); page.hasMore means more lines matched.",
+      "description": "Return the latest buffered application log snapshot. Messages follow bootui.expose-values: secret-like assignments are masked by default and messages are omitted under METADATA_ONLY, but other sensitive text may remain; use them only in the local diagnostic context. At most limit (50) newest lines matching query (level, logger, thread, or message); page.hasMore means more lines matched. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui logs tail --query WARN",
       "queryHelp": "a level, logger, thread, or text in the message"
+    },
+    {
+      "name": "disable_low_footprint",
+      "command": "low-footprint disable",
+      "schema": "NONE",
+      "panel": "live-memory",
+      "action": true,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Disable low-footprint mode and release its recording hold.",
+      "description": "Disable low-footprint mode and release its recording hold. Cleared data cannot be recovered; individually paused recorders stay paused. Ask for approval first. Idempotent. Returns a compact acknowledgement with state and warnings; get_low_footprint lists component outcomes.",
+      "example": "bootui low-footprint disable"
+    },
+    {
+      "name": "enable_low_footprint",
+      "command": "low-footprint enable",
+      "schema": "NONE",
+      "panel": "live-memory",
+      "action": true,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Enable low-footprint mode: pause BootUI recording, irreversibly discard buffered diagnostics, and request GC (a hint the JVM may ignore).",
+      "description": "Enable low-footprint mode: pause BootUI recording, irreversibly discard buffered diagnostics, and request GC (a hint the JVM may ignore). Ask for approval first. Idempotent: enabling again does not clear or request GC again. Returns a compact acknowledgement with offload totals and failures; get_low_footprint lists component outcomes. The Java agent keeps running.",
+      "example": "bootui low-footprint enable"
+    },
+    {
+      "name": "get_low_footprint",
+      "command": "low-footprint status",
+      "schema": "NONE",
+      "panel": "live-memory",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Read low-footprint mode without changing recording: active, sinceEpochMillis, agentAttached, components with suspension outcomes, and warnings.",
+      "description": "Read low-footprint mode without changing recording: active, sinceEpochMillis, agentAttached, components with suspension outcomes, and warnings. The Java agent is not paused.",
+      "example": "bootui low-footprint status"
     },
     {
       "name": "get_emails",
@@ -812,7 +857,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the bounded local email-capture inventory with content governed by BootUI exposure policy.",
-      "description": "Return the bounded local email-capture inventory with content governed by BootUI exposure policy. This does not send, download, or delete any message.",
+      "description": "Return the bounded local email-capture inventory with content governed by BootUI exposure policy. This does not send, download, or delete any message. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui mail"
     },
     {
@@ -948,7 +993,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return stable application identity and runtime context, including versions, active profiles, and BootUI status.",
-      "description": "Return stable application identity and runtime context, including versions, active profiles, and BootUI status. Use this before interpreting other results.",
+      "description": "Return stable application identity and runtime context, including versions, active profiles, and BootUI status. Use this before interpreting other results. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui overview"
     },
     {
@@ -1009,7 +1054,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Start a method probe: an action that retransforms one application method of the running application to record its next 20 invocations, for at most 60 seconds (five probes at once), then removes itself; it ends with the run.",
-      "description": "Start a method probe: an action that retransforms one application method of the running application to record its next 20 invocations, for at most 60 seconds (five probes at once), then removes itself; it ends with the run. Ask the user for separate approval before starting one, even when other tools were approved. id is the method, binary.Class#name, with its JVM descriptor for an overloaded one, as Code Paths, Code Inventory, and get_code_paths name it (com.example.PriceService#quote(I)J); it must be a method the agent instrumented, in the application's packages. Refused while the Code Paths panel or BootUI is read-only, without the BootUI agent, or when five probes run. Returns the probe, starting: retransformation happens afterwards, so call get_method_probe with its id until it is active before running the code, run the code before its endsAt, then call it again. Metadata only, in every exposure mode: durations, thread kind, request id, outcome, exception type, and calling frame, never argument or return values.",
+      "description": "Start a method probe: an action that retransforms one application method of the running application to record its next 20 invocations, for at most 60 seconds (five probes at once), then removes itself; it ends with the run. Ask the user for separate approval before starting one, even when other tools were approved. id is the method, binary.Class#name, with its JVM descriptor for an overloaded one, as Code Paths, Code Inventory, and get_code_paths name it (com.example.PriceService#quote(I)J); it must be a method the agent instrumented, in the application's packages. Refused while the Code Paths panel or BootUI is read-only, without the BootUI agent, or when five probes run. Returns the probe, starting: retransformation happens afterwards, so call get_method_probe with its id until it is active before running the code, run the code before its endsAt, then call it again. Metadata only, in every exposure mode: durations, thread kind, request id, outcome, exception type, and calling frame, never argument or return values. Refused while low-footprint mode is active; call disable_low_footprint first with approval.",
       "example": "bootui probe start 'com.example.OrderService#total'",
       "idHelp": "An application method (binary.Class#name) from 'bootui code paths'."
     },
@@ -1040,7 +1085,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the bounded local RabbitMQ activity snapshot captured from application publishers and listeners.",
-      "description": "Return the bounded local RabbitMQ activity snapshot captured from application publishers and listeners. This does not publish, consume, clear, or contact a broker.",
+      "description": "Return the bounded local RabbitMQ activity snapshot captured from application publishers and listeners. This does not publish, consume, clear, or contact a broker. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui rabbitmq"
     },
     {
@@ -1069,7 +1114,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Open a profileable request or scheduled/message execution id from get_live_activity or a get_runtime_insights exemplar.",
-      "description": "Open a profileable request or scheduled/message execution id from get_live_activity or a get_runtime_insights exemplar. Returns source=journal with the recorded timeline, route or execution label, resources and touched metadata when retained, plus HTTP-exchange details when available; otherwise source=buffers with the HTTP-exchange profile (SQL N+1 groups, exceptionGroupId, and correlation tiers). An id neither retains is a tool error; available=false with source=none means the journal is off or the id cannot be profiled, and says why. Journal events follow panel visibility and exposure policy; do not infer absent work from a missing event.",
+      "description": "Open a profileable request or scheduled/message execution id from get_live_activity or a get_runtime_insights exemplar. Returns source=journal with the recorded timeline, route or execution label, resources and touched metadata when retained, plus HTTP-exchange details when available; otherwise source=buffers with the HTTP-exchange profile (SQL N+1 groups, exceptionGroupId, and correlation tiers). An id neither retains is a tool error; available=false with source=none means the journal is off or the id cannot be profiled, and says why. Journal events follow panel visibility and exposure policy; do not infer absent work from a missing event. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui request-profile <id>",
       "idHelp": "A profileable request or execution id (an entry id or an observation's exemplarRequestId) from 'bootui activity' or 'bootui insights list'."
     },
@@ -1131,7 +1176,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Clear the bounded in-memory REST-client trace buffer.",
-      "description": "Clear the bounded in-memory REST-client trace buffer. This does not send an HTTP request or change recording state. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_rest_client_traces.",
+      "description": "Clear the bounded in-memory REST-client trace buffer. This does not send an HTTP request or change recording state. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_rest_client_traces. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui rest-client clear"
     },
     {
@@ -1146,7 +1191,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Pause REST-client trace recording.",
-      "description": "Pause REST-client trace recording. Existing buffered calls remain available until explicitly cleared. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_rest_client_traces.",
+      "description": "Pause REST-client trace recording. Existing buffered calls remain available until explicitly cleared. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_rest_client_traces. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui rest-client pause"
     },
     {
@@ -1161,7 +1206,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Resume REST-client trace recording.",
-      "description": "Resume REST-client trace recording. This only affects BootUI's bounded local capture and sends no HTTP request. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_rest_client_traces.",
+      "description": "Resume REST-client trace recording. This only affects BootUI's bounded local capture and sends no HTTP request. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_rest_client_traces. Refused while low-footprint mode is active; call disable_low_footprint first with approval.",
       "example": "bootui rest-client resume"
     },
     {
@@ -1176,7 +1221,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the current bounded REST-client trace snapshot with masked headers and bodies according to BootUI exposure policy.",
-      "description": "Return the current bounded REST-client trace snapshot with masked headers and bodies according to BootUI exposure policy. This does not send requests or change recording state. The retention object reports capacity and retained, reserved, and evicted counts: failed, error, and slow calls are kept longer, so the window is not complete. totalCaptured counts the calls recorded since startup, which clear_rest_client_traces does not reset; stats and entries cover the retained window only. At most limit (20) newest entries matching query (method, URI, host, path, status, client type, error, call site, or request, trace, or execution id); page.hasMore means narrow the query or raise limit.",
+      "description": "Return the current bounded REST-client trace snapshot with masked headers and bodies according to BootUI exposure policy. This does not send requests or change recording state. The retention object reports capacity and retained, reserved, and evicted counts: failed, error, and slow calls are kept longer, so the window is not complete. totalCaptured counts the calls recorded since startup, which clear_rest_client_traces does not reset; stats and entries cover the retained window only. At most limit (20) newest entries matching query (method, URI, host, path, status, client type, error, call site, or request, trace, or execution id); page.hasMore means narrow the query or raise limit. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui rest-client traces --query 503",
       "queryHelp": "a method, URI, host, path, status, client type, call site, or error, or a request, trace, or execution id"
     },
@@ -1192,7 +1237,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the current scheduled task inventory and recent run history, including timing and outcome.",
-      "description": "Return the current scheduled task inventory and recent run history, including timing and outcome. Use to confirm a scheduled job actually ran, and when, rather than assuming from source alone.",
+      "description": "Return the current scheduled task inventory and recent run history, including timing and outcome. Use to confirm a scheduled job actually ran, and when, rather than assuming from source alone. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui scheduled"
     },
     {
@@ -1221,7 +1266,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return a bounded, newest-first snapshot of authentication and authorization audit events.",
-      "description": "Return a bounded, newest-first snapshot of authentication and authorization audit events. Correlate timestamps and principals with live activity.",
+      "description": "Return a bounded, newest-first snapshot of authentication and authorization audit events. Correlate timestamps and principals with live activity. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui security logs --limit 20"
     },
     {
@@ -1314,7 +1359,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return Side Effects: what the application does outside the JVM, from the BootUI agent's side-effect sensors; this version records the processes it starts, its network: connects, datagram sends, and host names the JVM resolved, the blocking calls (sleep, wait, park, a blocking network or file operation) started on an event loop, the sockets, and with files the streams, a request left open or never closed (resources), and, opt-in, the files it opens, deletes, moves, and copies, the environment variables and system properties it reads, the threads it starts and executors it creates (thread-activity), the thread locals a request or a job left set on its pooled thread (thread-locals), and request input reaching a sink (security-sinks, request-input-in-sink) with JDK checks: deserialization without a filter, weak algorithms, and trust managers.",
-      "description": "Return Side Effects: what the application does outside the JVM, from the BootUI agent's side-effect sensors; this version records the processes it starts, its network: connects, datagram sends, and host names the JVM resolved, the blocking calls (sleep, wait, park, a blocking network or file operation) started on an event loop, the sockets, and with files the streams, a request left open or never closed (resources), and, opt-in, the files it opens, deletes, moves, and copies, the environment variables and system properties it reads, the threads it starts and executors it creates (thread-activity), the thread locals a request or a job left set on its pooled thread (thread-locals), and request input reaching a sink (security-sinks, request-input-in-sink) with JDK checks: deserialization without a filter, weak algorithms, and trust managers. Advertised only while the agent is armed for this run (see get_agent_status). Every sensor first, with its coverage (recording, not-claimed, not-available in this version, ...), without its hooks or, when none of its rows is listed, its fixed limitations unless query names that sensor, then at most limit (20) rows, most frequent first, matching query: a sensor id such as processes, network, files, or blocking, 'not captured' for hidden outbound calls, or part of a route, target, client, or call site. A row is attributed to a request's route, work no request owns, startup, or a thread family, with the call site, the bean method it ran inside, counts, failures, exits or connections, times, and up to three request ids. A process row names the command's file name only, never its arguments or environment; a network row names a host and port, the client recognized from the calling frames, and whether a visible panel (REST Client Trace, SQL Trace, a broker's panel, Email) captured the work, never a byte sent or received; a file row a path pattern (./ for the working directory, $TMPDIR, ~, ids as {n}) with its kind, location, and origin (application, library, class-path, jdk, logging), never contents; an environment row a name, never its value; a blocking row the operation, the event loop's thread family, and how long it blocked, not-applicable on Spring MVC, which runs no event loop; a thread-activity row a thread's family or an executor's class, how many a request started (count / requests), how many were still running when their request ended (leftRunning), and executors shut down (completed) or reclaimed without a shutdown (failed), library and JDK pools by origin, never what a thread holds; a thread-locals row the static field holding a thread local left set (kind left set, inheritable, or with initial value), by how many requests, set during the request with no call site, never its value; a resources row the resource's kind (file input stream, file channel, socket, ...) and its target as the files and network rows show it, by origin (application, or a library the application called), how many were reclaimed by the garbage collector never closed (failed: the leak), still open after their request (leftRunning) and closed after it (completed), both a pool's or a cache's hand-off rather than a leak, never contents; a security-sinks row the SQL text, command and argument index, file path pattern, or outbound URL that a request parameter's value reached unchanged, with that value redacted to {name}, the parameter's name, and a sentence stating the fact (for SQL, inside or outside a literal), a fact to check in the code; or a JDK check: an ObjectInputStream read without a filter with the classes read, a weak MessageDigest or Cipher algorithm asked for by application or library code (origin), or a trust manager, default hostname verifier, or SSL socket factory the application installed, never a value.",
+      "description": "Return Side Effects: what the application does outside the JVM, from the BootUI agent's side-effect sensors; this version records the processes it starts, its network: connects, datagram sends, and host names the JVM resolved, the blocking calls (sleep, wait, park, a blocking network or file operation) started on an event loop, the sockets, and with files the streams, a request left open or never closed (resources), and, opt-in, the files it opens, deletes, moves, and copies, the environment variables and system properties it reads, the threads it starts and executors it creates (thread-activity), the thread locals a request or a job left set on its pooled thread (thread-locals), and request input reaching a sink (security-sinks, request-input-in-sink) with JDK checks: deserialization without a filter, weak algorithms, and trust managers. Advertised only while the agent is armed for this run (see get_agent_status). Every sensor first, with its coverage (recording, not-claimed, not-available in this version, ...), without its hooks or, when none of its rows is listed, its fixed limitations unless query names that sensor, then at most limit (20) rows, most frequent first, matching query: a sensor id such as processes, network, files, or blocking, 'not captured' for hidden outbound calls, or part of a route, target, client, or call site. A row is attributed to a request's route, work no request owns, startup, or a thread family, with the call site, the bean method it ran inside, counts, failures, exits or connections, times, and up to three request ids. A process row names the command's file name only, never its arguments or environment; a network row names a host and port, the client recognized from the calling frames, and whether a visible panel (REST Client Trace, SQL Trace, a broker's panel, Email) captured the work, never a byte sent or received; a file row a path pattern (./ for the working directory, $TMPDIR, ~, ids as {n}) with its kind, location, and origin (application, library, class-path, jdk, logging), never contents; an environment row a name, never its value; a blocking row the operation, the event loop's thread family, and how long it blocked, not-applicable on Spring MVC, which runs no event loop; a thread-activity row a thread's family or an executor's class, how many a request started (count / requests), how many were still running when their request ended (leftRunning), and executors shut down (completed) or reclaimed without a shutdown (failed), library and JDK pools by origin, never what a thread holds; a thread-locals row the static field holding a thread local left set (kind left set, inheritable, or with initial value), by how many requests, set during the request with no call site, never its value; a resources row the resource's kind (file input stream, file channel, socket, ...) and its target as the files and network rows show it, by origin (application, or a library the application called), how many were reclaimed by the garbage collector never closed (failed: the leak), still open after their request (leftRunning) and closed after it (completed), both a pool's or a cache's hand-off rather than a leak, never contents; a security-sinks row the SQL text, command and argument index, file path pattern, or outbound URL that a request parameter's value reached unchanged, with that value redacted to {name}, the parameter's name, and a sentence stating the fact (for SQL, inside or outside a literal), a fact to check in the code; or a JDK check: an ObjectInputStream read without a filter with the classes read, a weak MessageDigest or Cipher algorithm asked for by application or library code (origin), or a trust manager, default hostname verifier, or SSL socket factory the application installed, never a value. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui side-effects --query processes --limit 20",
       "queryHelp": "a sensor id such as processes, network, files, environment, blocking, thread-activity, thread-locals, or resources, which also lists its hooks, not captured (outbound calls no panel captured), or part of a route, target, client, or call site"
     },
@@ -1376,7 +1421,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Clear the bounded in-memory SQL trace buffer.",
-      "description": "Clear the bounded in-memory SQL trace buffer. This does not execute SQL or change whether trace recording is enabled. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_sql_traces.",
+      "description": "Clear the bounded in-memory SQL trace buffer. This does not execute SQL or change whether trace recording is enabled. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_sql_traces. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui sql clear"
     },
     {
@@ -1391,7 +1436,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Pause SQL trace recording.",
-      "description": "Pause SQL trace recording. Existing buffered traces remain available until explicitly cleared. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_sql_traces.",
+      "description": "Pause SQL trace recording. Existing buffered traces remain available until explicitly cleared. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_sql_traces. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui sql pause"
     },
     {
@@ -1406,7 +1451,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Resume SQL trace recording.",
-      "description": "Resume SQL trace recording. This only affects BootUI's bounded local capture and does not execute SQL. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_sql_traces.",
+      "description": "Resume SQL trace recording. This only affects BootUI's bounded local capture and does not execute SQL. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_sql_traces. Refused while low-footprint mode is active; call disable_low_footprint first with approval.",
       "example": "bootui sql resume"
     },
     {
@@ -1421,7 +1466,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the current bounded SQL trace snapshot with statements and timings.",
-      "description": "Return the current bounded SQL trace snapshot with statements and timings. Application SQL may contain sensitive values; correlate it locally with request or trace identifiers. The retention object reports capacity and retained, reserved, and evicted counts: failed and slow statements are kept longer, so the window is not complete. At most limit (20) newest entries matching query (SQL text, category, call site, error, or request, trace, or execution id); page.hasMore means narrow the query or raise limit. totalCaptured counts the statements recorded since startup, which clear_sql_traces does not reset; stats and entries cover the retained window only.",
+      "description": "Return the current bounded SQL trace snapshot with statements and timings. Application SQL may contain sensitive values; correlate it locally with request or trace identifiers. The retention object reports capacity and retained, reserved, and evicted counts: failed and slow statements are kept longer, so the window is not complete. At most limit (20) newest entries matching query (SQL text, category, call site, error, or request, trace, or execution id); page.hasMore means narrow the query or raise limit. totalCaptured counts the statements recorded since startup, which clear_sql_traces does not reset; stats and entries cover the retained window only. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui sql traces --query orders",
       "queryHelp": "text in the SQL, category, call site, or error, or a request, trace, or execution id"
     },
@@ -1467,7 +1512,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Clear BootUI's bounded in-memory trace buffer.",
-      "description": "Clear BootUI's bounded in-memory trace buffer. This does not contact a telemetry backend or alter application tracing configuration. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Here totalCaptured is null: the panel keeps no lifetime count. Read the entries with get_traces.",
+      "description": "Clear BootUI's bounded in-memory trace buffer. This does not contact a telemetry backend or alter application tracing configuration. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Here totalCaptured is null: the panel keeps no lifetime count. Read the entries with get_traces. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui traces clear"
     },
     {
@@ -1482,7 +1527,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return a bounded, newest-first snapshot of distributed and local traces captured by BootUI.",
-      "description": "Return a bounded, newest-first snapshot of distributed and local traces captured by BootUI. Use trace ids to correlate activity, exceptions, SQL, and HTTP exchanges.",
+      "description": "Return a bounded, newest-first snapshot of distributed and local traces captured by BootUI. Use trace ids to correlate activity, exceptions, SQL, and HTTP exchanges. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui traces list --limit 20"
     },
     {
@@ -1496,7 +1541,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Clear the bounded in-memory Spring transaction trace buffer.",
-      "description": "Clear the bounded in-memory Spring transaction trace buffer. This does not begin, commit, or roll back an application transaction. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_transactions.",
+      "description": "Clear the bounded in-memory Spring transaction trace buffer. This does not begin, commit, or roll back an application transaction. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_transactions. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui tx clear"
     },
     {
@@ -1510,7 +1555,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the current bounded transaction-boundary snapshot with outcomes, timings, nesting, and correlated SQL counts.",
-      "description": "Return the current bounded transaction-boundary snapshot with outcomes, timings, nesting, and correlated SQL counts. Use it to verify which local operations actually ran in a transaction. totalCaptured counts the transactions recorded since startup, which clear_transactions does not reset; stats and entries cover the retained window only. Reactive capture records physical begin/commit/rollback callbacks, not a complete parent or savepoint hierarchy. SQL and connection counts cover JDBC work on the begin thread only, not R2DBC statements or JDBC work moved to another thread.",
+      "description": "Return the current bounded transaction-boundary snapshot with outcomes, timings, nesting, and correlated SQL counts. Use it to verify which local operations actually ran in a transaction. totalCaptured counts the transactions recorded since startup, which clear_transactions does not reset; stats and entries cover the retained window only. Reactive capture records physical begin/commit/rollback callbacks, not a complete parent or savepoint hierarchy. SQL and connection counts cover JDBC work on the begin thread only, not R2DBC statements or JDBC work moved to another thread. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui tx list"
     },
     {
@@ -1524,7 +1569,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Pause Spring transaction-boundary recording.",
-      "description": "Pause Spring transaction-boundary recording. Existing buffered transactions remain available until explicitly cleared. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_transactions.",
+      "description": "Pause Spring transaction-boundary recording. Existing buffered transactions remain available until explicitly cleared. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_transactions. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui tx pause"
     },
     {
@@ -1538,7 +1583,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Resume Spring transaction-boundary recording.",
-      "description": "Resume Spring transaction-boundary recording. This only affects BootUI's bounded local capture. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_transactions.",
+      "description": "Resume Spring transaction-boundary recording. This only affects BootUI's bounded local capture. Answers with a compact acknowledgement, not the panel: action, available, unavailableReason, capturing, retained (the entries still held), capacity, and totalCaptured, the entries recorded since startup, which a clear does not reset. Read the entries with get_transactions. Refused while low-footprint mode is active; call disable_low_footprint first with approval.",
       "example": "bootui tx resume"
     },
     {
@@ -1584,7 +1629,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the WebSocket endpoints, live sessions, STOMP subscriptions and broker prefixes, and a bounded newest-first activity log of connects, disconnects, and frames, with aggregate counters.",
-      "description": "Return the WebSocket endpoints, live sessions, STOMP subscriptions and broker prefixes, and a bounded newest-first activity log of connects, disconnects, and frames, with aggregate counters. Metadata only: a frame's size, never its payload. frameCaptureSupported and sessionTrackingSupported say what this stack can observe, with the reason when not, so an empty list is not proof no client connected; the *Truncated flags mark capped lists. This read never opens, closes, or sends on a connection, and does not clear the log.",
+      "description": "Return the WebSocket endpoints, live sessions, STOMP subscriptions and broker prefixes, and a bounded newest-first activity log of connects, disconnects, and frames, with aggregate counters. Metadata only: a frame's size, never its payload. frameCaptureSupported and sessionTrackingSupported say what this stack can observe, with the reason when not, so an empty list is not proof no client connected; the *Truncated flags mark capped lists. This read never opens, closes, or sends on a connection, and does not clear the log. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
       "example": "bootui websockets"
     }
   ]

@@ -127,6 +127,19 @@ class BootUiCliTests {
     }
 
     @Test
+    void pausedJsonStaysByteIdenticalAndRefusedResumesExitOne() {
+        responseBody = "{\"entries\":[],\"lowFootprint\":{\"active\":true,\"paused\":true},\"unknown\":1.50}";
+        Result result = run("sql", "traces", "--json");
+        assertThat(result.exitCode).isZero();
+        assertThat(result.out.strip()).isEqualTo(responseBody);
+        status = 409;
+        responseBody = "{\"error\":\"Recording is held; call disable_low_footprint.\"}";
+        Result refused = run("sql", "resume");
+        assertThat(refused.exitCode).isEqualTo(1);
+        assertThat(refused.err).contains("disable_low_footprint");
+    }
+
+    @Test
     void outputIsJsonWhenNothingLooksLikeATerminal() {
         responseBody = "{\"a\":1}";
 

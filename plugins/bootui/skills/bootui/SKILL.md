@@ -189,6 +189,16 @@ Quarkus.
 
 ### Java agent, probes, and runtime recipes
 
+Check `get_low_footprint` / `bootui low-footprint status` before interpreting paused evidence. A result's
+`lowFootprint.paused` means buffered evidence is wholly or partly paused, not that the app was idle; native statistics
+and Java-agent instrumentation may continue. With the user's approval, `enable_low_footprint` /
+`bootui low-footprint enable` pauses existing recorders, irreversibly clears buffers, and requests GC;
+`disable_low_footprint` / `bootui low-footprint disable` releases the hold without restoring data or individually
+paused recorders. Both switches are idempotent Live Memory actions under disabled/read-only policy. The mode is off
+after restart and never expires. Inspect component failures and warnings; Quarkus only pauses already-created stores.
+Recorder resumes and new method probes are refused while held; memory diagnostics and permitted scans remain usable.
+Older CLIs keep existing commands and accept additive JSON fields, but need an updated manifest for the new commands.
+
 Read [references/java-agent-and-recipes.md](references/java-agent-and-recipes.md) before attaching the optional Java
 agent or using method probes, route handler timing, MySQL evidence, or retained advisor violations.
 

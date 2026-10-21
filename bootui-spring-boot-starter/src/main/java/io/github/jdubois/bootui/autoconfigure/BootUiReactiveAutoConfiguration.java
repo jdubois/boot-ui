@@ -531,8 +531,9 @@ public class BootUiReactiveAutoConfiguration {
 
         @Bean
         @Lazy
-        ReactiveBootUiCliController bootUiReactiveCliController(CliService service) {
-            return new ReactiveBootUiCliController(service);
+        ReactiveBootUiCliController bootUiReactiveCliController(
+                CliService service, ObjectProvider<ObjectMapper> objectMapper) {
+            return new ReactiveBootUiCliController(service, objectMapper.getIfAvailable(ObjectMapper::new));
         }
 
         @Bean

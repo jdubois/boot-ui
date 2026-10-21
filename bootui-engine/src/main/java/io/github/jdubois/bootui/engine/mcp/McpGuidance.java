@@ -10,7 +10,12 @@ public final class McpGuidance {
     public static String instructions(String framework) {
         return "BootUI exposes a running " + framework
                 + " application for local diagnosis. Start with get_overview and get_health, then choose the "
-                + "smallest relevant read tool. Before relying on a tool or observation that needs the BootUI agent "
+                + "smallest relevant read tool. Check lowFootprint on affected results: paused or partially paused "
+                + "evidence is not an idle app. "
+                + "get_low_footprint reads the mode; enable_low_footprint irreversibly clears buffers and requests GC, "
+                + "and disable_low_footprint releases the hold. Both actions need approval. Recorder resumes and new "
+                + "method probes are refused while held; memory diagnostics remain usable and the Java agent "
+                + "keeps instrumenting. Before relying on a tool or observation that needs the BootUI agent "
                 + "(Code Paths, Code Inventory, Side Effects, method probes), call get_agent_status once to learn "
                 + "whether it is attached and which sensors record; NOT_APPLICABLE because it requires the BootUI "
                 + "agent means not measured, never healthy or nothing to worry about. A get_side_effects "
@@ -48,7 +53,9 @@ public final class McpGuidance {
                         "diagnose_runtime_issue",
                         "Investigate a runtime failure by correlating health, activity, exceptions, traces, SQL, and logs.",
                         "Diagnose the current runtime issue in this " + framework
-                                + " application. Begin with get_runtime_insights: read its coverage and the checks that"
+                                + " application. Check lowFootprint on results first: paused evidence is not an idle"
+                                + " application; get_low_footprint gives the state and changing it needs approval."
+                                + " Begin with get_runtime_insights: read its coverage and the checks that"
                                 + " did not run before its observations, and treat INSUFFICIENT as unknown. Its default"
                                 + " list leaves out short routes and other rows it counts in a limitation; when nothing"
                                 + " listed explains the issue, call it again with the query all or the route. Do not read"
@@ -103,7 +110,10 @@ public final class McpGuidance {
                                 + " application. Start with get_code_inventory with the query changed: with the BootUI"
                                 + " agent it lists the methods changed or added since the previous run, each executed"
                                 + " or not in this run, with the first request and route that ran it; without the"
-                                + " agent the tool is not advertised, and you continue without it. If a changed"
+                                + " agent the tool is not advertised, and you continue without it. If lowFootprint"
+                                + " says evidence is paused, obtain approval before disable_low_footprint and collect"
+                                + " fresh traffic; missing observations while held cannot verify a change."
+                                + " The Java agent itself keeps running. If a changed"
                                 + " method is NEVER_EXECUTED, run the test or send the request that reaches it and"
                                 + " call get_code_inventory again before reading any latency; if it still did not"
                                 + " run, say so plainly rather than reporting the change verified. Then, when"

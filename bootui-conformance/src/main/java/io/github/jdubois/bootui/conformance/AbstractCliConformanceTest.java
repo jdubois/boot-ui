@@ -54,6 +54,34 @@ public abstract class AbstractCliConformanceTest {
     }
 
     @Test
+    void testLowFootprintControlsPreserveRealCaptureLifecycleWithoutMcp() {
+        LowFootprintContract.verify((tool, arguments) -> {
+            Response response = invoke(tool, arguments);
+            assertThat(response.status()).as("%s: %s", tool, response.body()).isEqualTo(200);
+            return response.json();
+        });
+        try {
+            assertThat(invoke("enable_low_footprint", "{}").status()).isEqualTo(200);
+            for (JsonNode entry : probe().get(CLI).json().path("tools")) {
+                String name = entry.path("name").asText();
+                if (name.startsWith("resume_") || name.equals("start_method_probe")) {
+                    Response response =
+                            invoke(name, name.equals("start_method_probe") ? "{\"id\":\"Example#method\"}" : "{}");
+                    assertThat(response.status()).as(name).isEqualTo(409);
+                    assertThat(response.body()).contains("disable_low_footprint");
+                }
+            }
+        } finally {
+            assertThat(invoke("disable_low_footprint", "{}").status()).isEqualTo(200);
+        }
+        for (String name : java.util.List.of("get_low_footprint", "enable_low_footprint", "disable_low_footprint")) {
+            JsonNode entry = catalogEntry(name);
+            assertThat(entry.path("schema").asText()).isEqualTo("NONE");
+            assertThat(entry.path("panel").asText()).isEqualTo("live-memory");
+        }
+    }
+
+    @Test
     void testPentestingToolsApplyLiveDismissalsToScanAndCachedRead() {
         PentestingDismissalContract.verify(
                 probe(),
