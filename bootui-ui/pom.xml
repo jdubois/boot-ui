@@ -79,7 +79,7 @@
                         <phase>test</phase>
                         <configuration>
                             <arguments>${frontend.test.command}</arguments>
-                            <skip>${skipTests}</skip>
+                            <skip>${bootui.skipFrontendTests}</skip>
                         </configuration>
                     </execution>
                 </executions>

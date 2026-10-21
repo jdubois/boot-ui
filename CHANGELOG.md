@@ -17,6 +17,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Faster CI builds.** The integration tests that run the BootUI agent in forked JVMs, the slowest in the build, now
+  run in their own parallel `agent-integration-tests` job instead of holding up every module that depends on the agent,
+  and that job runs the agent's Failsafe tests on two forks. `-Dbootui.skipAgentIts` and `-Dbootui.skipFrontendTests` skip those tests
+  and the Vitest run on their own, and `-DskipTests` still skips both ([Contributing](CONTRIBUTING.md#testing)).
 - **Paused panels can turn low-footprint mode off** from their banner, and AI Framework now shows that banner too
   ([#1478](https://github.com/jdubois/boot-ui/pull/1478)).
 

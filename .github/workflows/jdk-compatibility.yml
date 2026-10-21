@@ -112,7 +112,7 @@ jobs:
         # The BootUI agent's behaviour is JDK-specific (Byte Buddy class-file support, the
         # privileged install that only matters on JDK 17 to 23, virtual threads): run its
         # forked-JVM integration tests (layout, dormancy, coexistence, leak walk) on each lane.
-        # Java 17 runs them in build.yml's full reactor.
+        # Java 17 runs them in build.yml's agent-integration-tests job.
         run: ./mvnw -B -ntp -pl bootui-agent-bridge,bootui-agent -am verify
 
       # The park hook's measured cost (BlockingBehaviorsIT): Failsafe keeps the test's output in a file, so show it here.
@@ -130,7 +130,7 @@ jobs:
         # propagated executor work, work after the response, Code Inventory, and Code Paths
         # (SpringAgentScenarioIT), and the same agent on the repackaged executable jar, whose classes
         # load from jar:nested: URLs (SpringAgentExecutableJarIT). Java 17 runs them in build.yml's
-        # full reactor.
+        # agent-integration-tests job.
         run: >
           ./mvnw -T 1C -B -ntp -pl bootui-spring-sample-app -am verify
           -Dit.test='SpringAgent*IT' -Dfailsafe.failIfNoSpecifiedTests=false
