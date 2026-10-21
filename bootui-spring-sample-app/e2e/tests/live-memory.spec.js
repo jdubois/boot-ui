@@ -46,4 +46,30 @@ test.describe('Live Memory view', () => {
     await expect(dialog).toBeHidden()
     await expect(page.getByTestId('memory-offload-result')).toHaveCount(0)
   })
+
+  test('turns off low-footprint mode from the AI Framework banner', async ({openView, page}) => {
+    let postBody
+    await page.route('**/api/live-memory/footprint', async (route) => {
+      const isPost = route.request().method() === 'POST'
+      if (isPost) postBody = route.request().postDataJSON()
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({active: !isPost, components: [], warnings: []})
+      })
+    })
+
+    await openView('ai', 'AI Framework')
+    await expect(page.getByTestId('low-footprint-banner')).toBeVisible()
+    const button = page.getByTestId('low-footprint-banner-off')
+    await button.focus()
+    await page.keyboard.press('Enter')
+
+    const success = page.getByTestId('low-footprint-banner-success')
+    await expect(success).toBeVisible()
+    await expect(success).toBeFocused()
+    await expect(page.getByTestId('low-footprint-banner')).toHaveCount(0)
+    await expect(page.getByTestId('low-footprint-banner-off')).toHaveCount(0)
+    expect(postBody).toEqual({enabled: false})
+  })
 })

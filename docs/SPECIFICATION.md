@@ -1085,7 +1085,9 @@ Features:
   `-XX:+DisableExplicitGC` makes the collection request a no-op; `System.gc()` is only a hint. The action belongs to
   the Live Memory panel, which is therefore action-capable: global `bootui.read-only=true` or
   `bootui.panels.live-memory.read-only=true` refuses it with the canonical panel denial, and the button is disabled
-  with that reason. The UI makes no request until the user confirms.
+  with that reason. The UI makes no request until the user confirms. Panels whose captured data is paused show a
+  "Paused by low-footprint mode" banner with a **Turn off low-footprint mode** button that posts `{"enabled":false}`
+  under the same read-only policy; resume warnings and failures are announced, never hidden.
 - `GET /bootui/api/live-memory/footprint` reads the mode; posting `{"enabled":false}` releases its hold without
   restoring cleared data. The one-shot `POST /bootui/api/live-memory/offload` clears and requests GC without holding
   recording. MCP exposes `get_low_footprint`, `enable_low_footprint`, and `disable_low_footprint`, all without arguments

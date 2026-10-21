@@ -15,6 +15,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Spring Boot's auto-configured builder is available, since those clients skip metrics, tracing, and shared
   customizers ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-025---http-clients-should-be-built-from-spring-boots-auto-configured-builder); #1500).
 
+### Changed
+
+- **Paused panels can turn low-footprint mode off** from their banner, and AI Framework now shows that banner too
+  ([#1478](https://github.com/jdubois/boot-ui/pull/1478)).
+
 ### Fixed
 
 - **Exact exception navigation** links failed request profiles and activity rows to their exception group's stack

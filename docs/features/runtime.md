@@ -94,6 +94,13 @@ Low-footprint mode turns freeing memory into a switch: `POST /bootui/api/live-me
 anything. The mode lives in memory only: it is off after a restart and never expires by itself. It follows the same
 read-only rules as freeing memory.
 
+Exceptions, Log Tail, Live Activity, Runtime Insights, the Scorecard, HTTP Exchanges, Traces, SQL Trace, REST Client,
+Transactions, Kafka, RabbitMQ, JMS, WebSockets, Security Logs, Email, Fault Tolerance events, and AI Framework show a
+"Paused by low-footprint mode" banner for their captured data. Its **Turn off low-footprint mode** button calls the same
+endpoint and follows the Live Memory panel's read-only policy: when that policy forbids the action, the button is
+disabled and the banner shows the reason. A failure or a recorder that does not resume stays visible after the banner
+goes away.
+
 Agents use `get_low_footprint`, `enable_low_footprint`, and `disable_low_footprint`, or
 `bootui low-footprint status|enable|disable`. Both switches require approval and follow Live Memory panel policy.
 Enabling again does not clear buffers or request GC again; disabling again is also harmless. Individually paused

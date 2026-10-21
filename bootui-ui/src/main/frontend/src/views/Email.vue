@@ -1,4 +1,5 @@
 <script setup>
+import LowFootprintBanner from './components/LowFootprintBanner.vue'
 import {apiFetch, getJson} from '../api.js'
 import {computed, inject, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
@@ -151,6 +152,7 @@ function downloadUrl(id) {
         />
       </template>
     </PanelHeader>
+    <LowFootprintBanner />
 
     <FlashBanner :message="banner" @dismiss="clear" />
 
