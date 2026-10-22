@@ -23,7 +23,8 @@ export const THEMES = [
       'lazy-sql-after-handler',
       'orm-auto-flush',
       'large-persistence-context',
-      'paged-without-order'
+      'paged-without-order',
+      'slow-flush'
     ]
   },
   {id: 'errors', label: 'Errors', kinds: ['exception-hotspots', 'errors-behind-2xx']},
