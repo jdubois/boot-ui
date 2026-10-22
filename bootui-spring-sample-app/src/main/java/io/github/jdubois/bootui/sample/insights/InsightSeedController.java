@@ -48,6 +48,16 @@ public class InsightSeedController {
         return Map.of("tags", tags.countThenSave());
     }
 
+    @GetMapping("/tags/reacquire")
+    public Map<String, Object> tagsReacquiringTheConnection() {
+        return Map.of("tags", tags.countTagsOneTransactionAtATime());
+    }
+
+    @GetMapping("/tags/reacquire-one-transaction")
+    public Map<String, Object> tagsInOneTransaction() {
+        return Map.of("tags", tags.countTagsInOneTransaction());
+    }
+
     @GetMapping("/tags/export")
     public Map<String, Object> exportEveryTag() {
         return Map.of("tags", tags.exportEveryTag());
