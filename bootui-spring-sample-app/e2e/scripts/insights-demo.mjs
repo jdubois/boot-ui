@@ -34,6 +34,8 @@ const STEPS = {
     ['POST', '/api/insights/tags/read-then-write', 3],
     ['GET', '/api/insights/tags/export', 3],
     ['GET', '/api/insights/tags/export-labels', 3],
+    ['GET', '/api/insights/tags/reacquire', 3],
+    ['GET', '/api/insights/tags/reacquire-one-transaction', 3],
     ['POST', '/api/insights/debug/reset-totals', 1],
     ['GET', '/api/insights/reports/payroll', 1],
     ['GET', '/api/insights/reports/PAYROLL', 1],

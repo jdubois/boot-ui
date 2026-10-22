@@ -49,6 +49,8 @@ class WebFluxRuntimeInsightsSeedsTest {
 
     private final List<String> notExercised = new ArrayList<>();
 
+    private final List<JsonNode> checks = new ArrayList<>();
+
     @BeforeAll
     void seed() throws Exception {
         BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
@@ -62,6 +64,7 @@ class WebFluxRuntimeInsightsSeedsTest {
         assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
         JsonNode report = probe.get("/bootui/api/runtime-insights").json();
         report.path("observations").forEach(observations::add);
+        report.path("checks").forEach(checks::add);
         report.path("notExercised").forEach(route -> notExercised.add(route.asText()));
     }
 
@@ -113,6 +116,19 @@ class WebFluxRuntimeInsightsSeedsTest {
                         + observation.path("subject").asText() + ": "
                         + observation.path("sentence").asText())
                 .isEmpty();
+    }
+
+    /** The sample is JDBC-only, so no Hibernate session is recorded: the check ran and found nothing to judge. */
+    @Test
+    void connectionReacquisitionHasNoHibernateSessionToJudgeInAJdbcOnlySample() {
+        assertThat(subjects("connection-reacquisition")).isEmpty();
+        assertThat(checks)
+                .filteredOn(check -> check.path("kind").asText().equals("connection-reacquisition"))
+                .singleElement()
+                .satisfies(check -> {
+                    assertThat(check.path("status").asText()).isEqualTo("INSUFFICIENT");
+                    assertThat(check.path("eligibleRequests").asLong()).isZero();
+                });
     }
 
     @Test

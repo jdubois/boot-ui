@@ -112,6 +112,7 @@ final class ObservationFixtures {
         transactionalListenerSkipped(fixtures);
         afterCommitWrites(fixtures);
         ormObservations(fixtures);
+        connectionReacquisition(fixtures);
         transactionAcrossRemoteCall(fixtures);
         lazySqlAfterHandler(fixtures);
         eventLoopBlocking(fixtures);
@@ -714,6 +715,48 @@ final class ObservationFixtures {
                         ormRequest(recording, "/api/report/twice", orm(0, 3, 0, 800));
                     }
                 }));
+    }
+
+    private static void connectionReacquisition(List<Fixture> fixtures) {
+        fixtures.add(positive(
+                        ConnectionReacquisition.KIND, "the sample's three reads, each in a transaction of its own")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        ormRequest(recording, "/api/insights/tags/reacquire", acquiring(3));
+                    }
+                }));
+        fixtures.add(positive(ConnectionReacquisition.KIND, "a lazy load after the transaction, with its call sites")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/orders")
+                                .children(
+                                        sqlAt("select * from orders", RequestPhase.HANDLER, 150),
+                                        transactionAt("OrderService.list", false, false, false, 100, 200),
+                                        sqlAt("select * from lines where order_id = ?", RequestPhase.HANDLER, 250),
+                                        new Ev(JournalSource.ORM, 80 * MS, acquiring(2)));
+                    }
+                }));
+        fixtures.add(counterexample(
+                        ConnectionReacquisition.KIND,
+                        "the sample's same three reads in one transaction, one acquisition")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        ormRequest(recording, "/api/insights/tags/reacquire-one-transaction", acquiring(1));
+                    }
+                }));
+        fixtures.add(counterexample(ConnectionReacquisition.KIND, "a re-acquiring session in only two requests")
+                .toleratingInsufficient()
+                .seed(recording -> {
+                    for (int i = 0; i < 2; i++) {
+                        ormRequest(recording, "/api/orders/twice", acquiring(4));
+                    }
+                }));
+    }
+
+    /** A session that borrowed {@code acquisitions} connections, without flushes. */
+    private static OrmPayload acquiring(int acquisitions) {
+        return new OrmPayload(null, acquisitions + 1, 5 * MS, acquisitions, 2 * MS, 0, 0, 0, 0, 0, -1, 0, 0, 0);
     }
 
     private static void ormRequest(Recording recording, String path, OrmPayload orm) {

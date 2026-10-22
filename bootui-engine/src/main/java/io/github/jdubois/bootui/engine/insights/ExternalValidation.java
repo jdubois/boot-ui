@@ -109,6 +109,7 @@ public final class ExternalValidation {
         put(kinds, AnonymousSuccessOnRestrictedRoute.KIND, Outcome.NOT_VALIDATED, null);
         put(kinds, OrmAutoFlush.KIND, Outcome.NOT_VALIDATED, null);
         put(kinds, LargePersistenceContext.KIND, Outcome.NOT_VALIDATED, null);
+        put(kinds, ConnectionReacquisition.KIND, Outcome.NOT_JUDGED, ON_REQUEST);
         put(kinds, GcInflatedLatency.KIND, Outcome.NOT_LISTED, DefaultListing.MEMORY);
         put(kinds, HeapGrowthAfterGc.KIND, Outcome.NOT_LISTED, DefaultListing.MEMORY);
         put(kinds, WorkAfterResponse.KIND, Outcome.NOT_VALIDATED, null);

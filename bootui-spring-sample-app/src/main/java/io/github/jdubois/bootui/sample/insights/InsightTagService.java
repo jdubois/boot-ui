@@ -50,6 +50,29 @@ public class InsightTagService {
         return count;
     }
 
+    /**
+     * {@code connection-reacquisition}: three reads, each in a transaction of its own, so the request's Hibernate
+     * session returns its connection after each one and borrows another for the next. The caller keeps the session
+     * open across them, as open-in-view does; {@link InsightOpenSessionConfig} does so for the seed routes only.
+     */
+    public long countTagsOneTransactionAtATime() {
+        long count = 0;
+        for (int i = 0; i < 3; i++) {
+            count = tags.count();
+        }
+        return count;
+    }
+
+    /** The counterexample: the same three reads in one transaction, which borrows one connection. */
+    @Transactional(readOnly = true)
+    public long countTagsInOneTransaction() {
+        long count = 0;
+        for (int i = 0; i < 3; i++) {
+            count = tags.count();
+        }
+        return count;
+    }
+
     /** Fills the tag table for the export seeds, once, at startup and outside every request. */
     @Transactional
     public void ensureExportedTags() {
