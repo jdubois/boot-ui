@@ -149,7 +149,7 @@ function noteId(index) {
             placeholder="Why was this dismissed? (stays on this machine)"
             :value="draftFor(entry)"
             :disabled="disabled || loading"
-            @input="drafts[keyOf(entry)] = $event.target.value"
+            @input="drafts[keyOf(entry)] = /** @type {HTMLInputElement} */ ($event.target).value"
           />
           <button
             type="button"

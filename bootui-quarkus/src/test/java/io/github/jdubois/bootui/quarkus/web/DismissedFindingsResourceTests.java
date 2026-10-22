@@ -39,6 +39,8 @@ class DismissedFindingsResourceTests {
             "{\"ruleId\":\"DB-SCHEMA-001\",\"identity\":\"bad identity\",\"note\":\"" + CANARY + "\"}",
             "{\"ruleId\":\"DB-SCHEMA-001\",\"identity\":\"v1:a=b\",\"note\":7}",
             "[\"" + CANARY + "\"]",
+            BODY + " {}",
+            BODY + " " + CANARY,
             "",
             null
         }) {

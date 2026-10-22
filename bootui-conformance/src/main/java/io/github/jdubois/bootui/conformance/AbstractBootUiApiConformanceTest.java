@@ -1129,6 +1129,8 @@ public abstract class AbstractBootUiApiConformanceTest {
                 "{\"ruleId\":\"HIB-ID-006\",\"note\":\"" + canary + "\"}",
                 "{\"ruleId\":\"hib-id-006\",\"identity\":\"v1:unit=a|b=c\",\"note\":\"" + canary + "\"}",
                 "[\"" + canary + "\"]",
+                "{" + valid + "} {}",
+                "{" + valid + "} " + canary,
                 "");
         List<String> refusedOnDismiss =
                 List.of("{" + valid + ",\"note\":\"" + "x".repeat(201) + canary + "\"}", "{" + valid + ",\"note\":7}");

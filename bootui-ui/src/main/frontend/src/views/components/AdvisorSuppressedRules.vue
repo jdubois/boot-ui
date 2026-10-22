@@ -2,7 +2,7 @@
 import AdvisorRuleViolations from './AdvisorRuleViolations.vue'
 
 defineProps({
-  results: {type: Array, required: true},
+  results: {type: /** @type {import('vue').PropType<Array<Record<string, any>>>} */ (Array), required: true},
   apiPath: {type: String, required: true},
   details: {type: Object, default: null},
   refreshReport: {type: Function, required: true},

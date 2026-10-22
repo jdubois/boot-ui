@@ -138,7 +138,10 @@ watch(
     const reloaded = await refresh()
     if (!reloaded || focusIndex === null) return
     await nextTick()
-    document.getElementById(regionId)?.querySelector(`[data-row="${focusIndex}"] .advisor-finding-action`)?.focus()
+    const action = document
+      .getElementById(regionId)
+      ?.querySelector(`[data-row="${focusIndex}"] .advisor-finding-action`)
+    if (action instanceof HTMLElement) action.focus()
   }
 )
 

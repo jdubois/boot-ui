@@ -27,7 +27,9 @@ import jakarta.ws.rs.core.MediaType;
 @Path("/bootui/api/dismissed-findings")
 public class DismissedFindingsResource {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    // Jackson 3 (Spring) refuses a second root value by default and Jackson 2 does not; both stacks must refuse it.
+    private static final ObjectMapper MAPPER =
+            new ObjectMapper().enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     private final DismissedRulesStore store;
 
