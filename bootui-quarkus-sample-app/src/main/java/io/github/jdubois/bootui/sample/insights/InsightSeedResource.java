@@ -32,6 +32,11 @@ import javax.sql.DataSource;
 @Produces(MediaType.APPLICATION_JSON)
 public class InsightSeedResource {
 
+    /** The rows each audit route writes: more than the ten executions that make a loop. */
+    private static final int AUDIT_ROWS = 12;
+
+    private static final String AUDIT_INSERT = "insert into insight_audit values (?, ?, ?)";
+
     @Inject
     DataSource dataSource;
 
@@ -100,6 +105,44 @@ public class InsightSeedResource {
             }
             return order;
         }
+    }
+
+    /**
+     * {@code unbatched-write-loop}: one audit row per iteration, each its own statement execution, so each pays its
+     * own round trip. Quarkus records no transactions, so the loop is counted per request.
+     */
+    @POST
+    @Path("/audit/one-by-one")
+    public Map<String, Object> auditOneByOne() throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement audit = connection.prepareStatement(AUDIT_INSERT)) {
+            for (int row = 0; row < AUDIT_ROWS; row++) {
+                bindAuditRow(audit, row);
+                audit.executeUpdate();
+            }
+        }
+        return Map.of("rows", AUDIT_ROWS);
+    }
+
+    /** The counterexample: the same rows sent as one JDBC batch. */
+    @POST
+    @Path("/audit/in-one-batch")
+    public Map<String, Object> auditInOneBatch() throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement audit = connection.prepareStatement(AUDIT_INSERT)) {
+            for (int row = 0; row < AUDIT_ROWS; row++) {
+                bindAuditRow(audit, row);
+                audit.addBatch();
+            }
+            audit.executeBatch();
+        }
+        return Map.of("rows", AUDIT_ROWS);
+    }
+
+    private void bindAuditRow(PreparedStatement audit, int row) throws SQLException {
+        audit.setLong(1, tables.nextId());
+        audit.setLong(2, 1);
+        audit.setString(3, "row-" + row);
     }
 
     /** Fires an application event whose observer BootUI records with this request (M4-8). */

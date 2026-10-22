@@ -83,6 +83,48 @@ class SqlTraceRecorderTests {
         assertThat(((SqlPayload) published.get(6).payload()).executed()).isTrue();
     }
 
+    @Test
+    void thePublishedBatchSizeIsOneForAnOrdinaryExecutionTheSubmittedCountForABatchAndUnknownForAPreparation() {
+        SqlTraceRecorder recorder = recorder(true, false, 10, 100);
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+        recorder.registerDataSource("db");
+        // The overloads that predate the explicit flag read a batch size of zero as an ordinary execution.
+        for (int batchSize : new int[] {0, 5}) {
+            recorder.recordNanos(
+                    StatementType.PREPARED,
+                    Category.INSERT,
+                    "insert into t values (?)",
+                    List.of(),
+                    0,
+                    true,
+                    null,
+                    null,
+                    batchSize,
+                    "c1",
+                    "main");
+        }
+        recorder.recordNanos(
+                StatementType.PREPARED,
+                Category.INSERT,
+                "insert into t values (?)",
+                List.of(),
+                0,
+                true,
+                null,
+                null,
+                0,
+                "c1",
+                "main",
+                "db",
+                true);
+        recorder.recordPreparation("insert into t values (?)", "db");
+
+        assertThat(published)
+                .extracting(event -> ((SqlPayload) event.payload()).batchSize())
+                .containsExactly(1, 5, 0, 0);
+    }
+
     private SqlTraceRecorder recorder(boolean enabled, boolean captureParameters, int maxEntries, long slowMillis) {
         return recorder(enabled, captureParameters, false, maxEntries, slowMillis);
     }

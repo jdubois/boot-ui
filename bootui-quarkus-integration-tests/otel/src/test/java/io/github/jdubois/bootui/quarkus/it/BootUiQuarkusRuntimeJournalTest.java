@@ -141,6 +141,9 @@ class BootUiQuarkusRuntimeJournalTest {
                     assertThat(((SqlPayload) entry.event().payload()).completedNanos())
                             .as("each statement's monotonic completion, which places it in its request")
                             .isPositive();
+                    assertThat(((SqlPayload) entry.event().payload()).batchSize())
+                            .as("an ordinary JDBC execution publishes a batch size of one, never unknown")
+                            .isEqualTo(1);
                 });
         assertThat(entries)
                 .filteredOn(

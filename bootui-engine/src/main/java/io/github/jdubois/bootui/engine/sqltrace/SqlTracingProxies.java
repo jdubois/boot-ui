@@ -457,7 +457,8 @@ public final class SqlTracingProxies {
                         0,
                         connectionId,
                         Thread.currentThread().getName(),
-                        dataSource);
+                        dataSource,
+                        false);
             }
         }
 
@@ -492,7 +493,8 @@ public final class SqlTracingProxies {
                         batchSize,
                         connectionId,
                         Thread.currentThread().getName(),
-                        dataSource);
+                        dataSource,
+                        true);
                 clearBatchState();
             }
         }

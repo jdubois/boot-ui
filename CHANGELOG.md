@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`unbatched-write-loop` observation** reports a request that ran one write statement ten times or more, each without
+  a JDBC batch ([#1521](https://github.com/jdubois/boot-ui/issues/1521)).
 - **`HIB-CONFIG-021` (HIGH)** flags `hibernate.connection.provider_disables_autocommit=true` on a pool that hands out
   auto-commit connections, and `HIB-CONFIG-008` now reads the pool's auto-commit instead of always skipping
   ([Hibernate checks](docs/HIBERNATE-CHECKS.md#hib-config-021-provider-auto-commit-setting-should-match-the-pool); #1512).
