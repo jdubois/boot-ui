@@ -182,6 +182,58 @@ class SpringConnectionPoolProviderTests {
     }
 
     @Test
+    void readsOnlyAllowListedDriverPropertiesFromEachPoolsDataSourceProperties() {
+        HikariDataSource orders = runningDataSource();
+        java.util.Properties ordersProperties = new java.util.Properties();
+        ordersProperties.setProperty("reWriteBatchedInserts", "true");
+        ordersProperties.setProperty("user", "app");
+        ordersProperties.setProperty("password", "examplepass");
+        when(orders.getDataSourceProperties()).thenReturn(ordersProperties);
+        HikariDataSource billing = runningDataSource();
+        java.util.Properties billingProperties = new java.util.Properties();
+        billingProperties.setProperty("USEAFFECTEDROWS", "true");
+        when(billing.getDataSourceProperties()).thenReturn(billingProperties);
+        ListableBeanFactory factory = mock(ListableBeanFactory.class);
+        when(factory.getBeanNamesForType(HikariDataSource.class)).thenReturn(new String[] {"orders", "billing"});
+        when(factory.getBean("orders", HikariDataSource.class)).thenReturn(orders);
+        when(factory.getBean("billing", HikariDataSource.class)).thenReturn(billing);
+
+        java.util.Map<String, java.util.Map<String, String>> properties =
+                new SpringConnectionPoolProvider(provider(factory)).driverProperties();
+
+        assertThat(properties).containsOnlyKeys("orders", "billing");
+        assertThat(properties.get("orders")).containsOnly(java.util.Map.entry("reWriteBatchedInserts", "true"));
+        assertThat(properties.get("billing")).containsOnly(java.util.Map.entry("USEAFFECTEDROWS", "true"));
+        assertThat(properties.toString()).doesNotContain("examplepass", "user");
+    }
+
+    @Test
+    void aPoolBuiltOnASuppliedDataSourceOrClassHasNoEntryBecauseItsDriverSettingsLiveElsewhere() {
+        HikariDataSource supplied = runningDataSource();
+        when(supplied.getDataSource()).thenReturn(mock(DataSource.class));
+        HikariDataSource byClass = runningDataSource();
+        when(byClass.getDataSourceClassName()).thenReturn("com.mysql.cj.jdbc.MysqlDataSource");
+        ListableBeanFactory factory = mock(ListableBeanFactory.class);
+        when(factory.getBeanNamesForType(HikariDataSource.class)).thenReturn(new String[] {"supplied", "byClass"});
+        when(factory.getBean("supplied", HikariDataSource.class)).thenReturn(supplied);
+        when(factory.getBean("byClass", HikariDataSource.class)).thenReturn(byClass);
+
+        assertThat(new SpringConnectionPoolProvider(provider(factory)).driverProperties())
+                .isEmpty();
+    }
+
+    @Test
+    void aPoolWhoseDriverPropertiesCannotBeReadContributesNoEntryAndNoBeanFactoryMeansNone() {
+        HikariDataSource broken = runningDataSource();
+        when(broken.getDataSourceProperties()).thenThrow(new IllegalStateException("closed"));
+
+        assertThat(new SpringConnectionPoolProvider(provider(beanFactoryWith("broken", broken))).driverProperties())
+                .isEmpty();
+        assertThat(new SpringConnectionPoolProvider(provider(null)).driverProperties())
+                .isEmpty();
+    }
+
+    @Test
     void attributesTheHikariPoolItselfWithoutBorrowingAConnection() throws SQLException {
         HikariDataSource hikari = pool(false);
         SpringConnectionPoolProvider provider =

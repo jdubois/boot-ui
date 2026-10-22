@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.autoconfigure.config.SpringConfigProvider;
 import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
 import io.github.jdubois.bootui.autoconfigure.crac.CracRuntimeInventoryCollector;
 import io.github.jdubois.bootui.autoconfigure.databaseadvisor.SpringDatabaseAdvisorDataSourceProvider;
+import io.github.jdubois.bootui.autoconfigure.databaseadvisor.SpringDatabaseAdvisorEvidenceProvider;
 import io.github.jdubois.bootui.autoconfigure.datasource.SpringConnectionPoolProvider;
 import io.github.jdubois.bootui.autoconfigure.errorcontract.SpringErrorContractProvider;
 import io.github.jdubois.bootui.autoconfigure.faulttolerance.BootUiRetryListener;
@@ -136,6 +137,7 @@ import io.github.jdubois.bootui.engine.websocket.WebSocketSettings;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
 import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider;
 import io.github.jdubois.bootui.spi.ErrorContractProvider;
 import io.github.jdubois.bootui.spi.FaultTolerancePolicyProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
@@ -752,6 +754,22 @@ public class BootUiEngineConfiguration {
         return scanner;
     }
 
+    /**
+     * Driver evidence for the Database Advisor. Unconditional because it holds only neutral types: the HikariCP-typed
+     * {@link ConnectionPoolProvider} and the Hibernate observation source exist only in their own gated
+     * configurations and are reached through {@link ObjectProvider}, so an absent one simply means no evidence.
+     */
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    DatabaseAdvisorEvidenceProvider bootUiDatabaseAdvisorEvidenceProvider(
+            ObjectProvider<ListableBeanFactory> beanFactoryProvider,
+            ObjectProvider<ConnectionPoolProvider> connectionPools,
+            ObjectProvider<io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource>
+                    hibernateObservations) {
+        return new SpringDatabaseAdvisorEvidenceProvider(beanFactoryProvider, connectionPools, hibernateObservations);
+    }
+
     @Bean
     @Lazy
     @ConditionalOnMissingBean
@@ -759,6 +777,7 @@ public class BootUiEngineConfiguration {
             ObjectProvider<ListableBeanFactory> beanFactoryProvider,
             ObjectProvider<EntityDiscoverySource> entityDiscoverySource,
             ObjectProvider<SqlTraceRecorder> sqlTraceRecorder,
+            ObjectProvider<DatabaseAdvisorEvidenceProvider> evidenceProvider,
             BootUiProperties properties) {
         // javax.sql.DataSource is core JDK (unlike EntityManagerFactory), so DataSource discovery needs no
         // @ConditionalOnClass gating; the Hibernate cross-reference half is optional and only resolved when
@@ -780,6 +799,7 @@ public class BootUiEngineConfiguration {
                     SqlTraceRecorder recorder = sqlTraceRecorder.getIfAvailable();
                     return recorder == null ? List.of() : recorder.entries(false);
                 },
+                evidenceProvider.getIfAvailable(),
                 Clock.systemUTC());
         scanner.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
         return scanner;

@@ -36,7 +36,11 @@ final class DatabaseAdvisorRuleRegistry {
             new HibernateIdentityGenerationMismatchRule(),
             new HibernateNumericPrecisionMismatchRule(),
             // Runtime SQL observed through the SQL Trace window
-            new SqlLiteralConcatenationRule());
+            new SqlLiteralConcatenationRule(),
+            // JDBC driver settings read from the URL and the pool's driver properties
+            new PostgresRewriteBatchedInsertsRule(),
+            new MySqlRewriteBatchedStatementsRule(),
+            new MySqlUseAffectedRowsRule());
 
     private DatabaseAdvisorRuleRegistry() {}
 

@@ -5,6 +5,7 @@ import io.agroal.api.AgroalDataSourceMetrics;
 import io.agroal.api.configuration.AgroalConnectionFactoryConfiguration;
 import io.agroal.api.configuration.AgroalConnectionPoolConfiguration;
 import io.agroal.api.configuration.AgroalDataSourceConfiguration;
+import io.github.jdubois.bootui.engine.databaseadvisor.DriverSettingCatalog;
 import io.github.jdubois.bootui.engine.datasource.PhysicalDataSources;
 import io.github.jdubois.bootui.spi.ConnectionPoolInfo;
 import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
@@ -18,7 +19,9 @@ import io.quarkus.datasource.common.runtime.DataSourceUtil;
 import java.security.Principal;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import javax.sql.DataSource;
 
@@ -80,6 +83,32 @@ public final class QuarkusAgroalConnectionPoolProvider implements ConnectionPool
                     .ifPresent(agroal -> matches.add(toInfo(name, agroal)));
         }
         return matches.size() == 1 ? Optional.of(matches.get(0)) : Optional.empty();
+    }
+
+    /**
+     * Each active Agroal datasource's JDBC properties ({@code quarkus.datasource.jdbc.additional-jdbc-properties.*}),
+     * reduced to the driver-setting allow-list so a credential passed to the driver is never read into a value.
+     */
+    @Override
+    public Map<String, Map<String, String>> driverProperties() {
+        Map<String, Map<String, String>> properties = new LinkedHashMap<>();
+        for (String name : AgroalDataSourceUtil.activeDataSourceNames()) {
+            dataSourceIfActive(name).ifPresent(agroal -> {
+                try {
+                    AgroalConnectionFactoryConfiguration factory = agroal.getConfiguration()
+                            .connectionPoolConfiguration()
+                            .connectionFactoryConfiguration();
+                    if (factory.jdbcUrl() == null || factory.jdbcUrl().isBlank()) {
+                        // Not URL-configured: the driver's settings are not described by these properties.
+                        return;
+                    }
+                    properties.put(displayName(name), DriverSettingCatalog.allowListed(factory.jdbcProperties()));
+                } catch (RuntimeException ex) {
+                    // A pool that cannot report its driver properties contributes no evidence.
+                }
+            });
+        }
+        return properties;
     }
 
     /**

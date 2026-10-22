@@ -3,8 +3,10 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.JdbcBatching;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Everything a Database Advisor rule needs: the physical schema read from every discovered
@@ -18,6 +20,9 @@ import java.util.List;
  * can reason about how the application actually talks to the database rather than only about its schema. It
  * is empty whenever SQL tracing is off or nothing has run yet, and a rule reading it must skip in that case:
  * absence of captured evidence is not evidence of a healthy application.</p>
+ *
+ * <p>{@code jdbcBatching} is the effective JDBC batching per datasource name, derived from the Hibernate
+ * observations. A datasource without an entry has unknown batching, never disabled batching.</p>
  */
 record DatabaseAdvisorContext(
         List<SchemaSnapshot> schemas,
@@ -25,7 +30,8 @@ record DatabaseAdvisorContext(
         List<MappedEntityFacts> hibernateEntities,
         List<SqlTraceEntryDto> observedStatements,
         List<SchemaDiagnostic> evaluationDiagnostics,
-        AdvisorViolationCollector violationCollector) {
+        AdvisorViolationCollector violationCollector,
+        Map<String, JdbcBatching> jdbcBatching) {
 
     private static final int MAX_EVALUATION_DIAGNOSTICS = 100;
 
@@ -34,6 +40,24 @@ record DatabaseAdvisorContext(
         hibernateEntities = List.copyOf(hibernateEntities);
         observedStatements = observedStatements == null ? List.of() : List.copyOf(observedStatements);
         evaluationDiagnostics = new ArrayList<>(evaluationDiagnostics);
+        jdbcBatching = jdbcBatching == null ? Map.of() : Map.copyOf(jdbcBatching);
+    }
+
+    DatabaseAdvisorContext(
+            List<SchemaSnapshot> schemas,
+            boolean hibernateAvailable,
+            List<MappedEntityFacts> hibernateEntities,
+            List<SqlTraceEntryDto> observedStatements,
+            List<SchemaDiagnostic> evaluationDiagnostics,
+            AdvisorViolationCollector violationCollector) {
+        this(
+                schemas,
+                hibernateAvailable,
+                hibernateEntities,
+                observedStatements,
+                evaluationDiagnostics,
+                violationCollector,
+                Map.of());
     }
 
     DatabaseAdvisorContext(
@@ -41,7 +65,7 @@ record DatabaseAdvisorContext(
             boolean hibernateAvailable,
             List<MappedEntityFacts> hibernateEntities,
             List<SqlTraceEntryDto> observedStatements) {
-        this(schemas, hibernateAvailable, hibernateEntities, observedStatements, List.of(), null);
+        this(schemas, hibernateAvailable, hibernateEntities, observedStatements, List.of(), null, Map.of());
     }
 
     DatabaseAdvisorContext(
@@ -68,6 +92,11 @@ record DatabaseAdvisorContext(
                     "Additional rule-coverage diagnostics omitted after the first " + MAX_EVALUATION_DIAGNOSTICS
                             + " distinct messages."));
         }
+    }
+
+    /** The batching known for {@code dataSourceName}, or {@code null} when it is unknown. */
+    JdbcBatching jdbcBatchingOf(String dataSourceName) {
+        return jdbcBatching.get(dataSourceName);
     }
 
     List<SchemaSnapshot> availableSchemas() {

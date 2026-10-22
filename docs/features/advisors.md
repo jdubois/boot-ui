@@ -430,6 +430,22 @@ detected as its own dialect even through the MySQL driver, and an "Oracle" produ
 dependency in BootUI. Partitioned tables are reported once on the parent.
 :::
 
+::: details What the JDBC driver checks add
+
+Three rules judge settings of the JDBC driver itself, read from the URL the scan connection reports and from the
+pool's driver properties (HikariCP `dataSourceProperties`, Agroal additional JDBC properties); no other setting, user
+name or password is kept, and no application data is read. Batching is taken from the Hibernate observations of the
+persistence unit attributed to the datasource's pool.
+
+- PostgreSQL (pgjdbc): `reWriteBatchedInserts` is not `true` while Hibernate batches writes.
+- MySQL Connector/J: `rewriteBatchedStatements` is not `true` while Hibernate batches writes.
+- MySQL Connector/J: `useAffectedRows` is `true`.
+
+They are `SKIPPED` with a reason when the driver is another one (MariaDB Connector/J is not evaluated), batching is off
+or unknown, or the evidence could not be settled. See
+[DATABASE-ADVISOR-CHECKS.md](../DATABASE-ADVISOR-CHECKS.md#jdbc-driver).
+:::
+
 ::: details What the Hibernate cross-reference checks
 
 - An explicit association without a matching physical foreign-key constraint, excluding `NO_CONSTRAINT`.
