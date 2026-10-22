@@ -222,6 +222,7 @@ import tools.jackson.databind.ObjectMapper;
     ThreadDumpController.class,
     MemoryController.class,
     DismissedRulesController.class,
+    DismissedFindingsController.class,
     BootUiIndexController.class,
     BootUiEngineConfiguration.class,
     BootUiOpenTelemetryConfiguration.class
@@ -294,7 +295,8 @@ public class BootUiAutoConfiguration {
             ThreadDumpController.class.getName(),
             MemoryController.class.getName(),
             McpServerController.class.getName(),
-            DismissedRulesController.class.getName());
+            DismissedRulesController.class.getName(),
+            DismissedFindingsController.class.getName());
 
     private static final Set<String> LAZY_BEAN_NAMES =
             Set.of("bootUiConfigOverrideService", "bootUiDevToolsBridge", "bootUiOtlpSpanDecoder");

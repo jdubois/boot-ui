@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.ActionContract;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.Runtime;
+import io.github.jdubois.bootui.engine.panel.BootUiGlobalWritePolicy;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfigBuilder;
@@ -204,7 +205,10 @@ class QuarkusPanelAccessFilterTest {
 
             filter.handle(rc);
 
-            assertBlocked(resp, "dismissed-rules", "BootUI is read-only via bootui.read-only=true");
+            assertBlocked(
+                    resp,
+                    BootUiGlobalWritePolicy.subjectFor(action.relativePath()).orElseThrow(),
+                    "BootUI is read-only via bootui.read-only=true");
         }
     }
 

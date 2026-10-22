@@ -550,7 +550,8 @@ class BootUiAutoConfigurationTests {
                             ThreadDumpController.class,
                             MemoryController.class,
                             McpServerController.class,
-                            DismissedRulesController.class)
+                            DismissedRulesController.class,
+                            DismissedFindingsController.class)
                     .forEach(beanType -> assertLazyBean(beanFactory, beanType));
 
             assertLazyBeanDefinition(beanFactory, "bootUiConfigOverrideService");

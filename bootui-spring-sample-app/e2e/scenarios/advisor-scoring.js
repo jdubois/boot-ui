@@ -241,7 +241,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
     expect(geometry.border).toBeGreaterThan(0)
     expect(geometry.color).not.toBe('rgba(0, 0, 0, 0)')
     await expect(overall.getByText('Good', {exact: true})).toHaveCount(1)
-    await expect(overall.getByText('Points deducted per score', {exact: true})).toBeVisible()
+    await expect(overall.getByText('Where the points went', {exact: true})).toBeVisible()
   }
 
   async function expectCollapsedScanNotes(summary, reason) {
@@ -1297,7 +1297,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
           overall.getByRole('img', {name: 'Overall score: 91 out of 100 — Average of 1 score', exact: true})
         ).toHaveCount(1)
         await expectOverallGauge(overall, 91, 1)
-        await expect(overall.locator('.overall-contributions li span')).toHaveText(['Architecture', '-9'])
+        await expect(overall.locator('.overall-deductions > li')).toHaveText([/^Architecture\s*\u22129 points$/])
         const github = page.locator('.scanner-card').filter({hasText: 'GitHub'})
         expect(githubRefreshes).toBe(0)
         const connect = github.getByRole('button', {name: /Connect to GitHub$/})
@@ -1311,11 +1311,9 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
           overall.getByRole('img', {name: 'Overall score: 86 out of 100 — Average of 2 scores', exact: true})
         ).toHaveCount(1)
         await expectOverallGauge(overall, 86, 2)
-        await expect(overall.locator('.overall-contributions li span')).toHaveText([
-          'GitHub',
-          '-20',
-          'Architecture',
-          '-9'
+        await expect(overall.locator('.overall-deductions > li')).toHaveText([
+          /^GitHub\s*\u221220 points$/,
+          /^Architecture\s*\u22129 points$/
         ])
         await expect(overall.getByRole('img')).toHaveCount(1)
         await expect(github.getByRole('img')).toHaveCount(1)
@@ -1334,7 +1332,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
           overall.getByRole('img', {name: 'Overall score: 91 out of 100 — Average of 1 score', exact: true})
         ).toHaveCount(1)
         expect(githubRefreshes).toBe(2)
-        await expect(overall.locator('.overall-contributions li span')).toHaveText(['Architecture', '-9'])
+        await expect(overall.locator('.overall-deductions > li')).toHaveText([/^Architecture\s*\u22129 points$/])
         const run = card.getByRole('button', {name: 'Re-run scan', exact: true})
         await run.focus()
         await expect(run).toBeFocused()

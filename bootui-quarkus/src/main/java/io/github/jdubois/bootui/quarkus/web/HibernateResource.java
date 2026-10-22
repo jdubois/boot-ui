@@ -51,19 +51,25 @@ public class HibernateResource implements AdvisorViolationsEndpoint {
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     public HibernateReport hibernate() {
-        return scanner.applyDismissals(scanner.lastReport(), dismissedRules.load());
+        return dismissedReport();
     }
 
     @POST
     @Path("/scan")
     @Produces(MediaType.APPLICATION_JSON)
     public HibernateReport scan() {
-        HibernateReport report = scanner.scan();
-        return scanner.applyDismissals(report, dismissedRules.load());
+        scanner.scan();
+        return dismissedReport();
     }
 
     @Override
     public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
-        return scanner.ruleViolations(ruleId, scanId, offset, limit);
+        return scanner.ruleViolations(
+                ruleId, scanId, offset, limit, dismissedRules.snapshot().findings());
+    }
+
+    private HibernateReport dismissedReport() {
+        DismissedRulesStore.Snapshot dismissed = dismissedRules.snapshot();
+        return scanner.dismissedReport(dismissed.rules(), dismissed.findings());
     }
 }
