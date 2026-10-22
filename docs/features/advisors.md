@@ -38,7 +38,7 @@ Each report has additive `violationDetails` metadata:
 | `changes`        | What this scan [changed](#changes-since-the-previous-scan); `null` on a first scan and for most advisors. |
 
 While another scan is running, detail reads still refer to the previous completed snapshot; publishing its replacement
-changes the ID. Dismiss and restore change neither the ID nor the retained details. Retention completeness is not
+changes the ID. Dismiss and restore, of a rule or of a single finding, change neither the ID nor the retained details. Retention completeness is not
 evidence coverage or score eligibility. `truncated` can also mean the source exposed only aggregate detail, as for
 Quarkus Security's `QS-AUTHZ-004`; BootUI never fabricates identities to fill that gap.
 :::
@@ -237,12 +237,49 @@ and the Scorecard. Restore it at any time from that list. Dismissal changes pena
 evidence, or missing coverage. Controls are disabled while a scan or dismissal is pending, and when the panel is
 read-only or unavailable.
 
+#### Dismissing a single finding
+
+The Hibernate and Database advisors can also dismiss **one finding** of a rule, for a pattern that is legitimate for
+one entity or table and wrong for the others. Open a rule's retained findings with **View violations** and use
+**Dismiss** on a finding; BootUI asks you to confirm, and says what changes: the finding stops counting towards its
+rule, the severity bars and the score (penalties, not application safety). It stays in the list with a **Dismissed**
+badge and a **Restore** action, so nothing is hidden. Counts and the score follow at once, without a rescan. A rule
+whose findings are all dismissed leaves the active list for **All findings dismissed**, like a dismissed rule, and
+rule-level dismissal keeps its meaning and takes precedence.
+
+A collapsed **Dismissed findings** list under the rule results shows every dismissed finding of the advisor with what
+the last scan says about it: still reported (**Restore**), no longer reported by a scan that concluded its rule
+(_orphaned_, **Remove**), not confirmable (for example no scan yet, a rule that failed, or details cut by the
+retention limit), or a rule this advisor no longer has. Each entry can carry a short note (up to 200 characters) that
+stays on your machine.
+
+::: details What gets dismissed, and what cannot be
+- A finding is matched by its rule and its stable [identity](#changes-since-the-previous-scan), so a dismissal survives
+  rescans and code changes that do not change the finding's subject. A finding without an identity (unkeyed) is
+  counted but cannot be dismissed, and no action is offered for it. If a rule's identity changes meaning, its
+  dismissals stop matching and the findings count again; the stale entries appear as orphaned and can be removed.
+- Only findings the scan **retained** can be matched. When the retention limit cut a rule's details, the rest of that
+  rule stays active and the report says suppression may be incomplete (`suppression.incompleteRules`).
+- The report keeps `violationCount` as the active count and adds `suppressedCount`; the paged violations of a rule keep
+  every retained finding, flag the dismissed ones in `suppressed`, and report the scan's own total. The comparison with
+  the previous scan is computed from the scan and is identical before and after a dismissal.
+- Dismissing a finding is a UI and REST action only. There is no MCP tool or CLI command for it. Agents see the effect
+  (the active counts, `suppressedCount`, the `suppressed` flags) but never your notes, which are only served by
+  `GET /bootui/api/dismissed-findings`. Do not put secrets in a note.
+:::
+
 ::: details Where dismissals are stored
 
 Dismissals are persisted under the `dismissedRules` node of a local `.bootui/boot-ui.yml` file (next to the runtime
 overrides file), so they survive restarts and stay consistent between each panel and the Scorecard. The file is
 developer-local and intended to be git-ignored. Rule identifiers are globally unique across advisors. Pentesting scan
 reports are not persisted: findings and dismissal flags reappear after you explicitly run the first scan.
+
+Single findings are stored in a sibling `dismissedFindings` node, one line per finding:
+`<ruleId> <identity>` plus an optional ` n=<note>`, where the note is Base64URL text so quotes, colons, `#` and line
+breaks never need escaping. The file stays valid for older BootUI versions, which keep the node untouched when they
+write `dismissedRules`. A line that does not match this format is ignored, counted as unreadable in the list, and kept
+as it is the next time the file is written. At most 1000 findings are stored.
 
 `bootui.overrides-file` moves both files together, which lets dismissals survive a container image rebuild. See
 [Persisting console state across image rebuilds](../setup/environments.md#persisting-console-state-across-image-rebuilds).

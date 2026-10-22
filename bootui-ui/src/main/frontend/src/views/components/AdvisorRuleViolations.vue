@@ -1,7 +1,8 @@
 <script setup>
-import {computed, nextTick, ref, useId} from 'vue'
+import {computed, nextTick, ref, useId, watch} from 'vue'
 import {rangeLabel, useAdvisorRuleViolations} from '../../utils/useAdvisorRuleViolations.js'
 import {formatLocation, openInHref, presetLabel, useOpenInPreference} from '../../utils/sourceLocation.js'
+import {useConfirm} from '../../utils/useConfirm.js'
 import {useCopyToClipboard} from '../../utils/useCopyToClipboard.js'
 import SpinnerButton from './SpinnerButton.vue'
 
@@ -9,11 +10,20 @@ const props = defineProps({
   apiPath: {type: String, required: true},
   rule: {type: Object, required: true},
   details: {type: Object, default: null},
-  refreshReport: {type: Function, required: true}
+  refreshReport: {type: Function, required: true},
+  // Findings of this advisor can be dismissed one by one. The actions come from the owning panel, which also guards
+  // them (read-only, busy, unavailable), so this component never mutates anything on its own.
+  suppressible: {type: Boolean, default: false},
+  disabled: {type: Boolean, default: false},
+  // Changes after every dismissal or restore, so a page on display rereads which of its findings are dismissed.
+  revision: {type: Number, default: 0},
+  dismissFinding: {type: Function, default: null},
+  restoreFinding: {type: Function, default: null}
 })
 
-const {page, loading, error, stale, announcement, available, load, retry, backToSamples} =
+const {page, loading, error, stale, announcement, available, load, retry, refresh, backToSamples} =
   useAdvisorRuleViolations(props)
+const {confirm} = useConfirm()
 const samples = computed(() => props.rule.sampleViolations || [])
 // What moved for this rule since the previous scan; only the paged view can say which finding is new.
 const ruleChange = computed(() => {
@@ -21,6 +31,7 @@ const ruleChange = computed(() => {
   return Array.isArray(rules) ? rules.find((entry) => entry.ruleId === props.rule.id) || null : null
 })
 const newCount = computed(() => ruleChange.value?.newCount || 0)
+const suppressedCount = computed(() => props.rule.suppressedCount || 0)
 // Locations are aligned index-for-index with their texts, or absent altogether.
 const rows = computed(() => {
   const texts = page.value ? page.value.violations || [] : samples.value
@@ -28,10 +39,22 @@ const rows = computed(() => {
   const aligned = Array.isArray(locations) && locations.length === texts.length ? locations : []
   const changes = page.value ? page.value.changes : null
   const markers = Array.isArray(changes) && changes.length === texts.length ? changes : []
+  const identities = page.value?.identities
+  const keyed = Array.isArray(identities) && identities.length === texts.length ? identities : []
+  const flags = page.value?.suppressed
+  const dismissedFlags = Array.isArray(flags) && flags.length === texts.length ? flags : []
   return texts.map((text, index) => {
     const location = aligned[index] || null
     const label = formatLocation(location)
-    return {text, location: label ? location : null, label, isNew: markers[index] === 'NEW'}
+    return {
+      text,
+      location: label ? location : null,
+      label,
+      isNew: markers[index] === 'NEW',
+      // Only a finding with a canonical identity can be dismissed; an unkeyed one is counted but never suppressible.
+      identity: keyed[index] || null,
+      dismissed: dismissedFlags[index] === true
+    }
   })
 })
 const {openIn} = useOpenInPreference()
@@ -39,7 +62,13 @@ const {copiedKey, copyToClipboard} = useCopyToClipboard()
 const openInLabel = computed(() => presetLabel(openIn.value))
 const hasMoreThanSamples = computed(() => props.rule.violationCount > samples.value.length)
 // Findings that fit in the samples have no markers, so a rule with something new offers its paged view too.
-const canViewViolations = computed(() => hasMoreThanSamples.value || newCount.value > 0)
+const canViewViolations = computed(
+  () =>
+    hasMoreThanSamples.value ||
+    newCount.value > 0 ||
+    (props.suppressible && suppressedCount.value + samples.value.length > 0)
+)
+const canAct = computed(() => props.suppressible && !!page.value && !props.disabled && !!props.dismissFinding)
 const regionId = `advisor-violations-${useId()}`
 const heading = ref(null)
 const viewButton = ref(null)
@@ -76,6 +105,46 @@ function copyKey(index) {
   return `${page.value ? page.value.page.offset : 'sample'}-${index}`
 }
 
+// The page position of the row whose control had focus, so focus can return to the same row once it rereads.
+let pendingFocusIndex = null
+
+async function dismissRow(row, index) {
+  if (!canAct.value) return
+  const accepted = await confirm({
+    title: 'Dismiss this finding?',
+    message:
+      'It stops counting towards this rule, the severity bars and the score, which changes score penalties, not application safety. The finding stays listed here: restore it from this list or from Dismissed findings at any time.',
+    resource: row.text,
+    confirmLabel: 'Dismiss finding',
+    cancelLabel: 'Keep it'
+  })
+  if (!accepted) return
+  pendingFocusIndex = index
+  if (!(await props.dismissFinding(props.rule, row.identity))) pendingFocusIndex = null
+}
+
+async function restoreRow(row, index) {
+  if (!canAct.value || !props.restoreFinding) return
+  pendingFocusIndex = index
+  if (!(await props.restoreFinding(props.rule, row.identity))) pendingFocusIndex = null
+}
+
+watch(
+  () => props.revision,
+  async () => {
+    const focusIndex = pendingFocusIndex
+    pendingFocusIndex = null
+    if (!page.value) return
+    const reloaded = await refresh()
+    if (!reloaded || focusIndex === null) return
+    await nextTick()
+    const action = document
+      .getElementById(regionId)
+      ?.querySelector(`[data-row="${focusIndex}"] .advisor-finding-action`)
+    if (action instanceof HTMLElement) action.focus()
+  }
+)
+
 async function refreshCachedReport() {
   refreshing.value = true
   try {
@@ -94,7 +163,13 @@ async function refreshCachedReport() {
     <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
       <div :id="`${regionId}-label`" ref="heading" tabindex="-1" class="small fw-semibold">
         <template v-if="page">{{ rangeLabel(page) }}</template>
-        <template v-else>Sample details (showing {{ samples.length }} of {{ rule.violationCount }})</template>
+        <template v-else-if="!samples.length && suppressedCount > 0">
+          All {{ suppressedCount }} {{ suppressedCount === 1 ? 'finding is' : 'findings are' }} dismissed
+        </template>
+        <template v-else>
+          Sample details (showing {{ samples.length }} of {{ rule.violationCount
+          }}<template v-if="suppressedCount > 0">, {{ suppressedCount }} dismissed</template>)
+        </template>
       </div>
       <span v-if="!page && newCount > 0" class="advisor-rule-violations__new small">
         <i class="bi bi-plus-circle me-1" aria-hidden="true"></i>{{ newCount }} new since the previous scan
@@ -123,14 +198,42 @@ async function refreshCachedReport() {
     </div>
     <div :id="regionId" :aria-labelledby="`${regionId}-label`">
       <ul v-if="rows.length" class="small mb-0">
-        <li v-for="(row, index) in rows" :key="index">
+        <li v-for="(row, index) in rows" :key="index" :data-row="index">
+          <span
+            v-if="row.dismissed"
+            class="advisor-rule-violations__badge badge text-bg-secondary me-1"
+            data-testid="suppressed-finding"
+            ><i class="bi bi-eye-slash me-1" aria-hidden="true"></i>Dismissed</span
+          >
           <span
             v-if="row.isNew"
             class="advisor-rule-violations__badge badge text-bg-primary me-1"
             data-testid="new-finding"
             ><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>New</span
           >
-          <span class="font-monospace">{{ row.text }}</span>
+          <span :class="['font-monospace', {'text-muted': row.dismissed}]">{{ row.text }}</span>
+          <span v-if="suppressible && page && row.identity" class="advisor-finding-actions">
+            <button
+              v-if="row.dismissed"
+              type="button"
+              class="btn btn-outline-secondary btn-sm advisor-finding-action"
+              :disabled="!canAct"
+              :aria-label="`Restore finding ${page.page.offset + index + 1} of ${rule.id}`"
+              @click="restoreRow(row, index)"
+            >
+              <i class="bi bi-eye me-1" aria-hidden="true"></i>Restore
+            </button>
+            <button
+              v-else
+              type="button"
+              class="btn btn-outline-secondary btn-sm advisor-finding-action"
+              :disabled="!canAct"
+              :aria-label="`Dismiss finding ${page.page.offset + index + 1} of ${rule.id}`"
+              @click="dismissRow(row, index)"
+            >
+              <i class="bi bi-eye-slash me-1" aria-hidden="true"></i>Dismiss
+            </button>
+          </span>
           <span v-if="row.location" class="advisor-violation-location d-flex flex-wrap align-items-center gap-1">
             <i class="bi bi-geo-alt text-muted" aria-hidden="true"></i>
             <a
@@ -223,6 +326,17 @@ async function refreshCachedReport() {
 
 .advisor-violation-location {
   font-size: 0.8125rem;
+}
+
+.advisor-finding-actions {
+  display: inline-block;
+  margin-left: 0.5rem;
+  white-space: nowrap;
+}
+
+.advisor-finding-action {
+  font-size: inherit;
+  vertical-align: baseline;
 }
 
 .advisor-copy-location {

@@ -754,7 +754,9 @@ public final class McpToolDescriptions {
                     + "refusal, retry the same scanId and offset "
                     + "with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list "
                     + "aligns index-for-index with violations (a null entry has no location); an empty list means no "
-                    + "violation on the page has one.";
+                    + "violation on the page has one. A page's violationCount is the scan's total; where its suppressed "
+                    + "list is non-empty, entries marked true were dismissed by the developer and no longer count in "
+                    + "the report.";
         }
         String description = COMMON.get(name);
         if (description == null) {
@@ -855,6 +857,11 @@ public final class McpToolDescriptions {
                                 + " has no location): className, memberName, kind, sourceFile, line, sourcePath and"
                                 + " precision (LINE, MEMBER or CLASS). Open sourcePath at line to go straight to the"
                                 + " code; violationDetails.locationNotes says why a path is missing."
+                        : "")
+                + (advisor.equals("hibernate") || advisor.equals("database_advisor")
+                        ? " A result's violationCount counts active findings: suppressedCount findings the developer"
+                                + " dismissed one by one are left out of it, of findingsFound, of severityCounts and of"
+                                + " the score."
                         : "")
                 + (advisor.equals("hibernate")
                         ? " When scan.status is PARTIAL, read diagnostics (source rule id or discovery, unit, level,"

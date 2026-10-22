@@ -8,7 +8,8 @@ import java.util.Optional;
  */
 public final class BootUiGlobalWritePolicy {
 
-    private static final Map<String, String> SUBJECTS_BY_PREFIX = Map.of("/dismissed-rules", "dismissed-rules");
+    private static final Map<String, String> SUBJECTS_BY_PREFIX =
+            Map.of("/dismissed-rules", "dismissed-rules", "/dismissed-findings", "dismissed-findings");
 
     private BootUiGlobalWritePolicy() {}
 

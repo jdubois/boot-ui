@@ -24,7 +24,7 @@ final class DatabaseAdvisorRuleSupport {
     /** The reason of a rule that ran over the readable schemas and found nothing eligible to assess. */
     static final String NO_TARGETS = "No applicable targets were available for this check.";
 
-    private static final int MAX_SAMPLE_VIOLATIONS = 10;
+    static final int MAX_SAMPLE_VIOLATIONS = 10;
 
     private DatabaseAdvisorRuleSupport() {}
 

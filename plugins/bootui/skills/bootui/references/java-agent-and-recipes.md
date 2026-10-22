@@ -191,6 +191,12 @@ Their detail pages add `identities` (a stable key such as `v1:unit=orders|entity
 `changes` (`NEW`, `UNCHANGED`, or `null`), aligned with `violations`; follow one finding across scans by identity,
 never by message.
 
+A developer can dismiss single Hibernate or Database findings in the console. A result's `violationCount` and the
+report's totals then count active findings only, with `suppressedCount` for those dismissed one by one; a detail
+page's `violationCount` stays the scan's total and its `suppressed` list flags the dismissed ones. Treat a flagged
+finding as developer-dismissed, never as fixed. Dismissing is not an agent action (there is no tool or command), and
+the developer's notes never appear in any MCP or CLI output.
+
 Keep the rule and scan ID fixed, advance the offset by `page.returned`, and stop when `page.hasMore` is false.
 `page.total` and `page.matched` count retained entries, not the full `violationCount`. Inspect rule/report
 `truncated`: retention overflow means even a terminal page is incomplete. Report `violationDetails` contains

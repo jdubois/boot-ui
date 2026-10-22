@@ -4,7 +4,9 @@ import {useAdvisorPanel} from '../utils/useAdvisorPanel.js'
 import {panelProps} from '../utils/panelState.js'
 import AdvisorDiagnostics from './components/AdvisorDiagnostics.vue'
 import AdvisorSummary from './components/AdvisorSummary.vue'
+import AdvisorDismissedFindings from './components/AdvisorDismissedFindings.vue'
 import AdvisorRuleViolations from './components/AdvisorRuleViolations.vue'
+import AdvisorSuppressedRules from './components/AdvisorSuppressedRules.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
@@ -16,7 +18,8 @@ const panel = useAdvisorPanel(props, {
   scanErrorMessage: 'Unable to run Database checks',
   emptyScanPrompt: 'Run Database checks to inspect the physical schema',
   emptyNoFindings: 'No Database findings',
-  countNoun: 'finding'
+  countNoun: 'finding',
+  findingDismissal: true
 })
 
 const DATA_SOURCE_STATUS_CLASSES = {
@@ -101,6 +104,7 @@ function dataSourceStatusLabel(status) {
         :score-reason="panel.assessment.reason"
         :incomplete="panel.assessment.incomplete"
         :dismissed-count="panel.dismissedResults.length"
+        :suppressed-finding-count="panel.suppressedFindingCount"
         :scan-status-label="panel.scanStatusLabel(panel.report.scan.status)"
         :scan-status-class="panel.scanStatusBadgeClass(panel.report.scan.status)"
         :scan-time="panel.scanTime()"
@@ -195,7 +199,7 @@ function dataSourceStatusLabel(status) {
       <div class="card">
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
           <div>
-            <h3 class="fs-6 fw-semibold mb-0">Rule results</h3>
+            <h3 id="advisor-rule-results-heading" tabindex="-1" class="fs-6 fw-semibold mb-0">Rule results</h3>
             <div class="text-muted small">
               <template v-if="panel.hasScanData && panel.visibleResults.length > 0">
                 {{ panel.visibleResults.length }} {{ panel.pluralize(panel.visibleResults.length, 'violating rule') }},
@@ -205,7 +209,12 @@ function dataSourceStatusLabel(status) {
             </div>
           </div>
           <span
-            v-if="panel.score !== null && panel.visibleResults.length === 0 && panel.dismissedResults.length === 0"
+            v-if="
+              panel.score !== null &&
+              panel.visibleResults.length === 0 &&
+              panel.dismissedResults.length === 0 &&
+              panel.suppressedResults.length === 0
+            "
             class="badge text-bg-secondary"
             >{{ panel.noFindingsLabel }}</span
           >
@@ -237,12 +246,20 @@ function dataSourceStatusLabel(status) {
             <div class="small mb-2">
               <strong>What happened:</strong>
               {{ panel.violationCountLabel(result.violationCount) }} for this rule.
+              <span v-if="result.suppressedCount > 0" class="text-muted">
+                {{ result.suppressedCount }} more dismissed one by one.
+              </span>
             </div>
             <AdvisorRuleViolations
               api-path="api/database-advisor"
               :rule="result"
               :details="panel.report.violationDetails"
               :refresh-report="panel.loadReport"
+              suppressible
+              :disabled="panel.actionsDisabled"
+              :revision="panel.dismissalRevision"
+              :dismiss-finding="panel.dismissFinding"
+              :restore-finding="panel.restoreFinding"
             />
             <div class="small">
               <strong>Recommendation:</strong>
@@ -259,6 +276,18 @@ function dataSourceStatusLabel(status) {
             </div>
           </div>
         </div>
+        <AdvisorSuppressedRules
+          :results="panel.suppressedResults"
+          api-path="api/database-advisor"
+          :details="panel.report.violationDetails"
+          :refresh-report="panel.loadReport"
+          :disabled="panel.actionsDisabled"
+          :revision="panel.dismissalRevision"
+          :dismiss-finding="panel.dismissFinding"
+          :restore-finding="panel.restoreFinding"
+          :status-class="panel.statusClass"
+          :severity-class="panel.severityClass"
+        />
         <template v-if="panel.dismissedResults.length > 0">
           <div class="card-header text-muted small">
             <i class="bi bi-eye-slash me-1"></i>Dismissed rules ({{ panel.dismissedResults.length }}) — not counted in
@@ -285,6 +314,15 @@ function dataSourceStatusLabel(status) {
             </div>
           </div>
         </template>
+        <AdvisorDismissedFindings
+          :suppression="panel.suppression"
+          :disabled="panel.actionsDisabled"
+          :revision="panel.dismissalRevision"
+          :list-findings="panel.listDismissedFindings"
+          :remove-finding="panel.removeListedFinding"
+          :save-note="panel.saveFindingNote"
+        />
+        <div class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{{ panel.announcement }}</div>
       </div>
     </template>
   </div>

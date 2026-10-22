@@ -12,6 +12,12 @@ class BootUiGlobalWritePolicyTests {
                 .contains("dismissed-rules");
         assertThat(BootUiGlobalWritePolicy.subjectFor("/dismissed-rules-extra/rule-id"))
                 .isEmpty();
+        assertThat(BootUiGlobalWritePolicy.subjectFor("/dismissed-findings")).contains("dismissed-findings");
+        assertThat(BootUiGlobalWritePolicy.subjectFor("/dismissed-findings/"))
+                .as("a trailing slash still resolves to the same subject")
+                .isNotEmpty();
+        assertThat(BootUiGlobalWritePolicy.subjectFor("/dismissed-findings-extra"))
+                .isEmpty();
         assertThat(BootUiGlobalWritePolicy.subjectFor("/mcp")).isEmpty();
         assertThat(BootUiGlobalWritePolicy.subjectFor("/otlp/v1/traces")).isEmpty();
     }

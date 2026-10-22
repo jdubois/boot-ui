@@ -1010,6 +1010,184 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     /**
+     * A dismissed finding stops counting at once and counts again when restored, without a rescan, and the scan itself
+     * (retained details, comparison) is untouched by either. The mutation goes through the same write floor as every
+     * other BootUI write, on every stack.
+     */
+    @Test
+    void aDismissedFindingStopsCountingUntilRestoredWithoutARescan() {
+        boolean exercised = false;
+        for (String panel : TRACKED_ADVISORS) {
+            if (!isPanelUsableInLiveManifest(panel)) continue;
+            BootUiHttpProbe probe = probe();
+            Map<String, String> headers = stateChangingHeaders(probe);
+            JsonNode report = probe.request("POST", api("/" + panel + "/scan"), headers, "")
+                    .json();
+            String scanId = report.path("violationDetails").path("scanId").asText();
+            JsonNode rule = null;
+            String identity = null;
+            for (JsonNode candidate : report.path("results")) {
+                JsonNode page = probe.get(api("/" + panel + "/rules/"
+                                + URLEncoder.encode(candidate.path("id").asText(), StandardCharsets.UTF_8)
+                                + "/violations?scanId=" + URLEncoder.encode(scanId, StandardCharsets.UTF_8)
+                                + "&limit=1"))
+                        .json();
+                if (page.path("identities").isArray()
+                        && !page.path("identities").isEmpty()
+                        && !page.path("identities").get(0).isNull()) {
+                    rule = candidate;
+                    identity = page.path("identities").get(0).asText();
+                    break;
+                }
+            }
+            if (rule == null) continue;
+            exercised = true;
+            String ruleId = rule.path("id").asText();
+            int before = rule.path("violationCount").asInt();
+            String body = "{\"ruleId\":\"" + ruleId + "\",\"identity\":\"" + identity
+                    + "\",\"note\":\"Conformance note: it's \\\"fine\\\"\"}";
+            try {
+                Response dismissed = probe.request("POST", api("/dismissed-findings"), headers, body);
+                assertThat(dismissed.status()).as(panel + " dismiss finding").isEqualTo(200);
+                assertThat(dismissed.json().path("dismissed")).hasSize(1);
+                assertThat(dismissed
+                                .json()
+                                .path("dismissed")
+                                .get(0)
+                                .path("note")
+                                .asText())
+                        .isEqualTo("Conformance note: it's \"fine\"");
+
+                JsonNode after = probe.get(api("/" + panel)).json();
+                JsonNode afterRule = resultById(after, ruleId);
+                assertThat(afterRule.path("violationCount").asInt())
+                        .as(panel + " active count")
+                        .isEqualTo(before - 1);
+                assertThat(afterRule.path("suppressedCount").asInt()).isEqualTo(1);
+                assertThat(after.path("suppression").path("suppressedFindings").asInt())
+                        .isEqualTo(1);
+                assertThat(after.path("suppression")
+                                .path("findings")
+                                .get(0)
+                                .path("state")
+                                .asText())
+                        .isEqualTo("MATCHED");
+                assertThat(after.toString())
+                        .as(panel + " report never carries the note")
+                        .doesNotContain("Conformance note");
+                assertThat(after.path("violationDetails")).isEqualTo(report.path("violationDetails"));
+
+                JsonNode page = probe.get(api("/" + panel + "/rules/"
+                                + URLEncoder.encode(ruleId, StandardCharsets.UTF_8)
+                                + "/violations?scanId=" + URLEncoder.encode(scanId, StandardCharsets.UTF_8)
+                                + "&limit=1000"))
+                        .json();
+                assertThat(page.path("violationCount").asInt()).isEqualTo(before);
+                assertThat(page.path("suppressedCount").asInt()).isEqualTo(1);
+                assertThat(page.path("suppressed").get(0).asBoolean()).isTrue();
+                assertThat(page.toString()).doesNotContain("Conformance note");
+            } finally {
+                probe.request(
+                        "DELETE",
+                        api("/dismissed-findings"),
+                        headers,
+                        "{\"ruleId\":\"" + ruleId + "\",\"identity\":\"" + identity + "\"}");
+            }
+            assertThat(probe.get(api("/dismissed-findings")).json().path("dismissed"))
+                    .as(panel + " restored")
+                    .isEmpty();
+            JsonNode restored = probe.get(api("/" + panel)).json();
+            assertThat(resultById(restored, ruleId).path("violationCount").asInt())
+                    .isEqualTo(before);
+            assertThat(restored.path("suppression").path("suppressedFindings").asInt())
+                    .isZero();
+        }
+        assumeTrue(exercised, "an advisor with a keyed finding is available in this application");
+    }
+
+    private static JsonNode resultById(JsonNode report, String ruleId) {
+        for (JsonNode result : report.path("results")) {
+            if (ruleId.equals(result.path("id").asText())) return result;
+        }
+        throw new AssertionError("Rule " + ruleId + " is not in the report");
+    }
+
+    @Test
+    void dismissedFindingsAnswerSafelyAndNeverEchoTheNoteInAnError() {
+        BootUiHttpProbe probe = probe();
+        Map<String, String> headers = stateChangingHeaders(probe);
+        Response listed = probe.get(api("/dismissed-findings"));
+        assertThat(listed.status()).isEqualTo(200);
+        assertThat(listed.json().path("dismissed").isArray()).isTrue();
+        assertThat(listed.json().path("ignored").isInt()).isTrue();
+
+        String canary = "PrivateDismissalReason";
+        String valid = "\"ruleId\":\"HIB-ID-006\",\"identity\":\"v1:unit=a|b=c\"";
+        // A restore reads no note, so only the bodies that break the rule id or the identity refuse it as well.
+        List<String> refusedByBoth = List.of(
+                "{\"note\":" + canary + "}",
+                "{\"ruleId\":\"HIB-ID-006\",\"note\":\"" + canary + "\"}",
+                "{\"ruleId\":\"hib-id-006\",\"identity\":\"v1:unit=a|b=c\",\"note\":\"" + canary + "\"}",
+                "[\"" + canary + "\"]",
+                "{" + valid + "} {}",
+                "{" + valid + "} " + canary,
+                "");
+        List<String> refusedOnDismiss =
+                List.of("{" + valid + ",\"note\":\"" + "x".repeat(201) + canary + "\"}", "{" + valid + ",\"note\":7}");
+        for (String body : refusedByBoth) {
+            for (String method : List.of("POST", "DELETE")) {
+                Response refused = probe.request(method, api("/dismissed-findings"), headers, body);
+                assertThat(refused.status()).as(method + " " + body.length()).isEqualTo(400);
+                assertThat(refused.isJson()).isTrue();
+                assertThat(refused.body()).doesNotContain(canary);
+            }
+        }
+        for (String body : refusedOnDismiss) {
+            Response refused = probe.request("POST", api("/dismissed-findings"), headers, body);
+            assertThat(refused.status()).as("POST " + body.length()).isEqualTo(400);
+            assertThat(refused.body()).doesNotContain(canary);
+        }
+        if (isPanelUsableInLiveManifest("exceptions")) {
+            assertThat(probe.get(api("/exceptions")).body())
+                    .as("a refused note never reaches the exception diagnostics")
+                    .doesNotContain(canary);
+        }
+        assertThat(probe.get(api("/dismissed-findings")).json().path("dismissed"))
+                .isEmpty();
+        // The store needs no scan, so the whole round trip, including a DELETE that carries a body, runs everywhere.
+        String note = "Caf\u00e9 \u2713: \\\"quoted\\\" # not a comment";
+        String roundTrip = "{" + valid + ",\"note\":\"" + note + "\"}";
+        try {
+            Response created = probe.request("POST", api("/dismissed-findings"), headers, roundTrip);
+            assertThat(created.status()).isEqualTo(200);
+            JsonNode listedBack = probe.get(api("/dismissed-findings")).json().path("dismissed");
+            assertThat(listedBack).hasSize(1);
+            assertThat(listedBack.get(0).path("note").asText())
+                    .isEqualTo("Caf\u00e9 \u2713: \"quoted\" # not a comment");
+            assertThat(listedBack.get(0).path("ruleId").asText()).isEqualTo("HIB-ID-006");
+        } finally {
+            Response restored = probe.request("DELETE", api("/dismissed-findings"), headers, "{" + valid + "}");
+            assertThat(restored.status()).isEqualTo(200);
+        }
+        assertThat(probe.get(api("/dismissed-findings")).json().path("dismissed"))
+                .isEmpty();
+        Response crossSite = probe.request(
+                "POST",
+                api("/dismissed-findings"),
+                Map.of(
+                        "Origin",
+                        "http://evil.example.com",
+                        "Sec-Fetch-Site",
+                        "cross-site",
+                        "Content-Type",
+                        "application/json"),
+                "{\"ruleId\":\"HIB-ID-006\",\"identity\":\"v1:unit=a|b=c\"}");
+        assertThat(crossSite.status()).isEqualTo(403);
+        assertThat(probe.get(api("/dismissed-findings")).json().path("dismissed"))
+                .isEmpty();
+    }
+
+    /**
      * A rule has exactly one outcome per scan: an id listed in {@code results} is never also listed in
      * {@code analysisErrors}, whichever advisor and stack produced the report. Incomplete coverage of a rule that did
      * find something belongs in the finding and the evidence limitations, not in a second, contradictory entry.
