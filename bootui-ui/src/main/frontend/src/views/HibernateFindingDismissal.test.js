@@ -169,7 +169,7 @@ describe('Hibernate per-finding dismissal', () => {
     expect(allDismissed.text()).toContain('2 findings are dismissed')
     expect(wrapper.text()).toContain('Every finding is dismissed')
     expect(wrapper.text()).not.toContain('No Hibernate Advisor findings')
-    expect(wrapper.find('.badge.text-bg-secondary').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('No findings')
     expect(document.activeElement.id).toBe('advisor-all-dismissed-heading')
   })
 
@@ -204,5 +204,46 @@ describe('Hibernate per-finding dismissal', () => {
     expect(fake.state.dismissed.size).toBe(0)
     expect(wrapper.text()).toContain('Unable to dismiss finding')
     expect(wrapper.text()).toContain('2 findings found for this rule.')
+  })
+
+  it('keeps focus on the list heading when an entry is removed and on the results heading when the list goes', async () => {
+    const fake = server()
+    fake.state.dismissed.add(IDENTITIES[0])
+    const wrapper = await mountPanel(fake)
+    const details = wrapper.get('[data-testid="dismissed-findings"]')
+    details.element.open = true
+    await details.trigger('toggle')
+    await flushPromises()
+
+    await details.get('li button[aria-label^="Restore dismissed finding"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="dismissed-findings"]').exists()).toBe(false)
+    expect(document.activeElement.id).toBe('advisor-rule-results-heading')
+    const callsBefore = fake.state.calls.length
+    // The list is gone, so dismissing again must not read notes into a list that is not open.
+    await wrapper.get(`button[aria-label="View violations for ${RULE}"]`).trigger('click')
+    await flushPromises()
+    await dismiss(wrapper, 1)
+    expect(
+      fake.state.calls
+        .slice(callsBefore)
+        .filter(([method, url]) => method === 'GET' && url === 'api/dismissed-findings')
+    ).toHaveLength(0)
+  })
+
+  it('moves focus to the results heading when a restore brings a rule back from the all-dismissed list', async () => {
+    const fake = server()
+    fake.state.dismissed.add(IDENTITIES[0])
+    fake.state.dismissed.add(IDENTITIES[1])
+    const wrapper = await mountPanel(fake)
+    await wrapper.get(`button[aria-label="View violations for ${RULE}"]`).trigger('click')
+    await flushPromises()
+
+    await wrapper.get(`button[aria-label="Restore finding 1 of ${RULE}"]`).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="all-dismissed"]').exists()).toBe(false)
+    expect(document.activeElement.id).toBe('advisor-rule-results-heading')
   })
 })

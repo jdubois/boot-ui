@@ -158,7 +158,7 @@ const diagnostics = computed(() => panel.report?.diagnostics || [])
             >{{ panel.noFindingsLabel }}</span
           >
           <SourceLocationPreference
-            v-if="panel.visibleResults.length > 0"
+            v-if="panel.visibleResults.length > 0 || panel.suppressedResults.length > 0"
             :notes="panel.report.violationDetails?.locationNotes"
           />
         </div>

@@ -95,7 +95,6 @@ describe('AdvisorDismissedFindings', () => {
 
     expect(removeFinding).toHaveBeenCalledWith('HIB-MAP-006', 'v1:unit=app|entity=B|member=x')
     expect(document.activeElement).toBe(wrapper.get('summary').element)
-    expect(wrapper.get('[role="status"]').text()).toContain('Removed a dismissed finding of HIB-MAP-006')
   })
 
   it('saves an edited note only, limited to 200 characters, and rereads the notes', async () => {

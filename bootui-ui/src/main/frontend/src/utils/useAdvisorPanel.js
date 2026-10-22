@@ -60,6 +60,7 @@ export function useAdvisorPanel(props, options) {
   const announcement = ref('')
   // Incremented when a mutation removed the control that had focus, so the view can move focus somewhere stable.
   const focusFallbackToken = ref(0)
+  const focusFallbackTarget = ref('advisor-rule-results-heading')
   const actionsDisabled = computed(
     () =>
       initialLoading.value ||
@@ -218,7 +219,7 @@ export function useAdvisorPanel(props, options) {
    * Guarded exactly like a rule dismissal: nothing happens while a scan or another mutation is running, or when
    * the panel is read-only or unavailable.
    */
-  async function mutateFinding(rule, identity, restore = false) {
+  async function mutateFinding(rule, identity, restore = false, listed = false) {
     if (initialLoading.value || loading.value || dismissLoading.value || findingLoading.value) return false
     if (readOnly.value) {
       showReadOnlyMessage()
@@ -229,6 +230,7 @@ export function useAdvisorPanel(props, options) {
       return false
     }
     actionMessage.value = null
+    const wasActive = visibleResults.value.some((result) => result.id === rule.id)
     let changed = false
     try {
       changed = await (restore
@@ -242,18 +244,27 @@ export function useAdvisorPanel(props, options) {
     dismissalRevision.value++
     const current = (report.value?.results || []).find((result) => result.id === rule.id)
     const remaining = current ? current.violationCount : 0
-    announcement.value = restore
-      ? `Restored a finding of ${rule.id}. ${remaining} ${pluralize(remaining, countNoun)} active.`
-      : `Dismissed a finding of ${rule.id}. ${remaining} ${pluralize(remaining, countNoun)} active.`
+    if (listed) {
+      announcement.value = `Removed a dismissed finding of ${rule.id}. ${remaining} ${pluralize(remaining, countNoun)} active.`
+    } else {
+      announcement.value = restore
+        ? `Restored a finding of ${rule.id}. ${remaining} ${pluralize(remaining, countNoun)} active.`
+        : `Dismissed a finding of ${rule.id}. ${remaining} ${pluralize(remaining, countNoun)} active.`
+    }
     await nextTick()
+    // The rule card that had focus moved to the other list (or came back), so it is gone from where the user was.
+    // The list of dismissed findings keeps its own focus.
     const stillActive = visibleResults.value.some((result) => result.id === rule.id)
-    if (!stillActive) focusFallbackToken.value++
+    if (!listed && wasActive !== stillActive) {
+      focusFallbackTarget.value = stillActive ? 'advisor-rule-results-heading' : 'advisor-all-dismissed-heading'
+      focusFallbackToken.value++
+    }
     return true
   }
 
-  /** Dismisses or restores a finding from the list of dismissed findings, whose rule may no longer be listed. */
-  async function mutateListedFinding(ruleId, identity, restore = true) {
-    return mutateFinding({id: ruleId}, identity, restore)
+  /** Removes or restores a finding from the list of dismissed findings, whose rule may no longer be listed. */
+  async function mutateListedFinding(ruleId, identity) {
+    return mutateFinding({id: ruleId}, identity, true, true)
   }
 
   /** Replaces the note of a dismissed finding. The note stays out of the report, so there is nothing to announce. */
@@ -263,6 +274,11 @@ export function useAdvisorPanel(props, options) {
       showReadOnlyMessage()
       return false
     }
+    if (!manifestAvailable.value) {
+      showUnavailableMessage()
+      return false
+    }
+    actionMessage.value = null
     try {
       return await dismissedFindings.dismissFinding(ruleId, identity, note)
     } catch (e) {
@@ -276,8 +292,7 @@ export function useAdvisorPanel(props, options) {
   watch(focusFallbackToken, async () => {
     await nextTick()
     const target =
-      document.getElementById('advisor-all-dismissed-heading') ||
-      document.getElementById('advisor-rule-results-heading')
+      document.getElementById(focusFallbackTarget.value) || document.getElementById('advisor-rule-results-heading')
     target?.focus()
   })
 

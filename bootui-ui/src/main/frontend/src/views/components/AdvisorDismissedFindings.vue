@@ -53,7 +53,8 @@ async function loadNotes() {
     for (const finding of result?.dismissed || []) {
       notes[`${finding.ruleId} ${finding.identity}`] = finding.note || ''
     }
-    for (const key of Object.keys(drafts)) delete drafts[key]
+    // A draft for an entry that is gone is dropped; what is being typed into the others is kept.
+    for (const key of Object.keys(drafts)) if (!(key in notes)) delete drafts[key]
     ignored.value = result?.ignored || 0
   } catch (cause) {
     loadError.value = formatLoadError(cause, 'Unable to load the dismissed findings')
@@ -68,10 +69,19 @@ function onToggle(event) {
   if (open.value && !wasOpen) loadNotes()
 }
 
+// The list unmounts without a toggle event when its last entry goes, so it must not stay marked open.
+watch(
+  total,
+  (count) => {
+    if (count === 0) open.value = false
+  },
+  {flush: 'sync'}
+)
+
 watch(
   () => props.revision,
   () => {
-    if (open.value) loadNotes()
+    if (open.value && total.value > 0) loadNotes()
   }
 )
 
@@ -87,16 +97,20 @@ function noteChanged(entry) {
 async function save(entry) {
   const saved = await props.saveNote(entry.ruleId, entry.identity, draftFor(entry).trim())
   announcement.value = saved ? `Saved the note for ${entry.ruleId}.` : ''
-  if (saved) await loadNotes()
+  if (saved) {
+    delete drafts[keyOf(entry)]
+    await loadNotes()
+  }
 }
 
 async function remove(entry) {
   const removed = await props.removeFinding(entry.ruleId, entry.identity)
-  announcement.value = removed ? `Removed a dismissed finding of ${entry.ruleId}.` : ''
-  // The entry that had focus is gone, so focus returns to the list's own heading.
+  // The panel announces the removal. The entry that had focus is gone, so focus returns to the list's own heading,
+  // or to the rule results heading once the list itself is gone.
   if (removed) {
     await nextTick()
-    summary.value?.focus()
+    const target = summary.value || document.getElementById('advisor-rule-results-heading')
+    target?.focus()
   }
 }
 
