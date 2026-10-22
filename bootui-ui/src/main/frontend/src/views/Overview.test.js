@@ -115,7 +115,38 @@ function scannerCard(wrapper, title) {
   return wrapper.findAllComponents(ScannerScoreCard).find((card) => card.props('title') === title)
 }
 
+function deductionRows(wrapper) {
+  return wrapper
+    .findAll('.overall-deductions > li')
+    .map((item) => [item.get('.overall-deductions__name').text(), item.get('.overall-deductions__value').text()])
+}
+
 describe('Overview', () => {
+  it('names the advisors that cost points and collapses the clean ones into one line', async () => {
+    stubFetch({
+      'api/architecture': severityReport([{severity: 'LOW', count: 1}]),
+      'api/spring': severityReport([]),
+      'api/security': severityReport([])
+    })
+    const wrapper = mountOverview(onlyPanels('architecture', 'spring', 'security'))
+    await flushPromises()
+
+    expect(deductionRows(wrapper)).toEqual([['Architecture', '\u22121 points']])
+    expect(wrapper.get('.overall-deductions').attributes('aria-labelledby')).toBe('overall-deductions-title')
+    expect(wrapper.get('.overall-clean').text()).toBe('No deductions: Spring, Security')
+    expect(wrapper.get('.overall-deductions__fill').attributes('style')).toContain('width: 4%')
+  })
+
+  it('says nothing was deducted when every scored advisor is clean', async () => {
+    stubFetch({'api/architecture': severityReport([]), 'api/spring': severityReport([])})
+    const wrapper = mountOverview(onlyPanels('architecture', 'spring'))
+    await flushPromises()
+
+    expect(wrapper.find('.overall-deductions').exists()).toBe(false)
+    expect(wrapper.find('.overall-clean').exists()).toBe(false)
+    expect(wrapper.get('.overall-contributions').text()).toContain('No points deducted from any score.')
+  })
+
   it('keeps every unscored advisor compact after a full scan, with details left to its panel', async () => {
     const ids = onlyPanels()
       .panels.filter(({id}) => id !== 'github')
@@ -191,9 +222,14 @@ describe('Overview', () => {
     expect(wrapper.get('.overall-card').findAll('[role="img"]')).toHaveLength(1)
     expect(wrapper.get('.overall-band').text()).toBe(label)
     expect(wrapper.get('.overall-band').classes()).toContain(`text-bg-${tone}`)
-    const contribution = wrapper.get('.overall-contributions li')
-    expect(contribution.text()).toContain('Architecture')
-    expect(contribution.get('.fw-semibold').text()).toBe(String(score - 100))
+    if (score === 100) {
+      expect(wrapper.find('.overall-contributions li').exists()).toBe(false)
+      expect(wrapper.get('.overall-contributions').text()).toContain('No points deducted')
+    } else {
+      const contribution = wrapper.get('.overall-contributions li')
+      expect(contribution.get('.overall-deductions__name').text()).toBe('Architecture')
+      expect(contribution.get('.overall-deductions__value').text()).toBe(`\u2212${100 - score} points`)
+    }
   })
 
   it('lists only scored advisors in penalty order with platform-specific titles', async () => {
@@ -205,10 +241,11 @@ describe('Overview', () => {
     const wrapper = mountOverview({...onlyPanels('architecture', 'spring', 'security'), platform: 'quarkus'})
     await flushPromises()
 
-    const contributions = wrapper.findAll('.overall-contributions li')
-    expect(contributions).toHaveLength(2)
-    expect(contributions[0].findAll('span').map((span) => span.text())).toEqual(['Quarkus', '-20'])
-    expect(contributions[1].findAll('span').map((span) => span.text())).toEqual(['Architecture', '-9'])
+    expect(deductionRows(wrapper)).toEqual([
+      ['Quarkus', '\u221220 points'],
+      ['Architecture', '\u22129 points']
+    ])
+    expect(wrapper.find('.overall-clean').exists()).toBe(false)
     expect(wrapper.get('.overall-gauge__value').text()).toBe('86')
     expect(wrapper.get('.assessment-summary').text()).toContain('1 advisor has scan notes')
     expect(wrapper.get('.overall-assessment').text()).toContain('1 not scanned')
@@ -897,11 +934,9 @@ describe('Overview', () => {
     )
     expect(wrapper.get('.overall-card').text()).toContain('1 of 1 advisors assessed')
     expect(wrapper.get('.overall-card').text()).not.toContain('high')
-    expect(
-      wrapper.findAll('.overall-contributions li').map((item) => item.findAll('span').map((span) => span.text()))
-    ).toEqual([
-      ['GitHub', '-20'],
-      ['Architecture', '-9']
+    expect(deductionRows(wrapper)).toEqual([
+      ['GitHub', '\u221220 points'],
+      ['Architecture', '\u22129 points']
     ])
     expect(architectureScore(wrapper)).toBe('91')
 
