@@ -49,7 +49,8 @@ class CodePathStampPayloadTests {
         assertThat(ai.withCodePathStamp(0L).codePathStamp()).isZero();
         assertThat(ai.withCodePathStamp(STAMP)).isSameAs(ai);
 
-        // Fixed parts, with every string counted as the payload's own: the stamp's long and the batch size's int are in them.
+        // Fixed parts, with every string counted as the payload's own: the stamp's long and the batch size's int are in
+        // them.
         assertThat(sql.estimatedBytes())
                 .isEqualTo(56
                         + JournalDictionary.retained(null, "select 1")

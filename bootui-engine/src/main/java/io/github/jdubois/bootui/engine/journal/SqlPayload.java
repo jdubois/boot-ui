@@ -79,7 +79,16 @@ public record SqlPayload(
     @Override
     public int hashCode() {
         return Objects.hash(
-                sql, callSite(), dataSource, failed, frames, phase, completedNanos, codePathStamp, provenance, batchSize);
+                sql,
+                callSite(),
+                dataSource,
+                failed,
+                frames,
+                phase,
+                completedNanos,
+                codePathStamp,
+                provenance,
+                batchSize);
     }
 
     @Override

@@ -282,8 +282,7 @@ class RuntimeInsightsSeedsTest {
      */
     @Test
     void aLoopOfSingleInsertsIsFoundButNotTheSameRowsInOneBatch() {
-        assertThat(subjects("unbatched-write-loop", "OBSERVED"))
-                .containsExactly("POST /api/insights/audit/one-by-one");
+        assertThat(subjects("unbatched-write-loop", "OBSERVED")).containsExactly("POST /api/insights/audit/one-by-one");
         assertThat(observations)
                 .filteredOn(observation -> observation.path("kind").asText().equals("unbatched-write-loop"))
                 .singleElement()

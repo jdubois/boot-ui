@@ -75,14 +75,13 @@ public final class UnbatchedWriteLoop implements Observation {
                 }
                 routeEligible++;
                 tally.loops()
-                        .forEach(loop ->
-                                byShape.computeIfAbsent(loop.fingerprint(), f -> new ArrayList<>())
-                                        .add(loop));
+                        .forEach(loop -> byShape.computeIfAbsent(loop.fingerprint(), f -> new ArrayList<>())
+                                .add(loop));
             }
             eligible += routeEligible;
             long routeRequests = routeEligible;
-            byShape.forEach((fingerprint, loops) ->
-                    findings.add(finding(route.getKey(), fingerprint, loops, routeRequests)));
+            byShape.forEach(
+                    (fingerprint, loops) -> findings.add(finding(route.getKey(), fingerprint, loops, routeRequests)));
         }
         return new Evaluation(eligible, findings, uncounted(prepared, unknown));
     }
@@ -111,7 +110,9 @@ public final class UnbatchedWriteLoop implements Observation {
         long known = 0;
         List<RuntimeEvent> singles = new ArrayList<>();
         for (RuntimeEvent event : request.children(JournalSource.SQL)) {
-            if (!(event.payload() instanceof SqlPayload sql) || sql.failed() || SqlShapes.writes(sql.sql()).isEmpty()) {
+            if (!(event.payload() instanceof SqlPayload sql)
+                    || sql.failed()
+                    || SqlShapes.writes(sql.sql()).isEmpty()) {
                 continue;
             }
             if (sql.provenance() == SqlPayload.Provenance.PREPARATION) {
@@ -128,7 +129,8 @@ public final class UnbatchedWriteLoop implements Observation {
         if (singles.size() < MIN_STATEMENTS) {
             return new Tally(prepared, unknown, known, List.of());
         }
-        TransactionWindows windows = transactionsRecorded && !transactionsDropped ? new TransactionWindows(request) : null;
+        TransactionWindows windows =
+                transactionsRecorded && !transactionsDropped ? new TransactionWindows(request) : null;
         Grouping grouping = grouping(windows, singles, transactionsRecorded, transactionsDropped);
         Map<Key, Loop> loops = new LinkedHashMap<>();
         int index = 0;
@@ -220,8 +222,9 @@ public final class UnbatchedWriteLoop implements Observation {
             groupings.add(loop.grouping());
         }
         List<String> limitations = new ArrayList<>();
-        limitations.add("Counts executions the database ran with a batch size of one: a statement sent in a JDBC batch is"
-                + " not counted, and neither is one whose batch size is unknown.");
+        limitations.add(
+                "Counts executions the database ran with a batch size of one: a statement sent in a JDBC batch is"
+                        + " not counted, and neither is one whose batch size is unknown.");
         for (Grouping grouping : groupings) {
             limitations.add(grouping.limitation);
         }
@@ -230,8 +233,8 @@ public final class UnbatchedWriteLoop implements Observation {
         } else if (!measured) {
             limitations.add("Total time is unmeasured: every execution was recorded as 0.");
         } else {
-            limitations.add("Total time is " + InsightText.millis(totalNanos) + " ms, summed across affected "
-                    + unit + "s.");
+            limitations.add(
+                    "Total time is " + InsightText.millis(totalNanos) + " ms, summed across affected " + unit + "s.");
         }
         return new Finding(
                 route + ":" + InsightText.stableHash(fingerprint),
@@ -248,7 +251,10 @@ public final class UnbatchedWriteLoop implements Observation {
                         "With PostgreSQL or MySQL, check whether the driver rewrites a batch into fewer statements,"
                                 + " such as `reWriteBatchedInserts` or `rewriteBatchedStatements`.",
                         "If the writes go through JDBC, send them as one batch, such as `JdbcTemplate.batchUpdate`."),
-                ordered.stream().limit(3).map(loop -> loop.request().requestId()).toList(),
+                ordered.stream()
+                        .limit(3)
+                        .map(loop -> loop.request().requestId())
+                        .toList(),
                 List.of("Request", "Statement", "Executions", "Time (ms)", "Call site"),
                 rows,
                 limitations);
@@ -261,8 +267,9 @@ public final class UnbatchedWriteLoop implements Observation {
 
     /** How a loop's executions were grouped, and what that leaves unsaid. */
     private enum Grouping {
-        TRANSACTION("Executions are counted within one transaction; a statement outside every transaction autocommits on its"
-                + " own and is not grouped."),
+        TRANSACTION(
+                "Executions are counted within one transaction; a statement outside every transaction autocommits on its"
+                        + " own and is not grouped."),
         NOT_RECORDED("Transactions are not recorded, so executions are counted per request, not per transaction."),
         DROPPED("Transaction events were dropped, so executions are counted per request, not per transaction."),
         OUTSIDE("Executions ran outside any recorded transaction, so they are counted per request, not per"

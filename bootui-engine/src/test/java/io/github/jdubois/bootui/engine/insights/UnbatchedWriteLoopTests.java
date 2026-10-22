@@ -98,8 +98,9 @@ class UnbatchedWriteLoopTests {
             request("POST", writes(INSERT, 10, 1));
         }
 
-        assertThat(observations()).singleElement().satisfies(observation -> assertThat(observation.status())
-                .isEqualTo("OBSERVED"));
+        assertThat(observations())
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.status()).isEqualTo("OBSERVED"));
     }
 
     @Test
@@ -123,8 +124,9 @@ class UnbatchedWriteLoopTests {
             request("POST", events);
         }
 
-        assertThat(observations()).singleElement().satisfies(observation -> assertThat(observation.status())
-                .isEqualTo("OBSERVED"));
+        assertThat(observations())
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.status()).isEqualTo("OBSERVED"));
         assertThat(check().status()).isEqualTo("EVALUATED");
         assertThat(check().reason()).contains("6 executed writes had no recorded batch size");
     }
@@ -178,8 +180,10 @@ class UnbatchedWriteLoopTests {
             request("POST", events);
         }
 
-        assertThat(observations()).singleElement().satisfies(observation -> assertThat(observation.sentence())
-                .contains("insert into audit (order_id) values (?)"));
+        assertThat(observations())
+                .singleElement()
+                .satisfies(observation ->
+                        assertThat(observation.sentence()).contains("insert into audit (order_id) values (?)"));
     }
 
     @Test
@@ -255,8 +259,10 @@ class UnbatchedWriteLoopTests {
             request("POST", events);
         }
 
-        assertThat(observations()).singleElement().satisfies(observation -> assertThat(observation.limitations())
-                .anyMatch(limitation -> limitation.contains("no monotonic time")));
+        assertThat(observations())
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.limitations())
+                        .anyMatch(limitation -> limitation.contains("no monotonic time")));
     }
 
     @Test
@@ -266,7 +272,8 @@ class UnbatchedWriteLoopTests {
             request("DELETE", inTransaction("delete from audit where id = ?", 11));
         }
 
-        assertThat(observations()).extracting(RuntimeObservationDto::subject)
+        assertThat(observations())
+                .extracting(RuntimeObservationDto::subject)
                 .containsExactlyInAnyOrder("POST /api/audit", "DELETE /api/audit");
     }
 
@@ -298,7 +305,16 @@ class UnbatchedWriteLoopTests {
                     JournalSource.SQL,
                     1_000_000,
                     new SqlPayload(
-                            statement, "Repo.run:1", "db", false, null, null, -1, 0L, Provenance.EXECUTION, batchSize)));
+                            statement,
+                            "Repo.run:1",
+                            "db",
+                            false,
+                            null,
+                            null,
+                            -1,
+                            0L,
+                            Provenance.EXECUTION,
+                            batchSize)));
         }
         return events;
     }

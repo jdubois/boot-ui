@@ -595,7 +595,8 @@ final class ObservationFixtures {
         fixtures.add(positive(UnbatchedWriteLoop.KIND, "a loop of updates, run by a scheduled job")
                 .seed(recording -> {
                     for (int i = 0; i < 2; i++) {
-                        recording.scheduled("AuditJob.run", writes("update insight_audit set seen = true where id = ?", 11, 1));
+                        recording.scheduled(
+                                "AuditJob.run", writes("update insight_audit set seen = true where id = ?", 11, 1));
                     }
                 }));
         fixtures.add(counterexample(UnbatchedWriteLoop.KIND, "the sample's batchUpdate, one batch of twelve")
@@ -619,7 +620,9 @@ final class ObservationFixtures {
         fixtures.add(counterexample(UnbatchedWriteLoop.KIND, "twelve identical selects, which write nothing")
                 .seed(recording -> {
                     for (int i = 0; i < 2; i++) {
-                        recording.get("/api/insights/audit").children(writes("select * from insight_audit where id = ?", 12, 1));
+                        recording
+                                .get("/api/insights/audit")
+                                .children(writes("select * from insight_audit where id = ?", 12, 1));
                     }
                 }));
         fixtures.add(counterexample(UnbatchedWriteLoop.KIND, "twelve inserts that all failed")
@@ -640,7 +643,8 @@ final class ObservationFixtures {
                         recording.post("/api/orders").children(both.toArray(Ev[]::new));
                     }
                 }));
-        fixtures.add(counterexample(UnbatchedWriteLoop.KIND, "Quarkus Hibernate preparing twelve inserts, none executed")
+        fixtures.add(counterexample(
+                        UnbatchedWriteLoop.KIND, "Quarkus Hibernate preparing twelve inserts, none executed")
                 .stack(InsightsStack.QUARKUS)
                 .seed(recording -> {
                     for (int i = 0; i < 2; i++) {
@@ -674,7 +678,8 @@ final class ObservationFixtures {
                         for (int j = 0; j < 12; j++) {
                             long completed = 1_000 + 100L * j;
                             own.add(sqlAt(AUDIT_INSERT, RequestPhase.HANDLER, completed));
-                            own.add(transactionAt("AuditService.log", false, false, false, completed - 50, completed + 50));
+                            own.add(transactionAt(
+                                    "AuditService.log", false, false, false, completed - 50, completed + 50));
                         }
                         recording.post("/api/orders").children(own.toArray(Ev[]::new));
                     }
