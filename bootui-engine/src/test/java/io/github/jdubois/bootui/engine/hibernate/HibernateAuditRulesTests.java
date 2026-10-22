@@ -81,7 +81,9 @@ class HibernateAuditRulesTests {
                 s.jdbcTimeZoneConfigured(),
                 s.jdbcFetchSize(),
                 s.oracle(),
-                null);
+                null,
+                s.providerDisablesAutoCommit(),
+                s.transactionMode());
     }
 
     // --- HIB-ENTITY-010 -----------------------------------------------------

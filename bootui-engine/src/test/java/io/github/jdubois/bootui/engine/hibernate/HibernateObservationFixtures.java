@@ -39,7 +39,19 @@ final class HibernateObservationFixtures {
                         != null,
                 integer(declarations, "hibernate.jdbc.fetch_size", 0),
                 false,
-                "postgresql".equals(declarations.firstProperty("bootui.test.dialect")));
+                "postgresql".equals(declarations.firstProperty("bootui.test.dialect")),
+                bool(declarations, "hibernate.connection.provider_disables_autocommit", false),
+                transactionMode(declarations));
+    }
+
+    private static HibernateFactorySettings.TransactionMode transactionMode(HibernateContext declarations) {
+        return declarations.isPropertyTrue("spring.jta.enabled")
+                        || "JTA"
+                                .equalsIgnoreCase(declarations.firstProperty(
+                                        "spring.jpa.properties.jakarta.persistence.transactionType",
+                                        "jakarta.persistence.transactionType"))
+                ? HibernateFactorySettings.TransactionMode.JTA
+                : HibernateFactorySettings.TransactionMode.RESOURCE_LOCAL;
     }
 
     static HibernateApplicationFacts application(TestEnvironment values) {

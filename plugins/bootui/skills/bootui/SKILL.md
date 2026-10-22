@@ -165,7 +165,8 @@ bootui request-profile <id> --json # retained journal profile, or HTTP-exchange 
   be refused. A tool missing from the list is not available in this application. Read this before concluding a stack or
   panel lacks a capability.
 - Exit codes: `0` answered, `1` usage error or unreachable application or a request the tool rejected, `2` BootUI
-  declined because the panel is disabled or read-only. A command whose tool this application does not advertise exits
+  declined because the panel is disabled or read-only, `3` an advisor command run with `--fail-on <severity>` found a
+  retained finding at or above it. A command whose tool this application does not advertise exits
   `1` with "This application does not expose …" and the panel's reason, such as a missing library or the Java agent.
   Treat `2` and that answer as "not available here", not as a failure to work around by loosening configuration.
 - `bootui --help` and each command's `--help` tag every action `[action - needs approval]`: it changes the
@@ -181,7 +182,9 @@ bootui request-profile <id> --json # retained journal profile, or HTTP-exchange 
   with the panel's read command.
 
 In CI, capture the exit code (`bootui … --json > report.json || status=$?`) so a non-zero exit does not abort the step
-before the application is stopped.
+before the application is stopped. To gate on severity, add `--fail-on high` (`critical`, `high`, `medium`, `low`,
+`info`) to an advisor `scan` or `report` command instead of parsing `severityCounts`: it exits `3` on a finding at or
+above the threshold, and `1` when the scan cannot be evaluated (never scanned, disabled, nothing assessed, or no `severityCounts`).
 
 The full command table is at `https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md`; each command maps to the MCP
 tool of the same behavior. `bootui agent status` maps to `get_agent_status` and is read-only on Spring MVC, WebFlux, and

@@ -18,7 +18,7 @@ public final class ExitCodes {
     /** BootUI declined to run the tool: the panel is disabled, or read-only and this is an action. */
     public static final int REFUSED = 2;
 
-    /** Reserved for a threshold failure, so adding one later cannot change the meaning of an existing code. */
+    /** An advisor answered, and a retained finding is at or above the {@code --fail-on} severity. */
     public static final int THRESHOLD = 3;
 
     private ExitCodes() {}
