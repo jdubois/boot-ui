@@ -260,6 +260,12 @@ const overallContributions = computed(() => {
     .filter(({score}) => Number.isFinite(score) && score >= 0 && score <= 100)
     .sort((a, b) => a.score - b.score)
 })
+const deductions = computed(() =>
+  overallContributions.value.filter(({score}) => score < 100).map((item) => ({...item, points: 100 - item.score}))
+)
+const undeductedTitles = computed(() =>
+  overallContributions.value.filter(({score}) => score === 100).map(({title}) => title)
+)
 const contributingScores = computed(() => overallContributions.value.map(({score}) => score))
 const overall = computed(() => overallScore(contributingScores.value))
 const overallBand = computed(() => {
@@ -427,19 +433,27 @@ watch(
                 </p>
               </div>
               <div v-if="overallContributions.length" class="overall-contributions flex-grow-1 min-w-0">
-                <div class="small text-muted mb-2">Points deducted per score</div>
-                <ul class="row g-2 list-unstyled mb-0">
-                  <li
-                    v-for="item in overallContributions"
-                    :key="item.id"
-                    class="col-sm-6 col-xl-4 d-flex justify-content-between align-items-center small"
-                  >
-                    <span class="text-muted me-2">{{ item.title }}</span>
-                    <span :class="['fw-semibold', 'flex-shrink-0', item.score < 100 ? 'text-danger' : 'text-success']">
-                      {{ item.score - 100 }}
+                <div id="overall-deductions-title" class="small text-muted mb-2">Where the points went</div>
+                <ul
+                  v-if="deductions.length"
+                  class="overall-deductions list-unstyled mb-0"
+                  aria-labelledby="overall-deductions-title"
+                >
+                  <li v-for="item in deductions" :key="item.id">
+                    <span class="overall-deductions__name">{{ item.title }}</span>
+                    <span class="overall-deductions__track" aria-hidden="true">
+                      <span class="overall-deductions__fill" :style="{width: `${Math.max(item.points, 4)}%`}"></span>
                     </span>
+                    <span class="overall-deductions__value text-danger"
+                      >&minus;{{ item.points }}<span class="visually-hidden"> points</span></span
+                    >
                   </li>
                 </ul>
+                <p v-else class="small mb-0">No points deducted from any score.</p>
+                <p v-if="deductions.length && undeductedTitles.length" class="overall-clean small text-muted mb-0">
+                  <i class="bi bi-check-circle-fill text-success me-1" aria-hidden="true"></i>No deductions:
+                  {{ undeductedTitles.join(', ') }}
+                </p>
               </div>
               <SpinnerButton
                 :loading="anyRunning"
@@ -650,6 +664,50 @@ watch(
 
 .overall-contributions {
   min-width: 0;
+}
+
+.overall-deductions {
+  align-items: center;
+  column-gap: 0.75rem;
+  display: grid;
+  font-size: 0.875rem;
+  grid-template-columns: max-content minmax(3rem, 1fr) max-content;
+  row-gap: 0.4rem;
+}
+
+.overall-deductions > li {
+  align-items: center;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.overall-deductions__track {
+  background: var(--bs-secondary-bg);
+  border-radius: 999px;
+  display: block;
+  height: 0.45rem;
+  overflow: hidden;
+}
+
+.overall-deductions__fill {
+  background: var(--bs-danger);
+  border-radius: 999px;
+  display: block;
+  height: 100%;
+}
+
+.overall-deductions__value {
+  font-family: var(--bs-font-monospace);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  text-align: right;
+}
+
+.overall-clean {
+  border-top: 1px solid var(--bootui-border);
+  margin-top: 0.6rem;
+  padding-top: 0.55rem;
 }
 
 .overview-score-value {

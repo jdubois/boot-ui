@@ -1195,8 +1195,11 @@ Features:
   unscanned, and confirmed-empty reports are excluded, not replaced with zero or 100. Usable partial scores retain
   their existing penalties. Retained finding severities and advisor assessment counts remain visible.
   The overall summary uses the original color-coded circular gauge, with the numeric score centred in the ring,
-  a horizontal desktop layout that stacks on narrow screens, and a **Points deducted per score** grid of eligible
-  contributors. Each deduction is that contributor's score minus 100, not an additive overall-score calculation.
+  a horizontal desktop layout that stacks on narrow screens, and a **Where the points went** list. The list names only
+  the eligible contributors scoring below 100, worst first, each with a proportional bar and its deduction written with
+  a true minus sign (for example −9), followed by one **No deductions** line naming the contributors at 100 (or **No
+  points deducted from any score** when all are). Each deduction is that contributor's score minus 100, not an additive
+  overall-score calculation.
   Overall gauge bands are **Good** (80–100), **Needs attention** (50–79), and **At risk** (0–49), qualified as
   descriptions of scored results rather than application safety or completeness. Individual Scorecard scores,
   including GitHub, use the same green/amber/red thresholds with theme-aware text colors, visible numbers,
