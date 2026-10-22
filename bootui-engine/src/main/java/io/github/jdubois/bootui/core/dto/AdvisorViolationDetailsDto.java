@@ -8,9 +8,17 @@ import java.util.List;
  *
  * @param locationNotes why some violation locations carry no source path, recorded during the scan; empty when
  *     every located class resolved or the advisor records no locations
+ * @param changes what changed since the previous scan; {@code null} on the first scan and for advisors that do not
+ *     track finding identity
  */
 public record AdvisorViolationDetailsDto(
-        String scanId, int total, int retained, int retentionLimit, boolean truncated, List<String> locationNotes) {
+        String scanId,
+        int total,
+        int retained,
+        int retentionLimit,
+        boolean truncated,
+        List<String> locationNotes,
+        AdvisorChangesDto changes) {
 
     private static final int MAX_LOCATION_NOTES = 10;
     private static final int MAX_LOCATION_NOTE_LENGTH = 240;
@@ -28,8 +36,18 @@ public record AdvisorViolationDetailsDto(
                         .toList();
     }
 
+    public AdvisorViolationDetailsDto(
+            String scanId,
+            int total,
+            int retained,
+            int retentionLimit,
+            boolean truncated,
+            List<String> locationNotes) {
+        this(scanId, total, retained, retentionLimit, truncated, locationNotes, null);
+    }
+
     public AdvisorViolationDetailsDto(String scanId, int total, int retained, int retentionLimit, boolean truncated) {
-        this(scanId, total, retained, retentionLimit, truncated, List.of());
+        this(scanId, total, retained, retentionLimit, truncated, List.of(), null);
     }
 
     public static AdvisorViolationDetailsDto unknown() {
