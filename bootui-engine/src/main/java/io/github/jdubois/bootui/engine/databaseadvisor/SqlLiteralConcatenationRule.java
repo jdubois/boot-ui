@@ -6,7 +6,6 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlStatementNormalizer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -41,6 +40,11 @@ final class SqlLiteralConcatenationRule extends AbstractDatabaseAdvisorRule {
                         + "Framework-generated constants and formatting differences can explain this observation; "
                         + "it does not establish a defect or prescribe a query change.",
                 "https://docs.oracle.com/en/java/javase/17/docs/api/java.sql/java/sql/PreparedStatement.html"));
+    }
+
+    @Override
+    public boolean comparableAcrossScans() {
+        return false;
     }
 
     @Override
@@ -83,9 +87,9 @@ final class SqlLiteralConcatenationRule extends AbstractDatabaseAdvisorRule {
             return pass();
         }
 
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         for (ShapeEvidence evidence : reportable) {
-            details.add(evidence.describe(statements.size()));
+            details.add(evidence.describe(statements.size()), DatabaseIdentities.parts("shape=" + evidence.shapeKey()));
         }
         return violation(context, details);
     }
@@ -125,6 +129,11 @@ final class SqlLiteralConcatenationRule extends AbstractDatabaseAdvisorRule {
 
         private String shape() {
             return shape;
+        }
+
+        /** A digest of the normalized shape, so the identity never carries SQL text. */
+        private String shapeKey() {
+            return digest(shape).substring(0, 32);
         }
 
         private boolean isReportable() {

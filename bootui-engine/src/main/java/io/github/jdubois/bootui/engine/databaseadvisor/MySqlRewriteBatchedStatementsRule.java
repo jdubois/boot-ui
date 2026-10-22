@@ -35,7 +35,7 @@ final class MySqlRewriteBatchedStatementsRule extends AbstractDriverRule {
     }
 
     @Override
-    Outcome assess(DatabaseAdvisorContext context, SchemaSnapshot schema) {
+    Outcome assess(DatabaseAdvisorContext context, SchemaSnapshot schema, DatabaseFindings findings) {
         DriverEvidence driver = schema.driver();
         Outcome applicability = MySqlConnectorJ.applicability(schema, driver);
         if (applicability != null) {
@@ -51,14 +51,18 @@ final class MySqlRewriteBatchedStatementsRule extends AbstractDriverRule {
             return setting.unresolved();
         }
         if (setting.configuredTrue()) {
-            return Outcome.pass();
+            return Outcome.assessed();
         }
         JdbcBatching batching = context.jdbcBatchingOf(schema.dataSourceName());
         String state = setting.configured() == null
                 ? "is not set in the JDBC URL or the pool's driver properties (driver default `false`)"
                 : "is " + DriverRuleText.shown(setting.configured().value()) + ", configured in the "
                         + setting.configured().label();
-        return Outcome.finding("Datasource `" + schema.dataSourceName() + "`: `" + name + "` " + state
-                + " while Hibernate batches writes (batch size " + batching.batchSize() + "). Evidence: configured.");
+        findings.add(
+                "Datasource `" + schema.dataSourceName() + "`: `" + name + "` " + state
+                        + " while Hibernate batches writes (batch size " + batching.batchSize()
+                        + "). Evidence: configured.",
+                settingIdentity(schema.dataSourceName(), name));
+        return Outcome.assessed();
     }
 }

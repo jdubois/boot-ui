@@ -336,7 +336,9 @@ BootUI wraps each `DataSource` bean with a JDK dynamic proxy and records the SQL
 (`SELECT`, `INSERT`, `UPDATE`, `DELETE`, `DDL`, `OTHER`), duration, affected rows, batch size, connection, executing
 thread and its kind (`WORKER`, `VIRTUAL_THREAD`, `EVENT_LOOP`, `REACTOR_SCHEDULER`, `OTHER`), the call site when enabled,
 and any failure. On Spring MVC and Quarkus, each statement also records the request phase it ran in: `FILTERS`,
-`HANDLER`, or `RESPONSE` (where lazy loading surfaces). Spring WebFlux records no phase.
+`HANDLER`, or `RESPONSE` (where lazy loading surfaces). Spring WebFlux records no phase. The runtime journal also keeps
+each execution's batch size (`1` for an ordinary execution, the number of parameter sets for a JDBC batch), which the
+`unbatched-write-loop` check of [Runtime Insights](runtime-insights.md) reads.
 
 A Spring `DataSource` wrapper is never replaced; when it owns the only reference to a pool (for example
 `LazyConnectionDataSourceProxy`), the pool inside is traced in place. Wrapping **fails open**: a `DataSource` that

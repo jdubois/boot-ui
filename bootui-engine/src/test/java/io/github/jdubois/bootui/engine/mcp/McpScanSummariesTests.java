@@ -2,7 +2,10 @@ package io.github.jdubois.bootui.engine.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.dto.AdvisorChangesDto;
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
+import io.github.jdubois.bootui.core.dto.AdvisorResolvedFindingDto;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleChangeDto;
 import io.github.jdubois.bootui.core.dto.AdvisorViolationDetailsDto;
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
@@ -71,6 +74,41 @@ class McpScanSummariesTests {
         assertThat(top.get(0)).isEqualTo(new Finding("HIB-7", "Rule HIB-7", "HIGH", 8));
         assertThat(top.get(1).id()).isEqualTo("HIB-11");
         assertThat(top).extracting(Finding::id).doesNotContain("HIB-DISMISSED");
+    }
+
+    @Test
+    void theCompactAnswerCutsTheResolvedFindingsButKeepsEveryCount() {
+        List<AdvisorResolvedFindingDto> resolved = new ArrayList<>();
+        List<AdvisorRuleChangeDto> rules = new ArrayList<>();
+        for (int i = 0; i < 50; i++) {
+            resolved.add(new AdvisorResolvedFindingDto("HIB-" + i, "x".repeat(240)));
+            rules.add(new AdvisorRuleChangeDto("HIB-" + i, 0, 1, 0));
+        }
+        AdvisorChangesDto changes = new AdvisorChangesDto("prev", true, 0, 50, 7, 0, resolved, List.of(), 0, rules);
+        AdvisorViolationDetailsDto details =
+                new AdvisorViolationDetailsDto("scan-8", 7, 7, 1000, false, List.of(), changes);
+        HibernateReport report = new HibernateReport(
+                true,
+                "Local only.",
+                List.of(),
+                0,
+                0,
+                0,
+                List.of(),
+                new HibernateScanStatusDto("Hibernate", "COMPLETE", null, 1L, 0, 0, 0),
+                List.of(),
+                List.of(),
+                AdvisorEvidenceDto.unknown(),
+                details);
+
+        AdvisorViolationDetailsDto compact =
+                (AdvisorViolationDetailsDto) McpScanSummaries.hibernate(report).get("violationDetails");
+
+        assertThat(compact.changes().resolvedCount()).isEqualTo(50);
+        assertThat(compact.changes().unchangedCount()).isEqualTo(7);
+        assertThat(compact.changes().resolved()).hasSize(McpScanSummaries.MAX_COMPACT_RESOLVED);
+        assertThat(compact.changes().rules()).hasSize(McpScanSummaries.MAX_COMPACT_RULES);
+        assertThat(details.changes().resolved()).hasSize(50);
     }
 
     @Test

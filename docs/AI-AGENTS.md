@@ -671,8 +671,8 @@ The default offset is zero and page size is 100, capped at `min(1000, bootui.mcp
 nonnegative integers and limits positive integers. Nulls, fractional/overflowing numbers, and undeclared arguments
 are refused, not silently normalized.
 
-Report-level `violationDetails` carries `scanId`, `total`, `retained`, `retentionLimit`, `truncated`, and
-`locationNotes`.
+Report-level `violationDetails` carries `scanId`, `total`, `retained`, `retentionLimit`, `truncated`,
+`locationNotes`, and `changes`.
 Only the latest scan is retained, by default up to 10,000 sanitized details across that advisor's rules, configurable
 with `bootui.advisors.max-retained-violations`. A truncated report or rule is not a complete retained list, even when
 `page.hasMore` becomes false; a rule can have a positive count and zero retained details. Increasing the retention
@@ -696,6 +696,20 @@ rules are HTTP 400 (HTTP 404 is reserved for an unadvertised tool), and stale sn
 MCP still refuses an oversized rendered response with JSON-RPC `-32003` (legacy) or `-31003` (modern). Retry the **same scan ID and offset**
 with a smaller `limit`; a byte-budget refusal is neither an empty page nor proof of completion. Do not advance
 the offset on any error. Keep pages bounded and stop rather than looping if even one detail exceeds the byte budget.
+
+### Checking what a fix changed
+
+After fixing findings, rescan and read `violationDetails.changes` instead of comparing two reports. The Hibernate and
+Database advisors set it from the second scan on (`null` on the first scan and for the other advisors):
+`newCount`, `resolvedCount` and `unchangedCount` count the findings only in this scan, only in the previous scan, and in
+both; `resolved` lists up to 50 resolved findings (the scan summary lists the first five and keeps the counts); `rules`
+names the rules with a new, resolved or unverified finding. **Trust `complete`.** When it is `false`, `notes` says why
+(a truncated retention, a rule that failed, was skipped or lacked evidence, an unreadable datasource), and
+`unverifiedCount` counts the findings that could not be compared: do not read those as fixed. In a
+`get_hibernate_rule_violations` or `get_database_advisor_rule_violations` page, `identities` and `changes` are aligned
+index-for-index with `violations` (`NEW`, `UNCHANGED`, or `null` for an unkeyed or unverified finding); both are empty
+for advisors that do not compare. An identity is a stable, structure-derived key such as
+`v1:unit=orders|entity=com.acme.Order|member=lines`: use it to follow one finding across scans, never the message.
 
 ### Going straight to the code
 
@@ -846,7 +860,7 @@ answers with the same summary:
 | `findingsFound`, `severityCounts` | The report's whole counts; dismissed findings are excluded |
 | `topFindings` | At most 10 rows, most severe first, then most frequent: `id`, `title`, `severity`, `count`. A row is a rule or a check, and `count` its violations or findings |
 | `moreFindings` | The rows left out of `topFindings`; `0` means every rule or check with a finding is listed |
-| `violationDetails` | The rule advisors' `scanId` and retention, for [paging violations](#reading-retained-advisor-violations) |
+| `violationDetails` | The rule advisors' `scanId` and retention, for [paging violations](#reading-retained-advisor-violations); `changes` is what a Hibernate or Database rescan [changed](#checking-what-a-fix-changed) |
 
 A vulnerability row is a vulnerable dependency: `id` is its coordinates, `title` its most severe advisory, and `count`
 its advisory count. So for `vulnerabilities_scan`, `findingsFound` counts vulnerable dependencies while

@@ -114,7 +114,7 @@ public final class BootUiApiContractCatalog {
             inventory("liquibase", "/liquibase/changesets", "liquibasePresent", "databases"),
             inventory("database-connection-pools", "/database-connection-pools/pools", "poolLibraryPresent", "pools"),
             locatedAdvisor("hibernate", "/hibernate", "results"),
-            advisor("database-advisor", "/database-advisor", "results"),
+            locatedAdvisor("database-advisor", "/database-advisor", "results"),
             // A runtime view, not an advisor: no severities, no findings, no score. The contract is the
             // read's own outcome plus the evidence it did and did not gather.
             read(
@@ -956,8 +956,9 @@ public final class BootUiApiContractCatalog {
     }
 
     /**
-     * An advisor whose results carry structured violation locations: its report always exposes the retrieval metadata
-     * with the notes that explain a missing source path, and each result adds {@code sampleLocations}.
+     * An advisor whose report always exposes the retrieval metadata, with the notes that explain a missing source path
+     * and the comparison with the previous scan ({@code null} on the first scan and for an advisor that does not key
+     * its findings). Most also add {@code sampleLocations} to each result.
      */
     private static ReadContract locatedAdvisor(String panelId, String path, String resultField) {
         return read(
@@ -979,7 +980,9 @@ public final class BootUiApiContractCatalog {
                         "violationDetails",
                         JsonType.OBJECT,
                         "violationDetails.locationNotes",
-                        JsonType.ARRAY));
+                        JsonType.ARRAY,
+                        "violationDetails.changes",
+                        JsonType.NULLABLE_OBJECT));
     }
 
     private static ReadContract memory(String panelId, String path) {

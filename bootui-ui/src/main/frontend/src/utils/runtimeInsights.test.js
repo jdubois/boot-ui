@@ -225,6 +225,7 @@ describe('theme coverage', () => {
       'heap-growth-after-gc',
       'repeated-selects',
       'safe-method-dml',
+      'unbatched-write-loop',
       'lazy-sql-after-handler',
       'orm-auto-flush',
       'large-persistence-context',

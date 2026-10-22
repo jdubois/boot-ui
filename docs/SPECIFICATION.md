@@ -1971,7 +1971,8 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   the validation applications) are listed by default; `FAILED` (`route-time-breakdown`, `exception-hotspots`,
   `connections-per-request`, `ai-usage-by-route`, each folded into the panel showing the same evidence, which links to
   its rows), `UNDER_SAMPLED` (`repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`,
-  `readonly-candidate-transaction`, `framework-warnings-by-route`, `anonymous-data-reach`), `NOT_LISTED`
+  `unbatched-write-loop`, `readonly-candidate-transaction`, `framework-warnings-by-route`, `anonymous-data-reach`),
+  `NOT_LISTED`
   (`gc-inflated-latency`, `heap-growth-after-gc`,
   reached from the Memory panel), and `NOT_JUDGED` (any kind added after the external validation) are not.
   Every observation carries `listed`, whether the panel's and the agents' default list shows it, and, when it does
@@ -3131,15 +3132,19 @@ stacks. The `spring` root remains the Quarkus application advisor on Quarkus; th
 
 Reports retain their existing `violationCount` and `sampleViolations` previews (normally ten per rule, twenty for the
 Quarkus application and Security advisors), plus `violationDetails: {scanId, total, retained, retentionLimit,
-truncated, locationNotes}`. The snapshot ID is null before a completed scan. Totals and retention are before dismissal and describe
+truncated, locationNotes, changes}`. The snapshot ID is null before a completed scan. Totals and retention are before dismissal and describe
 retrieval completeness, not evidence coverage or score eligibility. The latest completed report and sanitized detail
 index are published together; reads during another scan serve the previous snapshot. Dismiss/restore preserves its
-identity and retained entries. Only the latest snapshot is kept.
+identity and retained entries. Only the latest snapshot is kept, plus, for the Hibernate and Database advisors, the index
+of the last scan that concluded a rule, which the next scan is compared with. `changes` is `null` on the first scan and
+for the other advisors; otherwise it reports what a rescan resolved or added, directionally and fail-closed (see
+[Changes since the previous scan](features/advisors.md#changes-since-the-previous-scan)).
 
 Detail reads require the report's nonblank `scanId`; offset defaults to zero and limit to 100, capped at 1000.
 Malformed/fractional/overflowing inputs, negative offsets, and nonpositive limits are rejected. Responses contain
 `scanId`, `ruleId`, full `violationCount`, `retainedCount`, `truncated`, `violations`,
-`page: {total, matched, offset, limit, returned, hasMore}`, and `locations`. Page totals count retained entries; a
+`page: {total, matched, offset, limit, returned, hasMore}`, `locations`, and, aligned with `violations` and empty when they
+do not apply, `identities` (the canonical finding identity) and `changes` (`NEW`, `UNCHANGED`, or `null`). Page totals count retained entries; a
 terminal page does not prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Ids outside the
 advisor's rule catalogue (`Unknown advisor rule: ...`) and catalogue rules without findings, whether passed, skipped, or
 failed (`Advisor rule has no findings in the current scan.`), both return 404 with those distinct messages; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are

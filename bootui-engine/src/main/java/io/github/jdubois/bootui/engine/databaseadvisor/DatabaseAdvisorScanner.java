@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.core.dto.DatabaseAdvisorSeverityCountDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorFindingIdentity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
@@ -67,10 +68,11 @@ public final class DatabaseAdvisorScanner {
     private final DatabaseAdvisorLimits limits;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private final AdvisorScanState<DatabaseAdvisorReport> state = new AdvisorScanState<>(
-            DatabaseAdvisorReport::withViolationDetails,
-            () -> AdvisorScanState.ruleIds(
-                    DatabaseAdvisorRuleRegistry.activeRules(),
-                    rule -> rule.definition().id()));
+                    DatabaseAdvisorReport::withViolationDetails,
+                    () -> AdvisorScanState.ruleIds(
+                            DatabaseAdvisorRuleRegistry.activeRules(),
+                            rule -> rule.definition().id()))
+            .trackingChanges();
 
     public static DatabaseAdvisorScanner using(
             Supplier<List<NamedDataSource>> dataSourceSupplier,
@@ -207,6 +209,7 @@ public final class DatabaseAdvisorScanner {
         DatabaseAdvisorDataSourceDiscovery discovery = discoverDataSources();
         List<NamedDataSource> dataSources = discovery.dataSources();
         if (dataSources.isEmpty() && discovery.failures().isEmpty()) {
+            collector.markScanUnverified("No datasource was found, so no rule could run.");
             return new ReportBuilder()
                     .status("DISABLED")
                     .message("No DataSource beans were found to inspect.")
@@ -240,7 +243,19 @@ public final class DatabaseAdvisorScanner {
         List<DatabaseAdvisorDataSourceDto> dataSourceStatuses = dataSourceStatuses(schemas);
         boolean truncated = schemas.stream().anyMatch(SchemaSnapshot::truncated);
 
+        for (SchemaSnapshot schema : schemas) {
+            collector.markScopeObserved(AdvisorFindingIdentity.encode("ds=" + schema.dataSourceName()));
+            // Only a dialect with partitioned tables can lose relations when the inventory falls back to plain tables.
+            boolean partialInventory = schema.dialect() == Dialect.POSTGRESQL && !schema.relationInventoryComplete();
+            if (!schema.available() || schema.truncated() || partialInventory) {
+                collector.markScopeUnverified(
+                        AdvisorFindingIdentity.encode("ds=" + schema.dataSourceName()),
+                        "Datasource " + schema.dataSourceName()
+                                + (schema.available() ? " was read only in part." : " could not be read."));
+            }
+        }
         if (available.isEmpty()) {
+            collector.markScanUnverified("No physical schema could be read, so no rule could run.");
             return new ReportBuilder()
                     .status("ERROR")
                     .message(
@@ -253,9 +268,12 @@ public final class DatabaseAdvisorScanner {
                     .build();
         }
 
+        int diagnosticsBeforeMappings = diagnostics.size();
         EntityDiscovery entityDiscovery = safeEntityDiscovery(diagnostics);
         boolean hibernateAvailable = !entityDiscovery.entities().isEmpty();
         List<MappedEntityFacts> mappedEntities = mappedEntities(entityDiscovery, diagnostics);
+        // A mapping that was lost leaves its findings unreported, so the cross-reference rules conclude nothing.
+        boolean mappingsComplete = diagnostics.size() == diagnosticsBeforeMappings;
 
         DatabaseAdvisorContext context = new DatabaseAdvisorContext(
                 schemas,
@@ -279,6 +297,14 @@ public final class DatabaseAdvisorScanner {
                     context.jdbcBatching());
             DatabaseAdvisorRuleResultDto result = rule.evaluate(evaluation);
             results.add(result);
+            if (rule.comparableAcrossScans()
+                    && (mappingsComplete || !rule.readsMappings())
+                    && (DatabaseAdvisorRuleSupport.PASS.equals(result.status())
+                            || isViolation(result)
+                            || DatabaseAdvisorRuleSupport.noTargets(result))
+                    && evaluation.evaluationDiagnostics().isEmpty()) {
+                collector.markConcluded(rule.definition().id(), AdvisorViolationCollector.ALL_SCOPES);
+            }
             usable |= isViolation(result)
                     || evaluation.evaluationDiagnostics().isEmpty()
                             && DatabaseAdvisorRuleSupport.PASS.equals(result.status());

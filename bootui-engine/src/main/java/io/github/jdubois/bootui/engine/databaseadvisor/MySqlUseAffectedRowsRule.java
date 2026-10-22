@@ -30,7 +30,7 @@ final class MySqlUseAffectedRowsRule extends AbstractDriverRule {
     }
 
     @Override
-    Outcome assess(DatabaseAdvisorContext context, SchemaSnapshot schema) {
+    Outcome assess(DatabaseAdvisorContext context, SchemaSnapshot schema, DatabaseFindings findings) {
         DriverEvidence driver = schema.driver();
         Outcome applicability = MySqlConnectorJ.applicability(schema, driver);
         if (applicability != null) {
@@ -42,11 +42,14 @@ final class MySqlUseAffectedRowsRule extends AbstractDriverRule {
             return setting.unresolved();
         }
         if (!setting.configuredTrue()) {
-            return Outcome.pass();
+            return Outcome.assessed();
         }
-        return Outcome.finding("Datasource `" + schema.dataSourceName() + "`: `" + name + "` is "
-                + DriverRuleText.shown(setting.configured().value()) + ", configured in the "
-                + setting.configured().label()
-                + ", so DML reports changed rows instead of matched rows. Evidence: configured.");
+        findings.add(
+                "Datasource `" + schema.dataSourceName() + "`: `" + name + "` is "
+                        + DriverRuleText.shown(setting.configured().value()) + ", configured in the "
+                        + setting.configured().label()
+                        + ", so DML reports changed rows instead of matched rows. Evidence: configured.",
+                settingIdentity(schema.dataSourceName(), name));
+        return Outcome.assessed();
     }
 }

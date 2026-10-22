@@ -444,6 +444,27 @@ class DatabaseAdvisorDriverRulesTests {
     }
 
     @Test
+    void everyFindingIsKeyedByDatasourceAndSettingNeverByValueOrText() {
+        io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector collector =
+                new io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector(100);
+        DatabaseAdvisorContext context = new DatabaseAdvisorContext(
+                List.of(driverSchema("ordersDb", Dialect.POSTGRESQL, driverEvidence(PGJDBC, Map.of()))),
+                false,
+                List.of(),
+                List.of(),
+                List.of(),
+                collector,
+                batching(JdbcBatching.enabled(30)));
+
+        assertThat(postgres.evaluate(context).status()).isEqualTo("VIOLATION");
+
+        assertThat(AbstractDriverRule.settingIdentity("ordersDb", "reWriteBatchedInserts"))
+                .isEqualTo("v1:ds=ordersDb|setting=reWriteBatchedInserts");
+        assertThat(AbstractDriverRule.settingIdentity("ordersDb", "reWriteBatchedInserts"))
+                .matches(io.github.jdubois.bootui.engine.advisor.AdvisorFindingIdentity.VALID);
+    }
+
+    @Test
     void aFindingNeverEchoesAnArbitraryConfiguredValue() {
         DatabaseAdvisorRuleResultDto result = mysqlRewrite.evaluate(mysql(
                 driverEvidence(CONNECTOR_J, urlSettings("rewriteBatchedStatements", "false")),

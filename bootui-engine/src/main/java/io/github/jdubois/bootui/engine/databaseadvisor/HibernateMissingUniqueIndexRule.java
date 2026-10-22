@@ -48,7 +48,7 @@ final class HibernateMissingUniqueIndexRule extends AbstractHibernateCrossRefere
             DatabaseAdvisorContext context,
             MappedTableResolution primary,
             MappedEntityFacts entity,
-            List<String> details) {
+            DatabaseFindings details) {
         int eligible = 0;
         for (MappedUniqueConstraintFacts uniqueConstraint : entity.uniqueConstraints()) {
             if (uniqueConstraint.columns().isEmpty()) {
@@ -97,10 +97,12 @@ final class HibernateMissingUniqueIndexRule extends AbstractHibernateCrossRefere
                 continue;
             }
             eligible++;
-            details.add(resolution.schema().dataSourceName() + ": " + uniqueConstraint.description()
-                    + " declares a unique constraint on " + table.qualifiedName() + " " + columns
-                    + ", for which no enforcing key was found in the observed metadata. "
-                    + "Confirm declaration-name correspondence and intended null semantics.");
+            details.add(
+                    resolution.schema().dataSourceName() + ": " + uniqueConstraint.description()
+                            + " declares a unique constraint on " + table.qualifiedName() + " " + columns
+                            + ", for which no enforcing key was found in the observed metadata. "
+                            + "Confirm declaration-name correspondence and intended null semantics.",
+                    DatabaseIdentities.table(resolution.schema(), table, DatabaseIdentities.each("unique", columns)));
         }
         return eligible;
     }

@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.List;
 
 /** Expanded publication membership determines which relation's replica identity is required. */
@@ -41,7 +40,7 @@ final class PostgresReplicaIdentityRule extends AbstractDatabaseAdvisorRule {
         if (reason != null) {
             return skipped(reason);
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
             VendorRuleSupport.coverage(
@@ -72,14 +71,17 @@ final class PostgresReplicaIdentityRule extends AbstractDatabaseAdvisorRule {
                 }
                 eligible++;
                 if (missing) {
-                    details.add(schema.dataSourceName() + ": " + candidate.qualifiedTable()
-                            + " publishes UPDATE/DELETE but has no usable replica identity ("
-                            + (candidate.nothing()
-                                    ? "NOTHING"
-                                    : candidate.usesDefault()
-                                            ? "DEFAULT with no primary key"
-                                            : "selected index not usable")
-                            + "). Subscriber attachment is not required for affected writes to fail.");
+                    details.add(
+                            schema.dataSourceName() + ": " + candidate.qualifiedTable()
+                                    + " publishes UPDATE/DELETE but has no usable replica identity ("
+                                    + (candidate.nothing()
+                                            ? "NOTHING"
+                                            : candidate.usesDefault()
+                                                    ? "DEFAULT with no primary key"
+                                                    : "selected index not usable")
+                                    + "). Subscriber attachment is not required for affected writes to fail.",
+                            DatabaseIdentities.table(
+                                    schema.dataSourceName(), null, candidate.schema(), candidate.table()));
                 }
             }
         }

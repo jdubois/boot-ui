@@ -13,7 +13,7 @@ import java.util.List;
  * <p>An outcome is one of: {@link Outcome#notApplicable() not applicable} (the datasource is simply not this rule's
  * subject, silently), {@link Outcome#skip(String) skip} (it is, but a documented condition excludes it, such as
  * batching being off), {@link Outcome#gap(String) gap} (evidence the rule needs could not be established), a
- * {@link Outcome#pass() pass} or a {@link Outcome#finding(String) finding}. Gaps matter in a mixed inventory: when
+ * {@link Outcome#assessed() assessed} datasource, with or without a finding the rule recorded. Gaps matter in a mixed inventory: when
  * another datasource was assessed, they are journaled as coverage gaps so a clean result cannot hide them.</p>
  */
 abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
@@ -26,16 +26,20 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
         this.noDatasourceReason = noDatasourceReason;
     }
 
-    abstract Outcome assess(DatabaseAdvisorContext context, SchemaSnapshot schema);
+    /**
+     * Judges one datasource. A rule that finds something records it with {@code findings.add(text, identity)} itself
+     * (so the catalogue guard sees it) and answers {@link Outcome#assessed()}.
+     */
+    abstract Outcome assess(DatabaseAdvisorContext context, SchemaSnapshot schema, DatabaseFindings findings);
 
     @Override
     final DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
-        List<String> findings = new ArrayList<>();
+        DatabaseFindings findings = new DatabaseFindings();
         List<String> reasons = new ArrayList<>();
         List<String> gaps = new ArrayList<>();
         int assessed = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
-            Outcome outcome = assess(context, schema);
+            Outcome outcome = assess(context, schema, findings);
             String text = schema.dataSourceName() + ": " + outcome.text();
             switch (outcome.kind()) {
                 case NOT_APPLICABLE -> {}
@@ -44,11 +48,7 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
                     reasons.add(text);
                     gaps.add(text);
                 }
-                case PASS -> assessed++;
-                case FINDING -> {
-                    assessed++;
-                    findings.add(outcome.text());
-                }
+                case ASSESSED -> assessed++;
             }
         }
         if (assessed == 0) {
@@ -147,14 +147,18 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
         }
     }
 
+    /** The canonical identity of a driver-setting finding: the datasource and the setting, never the value. */
+    static String settingIdentity(String dataSourceName, String setting) {
+        return DatabaseIdentities.of(dataSourceName, "setting=" + setting);
+    }
+
     record Outcome(Kind kind, String text) {
 
         enum Kind {
             NOT_APPLICABLE,
             SKIP,
             GAP,
-            PASS,
-            FINDING
+            ASSESSED
         }
 
         static Outcome notApplicable() {
@@ -169,12 +173,8 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
             return new Outcome(Kind.GAP, reason);
         }
 
-        static Outcome pass() {
-            return new Outcome(Kind.PASS, "");
-        }
-
-        static Outcome finding(String detail) {
-            return new Outcome(Kind.FINDING, detail);
+        static Outcome assessed() {
+            return new Outcome(Kind.ASSESSED, "");
         }
     }
 }

@@ -32,6 +32,18 @@ class HibernateRuleCatalogueTests {
     }
 
     @Test
+    void everyRegisteredRuleDerivesItsFindingIdentitiesFromTheSharedHelper() {
+        assertThat(EvidenceMarkingGuard.rulesThatNeverMarkEvidence(
+                        HibernateRuleRegistry.activeRules(),
+                        "io.github.jdubois.bootui.engine.hibernate.HibernateIdentities",
+                        Set.of("of", "setting", "idClass"),
+                        // Only ever skips or passes, so it has no finding to key.
+                        Set.of("CacheableWithoutCacheStrategyRule")))
+                .as("Hibernate rules that never build a canonical finding identity")
+                .isEmpty();
+    }
+
+    @Test
     void theApplicationWideAllowListStaysMinimal() {
         assertThat(EvidenceMarkingGuard.allowedRulesThatDoMarkEvidence(
                         HibernateRuleRegistry.activeRules(), EVIDENCE_TYPE, MARKING_METHODS, APPLICATION_WIDE))

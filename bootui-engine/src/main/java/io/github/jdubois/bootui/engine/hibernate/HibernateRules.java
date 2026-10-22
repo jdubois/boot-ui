@@ -57,16 +57,15 @@ abstract class AbstractHibernateRule implements HibernateRule {
         return HibernateRuleSupport.skipped(definition, reason);
     }
 
-    HibernateRuleResultDto violation(HibernateContext context, List<String> details) {
-        return violation(context, null, details);
+    HibernateRuleResultDto settingViolation(HibernateContext context, String setting, String detail) {
+        return settingViolation(context, null, setting, detail);
     }
 
-    HibernateRuleResultDto violation(HibernateContext context, String severityOverride, List<String> details) {
-        return record(context, severityOverride, AdvisorViolation.withoutLocations(details));
-    }
-
-    HibernateRuleResultDto violation(HibernateContext context, String severityOverride, String detail) {
-        return record(context, severityOverride, List.of(AdvisorViolation.of(detail)));
+    HibernateRuleResultDto settingViolation(
+            HibernateContext context, String severityOverride, String setting, String detail) {
+        AdvisorFindings findings = new AdvisorFindings();
+        findings.add(detail, null, HibernateIdentities.setting(context, setting));
+        return violation(context, severityOverride, findings);
     }
 
     HibernateRuleResultDto violation(HibernateContext context, AdvisorFindings details) {
@@ -134,6 +133,18 @@ final class HibernateRuleModelSupport {
                 .filter(candidate -> mappedBy.equals(candidate.propertyName()))
                 .anyMatch(candidate -> candidate.hasMapsId()
                         || candidate.annotation("jakarta.persistence.PrimaryKeyJoinColumn") != null);
+    }
+
+    /**
+     * The concrete entity each attribute was read from, by identity: an attribute inherited from a mapped
+     * superclass is a separate object per entity, and its finding is keyed on that entity.
+     */
+    static Map<HibernateAttributeModel, HibernateEntityModel> attributeOwners(List<HibernateEntityModel> entities) {
+        Map<HibernateAttributeModel, HibernateEntityModel> owners = new java.util.IdentityHashMap<>();
+        for (HibernateEntityModel entity : entities) {
+            for (HibernateAttributeModel attribute : entity.attributes()) owners.put(attribute, entity);
+        }
+        return owners;
     }
 
     /**
@@ -249,7 +260,8 @@ final class HibernateRuleModelSupport {
                         }
                         details.add(
                                 method.description() + " pages a collection JOIN FETCH path " + path + ".",
-                                HibernateLocations.of(method));
+                                HibernateLocations.of(method),
+                                HibernateIdentities.of(context, repository, method, "path=" + path));
                     }
                 }
             }
@@ -366,14 +378,16 @@ final class EagerFetchRule extends AbstractHibernateRule {
                 if (association != null && "EAGER".equals(attribute.annotationValueName(association, "fetch"))) {
                     details.add(
                             attribute.description() + " is mapped as FetchType.EAGER.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
                 Annotation elementCollection = attribute.elementCollectionAnnotation();
                 if (elementCollection != null
                         && "EAGER".equals(attribute.annotationValueName(elementCollection, "fetch"))) {
                     details.add(
                             attribute.description() + " is an @ElementCollection mapped as FetchType.EAGER.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -417,7 +431,8 @@ final class IdentityIdentifierRule extends AbstractHibernateRule {
                 if ("IDENTITY".equals(strategy)) {
                     details.add(
                             attribute.description() + " uses GenerationType.IDENTITY.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -455,7 +470,9 @@ final class TableIdentifierRule extends AbstractHibernateRule {
                 String strategy = attribute.annotationValueName(generatedValue, "strategy");
                 if ("TABLE".equals(strategy)) {
                     details.add(
-                            attribute.description() + " uses GenerationType.TABLE.", HibernateLocations.of(attribute));
+                            attribute.description() + " uses GenerationType.TABLE.",
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -487,7 +504,8 @@ final class SequenceAllocationSizeRule extends AbstractHibernateRule {
             if (allocationSizeIsOne(entitySequence, entity)) {
                 details.add(
                         entity.name() + " declares @SequenceGenerator(allocationSize=1).",
-                        HibernateLocations.of(entity));
+                        HibernateLocations.of(entity),
+                        HibernateIdentities.of(context, entity));
             }
             for (HibernateAttributeModel attribute : context.targets(
                     entity.attributes(), candidate -> candidate.sequenceGeneratorAnnotation() != null)) {
@@ -495,7 +513,8 @@ final class SequenceAllocationSizeRule extends AbstractHibernateRule {
                 if (allocationSizeIsOne(sequenceGenerator, entity)) {
                     details.add(
                             attribute.description() + " declares @SequenceGenerator(allocationSize=1).",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -543,7 +562,8 @@ final class UnidirectionalOneToManyRule extends AbstractHibernateRule {
                 if ((mappedBy == null || mappedBy.isBlank()) && !attribute.hasJoinColumn()) {
                     details.add(
                             attribute.description() + " is unidirectional @OneToMany without mappedBy or @JoinColumn.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -579,7 +599,8 @@ final class ManyToManyListRule extends AbstractHibernateRule {
                             attribute.description()
                                     + " is @ManyToMany and declared as a List without @OrderColumn."
                                     + " Consider a link entity when link lifecycle or attributes matter.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -611,7 +632,8 @@ final class ManyToManyRemoveCascadeRule extends AbstractHibernateRule {
                 if (manyToMany != null && hasRemoveCascade(attribute, manyToMany)) {
                     details.add(
                             attribute.description() + " cascades REMOVE/ALL across @ManyToMany.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -648,7 +670,8 @@ final class ManyToOneRemoveCascadeRule extends AbstractHibernateRule {
                 if (manyToOne != null && hasRemoveCascade(attribute, manyToOne)) {
                     details.add(
                             attribute.description() + " cascades REMOVE/ALL across @ManyToOne.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -699,18 +722,21 @@ final class OneToOneWithoutMapsIdRule extends AbstractHibernateRule {
                             attribute.description()
                                     + " is an owning @OneToOne that looks lifecycle-dependent (optional=false or"
                                     + " cascade REMOVE/ALL) but does not use @MapsId.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 } else {
                     plainDetails.add(
                             attribute.description()
                                     + " is an owning @OneToOne without @MapsId; consider a shared primary key when the"
                                     + " child shares the parent's lifecycle and identifier.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
         if (!dependentDetails.isEmpty()) {
-            for (AdvisorViolation plain : plainDetails.list()) dependentDetails.add(plain.text(), plain.location());
+            for (AdvisorViolation plain : plainDetails.list())
+                dependentDetails.add(plain.text(), plain.location(), plain.identity());
             return violation(context, HibernateRuleSupport.MEDIUM, dependentDetails);
         }
         return violation(context, HibernateRuleSupport.LOW, plainDetails);
@@ -781,7 +807,10 @@ final class TablePerClassInheritanceRule extends AbstractHibernateRule {
             Annotation inheritance = entity.annotation("jakarta.persistence.Inheritance");
             String strategy = entity.annotationValueName(inheritance, "strategy");
             if ("TABLE_PER_CLASS".equals(strategy)) {
-                details.add(entity.name() + " uses InheritanceType.TABLE_PER_CLASS.", HibernateLocations.of(entity));
+                details.add(
+                        entity.name() + " uses InheritanceType.TABLE_PER_CLASS.",
+                        HibernateLocations.of(entity),
+                        HibernateIdentities.of(context, entity));
             }
         }
         return violation(context, details);
@@ -816,7 +845,8 @@ final class NotFoundIgnoreRule extends AbstractHibernateRule {
                 if ("IGNORE".equals(attribute.annotationValueName(notFound, "action"))) {
                     details.add(
                             attribute.description() + " uses @NotFound(action=IGNORE).",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -845,7 +875,8 @@ final class OptionalPersistentAttributeRule extends AbstractHibernateRule {
                 if (attribute.isOptionalAttribute()) {
                     details.add(
                             attribute.description() + " is mapped as java.util.Optional.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -889,7 +920,8 @@ final class OrdinalEnumRule extends AbstractHibernateRule {
                             attribute.description()
                                     + " has no explicit enum storage annotation; review converters and effective"
                                     + " mapping before assuming ORDINAL.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -924,7 +956,8 @@ final class ExplicitOrdinalEnumRule extends AbstractHibernateRule {
                         && "ORDINAL".equals(attribute.annotationValueName(enumerated, "value"))) {
                     details.add(
                             attribute.description() + " explicitly uses EnumType.ORDINAL.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -966,6 +999,8 @@ final class MissingBatchFetchRule extends AbstractHibernateRule {
         }
         Map<String, HibernateEntityModel> entitiesByJavaType =
                 HibernateRuleModelSupport.entitiesByJavaType(context.entities());
+        Map<HibernateAttributeModel, HibernateEntityModel> owners =
+                HibernateRuleModelSupport.attributeOwners(context.entities());
         AdvisorFindings details = new AdvisorFindings();
         for (HibernateAttributeModel attribute : candidates) {
             if (isCoveredByBatchSize(attribute, entitiesByJavaType)) {
@@ -975,7 +1010,8 @@ final class MissingBatchFetchRule extends AbstractHibernateRule {
                     attribute.description()
                             + " can initialize through secondary selects without a global batch-fetch size or"
                             + " applicable @BatchSize.",
-                    HibernateLocations.of(attribute));
+                    HibernateLocations.of(attribute),
+                    HibernateIdentities.of(context, owners.get(attribute), attribute));
         }
         return violation(context, details);
     }
@@ -1057,7 +1093,10 @@ final class LazyLoadNoTransRule extends AbstractHibernateRule {
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.isPropertyTrue(
                 "spring.jpa.properties.hibernate.enable_lazy_load_no_trans", "hibernate.enable_lazy_load_no_trans")) {
-            return violation(context, List.of("hibernate.enable_lazy_load_no_trans=true is enabled."));
+            return settingViolation(
+                    context,
+                    "hibernate.enable_lazy_load_no_trans",
+                    "hibernate.enable_lazy_load_no_trans=true is enabled.");
         }
         return pass();
     }
@@ -1086,7 +1125,10 @@ final class JdbcBatchSizeRule extends AbstractHibernateRule {
         if (batchSize != null && batchSize > 1) {
             return pass();
         }
-        return violation(context, List.of("hibernate.jdbc.batch_size is not configured with a value greater than 1."));
+        return settingViolation(
+                context,
+                "hibernate.jdbc.batch_size",
+                "hibernate.jdbc.batch_size is not configured with a value greater than 1.");
     }
 }
 
@@ -1112,20 +1154,34 @@ final class OrderedBatchingRule extends AbstractHibernateRule {
         if (batchSize == null || batchSize <= 1) {
             return skipped("JDBC batching is not configured.");
         }
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         if (context.observed()) {
             Boolean inserts = context.factorySettings().orderInserts();
             Boolean updates = context.factorySettings().orderUpdates();
             if (inserts == null || updates == null) context.missingEvidence(HibernateEvidenceGap.FACTORY_SETTING);
-            if (Boolean.FALSE.equals(inserts)) details.add("The factory insert-ordering default is disabled.");
-            if (Boolean.FALSE.equals(updates)) details.add("The factory update-ordering default is disabled.");
+            if (Boolean.FALSE.equals(inserts))
+                details.add(
+                        "The factory insert-ordering default is disabled.",
+                        null,
+                        HibernateIdentities.setting(context, "hibernate.order_inserts"));
+            if (Boolean.FALSE.equals(updates))
+                details.add(
+                        "The factory update-ordering default is disabled.",
+                        null,
+                        HibernateIdentities.setting(context, "hibernate.order_updates"));
             return violation(context, details);
         }
         if (!context.isPropertyTrue("spring.jpa.properties.hibernate.order_inserts", "hibernate.order_inserts")) {
-            details.add("hibernate.order_inserts is not enabled.");
+            details.add(
+                    "hibernate.order_inserts is not enabled.",
+                    null,
+                    HibernateIdentities.setting(context, "hibernate.order_inserts"));
         }
         if (!context.isPropertyTrue("spring.jpa.properties.hibernate.order_updates", "hibernate.order_updates")) {
-            details.add("hibernate.order_updates is not enabled.");
+            details.add(
+                    "hibernate.order_updates is not enabled.",
+                    null,
+                    HibernateIdentities.setting(context, "hibernate.order_updates"));
         }
         return violation(context, details);
     }
@@ -1156,7 +1212,8 @@ final class SlowQueryLogRule extends AbstractHibernateRule {
         if (threshold != null && threshold > 0) {
             return pass();
         }
-        return violation(context, List.of("No positive Hibernate slow-query threshold was detected."));
+        return settingViolation(
+                context, "hibernate.log_slow_query", "No positive Hibernate slow-query threshold was detected.");
     }
 }
 
@@ -1180,7 +1237,8 @@ final class HibernateStatisticsRule extends AbstractHibernateRule {
                 "spring.jpa.properties.hibernate.generate_statistics", "hibernate.generate_statistics")) {
             return pass();
         }
-        return violation(context, List.of("hibernate.generate_statistics is not enabled."));
+        return settingViolation(
+                context, "hibernate.generate_statistics", "hibernate.generate_statistics is not enabled.");
     }
 }
 
@@ -1264,11 +1322,12 @@ final class ProviderDisablesAutocommitRule extends AbstractHibernateRule {
             PoolAutoCommitEvidence evidence = PoolAutoCommitEvidence.of(context);
             if (evidence.skipped()) return skipped(evidence.skipReason());
             if (!evidence.providerDisablesAutoCommit() && !evidence.poolAutoCommit()) {
-                return violation(
+                return settingViolation(
                         context,
-                        List.of(evidence.poolDescription() + " disables auto-commit (autoCommit=false) but"
+                        "hibernate.connection.provider_disables_autocommit",
+                        evidence.poolDescription() + " disables auto-commit (autoCommit=false) but"
                                 + " hibernate.connection.provider_disables_autocommit is off, so Hibernate acquires"
-                                + " connections eagerly."));
+                                + " connections eagerly.");
             }
             return pass();
         }
@@ -1288,11 +1347,12 @@ final class ProviderDisablesAutocommitRule extends AbstractHibernateRule {
         }
         Boolean hikariAutoCommit = context.booleanProperty("spring.datasource.hikari.auto-commit");
         if (Boolean.FALSE.equals(hikariAutoCommit)) {
-            return violation(
+            return settingViolation(
                     context,
-                    List.of("spring.datasource.hikari.auto-commit=false but"
+                    "hibernate.connection.provider_disables_autocommit",
+                    "spring.datasource.hikari.auto-commit=false but"
                             + " hibernate.connection.provider_disables_autocommit is not enabled, so Hibernate"
-                            + " acquires the JDBC connection eagerly on transaction start."));
+                            + " acquires the JDBC connection eagerly on transaction start.");
         }
         return skipped("Auto-commit handling could not be confirmed; set"
                 + " hibernate.connection.provider_disables_autocommit=true when the connection pool disables"
@@ -1329,11 +1389,12 @@ final class ProviderAutoCommitContradictionRule extends AbstractHibernateRule {
         PoolAutoCommitEvidence evidence = PoolAutoCommitEvidence.of(context);
         if (evidence.skipped()) return skipped(evidence.skipReason());
         if (evidence.providerDisablesAutoCommit() && evidence.poolAutoCommit()) {
-            return violation(
+            return settingViolation(
                     context,
-                    List.of("hibernate.connection.provider_disables_autocommit=true, but "
+                    "hibernate.connection.provider_disables_autocommit",
+                    "hibernate.connection.provider_disables_autocommit=true, but "
                             + evidence.poolDescription() + " hands out auto-commit connections (autoCommit=true), so"
-                            + " transactions are not atomic."));
+                            + " transactions are not atomic.");
         }
         return pass();
     }
@@ -1387,7 +1448,8 @@ final class InClausePaddingRule extends AbstractHibernateRule {
             if (bound && hasInPredicate(query)) {
                 details.add(
                         method.description() + " has a collection parameter in an IN predicate.",
-                        HibernateLocations.of(method));
+                        HibernateLocations.of(method),
+                        HibernateIdentities.of(context, method));
             }
         }
         return violation(context, details);
@@ -1426,9 +1488,10 @@ final class QueryCacheRegionFactoryRule extends AbstractHibernateRule {
                 return skipped("Effective query-cache region support is unknown.");
             }
             return context.factorySettings().regionFactory() == HibernateFactorySettings.RegionFactory.NONE
-                    ? violation(
+                    ? settingViolation(
                             context,
-                            List.of("Query caching is enabled but the selected region factory provides no caching."))
+                            "hibernate.cache.use_query_cache",
+                            "Query caching is enabled but the selected region factory provides no caching.")
                     : pass();
         }
         if (!context.isPropertyTrue(
@@ -1441,8 +1504,10 @@ final class QueryCacheRegionFactoryRule extends AbstractHibernateRule {
                 "spring.jpa.properties.hibernate.cache.use_second_level_cache",
                 "hibernate.cache.use_second_level_cache");
         if (regionFactory == null || secondLevelCacheDisabled) {
-            return violation(
-                    context, List.of("Query cache is enabled without an effective second-level cache region factory."));
+            return settingViolation(
+                    context,
+                    "hibernate.cache.use_query_cache",
+                    "Query cache is enabled without an effective second-level cache region factory.");
         }
         return pass();
     }
@@ -1543,9 +1608,10 @@ final class RiskyDdlAutoRule extends AbstractHibernateRule {
         // Highest-risk profile wins: a production-like profile is dangerous even if a test/dev profile is also active.
         if (context.isProductionProfileActive()) {
             String severity = creates ? HibernateRuleSupport.CRITICAL : HibernateRuleSupport.HIGH;
-            return violation(
+            return settingViolation(
                     context,
                     severity,
+                    "hibernate.hbm2ddl.auto",
                     "ddl-auto is set to " + ddlAuto
                             + " while a production-like profile is active, so application startup can "
                             + (creates ? "drop schema objects" : "change schema objects without a guaranteed drop")
@@ -1555,16 +1621,18 @@ final class RiskyDdlAutoRule extends AbstractHibernateRule {
             return pass();
         }
         if (isDisposableProfile(profiles)) {
-            return violation(
+            return settingViolation(
                     context,
                     HibernateRuleSupport.INFO,
+                    "hibernate.hbm2ddl.auto",
                     "ddl-auto is set to " + ddlAuto
                             + " under a dev/local profile; this is fine for a disposable database but must not reach"
                             + " shared or production environments.");
         }
-        return violation(
+        return settingViolation(
                 context,
                 HibernateRuleSupport.MEDIUM,
+                "hibernate.hbm2ddl.auto",
                 "ddl-auto is set to " + ddlAuto
                         + " with no profile pinning it to a disposable database; use versioned migrations for any"
                         + " shared database.");
@@ -1619,7 +1687,8 @@ final class EqualsHashCodePairRule extends AbstractHibernateRule {
                 details.add(
                         entity.name() + " overrides "
                                 + (entity.overridesEquals() ? "equals but not hashCode." : "hashCode but not equals."),
-                        HibernateLocations.of(entity));
+                        HibernateLocations.of(entity),
+                        HibernateIdentities.of(context, entity));
             }
         }
         return violation(context, details);
@@ -1653,7 +1722,8 @@ final class OptimisticLockingDynamicUpdateRule extends AbstractHibernateRule {
                     && entity.annotationInHierarchy("org.hibernate.annotations.DynamicUpdate") == null) {
                 details.add(
                         entity.name() + " uses @OptimisticLocking(" + type + ") without @DynamicUpdate.",
-                        HibernateLocations.of(entity));
+                        HibernateLocations.of(entity),
+                        HibernateIdentities.of(context, entity));
             }
         }
         return violation(context, details);
@@ -1695,7 +1765,8 @@ final class LobLazyFetchRule extends AbstractHibernateRule {
                     details.add(
                             attribute.description()
                                     + " is annotated with @Lob but does not declare @Basic(fetch = LAZY).",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -1740,7 +1811,8 @@ final class LazyBasicWithoutEnhancementRule extends AbstractHibernateRule {
                     details.add(
                             attribute.description()
                                     + " declares @Basic(fetch = LAZY), but the entity is not bytecode enhanced.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -1777,7 +1849,8 @@ final class CollectionFetchJoinAnnotationRule extends AbstractHibernateRule {
                 if (fetch != null && "JOIN".equals(attribute.annotationValueName(fetch, "value"))) {
                     details.add(
                             attribute.description() + " is a collection mapped with @Fetch(FetchMode.JOIN).",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -1816,7 +1889,8 @@ final class SubselectCollectionFetchRule extends AbstractHibernateRule {
                             attribute.description()
                                     + " uses @Fetch(FetchMode.SUBSELECT); verify that owner and collection"
                                     + " cardinalities stay bounded.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -1869,7 +1943,8 @@ final class GeneratedValueWithoutStrategyRule extends AbstractHibernateRule {
                 if (strategy == null || "AUTO".equals(strategy)) {
                     details.add(
                             attribute.description() + " uses @GeneratedValue without an explicit strategy.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -1908,7 +1983,8 @@ final class UuidIdentifierGeneratorRule extends AbstractHibernateRule {
                             attribute.description()
                                     + " uses a supported generated UUID without a declared Hibernate generator style;"
                                     + " effective style and index locality are not observed.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -1945,7 +2021,8 @@ final class ElementCollectionListOrderRule extends AbstractHibernateRule {
                                     + (attribute.hasOrderBy()
                                             ? " (its @OrderBy only affects read-time ordering and does not fix this)."
                                             : "."),
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -1978,7 +2055,8 @@ final class FinalEntityRule extends AbstractHibernateRule {
                         entity.name()
                                 + " is declared final and is not proven bytecode-enhanced, so Hibernate cannot create"
                                 + " subclass proxies for lazy to-one associations.",
-                        HibernateLocations.of(entity));
+                        HibernateLocations.of(entity),
+                        HibernateIdentities.of(context, entity));
             }
         }
         return violation(context, details);
@@ -2017,7 +2095,8 @@ final class StringColumnLengthRule extends AbstractHibernateRule {
                 if (length == null && (columnDefinition == null || columnDefinition.isBlank())) {
                     details.add(
                             attribute.description() + " is a String column without an explicit length.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -2056,7 +2135,8 @@ final class BigDecimalPrecisionRule extends AbstractHibernateRule {
                 if (precision == null || precision == 0 || scale == null) {
                     details.add(
                             attribute.description() + " is a BigDecimal column without explicit precision and scale.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -2090,7 +2170,8 @@ final class LegacyDateTimeRule extends AbstractHibernateRule {
                     details.add(
                             attribute.description() + " uses legacy temporal type "
                                     + attribute.rawType().getName() + "; prefer a java.time type.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -2137,7 +2218,8 @@ final class ManyToOneOptionalRule extends AbstractHibernateRule {
                     details.add(
                             attribute.description()
                                     + " is @ManyToOne with @JoinColumn(nullable=false) but optional=true; set optional=false.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -2181,7 +2263,8 @@ final class PublicPersistentFieldRule extends AbstractHibernateRule {
                         && !isKotlinPropertyBackingField(entity, attribute)) {
                     details.add(
                             attribute.description() + " is exposed as a public field.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -2254,7 +2337,8 @@ final class ModifyingClearAutomaticallyRule extends AbstractHibernateRule {
                             : "";
                     details.add(
                             method.description() + " is @Modifying without clearAutomatically." + flushDetail,
-                            HibernateLocations.of(method));
+                            HibernateLocations.of(method),
+                            HibernateIdentities.of(context, repository, method));
                 }
             }
         }
@@ -2294,7 +2378,8 @@ final class StreamReturningMethodRule extends AbstractHibernateRule {
                         && (!context.observed() || method.evidence().verifiedQueryMethod())) {
                     details.add(
                             method.description() + " returns Stream; confirm callers run it inside a transaction.",
-                            HibernateLocations.of(method));
+                            HibernateLocations.of(method),
+                            HibernateIdentities.of(context, repository, method));
                 }
             }
         }
@@ -2339,7 +2424,8 @@ final class NativePagedQueryCountRule extends AbstractHibernateRule {
                 if (!method.hasCountQuery()) {
                     details.add(
                             method.description() + " is a native paged @Query without countQuery.",
-                            HibernateLocations.of(method));
+                            HibernateLocations.of(method),
+                            HibernateIdentities.of(context, repository, method));
                 }
             }
         }
@@ -2381,7 +2467,8 @@ final class DerivedDeleteByQueryRule extends AbstractHibernateRule {
                     details.add(
                             method.description()
                                     + " is a derived delete query; consider an explicit @Modifying bulk delete.",
-                            HibernateLocations.of(method));
+                            HibernateLocations.of(method),
+                            HibernateIdentities.of(context, repository, method));
                 }
             }
         }
@@ -2451,7 +2538,8 @@ final class BulkUpdateVersionRule extends AbstractHibernateRule {
                 details.add(
                         method.description() + " performs a bulk UPDATE on versioned entity " + entity.name()
                                 + " without advancing its version attribute.",
-                        HibernateLocations.of(method));
+                        HibernateLocations.of(method),
+                        HibernateIdentities.of(context, repository, method));
             }
         }
         return violation(context, details);
@@ -2490,7 +2578,8 @@ final class SqlLoggingInProductionRule extends AbstractHibernateRule {
                                 context.applicationFacts().bindLoggerEnabled(),
                                 HibernateEvidenceGap.APPLICATION_SETTING)
                 : context.isSqlLoggingEnabled()) {
-            return violation(context, List.of("SQL logging is enabled while a production profile is active."));
+            return settingViolation(
+                    context, "hibernate.show_sql", "SQL logging is enabled while a production profile is active.");
         }
         return pass();
     }
@@ -2524,7 +2613,7 @@ final class JdbcTimeZoneRule extends AbstractHibernateRule {
         String value =
                 context.firstProperty("spring.jpa.properties.hibernate.jdbc.time_zone", "hibernate.jdbc.time_zone");
         if (value == null || value.isBlank()) {
-            return violation(context, List.of("hibernate.jdbc.time_zone is not configured."));
+            return settingViolation(context, "hibernate.jdbc.time_zone", "hibernate.jdbc.time_zone is not configured.");
         }
         return pass();
     }
@@ -2569,10 +2658,11 @@ final class HibernateBuiltinPoolRule extends AbstractHibernateRule {
             return skipped("Selected connection provider is unknown; pool_size does not establish activation.");
         }
         if (context.factorySettings().connectionProvider() == HibernateFactorySettings.ConnectionProvider.BUILT_IN)
-            return violation(
+            return settingViolation(
                     context,
-                    List.of("The selected provider is Hibernate's built-in connection pool; use a managed pool for"
-                            + " shared workloads."));
+                    "hibernate.connection.provider_class",
+                    "The selected provider is Hibernate's built-in connection pool; use a managed pool for"
+                            + " shared workloads.");
         return pass();
     }
 }
@@ -2608,7 +2698,8 @@ final class DeferDatasourceInitializationRule extends AbstractHibernateRule {
                 + " until after JPA initialization"
                 + "."
                 + " Verify that this ordering is intentional.";
-        return violation(context, HibernateRuleSupport.INFO, detail);
+        return settingViolation(
+                context, HibernateRuleSupport.INFO, "spring.jpa.defer-datasource-initialization", detail);
     }
 }
 
@@ -2660,7 +2751,8 @@ final class CacheAssociationCoverageRule extends AbstractHibernateRule {
                 if (!target.isJpaCacheable() && !target.hasHibernateCacheAnnotation()) {
                     details.add(
                             attribute.description() + " references uncached entity " + target.name() + ".",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -2703,7 +2795,8 @@ final class ReadOnlyCacheOnWritableEntityRule extends AbstractHibernateRule {
                         entity.name()
                                 + " uses @Cache(usage=READ_ONLY) but appears to be writable (@Version or"
                                 + " @DynamicUpdate present).",
-                        HibernateLocations.of(entity));
+                        HibernateLocations.of(entity),
+                        HibernateIdentities.of(context, entity));
             }
         }
         return violation(context, details);
@@ -2740,7 +2833,8 @@ final class ImmutableEntityCacheStrategyRule extends AbstractHibernateRule {
             if (entity.isImmutable() && usage != null && !"READ_ONLY".equals(usage) && !"NONE".equals(usage)) {
                 details.add(
                         entity.name() + " is @Immutable but uses @Cache(usage=" + usage + ").",
-                        HibernateLocations.of(entity));
+                        HibernateLocations.of(entity),
+                        HibernateIdentities.of(context, entity));
             }
         }
         return violation(context, details);
@@ -2772,9 +2866,10 @@ final class FailOnPaginationOverCollectionFetchRule extends AbstractHibernateRul
                 "hibernate.query.fail_on_pagination_over_collection_fetch")) {
             return pass();
         }
-        return violation(
+        return settingViolation(
                 context,
                 HibernateRuleSupport.INFO,
+                "hibernate.query.fail_on_pagination_over_collection_fetch",
                 "The factory pagination guard is disabled, so a limited query that fetch-joins a collection and"
                         + " cannot be paginated in SQL is limited in memory with a warning instead of failing fast."
                         + " HIB-FETCH-003 reports the affected repository queries it can resolve.");
@@ -2803,9 +2898,10 @@ final class FormatSqlInProductionRule extends AbstractHibernateRule {
         }
         if (context.isPropertyTrue("spring.jpa.properties.hibernate.format_sql", "hibernate.format_sql")
                 && context.isStatementLoggingEnabled()) {
-            return violation(
+            return settingViolation(
                     context,
-                    List.of("hibernate.format_sql and SQL logging are enabled while a production profile is active."));
+                    "hibernate.format_sql",
+                    "hibernate.format_sql and SQL logging are enabled while a production profile is active.");
         }
         return pass();
     }
@@ -2840,9 +2936,10 @@ final class BindParameterLoggingInProductionRule extends AbstractHibernateRule {
             return pass();
         }
         if (context.isBindParameterLoggingEnabled()) {
-            return violation(
+            return settingViolation(
                     context,
-                    List.of("Bind-parameter logging is enabled at TRACE while a production profile is active."));
+                    "hibernate.type.descriptor.sql.BasicBinder",
+                    "Bind-parameter logging is enabled at TRACE while a production profile is active.");
         }
         return pass();
     }
@@ -2867,10 +2964,11 @@ final class SqlCommentsRule extends AbstractHibernateRule {
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.isPropertyTrue("spring.jpa.properties.hibernate.use_sql_comments", "hibernate.use_sql_comments")) {
-            return violation(
+            return settingViolation(
                     context,
-                    List.of("hibernate.use_sql_comments is enabled; confirm that statement-cache efficiency and"
-                            + " network overhead are acceptable."));
+                    "hibernate.use_sql_comments",
+                    "hibernate.use_sql_comments is enabled; confirm that statement-cache efficiency and"
+                            + " network overhead are acceptable.");
         }
         return pass();
     }
@@ -2901,10 +2999,11 @@ final class OracleJdbcFetchSizeRule extends AbstractHibernateRule {
             return pass();
         }
         String configured = fetchSize == null || fetchSize <= 0 ? "not configured" : "set to " + fetchSize;
-        return violation(
+        return settingViolation(
                 context,
-                List.of("Oracle was detected and hibernate.jdbc.fetch_size is " + configured
-                        + "; the Oracle JDBC driver defaults to fetching 10 rows per roundtrip."));
+                "hibernate.jdbc.fetch_size",
+                "Oracle was detected and hibernate.jdbc.fetch_size is " + configured
+                        + "; the Oracle JDBC driver defaults to fetching 10 rows per roundtrip.");
     }
 
     private boolean isOracle(HibernateContext context) {
@@ -2974,7 +3073,8 @@ final class NonOwningOneToOneEnhancementRule extends AbstractHibernateRule {
                     details.add(
                             attribute.description()
                                     + " is a non-owning @OneToOne but bytecode enhancement is disabled.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -3024,7 +3124,8 @@ final class PrimitiveIdentifierOrVersionRule extends AbstractHibernateRule {
                             attribute.description() + " uses primitive "
                                     + attribute.rawType().getName()
                                     + "; standard Spring Data JPA newness falls back to identifier inspection.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -3102,7 +3203,8 @@ final class AssignedIdPersistableRule extends AbstractHibernateRule {
                         entity.name()
                                 + " has an assigned identifier and no nullable @Version; standard Spring Data save"
                                 + " uses identifier newness unless Persistable is implemented.",
-                        HibernateLocations.of(entity));
+                        HibernateLocations.of(entity),
+                        HibernateIdentities.of(context, entity));
             }
         }
         return violation(context, details);
@@ -3159,7 +3261,8 @@ final class EagerToOneFetchJoinRule extends AbstractHibernateRule {
                     details.add(
                             method.description() + " selects whole entities but does not JOIN FETCH eager to-one "
                                     + String.join(", ", uncovered) + "; secondary loads are possible, not measured.",
-                            HibernateLocations.of(method));
+                            HibernateLocations.of(method),
+                            HibernateIdentities.of(context, repository, method));
                 }
             }
         }
@@ -3236,7 +3339,8 @@ final class EntityProjectionQueryRule extends AbstractHibernateRule {
                             method.description()
                                     + " returns whole entities from a paged/streamed @Query; consider a DTO/interface"
                                     + " projection.",
-                            HibernateLocations.of(method));
+                            HibernateLocations.of(method),
+                            HibernateIdentities.of(context, repository, method));
                 }
             }
         }
@@ -3280,7 +3384,8 @@ final class MissingVersionRule extends AbstractHibernateRule {
                         entity.name()
                                 + " has mutable persistent state but no @Version field, so concurrent updates can"
                                 + " silently overwrite one another.",
-                        HibernateLocations.of(entity));
+                        HibernateLocations.of(entity),
+                        HibernateIdentities.of(context, entity));
             }
         }
         return violation(context, details);
@@ -3336,7 +3441,8 @@ final class NaturalIdCandidateRule extends AbstractHibernateRule {
                                     + " is a unique column with no @NaturalId attribute on this entity; if it is a"
                                     + " business key (email, ISBN, order number, ...), consider"
                                     + " org.hibernate.annotations.NaturalId.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
             Set<String> tableUniqueColumns = tableUniqueConstraintColumns(entity.javaType());
@@ -3346,7 +3452,8 @@ final class NaturalIdCandidateRule extends AbstractHibernateRule {
                                 + String.join(", ", tableUniqueColumns)
                                 + " with no @NaturalId attribute; if this is a business key, consider"
                                 + " org.hibernate.annotations.NaturalId.",
-                        HibernateLocations.of(entity));
+                        HibernateLocations.of(entity),
+                        HibernateIdentities.of(context, entity));
             }
         }
         return violation(context, details);
@@ -3429,7 +3536,8 @@ final class IdentityDisablesBatchingRule extends AbstractHibernateRule {
                                     + " uses GenerationType.IDENTITY, so Hibernate cannot batch its inserts despite"
                                     + " hibernate.jdbc.batch_size="
                                     + batchSize + ".",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -3459,27 +3567,36 @@ final class CompositeIdentifierContractRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         Set<Class<?>> checked = new HashSet<>();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : entity.attributes()) {
                 if (attribute.annotation(EMBEDDED_ID) != null) {
                     context.evidence().markApplicable(true);
                     checkCompositeIdClass(
-                            attribute.rawType(), attribute.description() + " (@EmbeddedId)", checked, details);
+                            attribute.rawType(),
+                            attribute.description() + " (@EmbeddedId)",
+                            HibernateIdentities.idClass(context, attribute.rawType()),
+                            checked,
+                            details);
                 }
             }
             Class<?> idClass = idClassValue(entity.annotationInHierarchy(ID_CLASS));
             if (idClass != null) {
                 context.evidence().markApplicable(true);
-                checkCompositeIdClass(idClass, entity.name() + " (@IdClass)", checked, details);
+                checkCompositeIdClass(
+                        idClass,
+                        entity.name() + " (@IdClass)",
+                        HibernateIdentities.idClass(context, idClass),
+                        checked,
+                        details);
             }
         }
         return violation(context, details);
     }
 
     private static void checkCompositeIdClass(
-            Class<?> idClass, String description, Set<Class<?>> checked, List<String> details) {
+            Class<?> idClass, String description, String identity, Set<Class<?>> checked, AdvisorFindings details) {
         if (idClass == null || !checked.add(idClass)) {
             return;
         }
@@ -3497,7 +3614,9 @@ final class CompositeIdentifierContractRule extends AbstractHibernateRule {
             // Simple name only: the entity description already gives full package context, and this keeps
             // the (truncation-bounded) detail message well within HibernateRuleSupport.detail()'s budget.
             details.add(
-                    description + ": id class " + idClass.getSimpleName() + " is " + String.join(", ", problems) + ".");
+                    description + ": id class " + idClass.getSimpleName() + " is " + String.join(", ", problems) + ".",
+                    null,
+                    identity);
         }
     }
 
@@ -3569,7 +3688,8 @@ final class UnidirectionalOneToManyJoinColumnRule extends AbstractHibernateRule 
                         attribute.description()
                                 + " is a writable unidirectional @OneToMany with join columns; inspect possible extra"
                                 + " UPDATE statements for the effective mapping.",
-                        HibernateLocations.of(attribute));
+                        HibernateLocations.of(attribute),
+                        HibernateIdentities.of(context, entity, attribute));
             }
         }
         return violation(context, details);
@@ -3622,8 +3742,8 @@ final class MultipleCollectionJoinFetchRule extends AbstractHibernateRule {
         if (context.repositories().isEmpty()) {
             return skipped("No repository metadata was detected.");
         }
-        List<String> bagDetails = new ArrayList<>();
-        List<String> collectionDetails = new ArrayList<>();
+        AdvisorFindings bagDetails = new AdvisorFindings();
+        AdvisorFindings collectionDetails = new AdvisorFindings();
         for (HibernateRepositoryModel repository : context.repositories()) {
             for (HibernateRepositoryMethodModel method : repository.methods()) {
                 if (method.nativeQuery() || method.query() == null) {
@@ -3657,18 +3777,27 @@ final class MultipleCollectionJoinFetchRule extends AbstractHibernateRule {
                 }
                 String joined = String.join(", ", fetchedCollections);
                 if (bagCount >= 2) {
-                    bagDetails.add(method.description() + " JOIN FETCHes multiple bag collections (" + joined
-                            + "); effective bag classification is unobserved, and parallel fetching may"
-                            + " multiply rows.");
+                    bagDetails.add(
+                            method.description() + " JOIN FETCHes multiple bag collections (" + joined
+                                    + "); effective bag classification is unobserved, and parallel fetching may"
+                                    + " multiply rows.",
+                            null,
+                            HibernateIdentities.of(context, repository, method));
                 } else {
-                    collectionDetails.add(method.description() + " JOIN FETCHes multiple collections (" + joined
-                            + "), which may multiply result rows.");
+                    collectionDetails.add(
+                            method.description() + " JOIN FETCHes multiple collections (" + joined
+                                    + "), which may multiply result rows.",
+                            null,
+                            HibernateIdentities.of(context, repository, method));
                 }
             }
         }
         if (!bagDetails.isEmpty()) {
-            List<String> all = new ArrayList<>(bagDetails);
-            all.addAll(collectionDetails);
+            AdvisorFindings all = new AdvisorFindings();
+            bagDetails.list().forEach(finding -> all.add(finding.text(), finding.location(), finding.identity()));
+            collectionDetails
+                    .list()
+                    .forEach(finding -> all.add(finding.text(), finding.location(), finding.identity()));
             return violation(context, all);
         }
         return violation(context, collectionDetails);
@@ -3705,7 +3834,8 @@ final class TemporalVersionRule extends AbstractHibernateRule {
                                     + attribute.rawType().getSimpleName()
                                     + " @Version; timestamps are a less reliable optimistic lock than a numeric"
                                     + " version.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -3767,7 +3897,8 @@ final class EmbeddableSetEqualityRule extends AbstractHibernateRule {
                                     + ", which does not override "
                                     + (equals ? "hashCode" : hashCode ? "equals" : "equals and hashCode")
                                     + "; Hibernate rewrites the whole collection table when the owner is flushed.",
-                            HibernateLocations.of(attribute));
+                            HibernateLocations.of(attribute),
+                            HibernateIdentities.of(context, entity, attribute));
                 }
             }
         }
@@ -3852,6 +3983,8 @@ final class PostgresLobRule extends AbstractHibernateRule {
         if (!context.required(context.factorySettings().postgresql(), HibernateEvidenceGap.FACTORY_SETTING)) {
             return skipped("The persistence unit does not use PostgreSQL.");
         }
+        Map<HibernateAttributeModel, HibernateEntityModel> owners =
+                HibernateRuleModelSupport.attributeOwners(context.entities());
         AdvisorFindings details = new AdvisorFindings();
         for (HibernateAttributeModel attribute : candidates) {
             Boolean lob = bindsAsLob(attribute);
@@ -3861,7 +3994,8 @@ final class PostgresLobRule extends AbstractHibernateRule {
                 details.add(
                         attribute.description() + " is @Lob on PostgreSQL, so Hibernate stores it as an oid large"
                                 + " object instead of text or bytea.",
-                        HibernateLocations.of(attribute));
+                        HibernateLocations.of(attribute),
+                        HibernateIdentities.of(context, owners.get(attribute), attribute));
             }
         }
         return violation(context, details);

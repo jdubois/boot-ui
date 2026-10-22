@@ -70,7 +70,7 @@ offers only the JFR action.
 
 ### The observations
 
-Twenty-five observations examine the journal's retained completed work and garbage collections, plus Code Inventory's
+Twenty-six observations examine the journal's retained completed work and garbage collections, plus Code Inventory's
 changed-method evidence. The table says what each counts; the drawers below hold the qualifications.
 
 | Observation                             | What it counts                                                                            |
@@ -85,6 +85,7 @@ changed-method evidence. The table says what each counts; the drawers below hold
 | `anonymous-data-reach`                  | Anonymous successful requests that wrote a table                                          |
 | `anonymous-success-on-restricted-route` | 2xx answers to anonymous requests on a restricted route                                   |
 | `split-transaction-writes`              | Requests whose writes committed in two or more transactions                               |
+| `unbatched-write-loop`                  | Requests that ran one write statement ten times or more, each without a JDBC batch       |
 | `transaction-across-remote-call`        | Transactions still open during a slow REST client or AI call                              |
 | `lazy-sql-after-handler`                | SQL run while the response was written, outside every transaction                         |
 | `event-loop-blocking`                   | JDBC statements started on an event-loop thread                                           |
@@ -124,6 +125,7 @@ changed-method evidence. The table says what each counts; the drawers below hold
 - `connections-per-request`: requests that held two or more connections of one data source at the same time, with the known pool maximum and a hold-and-wait concurrency estimate: floor((pool − 1) ÷ (held − 1)) + 1. The estimate assumes nested hold-and-wait checkouts rather than parallel independent work; other pool users can exhaust the pool at lower concurrency. Neither overlapping connections nor the estimate proves a deadlock.
 - `safe-method-dml`: GET or HEAD requests with executed writes, or on Quarkus with unverified Hibernate write preparations. These are separate findings, worded as questions rather than proof that a prepared statement ran.
 - `split-transaction-writes`: requests whose writes committed in two or more independent transactions or autocommit statements.
+- `unbatched-write-loop`: requests that ran one write shape (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, or `REPLACE`, literals removed) ten times or more, each execution submitting one parameter set, so each paid its own round trip. A route is reported without reservation from two such requests; one is insufficient. Each row names the request, the shape, its executions, their total time, and the application call site. The journal records each execution's batch size: `1` for an ordinary one, the number of parameter sets for `executeBatch` or `executeLargeBatch`, and unknown for anything else, which is never counted as unbatched. A statement sent in a batch, a failed one, a SELECT loop, and a preparation are not counted; the check's reason counts the executed writes whose batch size is unknown and the prepared writes it left out. When transactions are recorded and the statements can be placed in them, the executions must share one transaction, so writes that each committed alone, or that were split across transactions, are not one loop; the writes outside every recorded transaction, which each autocommitted, are counted together per request, and the row says so. Without transaction evidence, executions are counted per request and the row says why. On Quarkus, Hibernate records statements when they are prepared, not executed, so a Hibernate write loop is never counted there and the check reports no eligible work unless plain JDBC writes ran; Quarkus records no transactions, so its loops are counted per request. Whether Hibernate would batch these writes is what `HIB-CONFIG-004`, `HIB-CONFIG-005`, and `HIB-ID-006` report.
 - `transaction-across-remote-call`: transactions still open when a timed REST client or AI call starts, with the connection they held. A REST call nested inside a measured AI call counts once. A method is reported once one of its calls took 20 ms or more, and its median and slowest call are named; a method whose calls were all faster is not reported, and the check's reason counts it.
 - `lazy-sql-after-handler`: SQL run while the response was written, outside every transaction (open session in view). When the statement's frames show a template engine rendering the view, such as Thymeleaf calling a Spring `Formatter`, it says the view ran the query, advises loading that data in the handler into the model, and names the application frame the view called as the call site. A request whose statements or transactions have no monotonic time is counted apart, as a limitation and in the check's reason.
 - `event-loop-blocking`: JDBC statements started on an event-loop thread.
@@ -155,7 +157,7 @@ list the same rows:
 
 - **Listed:** `errors-behind-2xx`, `changed-code-not-executed`, `safe-method-dml`, `transaction-across-remote-call`, `after-commit-writes`, `transactional-listener-skipped`, `proxy-bypass`, `event-loop-blocking`, `anonymous-success-on-restricted-route`, `orm-auto-flush`, `large-persistence-context`, `work-after-response`.
 - **Not listed; the named panel shows the same evidence and links to its rows:** `route-time-breakdown` (a request's **Why this route is slow** in Live Activity), `exception-hotspots` (Exceptions), `connections-per-request` (Database Connection Pools), `ai-usage-by-route` (AI).
-- **Not listed; reached with Show all routes, a search, or a query naming it:** `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `readonly-candidate-transaction`, `framework-warnings-by-route`, `anonymous-data-reach`, `connection-reacquisition`.
+- **Not listed; reached with Show all routes, a search, or a query naming it:** `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `unbatched-write-loop`, `readonly-candidate-transaction`, `framework-warnings-by-route`, `anonymous-data-reach`, `connection-reacquisition`.
 - **Not listed; reached from the Memory panel:** `gc-inflated-latency`, `heap-growth-after-gc`.
 
 The observations of the BootUI agent's own panels, such as Side Effects, are shown there rather than in this list. When

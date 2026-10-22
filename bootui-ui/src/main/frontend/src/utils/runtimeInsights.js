@@ -19,6 +19,7 @@ export const THEMES = [
     kinds: [
       'repeated-selects',
       'safe-method-dml',
+      'unbatched-write-loop',
       'lazy-sql-after-handler',
       'orm-auto-flush',
       'large-persistence-context'
