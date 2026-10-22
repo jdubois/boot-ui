@@ -29,4 +29,9 @@ public class SampleTag {
     public String getLabel() {
         return label;
     }
+
+    /** Changes the label of a managed tag, so Hibernate finds it dirty at the next flush. */
+    public void relabel(String label) {
+        this.label = label;
+    }
 }

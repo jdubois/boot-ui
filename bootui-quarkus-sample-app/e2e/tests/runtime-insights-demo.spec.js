@@ -15,6 +15,13 @@ test.describe('Runtime Insights demo', () => {
       return response.status()
     })
 
+    // Quarkus records no transactions, so a read-write transaction that only reads cannot be told from any other: the
+    // check says so, with its reason, rather than staying silent or reporting nothing found.
+    const report = await (await page.request.get('/bootui/api/runtime-insights')).json()
+    const readOnlyCandidates = report.checks.find((check) => check.kind === 'readonly-candidate-transaction')
+    expect(readOnlyCandidates.status).toBe('NOT_APPLICABLE')
+    expect(readOnlyCandidates.reason).toContain('Quarkus')
+
     await openView('runtime-insights', 'Runtime Insights')
     // Each row names its check above its route or subject.
     const kind = (title) => page.locator('.insight-row').filter({has: page.getByText(title, {exact: true})})

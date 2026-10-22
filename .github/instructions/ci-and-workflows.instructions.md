@@ -42,12 +42,15 @@ applyTo: ".github/workflows/**,.github/scripts/**,.github/dependabot.yml,Dockerf
   (`aether.transport.http.*`, read as system properties, since `mvnw` ignores `MAVEN_ARGS`): only 429 and 5xx answers
   are retried, never a 404 or a timeout, and a stalled transfer fails after 120 s instead of hanging. A step that sets
   its own `MAVEN_OPTS` should append to it. `.mvn/maven.config` stays git-ignored for per-worktree overrides. The
-  agent-attached legs, `agent-overhead`,
-  and the JDK lanes run on every push to `main` and `v2`, every pull request into `main`, and the nightly schedule; a
-  pull request into `v2` runs them only when it changes a path listed in `.github/scripts/agent-changes.sh` or carries
-  the `agent` label (otherwise the agent legs pass without starting anything). Keep that path list in step with new
-  agent-backed code, and list the files the agent legs depend on in `.github/scripts/test_agent_changes.py`, which
-  `build.yml` runs. `jdk-compatibility.yml` covers
+  agent-attached legs and `agent-integration-tests` run on pushes and pull requests into either `main` or `v2` only
+  when an agent-related path in `.github/scripts/agent-changes.sh` changes. Overhead uses a narrower list: the agent
+  and bridge, engine/adapter agent runtime, runtime journal, benchmark fixtures and build configuration. Its costlier
+  `extras` run only on overhead-related pushes. Manual runs and the `agent` label force all agent legs; the nightly
+  JDK workflow also runs its agent checks unconditionally. Push detection compares the whole before/after range, with
+  both commits available; pull request detection includes both names of renamed files. Keep the path lists and
+  `.github/scripts/test_agent_changes.py` in sync. The non-agent `ThreadFactoryExecutableJarIT` runs in the main
+  build job after packaging, independently of the agent gate. `jdk-compatibility.yml` keeps general engine/adapter
+  checks on all pushes and pull requests into `main` (agent-related pull requests only into `v2`) and covers
   Java 21 and 25 with a focused build, the BootUI agent's forked-JVM tests, the Spring sample's agent integration
   tests, and the whole Spring MVC browser suite with the agent attached (`agent-e2e`), plus a non-blocking Java 27 early-warning lane that stays `continue-on-error` until Spring Boot and Quarkus
   document support for it. Keep new checks on the baseline workflow unless they are genuinely JDK-specific.

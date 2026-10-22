@@ -25,6 +25,7 @@ import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.reactive.AbstractReactiveTransactionManager;
 import org.springframework.transaction.reactive.GenericReactiveTransaction;
 import org.springframework.transaction.reactive.TransactionalOperator;
+import org.springframework.transaction.support.DefaultTransactionStatus;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
@@ -336,6 +337,34 @@ class BootUiTransactionExecutionListenerTests {
 
         assertThat(recorder.recent()).isEmpty();
     }
+
+    @Test
+    void aJtaTransactionHasNoHibernateWorkSinceItMayResumeOnAnotherThread() {
+        TransactionRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+        BootUiTransactionExecutionListener listener = new BootUiTransactionExecutionListener(recorder);
+
+        TransactionExecution local = execution("Tags.local", false);
+        listener.afterBegin(local, null);
+        listener.afterCommit(local, null);
+        DefaultTransactionStatus jta = mock(DefaultTransactionStatus.class);
+        when(jta.getTransactionName()).thenReturn("Tags.jta");
+        when(jta.getTransaction()).thenReturn(new JtaTransactionObject());
+        listener.afterBegin(jta, null);
+        listener.afterCommit(jta, null);
+        TransactionExecution reactive = reactive("Tags.reactive");
+        listener.afterBegin(reactive, null);
+        listener.afterCommit(reactive, null);
+
+        assertThat(published)
+                .extracting(event -> (TransactionPayload) event.payload())
+                .extracting(TransactionPayload::method, TransactionPayload::ormStatements)
+                .containsExactly(tuple("Tags.local", 0L), tuple("Tags.jta", -1L), tuple("Tags.reactive", -1L));
+    }
+
+    /** Named as Spring's JTA transaction object, which the listener recognizes by name. */
+    private static final class JtaTransactionObject {}
 
     private static TransactionRecorder recorder() {
         return new TransactionRecorder(true, true, 10, 100, 100, null);

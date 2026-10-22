@@ -63,6 +63,7 @@ class ObservationHonestyHarnessTests {
             LazySqlAfterHandler.KIND, Set.of(InsightsStack.SPRING_WEBFLUX, InsightsStack.QUARKUS),
             TransactionAcrossRemoteCall.KIND, Set.of(InsightsStack.QUARKUS),
             SplitTransactionWrites.KIND, Set.of(InsightsStack.QUARKUS),
+            ReadOnlyCandidateTransaction.KIND, Set.of(InsightsStack.QUARKUS),
             ProxyBypass.KIND, Set.of(InsightsStack.QUARKUS),
             TransactionalListenerSkipped.KIND, Set.of(InsightsStack.QUARKUS),
             AfterCommitWrites.KIND, Set.of(InsightsStack.QUARKUS));
