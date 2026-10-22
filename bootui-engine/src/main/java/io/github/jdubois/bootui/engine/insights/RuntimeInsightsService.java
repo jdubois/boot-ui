@@ -453,6 +453,7 @@ public final class RuntimeInsightsService {
                 new AfterCommitWrites(),
                 new OrmAutoFlush(),
                 new LargePersistenceContext(),
+                new SlowFlush(),
                 new ConnectionReacquisition(),
                 new ReadOnlyCandidateTransaction(),
                 new PagedWithoutOrder(),
