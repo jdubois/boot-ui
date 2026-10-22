@@ -1102,6 +1102,7 @@
     'lazy-sql-after-handler',
     'exception-hotspots',
     'connections-per-request',
+    'connection-reacquisition',
     'split-transaction-writes',
     'readonly-candidate-transaction',
     'framework-warnings-by-route',
@@ -1218,6 +1219,16 @@
         ['GET', '/api/insights/tags/export-labels', 3]
       ],
       expect: [['large-persistence-context', 'Large persistence contexts', 'GET /api/insights/tags/export']]
+    },
+    {
+      key: 'connection-reacquisition',
+      label: 'Connection re-acquired',
+      text: 'Reads the tags three times in one open session, each read in a transaction of its own, so the session borrows a connection each time; then the same reads in one transaction.',
+      steps: [
+        ['GET', '/api/insights/tags/reacquire', 3],
+        ['GET', '/api/insights/tags/reacquire-one-transaction', 3]
+      ],
+      expect: [['connection-reacquisition', 'Connections re-acquired in a session', 'GET /api/insights/tags/reacquire']]
     },
     {
       key: 'readonly-candidate-transaction',

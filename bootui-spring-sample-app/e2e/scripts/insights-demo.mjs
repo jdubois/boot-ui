@@ -34,6 +34,8 @@ const STEPS = {
     ['POST', '/api/insights/tags/read-then-write', 3],
     ['GET', '/api/insights/tags/export', 3],
     ['GET', '/api/insights/tags/export-labels', 3],
+    ['GET', '/api/insights/tags/reacquire', 3],
+    ['GET', '/api/insights/tags/reacquire-one-transaction', 3],
     ['GET', '/api/insights/tags/summary', 3],
     ['POST', '/api/insights/tags/summary-then-relabel', 3],
     ['POST', '/api/insights/tags/summary-then-jdbc-write', 3],

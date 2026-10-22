@@ -24,6 +24,7 @@ const UNLISTED = [
   'eager-repeated-selects',
   'lazy-sql-after-handler',
   'connections-per-request',
+  'connection-reacquisition',
   'readonly-candidate-transaction',
   'anonymous-data-reach',
   'framework-warnings-by-route',
@@ -75,7 +76,7 @@ test.describe('Runtime Insights buttons on the sample home page', () => {
     }
 
     // A local model's answers are not timed here, so AI usage is not part of the exact count.
-    const runnable = 18 + (agentAttached ? 1 : 0) + (chatModel ? 1 : 0)
+    const runnable = 19 + (agentAttached ? 1 : 0) + (chatModel ? 1 : 0)
     const reported = chatModel
       ? new RegExp(`(${runnable - 1}|${runnable}) of ${runnable}`)
       : `${runnable} of ${runnable}`

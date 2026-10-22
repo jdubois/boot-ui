@@ -30,6 +30,7 @@ export const THEMES = [
     label: 'Transactions',
     kinds: [
       'connections-per-request',
+      'connection-reacquisition',
       'split-transaction-writes',
       'transaction-across-remote-call',
       'transactional-listener-skipped',

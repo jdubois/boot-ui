@@ -231,6 +231,7 @@ describe('theme coverage', () => {
       'exception-hotspots',
       'errors-behind-2xx',
       'connections-per-request',
+      'connection-reacquisition',
       'split-transaction-writes',
       'transaction-across-remote-call',
       'transactional-listener-skipped',

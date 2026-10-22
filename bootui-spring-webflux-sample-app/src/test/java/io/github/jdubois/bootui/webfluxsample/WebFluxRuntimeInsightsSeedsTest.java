@@ -47,9 +47,9 @@ class WebFluxRuntimeInsightsSeedsTest {
 
     private final List<JsonNode> observations = new ArrayList<>();
 
-    private final List<JsonNode> checks = new ArrayList<>();
-
     private final List<String> notExercised = new ArrayList<>();
+
+    private final List<JsonNode> checks = new ArrayList<>();
 
     @BeforeAll
     void seed() throws Exception {
@@ -132,6 +132,19 @@ class WebFluxRuntimeInsightsSeedsTest {
                         + observation.path("subject").asText() + ": "
                         + observation.path("sentence").asText())
                 .isEmpty();
+    }
+
+    /** The sample is JDBC-only, so no Hibernate session is recorded: the check ran and found nothing to judge. */
+    @Test
+    void connectionReacquisitionHasNoHibernateSessionToJudgeInAJdbcOnlySample() {
+        assertThat(subjects("connection-reacquisition")).isEmpty();
+        assertThat(checks)
+                .filteredOn(check -> check.path("kind").asText().equals("connection-reacquisition"))
+                .singleElement()
+                .satisfies(check -> {
+                    assertThat(check.path("status").asText()).isEqualTo("INSUFFICIENT");
+                    assertThat(check.path("eligibleRequests").asLong()).isZero();
+                });
     }
 
     @Test
