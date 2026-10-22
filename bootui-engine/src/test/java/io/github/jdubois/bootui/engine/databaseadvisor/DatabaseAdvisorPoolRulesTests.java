@@ -60,8 +60,8 @@ class DatabaseAdvisorPoolRulesTests {
         assertThat(result.category()).isEqualTo("Connection pool");
         assertThat(reason(result))
                 .contains("ordersDb", "maxLifetime 0 (none)", "keepaliveTime 0 (off)")
-                .contains("idle retirement off (minimumIdle 10)", "10 min", "wait_timeout")
-                .contains("may hand out a connection the server has already closed", "Evidence: effective")
+                .contains("minimumIdle 10 (no idle retirement)", "10 min", "wait_timeout")
+                .contains("may hand out a connection the server already closed", "Evidence: effective")
                 .doesNotContain("error");
     }
 
@@ -95,8 +95,11 @@ class DatabaseAdvisorPoolRulesTests {
         // minimumIdle above zero keeps connections idle forever
         assertThat(idle.evaluate(with(schema, hikari(10, 1, MINUTE, 0, 0))).status())
                 .isEqualTo("VIOLATION");
-        // HikariCP's unset minimumIdle (-1) means the maximum size
+        // an unreadable minimumIdle (-1) cannot prove that idle retirement applies, nor that it does not
         assertThat(idle.evaluate(with(schema, hikari(10, -1, MINUTE, 0, 0))).status())
+                .isEqualTo("SKIPPED");
+        // ... unless idleTimeout 0 settles it: nothing is ever retired
+        assertThat(idle.evaluate(with(schema, hikari(10, -1, 0, 0, 0))).status())
                 .isEqualTo("VIOLATION");
         // idleTimeout 0 never retires
         assertThat(idle.evaluate(with(schema, hikari(10, 0, 0, 0, 0))).status()).isEqualTo("VIOLATION");
@@ -108,6 +111,42 @@ class DatabaseAdvisorPoolRulesTests {
         assertThat(idle.evaluate(with(schema, hikari(10, 0, 9 * MINUTE + 29_999, 0, 0)))
                         .status())
                 .isEqualTo("PASS");
+    }
+
+    @Test
+    void aHugeIdleTimeoutCannotOverflowIntoCoveringTheServerLimit() {
+        SchemaSnapshot schema = mysql("600", "151");
+        assertThat(idle.evaluate(with(schema, hikari(10, 0, Long.MAX_VALUE, 0, 0)))
+                        .status())
+                .isEqualTo("VIOLATION");
+    }
+
+    @Test
+    void aDatasourceWhosePoolIsMissingLeavesACoverageGapWhenAnotherDatasourceIsAssessed() {
+        SchemaSnapshot other = mysql("600", "151");
+        SchemaSnapshot first = serverSchema(
+                "unpooled",
+                Dialect.MYSQL,
+                8,
+                VendorFindingKinds.MYSQL_SERVER_SETTINGS,
+                setting("wait_timeout", "600"),
+                setting("max_connections", "151"));
+        DatabaseAdvisorContext context =
+                contextWithPools(List.of(first, other), Map.of("ordersDb", hikari(10, 10, 0, 45_000, 30_000)));
+
+        for (DatabaseAdvisorRule rule : List.of(idle, exceeds, lifetime, share)) {
+            // Nothing was found, but the result is not a clean PASS: the missing pool leaves the coverage incomplete.
+            DatabaseAdvisorRuleResultDto result = rule.evaluate(context);
+            assertThat(result.status()).as(rule.definition().id()).isEqualTo("SKIPPED");
+            assertThat(reason(result)).contains("Coverage is incomplete");
+            assertThat(context.evaluationDiagnostics())
+                    .as(rule.definition().id())
+                    .anySatisfy(diagnostic -> {
+                        assertThat(diagnostic.source())
+                                .isEqualTo(rule.definition().id());
+                        assertThat(diagnostic.message()).contains("unpooled", "could be attributed");
+                    });
+        }
     }
 
     @Test
@@ -229,8 +268,8 @@ class DatabaseAdvisorPoolRulesTests {
         assertThat(result.id()).isEqualTo("DB-POOL-002");
         assertThat(result.severity()).isEqualTo("MEDIUM");
         assertThat(reason(result))
-                .contains("maximumPoolSize 60", "50 connections", "max_connections 50", "cannot fill")
-                .contains("unless a proxy multiplexes connections");
+                .contains("maximumPoolSize 60", "50 usable connections", "max_connections 50", "cannot fill")
+                .contains("unless a proxy multiplexes");
         assertThat(share.evaluate(context).status()).isEqualTo("PASS");
     }
 
@@ -242,7 +281,7 @@ class DatabaseAdvisorPoolRulesTests {
         assertThat(result.status()).isEqualTo("VIOLATION");
         assertThat(result.id()).isEqualTo("DB-POOL-004");
         assertThat(result.severity()).isEqualTo("LOW");
-        assertThat(reason(result)).contains("more than 50%", "Heuristic", "second instance");
+        assertThat(reason(result)).contains("over 50%", "Heuristic", "second instance");
         assertThat(exceeds.evaluate(context).status()).isEqualTo("PASS");
     }
 
@@ -284,7 +323,7 @@ class DatabaseAdvisorPoolRulesTests {
         DatabaseAdvisorRuleResultDto result = exceeds.evaluate(with(v16, pool));
         assertThat(result.status()).isEqualTo("VIOLATION");
         assertThat(reason(result))
-                .contains("95 connections", "max_connections 100", "superuser_reserved_connections 3")
+                .contains("95 usable connections", "max_connections 100", "superuser_reserved_connections 3")
                 .contains("reserved_connections 2");
 
         // PostgreSQL 15 has no reserved_connections: its absence is normal
@@ -404,11 +443,51 @@ class DatabaseAdvisorPoolRulesTests {
     }
 
     @Test
+    void anUnlimitedLifetimeIsUndecidedWhileASettingThatDecidesOwnershipIsUnreadable() {
+        SchemaSnapshot schema = mysql("600", "151");
+        // keepalive unreadable, nothing else covers: DB-POOL-001 is undecided, so DB-POOL-003 cannot tell who owns it
+        PoolSettings unknownKeepalive = new PoolSettings("HikariCP", 10, 10, 0L, 0L, null, 30_000L);
+        assertThat(idle.evaluate(with(schema, unknownKeepalive)).status()).isEqualTo("SKIPPED");
+        DatabaseAdvisorRuleResultDto result = lifetime.evaluate(with(schema, unknownKeepalive));
+        assertThat(result.status()).isEqualTo("SKIPPED");
+        assertThat(reason(result)).contains("DB-POOL-001", "could not be settled");
+        // an unreadable minimumIdle likewise
+        assertThat(lifetime.evaluate(with(schema, hikari(10, -1, MINUTE, 0, 0))).status())
+                .isEqualTo("SKIPPED");
+        // a known defence settles it despite another unknown
+        PoolSettings covered = new PoolSettings("HikariCP", 10, 10, 0L, 0L, MINUTE / 2, 30_000L);
+        assertThat(lifetime.evaluate(with(schema, covered)).status()).isEqualTo("VIOLATION");
+    }
+
+    @Test
     void anUnreadableLifetimeIsNotReportedAndAnUnattributedPoolIsSkipped() {
         PoolSettings unknown = new PoolSettings("HikariCP", 10, 10, 0L, null, 0L, 30_000L);
         assertThat(reason(lifetime.evaluate(with(mysql("600", "151"), unknown))))
                 .contains("`maxLifetime` could not");
         assertThat(reason(lifetime.evaluate(with(mysql("600", "151"), null)))).contains("no HikariCP or Agroal");
+    }
+
+    @Test
+    void everyFindingTextKeepsItsEvidenceLabelWithinTheDetailLimit() {
+        SchemaSnapshot v16 = postgres(
+                16,
+                setting("idle_session_timeout", "60000", "ms"),
+                setting("max_connections", "100"),
+                setting("superuser_reserved_connections", "3"),
+                setting("reserved_connections", "0"));
+        DatabaseAdvisorContext idleCase = with(v16, hikari(10, 0, 10 * MINUTE, 30 * MINUTE, 0));
+        DatabaseAdvisorContext sizeCase = with(v16, hikari(120, 10, 0, 45_000, 30_000));
+        DatabaseAdvisorContext shareCase = with(v16, hikari(49, 10, 0, 45_000, 30_000));
+        DatabaseAdvisorContext lifetimeCase = with(v16, agroal(10, 0, 0, 0));
+        for (var checked : List.of(
+                java.util.Map.entry(idle, idleCase),
+                java.util.Map.entry(exceeds, sizeCase),
+                java.util.Map.entry(share, shareCase),
+                java.util.Map.entry(lifetime, lifetimeCase))) {
+            DatabaseAdvisorRuleResultDto result = checked.getKey().evaluate(checked.getValue());
+            assertThat(result.status()).as(checked.getKey().definition().id()).isEqualTo("VIOLATION");
+            assertThat(reason(result)).as(checked.getKey().definition().id()).endsWith("Evidence: effective.");
+        }
     }
 
     @Test

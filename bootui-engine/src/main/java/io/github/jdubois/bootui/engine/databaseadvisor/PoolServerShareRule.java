@@ -50,10 +50,10 @@ final class PoolServerShareRule extends AbstractDriverRule {
             Fit value = fit.value();
             findings.add(
                     "Datasource `" + schema.dataSourceName() + "`: maximumPoolSize " + value.maximumPoolSize()
-                            + " is more than " + PoolServerCompatibility.POOL_SHARE_PERCENT + "% of the "
-                            + value.capacity().usable() + " connections an ordinary role can use ("
-                            + value.capacity().explanation() + "). Heuristic: a second instance (a rolling deploy)"
-                            + " could not fill its pool. Evidence: effective.",
+                            + " is over " + PoolServerCompatibility.POOL_SHARE_PERCENT + "% of the "
+                            + value.capacity().usable() + " usable connections ("
+                            + value.capacity().explanation()
+                            + "); a second instance would not fit. Heuristic. Evidence: effective.",
                     DatabaseIdentities.of(schema.dataSourceName(), "pool=maximum-size"));
         }
         return Outcome.assessed();

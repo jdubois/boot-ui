@@ -1,12 +1,15 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.engine.databaseadvisor.PoolServerCompatibility.Result;
+import io.github.jdubois.bootui.engine.databaseadvisor.PoolServerCompatibility.Tri;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.PoolSettings;
 
 /**
- * A pool whose connections never reach a maximum age. It needs no server evidence, so it still runs when the server
- * could not be read, but {@link PoolIdleLimitRule} owns the datasource whenever it fires there: the same
- * {@code maxLifetime} of 0 is part of that finding, and reporting it twice would count one problem twice.
+ * A pool whose connections never reach a maximum age. The finding itself needs no server evidence, but
+ * {@link PoolIdleLimitRule} owns the datasource whenever it fires there: the same {@code maxLifetime} of 0 is part of
+ * that finding, and reporting it twice would count one problem twice. So whether that rule fires has to be settled
+ * first: when the server limit or a pool setting it needs is unknown, this rule is undecided too, rather than report a
+ * finding the next scan could attribute to the other rule and show as resolved.
  */
 final class PoolUnlimitedLifetimeRule extends AbstractDriverRule {
 
@@ -54,13 +57,18 @@ final class PoolUnlimitedLifetimeRule extends AbstractDriverRule {
         }
         Outcome owner = PoolIdleLimitRule.unresolved(context, schema);
         if (owner != null && owner.kind() == Outcome.Kind.GAP) {
-            // Whether DB-POOL-001 owns this datasource is not settled; reporting here could be retracted by the next
-            // scan.
-            return Outcome.gap("whether " + PoolIdleLimitRule.ID + " already reports this pool could not be settled ("
-                    + owner.text() + ")");
+            return unsettled(owner.text());
         }
-        if (owner == null && ownedByIdleLimit(context, schema)) {
-            return Outcome.assessed();
+        if (owner == null) {
+            Tri exposed = PoolServerCompatibility.exposedToIdleClose(
+                    pool.value(),
+                    PoolServerCompatibility.idleLimit(schema).value().millis());
+            if (exposed == Tri.YES) {
+                return Outcome.assessed();
+            }
+            if (exposed == Tri.UNKNOWN) {
+                return unsettled("a pool setting that decides it could not be read");
+            }
         }
         String unit = PoolServerCompatibility.agroal(pool.value())
                 ? "maxLifetime is 0 (unlimited, the Agroal default unless quarkus.datasource.jdbc.max-lifetime is set),"
@@ -72,10 +80,9 @@ final class PoolUnlimitedLifetimeRule extends AbstractDriverRule {
         return Outcome.assessed();
     }
 
-    private static boolean ownedByIdleLimit(DatabaseAdvisorContext context, SchemaSnapshot schema) {
-        PoolSettings pool = context.poolOf(schema.dataSourceName());
-        PoolServerCompatibility.IdleLimit limit =
-                PoolServerCompatibility.idleLimit(schema).value();
-        return PoolServerCompatibility.exposedToIdleClose(pool, limit.millis()) == PoolServerCompatibility.Tri.YES;
+    /** Whether DB-POOL-001 owns the datasource is not settled; reporting here could be retracted by the next scan. */
+    private static Outcome unsettled(String why) {
+        return Outcome.gap(
+                "whether " + PoolIdleLimitRule.ID + " already reports this pool could not be settled (" + why + ").");
     }
 }

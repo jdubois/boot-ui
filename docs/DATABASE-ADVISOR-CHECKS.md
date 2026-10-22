@@ -578,7 +578,8 @@ Two kinds of evidence, both labelled **effective** (read from the live object or
   pool that initializes lazily, and HikariCP validates and may replace its configured values when it starts (a
   `maxLifetime` under 30 seconds becomes the default, a `keepaliveTime` not shorter than `maxLifetime` is dropped). Pools
   are matched to a datasource by exact name; a datasource whose pool cannot be attributed, or that uses another pool
-  library, is `SKIPPED` with that reason.
+  library, is not judged: the rule is `SKIPPED` with that reason, and when another datasource is assessed the omission is
+  reported as a coverage gap, so a clean result never hides it and an earlier finding on it is not shown as resolved.
 - **The server.** A small allow-listed read in the same bounded scan as the other catalog reads (query timeout, row bound,
   scan budget, failure reported as a diagnostic, never a connection borrowed for the pool half):
   PostgreSQL `select name, setting, unit from pg_settings where name in (...)` (bound names:
@@ -610,8 +611,8 @@ when **all three** hold:
 2. `keepaliveTime == 0` or `keepaliveTime >= S`: nothing pings it before then;
 3. idle retirement does not cover it: **not** (`minimumIdle == 0` and `idleTimeout > 0` and `idleTimeout + 30 s < S`).
    HikariCP retires idle connections on a housekeeping timer, up to 30 seconds *after* `idleTimeout`, so the
-   configured value alone is not proof; with `minimumIdle` above `0` (HikariCP's unset value means the maximum size)
-   the idle connections are never retired.
+   configured value alone is not proof; with `minimumIdle` above `0` the idle connections are never retired, and an
+   unreadable `minimumIdle` (HikariCP's unset value, before the pool has started) is unknown.
 
 Each condition is three-valued: a defence that is known to cover settles the answer whatever the others are, and one
 that cannot be read can neither cause nor hide a finding. The message states the three pool values and `S`, and that

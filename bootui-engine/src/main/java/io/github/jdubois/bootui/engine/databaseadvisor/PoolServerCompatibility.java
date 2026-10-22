@@ -37,11 +37,15 @@ final class PoolServerCompatibility {
         return schema.dialect() == Dialect.POSTGRESQL || schema.dialect().isMySqlFamily();
     }
 
-    /** The datasource's pool, or why it cannot be judged. Only HikariCP and Agroal pools are attributed. */
+    /**
+     * The datasource's pool, or why it cannot be judged. Only HikariCP and Agroal pools are attributed. A pool that is
+     * missing is a coverage <em>gap</em>, not a silent skip: with another datasource assessed, a silent skip would let the
+     * rule conclude "nothing found" for every datasource and report an earlier finding on this one as resolved.
+     */
     static Result<PoolSettings> pool(DatabaseAdvisorContext context, SchemaSnapshot schema) {
         PoolSettings pool = context.poolOf(schema.dataSourceName());
         if (pool == null) {
-            return Result.unresolved(Outcome.skip("no HikariCP or Agroal connection pool could be attributed to this"
+            return Result.unresolved(Outcome.gap("no HikariCP or Agroal connection pool could be attributed to this"
                     + " datasource, so its pool settings are not evaluated."));
         }
         if (!ConnectionPoolInfo.HIKARI.equals(pool.implementation())
@@ -174,16 +178,20 @@ final class PoolServerCompatibility {
     }
 
     private static Tri idleRetirementCovers(PoolSettings pool, long limitMillis) {
-        // HikariCP treats an unset minimumIdle (-1) as the maximum size, so idle retirement never applies to it.
-        boolean keepsIdleConnections = pool.minimumIdle() != 0;
         Long idleTimeout = pool.idleTimeoutMs();
-        if (keepsIdleConnections || (idleTimeout != null && idleTimeout == 0)) {
+        if (idleTimeout != null && idleTimeout == 0) {
             return Tri.NO;
         }
-        if (idleTimeout == null || idleTimeout < 0) {
-            return Tri.UNKNOWN;
+        // A negative minimum is the SPI's "could not be read" (and HikariCP's unset value, which a started pool
+        // resolves).
+        if (pool.minimumIdle() < 0 || idleTimeout == null || idleTimeout < 0) {
+            return pool.minimumIdle() > 0 ? Tri.NO : Tri.UNKNOWN;
         }
-        return idleTimeout + IDLE_RETIREMENT_HEADROOM_MS < limitMillis ? Tri.YES : Tri.NO;
+        if (pool.minimumIdle() > 0) {
+            return Tri.NO;
+        }
+        // Compared as a subtraction so a huge idleTimeout cannot overflow into "shorter than the limit".
+        return idleTimeout < limitMillis - IDLE_RETIREMENT_HEADROOM_MS ? Tri.YES : Tri.NO;
     }
 
     // --- the server's usable connections (DB-POOL-002) -------------------------------------------------------------

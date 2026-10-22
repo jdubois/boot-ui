@@ -87,20 +87,20 @@ final class PoolIdleLimitRule extends AbstractDriverRule {
         return DatabaseIdentities.of(dataSourceName, "pool=idle-limit");
     }
 
+    /** Kept under the 240 characters a finding text may carry, with the facts first and the label last. */
     private static String text(SchemaSnapshot schema, PoolSettings pool, IdleLimit limit) {
         String lifetime =
                 pool.maxLifetimeMs() == 0 ? "0 (none)" : PoolServerCompatibility.duration(pool.maxLifetimeMs());
         String keepalive =
                 pool.keepaliveTimeMs() == 0 ? "0 (off)" : PoolServerCompatibility.duration(pool.keepaliveTimeMs());
-        String idle = pool.minimumIdle() != 0
-                ? "off (minimumIdle " + pool.minimumIdle() + ")"
+        String idle = pool.minimumIdle() > 0
+                ? "minimumIdle " + pool.minimumIdle() + " (no idle retirement)"
                 : pool.idleTimeoutMs() == 0
-                        ? "off (idleTimeout 0)"
-                        : "too late (idleTimeout " + PoolServerCompatibility.duration(pool.idleTimeoutMs()) + ")";
+                        ? "idleTimeout 0 (never)"
+                        : "idleTimeout " + PoolServerCompatibility.duration(pool.idleTimeoutMs()) + " (too late)";
         return "Datasource `" + schema.dataSourceName() + "`: maxLifetime " + lifetime + ", keepaliveTime " + keepalive
-                + ", idle retirement " + idle + ", server idle limit "
-                + PoolServerCompatibility.duration(limit.millis())
-                + " (" + limit.setting() + "): the pool may hand out a connection the server has already closed."
-                + " Evidence: effective.";
+                + ", " + idle + ", server idle limit " + PoolServerCompatibility.duration(limit.millis()) + " ("
+                + limit.setting() + "): the pool may hand out a connection the server already closed. Evidence:"
+                + " effective.";
     }
 }

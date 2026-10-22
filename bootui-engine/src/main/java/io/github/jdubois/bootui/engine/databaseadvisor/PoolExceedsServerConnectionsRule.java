@@ -49,10 +49,9 @@ final class PoolExceedsServerConnectionsRule extends AbstractDriverRule {
             Fit value = fit.value();
             findings.add(
                     "Datasource `" + schema.dataSourceName() + "`: maximumPoolSize " + value.maximumPoolSize()
-                            + " exceeds the " + value.capacity().usable()
-                            + " connections an ordinary role can use ("
+                            + " exceeds the " + value.capacity().usable() + " usable connections ("
                             + value.capacity().explanation()
-                            + "): the pool cannot fill unless a proxy multiplexes connections. Evidence: effective.",
+                            + "): the pool cannot fill, unless a proxy multiplexes. Evidence: effective.",
                     DatabaseIdentities.of(schema.dataSourceName(), "pool=maximum-size"));
         }
         return Outcome.assessed();
