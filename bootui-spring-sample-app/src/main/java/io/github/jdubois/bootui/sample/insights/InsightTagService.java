@@ -122,7 +122,8 @@ public class InsightTagService {
     /** The counterexample: the same read, then a label that changes, which Hibernate finds dirty and updates. */
     @Transactional
     public int summaryThenRelabel() {
-        List<SampleTag> page = tags.findAll(PageRequest.of(0, SUMMARY_TAGS, BY_ID)).getContent();
+        List<SampleTag> page =
+                tags.findAll(PageRequest.of(0, SUMMARY_TAGS, BY_ID)).getContent();
         SampleTag first = page.get(0);
         first.relabel(
                 first.getLabel().endsWith("*")
@@ -134,7 +135,8 @@ public class InsightTagService {
     /** The counterexample: the same read, then a write through JDBC, which Hibernate never sees as a dirty entity. */
     @Transactional
     public int summaryThenJdbcWrite() {
-        List<SampleTag> page = tags.findAll(PageRequest.of(0, SUMMARY_TAGS, BY_ID)).getContent();
+        List<SampleTag> page =
+                tags.findAll(PageRequest.of(0, SUMMARY_TAGS, BY_ID)).getContent();
         jdbc.update(
                 "update sample_advisor_tags set label = label where id = ?",
                 page.get(0).getId());

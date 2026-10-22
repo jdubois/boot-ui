@@ -111,8 +111,7 @@ class WebFluxRuntimeInsightsSeedsTest {
 
     @Test
     void anUnsortedPageIsFoundButNotTheSortedPageNorTheOtherNotesRoutes() {
-        assertThat(subjects("paged-without-order"))
-                .containsExactly("GET /api/insights/notes/unsorted-page");
+        assertThat(subjects("paged-without-order")).containsExactly("GET /api/insights/notes/unsorted-page");
     }
 
     /**
@@ -121,12 +120,11 @@ class WebFluxRuntimeInsightsSeedsTest {
      */
     @Test
     void noObservationOfAnyKindFiresOnACounterexampleRoute() {
-        List<String> counterexamples =
-                List.of(
-                        "GET /api/notes",
-                        "GET /api/insights/notes/at-once",
-                        "GET /api/insights/notes/sorted-page",
-                        "GET /api/sample/rest-client");
+        List<String> counterexamples = List.of(
+                "GET /api/notes",
+                "GET /api/insights/notes/at-once",
+                "GET /api/insights/notes/sorted-page",
+                "GET /api/sample/rest-client");
         Set<String> exercised = journal.entries().stream()
                 .map(entry -> entry.event().payload())
                 .filter(HttpPayload.class::isInstance)

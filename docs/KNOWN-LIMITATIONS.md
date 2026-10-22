@@ -12,7 +12,7 @@ Items marked **deferred** are not implemented in the current code. They are not 
 - **Several kinds are not listed by default.** `route-time-breakdown`, `exception-hotspots`,
   `connections-per-request`, and `ai-usage-by-route` are reached from the panels that show the same evidence;
   `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `readonly-candidate-transaction`,
-  `framework-warnings-by-route`, `anonymous-data-reach`, and `connection-reacquisition` only with **Show all routes**, a search, or an agent query
+  `framework-warnings-by-route`, `anonymous-data-reach`, `connection-reacquisition`, and `paged-without-order` only with **Show all routes**, a search, or an agent query
   naming them. Every row stays reachable, and any row is a fact to verify against the code before acting on it.
 - **`connection-reacquisition` counts Hibernate's acquisition callbacks**, not the pool's borrow count or how long a
   connection was held. JTA and `DELAYED_ACQUISITION_AND_RELEASE_AFTER_STATEMENT` connection handling legitimately
@@ -43,6 +43,12 @@ See [WebFlux design notes](WEBFLUX-SUPPORT.md) for the panel-by-panel detail.
   inside a function a query calls, or to something that is not a database is not seen, and a method that writes only for
   some inputs is held back only while an execution that wrote is retained: a method it names is a fact to verify
   against the code, not a proof.
+- **`paged-without-order` reads SQL text, not what the database returns.** It does not report the first page of a
+  pageable query filtered only by equalities, a literal limit of one, or a statement it cannot read: SQL Trace's
+  shortened text, a statement longer than the scan limit, a string that holds a backslash, a `#` that is not a MySQL
+  comment, a `/*! ... */` comment, or several statements. Oracle `ROWNUM` wrappers are not read, and a PostgreSQL `#`
+  operator followed by white space is read as a MySQL comment. A row is a fact to verify, since the rows may be arbitrary
+  on purpose.
 - **`route-time-breakdown` has no handler or response phase.** It times authentication and the recorded calls; the
   rest of a request's time is reported as unattributed, never as application code.
 - **A reactive transaction has no thread-bound context.** A `ReactiveTransactionManager`'s transactions are recorded

@@ -152,8 +152,8 @@ public final class PagedWithoutOrder implements Observation {
                         .toList(),
                 List.of(
                         "A statement that limits its rows over an equality-only filter, such as `where a = ? and b = ?"
-                                + " limit ?`, is read as a key lookup and not reported, so the first page of a"
-                                + " pageable query filtered only by equalities is not either.",
+                                + " limit ?`, is read as a key lookup and not reported, which includes the first"
+                                + " page of a pageable query filtered only by equalities.",
                         "Statements that are truncated, or that this check cannot read, are left out; Oracle `ROWNUM`"
                                 + " wrappers are not read.",
                         "The rows may be intentionally arbitrary: verify against the query before changing it."));

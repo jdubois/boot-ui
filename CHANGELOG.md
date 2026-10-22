@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`paged-without-order` observation** reports a SELECT that limits its rows without an `ORDER BY`, so its pages can
+  repeat or skip rows ([#1522](https://github.com/jdubois/boot-ui/issues/1522)).
 - **`connection-reacquisition` observation** reports a route whose Hibernate session borrowed a JDBC connection two or
   more times in a row ([#1514](https://github.com/jdubois/boot-ui/issues/1514)).
 - **Low-footprint MCP and CLI controls** pause and resume BootUI recording, with explicit paused-evidence
@@ -22,6 +24,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **SQL Trace reads MySQL `#` line comments** like `--` comments when it normalizes a statement, so a comment no
+  longer hides or fakes a keyword and its values are not shown.
 - **Faster CI builds.** The integration tests that run the BootUI agent in forked JVMs, the slowest in the build, now
   run in their own parallel `agent-integration-tests` job instead of holding up every module that depends on the agent,
   and that job runs the agent's Failsafe tests on two forks. `-Dbootui.skipAgentIts` and `-Dbootui.skipFrontendTests` skip those tests
