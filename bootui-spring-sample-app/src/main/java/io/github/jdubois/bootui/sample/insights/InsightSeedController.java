@@ -45,6 +45,16 @@ public class InsightSeedController {
         return Map.of("tags", tags.countThenSave());
     }
 
+    @GetMapping("/tags/reacquire")
+    public Map<String, Object> tagsReacquiringTheConnection() {
+        return Map.of("tags", tags.countTagsOneTransactionAtATime());
+    }
+
+    @GetMapping("/tags/reacquire-one-transaction")
+    public Map<String, Object> tagsInOneTransaction() {
+        return Map.of("tags", tags.countTagsInOneTransaction());
+    }
+
     @GetMapping("/tags/export")
     public Map<String, Object> exportEveryTag() {
         return Map.of("tags", tags.exportEveryTag());
@@ -53,6 +63,21 @@ public class InsightSeedController {
     @GetMapping("/tags/export-labels")
     public Map<String, Object> exportTagLabels() {
         return Map.of("tags", tags.exportLabels());
+    }
+
+    @GetMapping("/tags/summary")
+    public Map<String, Object> tagSummary() {
+        return Map.of("tags", tags.summary());
+    }
+
+    @PostMapping("/tags/summary-then-relabel")
+    public Map<String, Object> tagSummaryThenRelabel() {
+        return Map.of("tags", tags.summaryThenRelabel());
+    }
+
+    @PostMapping("/tags/summary-then-jdbc-write")
+    public Map<String, Object> tagSummaryThenJdbcWrite() {
+        return Map.of("tags", tags.summaryThenJdbcWrite());
     }
 
     @GetMapping("/orders")

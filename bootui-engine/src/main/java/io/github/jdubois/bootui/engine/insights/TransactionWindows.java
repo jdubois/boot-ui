@@ -51,9 +51,44 @@ final class TransactionWindows {
         this.complete = placed;
     }
 
+    /**
+     * The outermost transaction of {@code thread} that began first, or of any thread when {@code thread} is {@code
+     * null}; {@code null} when none has a monotonic interval.
+     */
+    Window first(String thread) {
+        Window first = null;
+        for (Window window : windows) {
+            boolean onThread = thread == null
+                    || window.event().thread() == null
+                    || thread.equals(window.event().thread());
+            if (onThread
+                    && (first == null
+                            || window.startNanos() < first.startNanos()
+                            || window.startNanos() == first.startNanos() && window.endNanos() > first.endNanos())) {
+                first = window;
+            }
+        }
+        return first;
+    }
+
     /** Whether every transaction of the request has a monotonic interval. */
     boolean complete() {
         return complete;
+    }
+
+    /** The transactions of the request that have a monotonic interval, in the order they were recorded. */
+    List<Window> windows() {
+        return List.copyOf(windows);
+    }
+
+    /** The interval of {@code transaction}, or {@code null} when it has none. */
+    Window of(RuntimeEvent transaction) {
+        for (Window window : windows) {
+            if (window.event() == transaction) {
+                return window;
+            }
+        }
+        return null;
     }
 
     /** Whether {@code statement} can be placed: it has a monotonic completion and every transaction an interval. */

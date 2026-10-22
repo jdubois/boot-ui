@@ -345,7 +345,8 @@ a bean (Proxy bypass), an import that rolls back yet answers 200 (Errors behind 
 during the response write (SQL after the handler returned), an unreadable body (Framework warnings), an anonymous debug
 reset (Anonymous writes), and a payroll report whose exact security matcher misses `/api/insights/reports/PAYROLL`
 (Anonymous success on a restricted route), tags saved before each count against counted first (Hibernate
-auto-flushes), and 600 tags loaded as entities against their labels only (Large persistence contexts). The WebFlux
+auto-flushes), 600 tags loaded as entities against their labels only (Large persistence contexts), and three tag reads in separate
+transactions of one open session against the same reads in one transaction (Connections re-acquired in a session). The WebFlux
 sample adds blocking JDBC on the event loop and a per-note loop.
 
 The separate Hibernate eager-loading demo uses 16 orders with distinct customers. The JPQL finder behind

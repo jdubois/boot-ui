@@ -9,6 +9,7 @@ import java.util.WeakHashMap;
 import org.springframework.transaction.ReactiveTransaction;
 import org.springframework.transaction.TransactionExecution;
 import org.springframework.transaction.TransactionExecutionListener;
+import org.springframework.transaction.support.DefaultTransactionStatus;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
@@ -61,7 +62,8 @@ public final class BootUiTransactionExecutionListener implements TransactionExec
                     thread,
                     traceId,
                     transactionExecution.isNested(),
-                    threadBound);
+                    threadBound,
+                    threadBound && !suspendsAcrossThreads(transactionExecution));
             if (id >= 0) {
                 pending.put(transactionExecution, new Pending(id));
             }
@@ -126,6 +128,17 @@ public final class BootUiTransactionExecutionListener implements TransactionExec
         Pending(long id) {
             this.id = id;
         }
+    }
+
+    /**
+     * Whether the transaction is a JTA one, which may suspend on one thread and resume on another, so that the work of
+     * its begin thread is not all of its work. Named by class, since the JTA transaction object's own type is not
+     * loaded when no JTA API is on the classpath.
+     */
+    private static boolean suspendsAcrossThreads(TransactionExecution transactionExecution) {
+        return transactionExecution instanceof DefaultTransactionStatus status
+                && status.getTransaction() != null
+                && status.getTransaction().getClass().getName().endsWith("JtaTransactionObject");
     }
 
     private static String transactionName(TransactionExecution transactionExecution) {

@@ -107,6 +107,35 @@ final class HibernateRuleModelSupport {
 
     private HibernateRuleModelSupport() {}
 
+    /** The declared {@code targetEntity} of a {@code @OneToOne}, falling back to the attribute's Java type. */
+    static Class<?> oneToOneTargetType(HibernateAttributeModel attribute, Annotation oneToOne) {
+        try {
+            Object declared =
+                    oneToOne.annotationType().getMethod("targetEntity").invoke(oneToOne);
+            if (declared instanceof Class<?> type && type != void.class) {
+                return type;
+            }
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            // Fall back to the declared attribute type.
+        }
+        return attribute.rawType();
+    }
+
+    /**
+     * Whether the owning side of an inverse {@code @OneToOne(mappedBy=...)} shares its primary key with this entity,
+     * through {@code @MapsId} or {@code @PrimaryKeyJoinColumn}. Only a simple {@code mappedBy} name is resolved.
+     */
+    static boolean owningSideSharesPrimaryKey(HibernateAttributeModel inverse, Annotation oneToOne, String mappedBy) {
+        Class<?> owner = oneToOneTargetType(inverse, oneToOne);
+        if (owner == null || mappedBy.contains(".")) {
+            return false;
+        }
+        return HibernateEntityModel.fromClass(owner).attributes().stream()
+                .filter(candidate -> mappedBy.equals(candidate.propertyName()))
+                .anyMatch(candidate -> candidate.hasMapsId()
+                        || candidate.annotation("jakarta.persistence.PrimaryKeyJoinColumn") != null);
+    }
+
     /**
      * True when a Quarkus Panache extension (ORM or Reactive) is present on the classpath. Panache rewrites public
      * field access application-wide on every JPA-managed class, not only on classes that extend
@@ -662,6 +691,9 @@ final class OneToOneWithoutMapsIdRule extends AbstractHibernateRule {
                 if (mappedBy != null && !mappedBy.isBlank()) {
                     continue;
                 }
+                if (targetsOwnHierarchy(entity, attribute, oneToOne)) {
+                    continue;
+                }
                 if (hasDependentSignal(attribute, oneToOne)) {
                     dependentDetails.add(
                             attribute.description()
@@ -682,6 +714,38 @@ final class OneToOneWithoutMapsIdRule extends AbstractHibernateRule {
             return violation(context, HibernateRuleSupport.MEDIUM, dependentDetails);
         }
         return violation(context, HibernateRuleSupport.LOW, plainDetails);
+    }
+
+    /**
+     * A shared primary key is impossible when the association targets the owning entity or another entity of its
+     * inheritance hierarchy: both rows live in one identifier space. Two entities that merely share a
+     * {@code @MappedSuperclass} are independent hierarchies and stay reportable.
+     */
+    private boolean targetsOwnHierarchy(
+            HibernateEntityModel entity, HibernateAttributeModel attribute, Annotation oneToOne) {
+        Class<?> ownerRoot = entityRoot(entity.javaType());
+        Class<?> targetRoot = entityRoot(HibernateRuleModelSupport.oneToOneTargetType(attribute, oneToOne));
+        return ownerRoot != null && ownerRoot == targetRoot;
+    }
+
+    /**
+     * The topmost {@code @Entity} class in the superclass chain. An entity declared only in {@code orm.xml} carries no
+     * annotation, so the type itself stands for its own hierarchy.
+     */
+    private Class<?> entityRoot(Class<?> type) {
+        Class<?> root = type;
+        boolean annotated = false;
+        for (Class<?> current = type; current != null && current != Object.class; current = current.getSuperclass()) {
+            for (Annotation annotation : current.getDeclaredAnnotations()) {
+                if ("jakarta.persistence.Entity"
+                        .equals(annotation.annotationType().getName())) {
+                    root = current;
+                    annotated = true;
+                    break;
+                }
+            }
+        }
+        return annotated || type == null ? root : type;
     }
 
     private boolean hasDependentSignal(HibernateAttributeModel attribute, Annotation oneToOne) {
@@ -2902,6 +2966,11 @@ final class NonOwningOneToOneEnhancementRule extends AbstractHibernateRule {
                 if (mappedBy != null
                         && !mappedBy.isBlank()
                         && "LAZY".equals(attribute.annotationValueName(oneToOne, "fetch"))) {
+                    // A mandatory inverse side whose owner shares the primary key can be proxied without enhancement.
+                    if (Boolean.FALSE.equals(attribute.annotationBooleanValue(oneToOne, "optional"))
+                            && HibernateRuleModelSupport.owningSideSharesPrimaryKey(attribute, oneToOne, mappedBy)) {
+                        continue;
+                    }
                     details.add(
                             attribute.description()
                                     + " is a non-owning @OneToOne but bytecode enhancement is disabled.",

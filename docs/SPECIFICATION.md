@@ -1971,7 +1971,8 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   the validation applications) are listed by default; `FAILED` (`route-time-breakdown`, `exception-hotspots`,
   `connections-per-request`, `ai-usage-by-route`, each folded into the panel showing the same evidence, which links to
   its rows), `UNDER_SAMPLED` (`repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`,
-  `framework-warnings-by-route`, `anonymous-data-reach`), `NOT_LISTED` (`gc-inflated-latency`, `heap-growth-after-gc`,
+  `readonly-candidate-transaction`, `framework-warnings-by-route`, `anonymous-data-reach`), `NOT_LISTED`
+  (`gc-inflated-latency`, `heap-growth-after-gc`,
   reached from the Memory panel), and `NOT_JUDGED` (any kind added after the external validation) are not.
   Every observation carries `listed`, whether the panel's and the agents' default list shows it, and, when it does
   not, `unlistedReason`: for a kind that is not listed, where its evidence is shown (the panel it is
@@ -3743,7 +3744,9 @@ Design rules:
   given application actually exposes comes from `GET /bootui/api/cli`, which `bootui tools` prints: stacks advertise
   different tool sets, some tools appear only when a library is present, and panels can be disabled.
 - **Refusal is not failure.** Exit `0` means the tool answered, `1` a usage, authentication, or transport error, and
-  `2` that BootUI declined — a disabled panel, or an action on a read-only one. That distinction is the reason the
+  `2` that BootUI declined — a disabled panel, or an action on a read-only one. `3` is the one deliberate finding
+  signal: an advisor command run with `--fail-on <severity>` retained a finding at or above it, and a gate that cannot
+  be evaluated (a report that was never scanned, or one without `severityCounts`) is `1`, never `0`. That distinction is the reason the
   endpoint puts the outcome in the status code, and dropping it would force CI to parse error text. A rejected token
   is deliberately `1` and not `2`: it says nothing about how the target's panels are configured, so a job that treats
   `2` as "skip this check" must not swallow it.
