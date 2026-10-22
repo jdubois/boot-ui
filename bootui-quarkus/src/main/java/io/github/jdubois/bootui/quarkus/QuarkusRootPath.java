@@ -45,6 +45,7 @@ final class QuarkusRootPath {
         if (normalizedPath == null) {
             return null;
         }
+        normalizedPath = withoutMatrixParameters(normalizedPath);
         if (rootPathPrefix.isEmpty()) {
             return normalizedPath;
         }
@@ -55,5 +56,54 @@ final class QuarkusRootPath {
             return normalizedPath.substring(rootPathPrefix.length());
         }
         return normalizedPath;
+    }
+
+    /**
+     * Rewrites a path the way the JAX-RS router sees it. Vert.x leaves {@code ;name=value} matrix parameters in
+     * {@code normalizedPath()} and RESTEasy Reactive drops them before it dispatches; once a path has any, it also
+     * percent-decodes every segment, so {@code %2F} then separates segments for the router but not for the guards.
+     * Without mirroring both, a request to {@code /bootui/api%2Fdismissed-findings;x=1} would reach its resource
+     * without matching the path the guards check (fail-open). A path without a matrix parameter is returned as is.
+     */
+    static String withoutMatrixParameters(String path) {
+        if (path.indexOf(';') < 0) {
+            return path;
+        }
+        StringBuilder out = new StringBuilder(path.length());
+        boolean skipping = false;
+        for (int i = 0; i < path.length(); i++) {
+            char c = path.charAt(i);
+            if (c == '/') {
+                skipping = false;
+            } else if (c == ';') {
+                skipping = true;
+            }
+            if (!skipping) {
+                out.append(c);
+            }
+        }
+        return percentDecoded(out.toString());
+    }
+
+    /** Decodes every {@code %XX} escape as UTF-8; a malformed escape stays as written. */
+    private static String percentDecoded(String value) {
+        if (value.indexOf('%') < 0) {
+            return value;
+        }
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream(value.length());
+        for (int i = 0; i < value.length(); ) {
+            char c = value.charAt(i);
+            int high = c == '%' && i + 2 < value.length() ? Character.digit(value.charAt(i + 1), 16) : -1;
+            int low = high >= 0 ? Character.digit(value.charAt(i + 2), 16) : -1;
+            if (high >= 0 && low >= 0) {
+                bytes.write(high * 16 + low);
+                i += 3;
+            } else {
+                byte[] literal = String.valueOf(c).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                bytes.write(literal, 0, literal.length);
+                i++;
+            }
+        }
+        return bytes.toString(java.nio.charset.StandardCharsets.UTF_8);
     }
 }

@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.ActionContract;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.Runtime;
+import io.github.jdubois.bootui.engine.panel.BootUiGlobalWritePolicy;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.time.Duration;
 import java.util.List;
@@ -140,7 +141,9 @@ class ReactivePanelAccessFilterTests {
             assertThat(exchange.getResponse().getStatusCode()).as(action.id()).isEqualTo(HttpStatus.FORBIDDEN);
             assertThat(bodyAsString(exchange))
                     .as(action.id())
-                    .contains("\"panel\":\"dismissed-rules\"")
+                    .contains("\"panel\":\""
+                            + BootUiGlobalWritePolicy.subjectFor(action.relativePath())
+                                    .orElseThrow() + "\"")
                     .contains("bootui.read-only=true");
         }
     }

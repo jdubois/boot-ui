@@ -60,8 +60,9 @@ class DatabaseAdvisorControllerTests {
         DatabaseAdvisorReport initial = report("NOT_SCANNED", 0);
         DatabaseAdvisorReport dismissedView = report("NOT_SCANNED", 0);
         when(scanner.lastReport()).thenReturn(initial);
-        when(dismissedRules.load()).thenReturn(Set.of("DB-IGNORED"));
-        when(scanner.applyDismissals(eq(initial), eq(Set.of("DB-IGNORED")))).thenReturn(dismissedView);
+        when(dismissedRules.snapshot())
+                .thenReturn(new DismissedRulesStore.Snapshot(Set.of("DB-IGNORED"), List.of(), 0));
+        when(scanner.dismissedReport(eq(Set.of("DB-IGNORED")), eq(List.of()))).thenReturn(dismissedView);
 
         MockMvc mvc = standaloneSetup(new DatabaseAdvisorController(scanner, dismissedRules))
                 .build();
@@ -69,7 +70,7 @@ class DatabaseAdvisorControllerTests {
         mvc.perform(get("/bootui/api/database-advisor"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scan.status").value("NOT_SCANNED"));
-        verify(scanner).applyDismissals(initial, Set.of("DB-IGNORED"));
+        verify(scanner).dismissedReport(Set.of("DB-IGNORED"), List.of());
     }
 
     @Test
@@ -78,8 +79,8 @@ class DatabaseAdvisorControllerTests {
         DismissedRulesStore dismissedRules = mock(DismissedRulesStore.class);
         DatabaseAdvisorReport scanned = report("SCANNED", 2);
         when(scanner.scan()).thenReturn(scanned);
-        when(dismissedRules.load()).thenReturn(Set.of());
-        when(scanner.applyDismissals(eq(scanned), any())).thenReturn(scanned);
+        when(dismissedRules.snapshot()).thenReturn(new DismissedRulesStore.Snapshot(Set.of(), List.of(), 0));
+        when(scanner.dismissedReport(any(), any())).thenReturn(scanned);
 
         MockMvc mvc = standaloneSetup(new DatabaseAdvisorController(scanner, dismissedRules))
                 .build();
@@ -98,8 +99,8 @@ class DatabaseAdvisorControllerTests {
         DatabaseAdvisorReport scanned = report("SCANNED", 1);
         when(scanner.lastReport()).thenReturn(scanned);
         when(scanner.scan()).thenReturn(scanned);
-        when(dismissedRules.load()).thenReturn(Set.of());
-        when(scanner.applyDismissals(any(), any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(dismissedRules.snapshot()).thenReturn(new DismissedRulesStore.Snapshot(Set.of(), List.of(), 0));
+        when(scanner.dismissedReport(any(), any())).thenReturn(scanned);
 
         MockMvc mvc = standaloneSetup(new DatabaseAdvisorController(scanner, dismissedRules))
                 .build();

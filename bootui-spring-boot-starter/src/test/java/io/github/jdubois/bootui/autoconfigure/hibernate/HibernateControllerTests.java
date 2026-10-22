@@ -54,8 +54,9 @@ class HibernateControllerTests {
         HibernateReport initial = report("NOT_SCANNED", 0);
         HibernateReport dismissedView = report("NOT_SCANNED", 0);
         when(scanner.lastReport()).thenReturn(initial);
-        when(dismissedRules.load()).thenReturn(Set.of("HIB-IGNORED"));
-        when(scanner.applyDismissals(eq(initial), eq(Set.of("HIB-IGNORED")))).thenReturn(dismissedView);
+        when(dismissedRules.snapshot())
+                .thenReturn(new DismissedRulesStore.Snapshot(Set.of("HIB-IGNORED"), List.of(), 0));
+        when(scanner.dismissedReport(eq(Set.of("HIB-IGNORED")), eq(List.of()))).thenReturn(dismissedView);
 
         MockMvc mvc = standaloneSetup(new HibernateController(scanner, dismissedRules))
                 .build();
@@ -63,7 +64,7 @@ class HibernateControllerTests {
         mvc.perform(get("/bootui/api/hibernate"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scan.status").value("NOT_SCANNED"));
-        verify(scanner).applyDismissals(initial, Set.of("HIB-IGNORED"));
+        verify(scanner).dismissedReport(Set.of("HIB-IGNORED"), List.of());
     }
 
     @Test
@@ -72,8 +73,8 @@ class HibernateControllerTests {
         DismissedRulesStore dismissedRules = mock(DismissedRulesStore.class);
         HibernateReport scanned = report("SCANNED", 2);
         when(scanner.scan()).thenReturn(scanned);
-        when(dismissedRules.load()).thenReturn(Set.of());
-        when(scanner.applyDismissals(eq(scanned), any())).thenReturn(scanned);
+        when(dismissedRules.snapshot()).thenReturn(new DismissedRulesStore.Snapshot(Set.of(), List.of(), 0));
+        when(scanner.dismissedReport(any(), any())).thenReturn(scanned);
 
         MockMvc mvc = standaloneSetup(new HibernateController(scanner, dismissedRules))
                 .build();
@@ -117,8 +118,8 @@ class HibernateControllerTests {
                 base.evidence(),
                 base.violationDetails());
         when(scanner.scan()).thenReturn(scanned);
-        when(dismissedRules.load()).thenReturn(Set.of());
-        when(scanner.applyDismissals(eq(scanned), any())).thenReturn(scanned);
+        when(dismissedRules.snapshot()).thenReturn(new DismissedRulesStore.Snapshot(Set.of(), List.of(), 0));
+        when(scanner.dismissedReport(any(), any())).thenReturn(scanned);
 
         standaloneSetup(new HibernateController(scanner, dismissedRules))
                 .build()

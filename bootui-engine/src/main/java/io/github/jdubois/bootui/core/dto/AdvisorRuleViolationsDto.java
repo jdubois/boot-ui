@@ -13,6 +13,10 @@ import java.util.List;
  * @param changes empty when the advisor does not track changes or there is no previous scan; otherwise aligned
  *     index-for-index with {@code violations}: {@code "NEW"}, {@code "UNCHANGED"}, or {@code null} when the
  *     finding is unkeyed or its movement cannot be verified
+ * @param suppressed empty when no violation on this page is dismissed; otherwise aligned index-for-index with
+ *     {@code violations}: {@code true} for a finding the developer dismissed, which stays listed so it can be restored
+ * @param suppressedCount how many of the rule's retained findings, on any page, the developer dismissed; the rule's
+ *     active count in the report is {@code violationCount - suppressedCount}
  */
 public record AdvisorRuleViolationsDto(
         String scanId,
@@ -24,13 +28,68 @@ public record AdvisorRuleViolationsDto(
         PageMetadata page,
         List<AdvisorViolationLocationDto> locations,
         List<String> identities,
-        List<String> changes) {
+        List<String> changes,
+        List<Boolean> suppressed,
+        int suppressedCount) {
 
     public AdvisorRuleViolationsDto {
         violations = DtoCollections.immutableCopy(violations);
         locations = DtoCollections.alignedCopy(violations, locations);
         identities = DtoCollections.alignedCopy(violations, identities);
         changes = DtoCollections.alignedCopy(violations, changes);
+        suppressed = DtoCollections.alignedCopy(violations, suppressed);
+    }
+
+    public AdvisorRuleViolationsDto(
+            String scanId,
+            String ruleId,
+            int violationCount,
+            int retainedCount,
+            boolean truncated,
+            List<String> violations,
+            PageMetadata page,
+            List<AdvisorViolationLocationDto> locations,
+            List<String> identities,
+            List<String> changes,
+            List<Boolean> suppressed) {
+        this(
+                scanId,
+                ruleId,
+                violationCount,
+                retainedCount,
+                truncated,
+                violations,
+                page,
+                locations,
+                identities,
+                changes,
+                suppressed,
+                0);
+    }
+
+    public AdvisorRuleViolationsDto(
+            String scanId,
+            String ruleId,
+            int violationCount,
+            int retainedCount,
+            boolean truncated,
+            List<String> violations,
+            PageMetadata page,
+            List<AdvisorViolationLocationDto> locations,
+            List<String> identities,
+            List<String> changes) {
+        this(
+                scanId,
+                ruleId,
+                violationCount,
+                retainedCount,
+                truncated,
+                violations,
+                page,
+                locations,
+                identities,
+                changes,
+                List.of());
     }
 
     public AdvisorRuleViolationsDto(
@@ -52,6 +111,7 @@ public record AdvisorRuleViolationsDto(
                 page,
                 locations,
                 List.of(),
+                List.of(),
                 List.of());
     }
 
@@ -71,6 +131,7 @@ public record AdvisorRuleViolationsDto(
                 truncated,
                 violations,
                 page,
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of());

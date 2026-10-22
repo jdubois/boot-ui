@@ -69,6 +69,13 @@ export function useAdvisorRuleViolations(props) {
     }
   }
 
+  /** Rereads the page on display, dropping any request still in flight: its dismissed flags are out of date. */
+  async function refresh() {
+    if (!page.value) return false
+    invalidate()
+    return load(page.value.page.offset)
+  }
+
   function backToSamples() {
     invalidate()
     page.value = null
@@ -86,6 +93,7 @@ export function useAdvisorRuleViolations(props) {
     available,
     load,
     retry: () => load(requestOffset.value),
+    refresh,
     backToSamples
   }
 }
@@ -93,5 +101,6 @@ export function useAdvisorRuleViolations(props) {
 export function rangeLabel(result) {
   const {offset, returned} = result.page
   const range = returned > 0 ? `${offset + 1}–${offset + returned}` : '0'
-  return `Showing ${range} of ${result.retainedCount} retained violations (${result.violationCount} found)`
+  const dismissed = result.suppressedCount > 0 ? `, ${result.suppressedCount} dismissed` : ''
+  return `Showing ${range} of ${result.retainedCount} retained violations (${result.violationCount} found${dismissed})`
 }

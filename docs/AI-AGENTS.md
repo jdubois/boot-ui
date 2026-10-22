@@ -678,6 +678,11 @@ with `bootui.advisors.max-retained-violations`. A truncated report or rule is no
 `page.hasMore` becomes false; a rule can have a positive count and zero retained details. Increasing the retention
 limit cannot recover discarded details without an explicitly authorized new scan. This retrieval completeness is
 separate from the report's `evidence` coverage. Dismissal does not change the scan ID or remove retained details.
+On the Hibernate and Database advisors a developer can also dismiss single findings in the console. A result's
+`violationCount` then counts active findings and `suppressedCount` those dismissed one by one; a page's `violationCount`
+stays the scan's total, its `suppressed` list (empty when none is dismissed) flags the dismissed ones, and
+`suppressedCount` says how many. Treat flagged findings as developer-dismissed, not as fixed. Dismissing is not an
+agent action: there is no tool for it, and the developer's notes are never part of any MCP or CLI output.
 Some upstream observations supply a count but not every affected identity; their diagnostics and truncation remain
 visible rather than inventing missing detail strings. Raising the retention limit cannot repair that observation gap.
 Existing observation bounds also remain: for example, Memory rules that inspect only their top-five inputs do not
@@ -857,7 +862,7 @@ answers with the same summary:
 | `reportTool` | The tool that reads the cached report this scan produced, without scanning again |
 | `detailsTool` | The tool that pages a rule's retained violations; `null` for an advisor without one |
 | `scan`, `evidence` | The scan status and the advisor's coverage, as the report carries them |
-| `findingsFound`, `severityCounts` | The report's whole counts; dismissed findings are excluded |
+| `findingsFound`, `severityCounts` | The report's whole counts; dismissed rules and findings dismissed one by one are excluded |
 | `topFindings` | At most 10 rows, most severe first, then most frequent: `id`, `title`, `severity`, `count`. A row is a rule or a check, and `count` its violations or findings |
 | `moreFindings` | The rows left out of `topFindings`; `0` means every rule or check with a finding is listed |
 | `violationDetails` | The rule advisors' `scanId` and retention, for [paging violations](#reading-retained-advisor-violations); `changes` is what a Hibernate or Database rescan [changed](#checking-what-a-fix-changed) |

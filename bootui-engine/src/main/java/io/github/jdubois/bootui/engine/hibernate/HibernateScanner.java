@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.hibernate;
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
+import io.github.jdubois.bootui.core.dto.DismissedFindingDto;
 import io.github.jdubois.bootui.core.dto.HibernateDiagnosticDto;
 import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
@@ -13,6 +14,8 @@ import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.AdvisorFindingIdentity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorLocations;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
+import io.github.jdubois.bootui.engine.advisor.AdvisorSuppression;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolation;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
@@ -156,6 +159,12 @@ public final class HibernateScanner {
 
     public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
         return violationState.ruleViolations(ruleId, scanId, offset, limit);
+    }
+
+    /** One page of retained findings, flagged where the developer dismissed the finding. */
+    public AdvisorRuleViolationsDto ruleViolations(
+            String ruleId, String scanId, Integer offset, Integer limit, List<DismissedFindingDto> dismissedFindings) {
+        return violationState.ruleViolations(ruleId, scanId, offset, limit, dismissedFindings);
     }
 
     public void setViolationRetentionLimit(IntSupplier limit) {
@@ -590,14 +599,68 @@ public final class HibernateScanner {
     }
 
     public HibernateReport applyDismissals(HibernateReport report, Set<String> dismissedIds) {
-        if (report == null || dismissedIds == null || dismissedIds.isEmpty()) {
+        return applyDismissals(report, dismissedIds, List.of());
+    }
+
+    /**
+     * Applies what the developer dismissed to the report at read time: whole rules, and single findings of the same
+     * completed scan the report describes. A rule left without an active finding counts like a dismissed one, but
+     * stays listed (with {@code suppressedCount}) so its findings can be restored. The retained findings and the
+     * comparison with the previous scan are never touched.
+     */
+    public HibernateReport applyDismissals(
+            HibernateReport report, Set<String> dismissedIds, List<DismissedFindingDto> dismissedFindings) {
+        boolean rules = dismissedIds != null && !dismissedIds.isEmpty();
+        boolean findings = dismissedFindings != null && !dismissedFindings.isEmpty();
+        if (report == null || (!rules && !findings)) {
             return report;
         }
-        List<HibernateRuleResultDto> marked = report.results().stream()
-                .map(result -> result.withDismissed(dismissedIds.contains(result.id())))
+        Set<String> ruleIds = rules ? dismissedIds : Set.of();
+        AdvisorSuppression suppression = findings
+                ? violationState.suppression(report.violationDetails().scanId(), ruleIds, dismissedFindings, "HIB-")
+                : null;
+        return applyDismissals(report, ruleIds, suppression);
+    }
+
+    /**
+     * The latest report with everything the developer dismissed applied, from one snapshot of the latest completed
+     * scan: the report and the retained findings it is projected from always belong to the same scan.
+     */
+    public HibernateReport dismissedReport(Set<String> dismissedIds, List<DismissedFindingDto> dismissedFindings) {
+        boolean rules = dismissedIds != null && !dismissedIds.isEmpty();
+        boolean findings = dismissedFindings != null && !dismissedFindings.isEmpty();
+        if (!rules && !findings) {
+            return lastReport();
+        }
+        Set<String> ruleIds = rules ? dismissedIds : Set.of();
+        if (!findings) {
+            return applyDismissals(lastReport(), ruleIds, (AdvisorSuppression) null);
+        }
+        AdvisorScanState.Current<HibernateReport> current =
+                violationState.current(this::initialReport, ruleIds, dismissedFindings, "HIB-");
+        return applyDismissals(current.report(), ruleIds, current.suppression());
+    }
+
+    private HibernateReport applyDismissals(
+            HibernateReport report, Set<String> ruleIds, AdvisorSuppression suppression) {
+        List<HibernateRuleResultDto> marked = new ArrayList<>(report.results().size());
+        boolean projected = false;
+        for (HibernateRuleResultDto result : report.results()) {
+            HibernateRuleResultDto next = result.withDismissed(ruleIds.contains(result.id()));
+            AdvisorSuppression.Rule rule =
+                    suppression == null || next.dismissed() ? null : suppression.rule(result.id());
+            if (rule != null) {
+                next = suppress(next, rule);
+                projected = true;
+            }
+            marked.add(next);
+        }
+        if (projected) {
+            marked.sort(IMPORTANCE_ORDER);
+        }
+        List<HibernateRuleResultDto> active = marked.stream()
+                .filter(result -> !result.dismissed() && result.violationCount() > 0)
                 .toList();
-        List<HibernateRuleResultDto> active =
-                marked.stream().filter(result -> !result.dismissed()).toList();
         int violationsFound = active.size();
         HibernateScanStatusDto scan = report.scan();
         HibernateScanStatusDto updatedScan = new HibernateScanStatusDto(
@@ -608,19 +671,30 @@ public final class HibernateScanner {
                 scan.rulesEvaluated(),
                 scan.entitiesAnalyzed(),
                 violationsFound);
-        return new HibernateReport(
-                report.localOnly(),
-                report.disclaimer(),
-                report.entityPackages(),
-                report.entitiesAnalyzed(),
-                report.rulesEvaluated(),
+        return report.withSuppression(
                 violationsFound,
                 severityCounts(active),
                 updatedScan,
                 marked,
-                report.diagnostics(),
-                report.evidence(),
-                report.violationDetails());
+                suppression == null ? report.suppression() : suppression.dto());
+    }
+
+    private static HibernateRuleResultDto suppress(HibernateRuleResultDto result, AdvisorSuppression.Rule rule) {
+        AdvisorSuppression.Sample sample =
+                rule.sample(result.sampleViolations(), HibernateRuleSupport.MAX_SAMPLE_VIOLATIONS);
+        List<AdvisorViolationLocationDto> originalLocations = aligned(result);
+        List<String> texts = new ArrayList<>();
+        List<AdvisorViolationLocationDto> locations = new ArrayList<>();
+        for (int index : sample.kept()) {
+            texts.add(result.sampleViolations().get(index));
+            locations.add(originalLocations.get(index));
+        }
+        for (AdvisorViolation added : sample.added()) {
+            texts.add(added.text());
+            locations.add(added.location());
+        }
+        return result.withSuppression(
+                rule.suppressedCount(), result.violationCount() - rule.suppressedCount(), texts, locations);
     }
 
     private EntityDiscovery safeEntityDiscovery() {

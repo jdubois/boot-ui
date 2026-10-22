@@ -35,17 +35,23 @@ public class DatabaseAdvisorController implements AdvisorViolationsEndpoint {
 
     @GetMapping
     public DatabaseAdvisorReport databaseAdvisor() {
-        return scanner.applyDismissals(scanner.lastReport(), dismissedRules.load());
+        return dismissedReport();
     }
 
     @PostMapping("/scan")
     public DatabaseAdvisorReport scan() {
-        DatabaseAdvisorReport report = scanner.scan();
-        return scanner.applyDismissals(report, dismissedRules.load());
+        scanner.scan();
+        return dismissedReport();
     }
 
     @Override
     public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
-        return scanner.ruleViolations(ruleId, scanId, offset, limit);
+        return scanner.ruleViolations(
+                ruleId, scanId, offset, limit, dismissedRules.snapshot().findings());
+    }
+
+    private DatabaseAdvisorReport dismissedReport() {
+        DismissedRulesStore.Snapshot dismissed = dismissedRules.snapshot();
+        return scanner.dismissedReport(dismissed.rules(), dismissed.findings());
     }
 }
