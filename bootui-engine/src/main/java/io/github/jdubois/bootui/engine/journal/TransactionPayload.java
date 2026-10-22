@@ -21,6 +21,11 @@ package io.github.jdubois.bootui.engine.journal;
  * @param failureClass the exception class that failed its commit or rollback, such as {@code
  *     UnexpectedRollbackException}, or {@code null}; Spring does not report the exception that caused a rollback, which
  *     the request's own exception events name
+ * @param ormStatements the JDBC statements its thread's Hibernate sessions executed while it was active, or {@code -1}
+ *     when unknown, as for a reactive transaction, which is not bound to a thread
+ * @param ormFlushes the full flushes its thread's Hibernate sessions ran over a persistence context holding entities while
+ *     it was active, including the flush at its commit, or {@code -1} when unknown
+ * @param ormDirtyEntities the entities those flushes found dirty, or {@code -1} when unknown
  */
 public record TransactionPayload(
         String method,
@@ -31,8 +36,37 @@ public record TransactionPayload(
         boolean readOnly,
         String isolation,
         boolean rollbackOnly,
-        String failureClass)
+        String failureClass,
+        long ormStatements,
+        long ormFlushes,
+        long ormDirtyEntities)
         implements RuntimeEventPayload {
+
+    /** A transaction whose Hibernate work is unknown. */
+    public TransactionPayload(
+            String method,
+            boolean rolledBack,
+            boolean nested,
+            boolean savepoint,
+            long startNanos,
+            boolean readOnly,
+            String isolation,
+            boolean rollbackOnly,
+            String failureClass) {
+        this(
+                method,
+                rolledBack,
+                nested,
+                savepoint,
+                startNanos,
+                readOnly,
+                isolation,
+                rollbackOnly,
+                failureClass,
+                -1,
+                -1,
+                -1);
+    }
 
     /** A transaction whose place among its thread's transactions is unknown. */
     public TransactionPayload(String method, boolean rolledBack) {
@@ -70,7 +104,10 @@ public record TransactionPayload(
                 readOnly,
                 dictionary.shared(isolation),
                 rollbackOnly,
-                dictionary.shared(failureClass));
+                dictionary.shared(failureClass),
+                ormStatements,
+                ormFlushes,
+                ormDirtyEntities);
     }
 
     /** Its fixed part and its strings, each counted as the payload's own. */
@@ -82,7 +119,7 @@ public record TransactionPayload(
     /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
     @Override
     public int estimatedBytes(JournalDictionary dictionary) {
-        return 32
+        return 56
                 + JournalDictionary.retained(dictionary, method)
                 + JournalDictionary.retained(dictionary, isolation)
                 + JournalDictionary.retained(dictionary, failureClass);

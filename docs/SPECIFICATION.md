@@ -1971,7 +1971,8 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   the validation applications) are listed by default; `FAILED` (`route-time-breakdown`, `exception-hotspots`,
   `connections-per-request`, `ai-usage-by-route`, each folded into the panel showing the same evidence, which links to
   its rows), `UNDER_SAMPLED` (`repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`,
-  `framework-warnings-by-route`, `anonymous-data-reach`), `NOT_LISTED` (`gc-inflated-latency`, `heap-growth-after-gc`,
+  `readonly-candidate-transaction`, `framework-warnings-by-route`, `anonymous-data-reach`), `NOT_LISTED`
+  (`gc-inflated-latency`, `heap-growth-after-gc`,
   reached from the Memory panel), and `NOT_JUDGED` (any kind added after the external validation) are not.
   Every observation carries `listed`, whether the panel's and the agents' default list shows it, and, when it does
   not, `unlistedReason`: for a kind that is not listed, where its evidence is shown (the panel it is
