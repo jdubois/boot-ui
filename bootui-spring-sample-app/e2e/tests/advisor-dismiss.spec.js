@@ -147,13 +147,18 @@ test.describe('Advisor rule dismiss/restore', () => {
     const report = await (await scanResponse).json()
     const rule = report.results.find((result) => result.violationCount >= 2)
     expect(rule, 'a rule with at least two findings').toBeTruthy()
-    const ruleCard = page.locator('.list-group-item').filter({has: page.getByText(rule.id, {exact: true})}).first()
+    const ruleCard = page
+      .locator('.list-group-item')
+      .filter({has: page.getByText(rule.id, {exact: true})})
+      .first()
     await expect(ruleCard).toBeVisible({timeout: 30_000})
     const findingsMetric = page.locator('.advisor-summary__metric', {hasText: 'Advisor findings'})
     const rulesBefore = await findingsCount(findingsMetric)
 
     await ruleCard.getByRole('button', {name: `View violations for ${rule.id}`}).click()
-    const firstDismiss = ruleCard.getByRole('button', {name: new RegExp(`^Dismiss finding \\d+ of ${rule.id}$`)}).first()
+    const firstDismiss = ruleCard
+      .getByRole('button', {name: new RegExp(`^Dismiss finding \\d+ of ${rule.id}$`)})
+      .first()
     await expect(firstDismiss).toBeVisible()
     const rows = ruleCard.locator('.advisor-rule-violations li')
     const rowsBefore = await rows.count()
@@ -165,7 +170,9 @@ test.describe('Advisor rule dismiss/restore', () => {
     await dialog.getByRole('button', {name: 'Dismiss finding'}).click()
 
     // The report is recomputed on the next read: one finding fewer, the rule and the others still active.
-    await expect(ruleCard).toContainText(`${rule.violationCount - 1} ${rule.violationCount - 1 === 1 ? 'finding' : 'findings'} found for this rule.`)
+    await expect(ruleCard).toContainText(
+      `${rule.violationCount - 1} ${rule.violationCount - 1 === 1 ? 'finding' : 'findings'} found for this rule.`
+    )
     await expect(ruleCard).toContainText('1 more dismissed one by one.')
     await expect(page.locator('[data-testid="suppressed-summary"]')).toContainText('1 finding dismissed one by one')
     await expect(ruleCard.locator('[data-testid="suppressed-finding"]')).toHaveCount(1)
@@ -181,7 +188,9 @@ test.describe('Advisor rule dismiss/restore', () => {
     await expect(dismissedList.locator('input')).toBeHidden()
     await ruleCard.getByRole('button', {name: new RegExp(`^Restore finding \\d+ of ${rule.id}$`)}).click()
 
-    await expect(ruleCard).toContainText(`${rule.violationCount} ${rule.violationCount === 1 ? 'finding' : 'findings'} found for this rule.`)
+    await expect(ruleCard).toContainText(
+      `${rule.violationCount} ${rule.violationCount === 1 ? 'finding' : 'findings'} found for this rule.`
+    )
     await expect(page.locator('[data-testid="suppressed-summary"]')).toHaveCount(0)
     await expect(page.getByTestId('dismissed-findings')).toHaveCount(0)
     expect((await (await request.get('/bootui/api/dismissed-findings')).json()).dismissed).toHaveLength(0)
@@ -200,16 +209,25 @@ test.describe('Advisor rule dismiss/restore', () => {
     await page.getByRole('button', {name: 'Run Hibernate checks'}).click()
     const report = await (await scanResponse).json()
     const rule = report.results.find((result) => result.violationCount >= 1)
-    const ruleCard = page.locator('.list-group-item').filter({has: page.getByText(rule.id, {exact: true})}).first()
+    const ruleCard = page
+      .locator('.list-group-item')
+      .filter({has: page.getByText(rule.id, {exact: true})})
+      .first()
     await ruleCard.getByRole('button', {name: `View violations for ${rule.id}`}).click()
-    await ruleCard.getByRole('button', {name: new RegExp(`^Dismiss finding \\d+ of ${rule.id}$`)}).first().click()
+    await ruleCard
+      .getByRole('button', {name: new RegExp(`^Dismiss finding \\d+ of ${rule.id}$`)})
+      .first()
+      .click()
     await page.getByRole('dialog').getByRole('button', {name: 'Dismiss finding'}).click()
 
     const dismissedList = page.getByTestId('dismissed-findings')
     await dismissedList.locator('summary').click()
     const note = dismissedList.locator('input[type="text"]').first()
     await note.fill('Intentional: legacy "table" # kept')
-    await dismissedList.getByRole('button', {name: /^Save note/}).first().click()
+    await dismissedList
+      .getByRole('button', {name: /^Save note/})
+      .first()
+      .click()
     await expect(dismissedList.getByRole('button', {name: /^Save note/}).first()).toBeDisabled()
 
     const listed = await (await request.get('/bootui/api/dismissed-findings')).json()
@@ -219,6 +237,8 @@ test.describe('Advisor rule dismiss/restore', () => {
 
     // Rule-level dismissal keeps its meaning and takes precedence over the dismissed finding.
     await ruleCard.getByRole('button', {name: 'Dismiss'}).first().click()
-    await expect(page.locator('.list-group-item.opacity-50').filter({has: page.getByText(rule.id, {exact: true})})).toBeVisible()
+    await expect(
+      page.locator('.list-group-item.opacity-50').filter({has: page.getByText(rule.id, {exact: true})})
+    ).toBeVisible()
   })
 })
