@@ -12,6 +12,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`DB-DRIVER-001..003` (MEDIUM)** flag a pgjdbc or MySQL Connector/J datasource that batches writes without
   `reWriteBatchedInserts`/`rewriteBatchedStatements`, and Connector/J `useAffectedRows=true`
   ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#jdbc-driver); [#1517](https://github.com/jdubois/boot-ui/issues/1517)).
+- **`DB-DRIVER-004..009` (LOW)** flag a small or disabled prepared-statement cache, `autosave=always`, enabled driver
+  diagnostics, no `socketTimeout` and a missing pgjdbc `ApplicationName`
+  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#jdbc-driver); [#1518](https://github.com/jdubois/boot-ui/issues/1518)).
 - **`unbatched-write-loop` observation** reports a request that ran one write statement ten times or more, each without
   a JDBC batch ([#1521](https://github.com/jdubois/boot-ui/issues/1521)).
 - **`HIB-CONFIG-021` (HIGH)** flags `hibernate.connection.provider_disables_autocommit=true` on a pool that hands out

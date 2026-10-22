@@ -206,7 +206,7 @@ class BootUiQuarkusDatabaseAdvisorTest {
                 skipped.add(diagnostic.path("message").asText());
             }
         }
-        assertThat(skipped).hasSize(3).allSatisfy(message -> assertThat(message).startsWith("Not applicable"));
+        assertThat(skipped).hasSize(9).allSatisfy(message -> assertThat(message).startsWith("Not applicable"));
         assertThat(scan.body()).doesNotContain("jdbc:h2", "hibdemo");
     }
 

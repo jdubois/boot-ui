@@ -22,7 +22,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
- * Live pgjdbc coverage for DB-DRIVER-001: the driver's real {@code getDriverName()} and {@code getURL()} reach the
+ * Live pgjdbc coverage for DB-DRIVER-001 and DB-DRIVER-005 to DB-DRIVER-009: the driver's real {@code getDriverName()} and {@code getURL()} reach the
  * rule, a URL that lacks {@code reWriteBatchedInserts} fires it, and a URL that sets it does not. Hibernate batching is
  * supplied through the evidence SPI, since no persistence unit runs here. Skips cleanly without Docker.
  */
@@ -32,7 +32,7 @@ class PostgresJdbcDriverSettingsLiveTests {
     @Container
     static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18-alpine");
 
-    private static Optional<DatabaseAdvisorRuleResultDto> scan(String urlSuffix) {
+    private static DatabaseAdvisorReport scanReport(String urlSuffix) {
         DriverManagerDataSource source = new DriverManagerDataSource(
                 postgres.getJdbcUrl() + urlSuffix, postgres.getUsername(), postgres.getPassword());
         source.setDriverClassName("org.postgresql.Driver");
@@ -56,9 +56,17 @@ class PostgresJdbcDriverSettingsLiveTests {
                         Clock.systemUTC())
                 .scan();
         assertThat(report.toString()).doesNotContain(postgres.getPassword());
+        return report;
+    }
+
+    private static Optional<DatabaseAdvisorRuleResultDto> rule(DatabaseAdvisorReport report, String id) {
         return report.results().stream()
-                .filter(result -> result.id().equals("DB-DRIVER-001"))
+                .filter(result -> result.id().equals(id))
                 .findFirst();
+    }
+
+    private static Optional<DatabaseAdvisorRuleResultDto> scan(String urlSuffix) {
+        return rule(scanReport(urlSuffix), "DB-DRIVER-001");
     }
 
     @Test
@@ -73,5 +81,33 @@ class PostgresJdbcDriverSettingsLiveTests {
     void staysQuietWhenTheUrlSetsIt() {
         String separator = postgres.getJdbcUrl().contains("?") ? "&" : "?";
         assertThat(scan(separator + "reWriteBatchedInserts=true")).isEmpty();
+    }
+
+    @Test
+    void judgesTheSocketTimeoutApplicationNameAndCacheSettingsOfTheRealUrl() {
+        DatabaseAdvisorReport bare = scanReport("");
+
+        assertThat(rule(bare, "DB-DRIVER-008"))
+                .hasValueSatisfying(result ->
+                        assertThat(result.sampleViolations().get(0)).contains("socketTimeout", "unit: seconds"));
+        assertThat(rule(bare, "DB-DRIVER-009"))
+                .hasValueSatisfying(
+                        result -> assertThat(result.sampleViolations().get(0))
+                                .contains("ApplicationName", "PostgreSQL JDBC Driver"));
+        assertThat(rule(bare, "DB-DRIVER-005")).isEmpty();
+        assertThat(rule(bare, "DB-DRIVER-006")).isEmpty();
+
+        String separator = postgres.getJdbcUrl().contains("?") ? "&" : "?";
+        DatabaseAdvisorReport tuned = scanReport(separator + "socketTimeout=30&ApplicationName=orders"
+                + "&autosave=always&preparedStatementCacheQueries=0&logUnclosedConnections=true");
+        assertThat(rule(tuned, "DB-DRIVER-008")).isEmpty();
+        assertThat(rule(tuned, "DB-DRIVER-009")).isEmpty();
+        assertThat(rule(tuned, "DB-DRIVER-005"))
+                .hasValueSatisfying(result -> assertThat(result.sampleViolations())
+                        .singleElement()
+                        .asString()
+                        .contains("preparedStatementCacheQueries"));
+        assertThat(rule(tuned, "DB-DRIVER-006")).isPresent();
+        assertThat(rule(tuned, "DB-DRIVER-007")).isPresent();
     }
 }
