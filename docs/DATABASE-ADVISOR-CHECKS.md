@@ -527,14 +527,16 @@ Agroal datasource that Quarkus has not created yet cannot be read: both are repo
 | Driver | URL and pool both set the same property | Boolean values | Integer values |
 | ------ | --------------------------------------- | -------------- | -------------- |
 | pgjdbc | The **URL wins** (*"the value from Properties object is ignored"*); a pool value is trusted only when the URL was read | `Boolean.parseBoolean`: only `true` (any case) is true, no trimming | `Integer.parseInt`: no trimming, no fraction; anything else is `SKIPPED` |
-| MySQL Connector/J | No precedence is relied on: differing values are `SKIPPED` as unsettled, and a value from one source is not trusted while the other could not be read. (Connector/J 9.7 lets a `Properties` value override the URL; older lines were not checked.) | `true`, `false`, `yes`, `no` (any case); anything else is `SKIPPED` | Parsed as a double and truncated (`2048.0` and `2e3` are valid); anything else is `SKIPPED` |
+| MySQL Connector/J | No precedence is relied on: differing values are `SKIPPED` as unsettled, and a value from one source is not trusted while the other could not be read. (Connector/J 9.7 lets a `Properties` value override the URL; older lines were not checked.) | `true`, `false`, `yes`, `no` (any case); anything else is `SKIPPED` | Parsed as a double and truncated (`2048.0` and `2e3` are valid); a value below the property's minimum (`prepStmtCacheSize` 0, `prepStmtCacheSqlLimit` 1, `socketTimeout` 0), which the driver refuses, or anything else is `SKIPPED` |
 
 Driver rules use the **JDBC driver** category: `DB-DRIVER-001` to `003` are `MEDIUM`, `DB-DRIVER-004` to `009` are
 `LOW`. Verified against pgjdbc 42.7.13 and MySQL Connector/J 9.7.0, the versions the sample applications resolve
 (Spring Boot 4.1 and Quarkus 3.40): names and defaults come from the drivers' own `PGProperty` and
 `PropertyDefinitions` sources, as does the precedence above; the vendor documentation is cited in each rule. A finding
 names the setting, where it was configured and the observed value, and is labelled **configured**. Findings are
-keyed by datasource and setting, never by value, so a changed value keeps the same identity.
+keyed by datasource and setting, never by value, so a changed value keeps the same identity. When a rule judges
+several settings, a finding on one never hides another that could not be judged: that one is reported as a coverage
+gap of the scan.
 
 ### DB-DRIVER-001 - PostgreSQL driver does not rewrite batched inserts
 

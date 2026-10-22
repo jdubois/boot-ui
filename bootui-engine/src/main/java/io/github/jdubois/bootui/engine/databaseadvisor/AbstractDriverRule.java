@@ -48,7 +48,10 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
                     reasons.add(text);
                     gaps.add(text);
                 }
-                case ASSESSED -> assessed++;
+                case ASSESSED -> {
+                    assessed++;
+                    outcome.gaps().forEach(gap -> gaps.add(schema.dataSourceName() + ": " + gap));
+                }
             }
         }
         if (assessed == 0) {
@@ -174,14 +177,20 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
      */
     record IntegerSetting(Integer value, DriverSetting configured, Outcome unresolved) {
 
-        static IntegerSetting of(DriverEvidence driver, String name) {
+        /**
+         * @param connectorJMinimum the lowest value Connector/J accepts for the property: it refuses the connection
+         *     below it, so such a configuration is not evidence. pgjdbc has no such bound.
+         */
+        static IntegerSetting of(DriverEvidence driver, String name, int connectorJMinimum) {
             SettingReading reading = SettingReading.of(driver, name);
             if (reading.unresolved() != null || reading.configured() == null) {
                 return new IntegerSetting(null, reading.configured(), reading.unresolved());
             }
             Integer value = DriverSettingCatalog.asInteger(
                     driver.driver(), reading.configured().value());
-            return value == null
+            boolean refused =
+                    value != null && driver.driver() != DriverSettingCatalog.Driver.PGJDBC && value < connectorJMinimum;
+            return value == null || refused
                     ? new IntegerSetting(
                             null,
                             reading.configured(),
@@ -196,11 +205,17 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
     }
 
     /**
-     * What a datasource's outcome is once its settings were judged one by one: assessed when a finding was recorded
-     * or every setting was settled, otherwise the first gap, so an unsettled setting never reads as a clean pass.
+     * What a datasource's outcome is once its settings were judged one by one. Nothing unsettled: assessed. A finding
+     * was recorded: assessed, and every unsettled setting is still reported as a coverage gap, so a finding on one
+     * setting cannot hide another that could not be judged. Otherwise a gap naming every unsettled setting, so it never
+     * reads as a clean pass.
      */
     static Outcome conclude(boolean found, List<Outcome> unresolved) {
-        return found || unresolved.isEmpty() ? Outcome.assessed() : unresolved.get(0);
+        if (unresolved.isEmpty()) {
+            return Outcome.assessed();
+        }
+        List<String> reasons = unresolved.stream().map(Outcome::text).toList();
+        return found ? Outcome.assessedWithGaps(reasons) : Outcome.gap(String.join(" ", reasons));
     }
 
     /** The canonical identity of a driver-setting finding: the datasource and the setting, never the value. */
@@ -208,7 +223,11 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
         return DatabaseIdentities.of(dataSourceName, "setting=" + setting);
     }
 
-    record Outcome(Kind kind, String text) {
+    record Outcome(Kind kind, String text, List<String> gaps) {
+
+        Outcome(Kind kind, String text) {
+            this(kind, text, List.of());
+        }
 
         enum Kind {
             NOT_APPLICABLE,
@@ -231,6 +250,11 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
 
         static Outcome assessed() {
             return new Outcome(Kind.ASSESSED, "");
+        }
+
+        /** Assessed, but {@code gaps} name settings of the datasource that could not be judged. */
+        static Outcome assessedWithGaps(List<String> gaps) {
+            return new Outcome(Kind.ASSESSED, "", List.copyOf(gaps));
         }
     }
 }

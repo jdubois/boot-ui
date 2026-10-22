@@ -82,6 +82,7 @@ final class MySqlStatementCacheRule extends AbstractDriverRule {
                     DriverSettingCatalog.PREP_STMT_CACHE_SQL_LIMIT,
                     DEFAULT_PREP_STMT_CACHE_SQL_LIMIT,
                     RECOMMENDED_PREP_STMT_CACHE_SQL_LIMIT,
+                    1,
                     conditions,
                     unresolved);
             judge(
@@ -89,6 +90,7 @@ final class MySqlStatementCacheRule extends AbstractDriverRule {
                     DriverSettingCatalog.PREP_STMT_CACHE_SIZE,
                     DEFAULT_PREP_STMT_CACHE_SIZE,
                     RECOMMENDED_PREP_STMT_CACHE_SIZE,
+                    0,
                     conditions,
                     unresolved);
         }
@@ -106,9 +108,10 @@ final class MySqlStatementCacheRule extends AbstractDriverRule {
             String name,
             int driverDefault,
             int recommended,
+            int driverMinimum,
             List<String> conditions,
             List<Outcome> unresolved) {
-        IntegerSetting setting = IntegerSetting.of(driver, name);
+        IntegerSetting setting = IntegerSetting.of(driver, name, driverMinimum);
         if (setting.unresolved() != null) {
             unresolved.add(setting.unresolved());
             return;

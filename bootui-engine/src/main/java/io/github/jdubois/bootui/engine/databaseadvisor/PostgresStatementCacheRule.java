@@ -88,7 +88,7 @@ final class PostgresStatementCacheRule extends AbstractDriverRule {
             int driverDefault,
             DatabaseFindings findings,
             List<Outcome> unresolved) {
-        IntegerSetting setting = IntegerSetting.of(driver, name);
+        IntegerSetting setting = IntegerSetting.of(driver, name, Integer.MIN_VALUE);
         if (setting.unresolved() != null) {
             unresolved.add(setting.unresolved());
             return false;

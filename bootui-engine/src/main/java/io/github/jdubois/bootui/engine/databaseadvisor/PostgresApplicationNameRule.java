@@ -48,7 +48,8 @@ final class PostgresApplicationNameRule extends AbstractDriverRule {
                 + "` in pg_stat_activity";
         if (reading.configured() == null) {
             state = "is not configured in the JDBC URL or the pool's driver properties";
-        } else if (reading.configured().value().isBlank()) {
+        } else if (reading.configured().value().isBlank()
+                && reading.configured().value().length() < DriverSettingCatalog.MAX_VALUE_LENGTH) {
             state = "is blank, configured in the " + reading.configured().label();
             effect = "so connections carry no application name in pg_stat_activity";
         } else if (DriverSettingCatalog.PGJDBC_DEFAULT_APPLICATION_NAME.equals(

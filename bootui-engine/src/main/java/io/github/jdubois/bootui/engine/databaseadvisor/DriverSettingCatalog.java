@@ -295,7 +295,8 @@ public final class DriverSettingCatalog {
      * {@code 2e3} are valid there.
      */
     static Integer asInteger(Driver driver, String value) {
-        if (value == null) {
+        // A value at the cap was cut, so what is left is a prefix and not what the driver reads.
+        if (value == null || value.length() >= MAX_VALUE_LENGTH) {
             return null;
         }
         try {

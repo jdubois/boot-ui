@@ -13,7 +13,8 @@ final class PgJdbc {
      * Another PostgreSQL driver is skipped: its properties are not assumed to match pgjdbc's.
      */
     static Outcome applicability(SchemaSnapshot schema, DriverEvidence driver) {
-        if (schema.dialect() != Dialect.POSTGRESQL) {
+        boolean pgjdbc = driver != null && driver.driver() == DriverSettingCatalog.Driver.PGJDBC;
+        if (schema.dialect() != Dialect.POSTGRESQL && !pgjdbc) {
             return Outcome.notApplicable();
         }
         Outcome unidentified = AbstractDriverRule.driverUnidentified(driver);
@@ -29,7 +30,8 @@ final class PgJdbc {
 
     /** {@code null} when {@code schema} is read through pgjdbc or MySQL Connector/J; otherwise as above. */
     static Outcome pgjdbcOrConnectorJ(SchemaSnapshot schema, DriverEvidence driver) {
-        return schema.dialect() == Dialect.POSTGRESQL
+        boolean pgjdbc = driver != null && driver.driver() == DriverSettingCatalog.Driver.PGJDBC;
+        return schema.dialect() == Dialect.POSTGRESQL || pgjdbc
                 ? applicability(schema, driver)
                 : MySqlConnectorJ.applicability(schema, driver);
     }

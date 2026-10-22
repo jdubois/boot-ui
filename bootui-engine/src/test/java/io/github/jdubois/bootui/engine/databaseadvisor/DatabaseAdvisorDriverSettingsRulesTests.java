@@ -161,6 +161,77 @@ class DatabaseAdvisorDriverSettingsRulesTests {
     }
 
     @Test
+    void statementCacheSkipsAValueConnectorJRefusesInsteadOfCallingItSmall() {
+        assertSkipped(
+                statementCache.evaluate(mysql(connectorJ(urlSettings(
+                        "cachePrepStmts", "true", "prepStmtCacheSqlLimit", "0", "prepStmtCacheSize", "500")))),
+                "does not read as an integer");
+        assertSkipped(
+                statementCache.evaluate(mysql(connectorJ(urlSettings(
+                        "cachePrepStmts", "true", "prepStmtCacheSqlLimit", "4096", "prepStmtCacheSize", "-1")))),
+                "does not read as an integer");
+        // A size of 0 is accepted by Connector/J, and is below the threshold.
+        assertThat(statementCache
+                        .evaluate(mysql(connectorJ(urlSettings(
+                                "cachePrepStmts", "true", "prepStmtCacheSqlLimit", "4096", "prepStmtCacheSize", "0"))))
+                        .status())
+                .isEqualTo("VIOLATION");
+    }
+
+    @Test
+    void aValueCutAtTheRetentionCapIsNotReadAsWhatItsPrefixSays() {
+        String cut = "0".repeat(DriverSettingCatalog.MAX_VALUE_LENGTH);
+        assertSkipped(
+                socketTimeout.evaluate(pg(pgjdbc(urlSettings("socketTimeout", cut)))), "does not read as an integer");
+        assertSkipped(
+                pgStatementCache.evaluate(pg(pgjdbc(urlSettings("preparedStatementCacheQueries", cut)))),
+                "does not read as an integer");
+        assertThat(applicationName
+                        .evaluate(pg(pgjdbc(
+                                urlSettings("ApplicationName", " ".repeat(DriverSettingCatalog.MAX_VALUE_LENGTH)))))
+                        .status())
+                .isEqualTo("PASS");
+    }
+
+    @Test
+    void aFindingNeverHidesASettingOfTheSameDatasourceThatCouldNotBeJudged() {
+        DatabaseAdvisorContext cache = mysql(connectorJ(
+                urlSettings("cachePrepStmts", "true", "prepStmtCacheSqlLimit", "lots", "prepStmtCacheSize", "10")));
+        assertThat(statementCache.evaluate(cache).status()).isEqualTo("VIOLATION");
+        assertThat(cache.evaluationDiagnostics())
+                .anySatisfy(diagnostic -> assertThat(diagnostic.source()).isEqualTo("DB-DRIVER-004"));
+
+        DatabaseAdvisorContext diagnosticsContext = mysql(connectorJ(Map.of(
+                "profileSQL", new DriverSetting("true", DriverSetting.Source.URL, DriverSetting.State.KNOWN),
+                "traceProtocol",
+                        new DriverSetting("true", DriverSetting.Source.URL, DriverSetting.State.CONFLICTING))));
+        assertThat(diagnostics.evaluate(diagnosticsContext).status()).isEqualTo("VIOLATION");
+        assertThat(diagnosticsContext.evaluationDiagnostics())
+                .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("traceProtocol"));
+
+        DatabaseAdvisorContext clean = mysql(connectorJ(urlSettings("profileSQL", "false")));
+        assertThat(diagnostics.evaluate(clean).status()).isEqualTo("PASS");
+        assertThat(clean.evaluationDiagnostics()).isEmpty();
+    }
+
+    @Test
+    void everyUnsettledSettingIsNamedWhenNothingFires() {
+        DatabaseAdvisorRuleResultDto result =
+                diagnostics.evaluate(mysql(connectorJ(urlSettings("profileSQL", "maybe", "traceProtocol", "perhaps"))));
+
+        assertThat(result.status()).isEqualTo("SKIPPED");
+        assertThat(result.sampleViolations().get(0)).contains("profileSQL", "traceProtocol");
+    }
+
+    @Test
+    void pgjdbcOnAnUnrecognisedDialectIsAGapNotSilentlyNotApplicable() {
+        DatabaseAdvisorRuleResultDto result = socketTimeout.evaluate(context(
+                List.of(driverSchema("ordersDb", Dialect.GENERIC, new DriverEvidence(PGJDBC, "42", Map.of(), false)))));
+
+        assertSkipped(result, "JDBC URL could not be read");
+    }
+
+    @Test
     void statementCacheStillFiresOnAKnownSubConditionWhenAnotherSettingCannotBeRead() {
         DatabaseAdvisorRuleResultDto result = statementCache.evaluate(mysql(connectorJ(
                 urlSettings("cachePrepStmts", "true", "prepStmtCacheSqlLimit", "lots", "prepStmtCacheSize", "10"))));
