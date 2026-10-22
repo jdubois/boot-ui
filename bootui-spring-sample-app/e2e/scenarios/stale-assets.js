@@ -55,7 +55,10 @@ export function registerStaleAssetTests(test, expect, {uiPath = '/bootui', apiPa
       const missingAssets = []
       const staleChunk = (url) => url.pathname.startsWith(`${uiPath}/assets/Hibernate-`) && url.pathname.endsWith('.js')
       await page.route(staleChunk, async (route) => {
-        missingAssets.push(route.request().url())
+        missingAssets.push({
+          url: route.request().url(),
+          referer: route.request().headers().referer
+        })
         await route.fulfill({status: 404, contentType: 'text/plain', body: 'Asset removed after rebuild'})
       })
       await page.goto(`${uiPath}/?mode=dev#/http-probe`)
@@ -69,7 +72,17 @@ export function registerStaleAssetTests(test, expect, {uiPath = '/bootui', apiPa
       await expect(alert).toContainText('Reloading discards unsaved input')
       await expect(heading(page, /^HTTP Probe/)).toBeVisible()
       await expect(page.getByLabel('Path', {exact: true})).toHaveValue('/keep-my-unsent-request')
-      expect(missingAssets).toHaveLength(1)
+      // Chromium can request a failed modulepreload again for the dynamic import.
+      expect(missingAssets.length).toBeGreaterThanOrEqual(1)
+      expect(missingAssets.length).toBeLessThanOrEqual(2)
+      expect(new Set(missingAssets.map(({url}) => url)).size).toBe(1)
+      if (missingAssets.length === 2) {
+        const refererPaths = missingAssets.map(({referer}) => (referer ? new URL(referer).pathname : ''))
+        expect(refererPaths.filter((path) => path === `${uiPath}/`)).toHaveLength(1)
+        expect(
+          refererPaths.filter((path) => path.startsWith(`${uiPath}/assets/`) && path.endsWith('.js'))
+        ).toHaveLength(1)
+      }
       expect(documents).toHaveLength(1)
       expect(writes).toEqual([])
 

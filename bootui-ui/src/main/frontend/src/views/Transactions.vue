@@ -1,4 +1,5 @@
 <script setup>
+import LowFootprintBanner from './components/LowFootprintBanner.vue'
 import {ApiError, getJson} from '../api.js'
 import {computed, ref} from 'vue'
 import {formatClockTime, formatNumber} from '../utils/format.js'
@@ -253,6 +254,7 @@ function clearTransactions() {
         />
       </template>
     </PanelHeader>
+    <LowFootprintBanner />
 
     <FlashBanner :message="banner" @dismiss="clearBanner" />
 

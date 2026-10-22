@@ -14,6 +14,8 @@ final class ChildJvm {
     static final Path AGENT = Path.of(System.getProperty("bootui.agent.jar"));
     static final Path TEST_AGENT = Path.of(System.getProperty("bootui.agent.it.jar"));
     static final Path TEST_CLASSES = Path.of(System.getProperty("bootui.agent.test-classes"));
+
+    /** One directory per Failsafe fork, so tests running at once never share a file: keep every test file under it. */
     static final Path WORK = Path.of(System.getProperty("bootui.agent.work"));
 
     private ChildJvm() {}

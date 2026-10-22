@@ -1,4 +1,5 @@
 <script setup>
+import LowFootprintBanner from './components/LowFootprintBanner.vue'
 import {getJson} from '../api.js'
 import {computed, inject, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
@@ -111,6 +112,7 @@ function typeBadgeClass(typeName) {
       @refresh="load"
       @retry-auto-refresh="retryConnection"
     />
+    <LowFootprintBanner />
 
     <p class="text-muted small">
       <template v-if="isQuarkus">

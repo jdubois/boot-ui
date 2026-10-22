@@ -21,7 +21,10 @@ applyTo: ".github/workflows/**,.github/scripts/**,.github/dependabot.yml,Dockerf
 - `build.yml` is the Java 17 baseline: it is the gate for formatting, the full reactor with coverage, the SBOM, and the
   Spring and Quarkus Playwright suites. To keep it fast, the per-extension Quarkus integration-test modules run in a
   parallel `quarkus-extension-its` job (the main build passes `-Dbootui.skipQuarkusExtensionIts`; the `base` module
-  stays in the main build because it feeds the coverage aggregate), and each Spring and Quarkus Playwright suite,
+  stays in the main build because it feeds the coverage aggregate), the integration tests that run the BootUI agent in
+  forked JVMs (`bootui-agent`, the Spring sample, and the Quarkus deployment module) run in a parallel
+  `agent-integration-tests` job (the main build passes `-Dbootui.skipAgentIts`, which defaults to `-DskipTests`), and
+  each Spring and Quarkus Playwright suite,
   including the agent-attached ones and the companion legs that attach the OpenTelemetry Java agent (both orders) or
   JaCoCo's agent beside BootUI's, is its own matrix leg. Companion agent jars come from Maven Central through the
   sample's build (`target/agent-companions`), never from a download in a workflow step. The `agent-overhead` job records the BootUI agent's
