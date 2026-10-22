@@ -502,19 +502,26 @@ common performance and mapping risks: eager fetching, problematic identifier gen
 unsafe cascades, cache misconfiguration, and risky `ddl-auto` values. It never intercepts queries, invokes
 repositories, executes SQL, or modifies mappings. See [HIBERNATE-CHECKS.md](../HIBERNATE-CHECKS.md).
 
-The catalog has 72 active rules. Unavailable observations and rule failures yield `PARTIAL` while keeping valid
+The catalog has 73 active rules. Unavailable observations and rule failures yield `PARTIAL` while keeping valid
 findings, and the report's `diagnostics` (**Scan diagnostics** in the panel) names every failed or incompletely evaluated
 rule. A finding whose rule was only partly evaluated carries a `coverageNote`. An empty findings list is not proof that
 every mapping or query was verified.
 
+HIB-CONFIG-008 and the high-severity HIB-CONFIG-021 compare Hibernate's effective
+`hibernate.connection.provider_disables_autocommit` with the auto-commit default of the HikariCP or Agroal pool behind a
+resource-local persistence unit. The pool is matched through the `DataSource` Hibernate holds and read without borrowing
+a connection; a unit that cannot be attributed to one pool, and any JTA unit, is skipped rather than passed.
+
 ::: details On Quarkus
 
-The panel runs the same 72-rule registry when `quarkus-hibernate-orm` is present, discovering entities from the live
+The panel runs the same 73-rule registry when `quarkus-hibernate-orm` is present, discovering entities from the live
 `EntityManagerFactory` across all persistence units. Spring Data query rules skip when repository metadata is
 unavailable. Differences:
 
 - **Effective factory settings are unit-scoped.** Named units do not inherit the first factory's values.
 - **Bytecode enhancement is always enabled**, so known-absent-enhancement findings do not fire.
+- **Quarkus units are JTA**, so the pool auto-commit checks (HIB-CONFIG-008 and HIB-CONFIG-021) are skipped as not
+  applicable instead of reporting missing evidence.
 - **Panache active-record entities** are handled specially (see below).
 
 | Spring / native Hibernate key                            | Quarkus equivalent                                                           |

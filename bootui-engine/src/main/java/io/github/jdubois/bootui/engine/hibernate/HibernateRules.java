@@ -106,6 +106,35 @@ final class HibernateRuleModelSupport {
 
     private HibernateRuleModelSupport() {}
 
+    /** The declared {@code targetEntity} of a {@code @OneToOne}, falling back to the attribute's Java type. */
+    static Class<?> oneToOneTargetType(HibernateAttributeModel attribute, Annotation oneToOne) {
+        try {
+            Object declared =
+                    oneToOne.annotationType().getMethod("targetEntity").invoke(oneToOne);
+            if (declared instanceof Class<?> type && type != void.class) {
+                return type;
+            }
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            // Fall back to the declared attribute type.
+        }
+        return attribute.rawType();
+    }
+
+    /**
+     * Whether the owning side of an inverse {@code @OneToOne(mappedBy=...)} shares its primary key with this entity,
+     * through {@code @MapsId} or {@code @PrimaryKeyJoinColumn}. Only a simple {@code mappedBy} name is resolved.
+     */
+    static boolean owningSideSharesPrimaryKey(HibernateAttributeModel inverse, Annotation oneToOne, String mappedBy) {
+        Class<?> owner = oneToOneTargetType(inverse, oneToOne);
+        if (owner == null || mappedBy.contains(".")) {
+            return false;
+        }
+        return HibernateEntityModel.fromClass(owner).attributes().stream()
+                .filter(candidate -> mappedBy.equals(candidate.propertyName()))
+                .anyMatch(candidate -> candidate.hasMapsId()
+                        || candidate.annotation("jakarta.persistence.PrimaryKeyJoinColumn") != null);
+    }
+
     /**
      * The concrete entity each attribute was read from, by identity: an attribute inherited from a mapped
      * superclass is a separate object per entity, and its finding is keyed on that entity.
@@ -685,6 +714,9 @@ final class OneToOneWithoutMapsIdRule extends AbstractHibernateRule {
                 if (mappedBy != null && !mappedBy.isBlank()) {
                     continue;
                 }
+                if (targetsOwnHierarchy(entity, attribute, oneToOne)) {
+                    continue;
+                }
                 if (hasDependentSignal(attribute, oneToOne)) {
                     dependentDetails.add(
                             attribute.description()
@@ -708,6 +740,38 @@ final class OneToOneWithoutMapsIdRule extends AbstractHibernateRule {
             return violation(context, HibernateRuleSupport.MEDIUM, dependentDetails);
         }
         return violation(context, HibernateRuleSupport.LOW, plainDetails);
+    }
+
+    /**
+     * A shared primary key is impossible when the association targets the owning entity or another entity of its
+     * inheritance hierarchy: both rows live in one identifier space. Two entities that merely share a
+     * {@code @MappedSuperclass} are independent hierarchies and stay reportable.
+     */
+    private boolean targetsOwnHierarchy(
+            HibernateEntityModel entity, HibernateAttributeModel attribute, Annotation oneToOne) {
+        Class<?> ownerRoot = entityRoot(entity.javaType());
+        Class<?> targetRoot = entityRoot(HibernateRuleModelSupport.oneToOneTargetType(attribute, oneToOne));
+        return ownerRoot != null && ownerRoot == targetRoot;
+    }
+
+    /**
+     * The topmost {@code @Entity} class in the superclass chain. An entity declared only in {@code orm.xml} carries no
+     * annotation, so the type itself stands for its own hierarchy.
+     */
+    private Class<?> entityRoot(Class<?> type) {
+        Class<?> root = type;
+        boolean annotated = false;
+        for (Class<?> current = type; current != null && current != Object.class; current = current.getSuperclass()) {
+            for (Annotation annotation : current.getDeclaredAnnotations()) {
+                if ("jakarta.persistence.Entity"
+                        .equals(annotation.annotationType().getName())) {
+                    root = current;
+                    annotated = true;
+                    break;
+                }
+            }
+        }
+        return annotated || type == null ? root : type;
     }
 
     private boolean hasDependentSignal(HibernateAttributeModel attribute, Annotation oneToOne) {
@@ -1178,6 +1242,60 @@ final class HibernateStatisticsRule extends AbstractHibernateRule {
     }
 }
 
+/**
+ * What an observed, resource-local persistence unit says about auto-commit: Hibernate's effective belief that its
+ * connection provider disables it, and the auto-commit default of the pool the unit was attributed to. Anything
+ * that cannot be proven yields a controlled skip reason instead of values, so an unknown never becomes a pass.
+ */
+record PoolAutoCommitEvidence(
+        String skipReason, boolean providerDisablesAutoCommit, HibernatePoolObservation pool, boolean poolAutoCommit) {
+
+    static PoolAutoCommitEvidence of(HibernateContext context) {
+        HibernateFactorySettings settings = context.factorySettings();
+        context.evidence().markApplicableIf(!context.entities().isEmpty());
+        switch (settings.transactionMode()) {
+            case JTA -> {
+                return skip("JTA transaction management was detected; the pool's auto-commit default does not apply.");
+            }
+            case UNKNOWN -> {
+                context.missingEvidence(HibernateEvidenceGap.FACTORY_SETTING);
+                return skip("The persistence unit's transaction mode could not be observed.");
+            }
+            default -> {}
+        }
+        if (settings.providerDisablesAutoCommit() == null) {
+            context.missingEvidence(HibernateEvidenceGap.FACTORY_SETTING);
+            return skip("Hibernate's effective hibernate.connection.provider_disables_autocommit could not be"
+                    + " observed.");
+        }
+        HibernatePoolObservation pool = context.pool();
+        if (pool == null) {
+            context.missingEvidence(HibernateEvidenceGap.POOL_GUARANTEES_BY_DESIGN);
+            return skip("The persistence unit could not be attributed to one HikariCP or Agroal pool; no connection is"
+                    + " acquired to find out.");
+        }
+        if (pool.autoCommit() == null) {
+            context.missingEvidence(HibernateEvidenceGap.POOL_GUARANTEES_BY_DESIGN);
+            return skip("The attributed pool did not report its auto-commit default; no connection is acquired to"
+                    + " find out.");
+        }
+        return new PoolAutoCommitEvidence(null, settings.providerDisablesAutoCommit(), pool, pool.autoCommit());
+    }
+
+    private static PoolAutoCommitEvidence skip(String reason) {
+        return new PoolAutoCommitEvidence(reason, false, null, false);
+    }
+
+    boolean skipped() {
+        return skipReason != null;
+    }
+
+    String poolDescription() {
+        String implementation = pool.implementation() == null ? "Connection" : pool.implementation();
+        return implementation + " pool " + pool.dataSourceName();
+    }
+}
+
 final class ProviderDisablesAutocommitRule extends AbstractHibernateRule {
 
     ProviderDisablesAutocommitRule() {
@@ -1187,20 +1305,30 @@ final class ProviderDisablesAutocommitRule extends AbstractHibernateRule {
                         "Connection providers should disable auto-commit explicitly",
                         HibernateCategory.CONFIGURATION,
                         "INFO",
-                        "Detects resource-local configurations where hibernate.connection.provider_disables_autocommit"
-                                + " is not enabled.",
-                        "Consider hibernate.connection.provider_disables_autocommit=true only for verified"
-                                + " resource-local handling when the provider guarantees auto-commit is disabled."
-                                + " Framework property presence does not establish that guarantee.",
+                        "Detects resource-local persistence units whose pool already hands out connections with"
+                                + " auto-commit disabled while hibernate.connection.provider_disables_autocommit is"
+                                + " not enabled.",
+                        "Set hibernate.connection.provider_disables_autocommit=true only because the pool"
+                                + " already disables auto-commit (Spring Boot with HikariCP:"
+                                + " spring.datasource.hikari.auto-commit=false), so Hibernate can skip"
+                                + " setAutoCommit(false) and delay acquiring the connection until the first"
+                                + " statement. Never set it for a pool that hands out auto-commit connections.",
                         "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#database-connectionprovider"));
     }
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.observed()) {
-            context.missingEvidence(HibernateEvidenceGap.POOL_GUARANTEES_BY_DESIGN);
-            return skipped("Selected pool auto-commit and resource-local guarantees were not observed; no connection is"
-                    + " acquired.");
+            PoolAutoCommitEvidence evidence = PoolAutoCommitEvidence.of(context);
+            if (evidence.skipped()) return skipped(evidence.skipReason());
+            if (!evidence.providerDisablesAutoCommit() && !evidence.poolAutoCommit()) {
+                return violation(
+                        context,
+                        List.of(evidence.poolDescription() + " disables auto-commit (autoCommit=false) but"
+                                + " hibernate.connection.provider_disables_autocommit is off, so Hibernate acquires"
+                                + " connections eagerly."));
+            }
+            return pass();
         }
         if (context.isPropertyTrue("spring.jta.enabled")
                 || "JTA"
@@ -1228,6 +1356,45 @@ final class ProviderDisablesAutocommitRule extends AbstractHibernateRule {
         return skipped("Auto-commit handling could not be confirmed; set"
                 + " hibernate.connection.provider_disables_autocommit=true when the connection pool disables"
                 + " auto-commit.");
+    }
+}
+
+final class ProviderAutoCommitContradictionRule extends AbstractHibernateRule {
+
+    ProviderAutoCommitContradictionRule() {
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-CONFIG-021",
+                        "Provider auto-commit setting should match the pool",
+                        HibernateCategory.CONFIGURATION,
+                        "HIGH",
+                        "Detects resource-local persistence units where"
+                                + " hibernate.connection.provider_disables_autocommit is enabled but the pool hands"
+                                + " out auto-commit connections, so Hibernate never disables auto-commit and each"
+                                + " statement commits on its own.",
+                        "Disable auto-commit in the pool (Spring Boot with HikariCP:"
+                                + " spring.datasource.hikari.auto-commit=false) or remove"
+                                + " hibernate.connection.provider_disables_autocommit so Hibernate disables"
+                                + " auto-commit itself. Quarkus has no quarkus.datasource.jdbc.auto-commit"
+                                + " setting for Agroal, so there remove the property.",
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#database-connectionprovider"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        if (!context.observed()) {
+            return skipped("The pool's auto-commit default is only observed for a live persistence unit.");
+        }
+        PoolAutoCommitEvidence evidence = PoolAutoCommitEvidence.of(context);
+        if (evidence.skipped()) return skipped(evidence.skipReason());
+        if (evidence.providerDisablesAutoCommit() && evidence.poolAutoCommit()) {
+            return violation(
+                    context,
+                    List.of("hibernate.connection.provider_disables_autocommit=true, but "
+                            + evidence.poolDescription() + " hands out auto-commit connections (autoCommit=true), so"
+                            + " transactions are not atomic."));
+        }
+        return pass();
     }
 }
 
@@ -2896,6 +3063,11 @@ final class NonOwningOneToOneEnhancementRule extends AbstractHibernateRule {
                 if (mappedBy != null
                         && !mappedBy.isBlank()
                         && "LAZY".equals(attribute.annotationValueName(oneToOne, "fetch"))) {
+                    // A mandatory inverse side whose owner shares the primary key can be proxied without enhancement.
+                    if (Boolean.FALSE.equals(attribute.annotationBooleanValue(oneToOne, "optional"))
+                            && HibernateRuleModelSupport.owningSideSharesPrimaryKey(attribute, oneToOne, mappedBy)) {
+                        continue;
+                    }
                     details.add(
                             attribute.description()
                                     + " is a non-owning @OneToOne but bytecode enhancement is disabled.",

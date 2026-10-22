@@ -1214,11 +1214,13 @@ public abstract class AbstractMcpConformanceTest {
                                 "route-time-breakdown",
                                 "exception-hotspots",
                                 "connections-per-request",
+                                "connection-reacquisition",
                                 "ai-usage-by-route",
                                 "repeated-selects",
                                 "lazy-sql-after-handler",
                                 "split-transaction-writes",
                                 "readonly-candidate-transaction",
+                                "unbatched-write-loop",
                                 "framework-warnings-by-route",
                                 "anonymous-data-reach");
             }

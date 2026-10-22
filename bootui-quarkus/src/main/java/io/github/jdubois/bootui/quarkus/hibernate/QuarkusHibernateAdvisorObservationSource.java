@@ -7,7 +7,9 @@ import io.github.jdubois.bootui.engine.hibernate.HibernateApplicationFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateFactorySettingsReader;
 import io.github.jdubois.bootui.engine.hibernate.HibernateObservationDiagnostic;
 import io.github.jdubois.bootui.engine.hibernate.HibernatePersistenceUnitObservation;
+import io.github.jdubois.bootui.engine.hibernate.HibernatePoolAttribution;
 import io.github.jdubois.bootui.engine.hibernate.JpaMetamodelReader;
+import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
 import jakarta.enterprise.inject.Instance;
 import jakarta.persistence.EntityManagerFactory;
 import java.util.ArrayList;
@@ -23,10 +25,18 @@ import org.hibernate.engine.spi.SessionFactoryImplementor;
 /** Instantiated exclusively by the ORM-capability-gated producer, not a CDI-discovered bean. */
 public final class QuarkusHibernateAdvisorObservationSource implements HibernateAdvisorObservationSource {
     private final Instance<EntityManagerFactory> factories;
+    private final Instance<ConnectionPoolProvider> pools;
     private final Config config;
 
     public QuarkusHibernateAdvisorObservationSource(Instance<EntityManagerFactory> factories, Config config) {
+        this(factories, null, config);
+    }
+
+    /** {@code pools} is optional: without a pool backend no persistence unit is attributed to a pool. */
+    public QuarkusHibernateAdvisorObservationSource(
+            Instance<EntityManagerFactory> factories, Instance<ConnectionPoolProvider> pools, Config config) {
         this.factories = factories;
+        this.pools = pools;
         this.config = config;
     }
 
@@ -61,7 +71,8 @@ public final class QuarkusHibernateAdvisorObservationSource implements Hibernate
                             List.of(),
                             Version.getVersionString(),
                             HibernateFactorySettingsReader.read(factory, label, diagnostics),
-                            true));
+                            true,
+                            HibernatePoolAttribution.observe(factory, label, poolProvider(), diagnostics)));
                 } catch (RuntimeException | LinkageError ex) {
                     diagnostics.add(new HibernateObservationDiagnostic(
                             label, HibernateObservationDiagnostic.Reason.FACTORY_UNAVAILABLE));
@@ -96,6 +107,15 @@ public final class QuarkusHibernateAdvisorObservationSource implements Hibernate
                 config.getOptionalValue("bootui.internal.hibernate-panache-enhancement", Boolean.class)
                         .orElse(false));
         return new HibernateAdvisorObservation(units, facts, diagnostics);
+    }
+
+    private ConnectionPoolProvider poolProvider() {
+        if (pools == null) return null;
+        try {
+            return pools.isResolvable() ? pools.get() : null;
+        } catch (RuntimeException | LinkageError ex) {
+            return null;
+        }
     }
 
     private static String unitName(SessionFactoryImplementor factory) {

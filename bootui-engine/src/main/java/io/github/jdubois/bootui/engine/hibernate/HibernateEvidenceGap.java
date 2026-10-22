@@ -24,7 +24,10 @@ enum HibernateEvidenceGap {
             "application-level setting(s) unavailable (logging, open-in-view, or datasource" + " initialization)"),
     CONNECTION_PROVIDER("connection provider or pool guarantees unavailable"),
     POOL_GUARANTEES_BY_DESIGN(
-            "pool auto-commit and resource-local guarantees, which this advisor does not observe by design", true),
+            "pool auto-commit default, which this advisor does not observe by design unless the pool can be"
+                    + " attributed to the persistence unit (HikariCP and Agroal only, never by acquiring a"
+                    + " connection)",
+            true),
     CACHE_STRATEGY_BY_DESIGN(
             "provider-selected cache access strategy and entity eligibility, which this advisor does not observe by"
                     + " design",

@@ -19,6 +19,7 @@ export const THEMES = [
     kinds: [
       'repeated-selects',
       'safe-method-dml',
+      'unbatched-write-loop',
       'lazy-sql-after-handler',
       'orm-auto-flush',
       'large-persistence-context'
@@ -30,6 +31,7 @@ export const THEMES = [
     label: 'Transactions',
     kinds: [
       'connections-per-request',
+      'connection-reacquisition',
       'split-transaction-writes',
       'transaction-across-remote-call',
       'transactional-listener-skipped',

@@ -35,7 +35,8 @@ final class CommandTree {
                         "Output is JSON when piped or with --json, and readable otherwise.")
                 .footer(
                         "",
-                        "Exit codes: 0 answered, 1 usage or transport error, 2 refused by BootUI's panel policy.",
+                        "Exit codes: 0 answered, 1 usage or transport error, 2 refused by BootUI's panel policy, "
+                                + "3 --fail-on threshold met.",
                         "Run 'bootui tools' to see what a specific application actually exposes.");
 
         List<CommandSpec> toolGroups = new ArrayList<>();
@@ -195,8 +196,28 @@ final class CommandTree {
                     .setter(setter((Integer value) -> command.offset = value))
                     .build());
         }
+        if (FailOnTools.supports(tool.name())) {
+            spec.addOption(OptionSpec.builder("--fail-on")
+                    .paramLabel("<severity>")
+                    .type(FailOn.Severity.class)
+                    .description("Exit 3 when a retained finding is at or above this severity ("
+                            + FailOn.accepted()
+                            + "). Exits 1 when the scan cannot be evaluated, such as a report that was "
+                            + "never scanned. The output is unchanged.")
+                    .converters(CommandTree::severity)
+                    .setter(setter((FailOn.Severity value) -> command.failOn = value))
+                    .build());
+        }
         configure(context, spec);
         return spec;
+    }
+
+    private static FailOn.Severity severity(String value) {
+        try {
+            return FailOn.parse(value);
+        } catch (IllegalArgumentException invalid) {
+            throw new CommandLine.TypeConversionException(invalid.getMessage());
+        }
     }
 
     /** Empty for a command every stack has, otherwise {@code " (only on spring mvc, spring webflux)"}. */
@@ -392,6 +413,7 @@ final class CommandTree {
         private String id;
         private String scanId;
         private Integer offset;
+        private FailOn.Severity failOn;
 
         ToolCommand(CliContext context, ToolManifest.Tool tool) {
             this.context = context;
@@ -400,7 +422,7 @@ final class CommandTree {
 
         @Override
         public Integer call() {
-            return context.invokeTool(tool, query, limit, id, scanId, offset);
+            return context.invokeTool(tool, query, limit, id, scanId, offset, failOn);
         }
     }
 }

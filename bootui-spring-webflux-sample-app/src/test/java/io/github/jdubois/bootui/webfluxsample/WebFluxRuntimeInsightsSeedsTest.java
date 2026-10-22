@@ -47,9 +47,9 @@ class WebFluxRuntimeInsightsSeedsTest {
 
     private final List<JsonNode> observations = new ArrayList<>();
 
-    private final List<JsonNode> checks = new ArrayList<>();
-
     private final List<String> notExercised = new ArrayList<>();
+
+    private final List<JsonNode> checks = new ArrayList<>();
 
     @BeforeAll
     void seed() throws Exception {
@@ -58,6 +58,10 @@ class WebFluxRuntimeInsightsSeedsTest {
             assertThat(probe.get("/api/insights/notes/on-event-loop").status()).isEqualTo(200);
             assertThat(probe.get("/api/insights/notes/one-by-one").status()).isEqualTo(200);
             assertThat(probe.get("/api/insights/notes/at-once").status()).isEqualTo(200);
+            assertThat(probe.get("/api/insights/notes/write-one-by-one").status())
+                    .isEqualTo(200);
+            assertThat(probe.get("/api/insights/notes/write-in-one-batch").status())
+                    .isEqualTo(200);
             assertThat(probe.get("/api/notes").status()).isEqualTo(200);
             assertThat(probe.get("/api/sample/rest-client").status()).isEqualTo(200);
         }
@@ -82,6 +86,20 @@ class WebFluxRuntimeInsightsSeedsTest {
                     assertThat(check.path("reason").asText()).contains("No eligible work");
                 });
         assertThat(subjects("readonly-candidate-transaction")).isEmpty();
+    }
+
+    @Test
+    void aLoopOfSingleUpdatesInOneTransactionIsFoundButNotTheSameUpdatesInOneBatch() {
+        assertThat(subjects("unbatched-write-loop")).containsExactly("GET /api/insights/notes/write-one-by-one");
+        assertThat(observations)
+                .filteredOn(observation -> observation.path("kind").asText().equals("unbatched-write-loop"))
+                .as("the batched route shows no row of that kind, whatever its status")
+                .extracting(observation -> observation.path("subject").asText())
+                .doesNotContain("GET /api/insights/notes/write-in-one-batch");
+        assertThat(checks)
+                .filteredOn(check -> check.path("kind").asText().equals("unbatched-write-loop"))
+                .singleElement()
+                .satisfies(check -> assertThat(check.path("status").asText()).isEqualTo("EVALUATED"));
     }
 
     @Test
@@ -132,6 +150,19 @@ class WebFluxRuntimeInsightsSeedsTest {
                         + observation.path("subject").asText() + ": "
                         + observation.path("sentence").asText())
                 .isEmpty();
+    }
+
+    /** The sample is JDBC-only, so no Hibernate session is recorded: the check ran and found nothing to judge. */
+    @Test
+    void connectionReacquisitionHasNoHibernateSessionToJudgeInAJdbcOnlySample() {
+        assertThat(subjects("connection-reacquisition")).isEmpty();
+        assertThat(checks)
+                .filteredOn(check -> check.path("kind").asText().equals("connection-reacquisition"))
+                .singleElement()
+                .satisfies(check -> {
+                    assertThat(check.path("status").asText()).isEqualTo("INSUFFICIENT");
+                    assertThat(check.path("eligibleRequests").asLong()).isZero();
+                });
     }
 
     @Test

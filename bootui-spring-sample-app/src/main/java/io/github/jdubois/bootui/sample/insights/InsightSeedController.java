@@ -25,6 +25,9 @@ public class InsightSeedController {
 
     private static final Logger log = LoggerFactory.getLogger(InsightSeedController.class);
 
+    /** The rows each audit route writes: more than the ten executions that make a loop. */
+    private static final int AUDIT_ROWS = 12;
+
     private final InsightOrderService orders;
     private final InsightOrderEvents events;
     private final InsightTagService tags;
@@ -43,6 +46,16 @@ public class InsightSeedController {
     @PostMapping("/tags/read-then-write")
     public Map<String, Object> tagsReadThenWrite() {
         return Map.of("tags", tags.countThenSave());
+    }
+
+    @GetMapping("/tags/reacquire")
+    public Map<String, Object> tagsReacquiringTheConnection() {
+        return Map.of("tags", tags.countTagsOneTransactionAtATime());
+    }
+
+    @GetMapping("/tags/reacquire-one-transaction")
+    public Map<String, Object> tagsInOneTransaction() {
+        return Map.of("tags", tags.countTagsInOneTransaction());
     }
 
     @GetMapping("/tags/export")
@@ -78,6 +91,16 @@ public class InsightSeedController {
     @GetMapping("/orders/joined")
     public List<Map<String, Object>> ordersJoined() {
         return orders.ordersJoined();
+    }
+
+    @PostMapping("/audit/one-by-one")
+    public Map<String, Object> auditOneByOne() {
+        return Map.of("rows", orders.auditOneByOne(AUDIT_ROWS));
+    }
+
+    @PostMapping("/audit/in-one-batch")
+    public Map<String, Object> auditInOneBatch() {
+        return Map.of("rows", orders.auditInOneBatch(AUDIT_ROWS));
     }
 
     @GetMapping("/orders/{id}")

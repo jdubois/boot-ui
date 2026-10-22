@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.quarkus.databaseadvisor;
 
+import io.github.jdubois.bootui.engine.datasource.PhysicalDataSources;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery.Failure;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceProvider;
@@ -12,7 +13,6 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
 import java.lang.annotation.Annotation;
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -51,8 +51,6 @@ import javax.sql.DataSource;
 public final class QuarkusDatabaseAdvisorDataSourceProvider implements DatabaseAdvisorDataSourceProvider {
 
     private static final String AGROAL_DATA_SOURCE_QUALIFIER = "io.quarkus.agroal.DataSource";
-    private static final String TRACED_DATA_SOURCE_MARKER =
-            "io.github.jdubois.bootui.engine.sqltrace.SqlTracedDataSource";
 
     private final Instance<DataSource> dataSources;
     private final BeanManager beanManager;
@@ -218,24 +216,7 @@ public final class QuarkusDatabaseAdvisorDataSourceProvider implements DatabaseA
      * one datasource. Anything else is its own physical datasource.
      */
     private static DataSource physicalDataSource(DataSource dataSource) {
-        if (!isTracingProxy(dataSource)) {
-            return dataSource;
-        }
-        try {
-            DataSource unwrapped = dataSource.unwrap(DataSource.class);
-            return unwrapped == null ? dataSource : unwrapped;
-        } catch (SQLException | RuntimeException ex) {
-            return dataSource;
-        }
-    }
-
-    private static boolean isTracingProxy(DataSource dataSource) {
-        for (Class<?> interfaceType : dataSource.getClass().getInterfaces()) {
-            if (TRACED_DATA_SOURCE_MARKER.equals(interfaceType.getName())) {
-                return true;
-            }
-        }
-        return false;
+        return PhysicalDataSources.physical(dataSource);
     }
 
     private static String positionalName(int position) {

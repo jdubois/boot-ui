@@ -2116,7 +2116,7 @@ public abstract class AbstractBootUiApiConformanceTest {
         JsonNode report = probe.get(api("/runtime-insights")).json();
         assertThat(report.path("checks").size())
                 .as("every observation reports whether it ran")
-                .isEqualTo(24);
+                .isEqualTo(26);
         // Each kind's external validation (docs/PLAN-v2.md M4-20) decides its default listing on every stack, but
         // stays internal: no check carries it, and no row's reason mentions it.
         for (JsonNode check : report.path("checks")) {
@@ -2128,11 +2128,13 @@ public abstract class AbstractBootUiApiConformanceTest {
                 "route-time-breakdown",
                 "exception-hotspots",
                 "connections-per-request",
+                "connection-reacquisition",
                 "ai-usage-by-route",
                 "repeated-selects",
                 "lazy-sql-after-handler",
                 "split-transaction-writes",
                 "readonly-candidate-transaction",
+                "unbatched-write-loop",
                 "framework-warnings-by-route",
                 "anonymous-data-reach",
                 "gc-inflated-latency",

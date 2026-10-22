@@ -812,7 +812,9 @@ Every tool that takes an `id` follows one convention, on Spring MVC, WebFlux, an
   error; `get_code_paths` answers `available: false` only when its agent evidence is absent.
 
 A panel that is disabled refuses its tools before they run (CLI exit `2`); a tool this application does not advertise
-answers with why its panel is unavailable.
+answers with why its panel is unavailable. For a CI gate, the CLI's advisor scan and report commands take
+`--fail-on <severity>` and exit `3` when a retained finding is at or above it; that option is CLI-only and is never an
+MCP argument (see [Gate on severity](CLI.md#gate-on-severity)).
 
 ### Agent-sized defaults
 

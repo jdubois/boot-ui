@@ -69,6 +69,7 @@ final class HibernateRuleRegistry {
             new SlowQueryLogRule(),
             new HibernateStatisticsRule(),
             new ProviderDisablesAutocommitRule(),
+            new ProviderAutoCommitContradictionRule(),
             new InClausePaddingRule(),
             new QueryCacheRegionFactoryRule(),
             new CacheableWithoutCacheStrategyRule(),

@@ -7,6 +7,11 @@ final class HibernateObservationFixtures {
     private HibernateObservationFixtures() {}
 
     static HibernateFactorySettings settings(TestEnvironment values) {
+        return settings(values, HibernateFactorySettings.ConnectionProvider.MANAGED);
+    }
+
+    static HibernateFactorySettings settings(
+            TestEnvironment values, HibernateFactorySettings.ConnectionProvider connectionProvider) {
         HibernateContext declarations = new HibernateContext(List.of(), List.of(), values.lookup(), List.of());
         return new HibernateFactorySettings(
                 integer(declarations, "hibernate.jdbc.batch_size", 0),
@@ -18,7 +23,7 @@ final class HibernateObservationFixtures {
                 bool(declarations, "hibernate.query.fail_on_pagination_over_collection_fetch", false),
                 bool(declarations, "hibernate.generate_statistics", false),
                 HibernateFactorySettings.RegionFactory.AVAILABLE,
-                HibernateFactorySettings.ConnectionProvider.MANAGED,
+                connectionProvider,
                 HibernateFactorySettings.SchemaAction.hibernate(
                         declarations.firstProperty("spring.jpa.hibernate.ddl-auto", "hibernate.hbm2ddl.auto") == null
                                 ? "none"
@@ -34,7 +39,19 @@ final class HibernateObservationFixtures {
                         != null,
                 integer(declarations, "hibernate.jdbc.fetch_size", 0),
                 false,
-                "postgresql".equals(declarations.firstProperty("bootui.test.dialect")));
+                "postgresql".equals(declarations.firstProperty("bootui.test.dialect")),
+                bool(declarations, "hibernate.connection.provider_disables_autocommit", false),
+                transactionMode(declarations));
+    }
+
+    private static HibernateFactorySettings.TransactionMode transactionMode(HibernateContext declarations) {
+        return declarations.isPropertyTrue("spring.jta.enabled")
+                        || "JTA"
+                                .equalsIgnoreCase(declarations.firstProperty(
+                                        "spring.jpa.properties.jakarta.persistence.transactionType",
+                                        "jakarta.persistence.transactionType"))
+                ? HibernateFactorySettings.TransactionMode.JTA
+                : HibernateFactorySettings.TransactionMode.RESOURCE_LOCAL;
     }
 
     static HibernateApplicationFacts application(TestEnvironment values) {

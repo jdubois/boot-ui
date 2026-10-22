@@ -7,8 +7,10 @@ import io.github.jdubois.bootui.engine.hibernate.HibernateApplicationFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateFactorySettingsReader;
 import io.github.jdubois.bootui.engine.hibernate.HibernateObservationDiagnostic;
 import io.github.jdubois.bootui.engine.hibernate.HibernatePersistenceUnitObservation;
+import io.github.jdubois.bootui.engine.hibernate.HibernatePoolAttribution;
 import io.github.jdubois.bootui.engine.hibernate.HibernateRepositoryModel;
 import io.github.jdubois.bootui.engine.hibernate.JpaMetamodelReader;
+import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
 import jakarta.persistence.EntityManagerFactory;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -19,16 +21,25 @@ import org.hibernate.Version;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.springframework.beans.factory.BeanFactoryUtils;
 import org.springframework.beans.factory.ListableBeanFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.env.Environment;
 
 /** Optional Hibernate binding. Factory resolution and metadata reads happen only on explicit scans. */
 public final class SpringHibernateAdvisorObservationSource implements HibernateAdvisorObservationSource {
     private final ListableBeanFactory beans;
     private final Environment environment;
+    private final ObjectProvider<ConnectionPoolProvider> pools;
 
     public SpringHibernateAdvisorObservationSource(ListableBeanFactory beans, Environment environment) {
+        this(beans, environment, null);
+    }
+
+    /** {@code pools} is optional: without a pool backend no persistence unit is attributed to a pool. */
+    public SpringHibernateAdvisorObservationSource(
+            ListableBeanFactory beans, Environment environment, ObjectProvider<ConnectionPoolProvider> pools) {
         this.beans = beans;
         this.environment = environment;
+        this.pools = pools;
     }
 
     @Override
@@ -64,7 +75,8 @@ public final class SpringHibernateAdvisorObservationSource implements HibernateA
                             List.of(),
                             Version.getVersionString(),
                             HibernateFactorySettingsReader.read(factory, label, diagnostics),
-                            null));
+                            null,
+                            HibernatePoolAttribution.observe(factory, label, poolProvider(), diagnostics)));
                 } catch (RuntimeException | LinkageError ex) {
                     diagnostics.add(new HibernateObservationDiagnostic(
                             label, HibernateObservationDiagnostic.Reason.FACTORY_UNAVAILABLE));
@@ -119,9 +131,19 @@ public final class SpringHibernateAdvisorObservationSource implements HibernateA
                             assigned,
                             unit.hibernateVersion(),
                             unit.settings(),
-                            unit.enhancementVerified()));
+                            unit.enhancementVerified(),
+                            unit.pool()));
         }
         return new HibernateAdvisorObservation(units, applicationFacts(), diagnostics);
+    }
+
+    private ConnectionPoolProvider poolProvider() {
+        if (pools == null) return null;
+        try {
+            return pools.getIfUnique();
+        } catch (RuntimeException | LinkageError ex) {
+            return null;
+        }
     }
 
     private HibernateApplicationFacts applicationFacts() {

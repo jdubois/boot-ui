@@ -39,6 +39,8 @@ public final class HibernateFactorySettingsReader {
                                                 "io.quarkus.hibernate.orm.runtime.customized.QuarkusConnectionProvider")
                                 ? HibernateFactorySettings.ConnectionProvider.MANAGED
                                 : HibernateFactorySettings.ConnectionProvider.OTHER;
+        Object transactionCoordinator =
+                reader.service(registry, "org.hibernate.resource.transaction.spi.TransactionCoordinatorBuilder");
         Object jdbcServices = reader.call(factory, "getJdbcServices");
         // The statement logger holds the effective show/format/slow-query values, including Hibernate defaults and
         // the legacy slow-query key, so an absent property reads as its default rather than as unknown.
@@ -74,7 +76,43 @@ public final class HibernateFactorySettingsReader {
                 reader.present(options, "getJdbcTimeZone"),
                 fetchSize(reader, options),
                 dialectFamily(dialect, "org.hibernate.dialect.OracleDialect"),
-                dialectFamily(dialect, "org.hibernate.dialect.PostgreSQLDialect"));
+                dialectFamily(dialect, "org.hibernate.dialect.PostgreSQLDialect"),
+                reader.bool(options, "doesConnectionProviderDisableAutoCommit"),
+                transactionMode(reader, transactionCoordinator));
+    }
+
+    /**
+     * The {@code javax.sql.DataSource} the factory's connection provider hands connections from, or {@code null}
+     * when the provider is not backed by one (Hibernate's built-in pool, a custom provider) or cannot be read. It only
+     * asks the provider to unwrap; it never acquires a connection.
+     */
+    public static javax.sql.DataSource connectionDataSource(
+            Object factory, String label, List<HibernateObservationDiagnostic> diagnostics) {
+        Reader reader = new Reader(label, diagnostics);
+        Object registry = reader.call(factory, "getServiceRegistry");
+        Object provider = reader.service(registry, "org.hibernate.engine.jdbc.connections.spi.ConnectionProvider");
+        if (provider == null) return null;
+        try {
+            Object unwrappable = publicMethod(provider.getClass(), "isUnwrappableAs", Class.class)
+                    .invoke(provider, javax.sql.DataSource.class);
+            if (!Boolean.TRUE.equals(unwrappable)) return null;
+            Object dataSource = publicMethod(provider.getClass(), "unwrap", Class.class)
+                    .invoke(provider, javax.sql.DataSource.class);
+            return dataSource instanceof javax.sql.DataSource value ? value : null;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ex) {
+            // Attribution is best effort and has its own evidence gap in the rules; this is not a factory setting.
+            return null;
+        }
+    }
+
+    private static HibernateFactorySettings.TransactionMode transactionMode(Reader reader, Object coordinator) {
+        if (coordinator == null) return HibernateFactorySettings.TransactionMode.UNKNOWN;
+        Boolean jta = reader.bool(coordinator, "isJta");
+        return jta == null
+                ? HibernateFactorySettings.TransactionMode.UNKNOWN
+                : jta
+                        ? HibernateFactorySettings.TransactionMode.JTA
+                        : HibernateFactorySettings.TransactionMode.RESOURCE_LOCAL;
     }
 
     /** The configured JDBC fetch size, with 0 standing for an unset size that leaves the driver default in place. */

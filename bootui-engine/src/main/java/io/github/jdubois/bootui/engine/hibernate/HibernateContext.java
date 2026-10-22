@@ -21,7 +21,35 @@ record HibernateContext(
         Boolean enhancementVerified,
         HibernateEvaluationEvidence evidence,
         AdvisorViolationCollector violationCollector,
-        String unitLabel) {
+        String unitLabel,
+        HibernatePoolObservation pool) {
+
+    HibernateContext(
+            List<HibernateEntityModel> entities,
+            List<HibernateRepositoryModel> repositories,
+            Function<String, String> propertyLookup,
+            List<String> activeProfiles,
+            HibernateRuntimeVersion hibernateVersion,
+            HibernateFactorySettings factorySettings,
+            HibernateApplicationFacts applicationFacts,
+            Boolean enhancementVerified,
+            HibernateEvaluationEvidence evidence,
+            AdvisorViolationCollector violationCollector,
+            String unitLabel) {
+        this(
+                entities,
+                repositories,
+                propertyLookup,
+                activeProfiles,
+                hibernateVersion,
+                factorySettings,
+                applicationFacts,
+                enhancementVerified,
+                evidence,
+                violationCollector,
+                unitLabel,
+                null);
+    }
 
     HibernateContext(
             List<HibernateEntityModel> entities,
@@ -59,7 +87,13 @@ record HibernateContext(
                 enhancementVerified,
                 evidence,
                 collector,
-                label);
+                label,
+                pool);
+    }
+
+    /** The first identity part of every finding of this unit: the persistence unit's label. */
+    String unitPart() {
+        return "unit=" + (unitLabel == null ? "application" : unitLabel);
     }
 
     /** The first identity part of every finding of this unit: the persistence unit's label. */
@@ -118,7 +152,10 @@ record HibernateContext(
                 unit.settings(),
                 application,
                 unit.enhancementVerified(),
-                new HibernateEvaluationEvidence());
+                new HibernateEvaluationEvidence(),
+                new AdvisorViolationCollector(10000),
+                null,
+                unit.pool());
     }
 
     boolean observed() {

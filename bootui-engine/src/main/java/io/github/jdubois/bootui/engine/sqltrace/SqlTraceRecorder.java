@@ -628,6 +628,45 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
             String connectionId,
             String thread,
             String dataSource) {
+        // This overload predates the explicit batch flag: a batch size of zero was an ordinary execution.
+        recordNanos(
+                statementType,
+                category,
+                sql,
+                parameters,
+                durationNanos,
+                success,
+                errorMessage,
+                affectedRows,
+                batchSize,
+                connectionId,
+                thread,
+                dataSource,
+                batchSize > 0);
+    }
+
+    /**
+     * Records one execution, stating whether it was a JDBC batch, which the runtime journal needs ({@link
+     * SqlPayload#batchSize()}): an ordinary execution publishes a batch size of {@code 1}, a batch the number of
+     * parameter sets it submitted, and a batch whose size the proxy did not track {@code 0}, unknown, never read as
+     * unbatched. The panel keeps the {@code batchSize} given, {@code 0} for an ordinary execution.
+     *
+     * @param batch whether the execution was {@code executeBatch} or {@code executeLargeBatch}
+     */
+    public void recordNanos(
+            StatementType statementType,
+            Category category,
+            String sql,
+            List<String> parameters,
+            long durationNanos,
+            boolean success,
+            String errorMessage,
+            Long affectedRows,
+            int batchSize,
+            String connectionId,
+            String thread,
+            String dataSource,
+            boolean batch) {
         capture(
                 statementType,
                 category,
@@ -641,7 +680,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                 connectionId,
                 thread,
                 dataSource,
-                Provenance.EXECUTION);
+                Provenance.EXECUTION,
+                batch ? Math.max(0, batchSize) : 1);
     }
 
     /** Records only SQL inspection: no JDBC execution, outcome, or elapsed database time was observed. */
@@ -660,7 +700,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                 null,
                 Thread.currentThread().getName(),
                 dataSource,
-                Provenance.PREPARATION);
+                Provenance.PREPARATION,
+                0);
     }
 
     private void capture(
@@ -676,7 +717,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
             String connectionId,
             String thread,
             String dataSource,
-            Provenance provenance) {
+            Provenance provenance,
+            int journalBatchSize) {
         if (!enabled || BootUiJdbcCaptureGuard.isSuppressed()) {
             return;
         }
@@ -750,7 +792,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                     completedNanos,
                     dataSource,
                     codePathStamp,
-                    provenance);
+                    provenance,
+                    journalBatchSize);
         }
         if (panel) {
             totalCaptured.incrementAndGet();
@@ -777,7 +820,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
             long completedNanos,
             String dataSource,
             long codePathStamp,
-            Provenance provenance) {
+            Provenance provenance,
+            int batchSize) {
         try {
             journal.offer(RuntimeEvent.of(
                     JournalSource.SQL,
@@ -797,7 +841,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                             phase,
                             completedNanos,
                             codePathStamp,
-                            provenance)));
+                            provenance,
+                            batchSize)));
         } catch (RuntimeException ex) {
             // Publishing never disturbs the statement it observes.
         }

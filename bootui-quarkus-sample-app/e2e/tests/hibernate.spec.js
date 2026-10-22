@@ -21,17 +21,15 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     const response = await scanResponse
     expect(response.ok()).toBeTruthy()
     const report = await response.json()
-    expect(report.rulesEvaluated).toBe(72)
-    expect(report.scan.status).toBe('PARTIAL')
+    expect(report.rulesEvaluated).toBe(73)
+    // Quarkus persistence units coordinate transactions through JTA, so HIB-CONFIG-008 and HIB-CONFIG-021 are
+    // skipped as not applicable rather than missing evidence, and a scan with nothing unobservable is complete.
+    expect(report.scan.status).toBe('SCANNED')
     expect(report.scan.message).toBeTruthy()
-    expect(Array.isArray(report.diagnostics)).toBe(true)
-    expect(report.diagnostics.length).toBeGreaterThan(0)
     expect(report.scan.message).not.toMatch(/Incomplete: |\+\d+ more/)
-    for (const diagnostic of report.diagnostics) {
-      expect(['ERROR', 'WARNING', 'INFO']).toContain(diagnostic.level)
-      expect(diagnostic.source).toBeTruthy()
-      expect(diagnostic.message).toBeTruthy()
-    }
+    expect(report.evidence.coverageComplete).toBe(true)
+    expect(report.diagnostics).toEqual([])
+    expect(report.results.map((result) => result.id)).not.toContain('HIB-CONFIG-021')
     expect(report.entitiesAnalyzed).toBeGreaterThan(0)
     expect(new Set(report.results.map((result) => result.id)).size).toBe(report.results.length)
     for (const id of [
@@ -51,20 +49,10 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     await expect(page.locator('.advisor-summary__metric--status .badge')).toHaveText('Results available')
     expect(report.evidence.usable).toBe(true)
     await expect(page.locator('.advisor-summary__value')).toHaveText(String(expectedAdvisorScore(report)))
-    await expect(page.getByRole('img', {name: /Known-findings score: .*Scan notes available/})).toHaveCount(1)
+    await expect(page.getByRole('img', {name: /Known-findings score: \d+ out of 100$/})).toHaveCount(1)
     await expect(page.locator('main')).toContainText('Entities analysed')
 
-    const diagnosticsToggle = page.getByRole('button', {name: 'Show diagnostics'})
-    await expect(page.getByText('Scan diagnostics')).toBeVisible()
-    await expect(diagnosticsToggle).toHaveAttribute('aria-expanded', 'false')
-    await diagnosticsToggle.click()
-    const hideDiagnostics = page.getByRole('button', {name: 'Hide diagnostics'})
-    await expect(hideDiagnostics).toHaveAttribute('aria-expanded', 'true')
-    const diagnosticsListId = await hideDiagnostics.getAttribute('aria-controls')
-    await expect(page.locator(`[id=${JSON.stringify(diagnosticsListId)}]`).locator('li')).toHaveCount(
-      report.diagnostics.length
-    )
-    await hideDiagnostics.click()
+    await expect(page.getByText('Scan diagnostics')).toHaveCount(0)
 
     // Effective batching makes the stronger IDENTITY finding apply, without duplicate generic advice.
     await expect(page.locator('.list-group-item', {hasText: 'HIB-ID-001'})).toHaveCount(0)
