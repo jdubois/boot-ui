@@ -7,6 +7,8 @@ const props = defineProps({
   scoreReason: {type: String, default: ''},
   incomplete: {type: Boolean, default: false},
   dismissedCount: {type: Number, default: 0},
+  // Findings dismissed one by one, which no longer count either; only advisors that support it pass a value.
+  suppressedFindingCount: {type: Number, default: 0},
   scanStatusLabel: {type: String, default: ''},
   scanStatusClass: {type: String, default: 'text-bg-secondary'},
   scanTime: {type: String, default: null},
@@ -177,6 +179,11 @@ const scoreAccessibleLabel = computed(
         <i class="bi bi-eye-slash me-1" aria-hidden="true"></i>{{ dismissedCount }} dismissed rule(s) excluded from
         active findings. Dismissal changes score penalties, not application safety.
       </p>
+      <p v-if="suppressedFindingCount > 0" class="advisor-summary__suppressed" data-testid="suppressed-summary">
+        <i class="bi bi-eye-slash me-1" aria-hidden="true"></i>{{ suppressedFindingCount }}
+        {{ suppressedFindingCount === 1 ? 'finding' : 'findings' }} dismissed one by one and excluded from active
+        findings. Dismissal changes score penalties, not application safety.
+      </p>
     </div>
   </div>
 </template>
@@ -268,7 +275,8 @@ const scoreAccessibleLabel = computed(
   color: var(--bootui-text-muted);
 }
 
-.advisor-summary__dismissed {
+.advisor-summary__dismissed,
+.advisor-summary__suppressed {
   margin: 0.9rem 0 0;
   font-size: 0.85rem;
   color: var(--bootui-text-muted);

@@ -45,6 +45,7 @@ final class QuarkusRootPath {
         if (normalizedPath == null) {
             return null;
         }
+        normalizedPath = withoutMatrixParameters(normalizedPath);
         if (rootPathPrefix.isEmpty()) {
             return normalizedPath;
         }
@@ -55,5 +56,31 @@ final class QuarkusRootPath {
             return normalizedPath.substring(rootPathPrefix.length());
         }
         return normalizedPath;
+    }
+
+    /**
+     * Drops the {@code ;name=value} matrix parameters of every path segment. Vert.x leaves them in
+     * {@code normalizedPath()} while the JAX-RS router ignores them when it dispatches, so without this a request
+     * to {@code /bootui/api/dismissed-findings;x=1} would reach its resource without matching the path the guards
+     * check (fail-open).
+     */
+    static String withoutMatrixParameters(String path) {
+        if (path.indexOf(';') < 0) {
+            return path;
+        }
+        StringBuilder out = new StringBuilder(path.length());
+        boolean skipping = false;
+        for (int i = 0; i < path.length(); i++) {
+            char c = path.charAt(i);
+            if (c == '/') {
+                skipping = false;
+            } else if (c == ';') {
+                skipping = true;
+            }
+            if (!skipping) {
+                out.append(c);
+            }
+        }
+        return out.toString();
     }
 }

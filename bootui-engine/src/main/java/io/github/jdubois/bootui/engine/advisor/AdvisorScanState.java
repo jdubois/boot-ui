@@ -3,10 +3,12 @@ package io.github.jdubois.bootui.engine.advisor;
 import io.github.jdubois.bootui.core.dto.AdvisorChangesDto;
 import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.AdvisorViolationDetailsDto;
+import io.github.jdubois.bootui.core.dto.DismissedFindingDto;
 import io.github.jdubois.bootui.engine.support.PagedList;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -154,6 +156,75 @@ public final class AdvisorScanState<R> {
     }
 
     public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return ruleViolations(ruleId, scanId, offset, limit, List.of());
+    }
+
+    /**
+     * The suppression of the completed scan {@code scanId} names, or a projection that suppresses nothing when that
+     * scan is no longer (or not yet) the current one. Rule-level dismissal takes precedence, so findings of a rule in
+     * {@code dismissedRules} are never counted as suppressed.
+     *
+     * @param dismissed every finding the developer dismissed, of any advisor
+     * @param rulePrefix the prefix of this advisor's rule ids, so that a dismissed finding of a rule it no longer has
+     *     is still listed as such; {@code null} to list only findings of the rules it has
+     */
+    public AdvisorSuppression suppression(
+            String scanId, Set<String> dismissedRules, Collection<DismissedFindingDto> dismissed, String rulePrefix) {
+        Completed<R> snapshot = completed;
+        boolean current = snapshot != null
+                && scanId != null
+                && scanId.equals(snapshot.metadata().scanId());
+        return suppressionOf(current ? snapshot : null, dismissedRules, dismissed, rulePrefix);
+    }
+
+    /**
+     * The latest report together with its suppression, both taken from one snapshot of the latest completed scan, so a
+     * scan that completes meanwhile can never pair a report with another scan's retained findings.
+     */
+    public Current<R> current(
+            Supplier<R> initial,
+            Set<String> dismissedRules,
+            Collection<DismissedFindingDto> dismissed,
+            String rulePrefix) {
+        Completed<R> snapshot = completed;
+        if (snapshot == null) {
+            R report = currentReport(initial);
+            snapshot = completed;
+            if (snapshot == null) {
+                return new Current<>(report, suppressionOf(null, dismissedRules, dismissed, rulePrefix));
+            }
+        }
+        return new Current<>(snapshot.report(), suppressionOf(snapshot, dismissedRules, dismissed, rulePrefix));
+    }
+
+    /** A report and what the dismissed findings do to it. */
+    public record Current<R>(R report, AdvisorSuppression suppression) {}
+
+    private AdvisorSuppression suppressionOf(
+            Completed<R> snapshot,
+            Set<String> dismissedRules,
+            Collection<DismissedFindingDto> dismissed,
+            String rulePrefix) {
+        Collection<String> known = snapshot != null ? snapshot.ruleCatalog() : ruleCatalog.get();
+        Set<String> catalog = known == null ? null : Set.copyOf(known);
+        List<DismissedFindingDto> belonging = new ArrayList<>();
+        for (DismissedFindingDto finding : dismissed) {
+            if ((catalog != null && catalog.contains(finding.ruleId()))
+                    || (rulePrefix != null && finding.ruleId().startsWith(rulePrefix))) {
+                belonging.add(finding);
+            }
+        }
+        return snapshot != null
+                ? AdvisorSuppression.of(snapshot.index(), catalog, dismissedRules, belonging)
+                : AdvisorSuppression.unverified(belonging, catalog);
+    }
+
+    /**
+     * One page of retained findings, each flagged when it is among the {@code dismissed} findings. Every retained
+     * finding is still returned, so a dismissed one can be restored, and {@code violationCount} stays the scan's total.
+     */
+    public AdvisorRuleViolationsDto ruleViolations(
+            String ruleId, String scanId, Integer offset, Integer limit, Collection<DismissedFindingDto> dismissed) {
         if (ruleId == null || ruleId.isBlank()) {
             throw new AdvisorViolationException(400, "Advisor rule ID must not be blank.");
         }
@@ -193,6 +264,21 @@ public final class AdvisorScanState<R> {
                 : Collections.unmodifiableList(new ArrayList<>(markers.subList(
                         page.page().offset(),
                         page.page().offset() + page.items().size())));
+        Set<String> dismissedIdentities = new HashSet<>();
+        for (DismissedFindingDto finding : dismissed) {
+            if (finding.ruleId().equals(ruleId)) dismissedIdentities.add(finding.identity());
+        }
+        int suppressedTotal = 0;
+        for (AdvisorViolation violation : rule.violations()) {
+            if (violation.identity() != null && dismissedIdentities.contains(violation.identity())) suppressedTotal++;
+        }
+        List<Boolean> suppressed = new ArrayList<>(page.items().size());
+        boolean anySuppressed = false;
+        for (AdvisorViolation violation : page.items()) {
+            boolean flag = violation.identity() != null && dismissedIdentities.contains(violation.identity());
+            suppressed.add(flag);
+            anySuppressed |= flag;
+        }
         return new AdvisorRuleViolationsDto(
                 snapshot.metadata().scanId(),
                 ruleId,
@@ -203,7 +289,9 @@ public final class AdvisorScanState<R> {
                 page.page(),
                 AdvisorViolation.locations(page.items()),
                 AdvisorViolation.identities(page.items()),
-                pageChanges);
+                pageChanges,
+                anySuppressed ? Collections.unmodifiableList(suppressed) : List.of(),
+                suppressedTotal);
     }
 
     /**

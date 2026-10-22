@@ -15,6 +15,7 @@ import java.util.List;
  * @param rulesSkipped rules that could not run (no datasource of that dialect, unreadable catalog data)
  * @param rulesErrored rules that failed while evaluating
  * @param truncated whether any scan bound (tables, columns, indexes, catalog rows, time) was reached
+ * @param suppression what findings dismissed one by one do to this report; empty until the developer dismisses one
  */
 public record DatabaseAdvisorReport(
         boolean localOnly,
@@ -32,16 +33,55 @@ public record DatabaseAdvisorReport(
         List<DatabaseAdvisorRuleResultDto> results,
         List<DatabaseAdvisorDiagnosticDto> diagnostics,
         AdvisorEvidenceDto evidence,
-        AdvisorViolationDetailsDto violationDetails) {
+        AdvisorViolationDetailsDto violationDetails,
+        AdvisorSuppressionDto suppression) {
 
     public DatabaseAdvisorReport {
         evidence = evidence == null ? AdvisorEvidenceDto.unknown() : evidence;
         violationDetails = violationDetails == null ? AdvisorViolationDetailsDto.unknown() : violationDetails;
+        suppression = suppression == null ? AdvisorSuppressionDto.none() : suppression;
         dataSourceNames = DtoCollections.immutableCopy(dataSourceNames);
         dataSources = DtoCollections.immutableCopy(dataSources);
         severityCounts = DtoCollections.immutableCopy(severityCounts);
         results = DtoCollections.immutableCopy(results);
         diagnostics = DtoCollections.immutableCopy(diagnostics);
+    }
+
+    public DatabaseAdvisorReport(
+            boolean localOnly,
+            String disclaimer,
+            List<String> dataSourceNames,
+            List<DatabaseAdvisorDataSourceDto> dataSources,
+            int tablesAnalyzed,
+            int rulesEvaluated,
+            int violationsFound,
+            int rulesSkipped,
+            int rulesErrored,
+            boolean truncated,
+            List<DatabaseAdvisorSeverityCountDto> severityCounts,
+            DatabaseAdvisorScanStatusDto scan,
+            List<DatabaseAdvisorRuleResultDto> results,
+            List<DatabaseAdvisorDiagnosticDto> diagnostics,
+            AdvisorEvidenceDto evidence,
+            AdvisorViolationDetailsDto violationDetails) {
+        this(
+                localOnly,
+                disclaimer,
+                dataSourceNames,
+                dataSources,
+                tablesAnalyzed,
+                rulesEvaluated,
+                violationsFound,
+                rulesSkipped,
+                rulesErrored,
+                truncated,
+                severityCounts,
+                scan,
+                results,
+                diagnostics,
+                evidence,
+                violationDetails,
+                null);
     }
 
     public DatabaseAdvisorReport(
@@ -76,6 +116,7 @@ public record DatabaseAdvisorReport(
                 results,
                 diagnostics,
                 evidence,
+                null,
                 null);
     }
 
@@ -96,6 +137,33 @@ public record DatabaseAdvisorReport(
                 results,
                 diagnostics,
                 evidence,
-                violationDetails);
+                violationDetails,
+                suppression);
+    }
+
+    public DatabaseAdvisorReport withSuppression(
+            int violationsFound,
+            List<DatabaseAdvisorSeverityCountDto> severityCounts,
+            DatabaseAdvisorScanStatusDto scan,
+            List<DatabaseAdvisorRuleResultDto> results,
+            AdvisorSuppressionDto suppression) {
+        return new DatabaseAdvisorReport(
+                localOnly,
+                disclaimer,
+                dataSourceNames,
+                dataSources,
+                tablesAnalyzed,
+                rulesEvaluated,
+                violationsFound,
+                rulesSkipped,
+                rulesErrored,
+                truncated,
+                severityCounts,
+                scan,
+                results,
+                diagnostics,
+                evidence,
+                violationDetails,
+                suppression);
     }
 }

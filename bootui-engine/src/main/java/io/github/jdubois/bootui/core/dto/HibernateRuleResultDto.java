@@ -7,6 +7,8 @@ import java.util.List;
  *
  * @param coverageNote {@code null} when the rule was fully evaluated; otherwise which units were only partly
  *     evaluated and why, so a violation reported from the evaluated part is not mistaken for full coverage
+ * @param suppressedCount findings of this rule the developer dismissed one by one; {@code violationCount} and the
+ *     samples describe the remaining, active findings, and {@code violationCount + suppressedCount} is the scan's total
  */
 public record HibernateRuleResultDto(
         String id,
@@ -21,11 +23,43 @@ public record HibernateRuleResultDto(
         String learnMoreUrl,
         boolean dismissed,
         String coverageNote,
-        List<AdvisorViolationLocationDto> sampleLocations) {
+        List<AdvisorViolationLocationDto> sampleLocations,
+        int suppressedCount) {
 
     public HibernateRuleResultDto {
         sampleViolations = DtoCollections.immutableCopy(sampleViolations);
         sampleLocations = DtoCollections.alignedCopy(sampleViolations, sampleLocations);
+    }
+
+    public HibernateRuleResultDto(
+            String id,
+            String name,
+            String category,
+            String severity,
+            String description,
+            String status,
+            int violationCount,
+            List<String> sampleViolations,
+            String recommendation,
+            String learnMoreUrl,
+            boolean dismissed,
+            String coverageNote,
+            List<AdvisorViolationLocationDto> sampleLocations) {
+        this(
+                id,
+                name,
+                category,
+                severity,
+                description,
+                status,
+                violationCount,
+                sampleViolations,
+                recommendation,
+                learnMoreUrl,
+                dismissed,
+                coverageNote,
+                sampleLocations,
+                0);
     }
 
     public HibernateRuleResultDto(
@@ -124,7 +158,8 @@ public record HibernateRuleResultDto(
                 learnMoreUrl,
                 dismissed,
                 coverageNote,
-                sampleLocations);
+                sampleLocations,
+                suppressedCount);
     }
 
     public HibernateRuleResultDto withCoverageNote(String coverageNote) {
@@ -141,7 +176,8 @@ public record HibernateRuleResultDto(
                 learnMoreUrl,
                 dismissed,
                 coverageNote,
-                sampleLocations);
+                sampleLocations,
+                suppressedCount);
     }
 
     /** This result with locations aligned index-for-index with {@code sampleViolations}, or none when empty. */
@@ -159,6 +195,33 @@ public record HibernateRuleResultDto(
                 learnMoreUrl,
                 dismissed,
                 coverageNote,
-                sampleLocations);
+                sampleLocations,
+                suppressedCount);
+    }
+
+    /**
+     * This result as the report shows it once {@code suppressedCount} findings are dismissed one by one: the active
+     * count and samples replace the scan's.
+     */
+    public HibernateRuleResultDto withSuppression(
+            int suppressedCount,
+            int violationCount,
+            List<String> sampleViolations,
+            List<AdvisorViolationLocationDto> sampleLocations) {
+        return new HibernateRuleResultDto(
+                id,
+                name,
+                category,
+                severity,
+                description,
+                status,
+                violationCount,
+                sampleViolations,
+                recommendation,
+                learnMoreUrl,
+                dismissed,
+                coverageNote,
+                sampleLocations,
+                suppressedCount);
     }
 }

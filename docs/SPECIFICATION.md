@@ -3303,6 +3303,9 @@ Initial endpoints:
 | `/bootui/api/dismissed-rules`                   | GET    | Advisor rules and findings dismissed in `.bootui/boot-ui.yml`                          |
 | `/bootui/api/dismissed-rules/{ruleId}`          | POST   | Dismiss one advisor rule or finding                                                    |
 | `/bootui/api/dismissed-rules/{ruleId}`          | DELETE | Restore one dismissed advisor rule or finding                                          |
+| `/bootui/api/dismissed-findings`                | GET    | Single advisor findings dismissed in `.bootui/boot-ui.yml`, with their notes (no MCP or CLI binding) |
+| `/bootui/api/dismissed-findings`                | POST   | Dismiss one Hibernate or Database advisor finding (`ruleId`, `identity`, optional `note`), or replace its note |
+| `/bootui/api/dismissed-findings`                | DELETE | Restore one dismissed finding (`ruleId`, `identity`)                                   |
 | `/bootui/api/copilot/dashboard`                 | GET    | Sanitized GitHub Copilot CLI activity dashboard                                        |
 | `/bootui/api/copilot/**`                     | GET    | Sanitized GitHub Copilot CLI session dashboard, token usage, explorer, raw reveal, SSE |
 | `/bootui/api/claude-code/dashboard`             | GET    | Sanitized Claude Code activity dashboard                                               |
@@ -3921,8 +3924,8 @@ Current compatibility:
 - Available data panels are checked through a central DTO-family catalog. The contract asserts stable field types,
   null/empty and availability semantics, pagination containers, scan-status fields, and observable secret masking while
   allowing runtime counts, timestamps, framework versions, and captured data to vary.
-- A central mutation catalog lists every panel action plus the MCP, dismissed-rules, and OTLP infrastructure writes.
-  It classifies non-panel writes by global read-only applicability: dismissed-rule persistence is blocked, the MCP bridge
+- A central mutation catalog lists every panel action plus the MCP, dismissed-rules, dismissed-findings, and OTLP infrastructure writes.
+  It classifies non-panel writes by global read-only applicability: dismissed-rule and dismissed-finding persistence is blocked, the MCP bridge
   delegates authorization to its per-tool panel policy, and OTLP ingestion remains an observability transport. Adapter
   access-filter tests consume that catalog so a browser mutation cannot silently bypass global read-only policy. The live
   contract covers confirmation gates, canonical panel denial, missing targets, single-flight `409` responses, and only

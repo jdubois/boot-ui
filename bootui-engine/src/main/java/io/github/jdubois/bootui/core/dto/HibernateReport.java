@@ -7,6 +7,8 @@ import java.util.List;
  * checks only, ordered by severity and impact. {@link #diagnostics()} lists rule evaluations that failed or lacked
  * required evidence and discovery gaps, so a {@code PARTIAL} scan is explainable member by member. It holds at most
  * 200 entries; when capped, every affected rule keeps an entry and a final {@code diagnostics} entry counts the rest.
+ *
+ * @param suppression what findings dismissed one by one do to this report; empty until the developer dismisses one
  */
 public record HibernateReport(
         boolean localOnly,
@@ -20,15 +22,46 @@ public record HibernateReport(
         List<HibernateRuleResultDto> results,
         List<HibernateDiagnosticDto> diagnostics,
         AdvisorEvidenceDto evidence,
-        AdvisorViolationDetailsDto violationDetails) {
+        AdvisorViolationDetailsDto violationDetails,
+        AdvisorSuppressionDto suppression) {
 
     public HibernateReport {
         evidence = evidence == null ? AdvisorEvidenceDto.unknown() : evidence;
         violationDetails = violationDetails == null ? AdvisorViolationDetailsDto.unknown() : violationDetails;
+        suppression = suppression == null ? AdvisorSuppressionDto.none() : suppression;
         entityPackages = DtoCollections.immutableCopy(entityPackages);
         severityCounts = DtoCollections.immutableCopy(severityCounts);
         results = DtoCollections.immutableCopy(results);
         diagnostics = DtoCollections.immutableCopy(diagnostics);
+    }
+
+    public HibernateReport(
+            boolean localOnly,
+            String disclaimer,
+            List<String> entityPackages,
+            int entitiesAnalyzed,
+            int rulesEvaluated,
+            int violationsFound,
+            List<HibernateSeverityCountDto> severityCounts,
+            HibernateScanStatusDto scan,
+            List<HibernateRuleResultDto> results,
+            List<HibernateDiagnosticDto> diagnostics,
+            AdvisorEvidenceDto evidence,
+            AdvisorViolationDetailsDto violationDetails) {
+        this(
+                localOnly,
+                disclaimer,
+                entityPackages,
+                entitiesAnalyzed,
+                rulesEvaluated,
+                violationsFound,
+                severityCounts,
+                scan,
+                results,
+                diagnostics,
+                evidence,
+                violationDetails,
+                null);
     }
 
     public HibernateReport(
@@ -97,6 +130,29 @@ public record HibernateReport(
                 results,
                 diagnostics,
                 evidence,
-                violationDetails);
+                violationDetails,
+                suppression);
+    }
+
+    public HibernateReport withSuppression(
+            int violationsFound,
+            List<HibernateSeverityCountDto> severityCounts,
+            HibernateScanStatusDto scan,
+            List<HibernateRuleResultDto> results,
+            AdvisorSuppressionDto suppression) {
+        return new HibernateReport(
+                localOnly,
+                disclaimer,
+                entityPackages,
+                entitiesAnalyzed,
+                rulesEvaluated,
+                violationsFound,
+                severityCounts,
+                scan,
+                results,
+                diagnostics,
+                evidence,
+                violationDetails,
+                suppression);
     }
 }

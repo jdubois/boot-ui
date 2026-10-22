@@ -26,6 +26,11 @@ async function clearDismissedRules(request) {
   for (const id of body.dismissed ?? []) {
     await request.delete(`/bootui/api/dismissed-rules/${encodeURIComponent(id)}`, {headers})
   }
+
+  const findings = await (await request.get('/bootui/api/dismissed-findings')).json()
+  for (const {ruleId, identity} of findings.dismissed ?? []) {
+    await request.delete('/bootui/api/dismissed-findings', {headers, data: {ruleId, identity}})
+  }
 }
 
 /**
@@ -126,5 +131,94 @@ test.describe('Advisor rule dismiss/restore', () => {
     await expect.poll(async () => findingsCount(findingsCard)).toBe(before)
     await expectIncompleteAssessment(page, report)
     await expect(activeItemFor(ruleId)).toHaveCount(1)
+  })
+
+  test('dismisses and restores one finding of a rule without touching its other findings', async ({
+    openView,
+    page,
+    request
+  }) => {
+    await openView('hibernate', 'Hibernate')
+    const scanResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && /\/hibernate\/scan$/.test(new URL(response.url()).pathname)
+    )
+    await page.getByRole('button', {name: 'Run Hibernate checks'}).click()
+    const report = await (await scanResponse).json()
+    const rule = report.results.find((result) => result.violationCount >= 2)
+    expect(rule, 'a rule with at least two findings').toBeTruthy()
+    const ruleCard = page.locator('.list-group-item').filter({has: page.getByText(rule.id, {exact: true})}).first()
+    await expect(ruleCard).toBeVisible({timeout: 30_000})
+    const findingsMetric = page.locator('.advisor-summary__metric', {hasText: 'Advisor findings'})
+    const rulesBefore = await findingsCount(findingsMetric)
+
+    await ruleCard.getByRole('button', {name: `View violations for ${rule.id}`}).click()
+    const firstDismiss = ruleCard.getByRole('button', {name: new RegExp(`^Dismiss finding \\d+ of ${rule.id}$`)}).first()
+    await expect(firstDismiss).toBeVisible()
+    const rows = ruleCard.locator('.advisor-rule-violations li')
+    const rowsBefore = await rows.count()
+    expect(rowsBefore).toBe(rule.violationCount)
+
+    await firstDismiss.click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toContainText('changes score penalties, not application safety')
+    await dialog.getByRole('button', {name: 'Dismiss finding'}).click()
+
+    // The report is recomputed on the next read: one finding fewer, the rule and the others still active.
+    await expect(ruleCard).toContainText(`${rule.violationCount - 1} ${rule.violationCount - 1 === 1 ? 'finding' : 'findings'} found for this rule.`)
+    await expect(ruleCard).toContainText('1 more dismissed one by one.')
+    await expect(page.locator('[data-testid="suppressed-summary"]')).toContainText('1 finding dismissed one by one')
+    await expect(ruleCard.locator('[data-testid="suppressed-finding"]')).toHaveCount(1)
+    await expect(ruleCard.locator('.advisor-rule-violations li')).toHaveCount(rowsBefore)
+    await expect.poll(async () => findingsCount(findingsMetric)).toBe(rulesBefore)
+
+    const listed = await (await request.get('/bootui/api/dismissed-findings')).json()
+    expect(listed.dismissed).toHaveLength(1)
+
+    // The dismissed finding is listed, collapsed, under the rule list, and restoring it brings every count back.
+    const dismissedList = page.getByTestId('dismissed-findings')
+    await expect(dismissedList).toContainText('Dismissed findings (1)')
+    await expect(dismissedList.locator('input')).toBeHidden()
+    await ruleCard.getByRole('button', {name: new RegExp(`^Restore finding \\d+ of ${rule.id}$`)}).click()
+
+    await expect(ruleCard).toContainText(`${rule.violationCount} ${rule.violationCount === 1 ? 'finding' : 'findings'} found for this rule.`)
+    await expect(page.locator('[data-testid="suppressed-summary"]')).toHaveCount(0)
+    await expect(page.getByTestId('dismissed-findings')).toHaveCount(0)
+    expect((await (await request.get('/bootui/api/dismissed-findings')).json()).dismissed).toHaveLength(0)
+  })
+
+  test('keeps a note on a dismissed finding out of the report and lets a rule-level dismissal still work', async ({
+    openView,
+    page,
+    request
+  }) => {
+    await openView('hibernate', 'Hibernate')
+    const scanResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && /\/hibernate\/scan$/.test(new URL(response.url()).pathname)
+    )
+    await page.getByRole('button', {name: 'Run Hibernate checks'}).click()
+    const report = await (await scanResponse).json()
+    const rule = report.results.find((result) => result.violationCount >= 1)
+    const ruleCard = page.locator('.list-group-item').filter({has: page.getByText(rule.id, {exact: true})}).first()
+    await ruleCard.getByRole('button', {name: `View violations for ${rule.id}`}).click()
+    await ruleCard.getByRole('button', {name: new RegExp(`^Dismiss finding \\d+ of ${rule.id}$`)}).first().click()
+    await page.getByRole('dialog').getByRole('button', {name: 'Dismiss finding'}).click()
+
+    const dismissedList = page.getByTestId('dismissed-findings')
+    await dismissedList.locator('summary').click()
+    const note = dismissedList.locator('input[type="text"]').first()
+    await note.fill('Intentional: legacy "table" # kept')
+    await dismissedList.getByRole('button', {name: /^Save note/}).first().click()
+    await expect(dismissedList.getByRole('button', {name: /^Save note/}).first()).toBeDisabled()
+
+    const listed = await (await request.get('/bootui/api/dismissed-findings')).json()
+    expect(listed.dismissed[0].note).toBe('Intentional: legacy "table" # kept')
+    const cached = await (await request.get('/bootui/api/hibernate')).text()
+    expect(cached).not.toContain('Intentional')
+
+    // Rule-level dismissal keeps its meaning and takes precedence over the dismissed finding.
+    await ruleCard.getByRole('button', {name: 'Dismiss'}).first().click()
+    await expect(page.locator('.list-group-item.opacity-50').filter({has: page.getByText(rule.id, {exact: true})})).toBeVisible()
   })
 })

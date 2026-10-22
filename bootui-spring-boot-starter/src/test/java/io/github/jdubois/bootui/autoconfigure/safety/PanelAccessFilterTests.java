@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.LifecyclePayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import io.github.jdubois.bootui.engine.panel.BootUiGlobalWritePolicy;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.time.Duration;
 import java.util.List;
@@ -185,7 +186,9 @@ class PanelAccessFilterTests {
             assertThat(response.getStatus()).as(action.id()).isEqualTo(403);
             assertThat(response.getContentAsString())
                     .as(action.id())
-                    .contains("\"panel\":\"dismissed-rules\"")
+                    .contains("\"panel\":\""
+                            + BootUiGlobalWritePolicy.subjectFor(action.relativePath())
+                                    .orElseThrow() + "\"")
                     .contains("bootui.read-only=true");
         }
     }

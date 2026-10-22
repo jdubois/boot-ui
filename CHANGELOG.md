@@ -16,6 +16,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   customizers ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-025---http-clients-should-be-built-from-spring-boots-auto-configured-builder); #1500).
 - **Changes since the previous scan** on the Hibernate and Database advisors show what a fix resolved and what is new,
   and every finding carries a stable identity ([#1523](https://github.com/jdubois/boot-ui/issues/1523)).
+- **Per-finding dismissal** on the Hibernate and Database advisors hides one finding of a rule from the counts and
+  score, keeps it restorable, and lists orphaned dismissals ([#1524](https://github.com/jdubois/boot-ui/issues/1524)).
 - **`readonly-candidate-transaction`** reports a read-write `@Transactional` method whose transactions never changed
   an entity or ran a write, so it may be declared read-only
   ([#1513](https://github.com/jdubois/boot-ui/issues/1513)).

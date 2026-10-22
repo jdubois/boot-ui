@@ -8,11 +8,14 @@ import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorScanStatusDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorSeverityCountDto;
+import io.github.jdubois.bootui.core.dto.DismissedFindingDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.AdvisorFindingIdentity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
+import io.github.jdubois.bootui.engine.advisor.AdvisorSuppression;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolation;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge;
@@ -167,6 +170,12 @@ public final class DatabaseAdvisorScanner {
 
     public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
         return state.ruleViolations(ruleId, scanId, offset, limit);
+    }
+
+    /** One page of retained findings, flagged where the developer dismissed the finding. */
+    public AdvisorRuleViolationsDto ruleViolations(
+            String ruleId, String scanId, Integer offset, Integer limit, List<DismissedFindingDto> dismissedFindings) {
+        return state.ruleViolations(ruleId, scanId, offset, limit, dismissedFindings);
     }
 
     public void setViolationRetentionLimit(IntSupplier limit) {
@@ -326,14 +335,70 @@ public final class DatabaseAdvisorScanner {
     }
 
     public DatabaseAdvisorReport applyDismissals(DatabaseAdvisorReport report, Set<String> dismissedIds) {
-        if (report == null || dismissedIds == null || dismissedIds.isEmpty()) {
+        return applyDismissals(report, dismissedIds, List.of());
+    }
+
+    /**
+     * Applies what the developer dismissed to the report at read time: whole rules, and single findings of the same
+     * completed scan the report describes. A rule left without an active finding counts like a dismissed one, but
+     * stays listed (with {@code suppressedCount}) so its findings can be restored. The retained findings and the
+     * comparison with the previous scan are never touched.
+     */
+    public DatabaseAdvisorReport applyDismissals(
+            DatabaseAdvisorReport report, Set<String> dismissedIds, List<DismissedFindingDto> dismissedFindings) {
+        boolean rules = dismissedIds != null && !dismissedIds.isEmpty();
+        boolean findings = dismissedFindings != null && !dismissedFindings.isEmpty();
+        if (report == null || (!rules && !findings)) {
             return report;
         }
-        List<DatabaseAdvisorRuleResultDto> marked = report.results().stream()
-                .map(result -> result.withDismissed(dismissedIds.contains(result.id())))
+        Set<String> ruleIds = rules ? dismissedIds : Set.of();
+        AdvisorSuppression suppression = findings
+                ? state.suppression(report.violationDetails().scanId(), ruleIds, dismissedFindings, "DB-")
+                : null;
+        return applyDismissals(report, ruleIds, suppression);
+    }
+
+    /**
+     * The latest report with everything the developer dismissed applied, from one snapshot of the latest completed
+     * scan: the report and the retained findings it is projected from always belong to the same scan.
+     */
+    public DatabaseAdvisorReport dismissedReport(
+            Set<String> dismissedIds, List<DismissedFindingDto> dismissedFindings) {
+        boolean rules = dismissedIds != null && !dismissedIds.isEmpty();
+        boolean findings = dismissedFindings != null && !dismissedFindings.isEmpty();
+        if (!rules && !findings) {
+            return lastReport();
+        }
+        Set<String> ruleIds = rules ? dismissedIds : Set.of();
+        if (!findings) {
+            return applyDismissals(lastReport(), ruleIds, (AdvisorSuppression) null);
+        }
+        AdvisorScanState.Current<DatabaseAdvisorReport> current =
+                state.current(this::initialReport, ruleIds, dismissedFindings, "DB-");
+        return applyDismissals(current.report(), ruleIds, current.suppression());
+    }
+
+    private DatabaseAdvisorReport applyDismissals(
+            DatabaseAdvisorReport report, Set<String> ruleIds, AdvisorSuppression suppression) {
+        List<DatabaseAdvisorRuleResultDto> marked =
+                new ArrayList<>(report.results().size());
+        boolean projected = false;
+        for (DatabaseAdvisorRuleResultDto result : report.results()) {
+            DatabaseAdvisorRuleResultDto next = result.withDismissed(ruleIds.contains(result.id()));
+            AdvisorSuppression.Rule rule =
+                    suppression == null || next.dismissed() ? null : suppression.rule(result.id());
+            if (rule != null) {
+                next = suppress(next, rule);
+                projected = true;
+            }
+            marked.add(next);
+        }
+        if (projected) {
+            marked.sort(IMPORTANCE_ORDER);
+        }
+        List<DatabaseAdvisorRuleResultDto> active = marked.stream()
+                .filter(result -> !result.dismissed() && result.violationCount() > 0)
                 .toList();
-        List<DatabaseAdvisorRuleResultDto> active =
-                marked.stream().filter(result -> !result.dismissed()).toList();
         int violationsFound = active.size();
         DatabaseAdvisorScanStatusDto scan = report.scan();
         DatabaseAdvisorScanStatusDto updatedScan = new DatabaseAdvisorScanStatusDto(
@@ -344,23 +409,26 @@ public final class DatabaseAdvisorScanner {
                 scan.rulesEvaluated(),
                 scan.tablesAnalyzed(),
                 violationsFound);
-        return new DatabaseAdvisorReport(
-                report.localOnly(),
-                report.disclaimer(),
-                report.dataSourceNames(),
-                report.dataSources(),
-                report.tablesAnalyzed(),
-                report.rulesEvaluated(),
+        return report.withSuppression(
                 violationsFound,
-                report.rulesSkipped(),
-                report.rulesErrored(),
-                report.truncated(),
                 severityCounts(active),
                 updatedScan,
                 marked,
-                report.diagnostics(),
-                report.evidence(),
-                report.violationDetails());
+                suppression == null ? report.suppression() : suppression.dto());
+    }
+
+    private static DatabaseAdvisorRuleResultDto suppress(
+            DatabaseAdvisorRuleResultDto result, AdvisorSuppression.Rule rule) {
+        AdvisorSuppression.Sample sample =
+                rule.sample(result.sampleViolations(), DatabaseAdvisorRuleSupport.MAX_SAMPLE_VIOLATIONS);
+        List<String> texts = new ArrayList<>();
+        for (int index : sample.kept()) {
+            texts.add(result.sampleViolations().get(index));
+        }
+        for (AdvisorViolation added : sample.added()) {
+            texts.add(added.text());
+        }
+        return result.withSuppression(rule.suppressedCount(), result.violationCount() - rule.suppressedCount(), texts);
     }
 
     private List<DatabaseAdvisorDiagnosticDto> schemaDiagnostics(List<SchemaSnapshot> schemas) {

@@ -31,6 +31,7 @@ import io.github.jdubois.bootui.autoconfigure.web.ClaudeCodeSessionStore;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigController;
 import io.github.jdubois.bootui.autoconfigure.web.CopilotSessionStore;
 import io.github.jdubois.bootui.autoconfigure.web.DevToolsController;
+import io.github.jdubois.bootui.autoconfigure.web.DismissedFindingsController;
 import io.github.jdubois.bootui.autoconfigure.web.DismissedRulesController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
@@ -430,7 +431,8 @@ class BootUiReactiveAutoConfigurationTests {
                         .hasSingleBean(AiController.class)
                         .hasSingleBean(OtlpReceiverController.class)
                         .hasSingleBean(DevToolsController.class)
-                        .hasSingleBean(DismissedRulesController.class));
+                        .hasSingleBean(DismissedRulesController.class)
+                        .hasSingleBean(DismissedFindingsController.class));
     }
 
     @Test
@@ -612,6 +614,11 @@ class BootUiReactiveAutoConfigurationTests {
                             .isOk();
                     client.get()
                             .uri("/bootui/api/dismissed-rules")
+                            .exchange()
+                            .expectStatus()
+                            .isOk();
+                    client.get()
+                            .uri("/bootui/api/dismissed-findings")
                             .exchange()
                             .expectStatus()
                             .isOk();
