@@ -1,10 +1,14 @@
 package io.github.jdubois.bootui.engine.advisor;
 
+import io.github.jdubois.bootui.core.dto.AdvisorChangesDto;
 import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.AdvisorViolationDetailsDto;
 import io.github.jdubois.bootui.engine.support.PagedList;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -16,6 +20,12 @@ import java.util.function.Supplier;
 /**
  * Latest completed report and its immutable detail index, published as one snapshot.
  * Scanners call {@link #publish} inside their existing single-flight admission.
+ *
+ * <p>An advisor whose findings carry a canonical identity can opt in with {@link #trackingChanges()}. Each publish
+ * then compares its retained findings with the baseline, the last scan that concluded at least one rule, and
+ * publishes the result as {@link AdvisorViolationDetailsDto#changes()}. The comparison is computed once and the
+ * older index is dropped, so tracking costs no memory beyond the single snapshot, except while a scan that
+ * concluded nothing (an outage) sits in front of the baseline it did not replace.</p>
  */
 public final class AdvisorScanState<R> {
 
@@ -38,6 +48,8 @@ public final class AdvisorScanState<R> {
     private volatile IntSupplier retentionLimit = () -> DEFAULT_RETENTION_LIMIT;
     private volatile Completed<R> completed;
     private R initialReport;
+    private volatile boolean trackChanges;
+    private Baseline baseline;
 
     /**
      * A state that cannot tell an unknown rule id from a rule without findings, so it answers {@link
@@ -60,6 +72,12 @@ public final class AdvisorScanState<R> {
         this.ruleCatalog = Objects.requireNonNull(ruleCatalog, "Advisor rule catalogue is required.");
     }
 
+    /** Compares every published scan with the previous comparable one; for advisors whose findings are keyed. */
+    public AdvisorScanState<R> trackingChanges() {
+        this.trackChanges = true;
+        return this;
+    }
+
     /** The ids of {@code rules}, read with {@code id}, for {@link #AdvisorScanState(BiFunction, Supplier)}. */
     public static <T> List<String> ruleIds(List<T> rules, Function<T, String> id) {
         return rules == null
@@ -79,21 +97,41 @@ public final class AdvisorScanState<R> {
         this.retentionLimit = retentionLimit;
     }
 
-    public R publish(R report, AdvisorViolationCollector collector) {
+    public synchronized R publish(R report, AdvisorViolationCollector collector) {
         Objects.requireNonNull(report, "Advisor report is required.");
         Objects.requireNonNull(collector, "Advisor violation collector is required.");
         AdvisorViolationCollector.Snapshot index = collector.snapshot();
+        String scanId = UUID.randomUUID().toString();
+        AdvisorChangesDto changes = null;
+        Map<String, List<String>> markers = Map.of();
+        if (trackChanges) {
+            Baseline previous = baseline;
+            if (!index.coverage().informative()) {
+                // The very first scan has nothing to compare; a later one that concluded nothing says so.
+                changes = previous == null && completed == null
+                        ? null
+                        : AdvisorScanDiff.notCompared(previous == null ? null : previous.scanId(), index.coverage());
+            } else {
+                if (previous != null) {
+                    AdvisorScanDiff.Result diff = AdvisorScanDiff.compare(previous.scanId(), previous.index(), index);
+                    changes = diff.changes();
+                    markers = diff.markers();
+                }
+                baseline = new Baseline(scanId, index);
+            }
+        }
         AdvisorViolationDetailsDto metadata = new AdvisorViolationDetailsDto(
-                UUID.randomUUID().toString(),
+                scanId,
                 index.total(),
                 index.retained(),
                 index.retentionLimit(),
                 index.retained() < index.total(),
-                index.locationNotes());
+                index.locationNotes(),
+                changes);
         R published = Objects.requireNonNull(
                 withMetadata.apply(report, metadata), "Advisor metadata projection must return a report.");
         Collection<String> catalog = ruleCatalog.get();
-        completed = new Completed<>(published, metadata, index, catalog == null ? null : Set.copyOf(catalog));
+        completed = new Completed<>(published, metadata, index, catalog == null ? null : Set.copyOf(catalog), markers);
         return published;
     }
 
@@ -148,7 +186,13 @@ public final class AdvisorScanState<R> {
         int pageLimit = limit == null ? DEFAULT_PAGE_LIMIT : Math.min(limit, MAX_PAGE_LIMIT);
         PagedList.Result<AdvisorViolation> page =
                 PagedList.from(rule.violations(), offset == null ? 0 : offset, pageLimit);
-        // Text and location are cut from the same retained records, so the two lists stay aligned on every page.
+        // Text, location and identity are cut from the same retained records, so the lists stay aligned on every page.
+        List<String> markers = snapshot.changes().get(ruleId);
+        List<String> pageChanges = markers == null
+                ? List.of()
+                : Collections.unmodifiableList(new ArrayList<>(markers.subList(
+                        page.page().offset(),
+                        page.page().offset() + page.items().size())));
         return new AdvisorRuleViolationsDto(
                 snapshot.metadata().scanId(),
                 ruleId,
@@ -157,13 +201,22 @@ public final class AdvisorScanState<R> {
                 rule.violations().size() < rule.violationCount(),
                 AdvisorViolation.texts(page.items()),
                 page.page(),
-                AdvisorViolation.locations(page.items()));
+                AdvisorViolation.locations(page.items()),
+                AdvisorViolation.identities(page.items()),
+                pageChanges);
     }
 
-    /** @param ruleCatalog the advisor's rules when the report was published, or {@code null} when unknown */
+    /**
+     * @param ruleCatalog the advisor's rules when the report was published, or {@code null} when unknown
+     * @param changes per rule, one marker for each retained finding, aligned with the retained list
+     */
     private record Completed<R>(
             R report,
             AdvisorViolationDetailsDto metadata,
             AdvisorViolationCollector.Snapshot index,
-            Set<String> ruleCatalog) {}
+            Set<String> ruleCatalog,
+            Map<String, List<String>> changes) {}
+
+    /** The last scan that concluded at least one rule, which the next scan is compared with. */
+    private record Baseline(String scanId, AdvisorViolationCollector.Snapshot index) {}
 }

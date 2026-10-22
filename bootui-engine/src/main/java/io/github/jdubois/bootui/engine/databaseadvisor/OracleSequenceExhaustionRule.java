@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -38,7 +37,7 @@ final class OracleSequenceExhaustionRule extends AbstractDatabaseAdvisorRule {
         if (reason != null) {
             return skipped(reason);
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
             VendorRuleSupport.coverage(
@@ -84,7 +83,11 @@ final class OracleSequenceExhaustionRule extends AbstractDatabaseAdvisorRule {
                                 + sequence.incrementBy()
                                 + ", cache " + sequence.cacheSize()
                                 + "). Cache reservation can report an early warning "
-                                + "without proving identifiers have been used; the configured range does not reveal original START WITH.");
+                                + "without proving identifiers have been used; the configured range does not reveal original START WITH.",
+                        DatabaseIdentities.of(
+                                schema.dataSourceName(),
+                                "schema=" + sequence.schema(),
+                                "sequence=" + sequence.sequence()));
             }
         }
         return VendorRuleSupport.assessed(this, context, eligible, details);

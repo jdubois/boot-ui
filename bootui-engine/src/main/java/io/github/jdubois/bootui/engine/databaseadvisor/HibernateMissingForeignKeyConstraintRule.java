@@ -50,7 +50,7 @@ final class HibernateMissingForeignKeyConstraintRule extends AbstractHibernateCr
             DatabaseAdvisorContext context,
             MappedTableResolution primary,
             MappedEntityFacts entity,
-            List<String> details) {
+            DatabaseFindings details) {
         int eligible = 0;
         for (MappedForeignKeyFacts foreignKey : entity.foreignKeys()) {
             if (!foreignKey.constraintExpected() || foreignKey.columns().isEmpty()) {
@@ -93,10 +93,17 @@ final class HibernateMissingForeignKeyConstraintRule extends AbstractHibernateCr
             }
             eligible++;
             if (assessment.status() == ForeignKeyMatching.Status.NOT_FOUND) {
-                details.add(resolution.schema().dataSourceName() + ": " + foreignKey.attributeDescription()
-                        + " declares " + table.qualifiedName() + " " + foreignKey.columns()
-                        + " as an association, but no matching foreign key was found in the observed metadata. "
-                        + "Confirm effective physical naming and intended schema-generation policy.");
+                details.add(
+                        resolution.schema().dataSourceName() + ": " + foreignKey.attributeDescription()
+                                + " declares " + table.qualifiedName() + " " + foreignKey.columns()
+                                + " as an association, but no matching foreign key was found in the observed metadata. "
+                                + "Confirm effective physical naming and intended schema-generation policy.",
+                        DatabaseIdentities.table(
+                                resolution.schema(),
+                                table,
+                                DatabaseIdentities.concat(
+                                        new String[] {"attribute=" + foreignKey.attributeDescription()},
+                                        DatabaseIdentities.each("fkcolumn", foreignKey.columns()))));
             }
         }
         return eligible;

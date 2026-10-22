@@ -20,6 +20,11 @@ public final class AdvisorFindings {
         violations.add(new AdvisorViolation(text, location));
     }
 
+    /** A finding with its canonical identity, built with {@link AdvisorFindingIdentity#of}. */
+    public void add(String text, AdvisorViolationLocationDto location, String identity) {
+        violations.add(new AdvisorViolation(text, location, identity));
+    }
+
     public boolean isEmpty() {
         return violations.isEmpty();
     }

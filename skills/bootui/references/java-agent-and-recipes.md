@@ -182,6 +182,15 @@ with `sampleViolations`, and `locations` aligned with `violations` (a `null` ent
 Open `sourcePath` at `line` to go straight to the code; `violationDetails.locationNotes` explains a missing path.
 Never parse a location out of the violation text.
 
+After a fix, rescan and read `violationDetails.changes` instead of comparing two reports. The Hibernate and Database
+advisors set it from the second scan on (`null` on the first scan and for the other advisors): `newCount`,
+`resolvedCount`, `unchangedCount`, up to 50 `resolved` findings (a scan summary lists five), and the `rules` that
+moved. Trust `complete`: when it is `false`, `notes` says why and `unverifiedCount` counts findings that could not be
+compared (a rule that failed or was skipped, truncated retention, an unreadable datasource), which are **not** fixed.
+Their detail pages add `identities` (a stable key such as `v1:unit=orders|entity=com.acme.Order|member=lines`) and
+`changes` (`NEW`, `UNCHANGED`, or `null`), aligned with `violations`; follow one finding across scans by identity,
+never by message.
+
 Keep the rule and scan ID fixed, advance the offset by `page.returned`, and stop when `page.hasMore` is false.
 `page.total` and `page.matched` count retained entries, not the full `violationCount`. Inspect rule/report
 `truncated`: retention overflow means even a terminal page is incomplete. Report `violationDetails` contains

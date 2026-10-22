@@ -11,23 +11,41 @@ import java.util.function.UnaryOperator;
  * Text and location travel together through sanitization, sampling, retention, and paging, so the two
  * lists an advisor publishes can never drift apart.
  *
+ * <p>The identity is the finding's canonical, structure-derived key ({@link AdvisorFindingIdentity}); it is never
+ * derived from the display text and is never sanitized. A finding without one is "unkeyed": counted, but neither
+ * diffed between scans nor suppressible.
+ *
  * @param text the finding text, sanitized once it has been recorded (raw text may be {@code null} before then)
  * @param location the code element the finding points at, or {@code null} when it has none
+ * @param identity the canonical identity of the finding, or {@code null} when its rule provides none
  */
-public record AdvisorViolation(String text, AdvisorViolationLocationDto location) {
+public record AdvisorViolation(String text, AdvisorViolationLocationDto location, String identity) {
+
+    public AdvisorViolation(String text, AdvisorViolationLocationDto location) {
+        this(text, location, null);
+    }
 
     public static AdvisorViolation of(String text) {
-        return new AdvisorViolation(text, null);
+        return new AdvisorViolation(text, null, null);
+    }
+
+    public static AdvisorViolation of(String text, String identity) {
+        return new AdvisorViolation(text, null, identity);
+    }
+
+    public AdvisorViolation withIdentity(String identity) {
+        return new AdvisorViolation(text, location, identity);
     }
 
     AdvisorViolation sanitized(UnaryOperator<String> sanitizer) {
         return new AdvisorViolation(
                 Objects.requireNonNull(sanitizer.apply(text), "Advisor violation sanitizer must return non-null text."),
-                location);
+                location,
+                identity);
     }
 
     AdvisorViolation withLocation(AdvisorViolationLocationDto location) {
-        return new AdvisorViolation(text, location);
+        return new AdvisorViolation(text, location, identity);
     }
 
     /** The texts of {@code violations}, in order. */
@@ -35,6 +53,20 @@ public record AdvisorViolation(String text, AdvisorViolationLocationDto location
         List<String> texts = new ArrayList<>(violations.size());
         for (AdvisorViolation violation : violations) texts.add(violation.text());
         return List.copyOf(texts);
+    }
+
+    /**
+     * The identities of {@code violations}, aligned index-for-index with {@link #texts}, or an empty list when
+     * none of them has one.
+     */
+    public static List<String> identities(List<AdvisorViolation> violations) {
+        List<String> identities = new ArrayList<>(violations.size());
+        boolean any = false;
+        for (AdvisorViolation violation : violations) {
+            identities.add(violation.identity());
+            any |= violation.identity() != null;
+        }
+        return any ? java.util.Collections.unmodifiableList(identities) : List.of();
     }
 
     /**

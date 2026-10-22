@@ -1,8 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
-import java.util.List;
 
 final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRule {
 
@@ -20,14 +18,21 @@ final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRu
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
             for (TableModel table : DatabaseAdvisorContext.analyzableTables(schema)) {
+                if (!table.metadata().primaryKeyRead()) {
+                    unknown(
+                            context,
+                            schema.dataSourceName() + ": " + table.qualifiedName()
+                                    + " primary-key or index inventory is incomplete.");
+                    continue;
+                }
                 if (table.primaryKeyColumns().isEmpty()) {
                     continue;
                 }
-                if (!table.metadata().indexesRead() || !table.metadata().primaryKeyRead()) {
+                if (!table.metadata().indexesRead()) {
                     unknown(
                             context,
                             schema.dataSourceName() + ": " + table.qualifiedName()
@@ -60,9 +65,12 @@ final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRu
                     }
                     eligible++;
                     if (index.exactDuplicateOf(backing)) {
-                        details.add(schema.dataSourceName() + ": " + table.qualifiedName() + " unique index "
-                                + index.name() + " has the same observed definition as primary-key backing index "
-                                + backing.name() + "; review ownership and dependencies.");
+                        details.add(
+                                schema.dataSourceName() + ": " + table.qualifiedName() + " unique index "
+                                        + index.name()
+                                        + " has the same observed definition as primary-key backing index "
+                                        + backing.name() + "; review ownership and dependencies.",
+                                DatabaseIdentities.table(schema, table, "index=" + index.name()));
                     }
                 }
             }

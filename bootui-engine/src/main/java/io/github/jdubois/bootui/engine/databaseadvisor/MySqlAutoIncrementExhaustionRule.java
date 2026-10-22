@@ -4,7 +4,6 @@ import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
-import java.util.ArrayList;
 import java.util.List;
 
 /** Signedness-aware next-value snapshot, not committed row counts or a transactional capacity guarantee. */
@@ -40,7 +39,7 @@ final class MySqlAutoIncrementExhaustionRule extends AbstractDatabaseAdvisorRule
         if (skipReason != null) {
             return skipped(skipReason);
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
             VendorRuleSupport.coverage(
@@ -69,7 +68,7 @@ final class MySqlAutoIncrementExhaustionRule extends AbstractDatabaseAdvisorRule
         return VendorRuleSupport.assessed(this, context, eligible, details);
     }
 
-    private void checkColumn(SchemaSnapshot schema, MySqlAutoIncrementColumn column, List<String> details) {
+    private void checkColumn(SchemaSnapshot schema, MySqlAutoIncrementColumn column, DatabaseFindings details) {
         BigInteger capacity = column.capacity();
         BigInteger nextValue = MySqlCatalogReader.nextAutoIncrement(schema, column.schema(), column.table());
         if (capacity == null || capacity.signum() <= 0 || nextValue == null || nextValue.signum() < 0) {
@@ -85,11 +84,15 @@ final class MySqlAutoIncrementExhaustionRule extends AbstractDatabaseAdvisorRule
         if (percentUsed < WARNING_PERCENT_USED) {
             return;
         }
-        details.add(schema.dataSourceName() + ": " + column.qualifiedTable() + "." + column.column() + " ("
-                + column.columnType() + ") is at " + percentUsed + "% of its AUTO_INCREMENT capacity (next value "
-                + nextValue + " of " + capacity
-                + "). This is a possibly cached/stale/reserved counter, not committed rows. "
-                + persistenceNote(schema.dialect(), schema.version()));
+        details.add(
+                schema.dataSourceName() + ": " + column.qualifiedTable() + "." + column.column() + " ("
+                        + column.columnType() + ") is at " + percentUsed
+                        + "% of its AUTO_INCREMENT capacity (next value "
+                        + nextValue + " of " + capacity
+                        + "). This is a possibly cached/stale/reserved counter, not committed rows. "
+                        + persistenceNote(schema.dialect(), schema.version()),
+                DatabaseIdentities.table(
+                        schema.dataSourceName(), null, column.schema(), column.table(), "column=" + column.column()));
     }
 
     static String persistenceNote(Dialect dialect, DatabaseVersion version) {

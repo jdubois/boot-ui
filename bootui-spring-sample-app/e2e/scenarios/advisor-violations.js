@@ -251,6 +251,171 @@ export function registerAdvisorViolationTests(test, expect, {uiPath = '/bootui',
       expect(methods).toEqual(['GET', 'GET'])
     })
 
+    const tracked = ['hibernate', 'database-advisor']
+    const scanButton = {hibernate: 'Run Hibernate checks', 'database-advisor': 'Run Database checks'}
+    const changes = (overrides = {}) => ({
+      previousScanId: 'scan-0',
+      complete: true,
+      newCount: 0,
+      resolvedCount: 0,
+      unchangedCount: 29,
+      unkeyedCount: 0,
+      resolved: [],
+      notes: [],
+      unverifiedCount: 0,
+      rules: [],
+      ...overrides
+    })
+    const withChanges = (value, scanId = 'scan-1') => {
+      const body = report(scanId)
+      body.violationDetails = {...body.violationDetails, changes: value}
+      return body
+    }
+
+    for (const advisor of tracked) {
+      test(`${advisor}: says a first scan has nothing to compare, then reports what moved`, async ({page}) => {
+        // The beforeEach mocks every advisor read-only; this test runs a scan, so lift that for the tracked one.
+        await page.route(`**${apiPath}/panels`, async (route) => {
+          const response = await route.fetch()
+          const body = await response.json()
+          body.panels = body.panels.map((panel) =>
+            panel.id === advisor ? {...panel, available: true, enabled: true, readOnly: false} : panel
+          )
+          await route.fulfill({response, json: body})
+        })
+        let current = withChanges(null)
+        await page.route(`**${apiPath}/${advisor}`, (route) => route.fulfill({json: current}))
+        await page.route(`**${apiPath}/${advisor}/scan`, (route) => route.fulfill({json: current}))
+        await page.goto(`${uiPath}/#/${advisor}`)
+        const region = page.getByTestId('advisor-changes')
+        await expect(region).toContainText('Since previous scan')
+        await expect(region).toContainText('First scan: nothing to compare yet.')
+
+        const live = page.locator('.advisor-score-card [role="status"]')
+        await expect(live).toHaveCount(1)
+        await expect(live).toHaveAttribute('aria-live', 'polite')
+        await expect(live).toHaveText('')
+
+        current = withChanges(
+          changes({
+            newCount: 2,
+            resolvedCount: 1,
+            unchangedCount: 27,
+            resolved: [{ruleId, text: 'example.Service30 violates ' + ruleId}],
+            rules: [{ruleId, newCount: 2, resolvedCount: 1, unverifiedCount: 0}]
+          }),
+          'scan-2'
+        )
+        await page.getByRole('button', {name: scanButton[advisor]}).click()
+        await expect(region).toContainText('2 new')
+        await expect(region).toContainText('1 resolved')
+        await expect(region).toContainText('27 unchanged')
+        await expect(live).toHaveText('2 new, 1 resolved, 27 unchanged since the previous scan.')
+        await expect(region.getByText('Comparison incomplete')).toHaveCount(0)
+
+        const resolved = region.locator('details.advisor-summary__resolved')
+        await expect(resolved).not.toHaveAttribute('open', '')
+        await resolved.locator('summary').focus()
+        await page.keyboard.press('Enter')
+        await expect(resolved).toContainText('example.Service30 violates ' + ruleId)
+      })
+
+      test(`${advisor}: marks the new findings of a rule, even one whose findings are all samples`, async ({page}) => {
+        const body = withChanges(
+          changes({
+            newCount: 2,
+            unchangedCount: 1,
+            rules: [{ruleId, newCount: 2, resolvedCount: 0, unverifiedCount: 0}]
+          })
+        )
+        body.results[0].violationCount = 3
+        body.results[0].sampleViolations = strings(3)
+        body.violationDetails.total = 3
+        body.violationDetails.retained = 3
+        await page.route(`**${apiPath}/${advisor}`, (route) => route.fulfill({json: body}))
+        await page.route(`**${apiPath}/${advisor}/rules/*/violations?*`, (route) =>
+          route.fulfill({
+            json: {
+              ...detailPage({count: 3}),
+              identities: ['v1:a', 'v1:b', 'v1:c'],
+              changes: ['UNCHANGED', 'NEW', 'NEW']
+            }
+          })
+        )
+        await page.goto(`${uiPath}/#/${advisor}`)
+        const detail = page.locator('.advisor-rule-violations')
+        await expect(detail).toContainText('2 new since the previous scan')
+        await expect(detail.getByTestId('new-finding')).toHaveCount(0)
+        const view = detail.getByRole('button', {name: `View violations for ${ruleId}`})
+        await view.focus()
+        await page.keyboard.press('Enter')
+        await expect(detail.locator('li')).toHaveCount(3)
+        await expect(detail.getByTestId('new-finding')).toHaveCount(2)
+        await expect(detail.locator('li').nth(0).getByTestId('new-finding')).toHaveCount(0)
+        await expect(detail.locator('li').nth(1).getByTestId('new-finding')).toHaveText('New')
+      })
+
+      test(`${advisor}: never calls an incomplete comparison complete`, async ({page}) => {
+        const body = withChanges(
+          changes({
+            complete: false,
+            newCount: 1,
+            unchangedCount: 20,
+            unverifiedCount: 3,
+            notes: ['3 finding(s) were not compared because a scan did not fully evaluate their rule.']
+          })
+        )
+        await page.route(`**${apiPath}/${advisor}`, (route) => route.fulfill({json: body}))
+        await page.goto(`${uiPath}/#/${advisor}`)
+        const region = page.getByTestId('advisor-changes')
+        await expect(region).toContainText('Comparison incomplete: 3 could not be compared.')
+        await expect(region).not.toContainText('No changes since the previous scan')
+        const why = region.locator('details', {hasText: 'Why is this comparison incomplete?'})
+        await why.locator('summary').click()
+        await expect(why).toContainText('did not fully evaluate their rule')
+      })
+
+      test(`${advisor}: shows an unchanged rescan as one calm sentence`, async ({page}) => {
+        await page.route(`**${apiPath}/${advisor}`, (route) => route.fulfill({json: withChanges(changes())}))
+        await page.goto(`${uiPath}/#/${advisor}`)
+        await expect(page.getByTestId('advisor-changes')).toContainText(
+          'No changes since the previous scan. 29 unchanged.'
+        )
+      })
+
+      test(`${advisor}: stays readable on a narrow screen`, async ({page}) => {
+        await page.setViewportSize({width: 390, height: 844})
+        const body = withChanges(
+          changes({
+            complete: false,
+            newCount: 12,
+            resolvedCount: 3,
+            unchangedCount: 140,
+            unverifiedCount: 2,
+            resolved: [{ruleId, text: 'example.VeryLongServiceName'.repeat(6) + ' violates ' + ruleId}],
+            notes: ['2 finding(s) were not compared because a scan did not fully evaluate their rule.'],
+            rules: [{ruleId, newCount: 12, resolvedCount: 3, unverifiedCount: 2}]
+          })
+        )
+        await page.route(`**${apiPath}/${advisor}`, (route) => route.fulfill({json: body}))
+        await page.goto(`${uiPath}/#/${advisor}`)
+        const region = page.getByTestId('advisor-changes')
+        await expect(region).toContainText('12 new')
+        await region.locator('details.advisor-summary__resolved summary').click()
+        await expect(region).toBeVisible()
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+        expect(overflow).toBeLessThanOrEqual(1)
+      })
+    }
+
+    test('advisors that do not key their findings show no comparison and no extra live region', async ({page}) => {
+      await page.route(`**${apiPath}/architecture`, (route) => route.fulfill({json: report()}))
+      await page.goto(`${uiPath}/#/architecture`)
+      await expect(page.locator('.advisor-rule-violations li')).toHaveCount(10)
+      await expect(page.getByTestId('advisor-changes')).toHaveCount(0)
+      await expect(page.locator('.advisor-score-card [role="status"]')).toHaveCount(0)
+    })
+
     test('command-line catalogue spells required scan identity and optional page flags', async ({page}) => {
       await page.route(`**${apiPath}/cli`, (route) =>
         route.fulfill({

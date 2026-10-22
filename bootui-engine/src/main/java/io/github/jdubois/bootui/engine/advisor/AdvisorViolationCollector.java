@@ -4,9 +4,11 @@ import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 
@@ -18,9 +20,19 @@ import java.util.function.UnaryOperator;
  */
 public final class AdvisorViolationCollector {
 
+    /** The scope of a rule that is concluded for every scope its findings carry. */
+    public static final String ALL_SCOPES = "*";
+
+    private static final int MAX_COVERAGE_NOTES = 10;
+
     private final int retentionLimit;
     private final Map<String, MutableRule> rules = new LinkedHashMap<>();
     private final List<String> locationNotes = new ArrayList<>();
+    private final Set<String> concluded = new LinkedHashSet<>();
+    private final Set<String> unverifiedScopes = new LinkedHashSet<>();
+    private final Set<String> observedScopes = new LinkedHashSet<>();
+    private final List<String> coverageNotes = new ArrayList<>();
+    private boolean scanUnverified;
     private int total;
     private int retained;
 
@@ -106,6 +118,12 @@ public final class AdvisorViolationCollector {
         return List.copyOf(sanitized.subList(0, toSample));
     }
 
+    /** The retained findings of one rule so far, in recording order; empty for a rule that reported none. */
+    public List<AdvisorViolation> retained(String ruleId) {
+        MutableRule rule = rules.get(ruleId);
+        return rule == null ? List.of() : List.copyOf(rule.details);
+    }
+
     /** Visits every retained location, for example to collect the classes an explicit scan must resolve. */
     public void forEachLocation(Consumer<AdvisorViolationLocationDto> visitor) {
         for (MutableRule rule : rules.values()) {
@@ -132,11 +150,71 @@ public final class AdvisorViolationCollector {
         if (notes != null) notes.stream().filter(Objects::nonNull).forEach(locationNotes::add);
     }
 
+    /**
+     * Declares that {@code ruleId} was evaluated conclusively for {@code scope}: it ran to the end without an error
+     * or a gap in the evidence it needs, so a finding it no longer reports is genuinely gone. The scan comparison
+     * fails closed, so a rule never declared concluded can neither resolve nor newly report a finding.
+     *
+     * @param scope the first identity part its findings carry (for example {@code unit=main}), or
+     *     {@link #ALL_SCOPES} when the rule covers everything it can see
+     */
+    public void markConcluded(String ruleId, String scope) {
+        concluded.add(concludedKey(ruleId, scope));
+    }
+
+    /**
+     * Declares that {@code scope} was looked at in this scan. Once any scope is declared observed, a scope that was not
+     * is treated as unread: its findings cannot be resolved by this scan.
+     */
+    public void markScopeObserved(String scope) {
+        observedScopes.add(Objects.requireNonNull(scope, "Advisor scope is required."));
+    }
+
+    /**
+     * Declares that nothing in {@code scope} can be compared in this scan, for example a datasource that could not
+     * be read: its findings are neither resolved nor new.
+     */
+    public void markScopeUnverified(String scope, String reason) {
+        unverifiedScopes.add(Objects.requireNonNull(scope, "Advisor scope is required."));
+        addNote(reason);
+    }
+
+    /** Records why part of this scan could not be compared, without blocking any particular scope. */
+    public void noteCoverageGap(String reason) {
+        addNote(reason);
+    }
+
+    /** Declares that this scan cannot be compared at all, for example because no rule could run. */
+    public void markScanUnverified(String reason) {
+        scanUnverified = true;
+        addNote(reason);
+    }
+
+    private void addNote(String reason) {
+        if (reason != null && !reason.isBlank() && coverageNotes.size() < MAX_COVERAGE_NOTES) {
+            coverageNotes.add(reason);
+        }
+    }
+
+    static String concludedKey(String ruleId, String scope) {
+        return ruleId + '\u0000' + scope;
+    }
+
     Snapshot snapshot() {
         Map<String, Rule> copy = new LinkedHashMap<>();
         rules.forEach((id, rule) -> copy.put(id, new Rule(rule.count, List.copyOf(rule.details))));
         return new Snapshot(
-                total, retained, retentionLimit, Collections.unmodifiableMap(copy), List.copyOf(locationNotes));
+                total,
+                retained,
+                retentionLimit,
+                Collections.unmodifiableMap(copy),
+                List.copyOf(locationNotes),
+                new Coverage(
+                        Set.copyOf(concluded),
+                        Set.copyOf(unverifiedScopes),
+                        Set.copyOf(observedScopes),
+                        List.copyOf(coverageNotes),
+                        scanUnverified));
     }
 
     record Rule(int violationCount, List<AdvisorViolation> violations) {
@@ -146,7 +224,35 @@ public final class AdvisorViolationCollector {
         }
     }
 
-    record Snapshot(int total, int retained, int retentionLimit, Map<String, Rule> rules, List<String> locationNotes) {}
+    /** What this scan could and could not conclude, which decides what a comparison may claim. */
+    record Coverage(
+            Set<String> concluded,
+            Set<String> unverifiedScopes,
+            Set<String> observedScopes,
+            List<String> notes,
+            boolean scanUnverified) {
+
+        static final Coverage NONE = new Coverage(Set.of(), Set.of(), Set.of(), List.of(), false);
+
+        boolean concludes(String ruleId, String scope) {
+            if (scanUnverified || (scope != null && unverifiedScopes.contains(scope))) return false;
+            if (!observedScopes.isEmpty() && (scope == null || !observedScopes.contains(scope))) return false;
+            return concluded.contains(concludedKey(ruleId, scope))
+                    || concluded.contains(concludedKey(ruleId, ALL_SCOPES));
+        }
+
+        boolean informative() {
+            return !scanUnverified && !concluded.isEmpty();
+        }
+    }
+
+    record Snapshot(
+            int total,
+            int retained,
+            int retentionLimit,
+            Map<String, Rule> rules,
+            List<String> locationNotes,
+            Coverage coverage) {}
 
     private static final class MutableRule {
         private int count;

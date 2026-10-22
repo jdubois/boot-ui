@@ -64,6 +64,9 @@ const diagnostics = computed(() => panel.report?.diagnostics || [])
           {label: 'Advisor findings', value: panel.report.violationsFound},
           {label: 'Entities analysed', value: panel.report.entitiesAnalyzed}
         ]"
+        :changes="panel.report.violationDetails?.changes"
+        changes-enabled
+        :scanned="panel.hasScanData"
       />
       <div class="alert alert-info">
         <strong>Heuristic Hibernate rules.</strong>

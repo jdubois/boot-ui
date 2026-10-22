@@ -2,7 +2,6 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedColumnFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -55,7 +54,7 @@ final class HibernateIdentityGenerationMismatchRule extends AbstractHibernateCro
             DatabaseAdvisorContext context,
             MappedTableResolution primary,
             MappedEntityFacts entity,
-            List<String> details) {
+            DatabaseFindings details) {
         int eligible = 0;
         for (MappedColumnFacts column : entity.columns()) {
             if (!applicable(column)) {
@@ -78,7 +77,7 @@ final class HibernateIdentityGenerationMismatchRule extends AbstractHibernateCro
             SchemaSnapshot schema,
             TableModel table,
             MappedColumnFacts column,
-            List<String> details) {
+            DatabaseFindings details) {
         ColumnModel physical = schema.declaredColumn(table, column.columnName());
         if (physical == null) {
             unknownColumn(context, schema, table, column.columnName(), column.attributeDescription());
@@ -92,10 +91,14 @@ final class HibernateIdentityGenerationMismatchRule extends AbstractHibernateCro
             return false;
         }
         if (physical.knownWithoutDatabaseGeneration()) {
-            details.add(schema.dataSourceName() + ": " + column.attributeDescription()
-                    + " declares @GeneratedValue(strategy = IDENTITY), but physical column " + table.qualifiedName()
-                    + "." + physical.name() + " (" + physical.describeType() + ") reports no auto-increment/identity, "
-                    + "default or generated value. Inserts fail unless a trigger assigns the key.");
+            details.add(
+                    schema.dataSourceName() + ": " + column.attributeDescription()
+                            + " declares @GeneratedValue(strategy = IDENTITY), but physical column "
+                            + table.qualifiedName()
+                            + "." + physical.name() + " (" + physical.describeType()
+                            + ") reports no auto-increment/identity, "
+                            + "default or generated value. Inserts fail unless a trigger assigns the key.",
+                    DatabaseIdentities.mapped(schema, table, column.attributeDescription(), column.columnName()));
         }
         return true;
     }

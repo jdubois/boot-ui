@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.List;
 
 /** Exact ordinary-index definition candidates only; a longer index does not prove redundancy. */
@@ -22,7 +21,7 @@ final class DuplicateIndexRule extends AbstractDatabaseAdvisorRule {
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
             for (TableModel table : DatabaseAdvisorContext.analyzableTables(schema)) {
@@ -45,9 +44,14 @@ final class DuplicateIndexRule extends AbstractDatabaseAdvisorRule {
                         IndexModel first = candidates.get(i);
                         IndexModel second = candidates.get(j);
                         if (first.exactDuplicateOf(second)) {
-                            details.add(schema.dataSourceName() + ": " + table.qualifiedName() + " indexes "
-                                    + first.name() + " and " + second.name()
-                                    + " have identical observed ordinary-index definitions; review dependencies.");
+                            details.add(
+                                    schema.dataSourceName() + ": " + table.qualifiedName() + " indexes "
+                                            + first.name() + " and " + second.name()
+                                            + " have identical observed ordinary-index definitions; review dependencies.",
+                                    DatabaseIdentities.table(
+                                            schema,
+                                            table,
+                                            DatabaseIdentities.pair("index", first.name(), second.name())));
                         }
                     }
                 }

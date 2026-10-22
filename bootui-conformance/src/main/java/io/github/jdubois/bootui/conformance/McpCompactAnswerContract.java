@@ -1,6 +1,9 @@
 package io.github.jdubois.bootui.conformance;
 
+import io.github.jdubois.bootui.core.dto.AdvisorChangesDto;
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
+import io.github.jdubois.bootui.core.dto.AdvisorResolvedFindingDto;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleChangeDto;
 import io.github.jdubois.bootui.core.dto.AdvisorViolationDetailsDto;
 import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
 import io.github.jdubois.bootui.core.dto.DependenciesReport;
@@ -207,7 +210,30 @@ public final class McpCompactAnswerContract {
                 results,
                 List.of(),
                 new AdvisorEvidenceDto(true, true, List.of()),
-                new AdvisorViolationDetailsDto("scan-1", 1000, 1000, 10000, false, List.of()));
+                new AdvisorViolationDetailsDto("scan-1", 1000, 1000, 10000, false, List.of(), worstCaseChanges()));
+    }
+
+    /** The largest comparison a scan can carry: fifty long resolved findings and a hundred moving rules. */
+    private static AdvisorChangesDto worstCaseChanges() {
+        List<AdvisorResolvedFindingDto> resolved = new ArrayList<>();
+        for (int i = 0; i < AdvisorChangesDto.MAX_RESOLVED; i++) {
+            resolved.add(new AdvisorResolvedFindingDto("HIB-" + i, "[orders] Entity#association " + "x".repeat(240)));
+        }
+        List<AdvisorRuleChangeDto> rules = new ArrayList<>();
+        for (int i = 0; i < AdvisorChangesDto.MAX_RULES; i++) {
+            rules.add(new AdvisorRuleChangeDto("HIB-RULE-" + i, 3, 2, 1));
+        }
+        return new AdvisorChangesDto(
+                "scan-0",
+                false,
+                300,
+                50,
+                650,
+                0,
+                resolved,
+                List.of("A scan did not fully evaluate some rules; their findings were not compared. ".repeat(3)),
+                10,
+                rules);
     }
 
     /** A full SQL Trace buffer of long statements, as the panel returns it after a pause or a resume. */
