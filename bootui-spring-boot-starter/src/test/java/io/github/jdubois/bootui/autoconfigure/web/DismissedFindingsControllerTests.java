@@ -181,6 +181,18 @@ class DismissedFindingsControllerTests {
         client.get().uri(PATH).exchange().expectStatus().isOk();
     }
 
+    @Test
+    void mvcReadsTheBodyAsBytesSoTheFrameworkNeverLogsTheNote(@TempDir Path dir) throws Exception {
+        var method = DismissedFindingsController.class.getDeclaredMethods();
+        assertThat(java.util.Arrays.stream(method)
+                        .filter(candidate -> candidate.getName().equals("dismiss"))
+                        .flatMap(candidate -> java.util.Arrays.stream(candidate.getParameterTypes())))
+                .containsExactly(byte[].class);
+        mvc(dir, new BootUiProperties())
+                .perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(BODY))
+                .andExpect(status().isOk());
+    }
+
     private static MockMvc mvc(Path dir, BootUiProperties properties) {
         return standaloneSetup(new DismissedFindingsController(new DismissedRulesStore(dir.resolve("boot-ui.yml"))))
                 .setControllerAdvice(new AdvisorViolationExceptionHandler())

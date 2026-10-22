@@ -18,4 +18,21 @@ class QuarkusRootPathTests {
                 .isEqualTo("/bootui/api/dismissed-findings/");
         assertThat(QuarkusRootPath.stripPrefix(null, "")).isNull();
     }
+
+    @Test
+    void anEncodedSlashNextToAMatrixParameterCannotHideAPathFromTheGuards() {
+        // RESTEasy Reactive decodes each segment once a path has a matrix parameter, so %2F separates segments for it.
+        assertThat(QuarkusRootPath.stripPrefix("/bootui/api%2Fdismissed-findings;x=1", ""))
+                .isEqualTo("/bootui/api/dismissed-findings");
+        assertThat(QuarkusRootPath.stripPrefix("/bootui%2fapi/dismissed-findings;x=1", ""))
+                .isEqualTo("/bootui/api/dismissed-findings");
+        assertThat(QuarkusRootPath.stripPrefix("/bootui/api/dismissed%2Dfindings;x=1", ""))
+                .isEqualTo("/bootui/api/dismissed-findings");
+        assertThat(QuarkusRootPath.stripPrefix("/bootui/api/dismissed-findings;x=%zz", ""))
+                .isEqualTo("/bootui/api/dismissed-findings");
+        assertThat(QuarkusRootPath.stripPrefix("/bootui/api/a%2;x=1", "")).isEqualTo("/bootui/api/a%2");
+        // Without a matrix parameter Vert.x's normalized path is used as it is.
+        assertThat(QuarkusRootPath.stripPrefix("/bootui/api%2Fdismissed-findings", ""))
+                .isEqualTo("/bootui/api%2Fdismissed-findings");
+    }
 }

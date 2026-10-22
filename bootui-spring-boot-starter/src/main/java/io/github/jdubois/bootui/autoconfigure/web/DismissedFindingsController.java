@@ -23,8 +23,9 @@ import tools.jackson.databind.json.JsonMapper;
  * policy and the localhost and cross-site-write floor like every other BootUI write, and there is deliberately no
  * MCP or CLI binding.</p>
  *
- * <p>The request body is read as text and parsed here, so that a malformed body is answered with a fixed message:
- * a JSON binding failure would quote the offending text, and with it the note, into the exception diagnostics.</p>
+ * <p>The request body is read as bytes and parsed here, so that a malformed body is answered with a fixed message:
+ * a JSON binding failure would quote the offending text, and with it the note, into the exception diagnostics, and
+ * Spring MVC logs a text body it reads at DEBUG, which Log Tail would carry to MCP and the CLI.</p>
  */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/dismissed-findings")
@@ -45,14 +46,14 @@ public class DismissedFindingsController {
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-    public DismissedFindingsDto dismiss(@RequestBody(required = false) String body) {
+    public DismissedFindingsDto dismiss(@RequestBody(required = false) byte[] body) {
         JsonNode request = parse(body);
         return dto(store.dismissFinding(
                 text(request, "ruleId", false), text(request, "identity", false), text(request, "note", true)));
     }
 
     @DeleteMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-    public DismissedFindingsDto restore(@RequestBody(required = false) String body) {
+    public DismissedFindingsDto restore(@RequestBody(required = false) byte[] body) {
         JsonNode request = parse(body);
         return dto(store.restoreFinding(text(request, "ruleId", false), text(request, "identity", false)));
     }
@@ -61,10 +62,10 @@ public class DismissedFindingsController {
         return new DismissedFindingsDto(findings.findings(), findings.ignored());
     }
 
-    private static JsonNode parse(String body) {
+    private static JsonNode parse(byte[] body) {
         JsonNode node;
         try {
-            node = body == null || body.isBlank() ? null : MAPPER.readTree(body);
+            node = body == null || body.length == 0 ? null : MAPPER.readTree(body);
         } catch (RuntimeException e) {
             node = null;
         }

@@ -1154,6 +1154,23 @@ public abstract class AbstractBootUiApiConformanceTest {
         }
         assertThat(probe.get(api("/dismissed-findings")).json().path("dismissed"))
                 .isEmpty();
+        // The store needs no scan, so the whole round trip, including a DELETE that carries a body, runs everywhere.
+        String note = "Caf\u00e9 \u2713: \\\"quoted\\\" # not a comment";
+        String roundTrip = "{" + valid + ",\"note\":\"" + note + "\"}";
+        try {
+            Response created = probe.request("POST", api("/dismissed-findings"), headers, roundTrip);
+            assertThat(created.status()).isEqualTo(200);
+            JsonNode listedBack = probe.get(api("/dismissed-findings")).json().path("dismissed");
+            assertThat(listedBack).hasSize(1);
+            assertThat(listedBack.get(0).path("note").asText())
+                    .isEqualTo("Caf\u00e9 \u2713: \"quoted\" # not a comment");
+            assertThat(listedBack.get(0).path("ruleId").asText()).isEqualTo("HIB-ID-006");
+        } finally {
+            Response restored = probe.request("DELETE", api("/dismissed-findings"), headers, "{" + valid + "}");
+            assertThat(restored.status()).isEqualTo(200);
+        }
+        assertThat(probe.get(api("/dismissed-findings")).json().path("dismissed"))
+                .isEmpty();
         Response crossSite = probe.request(
                 "POST",
                 api("/dismissed-findings"),
