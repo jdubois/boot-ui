@@ -51,6 +51,15 @@ final class MySqlCatalogReader {
             limit ?
             """;
 
+    /**
+     * {@code SHOW ... WHERE Variable_name IN (...)} rather than the panel's {@code UNION} over
+     * {@code performance_schema}: a name this server does not know is just an absent row instead of failing the whole
+     * statement, which is what lets one statement serve MySQL and MariaDB. The names are constants, so the statement
+     * is fixed and takes no bind parameter.
+     */
+    static final String SERVER_SETTINGS_SQL =
+            "show session variables where Variable_name in ('wait_timeout', 'max_connections')";
+
     private MySqlCatalogReader() {}
 
     static void read(
@@ -60,6 +69,16 @@ final class MySqlCatalogReader {
             ScanBudget budget,
             DatabaseAdvisorLimits limits,
             VendorFindings.Builder findings) {
+        // First, and tiny: the other catalog reads must not spend the scan budget before the pool rules get their
+        // limits.
+        findings.add(CatalogQuery.readFixed(
+                connection,
+                VendorFindingKinds.MYSQL_SERVER_SETTINGS,
+                SERVER_SETTINGS_SQL,
+                budget,
+                limits,
+                resultSet ->
+                        new ServerSetting(resultSet.getString("Variable_name"), resultSet.getString("Value"), null)));
         findings.add(CatalogQuery.read(
                 connection,
                 VendorFindingKinds.MYSQL_TABLES,

@@ -46,7 +46,12 @@ final class DatabaseAdvisorRuleRegistry {
             new PostgresAutosaveRule(),
             new DriverDiagnosticSettingsRule(),
             new DriverSocketTimeoutRule(),
-            new PostgresApplicationNameRule());
+            new PostgresApplicationNameRule(),
+            // Connection pool compared with the database server's limits
+            new PoolIdleLimitRule(),
+            new PoolExceedsServerConnectionsRule(),
+            new PoolUnlimitedLifetimeRule(),
+            new PoolServerShareRule());
 
     private DatabaseAdvisorRuleRegistry() {}
 

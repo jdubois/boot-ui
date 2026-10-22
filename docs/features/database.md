@@ -14,6 +14,10 @@ For each pool it shows the identity and library, the masked JDBC URL and usernam
 sizing, and the timeout and lifetime settings. Closed and uninitialized pools carry an unavailable reason. A live chart
 polls bounded snapshots of active, idle, total, and pending connections every two seconds.
 
+The panel only shows settings; it never judges them. Whether the pool's lifetime, keepalive and size agree with the
+database server's limits is checked by the
+[Connection pool rules](../DATABASE-ADVISOR-CHECKS.md#connection-pool) of the Database advisor.
+
 The connections each request held at once are in [Runtime Insights](runtime-insights.md) (`connections-per-request`);
 this panel links to them.
 

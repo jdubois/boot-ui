@@ -530,6 +530,142 @@ class VendorCatalogReaderTests {
                 .satisfies(identity -> assertThat(identity.capacity()).isEqualTo(BigInteger.valueOf(99999)));
     }
 
+    @Test
+    void postgresServerSettingsAreReadByBoundNamesThroughTheBoundedParameterizedRead() throws Exception {
+        List<String> queries = new ArrayList<>();
+        List<PreparedStatement> statements = new ArrayList<>();
+        Connection connection = connection(
+                queries,
+                statements,
+                sql -> sql.contains("pg_settings")
+                        ? List.of(
+                                Map.of("name", "idle_session_timeout", "setting", "300000", "unit", "ms"),
+                                Map.of("name", "max_connections", "setting", "100"))
+                        : List.of());
+        VendorAugmentation<ServerSetting> settings =
+                PostgresCatalogReader.readServerSettings(connection, budget(), DatabaseAdvisorLimits.DEFAULTS);
+
+        assertThat(settings.available()).isTrue();
+        assertThat(settings.findings())
+                .containsExactly(
+                        new ServerSetting("idle_session_timeout", "300000", "ms"),
+                        new ServerSetting("max_connections", "100", null));
+        String sql = queries.get(0);
+        assertThat(sql)
+                .isEqualTo(
+                        "select name, setting, unit from pg_settings where name in (?, ?, ?, ?) order by name limit ?")
+                .doesNotContain("max_connections");
+        PreparedStatement statement = statements.get(0);
+        for (int index = 0; index < PostgresCatalogReader.SERVER_SETTING_NAMES.size(); index++) {
+            verify(statement).setObject(index + 1, PostgresCatalogReader.SERVER_SETTING_NAMES.get(index));
+        }
+        verify(statement).setInt(5, DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
+        verify(statement).setMaxRows(DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
+        verify(statement).setQueryTimeout(5);
+    }
+
+    @Test
+    void postgresServerSettingsAreReadWithTheOtherCatalogsEvenOnAnOldServer() throws Exception {
+        List<String> queries = new ArrayList<>();
+        VendorFindings findings = postgres(13, queries, sql -> List.of());
+        assertThat(findings.available(VendorFindingKinds.POSTGRES_SERVER_SETTINGS))
+                .isTrue();
+        assertThat(findings.findings(VendorFindingKinds.POSTGRES_SERVER_SETTINGS))
+                .isEmpty();
+        assertThat(queries.get(0)).contains("pg_settings");
+    }
+
+    @Test
+    void aFailingPostgresServerSettingsReadIsCapturedAndRedacted() throws Exception {
+        Connection connection = mock(Connection.class);
+        when(connection.prepareStatement(anyString()))
+                .thenThrow(new java.sql.SQLException("refused jdbc:postgresql://h/db?user=app&password=hunter2"));
+        VendorAugmentation<ServerSetting> settings =
+                PostgresCatalogReader.readServerSettings(connection, budget(), DatabaseAdvisorLimits.DEFAULTS);
+
+        assertThat(settings.failed()).isTrue();
+        assertThat(settings.reason()).contains("PostgreSQL server settings could not be read");
+        assertThat(settings.reason()).doesNotContain("hunter2");
+    }
+
+    @Test
+    void postgresServerSettingsRespectTheRowBound() throws Exception {
+        DatabaseAdvisorLimits limits =
+                new DatabaseAdvisorLimits(10, 10, 10, 1, Duration.ofSeconds(30), Duration.ofSeconds(5));
+        Connection connection = connection(
+                new ArrayList<>(),
+                new ArrayList<>(),
+                sql -> List.of(
+                        Map.of("name", "idle_session_timeout", "setting", "0", "unit", "ms"),
+                        Map.of("name", "max_connections", "setting", "100")));
+        VendorAugmentation<ServerSetting> settings =
+                PostgresCatalogReader.readServerSettings(connection, budget(), limits);
+
+        assertThat(settings.truncated()).isTrue();
+        assertThat(settings.findings()).hasSize(1);
+    }
+
+    @Test
+    void mysqlAndMariaDbServerSettingsUseOneFixedStatementWithNothingBound() throws Exception {
+        for (Dialect dialect : List.of(Dialect.MYSQL, Dialect.MARIADB)) {
+            List<String> queries = new ArrayList<>();
+            List<PreparedStatement> statements = new ArrayList<>();
+            Connection connection = connection(
+                    queries,
+                    statements,
+                    sql -> sql.startsWith("show session variables")
+                            ? List.of(
+                                    Map.of("Variable_name", "max_connections", "Value", "151"),
+                                    Map.of("Variable_name", "wait_timeout", "Value", "28800"))
+                            : List.of());
+            VendorFindings.Builder findings = VendorFindings.builder();
+            DatabaseVersion version = new DatabaseVersion(8, 4, 0, "8.4.0");
+            MySqlCatalogReader.read(
+                    connection,
+                    dialect,
+                    DialectCapabilities.of(dialect, version),
+                    budget(),
+                    DatabaseAdvisorLimits.DEFAULTS,
+                    findings);
+
+            assertThat(findings.build().findings(VendorFindingKinds.MYSQL_SERVER_SETTINGS))
+                    .containsExactly(
+                            new ServerSetting("max_connections", "151", null),
+                            new ServerSetting("wait_timeout", "28800", null));
+            assertThat(queries.get(0))
+                    .isEqualTo("show session variables where Variable_name in ('wait_timeout', 'max_connections')");
+            PreparedStatement statement = statements.get(0);
+            verify(statement).setQueryTimeout(5);
+            verify(statement).setMaxRows(DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
+            org.mockito.Mockito.verify(statement, org.mockito.Mockito.never())
+                    .setInt(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt());
+            org.mockito.Mockito.verify(statement, org.mockito.Mockito.never())
+                    .setObject(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.any());
+        }
+    }
+
+    @Test
+    void aMysqlServerThatLacksAVariableJustReturnsFewerRows() throws Exception {
+        Connection connection = connection(
+                new ArrayList<>(),
+                new ArrayList<>(),
+                sql -> sql.startsWith("show session variables")
+                        ? List.of(Map.of("Variable_name", "max_connections", "Value", "151"))
+                        : List.of());
+        VendorFindings.Builder findings = VendorFindings.builder();
+        DatabaseVersion version = new DatabaseVersion(10, 11, 0, "10.11.0-MariaDB");
+        MySqlCatalogReader.read(
+                connection,
+                Dialect.MARIADB,
+                DialectCapabilities.of(Dialect.MARIADB, version),
+                budget(),
+                DatabaseAdvisorLimits.DEFAULTS,
+                findings);
+
+        assertThat(findings.build().findings(VendorFindingKinds.MYSQL_SERVER_SETTINGS))
+                .containsExactly(new ServerSetting("max_connections", "151", null));
+    }
+
     private static VendorFindings postgres(
             int major, List<String> queries, Function<String, List<Map<String, Object>>> rows) throws Exception {
         Connection connection = connection(queries, new ArrayList<>(), rows);
@@ -568,8 +704,13 @@ class VendorCatalogReaderTests {
         Connection connection = mock(Connection.class);
         when(connection.prepareStatement(anyString())).thenAnswer(call -> {
             String sql = call.getArgument(0);
-            assertThat(sql.stripLeading()).startsWith("select ");
-            assertThat(sql).contains("?");
+            if (MySqlCatalogReader.SERVER_SETTINGS_SQL.equals(sql)) {
+                // The one fixed statement: it must carry no placeholder, because nothing is bound to it.
+                assertThat(sql).doesNotContain("?");
+            } else {
+                assertThat(sql.stripLeading()).startsWith("select ");
+                assertThat(sql).contains("?");
+            }
             queries.add(sql);
             PreparedStatement statement = mock(PreparedStatement.class);
             statements.add(statement);

@@ -54,6 +54,35 @@ final class CatalogQuery {
             ScanBudget budget,
             DatabaseAdvisorLimits limits,
             RowMapper<T> mapper) {
+        return execute(connection, kind, sql, parameters, true, budget, limits, mapper);
+    }
+
+    /**
+     * Same guards as {@link #read(Connection, VendorFindingKind, String, ScanBudget, DatabaseAdvisorLimits,
+     * RowMapper)}, for a <em>fixed</em> statement that takes no bind parameter at all, not even the trailing row
+     * limit: MySQL and MariaDB's {@code SHOW ... WHERE} cannot carry one. The row bound is enforced by
+     * {@code setMaxRows(max + 1)} alone, which still detects truncation deterministically. Use it only for a
+     * constant statement text, never for one assembled from external input.
+     */
+    static <T> VendorAugmentation<T> readFixed(
+            Connection connection,
+            VendorFindingKind<T> kind,
+            String sql,
+            ScanBudget budget,
+            DatabaseAdvisorLimits limits,
+            RowMapper<T> mapper) {
+        return execute(connection, kind, sql, List.of(), false, budget, limits, mapper);
+    }
+
+    private static <T> VendorAugmentation<T> execute(
+            Connection connection,
+            VendorFindingKind<T> kind,
+            String sql,
+            List<Object> parameters,
+            boolean bindRowLimit,
+            ScanBudget budget,
+            DatabaseAdvisorLimits limits,
+            RowMapper<T> mapper) {
         if (budget.exhausted()) {
             return VendorAugmentation.failed(
                     kind, "The scan budget ran out before " + kind.label() + " could be read.");
@@ -68,7 +97,9 @@ final class CatalogQuery {
             for (Object parameter : parameters) {
                 statement.setObject(parameterIndex++, parameter);
             }
-            statement.setInt(parameterIndex, limit + 1);
+            if (bindRowLimit) {
+                statement.setInt(parameterIndex, limit + 1);
+            }
             if (budget.exhausted()) {
                 return VendorAugmentation.failed(
                         kind, "The scan budget ran out before " + kind.label() + " could be read.");

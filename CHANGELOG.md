@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`DB-POOL-001..004`** compare a HikariCP or Agroal pool with the PostgreSQL or MySQL/MariaDB server: idle connections
+  outliving the server's limit, a pool larger than the server, no pool headroom, and an unlimited `maxLifetime`
+  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#connection-pool); [#1519](https://github.com/jdubois/boot-ui/issues/1519)).
 - **`DB-DRIVER-001..003` (MEDIUM)** flag a pgjdbc or MySQL Connector/J datasource that batches writes without
   `reWriteBatchedInserts`/`rewriteBatchedStatements`, and Connector/J `useAffectedRows=true`
   ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#jdbc-driver); [#1517](https://github.com/jdubois/boot-ui/issues/1517)).

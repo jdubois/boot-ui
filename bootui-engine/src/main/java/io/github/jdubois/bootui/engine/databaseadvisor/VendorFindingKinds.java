@@ -39,6 +39,12 @@ final class VendorFindingKinds {
                     "PostgreSQL tables in scope for logical replication",
                     PostgresReplicaIdentityCandidate.class);
 
+    static final VendorFindingKind<ServerSetting> POSTGRES_SERVER_SETTINGS =
+            new VendorFindingKind<>("postgresql.server-settings", "PostgreSQL server settings", ServerSetting.class);
+
+    static final VendorFindingKind<ServerSetting> MYSQL_SERVER_SETTINGS =
+            new VendorFindingKind<>("mysql.server-settings", "MySQL/MariaDB server settings", ServerSetting.class);
+
     static final VendorFindingKind<MySqlTableInfo> MYSQL_TABLES =
             new VendorFindingKind<>("mysql.tables", "MySQL/MariaDB table metadata", MySqlTableInfo.class);
 

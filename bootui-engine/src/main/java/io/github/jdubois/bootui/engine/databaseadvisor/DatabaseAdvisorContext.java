@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.JdbcBatching;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.PoolSettings;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +24,10 @@ import java.util.Map;
  *
  * <p>{@code jdbcBatching} is the effective JDBC batching per datasource name, derived from the Hibernate
  * observations. A datasource without an entry has unknown batching, never disabled batching.</p>
+ *
+ * <p>{@code pools} is the sanitized pool numbers per datasource name (exact match only). It is built from
+ * {@link PoolSettings}, never from a pool's JDBC URL or user name, so no rule can echo either. A datasource without
+ * an entry has an unknown pool, never an unconfigured one.</p>
  */
 record DatabaseAdvisorContext(
         List<SchemaSnapshot> schemas,
@@ -31,7 +36,8 @@ record DatabaseAdvisorContext(
         List<SqlTraceEntryDto> observedStatements,
         List<SchemaDiagnostic> evaluationDiagnostics,
         AdvisorViolationCollector violationCollector,
-        Map<String, JdbcBatching> jdbcBatching) {
+        Map<String, JdbcBatching> jdbcBatching,
+        Map<String, PoolSettings> pools) {
 
     private static final int MAX_EVALUATION_DIAGNOSTICS = 100;
 
@@ -41,6 +47,26 @@ record DatabaseAdvisorContext(
         observedStatements = observedStatements == null ? List.of() : List.copyOf(observedStatements);
         evaluationDiagnostics = new ArrayList<>(evaluationDiagnostics);
         jdbcBatching = jdbcBatching == null ? Map.of() : Map.copyOf(jdbcBatching);
+        pools = pools == null ? Map.of() : Map.copyOf(pools);
+    }
+
+    DatabaseAdvisorContext(
+            List<SchemaSnapshot> schemas,
+            boolean hibernateAvailable,
+            List<MappedEntityFacts> hibernateEntities,
+            List<SqlTraceEntryDto> observedStatements,
+            List<SchemaDiagnostic> evaluationDiagnostics,
+            AdvisorViolationCollector violationCollector,
+            Map<String, JdbcBatching> jdbcBatching) {
+        this(
+                schemas,
+                hibernateAvailable,
+                hibernateEntities,
+                observedStatements,
+                evaluationDiagnostics,
+                violationCollector,
+                jdbcBatching,
+                Map.of());
     }
 
     DatabaseAdvisorContext(
@@ -92,6 +118,11 @@ record DatabaseAdvisorContext(
                     "Additional rule-coverage diagnostics omitted after the first " + MAX_EVALUATION_DIAGNOSTICS
                             + " distinct messages."));
         }
+    }
+
+    /** The pool settings known for {@code dataSourceName}, or {@code null} when its pool is unknown. */
+    PoolSettings poolOf(String dataSourceName) {
+        return pools.get(dataSourceName);
     }
 
     /** The batching known for {@code dataSourceName}, or {@code null} when it is unknown. */
