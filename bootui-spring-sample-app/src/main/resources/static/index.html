@@ -1103,6 +1103,7 @@
     'exception-hotspots',
     'connections-per-request',
     'split-transaction-writes',
+    'unbatched-write-loop',
     'readonly-candidate-transaction',
     'framework-warnings-by-route',
     'ai-usage-by-route',
@@ -1235,6 +1236,16 @@
           'io.github.jdubois.bootui.sample.insights.InsightTagService.summary'
         ]
       ]
+    },
+    {
+      key: 'unbatched-write-loop',
+      label: 'Unbatched write loop',
+      text: 'Inserts twelve audit rows one statement at a time in one transaction, three times; then the same rows in one JDBC batch.',
+      steps: [
+        ['POST', '/api/insights/audit/one-by-one', 3],
+        ['POST', '/api/insights/audit/in-one-batch', 3]
+      ],
+      expect: [['unbatched-write-loop', 'Unbatched write loops', 'POST /api/insights/audit/one-by-one']]
     },
     {
       key: 'work-after-response',

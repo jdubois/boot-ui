@@ -58,6 +58,10 @@ class WebFluxRuntimeInsightsSeedsTest {
             assertThat(probe.get("/api/insights/notes/on-event-loop").status()).isEqualTo(200);
             assertThat(probe.get("/api/insights/notes/one-by-one").status()).isEqualTo(200);
             assertThat(probe.get("/api/insights/notes/at-once").status()).isEqualTo(200);
+            assertThat(probe.get("/api/insights/notes/write-one-by-one").status())
+                    .isEqualTo(200);
+            assertThat(probe.get("/api/insights/notes/write-in-one-batch").status())
+                    .isEqualTo(200);
             assertThat(probe.get("/api/notes").status()).isEqualTo(200);
             assertThat(probe.get("/api/sample/rest-client").status()).isEqualTo(200);
         }
@@ -82,6 +86,17 @@ class WebFluxRuntimeInsightsSeedsTest {
                     assertThat(check.path("reason").asText()).contains("No eligible work");
                 });
         assertThat(subjects("readonly-candidate-transaction")).isEmpty();
+    }
+
+    @Test
+    void aLoopOfSingleUpdatesInOneTransactionIsFoundButNotTheSameUpdatesInOneBatch() {
+        assertThat(subjects("unbatched-write-loop"))
+                .containsExactly("GET /api/insights/notes/write-one-by-one")
+                .doesNotContain("GET /api/insights/notes/write-in-one-batch");
+        assertThat(checks)
+                .filteredOn(check -> check.path("kind").asText().equals("unbatched-write-loop"))
+                .singleElement()
+                .satisfies(check -> assertThat(check.path("status").asText()).isEqualTo("EVALUATED"));
     }
 
     @Test

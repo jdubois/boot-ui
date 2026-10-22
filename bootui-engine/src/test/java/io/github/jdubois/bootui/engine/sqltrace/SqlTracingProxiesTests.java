@@ -253,6 +253,52 @@ class SqlTracingProxiesTests {
     }
 
     @Test
+    void publishesTheBatchSizeOfEachExecutionToTheJournalApartFromThePanels() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        PreparedStatement ps = mock(PreparedStatement.class);
+        Statement stmt = mock(Statement.class);
+        String insert = "insert into account(name) values (?)";
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.prepareStatement(insert)).thenReturn(ps);
+        when(conn.createStatement()).thenReturn(stmt);
+        when(ps.executeUpdate()).thenReturn(1);
+        when(ps.executeBatch()).thenReturn(new int[] {1, 1, 1});
+        when(stmt.executeBatch()).thenReturn(new int[] {1});
+
+        Connection connection = SqlTracingProxies.wrap(ds, recorder).getConnection();
+        PreparedStatement p = connection.prepareStatement(insert);
+        p.setString(1, "single");
+        p.executeUpdate();
+        for (int i = 0; i < 3; i++) {
+            p.setString(1, "batched");
+            p.addBatch();
+        }
+        p.executeBatch();
+        p.setString(1, "one");
+        p.addBatch();
+        p.executeBatch();
+        // A batch whose size was never tracked is unknown, never an ordinary execution.
+        p.executeBatch();
+        Statement s = connection.createStatement();
+        s.addBatch("delete from account where id = 1");
+        s.addBatch("delete from account where id = 2");
+        s.executeBatch();
+
+        assertThat(published)
+                .filteredOn(event -> event.source() == JournalSource.SQL)
+                .extracting(event -> ((SqlPayload) event.payload()).batchSize())
+                .containsExactly(1, 3, 1, 0, 2);
+        assertThat(recorder.recent())
+                .extracting(CapturedStatement::batchSize)
+                .as("the panel keeps its own count, zero for an ordinary execution")
+                .containsExactly(2, 0, 1, 3, 0);
+    }
+
+    @Test
     void keepsPreparedBatchStateAndRenderedParameterPreviewBounded() throws Exception {
         SqlTraceRecorder recorder = recorder();
         DataSource ds = mock(DataSource.class);

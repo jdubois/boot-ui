@@ -122,6 +122,33 @@ public class InsightOrderService {
         return jdbc.update("update insight_orders set total_cents = 1000 * id");
     }
 
+    /**
+     * {@code unbatched-write-loop}: one audit row per iteration, each its own statement execution in one transaction,
+     * so each pays its own round trip.
+     */
+    @Transactional
+    public int auditOneByOne(int rows) {
+        for (int row = 0; row < rows; row++) {
+            jdbc.update(
+                    "insert into insight_audit (id, order_id, action) values (?, ?, ?)",
+                    tables.nextId(),
+                    1,
+                    "row-" + row);
+        }
+        return rows;
+    }
+
+    /** The counterexample: the same rows sent as one JDBC batch. */
+    @Transactional
+    public int auditInOneBatch(int rows) {
+        List<Object[]> batch = new ArrayList<>();
+        for (int row = 0; row < rows; row++) {
+            batch.add(new Object[] {tables.nextId(), 1, "row-" + row});
+        }
+        jdbc.batchUpdate("insert into insight_audit (id, order_id, action) values (?, ?, ?)", batch);
+        return rows;
+    }
+
     /** {@code lazy-sql-after-handler}: a report whose lines are read only when the response is written. */
     public List<InsightOrderReport> lazyReport() {
         List<InsightOrderReport> report = new ArrayList<>();

@@ -448,6 +448,7 @@ public final class RuntimeInsightsService {
                 new AnonymousDataReach(),
                 new AnonymousSuccessOnRestrictedRoute(),
                 new SplitTransactionWrites(),
+                new UnbatchedWriteLoop(),
                 new TransactionalListenerSkipped(),
                 new AfterCommitWrites(),
                 new OrmAutoFlush(),

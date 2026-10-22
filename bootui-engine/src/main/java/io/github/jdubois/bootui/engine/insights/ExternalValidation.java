@@ -95,6 +95,7 @@ public final class ExternalValidation {
         put(kinds, SafeMethodDml.KIND, Outcome.NOT_VALIDATED, null);
         put(kinds, TransactionAcrossRemoteCall.KIND, Outcome.NOT_VALIDATED, null);
         put(kinds, SplitTransactionWrites.KIND, Outcome.UNDER_SAMPLED, ON_REQUEST);
+        put(kinds, UnbatchedWriteLoop.KIND, Outcome.UNDER_SAMPLED, ON_REQUEST);
         put(kinds, AfterCommitWrites.KIND, Outcome.NOT_VALIDATED, null);
         put(kinds, TransactionalListenerSkipped.KIND, Outcome.NOT_VALIDATED, null);
         put(kinds, ProxyBypass.KIND, Outcome.NOT_VALIDATED, null);

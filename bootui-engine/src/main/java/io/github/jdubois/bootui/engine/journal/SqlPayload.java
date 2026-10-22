@@ -18,6 +18,10 @@ import java.util.Objects;
  *     statement was recorded ({@code docs/PLAN-v2.md} §5.14, M5-4c), which names the request-tree node that issued it, or {@code 0}
  *     when unknown: without the agent, or when the recorder ran on another thread
  * @param provenance whether the feeder observed execution or only preparation, never inferred from duration or JDBC type
+ * @param batchSize how many parameter sets one execution submitted: {@code 1} for an ordinary execution, {@code N > 1}
+ *     for a JDBC batch of {@code N} (a batch of one is indistinguishable from an ordinary execution), and {@code 0} when
+ *     unknown, which is always so for a preparation or a publisher that does not know; unknown is never read as
+ *     unbatched ({@code unbatched-write-loop})
  */
 public record SqlPayload(
         String sql,
@@ -28,7 +32,8 @@ public record SqlPayload(
         RequestPhase phase,
         long completedNanos,
         long codePathStamp,
-        Provenance provenance)
+        Provenance provenance,
+        int batchSize)
         implements RuntimeEventPayload {
 
     public enum Provenance {
@@ -39,6 +44,8 @@ public record SqlPayload(
 
     public SqlPayload {
         provenance = provenance == null ? Provenance.UNKNOWN : provenance;
+        // Only an observed execution knows its batch size.
+        batchSize = provenance == Provenance.EXECUTION ? Math.max(0, batchSize) : 0;
     }
 
     /** Whether the feeder observed a JDBC execution, including one timed as zero nanoseconds. */
@@ -65,13 +72,14 @@ public record SqlPayload(
                         && Objects.equals(dataSource, that.dataSource)
                         && Objects.equals(frames, that.frames)
                         && phase == that.phase
-                        && provenance == that.provenance;
+                        && provenance == that.provenance
+                        && batchSize == that.batchSize;
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(
-                sql, callSite(), dataSource, failed, frames, phase, completedNanos, codePathStamp, provenance);
+                sql, callSite(), dataSource, failed, frames, phase, completedNanos, codePathStamp, provenance, batchSize);
     }
 
     @Override
@@ -79,7 +87,34 @@ public record SqlPayload(
         return "SqlPayload[sql=" + sql + ", callSite=" + callSite() + ", dataSource=" + dataSource + ", failed="
                 + failed
                 + ", frames=" + frames + ", phase=" + phase + ", completedNanos=" + completedNanos + ", codePathStamp="
-                + codePathStamp + ", provenance=" + provenance + "]";
+                + codePathStamp + ", provenance=" + provenance + ", batchSize=" + batchSize + "]";
+    }
+
+    /**
+     * A statement of {@code provenance} whose batch size is the ordinary execution's, {@code 1}, when it was executed,
+     * and unknown otherwise.
+     */
+    public SqlPayload(
+            String sql,
+            String callSite,
+            String dataSource,
+            boolean failed,
+            ApplicationFrames frames,
+            RequestPhase phase,
+            long completedNanos,
+            long codePathStamp,
+            Provenance provenance) {
+        this(
+                sql,
+                callSite,
+                dataSource,
+                failed,
+                frames,
+                phase,
+                completedNanos,
+                codePathStamp,
+                provenance,
+                provenance == Provenance.EXECUTION ? 1 : 0);
     }
 
     /** A JDBC execution, preserving the original constructor's contract. */
@@ -135,7 +170,8 @@ public record SqlPayload(
                 phase,
                 completedNanos,
                 codePathStamp,
-                provenance);
+                provenance,
+                batchSize);
     }
 
     /** Its fixed part and its strings, each counted as the payload's own. */
@@ -147,7 +183,7 @@ public record SqlPayload(
     /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
     @Override
     public int estimatedBytes(JournalDictionary dictionary) {
-        return 48
+        return 56
                 + JournalDictionary.retained(dictionary, sql)
                 + JournalDictionary.retained(dictionary, callSite())
                 + JournalDictionary.retained(dictionary, dataSource)
