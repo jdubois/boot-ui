@@ -3,7 +3,6 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedSecondaryTableFacts;
-import java.util.ArrayList;
 import java.util.List;
 
 /** Reviews declared relation names against complete scoped inventories, without claiming effective physical mapping. */
@@ -56,10 +55,12 @@ final class HibernateMissingTableRule extends AbstractDatabaseAdvisorRule {
             MappedTableResolution resolution = MappedTableResolution.resolve(context, entity);
             if (resolution.status() == MappedTableResolution.Status.NOT_FOUND) {
                 eligible++;
-                details.add(entity.entityName() + " declares relation name " + entity.qualifiedTableName()
-                        + ", which was not found in the scoped observed relation inventory. "
-                        + "Confirm effective physical naming before changing the mapping.",
-                DatabaseIdentities.parts("entity=" + entity.entityName(), "relation=" + entity.qualifiedTableName()));
+                details.add(
+                        entity.entityName() + " declares relation name " + entity.qualifiedTableName()
+                                + ", which was not found in the scoped observed relation inventory. "
+                                + "Confirm effective physical naming before changing the mapping.",
+                        DatabaseIdentities.parts(
+                                "entity=" + entity.entityName(), "relation=" + entity.qualifiedTableName()));
             } else if (resolution.resolved()) {
                 eligible++;
             } else {
@@ -73,9 +74,11 @@ final class HibernateMissingTableRule extends AbstractDatabaseAdvisorRule {
                         MappedTableResolution.resolveSecondary(context, entity, secondaryTable.name());
                 if (secondaryResolution.status() == MappedTableResolution.Status.NOT_FOUND) {
                     eligible++;
-                    details.add(entity.entityName() + " declares @SecondaryTable " + secondaryTable.qualifiedName()
-                            + ", whose name was not found in the scoped observed relation inventory.",
-                DatabaseIdentities.parts("entity=" + entity.entityName(), "secondary=" + secondaryTable.qualifiedName()));
+                    details.add(
+                            entity.entityName() + " declares @SecondaryTable " + secondaryTable.qualifiedName()
+                                    + ", whose name was not found in the scoped observed relation inventory.",
+                            DatabaseIdentities.parts(
+                                    "entity=" + entity.entityName(), "secondary=" + secondaryTable.qualifiedName()));
                 } else if (secondaryResolution.resolved()) {
                     eligible++;
                 } else {

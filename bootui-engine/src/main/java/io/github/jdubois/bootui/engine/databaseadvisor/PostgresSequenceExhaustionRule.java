@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.List;
 
 /** Direction-aware sequence headroom, bounded by a known owning column as well as the sequence definition. */
@@ -76,11 +75,13 @@ final class PostgresSequenceExhaustionRule extends AbstractDatabaseAdvisorRule {
             return;
         }
         String limitedBy = sequence.limitedByColumn() ? " (limited by its owning column type)" : "";
-        details.add(schema.dataSourceName() + ": sequence " + sequence.qualifiedName() + " at " + percentUsed
-                + "% toward effective bound " + sequence.effectiveBound() + limitedBy + "; owner "
-                + sequence.describeOwner() + "; reserved last_value " + sequence.lastValue()
-                + " (start " + sequence.startValue() + ", increment " + sequence.incrementBy()
-                + ", cache " + sequence.cacheSize() + "). Not committed rows.",
-                DatabaseIdentities.of(schema.dataSourceName(), "schema=" + sequence.schema(), "sequence=" + sequence.sequence()));
+        details.add(
+                schema.dataSourceName() + ": sequence " + sequence.qualifiedName() + " at " + percentUsed
+                        + "% toward effective bound " + sequence.effectiveBound() + limitedBy + "; owner "
+                        + sequence.describeOwner() + "; reserved last_value " + sequence.lastValue()
+                        + " (start " + sequence.startValue() + ", increment " + sequence.incrementBy()
+                        + ", cache " + sequence.cacheSize() + "). Not committed rows.",
+                DatabaseIdentities.of(
+                        schema.dataSourceName(), "schema=" + sequence.schema(), "sequence=" + sequence.sequence()));
     }
 }

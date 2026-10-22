@@ -42,7 +42,17 @@ public record AdvisorRuleViolationsDto(
             List<String> violations,
             PageMetadata page,
             List<AdvisorViolationLocationDto> locations) {
-        this(scanId, ruleId, violationCount, retainedCount, truncated, violations, page, locations, List.of(), List.of());
+        this(
+                scanId,
+                ruleId,
+                violationCount,
+                retainedCount,
+                truncated,
+                violations,
+                page,
+                locations,
+                List.of(),
+                List.of());
     }
 
     public AdvisorRuleViolationsDto(
@@ -53,6 +63,16 @@ public record AdvisorRuleViolationsDto(
             boolean truncated,
             List<String> violations,
             PageMetadata page) {
-        this(scanId, ruleId, violationCount, retainedCount, truncated, violations, page, List.of(), List.of(), List.of());
+        this(
+                scanId,
+                ruleId,
+                violationCount,
+                retainedCount,
+                truncated,
+                violations,
+                page,
+                List.of(),
+                List.of(),
+                List.of());
     }
 }

@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -81,7 +80,7 @@ final class MissingPrimaryKeyRule extends AbstractDatabaseAdvisorRule {
                     details.add(
                             schema.dataSourceName() + ": table " + table.qualifiedName()
                                     + " has no primary key reported by JDBC; verify driver/privilege coverage before a migration.",
-                DatabaseIdentities.table(schema, table));
+                            DatabaseIdentities.table(schema, table));
                 }
             }
         }

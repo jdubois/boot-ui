@@ -18,7 +18,9 @@ class AdvisorScanStateChangesTests {
     @Test
     void theFirstScanHasNoChangesAndAnUntrackedStateNeverHasAny() {
         AdvisorScanState<Report> tracked = tracked();
-        assertThat(scan(tracked, scan -> scan.finding("R1", "a")).violationDetails().changes())
+        assertThat(scan(tracked, scan -> scan.finding("R1", "a"))
+                        .violationDetails()
+                        .changes())
                 .isNull();
 
         AdvisorScanState<Report> untracked = new AdvisorScanState<>(Report::with);
@@ -33,7 +35,8 @@ class AdvisorScanStateChangesTests {
     void anIdenticalRescanReportsEverythingUnchangedAndCompleteAndMarksEachFinding() {
         AdvisorScanState<Report> state = tracked();
         scan(state, scan -> scan.finding("R1", "a").finding("R1", "b").finding("R2", "c"));
-        Report second = scan(state, scan -> scan.finding("R1", "a").finding("R1", "b").finding("R2", "c"));
+        Report second =
+                scan(state, scan -> scan.finding("R1", "a").finding("R1", "b").finding("R2", "c"));
 
         AdvisorChangesDto changes = second.violationDetails().changes();
         assertThat(changes.complete()).isTrue();
@@ -43,7 +46,8 @@ class AdvisorScanStateChangesTests {
         assertThat(changes.resolvedCount()).isZero();
         assertThat(changes.unkeyedCount()).isZero();
         assertThat(changes.rules()).isEmpty();
-        AdvisorRuleViolationsDto page = state.ruleViolations("R1", second.violationDetails().scanId(), 0, 10);
+        AdvisorRuleViolationsDto page =
+                state.ruleViolations("R1", second.violationDetails().scanId(), 0, 10);
         assertThat(page.changes()).containsExactly("UNCHANGED", "UNCHANGED");
         assertThat(page.identities()).containsExactly(id("a"), id("b"));
     }
@@ -69,7 +73,8 @@ class AdvisorScanStateChangesTests {
             assertThat(rule.newCount()).isEqualTo(1);
             assertThat(rule.resolvedCount()).isEqualTo(1);
         });
-        AdvisorRuleViolationsDto page = state.ruleViolations("R1", second.violationDetails().scanId(), 0, 10);
+        AdvisorRuleViolationsDto page =
+                state.ruleViolations("R1", second.violationDetails().scanId(), 0, 10);
         assertThat(page.violations()).containsExactly("text b", "text c");
         assertThat(page.changes()).containsExactly("UNCHANGED", "NEW");
     }
@@ -78,11 +83,13 @@ class AdvisorScanStateChangesTests {
     void aRuleThatFixedItsLastFindingIsResolvedAndAFirstFindingIsNew() {
         AdvisorScanState<Report> state = tracked();
         scan(state, scan -> scan.finding("R1", "a"));
-        AdvisorChangesDto none = scan(state, scan -> scan.concluded("R1")).violationDetails().changes();
+        AdvisorChangesDto none =
+                scan(state, scan -> scan.concluded("R1")).violationDetails().changes();
         assertThat(none.resolvedCount()).isEqualTo(1);
         assertThat(none.complete()).isTrue();
 
-        AdvisorChangesDto back = scan(state, scan -> scan.finding("R1", "a")).violationDetails().changes();
+        AdvisorChangesDto back =
+                scan(state, scan -> scan.finding("R1", "a")).violationDetails().changes();
         assertThat(back.newCount()).isEqualTo(1);
         assertThat(back.complete()).isTrue();
     }
@@ -137,7 +144,8 @@ class AdvisorScanStateChangesTests {
         AdvisorScanState<Report> state = tracked();
         state.setRetentionLimit(() -> 2);
         scan(state, scan -> scan.finding("R1", "a").finding("R1", "b").finding("R1", "c"));
-        Report second = scan(state, scan -> scan.finding("R1", "b").finding("R1", "c").finding("R1", "d"));
+        Report second =
+                scan(state, scan -> scan.finding("R1", "b").finding("R1", "c").finding("R1", "d"));
 
         AdvisorChangesDto changes = second.violationDetails().changes();
         assertThat(second.violationDetails().truncated()).isTrue();
@@ -161,7 +169,8 @@ class AdvisorScanStateChangesTests {
         assertThat(changes.newCount()).isZero();
         assertThat(changes.resolvedCount()).isZero();
         assertThat(changes.complete()).isFalse();
-        AdvisorRuleViolationsDto page = state.ruleViolations("R1", second.violationDetails().scanId(), 0, 10);
+        AdvisorRuleViolationsDto page =
+                state.ruleViolations("R1", second.violationDetails().scanId(), 0, 10);
         assertThat(page.identities()).containsExactly(null, id("k"));
         assertThat(page.changes()).containsExactly(null, "UNCHANGED");
     }
@@ -185,7 +194,8 @@ class AdvisorScanStateChangesTests {
         Report outage = scan(state, scan -> scan.scanUnverified("No datasource was found, so no rule could run."));
 
         AdvisorChangesDto notCompared = outage.violationDetails().changes();
-        assertThat(notCompared.previousScanId()).isEqualTo(first.violationDetails().scanId());
+        assertThat(notCompared.previousScanId())
+                .isEqualTo(first.violationDetails().scanId());
         assertThat(notCompared.complete()).isFalse();
         assertThat(notCompared.resolvedCount()).isZero();
         assertThat(notCompared.notes()).anyMatch(note -> note.contains("No datasource"));
@@ -200,11 +210,17 @@ class AdvisorScanStateChangesTests {
     @Test
     void anOutageBeforeAnyBaselineLeavesTheFirstRealScanWithoutChanges() {
         AdvisorScanState<Report> state = tracked();
-        assertThat(scan(state, scan -> scan.scanUnverified("x")).violationDetails().changes())
+        assertThat(scan(state, scan -> scan.scanUnverified("x"))
+                        .violationDetails()
+                        .changes())
                 .isNull();
-        assertThat(scan(state, scan -> scan.finding("R1", "a")).violationDetails().changes())
+        assertThat(scan(state, scan -> scan.finding("R1", "a"))
+                        .violationDetails()
+                        .changes())
                 .isNull();
-        assertThat(scan(state, scan -> scan.finding("R1", "a")).violationDetails().changes())
+        assertThat(scan(state, scan -> scan.finding("R1", "a"))
+                        .violationDetails()
+                        .changes())
                 .isNotNull();
     }
 
@@ -213,8 +229,8 @@ class AdvisorScanStateChangesTests {
         AdvisorScanState<Report> state = tracked();
         Report first = scan(state, scan -> scan.finding("R1", "a"));
         scan(state, scan -> scan.finding("R1", "a"));
-        org.assertj.core.api.Assertions.assertThatThrownBy(
-                        () -> state.ruleViolations("R1", first.violationDetails().scanId(), 0, 10))
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        state.ruleViolations("R1", first.violationDetails().scanId(), 0, 10))
                 .isInstanceOf(AdvisorViolationException.class);
     }
 

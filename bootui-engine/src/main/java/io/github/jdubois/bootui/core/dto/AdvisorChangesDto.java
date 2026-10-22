@@ -68,6 +68,16 @@ public record AdvisorChangesDto(
             int unkeyedCount,
             List<AdvisorResolvedFindingDto> resolved,
             List<String> notes) {
-        this(previousScanId, complete, newCount, resolvedCount, unchangedCount, unkeyedCount, resolved, notes, 0, List.of());
+        this(
+                previousScanId,
+                complete,
+                newCount,
+                resolvedCount,
+                unchangedCount,
+                unkeyedCount,
+                resolved,
+                notes,
+                0,
+                List.of());
     }
 }

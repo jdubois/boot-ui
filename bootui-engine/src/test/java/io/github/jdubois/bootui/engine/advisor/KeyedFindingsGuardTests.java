@@ -53,7 +53,12 @@ class KeyedFindingsGuardTests {
                 .callConstructor(AdvisorViolation.class, String.class, AdvisorViolationLocationDto.class)
                 .orShould()
                 .callMethod(
-                        AdvisorViolationCollector.class, "record", String.class, int.class, List.class, UnaryOperator.class)
+                        AdvisorViolationCollector.class,
+                        "record",
+                        String.class,
+                        int.class,
+                        List.class,
+                        UnaryOperator.class)
                 .because("every Hibernate and Database Advisor finding needs a canonical identity")
                 .check(KEYED_ADVISORS);
     }

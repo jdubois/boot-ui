@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -93,9 +92,11 @@ final class OracleUnusableIndexRule extends AbstractDatabaseAdvisorRule {
                 continue;
             }
             String flavor = index.automatic() ? " (system-generated name; not proof of constraint ownership)" : "";
-            details.add(schema.dataSourceName() + ": index " + index.schema() + "." + index.index() + flavor
-                    + " on table " + index.qualifiedTable() + " is UNUSABLE (" + index.indexType() + ").",
-                DatabaseIdentities.table(schema.dataSourceName(), null, index.schema(), index.table(), "index=" + index.index()));
+            details.add(
+                    schema.dataSourceName() + ": index " + index.schema() + "." + index.index() + flavor + " on table "
+                            + index.qualifiedTable() + " is UNUSABLE (" + index.indexType() + ").",
+                    DatabaseIdentities.table(
+                            schema.dataSourceName(), null, index.schema(), index.table(), "index=" + index.index()));
         }
     }
 
@@ -113,10 +114,17 @@ final class OracleUnusableIndexRule extends AbstractDatabaseAdvisorRule {
                 continue;
             }
             String level = partition.subpartition() ? "subpartition" : "partition";
-            details.add(schema.dataSourceName() + ": " + level + " " + partition.partitionName() + " of index "
-                    + partition.schema() + "." + partition.index() + " on table " + partition.qualifiedTable()
-                    + " is UNUSABLE.",
-                DatabaseIdentities.table(schema.dataSourceName(), null, partition.schema(), partition.table(), "index=" + partition.index(), (partition.subpartition() ? "subpartition=" : "partition=") + partition.partitionName()));
+            details.add(
+                    schema.dataSourceName() + ": " + level + " " + partition.partitionName() + " of index "
+                            + partition.schema() + "." + partition.index() + " on table " + partition.qualifiedTable()
+                            + " is UNUSABLE.",
+                    DatabaseIdentities.table(
+                            schema.dataSourceName(),
+                            null,
+                            partition.schema(),
+                            partition.table(),
+                            "index=" + partition.index(),
+                            (partition.subpartition() ? "subpartition=" : "partition=") + partition.partitionName()));
         }
     }
 }

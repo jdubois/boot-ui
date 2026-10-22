@@ -16,7 +16,8 @@ class DatabaseFindingIdentityTests {
 
     @Test
     void aTableFindingIsKeyedOnTheDatasourceAndTheSeparatedTableParts() {
-        TableModel audit = table("audit", List.of(column("event", "text", Types.VARCHAR)), List.of(), List.of(), List.of());
+        TableModel audit =
+                table("audit", List.of(column("event", "text", Types.VARCHAR)), List.of(), List.of(), List.of());
 
         List<AdvisorViolation> findings = evaluate(new MissingPrimaryKeyRule(), "main", audit);
 
@@ -27,10 +28,13 @@ class DatabaseFindingIdentityTests {
 
     @Test
     void theIdentityIsStableAcrossScansAndDoesNotDependOnTheMessage() {
-        TableModel audit = table("audit", List.of(column("event", "text", Types.VARCHAR)), List.of(), List.of(), List.of());
+        TableModel audit =
+                table("audit", List.of(column("event", "text", Types.VARCHAR)), List.of(), List.of(), List.of());
 
         assertThat(evaluate(new MissingPrimaryKeyRule(), "main", audit).get(0).identity())
-                .isEqualTo(evaluate(new MissingPrimaryKeyRule(), "main", audit).get(0).identity());
+                .isEqualTo(evaluate(new MissingPrimaryKeyRule(), "main", audit)
+                        .get(0)
+                        .identity());
     }
 
     @Test
@@ -46,7 +50,8 @@ class DatabaseFindingIdentityTests {
     void aDatasourceNameIsEncodedAndStaysTheScope() {
         TableModel audit = table("audit", List.of(), List.of(), List.of(), List.of());
 
-        String identity = evaluate(new MissingPrimaryKeyRule(), "my db|1", audit).get(0).identity();
+        String identity =
+                evaluate(new MissingPrimaryKeyRule(), "my db|1", audit).get(0).identity();
 
         assertThat(AdvisorFindingIdentity.scope(identity)).isEqualTo("ds=my%20db%7C1");
         assertThat(identity).matches(AdvisorFindingIdentity.VALID.pattern());
@@ -82,7 +87,9 @@ class DatabaseFindingIdentityTests {
         TableModel audit = table("audit", List.of(), List.of(), List.of(), List.of());
 
         assertThat(evaluate(new MissingPrimaryKeyRule(), "one", audit).get(0).identity())
-                .isNotEqualTo(evaluate(new MissingPrimaryKeyRule(), "two", audit).get(0).identity());
+                .isNotEqualTo(evaluate(new MissingPrimaryKeyRule(), "two", audit)
+                        .get(0)
+                        .identity());
     }
 
     @Test
@@ -95,7 +102,9 @@ class DatabaseFindingIdentityTests {
     private static IndexModel btree(String name, List<String> columns) {
         return new IndexModel(
                 name,
-                columns.stream().map(column -> IndexKeyPart.column(column, true)).toList(),
+                columns.stream()
+                        .map(column -> IndexKeyPart.column(column, true))
+                        .toList(),
                 false,
                 "btree",
                 null,
@@ -111,7 +120,8 @@ class DatabaseFindingIdentityTests {
                 null);
     }
 
-    private static List<AdvisorViolation> evaluate(AbstractDatabaseAdvisorRule rule, String dataSource, TableModel table) {
+    private static List<AdvisorViolation> evaluate(
+            AbstractDatabaseAdvisorRule rule, String dataSource, TableModel table) {
         AdvisorViolationCollector collector = new AdvisorViolationCollector(100);
         DatabaseAdvisorContext context = new DatabaseAdvisorContext(
                 List.of(schema(dataSource, Dialect.GENERIC, List.of(table))),

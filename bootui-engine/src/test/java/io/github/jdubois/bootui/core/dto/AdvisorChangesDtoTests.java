@@ -72,8 +72,9 @@ class AdvisorChangesDtoTests {
         List<AdvisorRuleChangeDto> rules = IntStream.range(0, 150)
                 .mapToObj(i -> new AdvisorRuleChangeDto("R" + i, 1, 0, 0))
                 .toList();
-        List<String> notes =
-                IntStream.range(0, 30).mapToObj(i -> "note " + i + "\n" + "y".repeat(400)).toList();
+        List<String> notes = IntStream.range(0, 30)
+                .mapToObj(i -> "note " + i + "\n" + "y".repeat(400))
+                .toList();
 
         AdvisorChangesDto dto = new AdvisorChangesDto("prev", false, 0, 80, 0, 0, resolved, notes, 0, rules);
 

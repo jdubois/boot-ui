@@ -15,14 +15,16 @@ class AdvisorFindingIdentityTests {
 
     @Test
     void percentEncodesEveryCharacterOutsideTheSafeSet() {
-        String identity = AdvisorFindingIdentity.of("v1", "a|b", "100%", "x y#z", "\"q\"", "caf\u00e9", "a$b/c-d_e.f:g=h");
+        String identity =
+                AdvisorFindingIdentity.of("v1", "a|b", "100%", "x y#z", "\"q\"", "caf\u00e9", "a$b/c-d_e.f:g=h");
         assertThat(identity).isEqualTo("v1:a%7Cb|100%25|x%20y%23z|%22q%22|caf%C3%A9|a$b/c-d_e.f:g=h");
         assertThat(AdvisorFindingIdentity.VALID.matcher(identity).matches()).isTrue();
     }
 
     @Test
     void anEmbeddedBarCannotAliasTwoParts() {
-        assertThat(AdvisorFindingIdentity.of("v1", "a|b", "c")).isNotEqualTo(AdvisorFindingIdentity.of("v1", "a", "b|c"));
+        assertThat(AdvisorFindingIdentity.of("v1", "a|b", "c"))
+                .isNotEqualTo(AdvisorFindingIdentity.of("v1", "a", "b|c"));
     }
 
     @Test

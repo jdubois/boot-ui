@@ -4,7 +4,6 @@ import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
-import java.util.ArrayList;
 import java.util.List;
 
 /** Signedness-aware next-value snapshot, not committed row counts or a transactional capacity guarantee. */
@@ -85,12 +84,15 @@ final class MySqlAutoIncrementExhaustionRule extends AbstractDatabaseAdvisorRule
         if (percentUsed < WARNING_PERCENT_USED) {
             return;
         }
-        details.add(schema.dataSourceName() + ": " + column.qualifiedTable() + "." + column.column() + " ("
-                + column.columnType() + ") is at " + percentUsed + "% of its AUTO_INCREMENT capacity (next value "
-                + nextValue + " of " + capacity
-                + "). This is a possibly cached/stale/reserved counter, not committed rows. "
-                + persistenceNote(schema.dialect(), schema.version()),
-                DatabaseIdentities.table(schema.dataSourceName(), null, column.schema(), column.table(), "column=" + column.column()));
+        details.add(
+                schema.dataSourceName() + ": " + column.qualifiedTable() + "." + column.column() + " ("
+                        + column.columnType() + ") is at " + percentUsed
+                        + "% of its AUTO_INCREMENT capacity (next value "
+                        + nextValue + " of " + capacity
+                        + "). This is a possibly cached/stale/reserved counter, not committed rows. "
+                        + persistenceNote(schema.dialect(), schema.version()),
+                DatabaseIdentities.table(
+                        schema.dataSourceName(), null, column.schema(), column.table(), "column=" + column.column()));
     }
 
     static String persistenceNote(Dialect dialect, DatabaseVersion version) {

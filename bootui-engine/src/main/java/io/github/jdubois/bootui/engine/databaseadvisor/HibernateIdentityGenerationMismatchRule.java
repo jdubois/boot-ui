@@ -2,7 +2,6 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedColumnFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -92,11 +91,14 @@ final class HibernateIdentityGenerationMismatchRule extends AbstractHibernateCro
             return false;
         }
         if (physical.knownWithoutDatabaseGeneration()) {
-            details.add(schema.dataSourceName() + ": " + column.attributeDescription()
-                    + " declares @GeneratedValue(strategy = IDENTITY), but physical column " + table.qualifiedName()
-                    + "." + physical.name() + " (" + physical.describeType() + ") reports no auto-increment/identity, "
-                    + "default or generated value. Inserts fail unless a trigger assigns the key.",
-                DatabaseIdentities.mapped(schema, table, column.attributeDescription(), column.columnName()));
+            details.add(
+                    schema.dataSourceName() + ": " + column.attributeDescription()
+                            + " declares @GeneratedValue(strategy = IDENTITY), but physical column "
+                            + table.qualifiedName()
+                            + "." + physical.name() + " (" + physical.describeType()
+                            + ") reports no auto-increment/identity, "
+                            + "default or generated value. Inserts fail unless a trigger assigns the key.",
+                    DatabaseIdentities.mapped(schema, table, column.attributeDescription(), column.columnName()));
         }
         return true;
     }

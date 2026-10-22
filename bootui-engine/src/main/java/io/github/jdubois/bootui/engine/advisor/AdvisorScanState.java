@@ -188,7 +188,8 @@ public final class AdvisorScanState<R> {
         List<String> pageChanges = markers == null
                 ? List.of()
                 : Collections.unmodifiableList(new ArrayList<>(markers.subList(
-                        page.page().offset(), page.page().offset() + page.items().size())));
+                        page.page().offset(),
+                        page.page().offset() + page.items().size())));
         return new AdvisorRuleViolationsDto(
                 snapshot.metadata().scanId(),
                 ruleId,

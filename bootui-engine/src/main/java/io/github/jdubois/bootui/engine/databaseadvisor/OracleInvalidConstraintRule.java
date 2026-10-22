@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.List;
 
 /** Enabled and validated are independent catalog states, including for generated NOT NULL constraints. */
@@ -51,16 +50,22 @@ final class OracleInvalidConstraintRule extends AbstractDatabaseAdvisorRule {
                 }
                 eligible++;
                 if (disabled || unvalidated) {
-                    details.add(schema.dataSourceName() + ": " + constraint.describeType() + " constraint "
-                            + constraint.constraintName() + " on " + constraint.qualifiedTable() + " is "
-                            + constraint.status() + " / " + constraint.validated() + ". "
-                            + (constraint.enabled()
-                                    ? "New writes are checked; existing rows are not certified by this state."
-                                    : constraint.validatedAgainstExistingRows()
-                                            ? "DISABLE VALIDATE retains validated state and can restrict DML; it does not mean unrestricted writes."
-                                            : "Review the disabled state and any dependent constraints.")
-                            + " The snapshot does not prove invalid rows or forgotten validation.",
-                DatabaseIdentities.table(schema.dataSourceName(), null, constraint.schema(), constraint.table(), "constraint=" + constraint.constraintName()));
+                    details.add(
+                            schema.dataSourceName() + ": " + constraint.describeType() + " constraint "
+                                    + constraint.constraintName() + " on " + constraint.qualifiedTable() + " is "
+                                    + constraint.status() + " / " + constraint.validated() + ". "
+                                    + (constraint.enabled()
+                                            ? "New writes are checked; existing rows are not certified by this state."
+                                            : constraint.validatedAgainstExistingRows()
+                                                    ? "DISABLE VALIDATE retains validated state and can restrict DML; it does not mean unrestricted writes."
+                                                    : "Review the disabled state and any dependent constraints.")
+                                    + " The snapshot does not prove invalid rows or forgotten validation.",
+                            DatabaseIdentities.table(
+                                    schema.dataSourceName(),
+                                    null,
+                                    constraint.schema(),
+                                    constraint.table(),
+                                    "constraint=" + constraint.constraintName()));
                 }
             }
         }

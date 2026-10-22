@@ -93,6 +93,25 @@ settings, and profile findings, and findings that span several elements such as 
 location. Unit-labelled samples and retained details keep the same location for the same finding across persistence
 units.
 
+### Finding identity
+
+Every finding has a canonical identity, used to compare a scan with the previous one
+([Changes since the previous scan](features/advisors.md#changes-since-the-previous-scan)). It is `v1:` followed by
+percent-encoded parts joined with `|`, and it never contains a value, SQL text or a message:
+
+| Finding about                        | Identity parts                                                                    |
+| ------------------------------------ | --------------------------------------------------------------------------------- |
+| A mapped attribute                   | `unit=<unit>`, `entity=<concrete entity class>`, `member=<attribute>`             |
+| An entity                            | `unit=<unit>`, `entity=<entity class>`                                            |
+| A repository query method            | `unit=<unit>`, `repository=<interface>`, `method=<name>(<parameter types>)`      |
+| A setting                            | `unit=<unit>`, `setting=<property>`                                               |
+
+A rule can add a part when one element has several findings (`path=` for each paged `JOIN FETCH` path of HIB-FETCH-003;
+`idclass=` for HIB-ID-007). An inherited attribute is keyed on the concrete entity, so two entities that inherit it
+have two identities, and overloaded repository methods stay apart. A finding without a persistence unit uses
+`unit=application`. The unit is its label, which is the persistence unit name where the framework reports one and a
+positional `unit-N` otherwise, so a positional label can shift when a factory fails to start.
+
 ### Version baseline
 
 The audited baselines are Spring Boot 4.1.1 with Hibernate 7.4.5.Final, and Quarkus 3.33.3.1 with Hibernate

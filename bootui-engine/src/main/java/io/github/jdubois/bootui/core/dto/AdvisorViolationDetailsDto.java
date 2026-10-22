@@ -37,12 +37,7 @@ public record AdvisorViolationDetailsDto(
     }
 
     public AdvisorViolationDetailsDto(
-            String scanId,
-            int total,
-            int retained,
-            int retentionLimit,
-            boolean truncated,
-            List<String> locationNotes) {
+            String scanId, int total, int retained, int retentionLimit, boolean truncated, List<String> locationNotes) {
         this(scanId, total, retained, retentionLimit, truncated, locationNotes, null);
     }
 

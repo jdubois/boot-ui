@@ -54,6 +54,8 @@ final class DatabaseIdentities {
     static String[] pair(String key, String first, String second) {
         String a = first == null ? "" : first;
         String b = second == null ? "" : second;
-        return a.compareTo(b) <= 0 ? new String[] {key + "=" + a, key + "=" + b} : new String[] {key + "=" + b, key + "=" + a};
+        return a.compareTo(b) <= 0
+                ? new String[] {key + "=" + a, key + "=" + b}
+                : new String[] {key + "=" + b, key + "=" + a};
     }
 }

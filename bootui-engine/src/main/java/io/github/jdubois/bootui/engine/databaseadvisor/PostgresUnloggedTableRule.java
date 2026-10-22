@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -46,11 +45,12 @@ final class PostgresUnloggedTableRule extends AbstractDatabaseAdvisorRule {
             }
             for (PostgresUnloggedTable table :
                     schema.vendorFindings().findings(VendorFindingKinds.POSTGRES_UNLOGGED_TABLES)) {
-                details.add(schema.dataSourceName() + ": " + (table.partition() ? "partition " : "table ")
-                        + table.qualifiedTable()
-                        + " is UNLOGGED: its rows are truncated after a crash and are absent from physical standbys "
-                        + "and WAL-based point-in-time recovery.",
-                DatabaseIdentities.table(schema.dataSourceName(), null, table.schema(), table.table()));
+                details.add(
+                        schema.dataSourceName() + ": " + (table.partition() ? "partition " : "table ")
+                                + table.qualifiedTable()
+                                + " is UNLOGGED: its rows are truncated after a crash and are absent from physical standbys "
+                                + "and WAL-based point-in-time recovery.",
+                        DatabaseIdentities.table(schema.dataSourceName(), null, table.schema(), table.table()));
             }
         }
         int eligible = (int) schemas.stream()

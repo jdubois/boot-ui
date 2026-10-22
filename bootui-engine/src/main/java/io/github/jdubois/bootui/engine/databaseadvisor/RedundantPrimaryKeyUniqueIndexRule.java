@@ -1,8 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
-import java.util.List;
 
 final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRule {
 
@@ -60,10 +58,12 @@ final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRu
                     }
                     eligible++;
                     if (index.exactDuplicateOf(backing)) {
-                        details.add(schema.dataSourceName() + ": " + table.qualifiedName() + " unique index "
-                                + index.name() + " has the same observed definition as primary-key backing index "
-                                + backing.name() + "; review ownership and dependencies.",
-                DatabaseIdentities.table(schema, table, "index=" + index.name()));
+                        details.add(
+                                schema.dataSourceName() + ": " + table.qualifiedName() + " unique index "
+                                        + index.name()
+                                        + " has the same observed definition as primary-key backing index "
+                                        + backing.name() + "; review ownership and dependencies.",
+                                DatabaseIdentities.table(schema, table, "index=" + index.name()));
                     }
                 }
             }

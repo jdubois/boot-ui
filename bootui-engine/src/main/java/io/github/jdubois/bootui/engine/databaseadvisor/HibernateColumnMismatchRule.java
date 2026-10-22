@@ -2,7 +2,6 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedColumnFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
-import java.util.List;
 
 /** Reviews nondefault nullability declarations; raw Java types do not establish effective JDBC mappings. */
 final class HibernateColumnMismatchRule extends AbstractHibernateCrossReferenceRule {
@@ -81,7 +80,7 @@ final class HibernateColumnMismatchRule extends AbstractHibernateCrossReferenceR
                     schema.dataSourceName() + ": " + column.attributeDescription() + " declares column "
                             + table.qualifiedName() + "." + column.columnName()
                             + " with nullable=false, while the observed column allows NULL. Review declaration-name correspondence.",
-                DatabaseIdentities.mapped(schema, table, column.attributeDescription(), column.columnName()));
+                    DatabaseIdentities.mapped(schema, table, column.attributeDescription(), column.columnName()));
         }
     }
 }

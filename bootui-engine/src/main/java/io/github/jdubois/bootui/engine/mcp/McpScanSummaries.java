@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.mcp;
 
+import io.github.jdubois.bootui.core.dto.AdvisorChangesDto;
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.AdvisorViolationDetailsDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
@@ -56,6 +57,12 @@ public final class McpScanSummaries {
 
     /** The most findings a summary lists. */
     public static final int TOP_FINDINGS = 10;
+
+    /** The most resolved findings a compact summary lists; the cached report lists up to 50. */
+    static final int MAX_COMPACT_RESOLVED = 5;
+
+    /** The most rule movements a compact summary lists. */
+    static final int MAX_COMPACT_RULES = 10;
 
     /** The longest title a summary row carries, in characters. */
     static final int MAX_TITLE_LENGTH = 160;
@@ -353,8 +360,49 @@ public final class McpScanSummaries {
         summary.put("topFindings", listed);
         summary.put("moreFindings", ranked.size() - listed.size());
         summary.put("evidence", evidence);
-        summary.put("violationDetails", violationDetails);
+        summary.put("violationDetails", compact(violationDetails));
         return summary;
+    }
+
+    /**
+     * The details with a compact {@code changes}: the counts stay whole, while the resolved findings and the per-rule
+     * movements are cut to what an answer can carry. The cached report holds all of them.
+     */
+    private static AdvisorViolationDetailsDto compact(AdvisorViolationDetailsDto details) {
+        AdvisorChangesDto changes = details == null ? null : details.changes();
+        if (changes == null
+                || (changes.resolved().size() <= MAX_COMPACT_RESOLVED
+                        && changes.rules().size() <= MAX_COMPACT_RULES)) {
+            return details;
+        }
+        return new AdvisorViolationDetailsDto(
+                details.scanId(),
+                details.total(),
+                details.retained(),
+                details.retentionLimit(),
+                details.truncated(),
+                details.locationNotes(),
+                new AdvisorChangesDto(
+                        changes.previousScanId(),
+                        changes.complete(),
+                        changes.newCount(),
+                        changes.resolvedCount(),
+                        changes.unchangedCount(),
+                        changes.unkeyedCount(),
+                        changes.resolved()
+                                .subList(
+                                        0,
+                                        Math.min(
+                                                MAX_COMPACT_RESOLVED,
+                                                changes.resolved().size())),
+                        changes.notes(),
+                        changes.unverifiedCount(),
+                        changes.rules()
+                                .subList(
+                                        0,
+                                        Math.min(
+                                                MAX_COMPACT_RULES,
+                                                changes.rules().size()))));
     }
 
     private static <T> List<Finding> rows(List<T> results, Function<T, Finding> row) {

@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.List;
 
 /** Explicit catalog flags warrant review; invalid UNIQUE indexes can still reject conflicting writes. */
@@ -64,10 +63,16 @@ final class PostgresInvalidIndexRule extends AbstractDatabaseAdvisorRule {
                         ? " This index is UNIQUE and may still reject conflicting writes after a failed concurrent build; "
                                 + "invalid does not establish loss of enforcement."
                         : "";
-                details.add(schema.dataSourceName() + ": index " + index.index() + " on table " + index.qualifiedTable()
-                        + " has explicit invalid/unready/dead state (" + index.describeFlags()
-                        + "). Concurrent build/drop activity can be transient." + uniquenessImpact,
-                DatabaseIdentities.table(schema.dataSourceName(), null, index.schema(), index.table(), "index=" + index.index()));
+                details.add(
+                        schema.dataSourceName() + ": index " + index.index() + " on table " + index.qualifiedTable()
+                                + " has explicit invalid/unready/dead state (" + index.describeFlags()
+                                + "). Concurrent build/drop activity can be transient." + uniquenessImpact,
+                        DatabaseIdentities.table(
+                                schema.dataSourceName(),
+                                null,
+                                index.schema(),
+                                index.table(),
+                                "index=" + index.index()));
             }
         }
         return VendorRuleSupport.assessed(this, context, eligible, details);

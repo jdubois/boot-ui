@@ -196,7 +196,10 @@ public final class AdvisorViolationCollector {
                 Collections.unmodifiableMap(copy),
                 List.copyOf(locationNotes),
                 new Coverage(
-                        Set.copyOf(concluded), Set.copyOf(unverifiedScopes), List.copyOf(coverageNotes), scanUnverified));
+                        Set.copyOf(concluded),
+                        Set.copyOf(unverifiedScopes),
+                        List.copyOf(coverageNotes),
+                        scanUnverified));
     }
 
     record Rule(int violationCount, List<AdvisorViolation> violations) {
@@ -213,7 +216,8 @@ public final class AdvisorViolationCollector {
 
         boolean concludes(String ruleId, String scope) {
             if (scanUnverified || (scope != null && unverifiedScopes.contains(scope))) return false;
-            return concluded.contains(concludedKey(ruleId, scope)) || concluded.contains(concludedKey(ruleId, ALL_SCOPES));
+            return concluded.contains(concludedKey(ruleId, scope))
+                    || concluded.contains(concludedKey(ruleId, ALL_SCOPES));
         }
 
         boolean informative() {

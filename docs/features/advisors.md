@@ -137,6 +137,50 @@ A line is shown only when it belongs to the named member in the named file. Line
 of the file, or from archive-read Kotlin classes drop to `MEMBER` precision rather than show a wrong one.
 :::
 
+### Changes since the previous scan
+
+Fixing findings is iterative: change code, rescan, check what went away. The **Hibernate** and **Database** advisors
+compare each scan with the previous one, so you do not have to compare two reports by eye. Below the metrics, the panel
+shows a **Since previous scan** line, for example `3 new · 2 resolved · 71 unchanged`, each count beside its icon. A
+first scan says there is nothing to compare yet, and an unchanged rescan says `No changes since the previous scan`.
+**Resolved findings** opens a list of what disappeared, with the text it had in the previous scan. A rule with a new
+finding says so, and its **View violations** page marks each new finding with a **New** badge, even when all of the
+rule's findings already fit in the previews. The comparison is kept in memory only: it is gone after a restart, and
+BootUI writes no file for it. The other advisors do not compare scans.
+
+Findings are matched by a stable **identity**, never by their text. Each rule derives it from what the finding is
+about: the persistence unit, entity and member (`v1:unit=orders|entity=com.acme.Order|member=lines`), a repository
+method with its parameter types, the setting, or the datasource, table and index, constraint or column. It contains no
+values, SQL text or free-form messages, and it is exposed on every detail page (`identities`, aligned with
+`violations`) so an agent or a later tool never has to derive one from a message. Rules that report no identity are
+"unkeyed": counted, but never compared.
+
+BootUI never calls a comparison complete unless it can stand behind it. A finding is only **new** or **resolved** when
+both scans actually concluded its rule and kept all of that rule's details; otherwise it is counted as **could not be
+compared**, never as resolved. That happens when a rule failed, was skipped, lacked evidence, or lost findings to the
+retention limit; when a datasource or persistence unit could not be read; and for the runtime SQL rule, whose evidence
+is a sliding window. A scan that could not evaluate any rule is not compared at all and does not replace the baseline,
+so the next good scan is compared with the last one that could be. The `notes` of the comparison say why.
+
+::: details REST shape
+
+`violationDetails.changes` is `null` on the first scan and for the other advisors, and otherwise:
+
+| Field                                                   | Meaning                                                                                                    |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `previousScanId`                                        | The scan this one was compared with.                                                                       |
+| `complete`                                              | `false` when retention truncated a scan, findings are unkeyed, or some finding could not be compared.       |
+| `newCount`, `resolvedCount`, `unchangedCount`           | Keyed findings only in this scan, only in the previous scan, and in both.                                  |
+| `unkeyedCount`, `unverifiedCount`                       | Findings without an identity, and findings whose movement cannot be established.                           |
+| `resolved`                                              | Up to 50 resolved findings: `ruleId` and the `text` of the previous scan.                                  |
+| `rules`                                                 | The rules with something new, resolved or unverified: `ruleId`, `newCount`, `resolvedCount`, `unverifiedCount`. |
+| `notes`                                                 | Why the comparison is incomplete.                                                                          |
+
+A detail page adds `identities` and `changes` (`NEW`, `UNCHANGED`, or `null`), aligned with `violations`, and both are
+empty when they do not apply. The comparison reads the retained findings of both scans before any dismissal, so
+dismissing or restoring a rule never alters it.
+:::
+
 ### Score eligibility
 
 A report is not automatically eligible for a score. `SCANNED` and `PARTIAL` reports can score when a valid severity

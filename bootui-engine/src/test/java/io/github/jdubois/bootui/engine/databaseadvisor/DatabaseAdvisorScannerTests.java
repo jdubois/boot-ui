@@ -97,7 +97,8 @@ class DatabaseAdvisorScannerTests {
             assertThat(resolved.ruleId()).isEqualTo("DB-SCHEMA-001");
             assertThat(resolved.text()).contains("STAGING");
         });
-        var page = scanner.ruleViolations("DB-SCHEMA-001", removed.violationDetails().scanId(), 0, 10);
+        var page = scanner.ruleViolations(
+                "DB-SCHEMA-001", removed.violationDetails().scanId(), 0, 10);
         assertThat(page.identities()).doesNotContainNull();
         assertThat(page.changes()).containsOnly("UNCHANGED");
     }

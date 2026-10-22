@@ -11,8 +11,8 @@ import io.github.jdubois.bootui.core.dto.DatabaseAdvisorSeverityCountDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
-import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorFindingIdentity;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge;
@@ -62,8 +62,8 @@ public final class DatabaseAdvisorScanner {
     private final DatabaseAdvisorLimits limits;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private final AdvisorScanState<DatabaseAdvisorReport> state = new AdvisorScanState<>(
-            DatabaseAdvisorReport::withViolationDetails,
-            () -> AdvisorScanState.ruleIds(
+                    DatabaseAdvisorReport::withViolationDetails,
+                    () -> AdvisorScanState.ruleIds(
                             DatabaseAdvisorRuleRegistry.activeRules(),
                             rule -> rule.definition().id()))
             .trackingChanges();

@@ -68,7 +68,8 @@ final class AdvisorScanDiff {
             unkeyedPrevious += unkeyed(before);
             unkeyedCurrent += unkeyed(after);
 
-            String[] ruleMarkers = new String[after == null ? 0 : after.violations().size()];
+            String[] ruleMarkers =
+                    new String[after == null ? 0 : after.violations().size()];
             int ruleNew = 0;
             int ruleResolved = 0;
             int ruleUnverified = 0;
@@ -112,11 +113,13 @@ final class AdvisorScanDiff {
             added += ruleNew;
             resolvedTotal += ruleResolved;
             unverified += ruleUnverified;
-            if ((ruleNew > 0 || ruleResolved > 0 || ruleUnverified > 0) && ruleChanges.size() < AdvisorChangesDto.MAX_RULES) {
+            if ((ruleNew > 0 || ruleResolved > 0 || ruleUnverified > 0)
+                    && ruleChanges.size() < AdvisorChangesDto.MAX_RULES) {
                 ruleChanges.add(new AdvisorRuleChangeDto(ruleId, ruleNew, ruleResolved, ruleUnverified));
             }
             if (ruleMarkers.length > 0) {
-                markers.put(ruleId, Collections.unmodifiableList(new ArrayList<>(java.util.Arrays.asList(ruleMarkers))));
+                markers.put(
+                        ruleId, Collections.unmodifiableList(new ArrayList<>(java.util.Arrays.asList(ruleMarkers))));
             }
         }
 

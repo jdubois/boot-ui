@@ -200,7 +200,8 @@ Recorder resumes and new method probes are refused while held; memory diagnostic
 Older CLIs keep existing commands and accept additive JSON fields, but need an updated manifest for the new commands.
 
 Read [references/java-agent-and-recipes.md](references/java-agent-and-recipes.md) before attaching the optional Java
-agent or using method probes, route handler timing, MySQL evidence, or retained advisor violations.
+agent, using method probes, route handler timing, MySQL evidence, or retained advisor violations, or checking what a
+fix changed with `violationDetails.changes` after a Hibernate or Database rescan.
 
 
 ## Use BootUI on a running application

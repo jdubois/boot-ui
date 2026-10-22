@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -68,11 +67,12 @@ final class MissingForeignKeyIndexRule extends AbstractDatabaseAdvisorRule {
                         continue;
                     }
                     eligible++;
-                    details.add(schema.dataSourceName() + ": " + table.qualifiedName() + " foreign key " + fk.name()
-                            + " " + fk.columns()
-                            + " has no observed usable ordinary index leading on the full column set. "
-                            + "Review parent modifications and query plans; this is not proof of a table scan.",
-                DatabaseIdentities.table(schema, table, "fk=" + fk.name()));
+                    details.add(
+                            schema.dataSourceName() + ": " + table.qualifiedName() + " foreign key " + fk.name()
+                                    + " " + fk.columns()
+                                    + " has no observed usable ordinary index leading on the full column set. "
+                                    + "Review parent modifications and query plans; this is not proof of a table scan.",
+                            DatabaseIdentities.table(schema, table, "fk=" + fk.name()));
                 }
             }
         }

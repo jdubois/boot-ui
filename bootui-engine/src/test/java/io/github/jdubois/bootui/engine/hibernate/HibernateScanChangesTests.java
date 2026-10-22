@@ -17,8 +17,7 @@ import org.junit.jupiter.api.Test;
 class HibernateScanChangesTests {
 
     private final AtomicReference<List<String>> methods = new AtomicReference<>(List.of("a", "b", "c"));
-    private final AtomicReference<List<HibernateObservationDiagnostic>> diagnostics =
-            new AtomicReference<>(List.of());
+    private final AtomicReference<List<HibernateObservationDiagnostic>> diagnostics = new AtomicReference<>(List.of());
 
     @Test
     void rescanningAfterFixingOneFindingReportsItResolvedAndTheRestUnchanged() {
@@ -133,7 +132,8 @@ class HibernateScanChangesTests {
                     false,
                     false,
                     List.of(),
-                    new HibernateQueryEvidence(true, true, false, false, false, int.class, false, null, null, List.of())));
+                    new HibernateQueryEvidence(
+                            true, true, false, false, false, int.class, false, null, null, List.of())));
         }
         return new HibernatePersistenceUnitObservation(
                 "orders",

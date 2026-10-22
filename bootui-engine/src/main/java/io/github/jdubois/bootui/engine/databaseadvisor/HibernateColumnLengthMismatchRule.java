@@ -3,7 +3,6 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedColumnFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
 import java.sql.Types;
-import java.util.List;
 
 /** Compares nondefault DDL lengths with positively bounded character-column metadata, not runtime validation. */
 final class HibernateColumnLengthMismatchRule extends AbstractHibernateCrossReferenceRule {
@@ -90,11 +89,12 @@ final class HibernateColumnLengthMismatchRule extends AbstractHibernateCrossRefe
             return false;
         }
         if (size < declaredLength) {
-            details.add(schema.dataSourceName() + ": " + column.attributeDescription() + " declares @Column(length="
-                    + declaredLength + "), which is longer than physical column " + table.qualifiedName() + "."
-                    + column.columnName() + " (" + physical.describeType() + "). Review this DDL declaration; "
-                    + "it is not a runtime length validator.",
-                DatabaseIdentities.mapped(schema, table, column.attributeDescription(), column.columnName()));
+            details.add(
+                    schema.dataSourceName() + ": " + column.attributeDescription() + " declares @Column(length="
+                            + declaredLength + "), which is longer than physical column " + table.qualifiedName() + "."
+                            + column.columnName() + " (" + physical.describeType() + "). Review this DDL declaration; "
+                            + "it is not a runtime length validator.",
+                    DatabaseIdentities.mapped(schema, table, column.attributeDescription(), column.columnName()));
         }
         return true;
     }

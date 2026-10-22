@@ -114,6 +114,9 @@ function dataSourceStatusLabel(status) {
             hint: 'Skipped or errored — see diagnostics'
           }
         ]"
+        :changes="panel.report.violationDetails?.changes"
+        changes-enabled
+        :scanned="panel.hasScanData"
       />
       <div class="alert alert-info">
         <strong>Heuristic database schema rules.</strong>

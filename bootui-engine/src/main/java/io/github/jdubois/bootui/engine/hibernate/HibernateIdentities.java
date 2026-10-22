@@ -19,10 +19,7 @@ final class HibernateIdentities {
 
     /** An attribute of {@code entity}, keyed on the concrete entity so an inherited attribute stays distinct. */
     static String of(
-            HibernateContext context,
-            HibernateEntityModel entity,
-            HibernateAttributeModel attribute,
-            String... extra) {
+            HibernateContext context, HibernateEntityModel entity, HibernateAttributeModel attribute, String... extra) {
         return key(context, parts(entityPart(entity), "member=" + attribute.name(), extra));
     }
 

@@ -3,7 +3,6 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedColumnFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
 import java.sql.Types;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -128,11 +127,12 @@ final class HibernateNumericPrecisionMismatchRule extends AbstractHibernateCross
                     : rounds
                             ? "rounds written values to " + digits + " fractional digits"
                             : "holds only " + (size - digits) + " integer digits instead of " + (precision - scale);
-            details.add(schema.dataSourceName() + ": " + column.attributeDescription() + " declares @Column(precision="
-                    + precision + ", scale=" + scale + "), but physical column " + table.qualifiedName() + "."
-                    + physical.name() + " (" + physical.describeType() + ") " + consequence
-                    + ". Review this DDL declaration; it is not a runtime validator.",
-                DatabaseIdentities.mapped(schema, table, column.attributeDescription(), column.columnName()));
+            details.add(
+                    schema.dataSourceName() + ": " + column.attributeDescription() + " declares @Column(precision="
+                            + precision + ", scale=" + scale + "), but physical column " + table.qualifiedName() + "."
+                            + physical.name() + " (" + physical.describeType() + ") " + consequence
+                            + ". Review this DDL declaration; it is not a runtime validator.",
+                    DatabaseIdentities.mapped(schema, table, column.attributeDescription(), column.columnName()));
         }
         return true;
     }

@@ -2,6 +2,7 @@ import {readFileSync} from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {mount} from '@vue/test-utils'
+import {nextTick} from 'vue'
 import {describe, expect, it} from 'vitest'
 
 import AdvisorSummary from './AdvisorSummary.vue'
@@ -176,5 +177,137 @@ describe('AdvisorSummary', () => {
     expect(metricValue.slice(0, metricValue.indexOf('}'))).toContain('font-family: var(--bs-font-monospace)')
     expect(metricLabel.slice(0, metricLabel.indexOf('}'))).not.toContain('text-transform')
     expect(source).not.toContain('text-transform: uppercase')
+  })
+
+  describe('changes since the previous scan', () => {
+    const tracked = {...baseProps, score: 90, changesEnabled: true, scanned: true}
+    const changes = (overrides = {}) => ({
+      previousScanId: 'scan-1',
+      complete: true,
+      newCount: 0,
+      resolvedCount: 0,
+      unchangedCount: 4,
+      unkeyedCount: 0,
+      resolved: [],
+      notes: [],
+      unverifiedCount: 0,
+      rules: [],
+      ...overrides
+    })
+    const region = (wrapper) => wrapper.get('[data-testid="advisor-changes"]')
+
+    it('stays out of the way for advisors that do not track changes and before any scan', () => {
+      expect(
+        mount(AdvisorSummary, {props: {...baseProps, score: 90}})
+          .find('[data-testid="advisor-changes"]')
+          .exists()
+      ).toBe(false)
+      const unscanned = mount(AdvisorSummary, {props: {...tracked, scanned: false, score: null}})
+      expect(unscanned.find('[data-testid="advisor-changes"]').exists()).toBe(false)
+      expect(unscanned.find('[role="status"]').exists()).toBe(true)
+    })
+
+    it('says plainly that a first scan has nothing to compare', () => {
+      const wrapper = mount(AdvisorSummary, {props: {...tracked, changes: null}})
+      expect(region(wrapper).text()).toContain('First scan: nothing to compare yet.')
+      expect(region(wrapper).find('details').exists()).toBe(false)
+    })
+
+    it('shows an all-unchanged scan as a calm sentence with an icon, not three zero counters', () => {
+      const wrapper = mount(AdvisorSummary, {props: {...tracked, changes: changes()}})
+      expect(region(wrapper).text()).toContain('No changes since the previous scan. 4 unchanged.')
+      expect(region(wrapper).find('i.bi-check-circle').attributes('aria-hidden')).toBe('true')
+      expect(region(wrapper).find('.advisor-summary__change-counts').exists()).toBe(false)
+    })
+
+    it('shows new, resolved and unchanged counts as text beside their icons', () => {
+      const wrapper = mount(AdvisorSummary, {
+        props: {
+          ...tracked,
+          changes: changes({
+            newCount: 2,
+            resolvedCount: 1,
+            unchangedCount: 5,
+            resolved: [{ruleId: 'HIB-FETCH-001', text: 'Order#lines is mapped as FetchType.EAGER.'}]
+          })
+        }
+      })
+      const counts = region(wrapper).get('.advisor-summary__change-counts')
+      expect(counts.findAll('.advisor-summary__change').map((entry) => entry.text())).toEqual([
+        '2 new',
+        '1 resolved',
+        '5 unchanged'
+      ])
+      expect(counts.findAll('i').map((icon) => icon.classes()[1])).toEqual([
+        'bi-plus-circle',
+        'bi-check-circle',
+        'bi-dash-circle'
+      ])
+      const resolved = region(wrapper).get('details.advisor-summary__resolved')
+      expect(resolved.element.open).toBe(false)
+      expect(resolved.get('summary').text()).toBe('Resolved findings (1)')
+      expect(resolved.text()).toContain('HIB-FETCH-001')
+      expect(resolved.text()).toContain('Order#lines is mapped as FetchType.EAGER.')
+    })
+
+    it('says how many resolved findings the list leaves out', () => {
+      const wrapper = mount(AdvisorSummary, {
+        props: {
+          ...tracked,
+          changes: changes({resolvedCount: 60, resolved: [{ruleId: 'R', text: 'x'}], unchangedCount: 0})
+        }
+      })
+      expect(region(wrapper).text()).toContain('Showing 1 of 60 resolved findings.')
+    })
+
+    it('never presents an incomplete comparison as complete and explains why', () => {
+      const wrapper = mount(AdvisorSummary, {
+        props: {
+          ...tracked,
+          changes: changes({
+            complete: false,
+            newCount: 1,
+            unverifiedCount: 3,
+            notes: ['3 finding(s) were not compared because a scan did not fully evaluate their rule.']
+          })
+        }
+      })
+      expect(region(wrapper).text()).toContain('Comparison incomplete: 3 could not be compared.')
+      expect(region(wrapper).text()).not.toContain('No changes')
+      const why = region(wrapper).get('details')
+      expect(why.get('summary').text()).toBe('Why is this comparison incomplete?')
+      expect(why.text()).toContain('did not fully evaluate their rule')
+    })
+
+    it('does not call a comparison of nothing a clean scan', () => {
+      const wrapper = mount(AdvisorSummary, {
+        props: {
+          ...tracked,
+          changes: changes({
+            complete: false,
+            unchangedCount: 0,
+            notes: ['This scan could not evaluate any rule, so it was not compared with the previous scan.']
+          })
+        }
+      })
+      expect(region(wrapper).text()).toContain('Not compared with the previous scan.')
+      expect(region(wrapper).text()).not.toContain('No changes')
+    })
+
+    it('announces a new result once, politely, and stays silent for the report it was mounted with', async () => {
+      const wrapper = mount(AdvisorSummary, {props: {...tracked, changes: changes()}})
+      const status = wrapper.get('[role="status"]')
+      expect(status.attributes('aria-live')).toBe('polite')
+      expect(wrapper.findAll('[role="status"]')).toHaveLength(1)
+      expect(status.text()).toBe('')
+
+      await wrapper.setProps({changes: changes({previousScanId: 'scan-2', newCount: 1, unchangedCount: 3})})
+      await nextTick()
+      expect(status.text()).toBe('1 new, 0 resolved, 3 unchanged since the previous scan.')
+
+      // The same scan read again (a dismissal reloads the report) is not announced twice.
+      await wrapper.setProps({changes: changes({previousScanId: 'scan-2', newCount: 1, unchangedCount: 3})})
+      expect(status.text()).toBe('1 new, 0 resolved, 3 unchanged since the previous scan.')
+    })
   })
 })

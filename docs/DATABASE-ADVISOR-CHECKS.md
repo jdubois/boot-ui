@@ -65,6 +65,26 @@ Qualified catalog identities preserve case and component boundaries: quoted name
 not collide. Composite keys preserve child-to-parent pairing and validated sequence order. An ambiguous
 anonymous composite FK cannot safely be reconstructed from adjacent JDBC rows.
 
+## Finding identity
+
+Every finding has a canonical identity, used to compare a scan with the previous one
+([Changes since the previous scan](features/advisors.md#changes-since-the-previous-scan)). It is `v1:` followed by
+percent-encoded parts joined with `|`, derived from the physical object and never from the message, a value or SQL text:
+
+| Finding about                     | Identity parts                                                                                   |
+| --------------------------------- | ------------------------------------------------------------------------------------------------ |
+| A table                           | `ds=<datasource>`, `catalog=`, `schema=` (when reported), `table=<name>`                         |
+| An index, constraint or column    | the table parts, then `index=`, `fk=`, `constraint=`, `column=` or `partition=`                 |
+| A pair (duplicate index or key)   | the table parts, then both names in sorted order, so the pair has one identity                   |
+| A sequence                        | `ds=<datasource>`, `schema=`, `sequence=`                                                        |
+| A Hibernate mapping mismatch      | the resolved table parts, then `attribute=` and `column=` (or `columns=`, `unique=`)             |
+| A mapped entity with no table     | `entity=<entity>`, then `relation=` or `secondary=`                                              |
+| A runtime SQL shape (DB-RUNTIME-001) | `shape=<digest of the normalized statement>`                                                  |
+
+Catalog, schema and table are separate parts, so a table named `a.b` cannot alias table `b` of schema `a`. A comparison
+never claims a finding is resolved for DB-RUNTIME-001, because its evidence is the SQL Trace window, or for a rule or
+datasource the scan could not fully read.
+
 ## Severity scale
 
 | Severity | Meaning |

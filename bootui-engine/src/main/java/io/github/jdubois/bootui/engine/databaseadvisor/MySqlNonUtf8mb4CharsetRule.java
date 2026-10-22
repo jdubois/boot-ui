@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -89,10 +88,11 @@ final class MySqlNonUtf8mb4CharsetRule extends AbstractDatabaseAdvisorRule {
         }
         for (MySqlTableInfo table : schema.vendorFindings().findings(VendorFindingKinds.MYSQL_TABLES)) {
             if (isLegacyUtf8(table.characterSet())) {
-                details.add(schema.dataSourceName() + ": table " + table.qualifiedName()
-                        + " defaults to character set " + table.characterSet() + " (collation "
-                        + table.collation() + ") instead of utf8mb4. " + recommendedCollation(schema),
-                DatabaseIdentities.table(schema.dataSourceName(), null, table.schema(), table.table()));
+                details.add(
+                        schema.dataSourceName() + ": table " + table.qualifiedName()
+                                + " defaults to character set " + table.characterSet() + " (collation "
+                                + table.collation() + ") instead of utf8mb4. " + recommendedCollation(schema),
+                        DatabaseIdentities.table(schema.dataSourceName(), null, table.schema(), table.table()));
             }
         }
     }
@@ -103,11 +103,17 @@ final class MySqlNonUtf8mb4CharsetRule extends AbstractDatabaseAdvisorRule {
         }
         for (MySqlColumnCharset column : schema.vendorFindings().findings(VendorFindingKinds.MYSQL_COLUMN_CHARSETS)) {
             if (isLegacyUtf8(column.characterSet())) {
-                details.add(schema.dataSourceName() + ": column " + column.qualifiedColumn()
-                        + " uses character set " + column.characterSet()
-                        + ", a three-byte encoding that cannot store the full Unicode range. "
-                        + recommendedCollation(schema),
-                DatabaseIdentities.table(schema.dataSourceName(), null, column.schema(), column.table(), "column=" + column.column()));
+                details.add(
+                        schema.dataSourceName() + ": column " + column.qualifiedColumn()
+                                + " uses character set " + column.characterSet()
+                                + ", a three-byte encoding that cannot store the full Unicode range. "
+                                + recommendedCollation(schema),
+                        DatabaseIdentities.table(
+                                schema.dataSourceName(),
+                                null,
+                                column.schema(),
+                                column.table(),
+                                "column=" + column.column()));
             }
         }
     }

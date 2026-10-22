@@ -15,21 +15,31 @@ const props = defineProps({
 const {page, loading, error, stale, announcement, available, load, retry, backToSamples} =
   useAdvisorRuleViolations(props)
 const samples = computed(() => props.rule.sampleViolations || [])
+// What moved for this rule since the previous scan; only the paged view can say which finding is new.
+const ruleChange = computed(() => {
+  const rules = props.details?.changes?.rules
+  return Array.isArray(rules) ? rules.find((entry) => entry.ruleId === props.rule.id) || null : null
+})
+const newCount = computed(() => ruleChange.value?.newCount || 0)
 // Locations are aligned index-for-index with their texts, or absent altogether.
 const rows = computed(() => {
   const texts = page.value ? page.value.violations || [] : samples.value
   const locations = page.value ? page.value.locations : props.rule.sampleLocations
   const aligned = Array.isArray(locations) && locations.length === texts.length ? locations : []
+  const changes = page.value ? page.value.changes : null
+  const markers = Array.isArray(changes) && changes.length === texts.length ? changes : []
   return texts.map((text, index) => {
     const location = aligned[index] || null
     const label = formatLocation(location)
-    return {text, location: label ? location : null, label}
+    return {text, location: label ? location : null, label, isNew: markers[index] === 'NEW'}
   })
 })
 const {openIn} = useOpenInPreference()
 const {copiedKey, copyToClipboard} = useCopyToClipboard()
 const openInLabel = computed(() => presetLabel(openIn.value))
 const hasMoreThanSamples = computed(() => props.rule.violationCount > samples.value.length)
+// Findings that fit in the samples have no markers, so a rule with something new offers its paged view too.
+const canViewViolations = computed(() => hasMoreThanSamples.value || newCount.value > 0)
 const regionId = `advisor-violations-${useId()}`
 const heading = ref(null)
 const viewButton = ref(null)
@@ -80,14 +90,17 @@ async function refreshCachedReport() {
 </script>
 
 <template>
-  <div v-if="samples.length || hasMoreThanSamples" class="advisor-rule-violations mb-2">
+  <div v-if="samples.length || canViewViolations" class="advisor-rule-violations mb-2">
     <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
       <div :id="`${regionId}-label`" ref="heading" tabindex="-1" class="small fw-semibold">
         <template v-if="page">{{ rangeLabel(page) }}</template>
         <template v-else>Sample details (showing {{ samples.length }} of {{ rule.violationCount }})</template>
       </div>
+      <span v-if="!page && newCount > 0" class="advisor-rule-violations__new small">
+        <i class="bi bi-plus-circle me-1" aria-hidden="true"></i>{{ newCount }} new since the previous scan
+      </span>
       <SpinnerButton
-        v-if="!page && available && hasMoreThanSamples"
+        v-if="!page && available && canViewViolations"
         ref="viewButton"
         class="btn btn-sm btn-outline-secondary"
         :loading="loading"
@@ -111,6 +124,12 @@ async function refreshCachedReport() {
     <div :id="regionId" :aria-labelledby="`${regionId}-label`">
       <ul v-if="rows.length" class="small mb-0">
         <li v-for="(row, index) in rows" :key="index">
+          <span
+            v-if="row.isNew"
+            class="advisor-rule-violations__badge badge text-bg-primary me-1"
+            data-testid="new-finding"
+            ><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>New</span
+          >
           <span class="font-monospace">{{ row.text }}</span>
           <span v-if="row.location" class="advisor-violation-location d-flex flex-wrap align-items-center gap-1">
             <i class="bi bi-geo-alt text-muted" aria-hidden="true"></i>
@@ -192,6 +211,14 @@ async function refreshCachedReport() {
 <style scoped>
 .advisor-rule-violations li {
   overflow-wrap: anywhere;
+}
+
+.advisor-rule-violations__new {
+  color: var(--bootui-text-muted);
+}
+
+.advisor-rule-violations__badge {
+  vertical-align: baseline;
 }
 
 .advisor-violation-location {

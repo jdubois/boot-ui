@@ -1,8 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 
 /**
@@ -67,11 +65,12 @@ final class InvisibleIndexRule extends AbstractDatabaseAdvisorRule {
                         case VISIBLE -> eligible++;
                         case INVISIBLE -> {
                             eligible++;
-                            details.add(schema.dataSourceName() + ": " + table.qualifiedName() + " "
-                                    + (index.unique() ? "unique index " : "index ") + index.name() + " "
-                                    + index.columnNames() + " is " + invisibleState(schema.dialect())
-                                    + ": still maintained on every write but not used by the optimizer by default.",
-                DatabaseIdentities.table(schema, table, "index=" + index.name()));
+                            details.add(
+                                    schema.dataSourceName() + ": " + table.qualifiedName() + " "
+                                            + (index.unique() ? "unique index " : "index ") + index.name() + " "
+                                            + index.columnNames() + " is " + invisibleState(schema.dialect())
+                                            + ": still maintained on every write but not used by the optimizer by default.",
+                                    DatabaseIdentities.table(schema, table, "index=" + index.name()));
                         }
                         case UNKNOWN -> unknownVisibility = true;
                     }
