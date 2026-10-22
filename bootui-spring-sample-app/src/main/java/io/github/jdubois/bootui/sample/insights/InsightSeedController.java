@@ -70,6 +70,16 @@ public class InsightSeedController {
         return Map.of("tags", tags.summaryThenJdbcWrite());
     }
 
+    @GetMapping("/tags/unsorted-page")
+    public Map<String, Object> tagsUnsortedPage() {
+        return Map.of("tags", tags.unsortedPage());
+    }
+
+    @GetMapping("/tags/sorted-page")
+    public Map<String, Object> tagsSortedPage() {
+        return Map.of("tags", tags.sortedPage());
+    }
+
     @GetMapping("/orders")
     public List<Map<String, Object>> ordersLineByLine() {
         return orders.ordersLineByLine();

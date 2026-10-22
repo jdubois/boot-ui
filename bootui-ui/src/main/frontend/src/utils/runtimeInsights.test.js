@@ -228,6 +228,7 @@ describe('theme coverage', () => {
       'lazy-sql-after-handler',
       'orm-auto-flush',
       'large-persistence-context',
+      'paged-without-order',
       'exception-hotspots',
       'errors-behind-2xx',
       'connections-per-request',

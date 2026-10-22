@@ -21,7 +21,7 @@ test.describe('Runtime Insights demo on Spring WebFlux', () => {
       kind('Blocking on event loops').locator('.insight-item', {hasText: '/api/insights/notes/on-event-loop'}).first()
     ).toBeVisible({timeout: 15_000})
 
-    // Repeated SELECTs and route time breakdowns are not listed by default since their external validation (M4-20):
+    // Repeated SELECTs, unsorted pages, and route time breakdowns are not listed by default since their external validation (M4-20):
     // Show all routes reaches them.
     const toggle = page.locator('.insight-show-all')
     if ((await toggle.count()) > 0 && (await toggle.getAttribute('aria-pressed')) === 'false') {
@@ -29,6 +29,9 @@ test.describe('Runtime Insights demo on Spring WebFlux', () => {
     }
     await expect(
       kind('Repeated SELECTs').locator('.insight-item', {hasText: '/api/insights/notes/one-by-one'}).first()
+    ).toBeVisible()
+    await expect(
+      kind('Paged without ORDER BY').locator('.insight-item', {hasText: '/api/insights/notes/unsorted-page'}).first()
     ).toBeVisible()
     // The external validation decides what is listed, but stays in the plan: no row mentions it.
     await expect(page.locator('.insight-list')).not.toContainText(/validat/i)

@@ -196,4 +196,64 @@ class SqlStatementNormalizerTests {
         assertThat(SqlStatementNormalizer.normalize(null).fingerprint()).isEmpty();
         assertThat(SqlStatementNormalizer.normalize("   ").fingerprint()).isEmpty();
     }
+
+    @Test
+    void aMySqlHashCommentIsDroppedLikeADashComment() {
+        assertThat(SqlStatementNormalizer.normalize("select id # the owner 42\nfrom owner")
+                        .sql())
+                .isEqualTo("select id from owner");
+        assertThat(SqlStatementNormalizer.normalize("select id from owner #").sql())
+                .isEqualTo("select id from owner");
+    }
+
+    @Test
+    void aHashThatIsNotACommentStaysInTheStatement() {
+        assertThat(SqlStatementNormalizer.normalize("select data #>> '{a}' from t")
+                        .sql())
+                .isEqualTo("select data #>> ? from t");
+        assertThat(SqlStatementNormalizer.normalize("select * from #temp").sql())
+                .isEqualTo("select * from #temp");
+    }
+
+    @Test
+    void tokensClassifyTheTextTheWayNormalizeLexesIt() {
+        String sql = "select \"a\", 'x' /* c */ from t1 where n = 5 and f = ? -- end";
+
+        int[] tokens = SqlStatementNormalizer.tokens(sql);
+        StringBuilder kinds = new StringBuilder();
+        for (int i = 0; i < tokens.length; i += 3) {
+            kinds.append(tokens[i + 2]);
+        }
+
+        assertThat(sql.substring(tokens[0], tokens[1])).isEqualTo("select");
+        assertThat(kinds.toString())
+                .isEqualTo(
+                        "1" // select
+                                + "3" // "a"
+                                + "5" // ,
+                                + "2" // 'x'
+                                + "4" // /* c */
+                                + "1" // from
+                                + "1" // t1
+                                + "1" // where
+                                + "1" // n
+                                + "5" // =
+                                + "2" // 5
+                                + "1" // and
+                                + "1" // f
+                                + "5" // =
+                                + "5" // ?
+                                + "4"); // -- end
+        assertThat(SqlStatementNormalizer.tokens(null)).isEmpty();
+    }
+
+    @Test
+    void tokensDoNotChangeWhatNormalizeReturns() {
+        String sql = "select a1, $1, t.b2 from t where x = true and y = 1.5e3 and z = $$q$$";
+
+        SqlStatementNormalizer.tokens(sql);
+
+        assertThat(SqlStatementNormalizer.normalize(sql).sql())
+                .isEqualTo("select a1, $1, t.b2 from t where x = ? and y = ? and z = ?");
+    }
 }

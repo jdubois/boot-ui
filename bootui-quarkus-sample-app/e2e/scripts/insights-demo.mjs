@@ -14,6 +14,8 @@ const STEPS = [
   ['GET', '/api/sample/products', 3],
   ['GET', '/api/insights/orders', 3],
   ['GET', '/api/insights/orders/joined', 3],
+  ['GET', '/api/insights/orders/page', 3],
+  ['GET', '/api/insights/orders/page-sorted', 3],
   ['GET', '/api/insights/orders/on-event-loop', 3],
   ['GET', '/api/insights/orders/1', 1],
   ['POST', '/api/insights/orders/1/archive', 1],

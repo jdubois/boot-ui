@@ -453,6 +453,7 @@ public final class RuntimeInsightsService {
                 new OrmAutoFlush(),
                 new LargePersistenceContext(),
                 new ReadOnlyCandidateTransaction(),
+                new PagedWithoutOrder(),
                 new TransactionAcrossRemoteCall(),
                 new LazySqlAfterHandler(),
                 new EventLoopBlocking(),

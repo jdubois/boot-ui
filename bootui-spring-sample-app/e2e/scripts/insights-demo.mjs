@@ -37,6 +37,8 @@ const STEPS = {
     ['GET', '/api/insights/tags/summary', 3],
     ['POST', '/api/insights/tags/summary-then-relabel', 3],
     ['POST', '/api/insights/tags/summary-then-jdbc-write', 3],
+    ['GET', '/api/insights/tags/unsorted-page', 3],
+    ['GET', '/api/insights/tags/sorted-page', 3],
     ['POST', '/api/insights/debug/reset-totals', 1],
     ['GET', '/api/insights/reports/payroll', 1],
     ['GET', '/api/insights/reports/PAYROLL', 1],
@@ -50,6 +52,8 @@ const STEPS = {
     ['GET', '/api/insights/notes/on-event-loop', 3],
     ['GET', '/api/insights/notes/one-by-one', 3],
     ['GET', '/api/insights/notes/at-once', 3],
+    ['GET', '/api/insights/notes/unsorted-page', 3],
+    ['GET', '/api/insights/notes/sorted-page', 3],
     ['GET', '/api/insights/notes/after-response', 1],
     ['GET', '/api/insights/notes/after-response/waits', 1],
     ['GET', '/api/sample/rest-client', 3]
