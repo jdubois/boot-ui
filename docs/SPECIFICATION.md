@@ -3744,7 +3744,9 @@ Design rules:
   given application actually exposes comes from `GET /bootui/api/cli`, which `bootui tools` prints: stacks advertise
   different tool sets, some tools appear only when a library is present, and panels can be disabled.
 - **Refusal is not failure.** Exit `0` means the tool answered, `1` a usage, authentication, or transport error, and
-  `2` that BootUI declined — a disabled panel, or an action on a read-only one. That distinction is the reason the
+  `2` that BootUI declined — a disabled panel, or an action on a read-only one. `3` is the one deliberate finding
+  signal: an advisor command run with `--fail-on <severity>` retained a finding at or above it, and a gate that cannot
+  be evaluated (a report that was never scanned, or one without `severityCounts`) is `1`, never `0`. That distinction is the reason the
   endpoint puts the outcome in the status code, and dropping it would force CI to parse error text. A rejected token
   is deliberately `1` and not `2`: it says nothing about how the target's panels are configured, so a job that treats
   `2` as "skip this check" must not swallow it.

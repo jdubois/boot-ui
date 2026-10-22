@@ -80,8 +80,20 @@ final class CliContext {
         return clientFactory.apply(options.toClientOptions(environment));
     }
 
-    /** Calls one tool and reports it. */
-    int invokeTool(ToolManifest.Tool tool, String query, Integer limit, String id, String scanId, Integer offset) {
+    /**
+     * Calls one tool and reports it; with {@code failOn} the answer is also held against a severity threshold.
+     *
+     * <p>The threshold is CLI-only: it is never an MCP argument, and the answer is printed exactly as without it
+     * before the gate is read.
+     */
+    int invokeTool(
+            ToolManifest.Tool tool,
+            String query,
+            Integer limit,
+            String id,
+            String scanId,
+            Integer offset,
+            FailOn.Severity failOn) {
         return withClient(client -> {
             Map<String, JsonValue> arguments = new LinkedHashMap<>();
             if (query != null) {
@@ -102,7 +114,15 @@ final class CliContext {
             ToolResult result = client.invoke(tool.name(), arguments);
             if (result.successful()) {
                 emit(result.payload(), result.rawBody());
-                return ExitCodes.SUCCESS;
+                if (failOn == null) {
+                    return ExitCodes.SUCCESS;
+                }
+                FailOn.Verdict verdict = FailOn.evaluate(result.payload(), failOn);
+                if (!verdict.message().isBlank()) {
+                    err.println(verdict.message());
+                    err.flush();
+                }
+                return verdict.exitCode();
             }
             ToolOutcome outcome = confirmBootUiAnswered(client, result);
             err.println(describe(client, tool, outcome, result.errorMessage()));
