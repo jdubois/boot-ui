@@ -216,6 +216,19 @@ class SqlStatementNormalizerTests {
     }
 
     @Test
+    void aHashAfterANameIsNotACommentAndNonAsciiSpaceDoesNotUnmaskALiteral() {
+        assertThat(SqlStatementNormalizer.normalize("select emp#, name from emp where dept# = 10")
+                        .sql())
+                .isEqualTo("select emp#, name from emp where dept# = ?");
+        assertThat(SqlStatementNormalizer.normalize("select * from t where id =\u00a042")
+                        .sql())
+                .isEqualTo("select * from t where id =\u00a0?");
+        assertThat(SqlStatementNormalizer.normalize("select * from t where ok =\u00a0true")
+                        .sql())
+                .isEqualTo("select * from t where ok =\u00a0?");
+    }
+
+    @Test
     void tokensClassifyTheTextTheWayNormalizeLexesIt() {
         String sql = "select \"a\", 'x' /* c */ from t1 where n = 5 and f = ? -- end";
 

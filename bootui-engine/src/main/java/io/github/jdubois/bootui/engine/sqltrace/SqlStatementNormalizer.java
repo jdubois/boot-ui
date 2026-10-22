@@ -205,20 +205,31 @@ public final class SqlStatementNormalizer {
                 scan.literal();
                 record(ranges, start, index, RANGE_LITERAL);
                 record(tokens, start, index, TOKEN_LITERAL);
-            } else if (isIdentifierCharacter(c)) {
-                // A word is emitted as it was written: only the lexical class of its characters is recorded.
-                while (index < length && isIdentifierCharacter(source.charAt(index))) {
-                    out.append(source.charAt(index));
-                    index++;
-                }
-                record(tokens, start, index, TOKEN_WORD);
             } else {
                 out.append(c);
                 index++;
-                record(tokens, start, index, TOKEN_SYMBOL);
+                if (isIdentifierCharacter(c)) {
+                    // Adjacent characters this scanner leaves as they are form one word token.
+                    extendWord(tokens, start, index);
+                } else {
+                    record(tokens, start, index, TOKEN_SYMBOL);
+                }
             }
         }
         return scan;
+    }
+
+    private static void extendWord(Ranges tokens, int start, int end) {
+        if (tokens == null) {
+            return;
+        }
+        if (tokens.size >= 3
+                && tokens.values[tokens.size - 1] == TOKEN_WORD
+                && tokens.values[tokens.size - 2] == start) {
+            tokens.values[tokens.size - 2] = end;
+        } else {
+            tokens.add(start, end, TOKEN_WORD);
+        }
     }
 
     private static void record(Ranges ranges, int start, int end, int kind) {
@@ -335,19 +346,22 @@ public final class SqlStatementNormalizer {
 
     /**
      * Whether a line comment starts at {@code index}: {@code --}, or a MySQL and MariaDB {@code #} followed by white
-     * space or the end of the text. A {@code #} followed by anything else is not read as a comment, since PostgreSQL
-     * spells operators {@code #>} and {@code #>>} and SQL Server names a temporary table {@code #name}.
+     * space or the end of the text and not directly after a name. A {@code #} otherwise is not read as a comment, since
+     * PostgreSQL spells operators {@code #>} and {@code #>>}, SQL Server names a temporary table {@code #name}, and
+     * Oracle names columns such as {@code emp#}.
      */
     private static boolean isLineCommentStart(String sql, int index) {
         char c = sql.charAt(index);
         if (c == '#') {
-            return index + 1 >= sql.length() || Character.isWhitespace(sql.charAt(index + 1));
+            // Oracle, DB2, and T-SQL name columns such as emp# and dept#, which no comment follows.
+            boolean afterName = index > 0 && isIdentifierCharacter(sql.charAt(index - 1));
+            return !afterName && (index + 1 >= sql.length() || Character.isWhitespace(sql.charAt(index + 1)));
         }
         return c == '-' && index + 1 < sql.length() && sql.charAt(index + 1) == '-';
     }
 
     private static int skipLineComment(String sql, int index) {
-        int cursor = index + 2;
+        int cursor = sql.charAt(index) == '#' ? index + 1 : index + 2;
         while (cursor < sql.length() && sql.charAt(cursor) != '\n') {
             cursor++;
         }

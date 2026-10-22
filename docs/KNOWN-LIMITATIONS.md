@@ -45,10 +45,12 @@ See [WebFlux design notes](WEBFLUX-SUPPORT.md) for the panel-by-panel detail.
   against the code, not a proof.
 - **`paged-without-order` reads SQL text, not what the database returns.** It does not report the first page of a
   pageable query filtered only by equalities, a literal limit of one, or a statement it cannot read: SQL Trace's
-  shortened text, a statement longer than the scan limit, a string that holds a backslash, a `#` that is not a MySQL
-  comment, a `/*! ... */` comment, or several statements. Oracle `ROWNUM` wrappers are not read, and a PostgreSQL `#`
-  operator followed by white space is read as a MySQL comment. A row is a fact to verify, since the rows may be arbitrary
-  on purpose.
+  shortened text, a statement longer than the scan limit, a string or quoted name that holds a backslash, Oracle `q'...'`
+  strings, a `#` that may be a PostgreSQL operator or a name's suffix rather than a MySQL comment, a `/*! ... */` or
+  `/*M! ... */` comment, several statements, or a `LIMIT`, `TOP`, or `FETCH` count that is not a plain number or bind.
+  Oracle `ROWNUM` wrappers are not read. A bound limit cannot be known to be one row, so a `findFirstBy...` or jOOQ
+  `limit(1)` over a filter with `IS NULL`, `IN`, or a function is reported. A row is a fact to verify, since the rows
+  may be arbitrary on purpose.
 - **`route-time-breakdown` has no handler or response phase.** It times authentication and the recorded calls; the
   rest of a request's time is reported as unattributed, never as application code.
 - **A reactive transaction has no thread-bound context.** A `ReactiveTransactionManager`'s transactions are recorded

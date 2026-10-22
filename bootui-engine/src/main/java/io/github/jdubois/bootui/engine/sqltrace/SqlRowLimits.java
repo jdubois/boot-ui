@@ -106,14 +106,26 @@ public final class SqlRowLimits {
         for (int i = 0; i < raw.length; i += 3) {
             String text = sql.substring(raw[i], raw[i + 1]);
             String problem = problem(raw[i + 2], text);
+            if (problem == null
+                    && !tokens.isEmpty()
+                    && quotedStringPrefix(tokens.get(tokens.size() - 1), raw[i], text)) {
+                problem = "An Oracle alternative-quoted string, whose quotes this reader does not follow.";
+            }
             if (problem != null) {
                 return Analysis.incomplete(problem, looksLikeQuery(sql));
             }
             if (raw[i + 2] != SqlStatementNormalizer.TOKEN_COMMENT) {
-                tokens.add(new Token(raw[i + 2], text));
+                tokens.add(new Token(raw[i + 2], text, raw[i], raw[i + 1]));
             }
         }
-        return new Reader(tokens).read();
+        try {
+            return new Reader(tokens).read();
+        } catch (Unreadable ex) {
+            return Analysis.incomplete(ex.getMessage(), true);
+        } catch (RuntimeException ex) {
+            // A lexical edge case must leave this statement uncounted, never fail every observation that reads SQL.
+            return Analysis.incomplete("The statement could not be analysed.", looksLikeQuery(sql));
+        }
     }
 
     /** What makes a token's text untrustworthy, or {@code null}. */
@@ -125,7 +137,7 @@ public final class SqlRowLimits {
                     if (count(text, first) % 2 != 0 || text.length() < 2) {
                         return "A string in the statement is never closed.";
                     }
-                    if (first == '\'' && text.indexOf('\\') >= 0) {
+                    if (text.indexOf('\\') >= 0) {
                         return "A string holds a backslash, whose escape rules depend on the dialect.";
                     }
                 } else if (first == '$' && !closedDollarQuote(text)) {
@@ -136,18 +148,26 @@ public final class SqlRowLimits {
                 boolean closed = first == '['
                         ? text.length() >= 2 && text.endsWith("]")
                         : text.length() >= 2 && count(text, first) % 2 == 0;
-                return closed ? null : "A quoted name in the statement is never closed.";
+                if (!closed) {
+                    return "A quoted name in the statement is never closed.";
+                }
+                return text.indexOf('\\') >= 0
+                        ? "A quoted name holds a backslash, whose escape rules depend on the dialect."
+                        : null;
             case SqlStatementNormalizer.TOKEN_COMMENT:
                 if (text.startsWith("/*")) {
                     if (text.length() < 4 || !text.endsWith("*/")) {
                         return "A comment in the statement is never closed.";
                     }
-                    if (text.startsWith("/*!")) {
-                        return "A MySQL executable comment may hold statement text.";
+                    if (text.startsWith("/*!") || text.startsWith("/*M!")) {
+                        return "A MySQL or MariaDB executable comment may hold statement text.";
                     }
                     if (text.indexOf("/*", 2) >= 0) {
                         return "A comment in the statement is nested.";
                     }
+                }
+                if (first == '#' && mayBeAnOperator(text)) {
+                    return "A # in the statement may be PostgreSQL's operator rather than a MySQL comment.";
                 }
                 return null;
             case SqlStatementNormalizer.TOKEN_SYMBOL:
@@ -155,6 +175,24 @@ public final class SqlRowLimits {
             default:
                 return null;
         }
+    }
+
+    /**
+     * Whether a {@code #} line comment may be PostgreSQL's bitwise {@code #} operator and the operands after it: it
+     * starts like an operand, or compares, which a comment rarely does. Such a statement is not read, since the text
+     * the comment would hide, an {@code ORDER BY} among it, is then part of the statement.
+     */
+    private static boolean mayBeAnOperator(String comment) {
+        String body = comment.substring(1).stripLeading();
+        if (body.isEmpty()) {
+            return false;
+        }
+        char first = body.charAt(0);
+        return Character.isDigit(first)
+                || "?(:@$'\"-+~".indexOf(first) >= 0
+                || body.indexOf('=') >= 0
+                || body.indexOf('<') >= 0
+                || body.indexOf('>') >= 0;
     }
 
     private static boolean closedDollarQuote(String text) {
@@ -178,11 +216,44 @@ public final class SqlRowLimits {
 
     /** Whether a statement that could not be read starts as a query, so it is counted as one that was left out. */
     private static boolean looksLikeQuery(String sql) {
-        String head = sql.stripLeading().toLowerCase(Locale.ROOT);
+        String head = withoutLeadingComments(sql).toLowerCase(Locale.ROOT);
         return head.startsWith("select") || head.startsWith("with") || head.startsWith("(");
     }
 
-    private record Token(int kind, String text) {
+    /** A statement part this reader recognises but cannot judge, which makes the whole statement incomplete. */
+    private static final class Unreadable extends RuntimeException {
+
+        Unreadable(String reason) {
+            super(reason, null, false, false);
+        }
+    }
+
+    /** Whether {@code text} opens a string that directly follows a {@code q} or {@code nq} word, as {@code q'[...]'}. */
+    private static boolean quotedStringPrefix(Token previous, int start, String text) {
+        return text.charAt(0) == '\''
+                && previous.end() == start
+                && previous.kind() == SqlStatementNormalizer.TOKEN_WORD
+                && (previous.text().equalsIgnoreCase("q") || previous.text().equalsIgnoreCase("nq"));
+    }
+
+    private static String withoutLeadingComments(String sql) {
+        String rest = sql.stripLeading();
+        while (true) {
+            int end;
+            if (rest.startsWith("--") || rest.startsWith("#")) {
+                end = rest.indexOf('\n');
+                end = end < 0 ? rest.length() : end + 1;
+            } else if (rest.startsWith("/*")) {
+                end = rest.indexOf("*/", 2);
+                end = end < 0 ? rest.length() : end + 2;
+            } else {
+                return rest;
+            }
+            rest = rest.substring(end).stripLeading();
+        }
+    }
+
+    private record Token(int kind, String text, int start, int end) {
 
         String lower() {
             return text.toLowerCase(Locale.ROOT);
@@ -303,7 +374,10 @@ public final class SqlRowLimits {
                     where = i;
                 } else if (word.equals("order")
                         && i + 1 < last
-                        && tokens.get(i + 1).word("by")) {
+                        && (tokens.get(i + 1).word("by")
+                                || i + 2 < last
+                                        && tokens.get(i + 1).word("siblings")
+                                        && tokens.get(i + 2).word("by"))) {
                     orderBy = true;
                 } else if (word.equals("limit")) {
                     Limit limit = limit(i, last);
@@ -312,9 +386,9 @@ public final class SqlRowLimits {
                         offset |= limit.offset();
                     }
                 } else if (word.equals("offset")) {
-                    int valueEnd = value(i + 1, last, true);
+                    int valueEnd = value(i + 1, last);
                     if (valueEnd > 0) {
-                        offset |= !tokens.get(i + 1).number(0);
+                        offset |= !literalIs(i + 1, valueEnd, 0);
                     }
                 } else if (word.equals("fetch")) {
                     Boolean single = fetch(i, last);
@@ -330,19 +404,16 @@ public final class SqlRowLimits {
                 projection++;
             }
             if (projection < last && tokens.get(projection).word("top")) {
-                int valueEnd = value(projection + 1, last, true);
-                if (valueEnd > 0) {
-                    boolean single = singleRowValue(projection + 1, valueEnd);
-                    rowLimit |= !single;
-                    projection = valueEnd;
-                    if (projection < last && tokens.get(projection).word("percent")) {
-                        projection++;
-                    }
-                    if (projection + 1 < last
-                            && tokens.get(projection).word("with")
-                            && tokens.get(projection + 1).word("ties")) {
-                        projection += 2;
-                    }
+                int valueEnd = plainCount(projection + 1, last, "TOP");
+                rowLimit |= !literalIs(projection + 1, valueEnd, 1);
+                projection = valueEnd;
+                if (projection < last && tokens.get(projection).word("percent")) {
+                    throw new Unreadable("TOP ... PERCENT is not a row count.");
+                }
+                if (projection + 1 < last
+                        && tokens.get(projection).word("with")
+                        && tokens.get(projection + 1).word("ties")) {
+                    projection += 2;
                 }
             }
             boolean constantOrAggregate = projection < last && constantOrAggregate(projection, last);
@@ -351,39 +422,42 @@ public final class SqlRowLimits {
                     true, null, true, rowLimit, offset, orderBy, equalityOnly, constantOrAggregate, setOperation);
         }
 
+        /** Whether the first projected item is a literal, {@code null}, {@code count(...)}, or {@code exists(...)}. */
         private boolean constantOrAggregate(int index, int last) {
-            Token first = tokens.get(index);
-            if (first.literal()) {
+            int cursor = index;
+            while (cursor < last && tokens.get(cursor).symbol('(')) {
+                cursor++;
+            }
+            if (cursor >= last) {
+                return false;
+            }
+            Token first = tokens.get(cursor);
+            if (first.literal() || first.word("null")) {
                 return true;
             }
             return (first.word("count") || first.word("exists"))
-                    && index + 1 < last
-                    && tokens.get(index + 1).symbol('(');
+                    && cursor + 1 < last
+                    && tokens.get(cursor + 1).symbol('(');
         }
 
         /** One reading of {@code LIMIT}: whether it limits to a single row, and whether it skips rows. */
         private record Limit(boolean single, boolean offset) {}
 
-        /** The reading of the {@code LIMIT} at {@code index}, or {@code null} when it is not followed by a count. */
+        /**
+         * The reading of the {@code LIMIT} at {@code index}, or {@code null} when it does not limit ({@code ALL} or
+         * {@code NULL}); a count that is not a plain number or bind is unreadable.
+         */
         private Limit limit(int index, int last) {
             int next = index + 1;
-            if (next >= last || tokens.get(next).word("all") || tokens.get(next).word("null")) {
+            if (next < last && (tokens.get(next).word("all") || tokens.get(next).word("null"))) {
                 return null;
             }
-            int firstEnd = value(next, last, true);
-            if (firstEnd < 0) {
-                return null;
-            }
+            int firstEnd = plainCount(next, last, "LIMIT");
             if (firstEnd < last && tokens.get(firstEnd).symbol(',')) {
-                int secondEnd = value(firstEnd + 1, last, true);
-                if (secondEnd < 0) {
-                    return null;
-                }
-                return new Limit(
-                        singleRowValue(firstEnd + 1, secondEnd),
-                        !tokens.get(next).number(0));
+                int secondEnd = plainCount(firstEnd + 1, last, "LIMIT");
+                return new Limit(literalIs(firstEnd + 1, secondEnd, 1), !literalIs(next, firstEnd, 0));
             }
-            return new Limit(singleRowValue(next, firstEnd), false);
+            return new Limit(literalIs(next, firstEnd, 1), false);
         }
 
         /**
@@ -397,40 +471,63 @@ public final class SqlRowLimits {
                 return null;
             }
             int cursor = next + 1;
-            int valueEnd = value(cursor, last, true);
-            Boolean single = null;
+            boolean single = false;
+            int valueEnd = value(cursor, last);
             if (valueEnd > 0) {
-                single = singleRowValue(cursor, valueEnd);
+                single = literalIs(cursor, valueEnd, 1);
                 cursor = valueEnd;
+            } else if (cursor < last
+                    && !tokens.get(cursor).word("row")
+                    && !tokens.get(cursor).word("rows")) {
+                throw new Unreadable("The FETCH row count is not a plain number or bind.");
+            } else {
+                single = true;
             }
-            for (int steps = 0; steps < 3 && cursor < last; steps++, cursor++) {
-                Token token = tokens.get(cursor);
-                if ((token.word("row") || token.word("rows")) && cursor + 1 < last) {
-                    Token after = tokens.get(cursor + 1);
-                    if (after.word("only") || after.word("with")) {
-                        return single == null ? Boolean.TRUE : single;
-                    }
-                    return null;
-                }
+            if (cursor + 1 < last
+                    && (tokens.get(cursor).word("row") || tokens.get(cursor).word("rows"))
+                    && (tokens.get(cursor + 1).word("only")
+                            || tokens.get(cursor + 1).word("with"))) {
+                return single;
             }
-            return null;
-        }
-
-        /** Whether the value at {@code [from, to)} is the literal one, a single-row lookup rather than a page. */
-        private boolean singleRowValue(int from, int to) {
-            if (to - from == 1) {
-                return tokens.get(from).number(1);
-            }
-            return to - from == 3
-                    && tokens.get(from).symbol('(')
-                    && tokens.get(from + 1).number(1);
+            throw new Unreadable("The FETCH clause is not FETCH FIRST|NEXT n ROWS ONLY or WITH TIES.");
         }
 
         /**
-         * The index just past the bind or literal starting at {@code index}, or {@code -1}: {@code ?}, {@code ?1},
-         * {@code $1}, {@code :name}, {@code @name}, a literal, and, when {@code parenthesised}, a balanced {@code (...)}.
+         * The end of the plain count at {@code index}; a count that is not a plain number or bind, or that an operator
+         * continues after {@code LIMIT}, makes the statement unreadable. {@code TOP} is followed by the projection, which
+         * may start with a symbol.
          */
-        private int value(int index, int last, boolean parenthesised) {
+        private int plainCount(int index, int last, String clause) {
+            int end = value(index, last);
+            boolean continued = clause.equals("LIMIT")
+                    && end > 0
+                    && end < last
+                    && tokens.get(end).kind() == SqlStatementNormalizer.TOKEN_SYMBOL
+                    && !tokens.get(end).symbol(',');
+            if (end < 0 || continued) {
+                throw new Unreadable("The " + clause + " count is not a plain number or bind.");
+            }
+            return end;
+        }
+
+        /** Whether {@code [from, to)} is the number {@code expected}, possibly in parentheses. */
+        private boolean literalIs(int from, int to, long expected) {
+            int start = from;
+            int end = to;
+            while (end - start >= 3
+                    && tokens.get(start).symbol('(')
+                    && tokens.get(end - 1).symbol(')')) {
+                start++;
+                end--;
+            }
+            return end - start == 1 && tokens.get(start).number(expected);
+        }
+
+        /**
+         * The index just past the plain value starting at {@code index}, or {@code -1}: {@code ?}, {@code ?1},
+         * {@code $1}, {@code :name}, {@code @name}, a literal, or one of them in parentheses.
+         */
+        private int value(int index, int last) {
             if (index >= last) {
                 return -1;
             }
@@ -456,15 +553,9 @@ public final class SqlRowLimits {
                     && tokens.get(index + 1).kind() == SqlStatementNormalizer.TOKEN_WORD) {
                 return index + 2;
             }
-            if (parenthesised && token.symbol('(')) {
-                int level = 0;
-                for (int i = index; i < last; i++) {
-                    if (tokens.get(i).symbol('(')) {
-                        level++;
-                    } else if (tokens.get(i).symbol(')') && --level == 0) {
-                        return i + 1;
-                    }
-                }
+            if (token.symbol('(')) {
+                int inner = value(index + 1, last);
+                return inner > 0 && inner < last && tokens.get(inner).symbol(')') ? inner + 1 : -1;
             }
             return -1;
         }
@@ -481,16 +572,31 @@ public final class SqlRowLimits {
             return true;
         }
 
-        /** Whether {@code [from, last)} up to the end of the {@code WHERE} clause is {@code column = value} terms. */
+        /**
+         * Whether {@code [from, last)} up to the end of the {@code WHERE} clause is {@code column = value} terms joined
+         * by {@code AND}, possibly grouped in parentheses, with a possibly signed value.
+         */
         private boolean equalityOnlyWhere(int from, int last) {
             int cursor = from;
+            int open = 0;
             while (true) {
+                while (cursor < last && tokens.get(cursor).symbol('(')) {
+                    open++;
+                    cursor++;
+                }
                 int column = column(cursor, last);
                 if (column < 0 || column >= last || !tokens.get(column).symbol('=')) {
                     return false;
                 }
-                int valueEnd = value(column + 1, last, false);
-                if (valueEnd < 0) {
+                int valueStart = column + 1;
+                boolean signed = valueStart < last
+                        && (tokens.get(valueStart).symbol('-')
+                                || tokens.get(valueStart).symbol('+'));
+                if (signed) {
+                    valueStart++;
+                }
+                int valueEnd = value(valueStart, last);
+                if (valueEnd < 0 || signed && !tokens.get(valueStart).literal()) {
                     return false;
                 }
                 cursor = valueEnd;
@@ -500,8 +606,12 @@ public final class SqlRowLimits {
                         && tokens.get(cursor + 2).kind() == SqlStatementNormalizer.TOKEN_WORD) {
                     cursor += 3;
                 }
+                while (open > 0 && cursor < last && tokens.get(cursor).symbol(')')) {
+                    open--;
+                    cursor++;
+                }
                 if (cursor >= last || endsWhere(cursor)) {
-                    return true;
+                    return open == 0;
                 }
                 if (!tokens.get(cursor).word("and")) {
                     return false;

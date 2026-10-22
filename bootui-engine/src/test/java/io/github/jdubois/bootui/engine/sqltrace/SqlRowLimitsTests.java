@@ -112,6 +112,8 @@ class SqlRowLimitsTests {
     @Test
     void sqlServerTop() {
         assertThat(analyze("select top (10) id from owner").rowLimit()).isTrue();
+        assertThat(analyze("select top 10 * from owner").rowLimit()).isTrue();
+        assertThat(analyze("select top 10 * from owner").complete()).isTrue();
         assertThat(analyze("select top 10 id from owner").rowLimit()).isTrue();
         assertThat(analyze("select distinct top (?) id from owner").rowLimit()).isTrue();
         assertThat(analyze("select top 1 id from owner").rowLimit()).isFalse();
@@ -398,7 +400,19 @@ class SqlRowLimitsTests {
             "select id from (owner limit ?",
             "select id from owner) limit ?",
             "(select id from a) union (select id from b)",
-            "with x as (select 1) "
+            "with x as (select 1) ",
+            "select id from t where flags # 1 = 0 order by id limit 10",
+            "select id from t where flags # mask = 0\n order by id\n limit 10",
+            "select id from t where note like \"a\\\" LIMIT 10 \\\"b\"",
+            "select id from t where note like q'[it's LIMIT 10 and it's fine]'",
+            "select id from t /*M! ORDER BY id */ limit 10",
+            "select id from t limit ((1))+1",
+            "select id from t limit (2 - 1)",
+            "select id from t limit (a, b)",
+            "select top (100) percent id from t",
+            "select top (n + 1) id from t",
+            "select id from t offset 0 rows fetch next (n + 1) rows only",
+            "select id from t offset 0 rows fetch next 5 widgets"
         }) {
             Analysis analysis = analyze(sql);
             assertThat(analysis.complete()).as(sql).isFalse();
@@ -450,5 +464,103 @@ class SqlRowLimitsTests {
         assertThat(analysis.rowLimit()).isTrue();
         assertThat(SqlStatementNormalizer.normalize(sql).sql())
                 .isEqualTo("select id from owner where name = ? order by id limit ?");
+    }
+
+    @Test
+    void anEmptyHashCommentEndsAtItsLineAndAtTheEndOfTheText() {
+        Analysis trailing = analyze("select id from owner limit ? #");
+        Analysis empty = analyze("select id from owner #\norder by id\nlimit ? offset ?");
+        int[] ranges = SqlStatementNormalizer.ranges("select 1 #");
+
+        assertThat(trailing.complete()).isTrue();
+        assertThat(trailing.rowLimit()).isTrue();
+        assertThat(empty.complete()).isTrue();
+        assertThat(empty.orderBy()).isTrue();
+        assertThat(ranges[ranges.length - 2]).isEqualTo("select 1 #".length());
+        assertThat(SqlStatementNormalizer.normalize("select id #\nfrom owner").sql())
+                .isEqualTo("select id from owner");
+    }
+
+    @Test
+    void aHashCommentThatReadsLikeProseIsAComment() {
+        Analysis analysis = analyze("select id from owner # the page of owners\n limit ? offset ?");
+
+        assertThat(analysis.complete()).isTrue();
+        assertThat(analysis.rowLimit()).isTrue();
+        assertThat(analysis.orderBy()).isFalse();
+    }
+
+    @Test
+    void equalityTermsMayBeGroupedAndSigned() {
+        assertThat(analyze("select id from t where (id = ?) limit ?").equalityOnlyWhere())
+                .isTrue();
+        assertThat(analyze("select id from t where (a = ? and b = ?) and c = ? limit ?")
+                        .equalityOnlyWhere())
+                .isTrue();
+        assertThat(analyze("select id from t where id = -1 limit ?").equalityOnlyWhere())
+                .isTrue();
+        assertThat(analyze("select id from t where (a = ? or b = ?) limit ?").equalityOnlyWhere())
+                .isFalse();
+        assertThat(analyze("select id from t where (a = ? limit ?").complete()).isFalse();
+        assertThat(analyze("select id from t where id = -a limit ?").equalityOnlyWhere())
+                .isFalse();
+    }
+
+    @Test
+    void parenthesisedAndNullProjectionsAreConstantOrAggregate() {
+        for (String projection : new String[] {"(count(*))", "(1)", "null", "((count(*)))", "(exists (select 1))"}) {
+            assertThat(analyze("select " + projection + " from owner limit ?").constantOrAggregateProjection())
+                    .as(projection)
+                    .isTrue();
+        }
+        assertThat(analyze("select (a + b) from owner limit ?").constantOrAggregateProjection())
+                .isFalse();
+    }
+
+    @Test
+    void aLiteralOneInParenthesesIsStillASingleRow() {
+        assertThat(analyze("select id from t where a > ? limit ((1))").rowLimit())
+                .isFalse();
+        assertThat(analyze("select id from t offset (0) rows fetch next (10) rows only")
+                        .offset())
+                .isFalse();
+        assertThat(analyze("select id from t offset (0) rows fetch next (10) rows only")
+                        .rowLimit())
+                .isTrue();
+    }
+
+    @Test
+    void textAfterANonAsciiCharacterIsLexedAsTheNormalizerDoes() {
+        String sql = "select\u2003id from t where a = \u20ac1 limit ?";
+
+        assertThat(SqlStatementNormalizer.normalize(sql).sql()).isEqualTo("select id from t where a = \u20ac? limit ?");
+        assertThat(analyze(sql).rowLimit()).isTrue();
+    }
+
+    @Test
+    void aHashDirectlyAfterANameIsNotAComment() {
+        Analysis analysis = analyze("select e.emp# from emp e where e.dept# is null order by e.emp#\nlimit ?");
+
+        assertThat(analysis.complete()).isFalse();
+        assertThat(analysis.orderBy()).isFalse();
+        assertThat(analysis.rowLimit()).isFalse();
+    }
+
+    @Test
+    void orderSiblingsByIsAnOrderBy() {
+        Analysis analysis =
+                analyze("select name from emp start with mgr is null connect by prior id = mgr order siblings by name"
+                        + " fetch first ? rows only");
+
+        assertThat(analysis.orderBy()).isTrue();
+        assertThat(analysis.rowLimit()).isTrue();
+    }
+
+    @Test
+    void aLeadingCommentDoesNotHideATruncatedQuery() {
+        Analysis analysis = analyze("/* generated */ select id from owner limit ? offset ?…");
+
+        assertThat(analysis.complete()).isFalse();
+        assertThat(analysis.select()).isTrue();
     }
 }

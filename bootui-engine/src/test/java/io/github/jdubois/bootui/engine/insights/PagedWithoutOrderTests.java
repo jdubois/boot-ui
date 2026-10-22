@@ -195,6 +195,54 @@ class PagedWithoutOrderTests {
     }
 
     @Test
+    void aStatementEndingInAHashDoesNotFailTheReport() {
+        for (int i = 0; i < 2; i++) {
+            request("/api/owners", execution("select id from owner limit ? offset ? #"), execution(PAGE));
+        }
+
+        assertThat(observations())
+                .hasSize(2)
+                .allSatisfy(observation -> assertThat(observation.status()).isEqualTo("OBSERVED"));
+    }
+
+    @Test
+    void aStatementWhoseOriginIsUnknownIsNotCounted() {
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "/api/owners",
+                    new Event(
+                            JournalSource.SQL,
+                            1,
+                            new SqlPayload(
+                                    PAGE,
+                                    "Repo.run:1",
+                                    "db",
+                                    false,
+                                    null,
+                                    null,
+                                    -1,
+                                    0,
+                                    SqlPayload.Provenance.UNKNOWN)));
+        }
+
+        assertThat(observations()).isEmpty();
+    }
+
+    @Test
+    void aLimitOfOneAndALimitOfTenOnOneRouteAreJudgedSeparately() {
+        for (int i = 0; i < 2; i++) {
+            request(
+                    "/api/owners",
+                    execution("select id from owner where id > ? limit 1"),
+                    execution("select id from owner where id > ? limit 10"));
+        }
+
+        assertThat(observations()).singleElement().satisfies(observation -> {
+            assertThat(observation.sentence()).contains("2 times in 2 requests");
+        });
+    }
+
+    @Test
     void distinctStatementsOnOneRouteAreReportedSeparately() {
         for (int i = 0; i < 2; i++) {
             request("/api/owners", execution(PAGE), execution("select id from pet limit ? offset ?"));
