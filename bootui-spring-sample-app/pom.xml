@@ -328,8 +328,9 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <!-- Failsafe 3.6 no longer binds -DskipTests on its own; keep it skipping these ITs too. -->
-                    <skipITs>${skipTests}</skipITs>
+                    <!-- Failsafe 3.6 no longer binds -DskipTests on its own; bootui.skipAgentIts defaults to it, so
+                         -DskipTests still skips these ITs, which CI runs apart from the main build. -->
+                    <skipITs>${bootui.skipAgentIts}</skipITs>
                     <!-- Same as the root Surefire configuration: test output goes to target/failsafe-reports. -->
                     <redirectTestOutputToFile>true</redirectTestOutputToFile>
                     <!-- The classes, not the repackaged jar, whose BOOT-INF layout a plain class path cannot read. -->

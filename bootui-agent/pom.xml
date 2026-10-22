@@ -26,6 +26,11 @@
         <bootui.agent.shaded>${project.build.directory}/bootui-agent-shaded.jar</bootui.agent.shaded>
         <bootui.agent.jar>${project.build.directory}/${project.build.finalName}.jar</bootui.agent.jar>
         <bootui.agent.it.jar>${project.build.directory}/bootui-agent-it.jar</bootui.agent.it.jar>
+        <!-- Failsafe forks for the integration tests, which spend nearly all their time waiting on child JVMs. One by
+             default, as some tests time an operation and the nightly cross-platform and release builds run on noisy
+             machines; the agent-integration-tests job in build.yml passes 2. Each fork has its own work directory
+             (bootui.agent.work below). -->
+        <bootui.agent.its.forkCount>1</bootui.agent.its.forkCount>
         <blockhound.version>1.0.17.RELEASE</blockhound.version>
     </properties>
 
@@ -375,8 +380,11 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <!-- Failsafe 3.6 no longer binds -DskipTests on its own; keep it skipping these ITs too. -->
-                    <skipITs>${skipTests}</skipITs>
+                    <!-- Failsafe 3.6 no longer binds -DskipTests on its own; bootui.skipAgentIts defaults to it, so
+                         -DskipTests still skips these ITs, which CI runs apart from the main build. -->
+                    <skipITs>${bootui.skipAgentIts}</skipITs>
+                    <forkCount>${bootui.agent.its.forkCount}</forkCount>
+                    <reuseForks>true</reuseForks>
                     <!--
                         The compiled classes, not the shaded jar, whose agent classes are hidden from the class path by
                         design: the verifier stress test applies the caught-exceptions visit in this JVM.
@@ -387,7 +395,9 @@
                         <bootui.agent.jar>${bootui.agent.jar}</bootui.agent.jar>
                         <bootui.agent.it.jar>${bootui.agent.it.jar}</bootui.agent.it.jar>
                         <bootui.agent.test-classes>${project.build.testOutputDirectory}</bootui.agent.test-classes>
-                        <bootui.agent.work>${project.build.directory}/agent-it</bootui.agent.work>
+                        <!-- Failsafe replaces the placeholder with the fork's number, so concurrent forks never write the
+                             same jar or .exec file (TestJars and the behaviors' execution data live here). -->
+                        <bootui.agent.work>${project.build.directory}/agent-it/fork-${surefire.forkNumber}</bootui.agent.work>
                         <opentelemetry.agent.jar>${io.opentelemetry.javaagent:opentelemetry-javaagent:jar}</opentelemetry.agent.jar>
                         <jacoco.agent.jar>${org.jacoco:org.jacoco.agent:jar:runtime}</jacoco.agent.jar>
                         <mockito.jar>${org.mockito:mockito-core:jar}</mockito.jar>

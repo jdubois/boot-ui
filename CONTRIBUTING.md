@@ -70,7 +70,10 @@ builds the Vue UI with Vite, and packages every module. A full clean build takes
 about a minute on a warm cache.
 
 `-DskipTests` skips both unit tests and Failsafe integration tests. The Failsafe executions bind their
-supported `skipITs` parameter to that property, preserving the same switch across the build.
+supported `skipITs` parameter to that property, preserving the same switch across the build. Two narrower properties
+default to it, so each can skip one group on its own: `-Dbootui.skipAgentIts` skips the integration tests that run the
+BootUI agent in forked JVMs (in `bootui-agent`, `bootui-spring-sample-app`, and `bootui-quarkus-deployment`), and
+`-Dbootui.skipFrontendTests` skips the Vitest run in `bootui-ui`.
 
 For a faster local build, add `-T 1C` (one reactor thread per CPU core) to build modules in parallel:
 
@@ -220,14 +223,26 @@ Use the CI-equivalent build before opening or updating a pull request:
 ```
 
 Surefire and Failsafe write each test class's standard output and error to
-`target/surefire-reports/<class>-output.txt` (`target/failsafe-reports/` for the Spring sample app's integration
-tests) instead of the console, so look there for application logs and stack traces printed by tests. Failures and
-errors are still reported in the console. CI uploads these files as the `test-output` artifacts.
+`target/surefire-reports/<class>-output.txt` (`target/failsafe-reports/` for the integration tests of the agent, the
+Spring sample app, and the Quarkus deployment module) instead of the console, so look there for application logs and
+stack traces printed by tests. Failures and errors are still reported in the console. CI uploads these files as the
+`test-output` artifacts.
 
 CI splits that build across parallel jobs: the main job runs the reactor with
 `-Dbootui.skipQuarkusExtensionIts`, which leaves out the per-extension Quarkus integration-test modules (every
-`bootui-quarkus-integration-tests` child except `base`, plus the JDK-gated Hibernate module), and a separate job tests
-those modules. Without the property, a local build includes them.
+`bootui-quarkus-integration-tests` child except `base`, plus the JDK-gated Hibernate module), and
+`-Dbootui.skipAgentIts`, which leaves out the integration tests that run the BootUI agent in forked JVMs. Separate jobs
+run those modules and those tests. Without the properties, a local build includes them.
+
+The `agent-integration-tests` job runs the agent's tests with this command, which also runs them locally:
+
+```bash
+./mvnw -B -ntp -pl bootui-agent,bootui-spring-sample-app,bootui-quarkus-deployment -am \
+  -Dbootui.skipFrontendTests -Dbootui.agent.its.forkCount=2 -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false verify
+```
+
+The agent's Failsafe run uses one fork by default, as some of its tests time an operation, and two in that job; each
+fork has its own work directory, `target/agent-it/fork-<n>`.
 
 For frontend-only unit test iteration:
 
@@ -397,8 +412,8 @@ The Spring sample's agent integration tests start the sample in a JVM of its own
 `SpringAgentScenarioIT` on the test class path, and `SpringAgentExecutableJarIT` on the repackaged executable jar, run
 with `java -javaagent:... -jar`, whose classes and libraries load from `jar:nested:` URLs. The latter asserts the claim
 arms with the default sensors, Code Inventory scans `BOOT-INF/classes` and maps `BOOT-INF/lib` to its artifacts, and
-Code Paths times the seeded slow route. Both run at `verify` in the Java 17 build and on the Java 21, 25, and 27 lanes of
-`jdk-compatibility.yml`:
+Code Paths times the seeded slow route. Both run at `verify` in the Java 17 build's `agent-integration-tests` job and
+on the Java 21, 25, and 27 lanes of `jdk-compatibility.yml`:
 
 ```bash
 ./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -pl bootui-spring-sample-app -am verify -Dit.test='SpringAgent*IT' \

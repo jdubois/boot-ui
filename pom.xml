@@ -119,6 +119,14 @@
         <npm.version>11.17.0</npm.version>
         <frontend.test.command>run test</frontend.test.command>
         <!--
+            Switches for suites that CI runs apart from the main build. Both default to -DskipTests, so that alone
+            still skips them. -Dbootui.skipFrontendTests leaves out bootui-ui's Vitest run. -Dbootui.skipAgentIts
+            leaves out the Failsafe integration tests that start the BootUI agent in forked JVMs, in bootui-agent,
+            bootui-spring-sample-app, and bootui-quarkus-deployment.
+        -->
+        <bootui.skipFrontendTests>${skipTests}</bootui.skipFrontendTests>
+        <bootui.skipAgentIts>${skipTests}</bootui.skipAgentIts>
+        <!--
             Modules that declare their own Surefire <argLine> must prefix it with the @{argLine} late-replacement
             token, otherwise the literal value overwrites the JaCoCo agent arguments that the coverage profile's
             prepare-agent goal publishes through this same property. This empty default keeps @{argLine} resolvable
