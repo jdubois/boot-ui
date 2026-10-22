@@ -2,9 +2,11 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * The JDBC driver settings the Database Advisor is allowed to retain, and what is known about each driver's own
@@ -41,6 +43,78 @@ public final class DriverSettingCatalog {
     /** Connector/J: report affected rows rather than found rows. Default {@code false}. */
     public static final String USE_AFFECTED_ROWS = "useAffectedRows";
 
+    /** Connector/J: cache the parsing of prepared statements. Default {@code false}. */
+    public static final String CACHE_PREP_STMTS = "cachePrepStmts";
+
+    /** Connector/J: how many prepared statements are cached while {@code cachePrepStmts} is true. Default 25. */
+    public static final String PREP_STMT_CACHE_SIZE = "prepStmtCacheSize";
+
+    /** Connector/J: the longest SQL (in characters) whose parsing is cached. Default 256. */
+    public static final String PREP_STMT_CACHE_SQL_LIMIT = "prepStmtCacheSqlLimit";
+
+    /** pgjdbc: how queries are sent. Default {@code extended}; only the exact text {@code simple} turns it off. */
+    public static final String PREFER_QUERY_MODE = "preferQueryMode";
+
+    /** pgjdbc: entries of the per-connection prepared-statement cache; 0 disables it. Default 256. */
+    public static final String PREPARED_STATEMENT_CACHE_QUERIES = "preparedStatementCacheQueries";
+
+    /** pgjdbc: megabytes of the per-connection prepared-statement cache; 0 disables it. Default 5. */
+    public static final String PREPARED_STATEMENT_CACHE_SIZE_MIB = "preparedStatementCacheSizeMiB";
+
+    /** pgjdbc: {@code never} (default), {@code conservative} or {@code always}, which sets a savepoint per query. */
+    public static final String AUTOSAVE = "autosave";
+
+    /** pgjdbc: capture a stack trace at each connection opening, to find unclosed ones. Default {@code false}. */
+    public static final String LOG_UNCLOSED_CONNECTIONS = "logUnclosedConnections";
+
+    /** Connector/J: trace queries and their timings to the profiler event handler. Default {@code false}. */
+    public static final String PROFILE_SQL = "profileSQL";
+
+    /** Connector/J: log queries slower than the slow-query threshold. Default {@code false}. */
+    public static final String LOG_SLOW_QUERIES = "logSlowQueries";
+
+    /** Connector/J: gather performance metrics. Default {@code false}. */
+    public static final String GATHER_PERF_METRICS = "gatherPerfMetrics";
+
+    /** Connector/J: report poor driver usage, such as unread result sets. Default {@code false}. */
+    public static final String USE_USAGE_ADVISOR = "useUsageAdvisor";
+
+    /** Connector/J: log every protocol packet. Default {@code false}. */
+    public static final String TRACE_PROTOCOL = "traceProtocol";
+
+    /** Connector/J: keep a buffer of recent packets for debugging. Default {@code false}. */
+    public static final String ENABLE_PACKET_DEBUG = "enablePacketDebug";
+
+    /** Connector/J: write a test-case script when a statement fails. Default {@code false}. */
+    public static final String AUTO_GENERATE_TESTCASE_SCRIPT = "autoGenerateTestcaseScript";
+
+    /** Connector/J: run {@code EXPLAIN} for slow queries. Default {@code false}. */
+    public static final String EXPLAIN_SLOW_QUERIES = "explainSlowQueries";
+
+    /**
+     * Network read timeout of a driver connection: <em>seconds</em> for pgjdbc, <em>milliseconds</em> for Connector/J;
+     * {@code 0}, the default of both, means none. A driver connection property, not the mutable JDBC network-timeout
+     * state of a live connection.
+     */
+    public static final String SOCKET_TIMEOUT = "socketTimeout";
+
+    /** pgjdbc: the name {@code pg_stat_activity} shows for the connection. Default {@link #PGJDBC_DEFAULT_APPLICATION_NAME}. */
+    public static final String APPLICATION_NAME = "ApplicationName";
+
+    /** The application name pgjdbc reports when none is configured ({@code DriverInfo.DRIVER_NAME}). */
+    public static final String PGJDBC_DEFAULT_APPLICATION_NAME = "PostgreSQL JDBC Driver";
+
+    /** The diagnostic settings of Connector/J that add overhead while on; each defaults to {@code false}. */
+    static final List<String> MYSQL_DIAGNOSTIC_SETTINGS = List.of(
+            PROFILE_SQL,
+            LOG_SLOW_QUERIES,
+            GATHER_PERF_METRICS,
+            USE_USAGE_ADVISOR,
+            TRACE_PROTOCOL,
+            ENABLE_PACKET_DEBUG,
+            AUTO_GENERATE_TESTCASE_SCRIPT,
+            EXPLAIN_SLOW_QUERIES);
+
     /**
      * pgjdbc: names a service in a {@code pg_service.conf} file, which can supply any setting the URL and the pool do
      * not. A marker only: its value is never judged.
@@ -57,13 +131,26 @@ public final class DriverSettingCatalog {
     public static final String PROPERTIES_TRANSFORM = "propertiesTransform";
 
     /** Every driver setting that may be retained, under its canonical spelling. */
-    public static final Set<String> NAMES = Set.of(
-            RE_WRITE_BATCHED_INSERTS,
-            REWRITE_BATCHED_STATEMENTS,
-            USE_AFFECTED_ROWS,
-            SERVICE,
-            USE_CONFIGS,
-            PROPERTIES_TRANSFORM);
+    public static final Set<String> NAMES = Set.copyOf(Stream.concat(
+                    Stream.of(
+                            RE_WRITE_BATCHED_INSERTS,
+                            REWRITE_BATCHED_STATEMENTS,
+                            USE_AFFECTED_ROWS,
+                            SERVICE,
+                            USE_CONFIGS,
+                            PROPERTIES_TRANSFORM,
+                            CACHE_PREP_STMTS,
+                            PREP_STMT_CACHE_SIZE,
+                            PREP_STMT_CACHE_SQL_LIMIT,
+                            PREFER_QUERY_MODE,
+                            PREPARED_STATEMENT_CACHE_QUERIES,
+                            PREPARED_STATEMENT_CACHE_SIZE_MIB,
+                            AUTOSAVE,
+                            LOG_UNCLOSED_CONNECTIONS,
+                            SOCKET_TIMEOUT,
+                            APPLICATION_NAME),
+                    MYSQL_DIAGNOSTIC_SETTINGS.stream())
+            .toList());
 
     /** The longest value kept; a longer one is cut, which can only turn a boolean into an unrecognised value. */
     public static final int MAX_VALUE_LENGTH = 64;
@@ -199,6 +286,42 @@ public final class DriverSettingCatalog {
             return Boolean.FALSE;
         }
         return null;
+    }
+
+    /**
+     * How {@code driver} reads {@code value} as an integer, or {@code null} when it cannot (the driver would refuse
+     * the connection, so the configuration is not evidence). pgjdbc uses {@link Integer#parseInt(String)}; Connector/J
+     * parses a double and truncates it ({@code IntegerPropertyDefinition.integerFrom}), so {@code 2048.0} and
+     * {@code 2e3} are valid there.
+     */
+    static Integer asInteger(Driver driver, String value) {
+        // A value at the cap was cut, so what is left is a prefix and not what the driver reads.
+        if (value == null || value.length() >= MAX_VALUE_LENGTH) {
+            return null;
+        }
+        try {
+            if (driver == Driver.PGJDBC) {
+                return Integer.parseInt(value);
+            }
+            double parsed = Double.parseDouble(value);
+            return Double.isNaN(parsed) || Double.isInfinite(parsed) ? null : (int) parsed;
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * {@code socketTimeout} as milliseconds, whatever unit the driver counts in (pgjdbc seconds, Connector/J
+     * milliseconds), or {@code null} when the value is not one the driver accepts. A non-positive result means no
+     * timeout: pgjdbc applies it only when above zero.
+     */
+    static Long socketTimeoutMillis(Driver driver, String value) {
+        Integer parsed = asInteger(driver, value);
+        if (parsed == null || driver != Driver.PGJDBC && parsed < 0) {
+            // Connector/J declares socketTimeout in 0..Integer.MAX_VALUE and refuses the connection otherwise.
+            return null;
+        }
+        return driver == Driver.PGJDBC ? parsed * 1000L : Long.valueOf(parsed);
     }
 
     private static Map<String, String> canonicalByLowerCase() {

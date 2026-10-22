@@ -16,9 +16,10 @@ class JdbcUrlSettingsTests {
     @Test
     void readsAllowListedSettingsFromAPostgresUrl() {
         assertThat(JdbcUrlSettings.parse(
-                        "jdbc:postgresql://db.example:5432/orders?reWriteBatchedInserts=true&ApplicationName=orders",
+                        "jdbc:postgresql://db.example:5432/orders?reWriteBatchedInserts=true&ApplicationName=orders"
+                                + "&ssl=true",
                         NAMES))
-                .containsExactly(Map.entry("reWriteBatchedInserts", "true"));
+                .containsOnly(Map.entry("reWriteBatchedInserts", "true"), Map.entry("ApplicationName", "orders"));
     }
 
     @ParameterizedTest

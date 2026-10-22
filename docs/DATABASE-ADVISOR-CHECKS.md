@@ -1,6 +1,6 @@
 # Database checks
 
-The Database advisor runs **31 fixed, on-demand checks** over the physical schema reported by the application's
+The Database advisor runs **37 fixed, on-demand checks** over the physical schema reported by the application's
 JDBC datasources, supplemented by vendor catalogs, available JPA declarations, already-retained SQL Trace
 observations and the JDBC driver settings configured in the URL and the connection pool. It never executes DDL, advances a sequence, queries application rows or starts work on page load.
 
@@ -509,7 +509,8 @@ These rules judge **driver settings**, not the schema, and need two kinds of evi
   unit could be hiding elsewhere.
 
 A rule never runs on missing evidence. It is `SKIPPED` with a reason when: the driver is not the one the rule
-verifies (MariaDB Connector/J is not evaluated: it has a different bulk setting); batching is off or unknown;
+verifies (MariaDB Connector/J is not evaluated: it has a different bulk setting); for the batching rules, batching is
+off or unknown;
 the JDBC URL or the pool's driver properties could not be read and could change the answer; the URL and the pool
 disagree and the driver defines no winner; a `service` (pgjdbc) or `useConfigs` (Connector/J) setting makes the
 driver read more configuration from a file the advisor does not see, so an absent setting proves nothing; a
@@ -523,13 +524,19 @@ The pool's driver properties are read only for URL-configured HikariCP and Agroa
 Agroal datasource that Quarkus has not created yet cannot be read: both are reported as "could not be read", not as
 "no settings".
 
-| Driver | URL and pool both set the same property | Boolean values |
-| ------ | --------------------------------------- | -------------- |
-| pgjdbc | The **URL wins** (*"the value from Properties object is ignored"*); a pool value is trusted only when the URL was read | `Boolean.parseBoolean`: only `true` (any case) is true, no trimming |
-| MySQL Connector/J | No precedence is relied on: differing values are `SKIPPED` as unsettled, and a value from one source is not trusted while the other could not be read. (Connector/J 9.7 lets a `Properties` value override the URL; older lines were not checked.) | `true`, `false`, `yes`, `no` (any case); anything else is `SKIPPED` |
+| Driver | URL and pool both set the same property | Boolean values | Integer values |
+| ------ | --------------------------------------- | -------------- | -------------- |
+| pgjdbc | The **URL wins** (*"the value from Properties object is ignored"*); a pool value is trusted only when the URL was read | `Boolean.parseBoolean`: only `true` (any case) is true, no trimming | `Integer.parseInt`: no trimming, no fraction; anything else is `SKIPPED` |
+| MySQL Connector/J | No precedence is relied on: differing values are `SKIPPED` as unsettled, and a value from one source is not trusted while the other could not be read. (Connector/J 9.7 lets a `Properties` value override the URL; older lines were not checked.) | `true`, `false`, `yes`, `no` (any case); anything else is `SKIPPED` | Parsed as a double and truncated (`2048.0` and `2e3` are valid); a value below the property's minimum (`prepStmtCacheSize` 0, `prepStmtCacheSqlLimit` 1, `socketTimeout` 0), which the driver refuses, or anything else is `SKIPPED` |
 
-Driver rules are `MEDIUM` and use the **JDBC driver** category. Verified against pgjdbc 42.7 and MySQL Connector/J
-9.7.0 (names, defaults and the precedence above); the vendor documentation is cited in each rule.
+Driver rules use the **JDBC driver** category: `DB-DRIVER-001` to `003` are `MEDIUM`, `DB-DRIVER-004` to `009` are
+`LOW`. Verified against pgjdbc 42.7.13 and MySQL Connector/J 9.7.0, the versions the sample applications resolve
+(Spring Boot 4.1 and Quarkus 3.40): names and defaults come from the drivers' own `PGProperty` and
+`PropertyDefinitions` sources, as does the precedence above; the vendor documentation is cited in each rule. A finding
+names the setting, where it was configured and the observed value, and is labelled **configured**. Findings are
+keyed by datasource and setting, never by value, so a changed value keeps the same identity. When a rule judges
+several settings, a finding on one never hides another that could not be judged: that one is reported as a coverage
+gap of the scan.
 
 ### DB-DRIVER-001 - PostgreSQL driver does not rewrite batched inserts
 
@@ -562,6 +569,68 @@ statements". An `UPDATE` that writes the values a row already holds then reports
 lost update (an optimistic-lock or stale-state failure). It needs no batching evidence. The effect on batched
 updates is not claimed here.
 See [Connector/J connection properties](https://dev.mysql.com/doc/connector-j/en/connector-j-connp-props-connection.html).
+
+### DB-DRIVER-004 - MySQL Connector/J prepared-statement cache is off or small
+
+**LOW.** Applies to datasources using MySQL Connector/J. One finding per datasource, listing the sub-conditions
+that fired: `cachePrepStmts` (default `false`) is not `true`; or it is `true` and `prepStmtCacheSqlLimit` (default
+256) is below **2048**; or it is `true` and `prepStmtCacheSize` (default 25) is below **250**. The thresholds are the
+values the HikariCP *MySQL Configuration* page recommends (size 250-500, limit 2048, noting that the driver default
+limit "is well below the threshold of generated statement lengths" with an ORM such as Hibernate) and are named
+constants of the rule, echoed in each finding. The page also states that the size and the limit "have no effect if
+the cache is in fact disabled", which is why they are judged only once the cache is on. The cache is held per
+connection, so a larger size costs memory on every pooled connection. Measure before and after.
+See [HikariCP MySQL configuration](https://github.com/brettwooldridge/HikariCP/wiki/MySQL-Configuration).
+
+### DB-DRIVER-005 - PostgreSQL driver prepared-statement cache is disabled
+
+**LOW.** Applies to pgjdbc. One finding per setting that disables the per-connection prepared-statement cache:
+`preferQueryMode` is exactly `simple` (no parse, no bind; pgjdbc compares the text exactly and documents the mode as
+"for debugging purposes only"), `preparedStatementCacheQueries` (default 256) is `0` or below, or
+`preparedStatementCacheSizeMiB` (default 5) is `0` or below (pgjdbc clamps a negative value to `0`, so it disables
+the cache just as `0` does). Each statement is then parsed again. Remove the setting unless it is deliberate.
+See [pgjdbc connection parameters](https://jdbc.postgresql.org/documentation/use/).
+
+### DB-DRIVER-006 - PostgreSQL driver sets a savepoint before every query
+
+**LOW.** Applies to pgjdbc. Fires when `autosave` (default `never`) is `always`, read case-insensitively like the
+driver does; a value that is not `never`, `conservative` or `always` is `SKIPPED`, because the driver would refuse
+it. In that mode the driver sets a savepoint before each query and rolls back to it on failure, which adds work to
+every statement of a transaction. Keep it only when the application continues a transaction after a failed
+statement; `conservative` sets the savepoint but rolls back only in rare cases.
+See [pgjdbc connection parameters](https://jdbc.postgresql.org/documentation/use/).
+
+### DB-DRIVER-007 - JDBC driver diagnostic setting is enabled
+
+**LOW.** Applies to MySQL Connector/J and pgjdbc. One finding per setting that is on. Connector/J: `profileSQL`,
+`logSlowQueries`, `gatherPerfMetrics`, `useUsageAdvisor`, `traceProtocol`, `enablePacketDebug`,
+`autoGenerateTestcaseScript` and `explainSlowQueries`, all of which default to `false` and add overhead while on.
+pgjdbc: `logUnclosedConnections` (default `false`), which captures a stack trace at each connection opening. Turn
+them off once the investigation they were enabled for is over.
+See [Connector/J debugging and profiling properties](https://dev.mysql.com/doc/connector-j/en/connector-j-connp-props-debugging-profiling.html).
+
+### DB-DRIVER-008 - JDBC driver has no socket timeout
+
+**LOW.** Applies to MySQL Connector/J and pgjdbc. Fires when the driver property `socketTimeout` is absent or `0`
+(the default of both drivers, meaning no timeout) in the URL and the pool's driver properties, so a thread can wait
+indefinitely on a connection that was silently dropped. The unit differs and is normalised before comparing:
+pgjdbc counts **seconds**, Connector/J **milliseconds**; a pgjdbc value of `0` or below is no timeout (the driver
+applies only positive values), and a value a driver would refuse (a fraction for pgjdbc, a negative number for
+Connector/J) is `SKIPPED`. The rule judges only the configured driver property and deliberately never calls
+`Connection#getNetworkTimeout()`: that is mutable per-connection state (a pool may set and reset it) and says
+nothing about the property. A timeout supplied through another driver mechanism is not visible, so the text says it
+is not configured in the URL or pool properties, and the severity stays `LOW`.
+See [pgjdbc connection parameters](https://jdbc.postgresql.org/documentation/use/).
+
+### DB-DRIVER-009 - PostgreSQL connections do not carry an application name
+
+**LOW.** Applies to pgjdbc only; another PostgreSQL driver is `SKIPPED`. Fires when `ApplicationName` is not
+configured in the URL or the pool's driver properties, is blank, or equals the driver default
+`PostgreSQL JDBC Driver`, so the connection shows that default name in `pg_stat_activity`, which BootUI's own
+PostgreSQL panel reads. No query is run and the configured name is never echoed. Set it in the JDBC URL or in the
+pool's data-source properties (for HikariCP, `spring.datasource.hikari.data-source-properties.ApplicationName`);
+no mapping from `spring.application.name` to pgjdbc is established, so none is recommended.
+See [pgjdbc connection parameters](https://jdbc.postgresql.org/documentation/use/).
 
 ## Retired rules
 

@@ -175,7 +175,8 @@ class DatabaseFindingSuppressionTests {
         scanner.setViolationRetentionLimit(() -> retention);
         try (var introspector = mockStatic(SchemaIntrospector.class)) {
             introspector
-                    .when(() -> SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any()))
+                    .when(() ->
+                            SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any(), any()))
                     .thenReturn(schema);
             DatabaseAdvisorReport report = scanner.scan();
             body.accept(new Fixture(scanner, report));

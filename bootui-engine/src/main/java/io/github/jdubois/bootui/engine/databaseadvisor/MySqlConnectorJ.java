@@ -24,7 +24,8 @@ final class MySqlConnectorJ {
             return unidentified;
         }
         return family == DriverSettingCatalog.Driver.MARIADB_CONNECTOR_J
-                ? Outcome.skip("uses MariaDB Connector/J, which has a different bulk setting; not evaluated.")
+                ? Outcome.skip(
+                        "uses MariaDB Connector/J, whose properties differ from MySQL Connector/J's (it has a different bulk setting, for one); not evaluated.")
                 : Outcome.skip("uses the driver `" + DatabaseAdvisorRuleSupport.detail(driver.driverName())
                         + "`, not MySQL Connector/J; not evaluated.");
     }
