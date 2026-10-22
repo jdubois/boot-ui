@@ -715,8 +715,7 @@ needs no limit; the usual remedy is a limit on the role the application's reques
 
 **MEDIUM.** Fires when `autovacuum = off`. The anti-wraparound vacuum still runs, to prevent transaction ID wraparound, but
 routine vacuum and analyze never do, so dead tuples accumulate and planner statistics go stale unless something else
-vacuums and analyzes. It can be deliberate for a bulk load or with an external scheduler (dismiss it then), and a table can
-still enable autovacuum through its storage parameter. The PostgreSQL panel's Autovacuum health section shows the
+vacuums and analyzes. It can be deliberate for a bulk load or with an external scheduler (dismiss it then). The PostgreSQL panel's Autovacuum health section shows the
 per-table state. See [`autovacuum`](https://www.postgresql.org/docs/current/runtime-config-autovacuum.html#GUC-AUTOVACUUM).
 
 ### DB-SERVER-004 - PostgreSQL `pg_stat_statements` is not available
@@ -725,19 +724,22 @@ per-table state. See [`autovacuum`](https://www.postgresql.org/docs/current/runt
 not created** in the connected database (`CREATE EXTENSION` is per database, and
 `select extname from pg_extension where extname = 'pg_stat_statements' limit ?` is the bounded read). Without it the
 PostgreSQL panel's Statement ranking section is empty. Both halves must be known: if the library list is hidden from the role
-(no row), has no value, or the extension read failed or was cut short, the rule is `SKIPPED` with that reason, even when
-the other half is known to be absent.
+(no row), has no value or is malformed, or the extension read failed or was cut short, the rule is `SKIPPED` with that reason,
+even when the other half is known to be absent. `shared_preload_libraries` is hidden from a role that is neither a superuser
+nor a member of `pg_read_all_settings`, so on such a login the rule is `SKIPPED`; use a role that can read it.
 
 `shared_preload_libraries` is a comma-separated list, so it is **tokenised, never matched as a substring**: it is split on
-`,`, each entry is trimmed, stripped of one pair of single or double quotes, reduced to its file name (a `$libdir/` prefix or
+`,` outside double quotes (a double-quoted entry may contain commas, and a doubled quote is one quote), each entry is trimmed,
+stripped of one pair of single quotes, reduced to its file name (a `$libdir/` prefix or
 any other directory is dropped) and of a `.so`, `.dylib` or `.dll` suffix (the server accepts a library name with or without
 the platform suffix), and compared for equality with `pg_stat_statements`. `pg_stat_statements_extra`, `my_pg_stat_statements`,
-an empty value and a value that is not listed do not match. See
+an empty value and a value that is not listed do not match. An unterminated quote, or text after a closing quote, makes the
+list unreadable and the rule `SKIPPED`. See
 [`pg_stat_statements`](https://www.postgresql.org/docs/current/pgstatstatements.html).
 
 ### DB-SERVER-005 - PostgreSQL does not measure I/O time
 
-**LOW.** Fires when `track_io_timing = off` (the default): block read and write time is then missing from
+**LOW.** Fires when `track_io_timing = off` (the default; the setting exists from PostgreSQL 9.2): block read and write time is then missing from
 `pg_stat_database`, `pg_stat_statements` and `EXPLAIN (ANALYZE, BUFFERS)`, so a slow statement cannot be told apart as
 I/O-bound from the server's own numbers. The timing adds a small overhead per block access, negligible on most current
 systems; the manual points to `pg_test_timing` to check it. See

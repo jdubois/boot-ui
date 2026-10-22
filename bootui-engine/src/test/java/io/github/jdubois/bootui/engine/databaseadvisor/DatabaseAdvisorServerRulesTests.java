@@ -67,6 +67,26 @@ class DatabaseAdvisorServerRulesTests {
                 null);
     }
 
+    private static VendorFindings emptySettings() {
+        return VendorFindings.builder()
+                .add(VendorAugmentation.available(VendorFindingKinds.POSTGRES_SERVER_SETTINGS, List.of(), false))
+                .build();
+    }
+
+    private static SchemaSnapshot at(Dialect dialect, int major, int minor, VendorFindings findings) {
+        return new SchemaSnapshot(
+                "ordersDb",
+                dialect,
+                dialect.label(),
+                DatabaseVersion.of(major, minor, major + "." + minor + ".0"),
+                "LOWER",
+                List.of(),
+                findings,
+                List.of(),
+                false,
+                null);
+    }
+
     private static DatabaseAdvisorRuleResultDto run(DatabaseAdvisorRule rule, SchemaSnapshot schema) {
         return rule.evaluate(context(List.of(schema)));
     }
@@ -211,14 +231,13 @@ class DatabaseAdvisorServerRulesTests {
         assertThat(old.status()).isEqualTo("SKIPPED");
         assertThat(reason(old)).contains("this server version has no `idle_in_transaction_session_timeout`");
 
-        // 9.6 is the first release that has it, so a 9.6 server that does not report it simply did not answer.
-        SchemaSnapshot nineSix = schema(
-                Dialect.POSTGRESQL,
-                9,
-                VendorFindings.builder()
-                        .add(VendorAugmentation.available(
-                                VendorFindingKinds.POSTGRES_SERVER_SETTINGS, List.of(), false))
-                        .build());
+        // 9.6 is the first release that has it: 9.5 is unsupported, 9.6 that does not report it simply did not answer.
+        assertThat(reason(
+                        run(new PostgresIdleInTransactionTimeoutRule(), at(Dialect.POSTGRESQL, 9, 5, emptySettings()))))
+                .contains("this server version has no");
+        assertThat(reason(
+                        run(new PostgresIdleInTransactionTimeoutRule(), at(Dialect.POSTGRESQL, 9, 6, emptySettings()))))
+                .contains("did not report");
         SchemaSnapshot unknownVersion = new SchemaSnapshot(
                 "ordersDb",
                 Dialect.POSTGRESQL,
@@ -226,7 +245,7 @@ class DatabaseAdvisorServerRulesTests {
                 DatabaseVersion.UNKNOWN,
                 "LOWER",
                 List.of(),
-                nineSix.vendorFindings(),
+                emptySettings(),
                 List.of(),
                 false,
                 null);
@@ -425,19 +444,57 @@ class DatabaseAdvisorServerRulesTests {
                 Arguments.of("$libdir/pg_stat_statements_extra", false),
                 Arguments.of("pg_stat_statements.sql", false),
                 Arguments.of("auto_explain,pgaudit", false),
-                Arguments.of("\"pg_stat_statements", false),
+                Arguments.of("\"pg_stat_statements", null),
                 Arguments.of("", false),
                 Arguments.of("  ", false),
                 Arguments.of(",,", false),
-                Arguments.of(null, false));
+                Arguments.of(null, false),
+                // a comma inside a double-quoted entry belongs to the entry
+                Arguments.of("\"/opt/pg,libs/pg_stat_statements.so\"", true),
+                Arguments.of("\"/opt/pg_stat_statements,libs/auto_explain.so\"", false),
+                Arguments.of("\"/opt/pg_stat_statements,libs/auto_explain.so\",pg_stat_statements", true),
+                Arguments.of("\"pg_stat_statements\" , auto_explain", true),
+                Arguments.of("\"a\"\"b\",pg_stat_statements", true),
+                // a list that cannot be read is unknown, never a guess
+                Arguments.of("pg_stat_statements,\"unclosed", null),
+                Arguments.of("\"pg_stat_statements\"x", null),
+                Arguments.of("pg_stat\"statements", null),
+                Arguments.of("\"a\"\"", null));
     }
 
     @ParameterizedTest
     @MethodSource("sharedPreloadLibraries")
-    void sharedPreloadLibrariesAreTokenisedNeverMatchedBySubstring(String value, boolean listed) {
+    void sharedPreloadLibrariesAreTokenisedNeverMatchedBySubstring(String value, Boolean listed) {
         assertThat(PostgresStatStatementsRule.isListed(value, "pg_stat_statements"))
                 .as("shared_preload_libraries = %s", value)
                 .isEqualTo(listed);
+    }
+
+    @Test
+    void aMalformedLibraryListLeavesPgStatStatementsSkippedEvenWhenTheExtensionIsCreated() {
+        DatabaseAdvisorRuleResultDto result =
+                run(statStatements, postgres(17, libraries("pg_stat_statements,\"unclosed"), extension(true)));
+
+        assertThat(result.status()).isEqualTo("SKIPPED");
+        assertThat(reason(result)).contains("list that could not be read");
+    }
+
+    @Test
+    void trackIoTimingIsUnsupportedBeforePostgres92AndAGapFromThere() {
+        assertThat(reason(run(new PostgresTrackIoTimingRule(), postgres(9))))
+                .contains("this server version has no `track_io_timing`");
+        SchemaSnapshot nineTwo = new SchemaSnapshot(
+                "ordersDb",
+                Dialect.POSTGRESQL,
+                "PostgreSQL",
+                DatabaseVersion.of(9, 2, "9.2.0"),
+                "LOWER",
+                List.of(),
+                postgres(9).vendorFindings(),
+                List.of(),
+                false,
+                null);
+        assertThat(reason(run(new PostgresTrackIoTimingRule(), nineTwo))).contains("did not report");
     }
 
     // --- DB-SERVER-007 ---------------------------------------------------------------------------------------------
@@ -494,6 +551,17 @@ class DatabaseAdvisorServerRulesTests {
             assertThat(result.status()).isEqualTo("SKIPPED");
             assertThat(reason(result)).startsWith("Not applicable:");
         }
+    }
+
+    @Test
+    void performanceSchemaVersionBoundaryIsMySql55() {
+        VendorFindings none = VendorFindings.builder()
+                .add(VendorAugmentation.available(VendorFindingKinds.MYSQL_SERVER_SETTINGS, List.of(), false))
+                .build();
+        assertThat(reason(run(performanceSchema, at(Dialect.MYSQL, 5, 4, none))))
+                .contains("this server version has no `performance_schema`");
+        assertThat(reason(run(performanceSchema, at(Dialect.MYSQL, 5, 5, none))))
+                .contains("did not report `performance_schema`");
     }
 
     @Test
@@ -556,11 +624,48 @@ class DatabaseAdvisorServerRulesTests {
                 false,
                 null);
 
-        DatabaseAdvisorRuleResultDto result =
-                new PostgresAutovacuumDisabledRule().evaluate(context(List.of(readable, hidden)));
+        DatabaseAdvisorContext context = context(List.of(readable, hidden));
+        DatabaseAdvisorRuleResultDto result = new PostgresAutovacuumDisabledRule().evaluate(context);
 
         assertThat(result.status()).isEqualTo("VIOLATION");
         assertThat(result.violationCount()).isEqualTo(1);
         assertThat(reason(result)).contains("ordersDb").doesNotContain("reportingDb");
+        // The datasource that could not be read is journaled as a coverage gap, not silently dropped.
+        assertThat(context.evaluationDiagnostics())
+                .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("reportingDb"));
+    }
+
+    @Test
+    void aSkipIsNotACoverageGapButAMissingSettingIs() {
+        SchemaSnapshot mysql = mysql(Dialect.MYSQL, 8, setting("performance_schema", "ON"));
+        SchemaSnapshot mariadb = schema(
+                Dialect.MARIADB,
+                11,
+                VendorFindings.builder()
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.MYSQL_SERVER_SETTINGS,
+                                List.of(setting("performance_schema", "OFF")),
+                                false))
+                        .build());
+        // MariaDB is a documented skip: the MySQL datasource's PASS stands and nothing is journaled.
+        DatabaseAdvisorContext skipped = context(List.of(mysql, mariadb));
+        assertThat(performanceSchema.evaluate(skipped).status()).isEqualTo("PASS");
+        assertThat(skipped.evaluationDiagnostics()).isEmpty();
+
+        // A MySQL server that did not report the variable is a gap: a clean result cannot hide it, so the rule is not
+        // reported as a PASS.
+        SchemaSnapshot silent = at(
+                Dialect.MYSQL,
+                8,
+                0,
+                VendorFindings.builder()
+                        .add(VendorAugmentation.available(VendorFindingKinds.MYSQL_SERVER_SETTINGS, List.of(), false))
+                        .build());
+        DatabaseAdvisorContext gap = context(List.of(mysql, silent));
+        DatabaseAdvisorRuleResultDto incomplete = performanceSchema.evaluate(gap);
+        assertThat(incomplete.status()).isEqualTo("SKIPPED");
+        assertThat(reason(incomplete)).contains("Coverage is incomplete");
+        assertThat(gap.evaluationDiagnostics())
+                .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("did not report"));
     }
 }

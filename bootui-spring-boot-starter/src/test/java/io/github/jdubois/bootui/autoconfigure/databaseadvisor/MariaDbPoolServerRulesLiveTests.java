@@ -1,5 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.databaseadvisor;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -52,5 +55,14 @@ class MariaDbPoolServerRulesLiveTests {
     @Test
     void aPoolLargerThanMaxConnectionsFiresDbPool002() {
         PoolServerLiveSupport.assertOversizedPoolExceedsTheServer(dataSource, mariadb.getPassword());
+    }
+
+    @Test
+    void performanceSchemaIsNeverJudgedOnMariaDb() {
+        DatabaseAdvisorReport report = PoolServerLiveSupport.scan(
+                dataSource, PoolServerLiveSupport.hikari(10, 10, 0, 45_000L, 0), mariadb.getPassword());
+
+        assertThat(PoolServerLiveSupport.rule(report, "DB-SERVER-007"))
+                .hasValueSatisfying(result -> assertThat(result.status()).isEqualTo("SKIPPED"));
     }
 }

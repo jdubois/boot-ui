@@ -77,10 +77,16 @@ final class PostgresStatStatementsRule extends AbstractDriverRule {
         }
         Optional<ServerSetting> libraries = settings.value().get(SETTING);
         if (libraries.isEmpty()) {
-            return Result.unresolved(Outcome.gap("the server did not report `" + SETTING + "` (it may be hidden from"
-                    + " this role), so whether " + LIBRARY + " is loaded is unknown."));
+            return Result.unresolved(
+                    Outcome.gap("the server did not report `" + SETTING + "` (it can be hidden from a role"
+                            + " without pg_read_all_settings), so whether " + LIBRARY + " is loaded is unknown."));
         }
-        return Result.of(isListed(libraries.get().value(), LIBRARY));
+        Boolean listed = isListed(libraries.get().value(), LIBRARY);
+        if (listed == null) {
+            return Result.unresolved(Outcome.gap("the server reported `" + SETTING + "` as a list that could not be"
+                    + " read, so whether " + LIBRARY + " is loaded is unknown."));
+        }
+        return Result.of(listed);
     }
 
     private static Result<Boolean> created(SchemaSnapshot schema) {
@@ -99,29 +105,78 @@ final class PostgresStatStatementsRule extends AbstractDriverRule {
     }
 
     /**
-     * Whether {@code library} is one of the comma-separated entries of a {@code shared_preload_libraries} value. Each
-     * entry is trimmed, stripped of optional single or double quotes, reduced to its file name (so a {@code $libdir/}
-     * prefix or any other directory is dropped) and of a shared-library suffix the server accepts but does not
-     * require, then compared for equality. Never a substring test: {@code pg_stat_statements_extra} is another
-     * library, and an empty value lists nothing.
+     * Whether {@code library} is one of the entries of a {@code shared_preload_libraries} value, or {@code null} when
+     * the value is not a well-formed list. The list follows the server's own grammar: entries are separated by commas
+     * outside double quotes, a double-quoted entry may contain commas and a doubled quote stands for one quote, and
+     * whitespace around an entry is ignored. Each entry is then reduced to its file name (so a {@code $libdir/} prefix
+     * or any other directory is dropped) and of a shared-library suffix the server accepts but does not require, and
+     * compared for equality. Never a substring test: {@code pg_stat_statements_extra} is another library, and an empty
+     * value lists nothing. An unterminated quote or text after a closing quote cannot be read reliably, so it is
+     * unknown rather than a guess.
      */
-    static boolean isListed(String value, String library) {
+    static Boolean isListed(String value, String library) {
+        List<String> entries = entries(value);
+        if (entries == null) {
+            return null;
+        }
+        return entries.stream().anyMatch(entry -> library.equals(libraryName(entry)));
+    }
+
+    /** The entries of the list with quoting resolved, or {@code null} when the list is malformed. */
+    private static List<String> entries(String value) {
+        List<String> entries = new ArrayList<>();
         if (value == null) {
-            return false;
+            return entries;
         }
-        for (String entry : value.split(",", -1)) {
-            if (library.equals(libraryName(entry))) {
-                return true;
+        int length = value.length();
+        int position = 0;
+        while (position <= length) {
+            while (position < length && Character.isWhitespace(value.charAt(position))) {
+                position++;
             }
+            StringBuilder entry = new StringBuilder();
+            if (position < length && value.charAt(position) == '"') {
+                position++;
+                boolean closed = false;
+                while (position < length) {
+                    char c = value.charAt(position++);
+                    if (c != '"') {
+                        entry.append(c);
+                    } else if (position < length && value.charAt(position) == '"') {
+                        entry.append('"');
+                        position++;
+                    } else {
+                        closed = true;
+                        break;
+                    }
+                }
+                if (!closed) {
+                    return null;
+                }
+                while (position < length && Character.isWhitespace(value.charAt(position))) {
+                    position++;
+                }
+                if (position < length && value.charAt(position) != ',') {
+                    return null;
+                }
+            } else {
+                while (position < length && value.charAt(position) != ',') {
+                    char c = value.charAt(position++);
+                    if (c == '"') {
+                        return null;
+                    }
+                    entry.append(c);
+                }
+            }
+            entries.add(entry.toString());
+            position++;
         }
-        return false;
+        return entries;
     }
 
     private static String libraryName(String entry) {
         String name = entry.trim();
-        if (name.length() >= 2
-                && (name.charAt(0) == '"' || name.charAt(0) == '\'')
-                && name.charAt(name.length() - 1) == name.charAt(0)) {
+        if (name.length() >= 2 && name.charAt(0) == '\'' && name.charAt(name.length() - 1) == '\'') {
             name = name.substring(1, name.length() - 1).trim();
         }
         name = name.substring(Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\')) + 1);

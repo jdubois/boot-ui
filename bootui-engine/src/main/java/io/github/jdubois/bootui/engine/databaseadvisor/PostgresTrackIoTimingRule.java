@@ -28,8 +28,8 @@ final class PostgresTrackIoTimingRule extends AbstractServerSettingRule {
                         "https://www.postgresql.org/docs/current/runtime-config-statistics.html#GUC-TRACK-IO-TIMING"),
                 true,
                 SETTING,
-                0,
-                0);
+                9,
+                2);
     }
 
     @Override

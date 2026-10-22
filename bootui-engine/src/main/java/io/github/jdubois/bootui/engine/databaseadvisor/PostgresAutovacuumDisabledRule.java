@@ -20,9 +20,8 @@ final class PostgresAutovacuumDisabledRule extends AbstractServerSettingRule {
                                 + " anti-wraparound vacuums to prevent transaction ID wraparound, but routine vacuum"
                                 + " and analyze never run on their own, so dead tuples accumulate and planner"
                                 + " statistics go stale unless something else vacuums and analyzes the tables. It can"
-                                + " be deliberate for a bulk load, or when an external scheduler vacuums. A table"
-                                + " can still enable autovacuum through its own storage parameter. The value is the one"
-                                + " the scan connection's own session sees.",
+                                + " be deliberate for a bulk load, or when an external scheduler vacuums. The value"
+                                + " is the one the scan connection's own session sees.",
                         "Turn autovacuum back on (autovacuum = on, a reload is enough) unless vacuum and analyze are"
                                 + " scheduled by other means, in which case dismiss this finding. The PostgreSQL"
                                 + " panel's Autovacuum health section shows dead tuples and the last (auto)vacuum"
