@@ -96,11 +96,6 @@ record HibernateContext(
         return "unit=" + (unitLabel == null ? "application" : unitLabel);
     }
 
-    /** The first identity part of every finding of this unit: the persistence unit's label. */
-    String unitPart() {
-        return "unit=" + (unitLabel == null ? "application" : unitLabel);
-    }
-
     /**
      * Records a rule's findings for this unit and returns its samples, cut from the same unit-labelled, sanitized
      * records the collector retains, so each sample keeps its location and matches its retained detail.
