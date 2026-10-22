@@ -23,8 +23,8 @@ Items marked **deferred** are not implemented in the current code. They are not 
 - **`unbatched-write-loop` counts executions, not what the database did with them.** It reports a write shape run ten
   times or more with a JDBC batch size of one, within one transaction when transactions are recorded. An execution
   whose batch size the journal does not know, or that Hibernate on Quarkus only prepared, is never counted as
-  unbatched, and a driver that rewrites a batch is not visible. A loop outside every recorded transaction is counted
-  per request, and writes that each autocommit are not grouped when other transactions of the request are recorded.
+  unbatched, and a driver that rewrites a batch is not visible. Writes outside every recorded
+  transaction each autocommit and are counted together per request, with or without other transactions in it.
 - **Side Effects rows stay in their own panel**, not a dedicated Runtime Insights observation kind. Their keys also
   feed run comparison. Runtime Insights does use other agent evidence, such as `changed-code-not-executed`,
   `work-after-response`, and synchronous handler timing.

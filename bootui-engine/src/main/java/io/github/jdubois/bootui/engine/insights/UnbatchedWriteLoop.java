@@ -56,7 +56,8 @@ public final class UnbatchedWriteLoop implements Observation {
 
     @Override
     public Evaluation evaluate(InsightsSnapshot snapshot) {
-        boolean transactionsRecorded = snapshot.available(JournalSource.TRANSACTION);
+        boolean transactionsRecorded =
+                snapshot.stack() != InsightsStack.QUARKUS && snapshot.available(JournalSource.TRANSACTION);
         boolean transactionsDropped = transactionsRecorded && snapshot.dropped(JournalSource.TRANSACTION) > 0;
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
@@ -115,9 +116,12 @@ public final class UnbatchedWriteLoop implements Observation {
                     || SqlShapes.writes(sql.sql()).isEmpty()) {
                 continue;
             }
+            if (sql.provenance() == SqlPayload.Provenance.UNKNOWN) {
+                continue;
+            }
             if (sql.provenance() == SqlPayload.Provenance.PREPARATION) {
                 prepared++;
-            } else if (!sql.executed() || sql.batchSize() == 0) {
+            } else if (sql.batchSize() == 0) {
                 unknown++;
             } else {
                 known++;
@@ -131,29 +135,34 @@ public final class UnbatchedWriteLoop implements Observation {
         }
         TransactionWindows windows =
                 transactionsRecorded && !transactionsDropped ? new TransactionWindows(request) : null;
-        Grouping grouping = grouping(windows, singles, transactionsRecorded, transactionsDropped);
-        Map<Key, Loop> loops = new LinkedHashMap<>();
-        int index = 0;
+        Map<String, List<RuntimeEvent>> byShape = new LinkedHashMap<>();
         for (RuntimeEvent event : singles) {
-            SqlPayload sql = (SqlPayload) event.payload();
-            String fingerprint = SqlShapes.fingerprint(sql.sql());
-            // Outside a transaction, a statement autocommits on its own, so it shares a unit with no other.
-            int unit = grouping == Grouping.TRANSACTION ? unitOf(windows, event, index) : 0;
-            index++;
-            loops.computeIfAbsent(new Key(fingerprint, unit), key -> new Loop(request, fingerprint, grouping))
-                    .add(event, sql);
+            byShape.computeIfAbsent(SqlShapes.fingerprint(((SqlPayload) event.payload()).sql()), f -> new ArrayList<>())
+                    .add(event);
         }
-        Map<String, Loop> largest = new LinkedHashMap<>();
-        for (Loop loop : loops.values()) {
-            largest.merge(loop.fingerprint(), loop, (a, b) -> b.executions() > a.executions() ? b : a);
-        }
-        return new Tally(
-                prepared,
-                unknown,
-                known,
-                largest.values().stream()
-                        .filter(loop -> loop.executions() >= MIN_STATEMENTS)
-                        .toList());
+        List<Loop> reported = new ArrayList<>();
+        byShape.forEach((fingerprint, events) -> {
+            if (events.size() < MIN_STATEMENTS) {
+                return;
+            }
+            // Whether the shape's own statements can be placed decides how it is grouped, never another shape's.
+            Grouping grouping = grouping(windows, events, transactionsRecorded, transactionsDropped);
+            Map<Integer, Loop> units = new LinkedHashMap<>();
+            for (RuntimeEvent event : events) {
+                int unit = grouping == Grouping.TRANSACTION ? unitOf(windows, event) : OUTSIDE_UNIT;
+                // The statements outside every recorded transaction form one unit of the request, whether or not the
+                // request also ran a transaction, so an unrelated transaction never changes whether a loop is reported.
+                Grouping loopGrouping =
+                        unit == OUTSIDE_UNIT && grouping == Grouping.TRANSACTION ? Grouping.OUTSIDE : grouping;
+                units.computeIfAbsent(unit, key -> new Loop(request, fingerprint, loopGrouping))
+                        .add(event, (SqlPayload) event.payload());
+            }
+            units.values().stream()
+                    .max(Comparator.comparingInt(Loop::executions))
+                    .filter(loop -> loop.executions() >= MIN_STATEMENTS)
+                    .ifPresent(reported::add);
+        });
+        return new Tally(prepared, unknown, known, reported);
     }
 
     private static Grouping grouping(
@@ -176,19 +185,19 @@ public final class UnbatchedWriteLoop implements Observation {
         return singles.stream().allMatch(windows::canPlace) ? Grouping.TRANSACTION : Grouping.UNPLACED;
     }
 
-    /** The unit a statement belongs to: its physical transaction, or a unit of its own when it ran outside every one. */
-    private static int unitOf(TransactionWindows windows, RuntimeEvent event, int index) {
+    /** The unit of the statements that ran outside every recorded transaction. */
+    private static final int OUTSIDE_UNIT = 0;
+
+    /** The unit a statement belongs to: its physical transaction, numbered from one, or {@link #OUTSIDE_UNIT}. */
+    private static int unitOf(TransactionWindows windows, RuntimeEvent event) {
         TransactionWindows.Window committing = windows.committing(event);
-        if (committing == null) {
-            return -(index + 1);
-        }
         List<TransactionWindows.Window> all = windows.windows();
         for (int i = 0; i < all.size(); i++) {
             if (all.get(i) == committing) {
                 return i + 1;
             }
         }
-        return -(index + 1);
+        return OUTSIDE_UNIT;
     }
 
     private Finding finding(String route, String fingerprint, List<Loop> loops, long eligible) {
@@ -263,17 +272,13 @@ public final class UnbatchedWriteLoop implements Observation {
     /** What a request's writes show, and what it could not judge. */
     private record Tally(long prepared, long unknown, long known, List<Loop> loops) {}
 
-    private record Key(String fingerprint, int unit) {}
-
     /** How a loop's executions were grouped, and what that leaves unsaid. */
     private enum Grouping {
-        TRANSACTION(
-                "Executions are counted within one transaction; a statement outside every transaction autocommits on its"
-                        + " own and is not grouped."),
+        TRANSACTION("Executions are counted within one transaction."),
         NOT_RECORDED("Transactions are not recorded, so executions are counted per request, not per transaction."),
         DROPPED("Transaction events were dropped, so executions are counted per request, not per transaction."),
-        OUTSIDE("Executions ran outside any recorded transaction, so they are counted per request, not per"
-                + " transaction."),
+        OUTSIDE("Executions ran outside every recorded transaction, so each autocommitted, and they are counted"
+                + " together per request."),
         UNPLACED("A transaction or statement had no monotonic time, so executions are counted per request, not per"
                 + " transaction.");
 

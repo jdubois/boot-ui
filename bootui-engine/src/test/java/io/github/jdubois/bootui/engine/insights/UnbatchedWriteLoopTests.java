@@ -218,8 +218,106 @@ class UnbatchedWriteLoopTests {
         assertThat(observations()).singleElement().satisfies(observation -> {
             assertThat(observation.status()).isEqualTo("OBSERVED");
             assertThat(observation.limitations())
-                    .anyMatch(limitation -> limitation.contains("outside any recorded transaction"));
+                    .anyMatch(limitation -> limitation.contains("outside every recorded transaction"));
         });
+    }
+
+    @Test
+    void anUnrelatedTransactionNeverChangesWhetherALoopOutsideEveryTransactionIsReported() {
+        for (int i = 0; i < 2; i++) {
+            List<Event> events = new ArrayList<>(writes(INSERT, 12, 1));
+            events.replaceAll(event -> sql(((SqlPayload) event.payload()).sql(), 500, 1));
+            events.add(sql("select * from audit", 110, 1));
+            events.add(transaction(100, 200));
+            request("POST", events);
+        }
+
+        assertThat(observations()).singleElement().satisfies(observation -> {
+            assertThat(observation.status()).isEqualTo("OBSERVED");
+            assertThat(observation.limitations())
+                    .anyMatch(limitation -> limitation.contains("outside every recorded transaction"));
+        });
+    }
+
+    @Test
+    void writesSplitBetweenATransactionAndTheStatementsOutsideItAreNotOneLoop() {
+        for (int i = 0; i < 2; i++) {
+            List<Event> events = new ArrayList<>();
+            for (int j = 0; j < 6; j++) {
+                events.add(sql(INSERT, 110 + j, 1));
+                events.add(sql(INSERT, 500 + j, 1));
+            }
+            events.add(transaction(100, 200));
+            request("POST", events);
+        }
+
+        assertThat(observations()).isEmpty();
+    }
+
+    @Test
+    void aStatementOfAnotherShapeThatCannotBePlacedDoesNotMergeTwoTransactionsOfThisOne() {
+        for (int i = 0; i < 2; i++) {
+            List<Event> events = new ArrayList<>();
+            for (int j = 0; j < 12; j++) {
+                events.add(sql(INSERT, (j < 6 ? 110 : 310) + j, 1));
+            }
+            events.add(transaction(100, 200));
+            events.add(transaction(300, 400));
+            events.addAll(writes("update audit set seen = true where id = ?", 1, 1));
+            request("POST", events);
+        }
+
+        assertThat(observations()).isEmpty();
+    }
+
+    @Test
+    void aQuarkusApplicationNeverGroupsByTransactionWhateverTheJournalRecords() {
+        for (int i = 0; i < 2; i++) {
+            request("POST", inTransaction(INSERT, 12));
+        }
+
+        RuntimeInsightsService quarkus = new RuntimeInsightsService(journal, null, null, InsightsStack.QUARKUS, null);
+        assertThat(quarkus.report().observations())
+                .filteredOn(observation -> observation.kind().equals(UnbatchedWriteLoop.KIND))
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.limitations())
+                        .anyMatch(limitation -> limitation.contains("Transactions are not recorded")));
+    }
+
+    @Test
+    void aWriteOfUnknownProvenanceIsNeitherCountedNorReported() {
+        for (int i = 0; i < 2; i++) {
+            List<Event> events = new ArrayList<>();
+            for (int j = 0; j < 12; j++) {
+                events.add(new Event(
+                        JournalSource.SQL,
+                        1_000_000,
+                        new SqlPayload(INSERT, "Repo.run:1", "db", false, null, null, -1, 0L, Provenance.UNKNOWN)));
+            }
+            request("POST", events);
+        }
+
+        assertThat(observations()).isEmpty();
+        assertThat(check().reason()).doesNotContain("executed write");
+    }
+
+    @Test
+    void aSavepointCommitsWithItsOuterTransactionSoItsWritesStayOneLoop() {
+        for (int i = 0; i < 2; i++) {
+            List<Event> events = new ArrayList<>();
+            for (int j = 0; j < 6; j++) {
+                events.add(sql(INSERT, 110 + j, 1));
+                events.add(sql(INSERT, 160 + j, 1));
+            }
+            events.add(new Event(
+                    JournalSource.TRANSACTION, 45, new TransactionPayload("Stock.reserve", false, true, true, 105)));
+            events.add(transaction(100, 200));
+            request("POST", events);
+        }
+
+        assertThat(observations())
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.status()).isEqualTo("OBSERVED"));
     }
 
     @Test

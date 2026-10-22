@@ -90,8 +90,11 @@ class WebFluxRuntimeInsightsSeedsTest {
 
     @Test
     void aLoopOfSingleUpdatesInOneTransactionIsFoundButNotTheSameUpdatesInOneBatch() {
-        assertThat(subjects("unbatched-write-loop"))
-                .containsExactly("GET /api/insights/notes/write-one-by-one")
+        assertThat(subjects("unbatched-write-loop")).containsExactly("GET /api/insights/notes/write-one-by-one");
+        assertThat(observations)
+                .filteredOn(observation -> observation.path("kind").asText().equals("unbatched-write-loop"))
+                .as("the batched route shows no row of that kind, whatever its status")
+                .extracting(observation -> observation.path("subject").asText())
                 .doesNotContain("GET /api/insights/notes/write-in-one-batch");
         assertThat(checks)
                 .filteredOn(check -> check.path("kind").asText().equals("unbatched-write-loop"))

@@ -268,6 +268,7 @@ class SqlTracingProxiesTests {
         when(ps.executeUpdate()).thenReturn(1);
         when(ps.executeBatch()).thenReturn(new int[] {1, 1, 1});
         when(stmt.executeBatch()).thenReturn(new int[] {1});
+        when(stmt.executeLargeBatch()).thenReturn(new long[] {1L, 1L, 1L});
 
         Connection connection = SqlTracingProxies.wrap(ds, recorder).getConnection();
         PreparedStatement p = connection.prepareStatement(insert);
@@ -287,15 +288,19 @@ class SqlTracingProxiesTests {
         s.addBatch("delete from account where id = 1");
         s.addBatch("delete from account where id = 2");
         s.executeBatch();
+        s.addBatch("delete from account where id = 3");
+        s.addBatch("delete from account where id = 4");
+        s.addBatch("delete from account where id = 5");
+        s.executeLargeBatch();
 
         assertThat(published)
                 .filteredOn(event -> event.source() == JournalSource.SQL)
                 .extracting(event -> ((SqlPayload) event.payload()).batchSize())
-                .containsExactly(1, 3, 1, 0, 2);
+                .containsExactly(1, 3, 1, 0, 2, 3);
         assertThat(recorder.recent())
                 .extracting(CapturedStatement::batchSize)
                 .as("the panel keeps its own count, zero for an ordinary execution")
-                .containsExactly(2, 0, 1, 3, 0);
+                .containsExactly(3, 2, 0, 1, 3, 0);
     }
 
     @Test
