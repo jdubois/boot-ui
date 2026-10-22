@@ -897,6 +897,16 @@ public abstract class AbstractBootUiApiConformanceTest {
                         .isZero();
                 continue;
             }
+            if (changes.path("previousScanId").isNull()) {
+                // A scan that concluded no rule has no baseline: it says so and claims nothing.
+                assertThat(changes.path("complete").asBoolean(true))
+                        .as(panel + " an uncompared scan is not complete")
+                        .isFalse();
+                assertThat(changes.path("notes")).as(panel + " explains why").isNotEmpty();
+                assertThat(changes.path("newCount").asInt()).isZero();
+                assertThat(changes.path("resolvedCount").asInt()).isZero();
+                continue;
+            }
             assertThat(changes.path("previousScanId").asText())
                     .as(panel + " compares with the first scan")
                     .isEqualTo(first.path("scanId").asText());
