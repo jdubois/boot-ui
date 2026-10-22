@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`--fail-on <severity>` for CLI advisor commands** exits `3` when a retained finding reaches the threshold, and `1`
+  when the scan cannot be evaluated ([#1516](https://github.com/jdubois/boot-ui/issues/1516)).
 - **Low-footprint MCP and CLI controls** pause and resume BootUI recording, with explicit paused-evidence
   notices in affected diagnostic results ([#1479](https://github.com/jdubois/boot-ui/issues/1479)).
 - **`ARCH-SPRING-025` (LOW)** flags `RestClient.builder(..)`/`create(..)` and `WebClient.builder()`/`create(..)` when
