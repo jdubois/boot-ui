@@ -469,7 +469,7 @@ dependency in BootUI. Partitioned tables are reported once on the parent.
 
 ::: details What the JDBC driver checks add
 
-Three rules judge settings of the JDBC driver itself, read from the URL the scan connection reports and from the
+Nine rules judge settings of the JDBC driver itself, read from the URL the scan connection reports and from the
 pool's driver properties (HikariCP `dataSourceProperties`, Agroal additional JDBC properties); no other setting, user
 name or password is kept, and no application data is read. Batching is taken from the Hibernate observations of the
 persistence unit attributed to the datasource's pool.
@@ -477,9 +477,14 @@ persistence unit attributed to the datasource's pool.
 - PostgreSQL (pgjdbc): `reWriteBatchedInserts` is not `true` while Hibernate batches writes.
 - MySQL Connector/J: `rewriteBatchedStatements` is not `true` while Hibernate batches writes.
 - MySQL Connector/J: `useAffectedRows` is `true`.
+- MySQL Connector/J: the prepared-statement cache is off, or its size (below 250) or SQL limit (below 2048) is small.
+- PostgreSQL (pgjdbc): the prepared-statement cache is disabled, or `autosave=always` sets a savepoint per query.
+- Connector/J and pgjdbc: a diagnostic setting such as `profileSQL` or `logUnclosedConnections` is on.
+- Connector/J and pgjdbc: no `socketTimeout` is configured (judged from the configuration only, in the driver's own unit).
+- pgjdbc: no `ApplicationName`, so `pg_stat_activity` shows the driver default.
 
 They are `SKIPPED` with a reason when the driver is another one (MariaDB Connector/J is not evaluated), batching is off
-or unknown, or the evidence could not be settled. See
+or unknown (batching rules only), or the evidence could not be settled. See
 [DATABASE-ADVISOR-CHECKS.md](../DATABASE-ADVISOR-CHECKS.md#jdbc-driver).
 :::
 
