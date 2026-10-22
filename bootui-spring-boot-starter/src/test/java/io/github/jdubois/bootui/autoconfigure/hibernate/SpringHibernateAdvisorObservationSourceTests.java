@@ -2,24 +2,33 @@ package io.github.jdubois.bootui.autoconfigure.hibernate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.zaxxer.hikari.HikariDataSource;
+import io.github.jdubois.bootui.autoconfigure.datasource.SpringConnectionPoolProvider;
 import io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservation;
 import io.github.jdubois.bootui.engine.hibernate.HibernateFactorySettings;
 import io.github.jdubois.bootui.engine.hibernate.HibernateFactorySettingsReader;
 import io.github.jdubois.bootui.engine.hibernate.HibernateObservationDiagnostic;
+import io.github.jdubois.bootui.engine.hibernate.HibernatePersistenceUnitObservation;
+import io.github.jdubois.bootui.engine.hibernate.HibernatePoolObservation;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTracedDataSource;
+import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.Metamodel;
+import java.lang.reflect.Proxy;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.sql.DataSource;
 import org.hibernate.boot.spi.SessionFactoryOptions;
 import org.hibernate.cache.spi.CacheImplementor;
 import org.hibernate.cache.spi.RegionFactory;
@@ -29,8 +38,10 @@ import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.service.spi.ServiceRegistryImplementor;
 import org.hibernate.stat.spi.StatisticsImplementor;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.beans.factory.support.RootBeanDefinition;
+import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
 import org.springframework.mock.env.MockEnvironment;
 
 class SpringHibernateAdvisorObservationSourceTests {
@@ -219,6 +230,165 @@ class SpringHibernateAdvisorObservationSourceTests {
         assertThat(HibernateFactorySettingsReader.read(factory, "orders", new ArrayList<>())
                         .schemaAction())
                 .isEqualTo(HibernateFactorySettings.SchemaAction.DROP_AND_CREATE);
+    }
+
+    @Test
+    void attributesEachUnitToItsPoolThroughTheConnectionProviderDataSource() throws Exception {
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        HikariDataSource ordersPool = hikari("HikariPool-orders", false);
+        HikariDataSource billingPool = hikari("HikariPool-billing", true);
+        beans.registerSingleton("ordersPool", ordersPool);
+        beans.registerSingleton("billingPool", billingPool);
+        beans.registerSingleton("orders", factoryBackedBy("orders", traced(ordersPool)));
+        beans.registerSingleton("audit", factoryBackedBy("audit", new LazyConnectionDataSourceProxy(ordersPool)));
+        beans.registerSingleton("billing", factoryBackedBy("billing", billingPool));
+
+        HibernateAdvisorObservation observation =
+                source(beans, new MockEnvironment(), pools(beans)).observe();
+
+        assertThat(observation.units())
+                .extracting(HibernatePersistenceUnitObservation::label, HibernatePersistenceUnitObservation::pool)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(
+                                "orders", new HibernatePoolObservation("ordersPool", "HikariCP", false)),
+                        org.assertj.core.groups.Tuple.tuple(
+                                "audit", new HibernatePoolObservation("ordersPool", "HikariCP", false)),
+                        org.assertj.core.groups.Tuple.tuple(
+                                "billing", new HibernatePoolObservation("billingPool", "HikariCP", true)));
+        assertThat(observation.diagnostics()).isEmpty();
+        verify(ordersPool, never()).getConnection();
+    }
+
+    @Test
+    void aUnitThatCannotBeAttributedHasNoPoolInsteadOfAGuess() {
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        beans.registerSingleton("pool", hikari("HikariPool-1", false));
+        beans.registerSingleton("unmatched", factoryBackedBy("unmatched", mock(DataSource.class)));
+        beans.registerSingleton("builtIn", factory("builtIn", 25));
+
+        assertThat(source(beans, new MockEnvironment(), pools(beans)).observe().units())
+                .extracting(HibernatePersistenceUnitObservation::pool)
+                .containsOnlyNulls();
+        assertThat(source(beans, new MockEnvironment(), null).observe().units())
+                .extracting(HibernatePersistenceUnitObservation::pool)
+                .containsOnlyNulls();
+        assertThat(source(beans, new MockEnvironment()).observe().units())
+                .extracting(HibernatePersistenceUnitObservation::pool)
+                .containsOnlyNulls();
+    }
+
+    @Test
+    void theUnitPoolSurvivesTheRepositoryAttachmentRebuild() {
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        HikariDataSource pool = hikari("HikariPool-1", true);
+        beans.registerSingleton("pool", pool);
+        beans.registerSingleton("orders", factoryBackedBy("orders", pool));
+        beans.registerSingleton("repository", SpringHibernateRepositoryDiscoveryTests.factory(true));
+
+        HibernateAdvisorObservation observation =
+                source(beans, new MockEnvironment(), pools(beans)).observe();
+
+        assertThat(observation.units()).singleElement().satisfies(unit -> {
+            assertThat(unit.repositories()).hasSize(1);
+            assertThat(unit.pool()).isEqualTo(new HibernatePoolObservation("pool", "HikariCP", true));
+        });
+    }
+
+    @Test
+    void aScanFlagsTheProviderFlagContradictingAnAutoCommitPoolAndOnlyThen() {
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        beans.registerSingleton("autoCommitPool", hikari("HikariPool-auto", true));
+        beans.registerSingleton("manualPool", hikari("HikariPool-manual", false));
+        SessionFactoryImplementor contradicted =
+                factoryBackedBy("contradicted", (DataSource) beans.getBean("autoCommitPool"));
+        when(contradicted.getSessionFactoryOptions().doesConnectionProviderDisableAutoCommit())
+                .thenReturn(true);
+        SessionFactoryImplementor consistent = factoryBackedBy("consistent", (DataSource) beans.getBean("manualPool"));
+        when(consistent.getSessionFactoryOptions().doesConnectionProviderDisableAutoCommit())
+                .thenReturn(true);
+        SessionFactoryImplementor recommended =
+                factoryBackedBy("recommended", (DataSource) beans.getBean("manualPool"));
+        SessionFactoryImplementor jta = factoryBackedBy("jta", (DataSource) beans.getBean("autoCommitPool"));
+        when(jta.getSessionFactoryOptions().doesConnectionProviderDisableAutoCommit())
+                .thenReturn(true);
+        HibernatePoolAttributionTests.transactionCoordinator(jta, true);
+        beans.registerSingleton("contradicted", contradicted);
+        beans.registerSingleton("consistent", consistent);
+        beans.registerSingleton("recommended", recommended);
+        beans.registerSingleton("jta", jta);
+        HibernateAdvisorObservation observation =
+                source(beans, new MockEnvironment(), pools(beans)).observe();
+
+        var report =
+                HibernateScanner.observing(() -> observation, Clock.systemUTC()).scan();
+
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("HIB-CONFIG-021"))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.violationCount()).isEqualTo(1);
+                    assertThat(result.sampleViolations())
+                            .singleElement()
+                            .asString()
+                            .startsWith("[contradicted]")
+                            .contains("HikariCP pool autoCommitPool");
+                });
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals("HIB-CONFIG-008"))
+                .singleElement()
+                .satisfies(result -> assertThat(result.sampleViolations())
+                        .singleElement()
+                        .asString()
+                        .startsWith("[recommended]"));
+        assertThat(report.diagnostics())
+                .noneMatch(diagnostic -> diagnostic.source().equals("HIB-CONFIG-008")
+                        || diagnostic.source().equals("HIB-CONFIG-021"));
+    }
+
+    private static ObjectProvider<ConnectionPoolProvider> pools(DefaultListableBeanFactory beans) {
+        @SuppressWarnings("unchecked")
+        ObjectProvider<org.springframework.beans.factory.ListableBeanFactory> beanFactory = mock(ObjectProvider.class);
+        when(beanFactory.getIfAvailable()).thenReturn(beans);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ConnectionPoolProvider> pools = mock(ObjectProvider.class);
+        when(pools.getIfUnique()).thenReturn(new SpringConnectionPoolProvider(beanFactory));
+        return pools;
+    }
+
+    private static HikariDataSource hikari(String poolName, boolean autoCommit) {
+        HikariDataSource dataSource = mock(HikariDataSource.class);
+        when(dataSource.getPoolName()).thenReturn(poolName);
+        when(dataSource.isAutoCommit()).thenReturn(autoCommit);
+        return dataSource;
+    }
+
+    private static DataSource traced(DataSource target) {
+        return (DataSource) Proxy.newProxyInstance(
+                SpringHibernateAdvisorObservationSourceTests.class.getClassLoader(),
+                new Class<?>[] {DataSource.class, SqlTracedDataSource.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "unwrap" -> target;
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "equals" -> proxy == args[0];
+                    default -> null;
+                });
+    }
+
+    private static SessionFactoryImplementor factoryBackedBy(String name, DataSource dataSource) {
+        SessionFactoryImplementor factory = factory(name, 25);
+        ConnectionProvider provider = mock(ConnectionProvider.class);
+        when(provider.isUnwrappableAs(DataSource.class)).thenReturn(true);
+        when(provider.unwrap(DataSource.class)).thenReturn(dataSource);
+        when(factory.getServiceRegistry().getService(ConnectionProvider.class)).thenReturn(provider);
+        HibernatePoolAttributionTests.transactionCoordinator(factory, false);
+        return factory;
+    }
+
+    static SpringHibernateAdvisorObservationSource source(
+            DefaultListableBeanFactory beans,
+            MockEnvironment environment,
+            ObjectProvider<ConnectionPoolProvider> pools) {
+        return new SpringHibernateAdvisorObservationSource(beans, environment, pools);
     }
 
     static SpringHibernateAdvisorObservationSource source(

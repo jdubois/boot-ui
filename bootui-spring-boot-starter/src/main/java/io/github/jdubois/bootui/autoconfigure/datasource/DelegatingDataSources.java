@@ -24,6 +24,7 @@ import javax.sql.DataSource;
 public final class DelegatingDataSources {
 
     private static final String DELEGATING = "org.springframework.jdbc.datasource.DelegatingDataSource";
+    private static final String LAZY_CONNECTION = "org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy";
     private static final String ROUTING = "org.springframework.jdbc.datasource.lookup.AbstractRoutingDataSource";
 
     private DelegatingDataSources() {}
@@ -46,6 +47,27 @@ public final class DelegatingDataSources {
     /** The single target of a delegating wrapper, or {@code null} when it cannot be read. */
     public static DataSource target(DataSource wrapper) {
         return invokeDataSource(wrapper, DELEGATING, "getTargetDataSource");
+    }
+
+    /**
+     * Whether a single-target wrapper also routes to a <em>different</em> read-only {@code DataSource}, which
+     * {@code LazyConnectionDataSourceProxy} does when one is configured. Such a wrapper has no single physical pool,
+     * so its primary target must not stand in for it. The proxy offers only a setter, so the configured value is read
+     * from its field; when that cannot be done the wrapper is not trusted to have a single target.
+     */
+    public static boolean hasDistinctReadOnlyTarget(DataSource wrapper) {
+        Class<?> lazy = declaringClass(wrapper.getClass(), LAZY_CONNECTION);
+        if (lazy == null) {
+            return false;
+        }
+        try {
+            java.lang.reflect.Field field = lazy.getDeclaredField("readOnlyDataSource");
+            field.setAccessible(true);
+            Object readOnly = field.get(wrapper);
+            return readOnly != null && readOnly != wrapper && readOnly != target(wrapper);
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException ex) {
+            return true;
+        }
     }
 
     /**

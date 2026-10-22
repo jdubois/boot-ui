@@ -1,11 +1,11 @@
 package io.github.jdubois.bootui.autoconfigure.databaseadvisor;
 
 import io.github.jdubois.bootui.autoconfigure.datasource.DelegatingDataSources;
+import io.github.jdubois.bootui.engine.datasource.PhysicalDataSources;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery.Failure;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceProvider;
 import io.github.jdubois.bootui.spi.NamedDataSource;
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -46,12 +46,6 @@ import org.springframework.beans.factory.ObjectProvider;
  * physical schema could not be read instead of claiming the application has no {@code DataSource} bean at all.</p>
  */
 public final class SpringDatabaseAdvisorDataSourceProvider implements DatabaseAdvisorDataSourceProvider {
-
-    private static final String TRACED_DATA_SOURCE_MARKER =
-            "io.github.jdubois.bootui.engine.sqltrace.SqlTracedDataSource";
-
-    /** Bound on wrapper nesting, so a mis-configured cyclic wrapper chain cannot spin here. */
-    private static final int MAX_WRAPPER_DEPTH = 16;
 
     private final ObjectProvider<ListableBeanFactory> beanFactoryProvider;
 
@@ -140,38 +134,13 @@ public final class SpringDatabaseAdvisorDataSourceProvider implements DatabaseAd
      * anything else (including a routing wrapper, which has no single physical target) is its own identity.
      */
     private static DataSource physicalDataSource(DataSource dataSource) {
-        DataSource current = dataSource;
-        for (int depth = 0; depth < MAX_WRAPPER_DEPTH; depth++) {
-            DataSource next = unwrapOnce(current);
-            if (next == null || next == current) {
-                return current;
-            }
-            current = next;
-        }
-        return current;
+        return PhysicalDataSources.physical(dataSource, SpringDatabaseAdvisorDataSourceProvider::singleTarget);
     }
 
-    private static DataSource unwrapOnce(DataSource dataSource) {
-        if (isTracingProxy(dataSource)) {
-            try {
-                return dataSource.unwrap(DataSource.class);
-            } catch (SQLException | RuntimeException ex) {
-                return null;
-            }
-        }
-        if (DelegatingDataSources.isSingleTarget(dataSource.getClass())) {
-            return DelegatingDataSources.target(dataSource);
-        }
-        return null;
-    }
-
-    private static boolean isTracingProxy(DataSource dataSource) {
-        for (Class<?> interfaceType : dataSource.getClass().getInterfaces()) {
-            if (TRACED_DATA_SOURCE_MARKER.equals(interfaceType.getName())) {
-                return true;
-            }
-        }
-        return false;
+    private static DataSource singleTarget(DataSource dataSource) {
+        return DelegatingDataSources.isSingleTarget(dataSource.getClass())
+                ? DelegatingDataSources.target(dataSource)
+                : null;
     }
 
     private static String strip(String beanName) {

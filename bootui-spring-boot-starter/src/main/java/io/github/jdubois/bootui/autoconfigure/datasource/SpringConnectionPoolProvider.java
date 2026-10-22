@@ -3,17 +3,22 @@ package io.github.jdubois.bootui.autoconfigure.datasource;
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import io.github.jdubois.bootui.autoconfigure.web.HikariDataSourceDiscovery;
+import io.github.jdubois.bootui.engine.datasource.PhysicalDataSources;
 import io.github.jdubois.bootui.spi.ConnectionPoolInfo;
 import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
 import io.github.jdubois.bootui.spi.ConnectionPoolSnapshot;
 import jakarta.annotation.Nullable;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
+import javax.sql.DataSource;
+import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.config.SingletonBeanRegistry;
 
 /**
  * Spring binding of the {@link ConnectionPoolProvider} SPI: it discovers the application's
@@ -47,6 +52,68 @@ public final class SpringConnectionPoolProvider implements ConnectionPoolProvide
         return HikariDataSourceDiscovery.discover(factory).stream()
                 .map(this::toInfo)
                 .toList();
+    }
+
+    /**
+     * Matches {@code dataSource} to a Hikari pool by identity, after looking through BootUI's SQL Trace proxy,
+     * Spring's single-target {@code DataSource} wrappers and static AOP proxies. A wrapper with a second, read-only
+     * target, a dynamic AOP target, a routing wrapper, or any other pool library is not a match.
+     *
+     * <p>Only beans that already exist are read. The pool Hibernate holds is necessarily one of them, so an unrelated
+     * lazy datasource is never created, and nothing here borrows a connection.</p>
+     */
+    @Override
+    public Optional<ConnectionPoolInfo> poolFor(DataSource dataSource) {
+        ListableBeanFactory factory = beanFactoryProvider.getIfAvailable();
+        if (factory == null || dataSource == null) {
+            return Optional.empty();
+        }
+        DataSource physical = PhysicalDataSources.physical(dataSource, SpringConnectionPoolProvider::wrappedTarget);
+        if (!(physical instanceof HikariDataSource pool)) {
+            return Optional.empty();
+        }
+        String beanName = existingBeanName(factory, HikariDataSource.class, pool);
+        if (beanName == null) {
+            beanName = existingBeanName(factory, DataSource.class, pool);
+        }
+        return beanName == null
+                ? Optional.empty()
+                : Optional.of(toInfo(new HikariDataSourceDiscovery.PoolEntry(beanName, pool)));
+    }
+
+    private static String existingBeanName(ListableBeanFactory factory, Class<?> type, HikariDataSource pool) {
+        String[] names;
+        try {
+            names = factory.getBeanNamesForType(type);
+        } catch (BeansException ex) {
+            return null;
+        }
+        for (String name : names == null ? new String[0] : names) {
+            String beanName = name.startsWith("&") ? name.substring(1) : name;
+            if (factory instanceof SingletonBeanRegistry registry && !registry.containsSingleton(beanName)) {
+                continue;
+            }
+            try {
+                Object bean = factory.getBean(beanName, type);
+                if (bean instanceof DataSource candidate
+                        && PhysicalDataSources.physical(candidate, SpringConnectionPoolProvider::wrappedTarget)
+                                == pool) {
+                    return beanName;
+                }
+            } catch (BeansException ex) {
+                // A bean that cannot be read is not evidence for or against this pool.
+            }
+        }
+        return null;
+    }
+
+    private static DataSource wrappedTarget(DataSource dataSource) {
+        if (DelegatingDataSources.isSingleTarget(dataSource.getClass())) {
+            return DelegatingDataSources.hasDistinctReadOnlyTarget(dataSource)
+                    ? null
+                    : DelegatingDataSources.target(dataSource);
+        }
+        return SpringAopDataSources.isProxy(dataSource) ? SpringAopDataSources.staticTarget(dataSource) : null;
     }
 
     private ConnectionPoolInfo toInfo(HikariDataSourceDiscovery.PoolEntry entry) {

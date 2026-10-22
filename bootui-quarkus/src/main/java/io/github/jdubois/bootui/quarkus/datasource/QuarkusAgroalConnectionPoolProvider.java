@@ -5,16 +5,22 @@ import io.agroal.api.AgroalDataSourceMetrics;
 import io.agroal.api.configuration.AgroalConnectionFactoryConfiguration;
 import io.agroal.api.configuration.AgroalConnectionPoolConfiguration;
 import io.agroal.api.configuration.AgroalDataSourceConfiguration;
+import io.github.jdubois.bootui.engine.datasource.PhysicalDataSources;
 import io.github.jdubois.bootui.spi.ConnectionPoolInfo;
 import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
 import io.github.jdubois.bootui.spi.ConnectionPoolSnapshot;
 import io.quarkus.agroal.runtime.AgroalDataSourceUtil;
+import io.quarkus.arc.Arc;
+import io.quarkus.arc.ClientProxy;
+import io.quarkus.arc.InjectableBean;
+import io.quarkus.arc.InjectableContext;
 import io.quarkus.datasource.common.runtime.DataSourceUtil;
 import java.security.Principal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import javax.sql.DataSource;
 
 /**
  * Quarkus/Agroal binding of the {@link ConnectionPoolProvider} SPI: it enumerates the application's active
@@ -51,6 +57,46 @@ public final class QuarkusAgroalConnectionPoolProvider implements ConnectionPool
             dataSource.ifPresent(agroal -> pools.add(toInfo(name, agroal)));
         }
         return pools;
+    }
+
+    /**
+     * Matches {@code dataSource} to an active Agroal datasource by identity, after looking through BootUI's SQL
+     * Trace proxy and the CDI client proxy around each active Agroal datasource. Hibernate ORM is handed the
+     * contextual Agroal datasource, so that is the physical pool; any other datasource, or one that matches no active
+     * pool, is not attributed. Nothing here borrows a connection, and an active datasource the container has not yet
+     * created is left uncreated.
+     */
+    @Override
+    public Optional<ConnectionPoolInfo> poolFor(DataSource dataSource) {
+        if (dataSource == null) {
+            return Optional.empty();
+        }
+        DataSource physical = PhysicalDataSources.physical(dataSource, ClientProxy::unwrap);
+        List<ConnectionPoolInfo> matches = new ArrayList<>();
+        for (String name : AgroalDataSourceUtil.activeDataSourceNames()) {
+            // The active datasource is a CDI client proxy; Hibernate holds the contextual Agroal instance behind it.
+            dataSourceIfActive(name)
+                    .filter(agroal -> existingInstance(agroal) == physical)
+                    .ifPresent(agroal -> matches.add(toInfo(name, agroal)));
+        }
+        return matches.size() == 1 ? Optional.of(matches.get(0)) : Optional.empty();
+    }
+
+    /**
+     * The contextual instance behind a CDI client proxy only when the container already created it, so matching one
+     * pool never instantiates (and possibly opens connections for) another active datasource.
+     */
+    private static DataSource existingInstance(DataSource candidate) {
+        if (!(candidate instanceof ClientProxy proxy)) {
+            return candidate;
+        }
+        try {
+            InjectableBean<?> bean = proxy.arc_bean();
+            InjectableContext context = Arc.container().getActiveContext(bean.getScope());
+            return context != null && context.get(bean) instanceof DataSource existing ? existing : null;
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     private Optional<AgroalDataSource> dataSourceIfActive(String name) {
