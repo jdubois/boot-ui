@@ -24,7 +24,7 @@ metamodel cannot be read, BootUI returns a stable empty report with an explanato
 The scan covers the mapped entities your JPA metamodel reports, which includes entities added through `@EntityScan` or
 custom persistence-unit configuration, without scanning the whole classpath.
 
-The active catalog contains 72 rules. Eight retired identifiers stay documented below so old links and persisted
+The active catalog contains 73 rules. Eight retired identifiers stay documented below so old links and persisted
 dismissals keep their meaning. Retired identifiers are never reused.
 
 ### Evidence and incomplete scans
@@ -59,16 +59,18 @@ exception messages. A failed evaluation is counted as failed, not also as unavai
 excludes both. The array holds at most 200 entries: when more are produced, the last entry has source `diagnostics`
 and states how many were omitted, every rule and every distinct discovery reason keeps at least one entry (an `ERROR`
 when it has one), remaining slots go to further `ERROR`s and then round-robin by rule, and `scan.message` states
-"Diagnostics show M of N entries" while keeping the full counts. HIB-CONFIG-008 and HIB-CONFIG-011 gaps are reported
-at `INFO` level because they are advisor limits, but they still make the scan `PARTIAL` (see below). A rule that
+"Diagnostics show M of N entries" while keeping the full counts. HIB-CONFIG-011 gaps are reported at `INFO` level because they are advisor limits, as are HIB-CONFIG-008 and
+HIB-CONFIG-021 gaps for a unit whose connection pool cannot be attributed; they still make the scan `PARTIAL` (see
+below). A rule that
 reports findings but could not evaluate every unit or query carries a `coverageNote` on its `results` entry (for
 example `Incomplete in [default]: …`) naming up to ten affected units and why, including units where the rule failed.
 Platform inapplicability is distinct from a failed applicable check, and
 `rulesEvaluated` counts distinct active rule attempts, not successful verification of every mapping.
 
-Two things are not fully observable today: pool auto-commit guarantees (HIB-CONFIG-008) and effective cache access
-strategy (HIB-CONFIG-011). Where they apply, they and unsupported query-plan evidence can make an ordinary scan
-`PARTIAL` even when entity discovery succeeded. That is coverage disclosure, not a claim that the application is
+Two things are only partly observable: the pool auto-commit default (HIB-CONFIG-008 and HIB-CONFIG-021), which is read
+only when a persistence unit can be attributed to a HikariCP or Agroal pool, and effective cache access strategy
+(HIB-CONFIG-011). Where they apply, they and unsupported query-plan evidence can make an ordinary scan `PARTIAL` even
+when entity discovery succeeded. That is coverage disclosure, not a claim that the application is
 broken.
 
 The declaration-based mapping checks are not a complete runtime mapping interpreter. XML overrides, auto-apply
@@ -896,13 +898,31 @@ activation with richer registration evidence. Keeping both counted one observati
 ### HIB-CONFIG-008 - Connection providers should disable auto-commit explicitly
 
 - **Severity**: INFO
-- **Inspects**: attributed connection-provider and transaction evidence, not a stale Hikari property in isolation.
-- **Fires when**: supported observations establish a resource-local provider guarantee that makes the recommendation
-  applicable. Otherwise the check is skipped; BootUI never acquires a JDBC connection to discover auto-commit. Neither
-  adapter supplies that observation today, so the check is always skipped with an `INFO` diagnostic.
-- **Why it matters**: when the pool already disables auto-commit, this setting lets Hibernate delay connection acquisition.
-- **Recommendation**: configure the pool with auto-commit disabled and set
-  `hibernate.connection.provider_disables_autocommit=true`.
+- **Inspects**: per persistence unit, Hibernate's effective `hibernate.connection.provider_disables_autocommit`
+  (`SessionFactoryOptions#doesConnectionProviderDisableAutoCommit`), whether the unit is resource-local or JTA, and the
+  auto-commit default of the HikariCP or Agroal pool behind the unit's connection provider. The unit is matched to its
+  pool by the identity of the `DataSource` Hibernate holds, after looking through BootUI's SQL Trace proxy and, on
+  Spring, single-target `DataSource` wrappers (such as the lazy-connection proxy) and static AOP proxies. BootUI never
+  acquires a JDBC connection to discover auto-commit.
+- **Fires when**: a resource-local unit's pool already hands out connections with auto-commit disabled and the property
+  is off, so Hibernate calls `setAutoCommit(false)` itself and acquires the connection eagerly.
+- **Does not decide (skipped, never a pass)**: a JTA unit, which owns its auto-commit contract through the transaction
+  manager; an unreadable transaction mode or effective property (a `WARNING` evidence gap); and a unit whose pool cannot
+  be attributed to exactly one HikariCP or Agroal pool, or whose pool does not report its auto-commit default (an
+  `INFO` evidence gap that makes the scan `PARTIAL`). Another pool library, a routing `DataSource`, a dynamic AOP target,
+  a lazy-connection proxy with a separate read-only target, a third-party wrapper BootUI cannot look through (such as
+  p6spy or datasource-proxy), and Hibernate's built-in pool are all unattributed. Only a pool that already exists is
+  matched; attribution never creates a datasource.
+- **Why it matters**: when the pool already disables auto-commit, this setting lets Hibernate skip `setAutoCommit(false)`
+  and delay connection acquisition until the first statement.
+- **Recommendation**: set `hibernate.connection.provider_disables_autocommit=true` only because the pool disables
+  auto-commit (HikariCP: `spring.datasource.hikari.auto-commit=false`). See
+  [HIB-CONFIG-021](#hib-config-021-provider-auto-commit-setting-should-match-the-pool) for the opposite mistake.
+- **Spring Boot**: Boot 4.1 sets the property to `true` itself when the pool metadata reports auto-commit disabled and
+  JTA is off, so this check mainly fires when the property was set to `false` explicitly or Boot could not read the
+  pool's default.
+- **Quarkus**: Quarkus persistence units coordinate transactions through JTA, so this check is skipped as not
+  applicable; it does not report missing evidence for them.
 
 ### HIB-CONFIG-009 - Collection-parameter queries should use IN-clause padding
 
@@ -1070,6 +1090,27 @@ activation with richer registration evidence. Keeping both counted one observati
   retain the default when result sets are consistently small.
 - **Quarkus**: the effective factory fetch size reflects `quarkus.hibernate-orm.jdbc.statement-fetch-size`.
 
+### HIB-CONFIG-021 - Provider auto-commit setting should match the pool
+
+- **Severity**: HIGH
+- **Inspects**: the same per-unit evidence as [HIB-CONFIG-008](#hib-config-008-connection-providers-should-disable-auto-commit-explicitly):
+  the effective `hibernate.connection.provider_disables_autocommit`, the transaction mode, and the attributed pool's
+  auto-commit default.
+- **Fires when**: a resource-local unit has the property enabled while its HikariCP or Agroal pool hands out auto-commit
+  connections (`autoCommit=true`, HikariCP's default). The finding names the unit, the pool and its implementation, and
+  the observed values.
+- **Skipped (never a pass)**: JTA units, an unreadable transaction mode or property, and a pool that cannot be
+  attributed or does not report auto-commit, with the same evidence gaps as HIB-CONFIG-008.
+- **Why it matters**: the property tells Hibernate that connections are already non-auto-commit, so it never disables
+  auto-commit itself. Against an auto-commit pool each statement then commits on its own and transactions are not atomic.
+- **Recommendation**: disable auto-commit in the pool (HikariCP: `spring.datasource.hikari.auto-commit=false`) or remove
+  the property so Hibernate disables auto-commit itself. Quarkus has no `quarkus.datasource.jdbc.auto-commit`
+  setting for Agroal, so there remove the property.
+- **Quarkus**: Quarkus units are JTA and Quarkus reports the property as enabled, so this check is skipped for them
+  rather than reporting a contradiction against Agroal's auto-commit default.
+- **Limit**: only HikariCP and Agroal pools are read, and a pool configured to disable auto-commit by other means (for
+  example a connection initialization statement) is read as the pool reports it.
+
 ## Caching
 
 ### HIB-CACHE-001 - Cached entity association coverage should be reviewed
@@ -1123,6 +1164,7 @@ These are primary implementation/specification sources, not proof of a measured 
 | Entity equality and locking | [Hibernate entity guide](https://github.com/hibernate/hibernate-orm/blob/7.2.6/documentation/src/main/asciidoc/userguide/chapters/domain/entity.adoc), [locking guide](https://github.com/hibernate/hibernate-orm/blob/7.2.6/documentation/src/main/asciidoc/userguide/chapters/locking/Locking.adoc). General guidance is pinned to 7.2.6; no method-body or workload inference is claimed. |
 | Spring Data queries and newness | [Spring Data JPA query methods 4.1.0](https://github.com/spring-projects/spring-data-jpa/blob/4.1.0/src/main/antora/modules/ROOT/pages/jpa/query-methods.adoc), [primitive identifier handling 4.1.1](https://github.com/spring-projects/spring-data-commons/blob/4.1.1/src/main/java/org/springframework/data/repository/core/support/AbstractEntityInformation.java#L43-L56), [primitive version fallback 4.1.1](https://github.com/spring-projects/spring-data-jpa/blob/4.1.1/spring-data-jpa/src/main/java/org/springframework/data/jpa/repository/support/JpaMetamodelEntityInformation.java#L253-L264). Custom save/newness and runtime query rewriting need separate evidence. |
 | Cache infrastructure and defaults | [ORM 7.4.5 cache option construction](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/boot/internal/SessionFactoryOptionsBuilder.java#L444-L477), [provider strategy defaults](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/boot/model/internal/EntityBinder.java#L1838-L1882), [Quarkus ORM guide 3.33.0](https://github.com/quarkusio/quarkus/blob/3.33.0/docs/src/main/asciidoc/hibernate-orm.adoc). Cache enablement, region support and actual use are distinct. |
+| Provider auto-commit contract | [`JdbcSettings.CONNECTION_PROVIDER_DISABLES_AUTOCOMMIT`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/cfg/JdbcSettings.java), [`SessionFactoryOptions#doesConnectionProviderDisableAutoCommit`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/boot/spi/SessionFactoryOptions.java), [`TransactionCoordinatorBuilder#isJta`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/resource/transaction/spi/TransactionCoordinatorBuilder.java), [Boot 4.1.1 `HibernateJpaConfiguration`](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-hibernate/src/main/java/org/springframework/boot/hibernate/autoconfigure/HibernateJpaConfiguration.java) (sets the property when the pool disables auto-commit). Quarkus 3.40 Agroal exposes no auto-commit setting. |
 | Pool selection and OSIV | [ORM 7.4.5 provider selection](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/engine/jdbc/connections/internal/ConnectionProviderInitiator.java#L134-L159), [Boot 4.1.1 OSIV activation](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-jpa/src/main/java/org/springframework/boot/jpa/autoconfigure/JpaBaseConfiguration.java), [Spring 7.0.9 MVC delegation](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-webmvc/src/main/java/org/springframework/web/servlet/config/annotation/DelegatingWebMvcConfiguration.java). Property or configurer-bean presence alone is insufficient. |
 | Quarkus schema actions | [3.33.3.1 provider precedence](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/hibernate-orm/runtime/src/main/java/io/quarkus/hibernate/orm/runtime/FastBootHibernatePersistenceProvider.java#L497-L499), [3.33.3.1 action configuration](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/hibernate-orm/runtime/src/main/java/io/quarkus/hibernate/orm/runtime/HibernateOrmRuntimeConfigPersistenceUnit.java), [ORM 7.2.19 Action](https://github.com/hibernate/hibernate-orm/blob/7.2.19/hibernate-core/src/main/java/org/hibernate/tool/schema/Action.java). Jakarta create-only and Hibernate destructive create differ. |
 | Audit 2026-10 (effective settings, new rules) | [ORM 7.4.5 `SessionFactoryOptions`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/boot/spi/SessionFactoryOptions.java) and [`SqlStatementLoggerInitiator`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/engine/jdbc/internal/SqlStatementLoggerInitiator.java) (effective defaults, legacy slow-query key), [`PersistentSet`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/collection/spi/PersistentSet.java) and [`CollectionEntry`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/engine/spi/CollectionEntry.java) (HIB-MAP-023), [`PostgreSQLDialect`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/dialect/PostgreSQLDialect.java) and [PostgreSQL large objects](https://www.postgresql.org/docs/current/lo.html) (HIB-MAP-024), [`SqmSelectionQueryImpl`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/query/sqm/internal/SqmSelectionQueryImpl.java) (guard bypassed by `limitInMemory`), [`TimestampJdbcType`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/type/descriptor/jdbc/TimestampJdbcType.java) (HIB-CONFIG-013), and the [user guide on timestamp versions](https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#locking-optimistic-timestamp) (HIB-ENTITY-010). Spring Framework 7 requires ORM 7.1+, which retires HIB-MAP-021. |

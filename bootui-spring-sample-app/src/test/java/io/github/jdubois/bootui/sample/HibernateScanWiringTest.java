@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource;
+import io.github.jdubois.bootui.engine.hibernate.HibernateFactorySettings;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import jakarta.persistence.EntityManagerFactory;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
@@ -47,7 +48,7 @@ class HibernateScanWiringTest {
 
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.entitiesAnalyzed()).isPositive();
-        assertThat(report.rulesEvaluated()).isEqualTo(72);
+        assertThat(report.rulesEvaluated()).isEqualTo(73);
         assertThat(report.results()).allSatisfy(result -> {
             assertThat(result.status()).isEqualTo("VIOLATION");
             assertThat(result.sampleViolations()).allMatch(sample -> sample.startsWith("["));
@@ -71,6 +72,22 @@ class HibernateScanWiringTest {
             assertThat(unit.settings().secondLevelCache()).isEqualTo(options.isSecondLevelCacheEnabled());
             assertThat(unit.settings().paginationGuard())
                     .isEqualTo(options.isFailOnPaginationOverCollectionFetchEnabled());
+            assertThat(unit.settings().providerDisablesAutoCommit())
+                    .isEqualTo(options.doesConnectionProviderDisableAutoCommit());
+            assertThat(unit.settings().transactionMode())
+                    .isEqualTo(HibernateFactorySettings.TransactionMode.RESOURCE_LOCAL);
+            assertThat(unit.pool())
+                    .as("the unit is attributed to the Hikari pool behind the SQL Trace proxy")
+                    .isNotNull()
+                    .satisfies(pool -> {
+                        assertThat(pool.dataSourceName()).isEqualTo("dataSource");
+                        assertThat(pool.implementation()).isEqualTo("HikariCP");
+                        assertThat(pool.autoCommit()).isNotNull();
+                    });
         });
+        assertThat(report.diagnostics())
+                .as("HIB-CONFIG-008 and HIB-CONFIG-021 are decided, not skipped for want of a pool")
+                .noneMatch(diagnostic -> diagnostic.source().equals("HIB-CONFIG-008")
+                        || diagnostic.source().equals("HIB-CONFIG-021"));
     }
 }

@@ -161,7 +161,7 @@ class HibernateAdvisorObservationTests {
     void missingUpdateOrderingDoesNotDiscardKnownInsertOrderingViolation() {
         HibernateFactorySettings settings = new HibernateFactorySettings(
                 25, null, false, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null);
+                null, null, null, null, null, null);
         HibernateReport report = scanner(
                         List.of(unit("orders", settings, List.of())), List.of(), List.of(new OrderedBatchingRule()))
                 .scan();
@@ -662,7 +662,7 @@ class HibernateAdvisorObservationTests {
 
     @Test
     void retiredIdsAreNotRegisteredOrReported() {
-        assertThat(HibernateRuleRegistry.activeRules()).hasSize(72);
+        assertThat(HibernateRuleRegistry.activeRules()).hasSize(73);
         assertThat(HibernateRuleRegistry.activeRules())
                 .extracting(rule -> rule.definition().id())
                 .doesNotContain(RETIRED_IDS);

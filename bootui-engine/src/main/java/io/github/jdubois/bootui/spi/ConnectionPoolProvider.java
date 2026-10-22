@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.spi;
 
 import java.util.List;
+import java.util.Optional;
+import javax.sql.DataSource;
 
 /**
  * Framework-neutral seam behind the Database Connection Pools panel: it reports the host application's JDBC
@@ -30,4 +32,20 @@ public interface ConnectionPoolProvider {
      * report. Returns an empty list when no pools are configured.
      */
     List<ConnectionPoolInfo> pools();
+
+    /**
+     * The pool that physically backs {@code dataSource}, so a consumer that holds a datasource (the Hibernate
+     * advisor, through the persistence unit's connection provider) can read that pool's settings. The scalar
+     * {@link ConnectionPoolInfo} carries no {@code DataSource} reference, so this lookup is the only seam from a
+     * datasource to its pool.
+     *
+     * <p>{@code dataSource} may be BootUI's SQL Trace proxy or a framework wrapper: an implementation reduces it
+     * to the physical pool object and matches that by <em>identity</em>. It never borrows a connection or executes
+     * SQL, and is meant for explicit, user-triggered scans rather than page load. When nothing matches, several pools match, or the
+     * pool library is not one this provider reads, it returns an empty {@link Optional}; a caller must treat that as
+     * unknown, never guess. The default is empty, for providers that cannot attribute a datasource.</p>
+     */
+    default Optional<ConnectionPoolInfo> poolFor(DataSource dataSource) {
+        return Optional.empty();
+    }
 }

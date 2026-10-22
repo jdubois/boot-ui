@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`HIB-CONFIG-021` (HIGH)** flags `hibernate.connection.provider_disables_autocommit=true` on a pool that hands out
+  auto-commit connections, and `HIB-CONFIG-008` now reads the pool's auto-commit instead of always skipping
+  ([Hibernate checks](docs/HIBERNATE-CHECKS.md#hib-config-021-provider-auto-commit-setting-should-match-the-pool); #1512).
 - **Low-footprint MCP and CLI controls** pause and resume BootUI recording, with explicit paused-evidence
   notices in affected diagnostic results ([#1479](https://github.com/jdubois/boot-ui/issues/1479)).
 - **`ARCH-SPRING-025` (LOW)** flags `RestClient.builder(..)`/`create(..)` and `WebClient.builder()`/`create(..)` when

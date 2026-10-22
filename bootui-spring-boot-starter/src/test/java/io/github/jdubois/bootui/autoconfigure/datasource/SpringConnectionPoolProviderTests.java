@@ -2,17 +2,27 @@ package io.github.jdubois.bootui.autoconfigure.datasource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTracedDataSource;
 import io.github.jdubois.bootui.spi.ConnectionPoolInfo;
+import java.lang.reflect.Proxy;
+import java.sql.SQLException;
 import java.util.List;
+import java.util.Optional;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.beans.factory.support.RootBeanDefinition;
+import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
+import org.springframework.jdbc.datasource.lookup.AbstractRoutingDataSource;
 
 /**
  * Tests for the Spring binding of {@code ConnectionPoolProvider}: the HikariCP discovery (direct beans and
@@ -140,5 +150,150 @@ class SpringConnectionPoolProviderTests {
         SpringConnectionPoolProvider provider = new SpringConnectionPoolProvider(provider(null));
 
         assertThat(provider.pools()).isEmpty();
+    }
+
+    // --- poolFor: attribute a datasource to its pool by physical identity ---------------------------------------
+
+    private static ListableBeanFactory beanFactoryWith(
+            String firstName, HikariDataSource first, String secondName, HikariDataSource second) {
+        ListableBeanFactory factory = mock(ListableBeanFactory.class);
+        when(factory.getBeanNamesForType(HikariDataSource.class)).thenReturn(new String[] {firstName, secondName});
+        when(factory.getBean(firstName, HikariDataSource.class)).thenReturn(first);
+        when(factory.getBean(secondName, HikariDataSource.class)).thenReturn(second);
+        return factory;
+    }
+
+    private static HikariDataSource pool(boolean autoCommit) {
+        HikariDataSource dataSource = runningDataSource();
+        when(dataSource.isAutoCommit()).thenReturn(autoCommit);
+        return dataSource;
+    }
+
+    private static DataSource traced(DataSource target) {
+        return (DataSource) Proxy.newProxyInstance(
+                SpringConnectionPoolProviderTests.class.getClassLoader(),
+                new Class<?>[] {DataSource.class, SqlTracedDataSource.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "unwrap" -> target;
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "equals" -> proxy == args[0];
+                    default -> null;
+                });
+    }
+
+    @Test
+    void attributesTheHikariPoolItselfWithoutBorrowingAConnection() throws SQLException {
+        HikariDataSource hikari = pool(false);
+        SpringConnectionPoolProvider provider =
+                new SpringConnectionPoolProvider(provider(beanFactoryWith("dataSource", hikari)));
+
+        Optional<ConnectionPoolInfo> match = provider.poolFor(hikari);
+
+        assertThat(match).get().satisfies(pool -> {
+            assertThat(pool.beanName()).isEqualTo("dataSource");
+            assertThat(pool.implementation()).isEqualTo(ConnectionPoolInfo.HIKARI);
+            assertThat(pool.autoCommit()).isFalse();
+        });
+        verify(hikari, never()).getConnection();
+    }
+
+    @Test
+    void attributesThroughTheTraceProxyLazyWrapperAndStaticAopProxyAndEvenTheirNesting() {
+        HikariDataSource hikari = pool(true);
+        SpringConnectionPoolProvider provider =
+                new SpringConnectionPoolProvider(provider(beanFactoryWith("dataSource", hikari)));
+
+        for (DataSource wrapped : List.of(
+                traced(hikari),
+                new LazyConnectionDataSourceProxy(hikari),
+                proxyFor(hikari),
+                traced(new LazyConnectionDataSourceProxy(traced(hikari))))) {
+            assertThat(provider.poolFor(wrapped))
+                    .as(wrapped.getClass().getSimpleName())
+                    .get()
+                    .satisfies(pool -> {
+                        assertThat(pool.beanName()).isEqualTo("dataSource");
+                        assertThat(pool.autoCommit()).isTrue();
+                    });
+        }
+    }
+
+    @Test
+    void twoUnitsSharingOnePoolShareTheAttributionAndTwoPoolsStayApart() {
+        HikariDataSource orders = pool(false);
+        HikariDataSource billing = pool(true);
+        SpringConnectionPoolProvider provider = new SpringConnectionPoolProvider(
+                provider(beanFactoryWith("ordersDataSource", orders, "billingDataSource", billing)));
+
+        assertThat(provider.poolFor(orders))
+                .get()
+                .extracting(ConnectionPoolInfo::beanName)
+                .isEqualTo("ordersDataSource");
+        assertThat(provider.poolFor(traced(orders)))
+                .get()
+                .extracting(ConnectionPoolInfo::beanName)
+                .isEqualTo("ordersDataSource");
+        assertThat(provider.poolFor(billing))
+                .get()
+                .extracting(ConnectionPoolInfo::beanName)
+                .isEqualTo("billingDataSource");
+        assertThat(provider.poolFor(billing))
+                .get()
+                .extracting(ConnectionPoolInfo::autoCommit)
+                .isEqualTo(true);
+    }
+
+    @Test
+    void neverGuessesForAnUnknownRoutingOrNonHikariDataSource() {
+        HikariDataSource hikari = pool(false);
+        SpringConnectionPoolProvider provider =
+                new SpringConnectionPoolProvider(provider(beanFactoryWith("dataSource", hikari)));
+        AbstractRoutingDataSource routing = new AbstractRoutingDataSource() {
+            @Override
+            protected Object determineCurrentLookupKey() {
+                return "key";
+            }
+        };
+
+        assertThat(provider.poolFor(mock(DataSource.class)))
+                .as("a pool that is not a bean")
+                .isEmpty();
+        assertThat(provider.poolFor(pool(false))).as("another Hikari pool").isEmpty();
+        assertThat(provider.poolFor(routing)).as("a routing wrapper").isEmpty();
+        assertThat(provider.poolFor(null)).isEmpty();
+        assertThat(new SpringConnectionPoolProvider(provider(null)).poolFor(hikari))
+                .isEmpty();
+    }
+
+    @Test
+    void neverCreatesAnUnrelatedLazyDataSourceWhileAttributingAnExistingPool() {
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        HikariDataSource hikari = pool(false);
+        beans.registerSingleton("dataSource", hikari);
+        RootBeanDefinition lazy = new RootBeanDefinition(HikariDataSource.class, () -> {
+            throw new AssertionError("an unrelated lazy pool must not be created by attribution");
+        });
+        lazy.setLazyInit(true);
+        beans.registerBeanDefinition("lazyPool", lazy);
+
+        Optional<ConnectionPoolInfo> match = new SpringConnectionPoolProvider(provider(beans)).poolFor(hikari);
+
+        assertThat(match).get().extracting(ConnectionPoolInfo::beanName).isEqualTo("dataSource");
+    }
+
+    @Test
+    void aLazyWrapperWithADistinctReadOnlyTargetIsNotAttributedToItsPrimaryPool() {
+        HikariDataSource primary = pool(false);
+        HikariDataSource readOnly = pool(true);
+        LazyConnectionDataSourceProxy lazy = new LazyConnectionDataSourceProxy(primary);
+        lazy.setReadOnlyDataSource(readOnly);
+        SpringConnectionPoolProvider provider =
+                new SpringConnectionPoolProvider(provider(beanFactoryWith("primary", primary, "readOnly", readOnly)));
+
+        assertThat(provider.poolFor(lazy)).isEmpty();
+        assertThat(provider.poolFor(new LazyConnectionDataSourceProxy(primary)))
+                .get()
+                .extracting(ConnectionPoolInfo::beanName)
+                .isEqualTo("primary");
     }
 }

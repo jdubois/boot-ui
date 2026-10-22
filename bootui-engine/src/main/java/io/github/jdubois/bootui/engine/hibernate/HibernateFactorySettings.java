@@ -4,6 +4,8 @@ package io.github.jdubois.bootui.engine.hibernate;
  * Allowlisted factory defaults, not a configuration dump. Null scalars and UNKNOWN classifications
  * mean unavailable, never a synthesized default. Session/query overrides are outside this observation.
  * A {@code jdbcFetchSize} of 0 is an observed unset size, which leaves the JDBC driver default in place.
+ * {@code providerDisablesAutoCommit} is Hibernate's effective belief that the connection provider already hands out
+ * connections with auto-commit disabled, which is not evidence that the pool actually does.
  */
 public record HibernateFactorySettings(
         Integer jdbcBatchSize,
@@ -26,7 +28,9 @@ public record HibernateFactorySettings(
         Boolean jdbcTimeZoneConfigured,
         Integer jdbcFetchSize,
         Boolean oracle,
-        Boolean postgresql) {
+        Boolean postgresql,
+        Boolean providerDisablesAutoCommit,
+        TransactionMode transactionMode) {
 
     public enum RegionFactory {
         AVAILABLE,
@@ -38,6 +42,13 @@ public record HibernateFactorySettings(
         BUILT_IN,
         MANAGED,
         OTHER,
+        UNKNOWN
+    }
+
+    /** How the persistence unit coordinates transactions; only a resource-local unit owns its auto-commit contract. */
+    public enum TransactionMode {
+        RESOURCE_LOCAL,
+        JTA,
         UNKNOWN
     }
 
@@ -71,6 +82,7 @@ public record HibernateFactorySettings(
         regionFactory = regionFactory == null ? RegionFactory.UNKNOWN : regionFactory;
         connectionProvider = connectionProvider == null ? ConnectionProvider.UNKNOWN : connectionProvider;
         schemaAction = schemaAction == null ? SchemaAction.UNKNOWN : schemaAction;
+        transactionMode = transactionMode == null ? TransactionMode.UNKNOWN : transactionMode;
     }
 
     public static HibernateFactorySettings unknown() {
@@ -95,7 +107,9 @@ public record HibernateFactorySettings(
                 null,
                 null,
                 null,
-                null);
+                null,
+                null,
+                TransactionMode.UNKNOWN);
     }
 
     String property(String key) {
@@ -119,6 +133,7 @@ public record HibernateFactorySettings(
                     case "hibernate.jdbc.time_zone" ->
                         jdbcTimeZoneConfigured == null ? null : jdbcTimeZoneConfigured ? "configured" : "";
                     case "hibernate.jdbc.fetch_size" -> jdbcFetchSize;
+                    case "hibernate.connection.provider_disables_autocommit" -> providerDisablesAutoCommit;
                     default -> null;
                 };
         return value == null ? null : value.toString();

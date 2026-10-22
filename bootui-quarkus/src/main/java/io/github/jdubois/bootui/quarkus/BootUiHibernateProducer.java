@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.quarkus.hibernate.QuarkusEntityDiscovery;
 import io.github.jdubois.bootui.quarkus.hibernate.QuarkusHibernateStatisticsProvider;
+import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
 import io.github.jdubois.bootui.spi.HibernateStatisticsProvider;
 import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.Instance;
@@ -41,9 +42,10 @@ public class BootUiHibernateProducer {
     public io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource
             hibernateAdvisorObservationSource(
                     @Any Instance<EntityManagerFactory> entityManagerFactories,
+                    @Any Instance<ConnectionPoolProvider> connectionPools,
                     org.eclipse.microprofile.config.Config config) {
         return new io.github.jdubois.bootui.quarkus.hibernate.QuarkusHibernateAdvisorObservationSource(
-                entityManagerFactories, config);
+                entityManagerFactories, connectionPools, config);
     }
 
     @Produces

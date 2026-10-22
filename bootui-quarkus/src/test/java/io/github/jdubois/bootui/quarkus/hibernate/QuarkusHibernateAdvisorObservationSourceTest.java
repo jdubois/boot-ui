@@ -11,23 +11,32 @@ import static org.mockito.Mockito.when;
 import io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservation;
 import io.github.jdubois.bootui.engine.hibernate.HibernateFactorySettings;
 import io.github.jdubois.bootui.engine.hibernate.HibernateObservationDiagnostic;
+import io.github.jdubois.bootui.engine.hibernate.HibernatePersistenceUnitObservation;
+import io.github.jdubois.bootui.engine.hibernate.HibernatePoolObservation;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTracedDataSource;
 import io.github.jdubois.bootui.quarkus.StubConfig;
+import io.github.jdubois.bootui.spi.ConnectionPoolInfo;
+import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
 import jakarta.enterprise.inject.Instance;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Id;
 import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.Metamodel;
+import java.lang.reflect.Proxy;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import javax.sql.DataSource;
 import org.hibernate.boot.spi.SessionFactoryOptions;
 import org.hibernate.cache.spi.CacheImplementor;
 import org.hibernate.cache.spi.RegionFactory;
 import org.hibernate.engine.jdbc.connections.spi.ConnectionProvider;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
+import org.hibernate.resource.transaction.spi.TransactionCoordinatorBuilder;
 import org.hibernate.service.spi.ServiceRegistryImplementor;
 import org.hibernate.stat.spi.StatisticsImplementor;
 import org.junit.jupiter.api.Test;
@@ -157,6 +166,158 @@ class QuarkusHibernateAdvisorObservationSourceTest {
                 .extracting(HibernateObservationDiagnostic::reason)
                 .contains(HibernateObservationDiagnostic.Reason.FACTORY_SETTING_UNAVAILABLE);
         assertThat(observation.diagnostics().toString()).doesNotContain("credential");
+    }
+
+    @Test
+    void attributesUnitsToTheirAgroalPoolsThroughTheConnectionProviderDataSource() {
+        DataSource shared = dataSource();
+        DataSource other = dataSource();
+        SessionFactoryImplementor orders = factory("orders", 25, false);
+        SessionFactoryImplementor audit = factory("audit", 25, false);
+        SessionFactoryImplementor billing = factory("billing", 25, false);
+        SessionFactoryImplementor unmatched = factory("unmatched", 25, false);
+        SessionFactoryImplementor builtIn = factory("builtin", 25, false);
+        backedBy(orders, tracing(shared));
+        backedBy(audit, shared);
+        backedBy(billing, other);
+        backedBy(unmatched, dataSource());
+        ConnectionPoolProvider pools = new ConnectionPoolProvider() {
+            @Override
+            public List<ConnectionPoolInfo> pools() {
+                return List.of();
+            }
+
+            @Override
+            public Optional<ConnectionPoolInfo> poolFor(DataSource candidate) {
+                DataSource physical = candidate instanceof SqlTracedDataSource ? tracedTarget(candidate) : candidate;
+                return physical == shared
+                        ? Optional.of(info("default", false))
+                        : physical == other ? Optional.of(info("billing", true)) : Optional.empty();
+            }
+        };
+
+        HibernateAdvisorObservation observation = new QuarkusHibernateAdvisorObservationSource(
+                        instances(List.of(orders, audit, billing, unmatched, builtIn)),
+                        resolvable(pools),
+                        new StubConfig(Map.of()))
+                .observe();
+
+        assertThat(observation.units())
+                .extracting(HibernatePersistenceUnitObservation::label, HibernatePersistenceUnitObservation::pool)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(
+                                "orders", new HibernatePoolObservation("default", "Agroal", false)),
+                        org.assertj.core.groups.Tuple.tuple(
+                                "audit", new HibernatePoolObservation("default", "Agroal", false)),
+                        org.assertj.core.groups.Tuple.tuple(
+                                "billing", new HibernatePoolObservation("billing", "Agroal", true)),
+                        org.assertj.core.groups.Tuple.tuple("unmatched", null),
+                        org.assertj.core.groups.Tuple.tuple("builtin", null));
+        assertThat(observation.diagnostics()).isEmpty();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void withoutAResolvablePoolProviderNoUnitIsAttributed() {
+        SessionFactoryImplementor orders = factory("orders", 25, false);
+        backedBy(orders, dataSource());
+        Instance<ConnectionPoolProvider> unsatisfied = mock(Instance.class);
+        when(unsatisfied.isResolvable()).thenReturn(false);
+        Instance<ConnectionPoolProvider> failing = mock(Instance.class);
+        when(failing.isResolvable()).thenReturn(true);
+        when(failing.get()).thenThrow(new IllegalStateException("credential"));
+
+        for (Instance<ConnectionPoolProvider> pools : java.util.Arrays.asList(unsatisfied, failing, null)) {
+            assertThat(new QuarkusHibernateAdvisorObservationSource(
+                                    instances(List.of(orders)), pools, new StubConfig(Map.of()))
+                            .observe()
+                            .units())
+                    .singleElement()
+                    .satisfies(unit -> assertThat(unit.pool()).isNull());
+        }
+    }
+
+    @Test
+    void readsTheTransactionModeSoQuarkusJtaUnitsAreNeverTreatedAsResourceLocal() {
+        SessionFactoryImplementor jta = factory("jta", 25, false);
+        SessionFactoryImplementor unknown = factory("unknown", 25, false);
+        TransactionCoordinatorBuilder builder = mock(TransactionCoordinatorBuilder.class);
+        when(builder.isJta()).thenReturn(true);
+        when(jta.getServiceRegistry().getService(TransactionCoordinatorBuilder.class))
+                .thenReturn(builder);
+
+        HibernateAdvisorObservation observation = new QuarkusHibernateAdvisorObservationSource(
+                        instances(List.of(jta, unknown)), new StubConfig(Map.of()))
+                .observe();
+
+        assertThat(observation.units())
+                .extracting(unit -> unit.settings().transactionMode())
+                .containsExactly(
+                        HibernateFactorySettings.TransactionMode.JTA, HibernateFactorySettings.TransactionMode.UNKNOWN);
+    }
+
+    private static ConnectionPoolInfo info(String name, boolean autoCommit) {
+        return new ConnectionPoolInfo(
+                name,
+                name,
+                ConnectionPoolInfo.AGROAL,
+                "jdbc:secret",
+                "user",
+                null,
+                1,
+                2,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                autoCommit,
+                true,
+                null,
+                null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Instance<ConnectionPoolProvider> resolvable(ConnectionPoolProvider provider) {
+        Instance<ConnectionPoolProvider> instance = mock(Instance.class);
+        when(instance.isResolvable()).thenReturn(true);
+        when(instance.get()).thenReturn(provider);
+        return instance;
+    }
+
+    private static void backedBy(SessionFactoryImplementor factory, DataSource dataSource) {
+        ConnectionProvider provider = mock(ConnectionProvider.class);
+        when(provider.isUnwrappableAs(DataSource.class)).thenReturn(true);
+        when(provider.unwrap(DataSource.class)).thenReturn(dataSource);
+        when(factory.getServiceRegistry().getService(ConnectionProvider.class)).thenReturn(provider);
+        TransactionCoordinatorBuilder builder = mock(TransactionCoordinatorBuilder.class);
+        when(factory.getServiceRegistry().getService(TransactionCoordinatorBuilder.class))
+                .thenReturn(builder);
+    }
+
+    private static DataSource dataSource() {
+        return mock(DataSource.class);
+    }
+
+    private static DataSource tracedTarget(DataSource traced) {
+        try {
+            return traced.unwrap(DataSource.class);
+        } catch (java.sql.SQLException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
+    private static DataSource tracing(DataSource target) {
+        return (DataSource) Proxy.newProxyInstance(
+                QuarkusHibernateAdvisorObservationSourceTest.class.getClassLoader(),
+                new Class<?>[] {DataSource.class, SqlTracedDataSource.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "unwrap" -> target;
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "equals" -> proxy == args[0];
+                    default -> null;
+                });
     }
 
     @SuppressWarnings("unchecked")

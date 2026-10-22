@@ -20,7 +20,35 @@ record HibernateContext(
         Boolean enhancementVerified,
         HibernateEvaluationEvidence evidence,
         AdvisorViolationCollector violationCollector,
-        String unitLabel) {
+        String unitLabel,
+        HibernatePoolObservation pool) {
+
+    HibernateContext(
+            List<HibernateEntityModel> entities,
+            List<HibernateRepositoryModel> repositories,
+            Function<String, String> propertyLookup,
+            List<String> activeProfiles,
+            HibernateRuntimeVersion hibernateVersion,
+            HibernateFactorySettings factorySettings,
+            HibernateApplicationFacts applicationFacts,
+            Boolean enhancementVerified,
+            HibernateEvaluationEvidence evidence,
+            AdvisorViolationCollector violationCollector,
+            String unitLabel) {
+        this(
+                entities,
+                repositories,
+                propertyLookup,
+                activeProfiles,
+                hibernateVersion,
+                factorySettings,
+                applicationFacts,
+                enhancementVerified,
+                evidence,
+                violationCollector,
+                unitLabel,
+                null);
+    }
 
     HibernateContext(
             List<HibernateEntityModel> entities,
@@ -58,7 +86,8 @@ record HibernateContext(
                 enhancementVerified,
                 evidence,
                 collector,
-                label);
+                label,
+                pool);
     }
 
     /**
@@ -105,7 +134,10 @@ record HibernateContext(
                 unit.settings(),
                 application,
                 unit.enhancementVerified(),
-                new HibernateEvaluationEvidence());
+                new HibernateEvaluationEvidence(),
+                new AdvisorViolationCollector(10000),
+                null,
+                unit.pool());
     }
 
     boolean observed() {

@@ -51,6 +51,51 @@ class BootUiQuarkusHibernateAdvisorTest {
     }
 
     @Test
+    void persistenceUnitIsAttributedToItsAgroalPoolWithoutBorrowingAConnection() {
+        var observation = observationSource.observe();
+
+        assertThat(observation.units()).singleElement().satisfies(unit -> {
+            assertThat(unit.pool()).as("the unit's Agroal pool").isNotNull();
+            assertThat(unit.pool().implementation()).isEqualTo("Agroal");
+            assertThat(unit.pool().dataSourceName()).isEqualTo("default");
+            assertThat(unit.pool().autoCommit()).isNotNull();
+            assertThat(unit.settings().providerDisablesAutoCommit()).isNotNull();
+            assertThat(unit.settings().transactionMode())
+                    .as("the transaction mode must be read, never defaulted to resource-local")
+                    .isNotEqualTo(
+                            io.github.jdubois.bootui.engine.hibernate.HibernateFactorySettings.TransactionMode.UNKNOWN);
+        });
+    }
+
+    @Inject
+    jakarta.enterprise.inject.Instance<io.github.jdubois.bootui.spi.ConnectionPoolProvider> pools;
+
+    @Test
+    void poolForMatchesTheRealAgroalPoolThroughTheTraceProxyAndNeverGuesses() {
+        var provider = pools.get();
+        javax.sql.DataSource held =
+                io.github.jdubois.bootui.engine.hibernate.HibernateFactorySettingsReader.connectionDataSource(
+                        entityManagerFactory.unwrap(SessionFactoryImplementor.class), "orders", new ArrayList<>());
+        javax.sql.DataSource traced = (javax.sql.DataSource) java.lang.reflect.Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[] {
+                    javax.sql.DataSource.class, io.github.jdubois.bootui.engine.sqltrace.SqlTracedDataSource.class
+                },
+                (proxy, method, args) -> method.getName().equals("unwrap") ? held : null);
+        javax.sql.DataSource unrelated = (javax.sql.DataSource) java.lang.reflect.Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[] {javax.sql.DataSource.class},
+                (proxy, method, args) -> null);
+
+        assertThat(provider.poolFor(held)).get().satisfies(pool -> {
+            assertThat(pool.beanName()).isEqualTo("default");
+            assertThat(pool.implementation()).isEqualTo("Agroal");
+        });
+        assertThat(provider.poolFor(traced)).isPresent();
+        assertThat(provider.poolFor(unrelated)).isEmpty();
+    }
+
+    @Test
     void hibernatePanelIsAvailableWhenHibernateOrmIsPresent() {
         Response panels = probe().get("/bootui/api/panels");
         assertThat(panels.status()).as("GET /bootui/api/panels status").isEqualTo(200);
@@ -86,28 +131,21 @@ class BootUiQuarkusHibernateAdvisorTest {
         assertThat(scan.status()).as("POST /bootui/api/hibernate/scan status").isEqualTo(200);
         JsonNode scanned = scan.json();
         assertThat(scanned.path("evidence").path("usable").asBoolean()).isTrue();
-        assertThat(scanned.path("evidence").path("coverageComplete").asBoolean(true))
-                .isFalse();
-        assertThat(scanned.path("evidence").path("limitations")).isNotEmpty();
+        // Quarkus persistence units coordinate transactions through JTA, so HIB-CONFIG-008 and HIB-CONFIG-021 are
+        // skipped as not applicable instead of reporting missing evidence, and every required observation is known.
+        assertThat(scanned.path("evidence").path("coverageComplete").asBoolean(false))
+                .isTrue();
+        assertThat(scanned.path("evidence").path("limitations")).isEmpty();
         assertThat(probe().get("/bootui/api/hibernate").json().path("evidence")).isEqualTo(scanned.path("evidence"));
-        assertThat(scanned.path("scan").path("status").asText())
-                .as("missing required evidence must not be presented as a complete clean evaluation")
-                .isEqualTo("PARTIAL");
-        assertThat(scanned.path("scan").path("message").asText()).contains("required evidence unavailable");
-        assertThat(scanned.path("diagnostics").isArray()).isTrue();
-        assertThat(scanned.path("diagnostics")).isNotEmpty();
-        for (JsonNode diagnostic : scanned.path("diagnostics")) {
-            assertThat(diagnostic.path("source").asText()).isNotBlank();
-            assertThat(diagnostic.path("unit").asText()).isNotBlank();
-            assertThat(diagnostic.path("level").asText()).isIn("ERROR", "WARNING", "INFO");
-            assertThat(diagnostic.path("message").asText()).isNotBlank();
-        }
+        assertThat(scanned.path("scan").path("status").asText()).isEqualTo("SCANNED");
+        assertThat(scanned.path("scan").path("message").asText()).contains("required evidence unavailable 0");
+        assertThat(scanned.path("diagnostics")).isEmpty();
         assertThat(scanned.path("entitiesAnalyzed").asInt())
                 .as("Category, Product and Tag are all read from the metamodel")
                 .isGreaterThanOrEqualTo(3);
         assertThat(scanned.path("rulesEvaluated").asInt())
                 .as("the shared curated rule registry must have run")
-                .isEqualTo(72);
+                .isEqualTo(73);
 
         List<String> violationIds = ruleIds(scanned.path("results"));
         assertThat(violationIds)
@@ -121,6 +159,9 @@ class BootUiQuarkusHibernateAdvisorTest {
                         "HIB-ENTITY-003",
                         "HIB-ENTITY-004",
                         "HIB-CONFIG-001");
+        assertThat(violationIds)
+                .as("the JTA unit owns its auto-commit contract, so the pool auto-commit rules never report on it")
+                .doesNotContain("HIB-CONFIG-008", "HIB-CONFIG-021");
         for (JsonNode result : scanned.path("results")) {
             assertThat(result.path("status").asText()).isEqualTo("VIOLATION");
             for (JsonNode sample : result.path("sampleViolations"))

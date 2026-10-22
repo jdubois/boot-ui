@@ -135,6 +135,7 @@ import io.github.jdubois.bootui.engine.websocket.WebSocketActivityRecorder;
 import io.github.jdubois.bootui.engine.websocket.WebSocketSettings;
 import io.github.jdubois.bootui.spi.BasePackageProvider;
 import io.github.jdubois.bootui.spi.BeanProvider;
+import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
 import io.github.jdubois.bootui.spi.ErrorContractProvider;
 import io.github.jdubois.bootui.spi.FaultTolerancePolicyProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
@@ -1171,10 +1172,13 @@ public class BootUiEngineConfiguration {
         @Lazy
         @ConditionalOnMissingBean
         io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource
-                bootUiHibernateAdvisorObservationSource(ListableBeanFactory beanFactory, Environment environment) {
-            // Resolving factories and repository metadata remains deferred to an explicit scan.
+                bootUiHibernateAdvisorObservationSource(
+                        ListableBeanFactory beanFactory,
+                        Environment environment,
+                        ObjectProvider<ConnectionPoolProvider> connectionPools) {
+            // Resolving factories, pools and repository metadata remains deferred to an explicit scan.
             return new io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateAdvisorObservationSource(
-                    beanFactory, environment);
+                    beanFactory, environment, connectionPools);
         }
 
         @Bean
@@ -1880,10 +1884,17 @@ public class BootUiEngineConfiguration {
 
         @Bean
         @Lazy
+        @ConditionalOnMissingBean(ConnectionPoolProvider.class)
+        ConnectionPoolProvider bootUiConnectionPoolProvider(ObjectProvider<ListableBeanFactory> beanFactoryProvider) {
+            return new SpringConnectionPoolProvider(beanFactoryProvider);
+        }
+
+        @Bean
+        @Lazy
         @ConditionalOnMissingBean
         ConnectionPoolService bootUiConnectionPoolService(
-                ObjectProvider<ListableBeanFactory> beanFactoryProvider, BootUiExposure exposure) {
-            return new ConnectionPoolService(new SpringConnectionPoolProvider(beanFactoryProvider), exposure);
+                ConnectionPoolProvider connectionPoolProvider, BootUiExposure exposure) {
+            return new ConnectionPoolService(connectionPoolProvider, exposure);
         }
     }
 
