@@ -236,6 +236,7 @@ describe('theme coverage', () => {
       'transaction-across-remote-call',
       'transactional-listener-skipped',
       'after-commit-writes',
+      'readonly-candidate-transaction',
       'anonymous-data-reach',
       'anonymous-success-on-restricted-route',
       'framework-warnings-by-route',

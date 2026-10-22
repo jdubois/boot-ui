@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.engine.journal.AppEventPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.TransactionPayload;
 import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -55,6 +56,8 @@ class RuntimeInsightsSeedsTest {
 
     private List<JsonNode> observations;
 
+    private final List<JsonNode> checks = new ArrayList<>();
+
     @BeforeAll
     void seed() throws Exception {
         BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
@@ -93,6 +96,13 @@ class RuntimeInsightsSeedsTest {
             assertThat(probe.get("/api/insights/tags/reacquire").status()).isEqualTo(200);
             assertThat(probe.get("/api/insights/tags/reacquire-one-transaction").status())
                     .isEqualTo(200);
+            assertThat(probe.get("/api/insights/tags/summary").status()).isEqualTo(200);
+            assertThat(probe.post("/api/insights/tags/summary-then-relabel", JSON)
+                            .status())
+                    .isEqualTo(200);
+            assertThat(probe.post("/api/insights/tags/summary-then-jdbc-write", JSON)
+                            .status())
+                    .isEqualTo(200);
         }
         assertThat(probe.post("/api/insights/debug/reset-totals", JSON).status())
                 .isEqualTo(200);
@@ -103,7 +113,9 @@ class RuntimeInsightsSeedsTest {
         assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
 
         observations = new ArrayList<>();
-        probe.get("/bootui/api/runtime-insights").json().path("observations").forEach(observations::add);
+        JsonNode report = probe.get("/bootui/api/runtime-insights").json();
+        report.path("observations").forEach(observations::add);
+        report.path("checks").forEach(checks::add);
     }
 
     @Test
@@ -209,6 +221,57 @@ class RuntimeInsightsSeedsTest {
         assertThat(subjects("large-persistence-context", "OBSERVED")).containsExactly("GET /api/insights/tags/export");
     }
 
+    /**
+     * A read-write method that only reads is found, with its method as the subject; one that changed an entity, wrote
+     * through JDBC, or persisted a new entity is not, and one whose Hibernate never held an entity to dirty-check is
+     * counted as one that could not be judged.
+     */
+    @Test
+    void aReadWriteTransactionThatOnlyReadsIsFoundButNotOneThatWroteByAnyRoute() {
+        String service = "io.github.jdubois.bootui.sample.insights.InsightTagService.";
+        assertThat(subjects("readonly-candidate-transaction", "OBSERVED"))
+                .contains(service + "summary", service + "exportEveryTag")
+                .doesNotContain(
+                        service + "summaryThenRelabel",
+                        service + "summaryThenJdbcWrite",
+                        service + "countThenSave",
+                        service + "saveThenCountEachTime",
+                        service + "exportLabels");
+        assertThat(unlisted("readonly-candidate-transaction"))
+                .as("not listed by default, but reachable by its kind")
+                .contains(service + "summary");
+        assertThat(checkReason("readonly-candidate-transaction"))
+                .contains("3 executions of read-write transactions could not be judged");
+    }
+
+    /**
+     * The real Hibernate lifecycle behind that observation: Spring's transaction listener begins after the session is
+     * created and completes before it closes, so what the transaction reports is the work of its own thread between the
+     * two, and a flush at commit over entities that none changed is what makes a read-write method a candidate.
+     */
+    @Test
+    void aTransactionReportsTheHibernateWorkOfItsThreadBetweenItsBeginAndItsCommit() {
+        Map<String, TransactionPayload> transactions = new LinkedHashMap<>();
+        for (var entry : journal.entries()) {
+            if (entry.event().payload() instanceof TransactionPayload transaction && transaction.method() != null) {
+                transactions.put(transaction.method().replaceAll(".*\\.", ""), transaction);
+            }
+        }
+        assertThat(transactions.get("summary")).satisfies(payload -> {
+            assertThat(payload.ormStatements()).isPositive();
+            assertThat(payload.ormFlushes()).as("the flush at commit").isPositive();
+            assertThat(payload.ormDirtyEntities()).isZero();
+        });
+        assertThat(transactions.get("summaryThenRelabel").ormDirtyEntities()).isPositive();
+        assertThat(transactions.get("summaryThenJdbcWrite").ormDirtyEntities())
+                .as("a JDBC write dirties nothing, which is why its statement is what keeps it out")
+                .isZero();
+        assertThat(transactions.get("exportLabels").ormFlushes())
+                .as("a flush over no entity dirty-checks nothing")
+                .isZero();
+        assertThat(transactions.get("exportLabels").ormStatements()).isPositive();
+    }
+
     @Test
     void threeReadsInTransactionsOfTheirOwnReacquireTheConnectionButOneTransactionDoesNot() {
         assertThat(subjects("connection-reacquisition", "OBSERVED"))
@@ -266,6 +329,8 @@ class RuntimeInsightsSeedsTest {
                 "POST /api/insights/orders/{id}/restore",
                 Set.of("anonymous-data-reach", "connections-per-request", "split-transaction-writes"));
         justified.put("POST /api/insights/tags/read-then-write", anonymousWrite);
+        justified.put("POST /api/insights/tags/summary-then-relabel", anonymousWrite);
+        justified.put("POST /api/insights/tags/summary-then-jdbc-write", anonymousWrite);
         justified.put("GET /api/insights/tags/export-labels", Set.of());
         justified.put("GET /api/insights/tags/reacquire-one-transaction", Set.of());
         justified.put("consume websocket:/app/insights/rooms/{room}/orders-joined", Set.of());
@@ -383,6 +448,14 @@ class RuntimeInsightsSeedsTest {
                 .filter(observation -> observation.path("listed").asBoolean() == listed)
                 .map(observation -> observation.path("subject").asText())
                 .toList();
+    }
+
+    private String checkReason(String kind) {
+        return checks.stream()
+                .filter(check -> check.path("kind").asText().equals(kind))
+                .map(check -> check.path("reason").asText())
+                .findFirst()
+                .orElseThrow();
     }
 
     private List<String> subjects(String kind, String status) {

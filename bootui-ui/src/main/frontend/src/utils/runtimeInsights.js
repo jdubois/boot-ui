@@ -34,7 +34,8 @@ export const THEMES = [
       'split-transaction-writes',
       'transaction-across-remote-call',
       'transactional-listener-skipped',
-      'after-commit-writes'
+      'after-commit-writes',
+      'readonly-candidate-transaction'
     ]
   },
   {id: 'access', label: 'Access', kinds: ['anonymous-data-reach', 'anonymous-success-on-restricted-route']},

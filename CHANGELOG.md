@@ -16,6 +16,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`ARCH-SPRING-025` (LOW)** flags `RestClient.builder(..)`/`create(..)` and `WebClient.builder()`/`create(..)` when
   Spring Boot's auto-configured builder is available, since those clients skip metrics, tracing, and shared
   customizers ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-025---http-clients-should-be-built-from-spring-boots-auto-configured-builder); #1500).
+- **`readonly-candidate-transaction`** reports a read-write `@Transactional` method whose transactions never changed
+  an entity or ran a write, so it may be declared read-only
+  ([#1513](https://github.com/jdubois/boot-ui/issues/1513)).
 
 ### Changed
 

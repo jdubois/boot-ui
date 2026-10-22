@@ -65,6 +65,21 @@ public class InsightSeedController {
         return Map.of("tags", tags.exportLabels());
     }
 
+    @GetMapping("/tags/summary")
+    public Map<String, Object> tagSummary() {
+        return Map.of("tags", tags.summary());
+    }
+
+    @PostMapping("/tags/summary-then-relabel")
+    public Map<String, Object> tagSummaryThenRelabel() {
+        return Map.of("tags", tags.summaryThenRelabel());
+    }
+
+    @PostMapping("/tags/summary-then-jdbc-write")
+    public Map<String, Object> tagSummaryThenJdbcWrite() {
+        return Map.of("tags", tags.summaryThenJdbcWrite());
+    }
+
     @GetMapping("/orders")
     public List<Map<String, Object>> ordersLineByLine() {
         return orders.ordersLineByLine();

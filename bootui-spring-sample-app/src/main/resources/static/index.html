@@ -1104,6 +1104,7 @@
     'connections-per-request',
     'connection-reacquisition',
     'split-transaction-writes',
+    'readonly-candidate-transaction',
     'framework-warnings-by-route',
     'ai-usage-by-route',
     'anonymous-data-reach',
@@ -1228,6 +1229,23 @@
         ['GET', '/api/insights/tags/reacquire-one-transaction', 3]
       ],
       expect: [['connection-reacquisition', 'Connections re-acquired in a session', 'GET /api/insights/tags/reacquire']]
+    },
+    {
+      key: 'readonly-candidate-transaction',
+      label: 'Read-write that only reads',
+      text: 'Loads five tags in a read-write transaction, three times; then the same read followed by a changed label, and by a JDBC write.',
+      steps: [
+        ['GET', '/api/insights/tags/summary', 3],
+        ['POST', '/api/insights/tags/summary-then-relabel', 3],
+        ['POST', '/api/insights/tags/summary-then-jdbc-write', 3]
+      ],
+      expect: [
+        [
+          'readonly-candidate-transaction',
+          'Read-write transactions that only read',
+          'io.github.jdubois.bootui.sample.insights.InsightTagService.summary'
+        ]
+      ]
     },
     {
       key: 'work-after-response',

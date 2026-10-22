@@ -238,11 +238,21 @@ The `agent-integration-tests` job runs the agent's tests with this command, whic
 
 ```bash
 ./mvnw -B -ntp -pl bootui-agent,bootui-spring-sample-app,bootui-quarkus-deployment -am \
-  -Dbootui.skipFrontendTests -Dbootui.agent.its.forkCount=2 -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false verify
+  -Dbootui.skipFrontendTests -Dbootui.agent.its.forkCount=2 \
+  -Dit.test='*IT,!ThreadFactoryExecutableJarIT' -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false verify
 ```
 
 The agent's Failsafe run uses one fork by default, as some of its tests time an operation, and two in that job; each
 fork has its own work directory, `target/agent-it/fork-<n>`.
+
+On both `main` and `v2`, CI runs agent integration and agent-attached browser tests only when a push or pull request
+changes an agent-related path. This includes the bridge and engine/adapter wiring, not just `bootui-agent/`.
+Overhead measurements use a narrower path list covering the agent runtime, runtime journal, benchmark fixtures and
+build configuration; changes only to agent panels or consumers of agent evidence do not start benchmark runners.
+The costlier sensor A/B measurements run only on overhead-related pushes. Add the `agent` label to a pull request or
+run the workflow manually to force all measurements. The nightly JDK workflow retains full agent coverage.
+The path lists and their regression tests live in `.github/scripts/agent-changes.sh` and `test_agent_changes.py`.
+General JDK compatibility checks and the non-agent packaged ThreadFactory regression remain independent of this gate.
 
 For frontend-only unit test iteration:
 
@@ -343,8 +353,8 @@ number of pairs (3 by default):
 ```
 
 CI runs it with fifteen pairs as the runtime journal leg of `build.yml`'s `agent-overhead-extra-legs` matrix, on
-pushes, manual runs, and pull requests labelled `agent`; the `agent-overhead` job publishes the report to its summary,
-and the leg never fails the build.
+overhead-related pushes, manual runs, and pull requests labelled `agent`; the `agent-overhead` job publishes the report
+to its summary, and the leg never fails the build.
 
 Executable-jar benchmarks enable Actuator health probes and wait for both the BootUI Java Agent API to answer with
 HTTP 200 and `/actuator/health/readiness` to answer with HTTP 200 and a textual `status` of `UP`. The BootUI endpoint
@@ -381,8 +391,8 @@ CI runs each measurement as its own leg of `build.yml`'s `agent-overhead-legs` m
 for the measurements below that run only with the `agent` label), all at the same time on separate runners (each A/B
 alternates its arms on one runner), then gathers their reports and runs the checks in the `agent-overhead` job. It
 runs fifteen pairs on a four-processor runner, then on the I/O route with nine pairs: every default sensor against no
-agent (`spring-mvc-agent-io`) on every agent run, and, on pushes, manual runs, and pull requests labelled `agent`
-only, each default side-effect sensor's own share against the same agent without it: `network`
+agent (`spring-mvc-agent-io`) on every overhead run, and, on overhead-related pushes, manual runs, and pull requests
+labelled `agent` only, each default side-effect sensor's own share against the same agent without it: `network`
 (`spring-mvc-network-ab`), `blocking` (`spring-mvc-blocking-ab`), `files` on the I/O route (`spring-mvc-files-ab`),
 fifteen pairs each but `network`'s nine, and the opt-in `environment`'s against the default sensors, on a route adding
 fifty `System.getProperty` reads per request (`spring-mvc-environment-ab`), fifteen pairs. The load generator

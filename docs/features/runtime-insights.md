@@ -70,7 +70,7 @@ offers only the JFR action.
 
 ### The observations
 
-Twenty-four observations examine the journal's retained completed work and garbage collections, plus Code Inventory's
+Twenty-five observations examine the journal's retained completed work and garbage collections, plus Code Inventory's
 changed-method evidence. The table says what each counts; the drawers below hold the qualifications.
 
 | Observation                             | What it counts                                                                            |
@@ -91,6 +91,7 @@ changed-method evidence. The table says what each counts; the drawers below hold
 | `orm-auto-flush`                        | Requests where Hibernate flushed before queries often                                     |
 | `large-persistence-context`             | Requests whose Hibernate session held 500 entities or more at a flush                     |
 | `connection-reacquisition`              | Requests whose Hibernate session borrowed a JDBC connection two or more times in a row    |
+| `readonly-candidate-transaction`        | Spring: read-write transactions of one method that changed no entity and ran no write     |
 | `gc-inflated-latency`                   | Slowest requests that overlapped a stop-the-world GC pause                                |
 | `transactional-listener-skipped`        | Spring: a `@TransactionalEventListener` that never ran                                    |
 | `after-commit-writes`                   | Spring: JDBC writes run by an after-commit, after-rollback, or after-completion listener  |
@@ -128,6 +129,7 @@ changed-method evidence. The table says what each counts; the drawers below hold
 - `event-loop-blocking`: JDBC statements started on an event-loop thread.
 - `orm-auto-flush`: requests in which Hibernate wrote pending changes before a query three times or more, or for at least a fifth of their ORM time. The threshold is per request, so one such request reports its route.
 - `large-persistence-context`: requests whose Hibernate session held 500 entities or more at a flush, in three requests of a route or more.
+- `readonly-candidate-transaction`: a transactional method, on Spring MVC and WebFlux, whose every transaction in the retained window ran read-write, flushed Hibernate over entities and found none dirty, and ran no `INSERT`, `UPDATE`, `DELETE`, `MERGE`, call, or locking read. It is reported with its method and its executions, from three, as a method that may be declared `@Transactional(readOnly = true)`, so Spring puts the Hibernate session in manual flush mode and read-only default and Hibernate skips dirty checking. Hibernate's evidence belongs to a transaction by what its thread did between the transaction's begin and its completion, never by the lifetime of a session, which begins before and ends after it. One execution that wrote, or that could not be judged, keeps the whole method out: it rolled back, Hibernate never held an entity to dirty-check, a statement or transaction could not be placed in time, fewer statements were recorded than Hibernate ran, or another transaction ran inside it. The check's reason counts the executions it could not judge. JTA and reactive transactions are not judged, and a write to something that is not a database, such as a message broker, is not seen. Quarkus records no transactions, so the check is not applicable there.
 - `connection-reacquisition`: requests in which one Hibernate session borrowed a JDBC connection two times or more, one after the other, in three requests of a route or more. It reports only where a session releases its connection between uses: Spring's JPA vendor adapter and stock Quarkus make a session hold its connection until it closes, so it needs a non-default `hibernate.connection.handling_mode` (or JTA). It counts Hibernate's acquisition callbacks, so lazy loading or queries run outside a transaction, as a view rendered with open-in-view does, show up here where `connections-per-request` reports only connections held at the same time. When the request's SQL and transactions are recorded, complete, and not dropped, each row names up to three application call sites of the statements that ran after the first transaction of the session's thread ended, whichever Hibernate session or JDBC client issued them, leaving out a propagated task's statements; a request whose statements could not be placed shows "not placed". On Quarkus, which records no transactions, and whenever that evidence is missing, incomplete, or dropped, it keeps the count and says the call sites are omitted. JTA and `DELAYED_ACQUISITION_AND_RELEASE_AFTER_STATEMENT` connection handling legitimately re-acquire per statement, work Hibernate runs on a connection of its own, such as a table-based identifier generator, counts too, and the count is not the pool's borrow count or the connection's hold time. See `lazy-sql-after-handler` when the extra acquisitions happen while the response is written.
 
 :::
@@ -153,7 +155,7 @@ list the same rows:
 
 - **Listed:** `errors-behind-2xx`, `changed-code-not-executed`, `safe-method-dml`, `transaction-across-remote-call`, `after-commit-writes`, `transactional-listener-skipped`, `proxy-bypass`, `event-loop-blocking`, `anonymous-success-on-restricted-route`, `orm-auto-flush`, `large-persistence-context`, `work-after-response`.
 - **Not listed; the named panel shows the same evidence and links to its rows:** `route-time-breakdown` (a request's **Why this route is slow** in Live Activity), `exception-hotspots` (Exceptions), `connections-per-request` (Database Connection Pools), `ai-usage-by-route` (AI).
-- **Not listed; reached with Show all routes, a search, or a query naming it:** `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `framework-warnings-by-route`, `anonymous-data-reach`, `connection-reacquisition`.
+- **Not listed; reached with Show all routes, a search, or a query naming it:** `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `readonly-candidate-transaction`, `framework-warnings-by-route`, `anonymous-data-reach`, `connection-reacquisition`.
 - **Not listed; reached from the Memory panel:** `gc-inflated-latency`, `heap-growth-after-gc`.
 
 The observations of the BootUI agent's own panels, such as Side Effects, are shown there rather than in this list. When

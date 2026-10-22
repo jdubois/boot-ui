@@ -1219,6 +1219,7 @@ public abstract class AbstractMcpConformanceTest {
                                 "repeated-selects",
                                 "lazy-sql-after-handler",
                                 "split-transaction-writes",
+                                "readonly-candidate-transaction",
                                 "framework-warnings-by-route",
                                 "anonymous-data-reach");
             }

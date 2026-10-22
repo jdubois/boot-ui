@@ -113,6 +113,7 @@ final class ObservationFixtures {
         afterCommitWrites(fixtures);
         ormObservations(fixtures);
         connectionReacquisition(fixtures);
+        readOnlyCandidateTransaction(fixtures);
         transactionAcrossRemoteCall(fixtures);
         lazySqlAfterHandler(fixtures);
         eventLoopBlocking(fixtures);
@@ -791,6 +792,211 @@ final class ObservationFixtures {
                 0);
     }
 
+    // ---- readonly-candidate-transaction -------------------------------------------------------------------------
+
+    private static final String SUMMARY = "com.example.TagService.summary";
+
+    private static void readOnlyCandidateTransaction(List<Fixture> fixtures) {
+        fixtures.add(positive(ReadOnlyCandidateTransaction.KIND, "a read-write transaction that loaded tags only")
+                .seed(recording -> repeat(3, () -> readRequest(recording, "GET", cleanRead(100, 200)))));
+        fixtures.add(counterexample(ReadOnlyCandidateTransaction.KIND, "an entity the transaction changed")
+                .seed(recording -> repeat(
+                        3,
+                        () -> readRequest(
+                                recording,
+                                "POST",
+                                ormTransaction(SUMMARY, 100, 200, 3, 1, 1),
+                                sqlAt("select * from tags", RequestPhase.HANDLER, 120),
+                                sqlAt("update tags set label = ? where id = ?", RequestPhase.HANDLER, 150),
+                                sqlAt("select * from tag_links", RequestPhase.HANDLER, 160)))));
+        fixtures.add(counterexample(ReadOnlyCandidateTransaction.KIND, "a native write beside a clean read")
+                .seed(recording -> repeat(
+                        3,
+                        () -> readRequest(
+                                recording,
+                                "POST",
+                                ormTransaction(SUMMARY, 100, 200, 2, 1, 0),
+                                sqlAt("select * from tags", RequestPhase.HANDLER, 120),
+                                sqlAt("update tags set label = label where id = ?", RequestPhase.HANDLER, 150)))));
+        fixtures.add(counterexample(ReadOnlyCandidateTransaction.KIND, "a call to a stored procedure")
+                .seed(recording -> repeat(
+                        3,
+                        () -> readRequest(
+                                recording,
+                                "POST",
+                                ormTransaction(SUMMARY, 100, 200, 2, 1, 0),
+                                sqlAt("select * from tags", RequestPhase.HANDLER, 120),
+                                sqlAt("/* audit */ {call record_view(?)}", RequestPhase.HANDLER, 150)))));
+        fixtures.add(counterexample(ReadOnlyCandidateTransaction.KIND, "a session that never dirty-checked an entity")
+                .seed(recording -> repeat(
+                        3,
+                        () -> readRequest(
+                                recording,
+                                "GET",
+                                ormTransaction(SUMMARY, 100, 200, 1, 0, 0),
+                                sqlAt("select label from tags", RequestPhase.HANDLER, 120)))));
+        fixtures.add(counterexample(ReadOnlyCandidateTransaction.KIND, "one execution of three that wrote")
+                .seed(recording -> {
+                    repeat(3, () -> readRequest(recording, "GET", cleanRead(100, 200)));
+                    readRequest(
+                            recording,
+                            "POST",
+                            ormTransaction(SUMMARY, 100, 200, 2, 1, 0),
+                            sqlAt("select * from tags", RequestPhase.HANDLER, 120),
+                            sqlAt("insert into tag_links values (1)", RequestPhase.HANDLER, 150));
+                }));
+        fixtures.add(counterexample(ReadOnlyCandidateTransaction.KIND, "one execution without Hibernate that wrote")
+                .seed(recording -> {
+                    repeat(3, () -> readRequest(recording, "GET", cleanRead(100, 200)));
+                    recording
+                            .post("/api/tags/jdbc")
+                            .children(
+                                    ormTransaction(SUMMARY, 100, 200, 0, 0, 0),
+                                    sqlAt("update tags set label = ?", RequestPhase.HANDLER, 150));
+                }));
+        fixtures.add(counterexample(ReadOnlyCandidateTransaction.KIND, "one execution of three that rolled back")
+                .alsoFires(ErrorsBehind2xx.KIND)
+                .seed(recording -> {
+                    repeat(3, () -> readRequest(recording, "GET", cleanRead(100, 200)));
+                    readRequest(
+                            recording,
+                            "GET",
+                            rolledBack(ormTransaction(SUMMARY, 100, 200, 2, 1, 0)),
+                            sqlAt("select * from tags", RequestPhase.HANDLER, 120),
+                            sqlAt("select * from tag_links", RequestPhase.HANDLER, 150));
+                }));
+        fixtures.add(counterexample(ReadOnlyCandidateTransaction.KIND, "a transaction already declared read-only")
+                .seed(recording -> repeat(
+                        3,
+                        () -> readRequest(
+                                recording,
+                                "GET",
+                                declaredReadOnly(ormTransaction(SUMMARY, 100, 200, 2, 1, 0)),
+                                sqlAt("select * from tags", RequestPhase.HANDLER, 120),
+                                sqlAt("select * from tag_links", RequestPhase.HANDLER, 150)))));
+        fixtures.add(counterexample(ReadOnlyCandidateTransaction.KIND, "a savepoint inside a transaction")
+                .seed(recording -> repeat(
+                        3,
+                        () -> readRequest(
+                                recording,
+                                "GET",
+                                new Ev(
+                                        JournalSource.TRANSACTION,
+                                        50,
+                                        new TransactionPayload(
+                                                SUMMARY, false, false, true, 120, false, null, false, null, 2, 1, 0)),
+                                sqlAt("select * from tags", RequestPhase.HANDLER, 130),
+                                sqlAt("select * from tag_links", RequestPhase.HANDLER, 140)))));
+        fixtures.add(counterexample(ReadOnlyCandidateTransaction.KIND, "a statement with no monotonic time")
+                .seed(recording -> repeat(
+                        3,
+                        () -> readRequest(
+                                recording,
+                                "GET",
+                                ormTransaction(SUMMARY, 100, 200, 2, 1, 0),
+                                sqlAt("select * from tags", RequestPhase.HANDLER, 120),
+                                sql("select * from tag_links")))));
+        fixtures.add(counterexample(ReadOnlyCandidateTransaction.KIND, "fewer statements recorded than Hibernate ran")
+                .seed(recording -> repeat(
+                        3,
+                        () -> readRequest(
+                                recording,
+                                "GET",
+                                ormTransaction(SUMMARY, 100, 200, 3, 1, 0),
+                                sqlAt("select * from tags", RequestPhase.HANDLER, 120)))));
+        fixtures.add(counterexample(ReadOnlyCandidateTransaction.KIND, "a transaction whose Hibernate work is unknown")
+                .seed(recording -> repeat(
+                        3,
+                        () -> readRequest(
+                                recording,
+                                "GET",
+                                transaction(new TransactionPayload(SUMMARY, false, false, false, 100))
+                                        .took(100),
+                                sqlAt("select * from tags", RequestPhase.HANDLER, 120)))));
+        fixtures.add(counterexample(ReadOnlyCandidateTransaction.KIND, "two clean transactions are not enough")
+                .toleratingInsufficient()
+                .seed(recording -> repeat(2, () -> readRequest(recording, "GET", cleanRead(100, 200)))));
+    }
+
+    private static void repeat(int times, Runnable action) {
+        for (int i = 0; i < times; i++) {
+            action.run();
+        }
+    }
+
+    /** A request with {@code children}, whose Hibernate session held five entities and flushed once. */
+    private static void readRequest(Recording recording, String method, Ev... children) {
+        List<Ev> events = new ArrayList<>(List.of(children));
+        events.add(new Ev(JournalSource.ORM, 80 * MS, orm(0, 2, 0, 5)));
+        Request request = "POST".equals(method)
+                ? recording.post("/api/insights/tags/summary")
+                : recording.get("/api/insights/tags/summary");
+        request.children(events.toArray(Ev[]::new));
+    }
+
+    /** The transaction and statements of a read-write method that loaded tags and wrote nothing. */
+    private static Ev[] cleanRead(long start, long end) {
+        return new Ev[] {
+            ormTransaction(SUMMARY, start, end, 2, 1, 0),
+            sqlAt("select * from tags", RequestPhase.HANDLER, start + 20),
+            sqlAt("select * from tag_links", RequestPhase.HANDLER, start + 50)
+        };
+    }
+
+    private static Ev ormTransaction(
+            String method, long startNanos, long endNanos, long statements, long flushes, long dirtyEntities) {
+        return new Ev(
+                JournalSource.TRANSACTION,
+                endNanos - startNanos,
+                new TransactionPayload(
+                        method,
+                        false,
+                        false,
+                        false,
+                        startNanos,
+                        false,
+                        null,
+                        false,
+                        null,
+                        statements,
+                        flushes,
+                        dirtyEntities));
+    }
+
+    private static Ev rolledBack(Ev transaction) {
+        TransactionPayload payload = (TransactionPayload) transaction.payload();
+        return transaction.withPayload(new TransactionPayload(
+                payload.method(),
+                true,
+                payload.nested(),
+                payload.savepoint(),
+                payload.startNanos(),
+                payload.readOnly(),
+                null,
+                false,
+                null,
+                payload.ormStatements(),
+                payload.ormFlushes(),
+                payload.ormDirtyEntities()));
+    }
+
+    private static Ev declaredReadOnly(Ev transaction) {
+        TransactionPayload payload = (TransactionPayload) transaction.payload();
+        return transaction.withPayload(new TransactionPayload(
+                payload.method(),
+                false,
+                false,
+                false,
+                payload.startNanos(),
+                true,
+                null,
+                false,
+                null,
+                payload.ormStatements(),
+                payload.ormFlushes(),
+                payload.ormDirtyEntities()));
+    }
+
     // ---- transaction-across-remote-call -------------------------------------------------------------------------
 
     private static void transactionAcrossRemoteCall(List<Fixture> fixtures) {
@@ -1339,6 +1545,21 @@ final class ObservationFixtures {
 
         Ev(JournalSource source, long nanos, RuntimeEventPayload payload) {
             this(source, nanos, payload, null, null, null, 1, false, false, false, null);
+        }
+
+        Ev withPayload(RuntimeEventPayload replacement) {
+            return new Ev(
+                    source,
+                    nanos,
+                    replacement,
+                    thread,
+                    threadKind,
+                    executionId,
+                    offsetMillis,
+                    absolute,
+                    afterResponse,
+                    linkedByTraceOnly,
+                    traceId);
         }
 
         Ev took(long durationNanos) {

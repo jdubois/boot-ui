@@ -68,6 +68,22 @@ class WebFluxRuntimeInsightsSeedsTest {
         report.path("notExercised").forEach(route -> notExercised.add(route.asText()));
     }
 
+    /**
+     * WebFlux records blocking transactions, but its sample runs JDBC without Hibernate, so no transaction has Hibernate
+     * work to judge: the check runs and says there was nothing eligible, rather than being not applicable or silent.
+     */
+    @Test
+    void readOnlyCandidateTransactionsRunHereAndHaveNothingToJudgeWithoutHibernate() {
+        assertThat(checks)
+                .filteredOn(check -> check.path("kind").asText().equals("readonly-candidate-transaction"))
+                .singleElement()
+                .satisfies(check -> {
+                    assertThat(check.path("status").asText()).isEqualTo("INSUFFICIENT");
+                    assertThat(check.path("reason").asText()).contains("No eligible work");
+                });
+        assertThat(subjects("readonly-candidate-transaction")).isEmpty();
+    }
+
     @Test
     void theWebFluxRoutesNoRequestReachedAreListedAndThoseExercisedAreNot() {
         // WebFlux describes its routes under Actuator's dispatcherHandlers, which the Mappings provider reads.

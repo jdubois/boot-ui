@@ -73,6 +73,7 @@ test.describe('Runtime Insights demo', () => {
       ['Connections held together', '/api/insights/orders/{id}/confirm', 'Database connection pools panel'],
       ['Connections re-acquired in a session', '/api/insights/tags/reacquire', onRequest],
       ['Writes split across transactions', '/api/insights/orders/{id}/confirm', onRequest],
+      ['Read-write transactions that only read', 'InsightTagService.summary', onRequest],
       ['Exception hotspots', 'GET /api/sample/boom', 'Exceptions panel'],
       ['Anonymous writes', '/api/insights/debug/reset-totals', onRequest],
       ['SQL after the handler returned', '/api/insights/orders/report', onRequest]
