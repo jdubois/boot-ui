@@ -70,7 +70,7 @@ offers only the JFR action.
 
 ### The observations
 
-Twenty-three observations examine the journal's retained completed work and garbage collections, plus Code Inventory's
+Twenty-four observations examine the journal's retained completed work and garbage collections, plus Code Inventory's
 changed-method evidence. The table says what each counts; the drawers below hold the qualifications.
 
 | Observation                             | What it counts                                                                            |
@@ -90,6 +90,7 @@ changed-method evidence. The table says what each counts; the drawers below hold
 | `event-loop-blocking`                   | JDBC statements started on an event-loop thread                                           |
 | `orm-auto-flush`                        | Requests where Hibernate flushed before queries often                                     |
 | `large-persistence-context`             | Requests whose Hibernate session held 500 entities or more at a flush                     |
+| `readonly-candidate-transaction`        | Spring: read-write transactions of one method that changed no entity and ran no write     |
 | `gc-inflated-latency`                   | Slowest requests that overlapped a stop-the-world GC pause                                |
 | `transactional-listener-skipped`        | Spring: a `@TransactionalEventListener` that never ran                                    |
 | `after-commit-writes`                   | Spring: JDBC writes run by an after-commit, after-rollback, or after-completion listener  |
@@ -127,6 +128,7 @@ changed-method evidence. The table says what each counts; the drawers below hold
 - `event-loop-blocking`: JDBC statements started on an event-loop thread.
 - `orm-auto-flush`: requests in which Hibernate wrote pending changes before a query three times or more, or for at least a fifth of their ORM time. The threshold is per request, so one such request reports its route.
 - `large-persistence-context`: requests whose Hibernate session held 500 entities or more at a flush, in three requests of a route or more.
+- `readonly-candidate-transaction`: a transactional method, on Spring MVC and WebFlux, whose every transaction in the retained window ran read-write, flushed Hibernate over entities and found none dirty, and ran no `INSERT`, `UPDATE`, `DELETE`, `MERGE`, call, or locking read. It is reported with its method and its executions, from three, as a method that may be declared `@Transactional(readOnly = true)`, so Spring puts the Hibernate session in manual flush mode and read-only default and Hibernate skips dirty checking. Hibernate's evidence belongs to a transaction by what its thread did between the transaction's begin and its completion, never by the lifetime of a session, which begins before and ends after it. One execution that wrote, or that could not be judged, keeps the whole method out: it rolled back, Hibernate never held an entity to dirty-check, a statement or transaction could not be placed in time, fewer statements were recorded than Hibernate ran, or another transaction ran inside it. The check's reason counts the executions it could not judge. JTA and reactive transactions are not judged, and a write to something that is not a database, such as a message broker, is not seen. Quarkus records no transactions, so the check is not applicable there.
 
 :::
 
@@ -151,7 +153,7 @@ list the same rows:
 
 - **Listed:** `errors-behind-2xx`, `changed-code-not-executed`, `safe-method-dml`, `transaction-across-remote-call`, `after-commit-writes`, `transactional-listener-skipped`, `proxy-bypass`, `event-loop-blocking`, `anonymous-success-on-restricted-route`, `orm-auto-flush`, `large-persistence-context`, `work-after-response`.
 - **Not listed; the named panel shows the same evidence and links to its rows:** `route-time-breakdown` (a request's **Why this route is slow** in Live Activity), `exception-hotspots` (Exceptions), `connections-per-request` (Database Connection Pools), `ai-usage-by-route` (AI).
-- **Not listed; reached with Show all routes, a search, or a query naming it:** `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `framework-warnings-by-route`, `anonymous-data-reach`.
+- **Not listed; reached with Show all routes, a search, or a query naming it:** `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `readonly-candidate-transaction`, `framework-warnings-by-route`, `anonymous-data-reach`.
 - **Not listed; reached from the Memory panel:** `gc-inflated-latency`, `heap-growth-after-gc`.
 
 The observations of the BootUI agent's own panels, such as Side Effects, are shown there rather than in this list. When

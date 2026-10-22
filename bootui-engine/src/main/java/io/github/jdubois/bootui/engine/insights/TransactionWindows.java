@@ -56,6 +56,21 @@ final class TransactionWindows {
         return complete;
     }
 
+    /** The transactions of the request that have a monotonic interval, in the order they were recorded. */
+    List<Window> windows() {
+        return List.copyOf(windows);
+    }
+
+    /** The interval of {@code transaction}, or {@code null} when it has none. */
+    Window of(RuntimeEvent transaction) {
+        for (Window window : windows) {
+            if (window.event() == transaction) {
+                return window;
+            }
+        }
+        return null;
+    }
+
     /** Whether {@code statement} can be placed: it has a monotonic completion and every transaction an interval. */
     boolean canPlace(RuntimeEvent statement) {
         return complete && statement.payload() instanceof SqlPayload sql && sql.executed() && sql.completedNanos() >= 0;
