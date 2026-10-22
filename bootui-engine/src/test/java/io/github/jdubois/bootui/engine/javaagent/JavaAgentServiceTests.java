@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.core.dto.JavaAgentRetransformationDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentSensorDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentSensorToggleDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentSnippetDto;
+import java.lang.ref.Reference;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -224,7 +225,8 @@ class JavaAgentServiceTests {
     @Test
     void anotherApplicationsClaimHoldsTheAgentWithItsOwner() {
         Bridges.StubAgent.install();
-        AgentClaim.claim(Bridges.access(), "tests", "tests@1", "test", List.of("com.example"));
+        AgentClaim holder = AgentClaim.claim(Bridges.access(), "tests", "tests@1", "test", List.of("com.example"));
+        System.gc();
         claim.set(AgentClaim.claim(Bridges.access(), "other", "other@1", "test", List.of("org.other")));
 
         JavaAgentReport report =
@@ -234,19 +236,22 @@ class JavaAgentServiceTests {
         assertThat(report.heldBy()).isEqualTo("tests@1");
         assertThat(report.reason()).contains("tests@1 (test)");
         assertThat(report.claim().owner()).isEqualTo("tests@1");
+        Reference.reachabilityFence(holder);
     }
 
     @Test
     void aDevApplicationTakingOverThisTestRunShowsItAsTheHolder() {
         Bridges.StubAgent.install();
         claim.set(AgentClaim.claim(Bridges.access(), "tests", "tests@1", "test", List.of()));
-        AgentClaim.claim(Bridges.access(), "app", "app@1", "dev", List.of());
+        AgentClaim holder = AgentClaim.claim(Bridges.access(), "app", "app@1", "dev", List.of());
+        System.gc();
 
         JavaAgentReport report =
                 service(Bridges.access(), settings("spring", true, null)).report();
 
         assertThat(report.state()).isEqualTo(JavaAgentReport.HELD);
         assertThat(report.heldBy()).isEqualTo("app@1");
+        Reference.reachabilityFence(holder);
     }
 
     @Test

@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.javaagent.AgentSensorSettings;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.Banner;
@@ -16,15 +17,29 @@ import org.springframework.boot.context.event.ApplicationEnvironmentPreparedEven
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.mock.env.MockEnvironment;
+import reactor.core.publisher.Hooks;
 
 class BootUiAgentClaimEnvironmentPostProcessorTests {
 
     private final BootUiAgentClaimEnvironmentPostProcessor withBridge =
             new BootUiAgentClaimEnvironmentPostProcessor(() -> AgentBridgeAccess.bind(FakeBridge.class));
 
+    private boolean automaticContextPropagation;
+
     @BeforeEach
     void reset() {
+        automaticContextPropagation = Hooks.isAutomaticContextPropagationEnabled();
+        Hooks.disableAutomaticContextPropagation();
         FakeBridge.reset();
+    }
+
+    @AfterEach
+    void restoreReactorContextPropagation() {
+        if (automaticContextPropagation) {
+            Hooks.enableAutomaticContextPropagation();
+        } else {
+            Hooks.disableAutomaticContextPropagation();
+        }
     }
 
     @Test
@@ -153,6 +168,17 @@ class BootUiAgentClaimEnvironmentPostProcessorTests {
                         .executors())
                 .as("an empty sensor list asks for none")
                 .isFalse();
+    }
+
+    @Test
+    void anAlreadyEnabledReactorHookSkipsItsSchedulersEvenWithTheLimitedProperty() {
+        Hooks.enableAutomaticContextPropagation();
+
+        AgentSensorSettings settings = BootUiAgentClaimEnvironmentPostProcessor.sensors(
+                new MockEnvironment().withProperty("spring.reactor.context-propagation", "limited"));
+
+        assertThat(settings.skipThreads())
+                .containsExactly("vert.x-", "bootui-", "parallel-", "boundedElastic-", "single-");
     }
 
     @Test
