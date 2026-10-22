@@ -24,6 +24,7 @@ const UNLISTED = [
   'eager-repeated-selects',
   'lazy-sql-after-handler',
   'connections-per-request',
+  'connection-reacquisition',
   'readonly-candidate-transaction',
   'paged-without-order',
   'anonymous-data-reach',

@@ -71,6 +71,7 @@ test.describe('Runtime Insights demo', () => {
     const leftOut = [
       ['Repeated SELECTs', '/api/insights/orders', onRequest],
       ['Connections held together', '/api/insights/orders/{id}/confirm', 'Database connection pools panel'],
+      ['Connections re-acquired in a session', '/api/insights/tags/reacquire', onRequest],
       ['Writes split across transactions', '/api/insights/orders/{id}/confirm', onRequest],
       ['Read-write transactions that only read', 'InsightTagService.summary', onRequest],
       ['Paged without ORDER BY', 'GET /api/insights/tags/unsorted-page', onRequest],

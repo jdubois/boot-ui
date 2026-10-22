@@ -1896,6 +1896,7 @@ public abstract class AbstractBootUiApiConformanceTest {
                 "route-time-breakdown",
                 "exception-hotspots",
                 "connections-per-request",
+                "connection-reacquisition",
                 "ai-usage-by-route",
                 "repeated-selects",
                 "lazy-sql-after-handler",

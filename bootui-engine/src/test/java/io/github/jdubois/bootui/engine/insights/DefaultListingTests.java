@@ -35,6 +35,7 @@ class DefaultListingTests {
             Map.entry(AnonymousSuccessOnRestrictedRoute.KIND, ExternalValidation.Outcome.NOT_VALIDATED),
             Map.entry(OrmAutoFlush.KIND, ExternalValidation.Outcome.NOT_VALIDATED),
             Map.entry(LargePersistenceContext.KIND, ExternalValidation.Outcome.NOT_VALIDATED),
+            Map.entry(ConnectionReacquisition.KIND, ExternalValidation.Outcome.NOT_JUDGED),
             Map.entry(ReadOnlyCandidateTransaction.KIND, ExternalValidation.Outcome.UNDER_SAMPLED),
             Map.entry(PagedWithoutOrder.KIND, ExternalValidation.Outcome.UNDER_SAMPLED),
             Map.entry(GcInflatedLatency.KIND, ExternalValidation.Outcome.NOT_LISTED),
