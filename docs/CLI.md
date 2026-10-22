@@ -132,6 +132,8 @@ See [Properties](PROPERTIES.md) for `bootui.cli.max-results`, `bootui.cli.execut
 | `--no-color` | `NO_COLOR` | — | Disable ANSI colour. |
 | `-v, --verbose` | — | — | Show the underlying failure when a request does not complete. |
 
+Advisor commands also take [`--fail-on <severity>`](#gate-on-severity), which exits `3` when a retained finding is at or above that severity.
+
 Options work before or after the command, so both `bootui --url :9000 beans` and `bootui beans --url :9000`
 do the same thing.
 
@@ -263,7 +265,7 @@ the offset after any failure or silently rescan to recover. See [agent paginatio
 | `0` | The tool ran and answered. |
 | `1` | Usage error, a rejected argument, authentication was rejected, or the application could not be reached or did not answer. |
 | `2` | BootUI declined to run the tool: its panel is disabled, read-only and the tool is an action, or its CLI catalog confirms the endpoint is disabled. |
-| `3` | Reserved for a future severity threshold. |
+| `3` | An advisor command run with [`--fail-on`](#gate-on-severity) found a retained finding at or above the threshold. |
 
 HTTP `503` alone is not a policy refusal. The CLI checks the target's BootUI catalog and reports endpoint disablement
 only when `enabled` is `false` and `tools` is empty. An outage, an invalid catalog, or a wrong target exits `1`, not
@@ -448,6 +450,29 @@ which commands the target's panel settings would currently refuse. It is a read-
 governed by `bootui.cli.enabled` in configuration, not by a button, because a CI job's access should not be
 revocable from a browser tab. See [Developer tools](features/developer-tools.md).
 
+### Gate on severity
+
+Every advisor scan and report command takes `--fail-on <severity>`: `architecture`, `crac`, `db` (`scan` and
+`report`), `graalvm`, `hibernate`, `memory`, `pentest`, `rest-api`, `security`, `spring` and `vulnerabilities`.
+Other commands, including `db postgres report`, `db mysql report` and `memory heap report`, grade nothing and
+reject the option.
+
+```bash
+bootui hibernate scan --fail-on high    # exit 3 when a HIGH or CRITICAL finding is retained
+```
+
+| Behaviour | Detail |
+| --- | --- |
+| Values | `critical`, `high`, `medium`, `low`, `info`, in any case. A finding at or above the value counts: `high` means `HIGH` and `CRITICAL`. Any other value is a usage error (exit `1`) that lists them. |
+| Output | Unchanged. The answer is printed first, then the gate runs. A short reason goes to stderr. |
+| What counts | The answer's `severityCounts`, which leave out dismissed findings. Severities outside the list above, such as the vulnerability scan's `UNKNOWN`, do not gate; a count of them is named on stderr. `info` is only useful on advisors that report it. |
+| Exit `3` | At least one counted finding at or above the threshold, whether the scan was `SCANNED` or `PARTIAL`. |
+| Exit `0` | The scan was `SCANNED` or `PARTIAL` and nothing is at or above the threshold. A `PARTIAL` scan means some evidence was unavailable, as the Hibernate advisor routinely reports, so stderr notes that no finding is not proof there is none; read `evidence` in the output when that matters. |
+| Exit `1` | The gate cannot be evaluated, so it never passes silently: `severityCounts` is missing, empty or malformed, the scan status is missing or anything other than `SCANNED` or `PARTIAL`, or `evidence.usable` is `false` and nothing is at or above the threshold (nothing was assessed, as when an architecture scan finds no classes). A report that was never scanned carries zero counts too, so `NOT_SCANNED`, `DISABLED` and `ERROR` all stop here. |
+| Refused or failed calls | Keep their exit codes (`2`, `1`); `--fail-on` does not change them. |
+
+The option is CLI-only. It is not an MCP argument and is never sent to the application.
+
 ## In CI
 
 The CLI is designed for a job that starts the application, asks it something, and stops it:
@@ -458,7 +483,7 @@ The CLI is designed for a job that starts the application, asks it something, an
     ./mvnw -B spring-boot:start
 
     status=0
-    bootui hibernate scan --json > hibernate.json || status=$?
+    bootui hibernate scan --fail-on high --json > hibernate.json || status=$?
 
     # Stop the application whether or not the scan answered, so a failure never leaks a JVM.
     ./mvnw -B spring-boot:stop
@@ -466,22 +491,16 @@ The CLI is designed for a job that starts the application, asks it something, an
     case $status in
       0) ;;
       2) echo "the Hibernate panel is off or read-only on this application; skipping"; exit 0 ;;
+      3) echo "high-severity Hibernate findings; see hibernate.json"; exit 1 ;;
       *) exit 1 ;;
     esac
-
-    jq -e '[.severityCounts[]
-           | select(.severity == "CRITICAL" or .severity == "HIGH")
-           | .count] | add == 0' hibernate.json
 ```
 
 Three details make that work as a gate rather than as a job that merely looks green.
 
-**Gate on `severityCounts`, not on a finding array.** Every scan command reports `severityCounts` as
-`[{"severity": …, "count": …}]`, so one expression works for all of them. A scan's `topFindings` lists at most ten
-findings, and the report commands do not name their array uniformly — `pentest report` calls it `findings`, the
-rule-based advisors call it `results` — so a filter written against the wrong name does not report zero findings,
-it aborts with `Cannot iterate over null` and fails the build for a reason that has nothing to do with the
-application.
+**Let the CLI apply the threshold.** `--fail-on high` exits `3` when a retained finding is `HIGH` or `CRITICAL`, so
+the job needs no `jq` expression over `severityCounts`. The JSON on stdout is the same as without the option; see
+[Gate on severity](#gate-on-severity) for what the gate refuses to call a pass.
 
 **Capture the exit code instead of letting it abort the step.** A step runs under `bash -e`, so a bare
 `bootui …` that exits non-zero skips the rest of the script, including the shutdown. The `|| status=$?` form
