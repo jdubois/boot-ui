@@ -3,7 +3,6 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedColumnFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
 import java.sql.Types;
-import java.util.List;
 
 /** Compares nondefault DDL lengths with positively bounded character-column metadata, not runtime validation. */
 final class HibernateColumnLengthMismatchRule extends AbstractHibernateCrossReferenceRule {
@@ -45,7 +44,7 @@ final class HibernateColumnLengthMismatchRule extends AbstractHibernateCrossRefe
             DatabaseAdvisorContext context,
             MappedTableResolution primary,
             MappedEntityFacts entity,
-            List<String> details) {
+            DatabaseFindings details) {
         int eligible = 0;
         for (MappedColumnFacts column : entity.columns()) {
             if (!applicable(column)) {
@@ -67,7 +66,7 @@ final class HibernateColumnLengthMismatchRule extends AbstractHibernateCrossRefe
             SchemaSnapshot schema,
             TableModel table,
             MappedColumnFacts column,
-            List<String> details) {
+            DatabaseFindings details) {
         Integer declaredLength = column.declaredLength();
         ColumnModel physical = schema.declaredColumn(table, column.columnName());
         if (physical == null) {
@@ -90,10 +89,12 @@ final class HibernateColumnLengthMismatchRule extends AbstractHibernateCrossRefe
             return false;
         }
         if (size < declaredLength) {
-            details.add(schema.dataSourceName() + ": " + column.attributeDescription() + " declares @Column(length="
-                    + declaredLength + "), which is longer than physical column " + table.qualifiedName() + "."
-                    + column.columnName() + " (" + physical.describeType() + "). Review this DDL declaration; "
-                    + "it is not a runtime length validator.");
+            details.add(
+                    schema.dataSourceName() + ": " + column.attributeDescription() + " declares @Column(length="
+                            + declaredLength + "), which is longer than physical column " + table.qualifiedName() + "."
+                            + column.columnName() + " (" + physical.describeType() + "). Review this DDL declaration; "
+                            + "it is not a runtime length validator.",
+                    DatabaseIdentities.mapped(schema, table, column.attributeDescription(), column.columnName()));
         }
         return true;
     }

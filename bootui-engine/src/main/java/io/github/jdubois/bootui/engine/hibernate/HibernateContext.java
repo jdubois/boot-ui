@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.hibernate;
 
+import io.github.jdubois.bootui.engine.advisor.AdvisorFindingIdentity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolation;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import java.lang.reflect.Method;
@@ -90,11 +91,23 @@ record HibernateContext(
                 pool);
     }
 
+    /** The first identity part of every finding of this unit: the persistence unit's label. */
+    String unitPart() {
+        return "unit=" + (unitLabel == null ? "application" : unitLabel);
+    }
+
     /**
      * Records a rule's findings for this unit and returns its samples, cut from the same unit-labelled, sanitized
      * records the collector retains, so each sample keeps its location and matches its retained detail.
      */
     List<AdvisorViolation> retainViolations(String ruleId, List<AdvisorViolation> details) {
+        // Every Hibernate finding is keyed; tests run with assertions on, so a rule that forgets its identity fails.
+        assert details.stream()
+                        .allMatch(detail -> detail.identity() != null
+                                && AdvisorFindingIdentity.VALID
+                                        .matcher(detail.identity())
+                                        .matches())
+                : ruleId + " reported a finding without a valid canonical identity";
         return violationCollector.record(
                 ruleId,
                 details.size(),

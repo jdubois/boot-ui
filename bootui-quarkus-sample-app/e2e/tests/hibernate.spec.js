@@ -83,4 +83,31 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     await expect(lobRow).toContainText('SampleAuditEntry#payload is @Lob on PostgreSQL')
     await expect(page.locator('.list-group-item', {hasText: 'HIB-FETCH-005'})).toHaveCount(0)
   })
+
+  test('a second scan with nothing changed reports no changes since the previous scan', async ({openView, page}) => {
+    await openView('hibernate', 'Hibernate')
+    const scan = async () => {
+      const scanResponse = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' && /\/hibernate\/scan$/.test(new URL(response.url()).pathname)
+      )
+      await page.getByRole('button', {name: 'Run Hibernate checks'}).click()
+      return (await scanResponse).json()
+    }
+    const first = await scan()
+    const second = await scan()
+    const changes = second.violationDetails.changes
+    expect(changes.previousScanId).toBe(first.violationDetails.scanId)
+    expect(changes.newCount).toBe(0)
+    expect(changes.resolvedCount).toBe(0)
+    expect(changes.unchangedCount).toBeGreaterThan(0)
+    expect(changes.unverifiedCount).toBe(0)
+    expect(changes.complete).toBe(true)
+    const region = page.getByTestId('advisor-changes')
+    await expect(region).toContainText('No changes since the previous scan')
+    await expect(page.locator('.advisor-score-card [role="status"]')).toHaveCount(1)
+    await expect(page.locator('.advisor-score-card [role="status"]')).toContainText(
+      'No changes since the previous scan'
+    )
+  })
 })

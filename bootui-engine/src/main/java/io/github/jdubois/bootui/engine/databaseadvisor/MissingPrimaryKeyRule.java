@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -60,7 +59,7 @@ final class MissingPrimaryKeyRule extends AbstractDatabaseAdvisorRule {
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
             for (TableModel table : DatabaseAdvisorContext.analyzableTables(schema)) {
@@ -80,7 +79,8 @@ final class MissingPrimaryKeyRule extends AbstractDatabaseAdvisorRule {
                 if (table.primaryKeyColumns().isEmpty()) {
                     details.add(
                             schema.dataSourceName() + ": table " + table.qualifiedName()
-                                    + " has no primary key reported by JDBC; verify driver/privilege coverage before a migration.");
+                                    + " has no primary key reported by JDBC; verify driver/privilege coverage before a migration.",
+                            DatabaseIdentities.table(schema, table));
                 }
             }
         }

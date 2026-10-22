@@ -96,6 +96,10 @@ class RuntimeInsightsSeedsTest {
             assertThat(probe.get("/api/insights/tags/reacquire").status()).isEqualTo(200);
             assertThat(probe.get("/api/insights/tags/reacquire-one-transaction").status())
                     .isEqualTo(200);
+            assertThat(probe.post("/api/insights/audit/one-by-one", JSON).status())
+                    .isEqualTo(200);
+            assertThat(probe.post("/api/insights/audit/in-one-batch", JSON).status())
+                    .isEqualTo(200);
             assertThat(probe.get("/api/insights/tags/summary").status()).isEqualTo(200);
             assertThat(probe.post("/api/insights/tags/summary-then-relabel", JSON)
                             .status())
@@ -286,6 +290,29 @@ class RuntimeInsightsSeedsTest {
         assertThat(transactions.get("exportLabels").ormStatements()).isPositive();
     }
 
+    /**
+     * A loop of single INSERTs in one transaction is found with its shape, and the same rows sent through {@code
+     * JdbcTemplate.batchUpdate} are not: the JDBC proxy records a batch size of twelve for them.
+     */
+    @Test
+    void aLoopOfSingleInsertsIsFoundButNotTheSameRowsInOneBatch() {
+        assertThat(subjects("unbatched-write-loop", "OBSERVED")).containsExactly("POST /api/insights/audit/one-by-one");
+        assertThat(observations)
+                .filteredOn(observation -> observation.path("kind").asText().equals("unbatched-write-loop"))
+                .singleElement()
+                .satisfies(observation -> {
+                    assertThat(observation.path("sentence").asText())
+                            .contains("insert into insight_audit (id, order_id, action) values (?, ?, ?)")
+                            .contains("each without a JDBC batch")
+                            .contains("up to 12 times in one");
+                    assertThat(observation.path("limitations").toString()).contains("within one transaction");
+                });
+        assertThat(unlisted("unbatched-write-loop"))
+                .as("not listed by default, but reachable by its kind")
+                .containsExactly("POST /api/insights/audit/one-by-one");
+        assertThat(subjects("unbatched-write-loop", null)).doesNotContain("POST /api/insights/audit/in-one-batch");
+    }
+
     @Test
     void threeReadsInTransactionsOfTheirOwnReacquireTheConnectionButOneTransactionDoesNot() {
         assertThat(subjects("connection-reacquisition", "OBSERVED"))
@@ -342,6 +369,7 @@ class RuntimeInsightsSeedsTest {
         justified.put(
                 "POST /api/insights/orders/{id}/restore",
                 Set.of("anonymous-data-reach", "connections-per-request", "split-transaction-writes"));
+        justified.put("POST /api/insights/audit/in-one-batch", anonymousWrite);
         justified.put("POST /api/insights/tags/read-then-write", anonymousWrite);
         justified.put("POST /api/insights/tags/summary-then-relabel", anonymousWrite);
         justified.put("POST /api/insights/tags/summary-then-jdbc-write", anonymousWrite);
@@ -429,6 +457,7 @@ class RuntimeInsightsSeedsTest {
                 "repeated-selects",
                 "lazy-sql-after-handler",
                 "split-transaction-writes",
+                "unbatched-write-loop",
                 "framework-warnings-by-route",
                 "anonymous-data-reach")) {
             assertThat(listed(kind))

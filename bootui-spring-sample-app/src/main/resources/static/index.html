@@ -1104,6 +1104,7 @@
     'connections-per-request',
     'connection-reacquisition',
     'split-transaction-writes',
+    'unbatched-write-loop',
     'readonly-candidate-transaction',
     'paged-without-order',
     'framework-warnings-by-route',
@@ -1257,6 +1258,16 @@
         ['GET', '/api/insights/tags/sorted-page', 3]
       ],
       expect: [['paged-without-order', 'Paged without ORDER BY', 'GET /api/insights/tags/unsorted-page']]
+    },
+    {
+      key: 'unbatched-write-loop',
+      label: 'Unbatched write loop',
+      text: 'Inserts twelve audit rows one statement at a time in one transaction, three times; then the same rows in one JDBC batch.',
+      steps: [
+        ['POST', '/api/insights/audit/one-by-one', 3],
+        ['POST', '/api/insights/audit/in-one-batch', 3]
+      ],
+      expect: [['unbatched-write-loop', 'Unbatched write loops', 'POST /api/insights/audit/one-by-one']]
     },
     {
       key: 'work-after-response',

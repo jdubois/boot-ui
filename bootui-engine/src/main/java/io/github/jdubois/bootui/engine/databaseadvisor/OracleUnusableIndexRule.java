@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -53,7 +52,7 @@ final class OracleUnusableIndexRule extends AbstractDatabaseAdvisorRule {
                                 schema, VendorFindingKinds.ORACLE_INDEX_PARTITION_STATUS))) {
             return skipped(skipReason);
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
             VendorRuleSupport.coverage(context, definition().id(), schema, VendorFindingKinds.ORACLE_INDEX_DETAILS);
@@ -87,18 +86,21 @@ final class OracleUnusableIndexRule extends AbstractDatabaseAdvisorRule {
         return VendorRuleSupport.assessed(this, context, eligible, details);
     }
 
-    private void checkOrdinaryIndexes(SchemaSnapshot schema, List<String> details) {
+    private void checkOrdinaryIndexes(SchemaSnapshot schema, DatabaseFindings details) {
         for (OracleIndexDetail index : schema.vendorFindings().findings(VendorFindingKinds.ORACLE_INDEX_DETAILS)) {
             if (index.partitioned() || index.domain() || !index.unusable()) {
                 continue;
             }
             String flavor = index.automatic() ? " (system-generated name; not proof of constraint ownership)" : "";
-            details.add(schema.dataSourceName() + ": index " + index.schema() + "." + index.index() + flavor
-                    + " on table " + index.qualifiedTable() + " is UNUSABLE (" + index.indexType() + ").");
+            details.add(
+                    schema.dataSourceName() + ": index " + index.schema() + "." + index.index() + flavor + " on table "
+                            + index.qualifiedTable() + " is UNUSABLE (" + index.indexType() + ").",
+                    DatabaseIdentities.table(
+                            schema.dataSourceName(), null, index.schema(), index.table(), "index=" + index.index()));
         }
     }
 
-    private void checkPartitions(SchemaSnapshot schema, List<String> details) {
+    private void checkPartitions(SchemaSnapshot schema, DatabaseFindings details) {
         for (OracleIndexPartitionStatus partition :
                 schema.vendorFindings().findings(VendorFindingKinds.ORACLE_INDEX_PARTITION_STATUS)) {
             if (!partition.unusable()) {
@@ -112,9 +114,17 @@ final class OracleUnusableIndexRule extends AbstractDatabaseAdvisorRule {
                 continue;
             }
             String level = partition.subpartition() ? "subpartition" : "partition";
-            details.add(schema.dataSourceName() + ": " + level + " " + partition.partitionName() + " of index "
-                    + partition.schema() + "." + partition.index() + " on table " + partition.qualifiedTable()
-                    + " is UNUSABLE.");
+            details.add(
+                    schema.dataSourceName() + ": " + level + " " + partition.partitionName() + " of index "
+                            + partition.schema() + "." + partition.index() + " on table " + partition.qualifiedTable()
+                            + " is UNUSABLE.",
+                    DatabaseIdentities.table(
+                            schema.dataSourceName(),
+                            null,
+                            partition.schema(),
+                            partition.table(),
+                            "index=" + partition.index(),
+                            (partition.subpartition() ? "subpartition=" : "partition=") + partition.partitionName()));
         }
     }
 }

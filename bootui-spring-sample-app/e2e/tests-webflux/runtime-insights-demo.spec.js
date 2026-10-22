@@ -33,6 +33,9 @@ test.describe('Runtime Insights demo on Spring WebFlux', () => {
     await expect(
       kind('Paged without ORDER BY').locator('.insight-item', {hasText: '/api/insights/notes/unsorted-page'}).first()
     ).toBeVisible()
+    await expect(
+      kind('Unbatched write loops').locator('.insight-item', {hasText: '/api/insights/notes/write-one-by-one'}).first()
+    ).toBeVisible()
     // The external validation decides what is listed, but stays in the plan: no row mentions it.
     await expect(page.locator('.insight-list')).not.toContainText(/validat/i)
     await page.locator('.insight-item', {hasText: 'GET /api/notes'}).first().click()

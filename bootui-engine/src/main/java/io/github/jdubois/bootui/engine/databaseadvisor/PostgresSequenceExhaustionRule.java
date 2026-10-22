@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.List;
 
 /** Direction-aware sequence headroom, bounded by a known owning column as well as the sequence definition. */
@@ -37,7 +36,7 @@ final class PostgresSequenceExhaustionRule extends AbstractDatabaseAdvisorRule {
         if (skipReason != null) {
             return skipped(skipReason);
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
             VendorRuleSupport.coverage(context, definition().id(), schema, VendorFindingKinds.POSTGRES_SEQUENCES);
@@ -67,7 +66,7 @@ final class PostgresSequenceExhaustionRule extends AbstractDatabaseAdvisorRule {
         return VendorRuleSupport.assessed(this, context, eligible, details);
     }
 
-    private void checkSequence(SchemaSnapshot schema, PostgresSequenceUsage sequence, List<String> details) {
+    private void checkSequence(SchemaSnapshot schema, PostgresSequenceUsage sequence, DatabaseFindings details) {
         if ((sequence.cycle() && !sequence.limitedByColumn()) || sequence.effectiveBound() == null) {
             return;
         }
@@ -76,10 +75,13 @@ final class PostgresSequenceExhaustionRule extends AbstractDatabaseAdvisorRule {
             return;
         }
         String limitedBy = sequence.limitedByColumn() ? " (limited by its owning column type)" : "";
-        details.add(schema.dataSourceName() + ": sequence " + sequence.qualifiedName() + " at " + percentUsed
-                + "% toward effective bound " + sequence.effectiveBound() + limitedBy + "; owner "
-                + sequence.describeOwner() + "; reserved last_value " + sequence.lastValue()
-                + " (start " + sequence.startValue() + ", increment " + sequence.incrementBy()
-                + ", cache " + sequence.cacheSize() + "). Not committed rows.");
+        details.add(
+                schema.dataSourceName() + ": sequence " + sequence.qualifiedName() + " at " + percentUsed
+                        + "% toward effective bound " + sequence.effectiveBound() + limitedBy + "; owner "
+                        + sequence.describeOwner() + "; reserved last_value " + sequence.lastValue()
+                        + " (start " + sequence.startValue() + ", increment " + sequence.incrementBy()
+                        + ", cache " + sequence.cacheSize() + "). Not committed rows.",
+                DatabaseIdentities.of(
+                        schema.dataSourceName(), "schema=" + sequence.schema(), "sequence=" + sequence.sequence()));
     }
 }

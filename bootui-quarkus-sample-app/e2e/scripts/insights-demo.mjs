@@ -19,6 +19,8 @@ const STEPS = [
   ['GET', '/api/insights/orders/on-event-loop', 3],
   ['GET', '/api/insights/orders/1', 1],
   ['POST', '/api/insights/orders/1/archive', 1],
+  ['POST', '/api/insights/audit/one-by-one', 3],
+  ['POST', '/api/insights/audit/in-one-batch', 3],
   ['POST', '/api/insights/debug/reset-totals', 1],
   ['GET', '/api/insights/reports/payroll', 1],
   ['GET', '/api/insights/reports/PAYROLL', 1],

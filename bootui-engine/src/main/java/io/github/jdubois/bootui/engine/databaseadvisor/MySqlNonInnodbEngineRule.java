@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -42,7 +41,7 @@ final class MySqlNonInnodbEngineRule extends AbstractDatabaseAdvisorRule {
         if (skipReason != null) {
             return skipped(skipReason);
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
             VendorRuleSupport.coverage(context, definition().id(), schema, VendorFindingKinds.MYSQL_TABLES);
@@ -56,11 +55,13 @@ final class MySqlNonInnodbEngineRule extends AbstractDatabaseAdvisorRule {
                 }
                 eligible++;
                 if (isNonTransactional(table.engine())) {
-                    details.add(schema.dataSourceName() + ": table " + table.qualifiedName() + " uses the "
-                            + table.engine() + " engine, which does not provide transactional rollback."
-                            + ("aria".equalsIgnoreCase(table.engine())
-                                    ? " Aria can provide crash safety; that is distinct from transaction support."
-                                    : ""));
+                    details.add(
+                            schema.dataSourceName() + ": table " + table.qualifiedName() + " uses the "
+                                    + table.engine() + " engine, which does not provide transactional rollback."
+                                    + ("aria".equalsIgnoreCase(table.engine())
+                                            ? " Aria can provide crash safety; that is distinct from transaction support."
+                                            : ""),
+                            DatabaseIdentities.table(schema.dataSourceName(), null, table.schema(), table.table()));
                 }
             }
         }

@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -23,7 +22,7 @@ final class MissingForeignKeyIndexRule extends AbstractDatabaseAdvisorRule {
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
             for (TableModel table : DatabaseAdvisorContext.analyzableTables(schema)) {
@@ -68,10 +67,12 @@ final class MissingForeignKeyIndexRule extends AbstractDatabaseAdvisorRule {
                         continue;
                     }
                     eligible++;
-                    details.add(schema.dataSourceName() + ": " + table.qualifiedName() + " foreign key " + fk.name()
-                            + " " + fk.columns()
-                            + " has no observed usable ordinary index leading on the full column set. "
-                            + "Review parent modifications and query plans; this is not proof of a table scan.");
+                    details.add(
+                            schema.dataSourceName() + ": " + table.qualifiedName() + " foreign key " + fk.name()
+                                    + " " + fk.columns()
+                                    + " has no observed usable ordinary index leading on the full column set. "
+                                    + "Review parent modifications and query plans; this is not proof of a table scan.",
+                            DatabaseIdentities.table(schema, table, DatabaseIdentities.foreignKey(fk)));
                 }
             }
         }

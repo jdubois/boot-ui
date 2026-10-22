@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -53,7 +52,7 @@ final class MySqlNonUtf8mb4CharsetRule extends AbstractDatabaseAdvisorRule {
                         .noneMatch(schema -> VendorRuleSupport.available(schema, VendorFindingKinds.MYSQL_TABLES))) {
             return skipped(skipReason);
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
             VendorRuleSupport.coverage(
@@ -83,29 +82,38 @@ final class MySqlNonUtf8mb4CharsetRule extends AbstractDatabaseAdvisorRule {
         return VendorRuleSupport.assessed(this, context, eligible, details);
     }
 
-    private void collectTableDefaults(SchemaSnapshot schema, List<String> details) {
+    private void collectTableDefaults(SchemaSnapshot schema, DatabaseFindings details) {
         if (!VendorRuleSupport.available(schema, VendorFindingKinds.MYSQL_TABLES)) {
             return;
         }
         for (MySqlTableInfo table : schema.vendorFindings().findings(VendorFindingKinds.MYSQL_TABLES)) {
             if (isLegacyUtf8(table.characterSet())) {
-                details.add(schema.dataSourceName() + ": table " + table.qualifiedName()
-                        + " defaults to character set " + table.characterSet() + " (collation "
-                        + table.collation() + ") instead of utf8mb4. " + recommendedCollation(schema));
+                details.add(
+                        schema.dataSourceName() + ": table " + table.qualifiedName()
+                                + " defaults to character set " + table.characterSet() + " (collation "
+                                + table.collation() + ") instead of utf8mb4. " + recommendedCollation(schema),
+                        DatabaseIdentities.table(schema.dataSourceName(), null, table.schema(), table.table()));
             }
         }
     }
 
-    private void collectColumns(SchemaSnapshot schema, List<String> details) {
+    private void collectColumns(SchemaSnapshot schema, DatabaseFindings details) {
         if (!VendorRuleSupport.available(schema, VendorFindingKinds.MYSQL_COLUMN_CHARSETS)) {
             return;
         }
         for (MySqlColumnCharset column : schema.vendorFindings().findings(VendorFindingKinds.MYSQL_COLUMN_CHARSETS)) {
             if (isLegacyUtf8(column.characterSet())) {
-                details.add(schema.dataSourceName() + ": column " + column.qualifiedColumn()
-                        + " uses character set " + column.characterSet()
-                        + ", a three-byte encoding that cannot store the full Unicode range. "
-                        + recommendedCollation(schema));
+                details.add(
+                        schema.dataSourceName() + ": column " + column.qualifiedColumn()
+                                + " uses character set " + column.characterSet()
+                                + ", a three-byte encoding that cannot store the full Unicode range. "
+                                + recommendedCollation(schema),
+                        DatabaseIdentities.table(
+                                schema.dataSourceName(),
+                                null,
+                                column.schema(),
+                                column.table(),
+                                "column=" + column.column()));
             }
         }
     }

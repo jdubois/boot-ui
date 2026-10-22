@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.core.dto.HibernateScanStatusDto;
 import io.github.jdubois.bootui.core.dto.HibernateSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorFindingIdentity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorLocations;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
@@ -67,7 +68,7 @@ public final class HibernateScanner {
             sourceLocations = HibernateSourceLocations::resolve;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private final AdvisorScanState<HibernateReport> violationState =
-            new AdvisorScanState<>(HibernateReport::withViolationDetails, this::ruleCatalog);
+            new AdvisorScanState<>(HibernateReport::withViolationDetails, this::ruleCatalog).trackingChanges();
 
     /**
      * Compatibility factory for declaration-only discovery. The property callback is retained for
@@ -177,6 +178,7 @@ public final class HibernateScanner {
                 .flatMap(unit -> unit.entities().stream())
                 .toList();
         if (entities.isEmpty()) {
+            collector.markScanUnverified("No persistence unit mappings were observed, so no rule could run.");
             List<HibernateDiagnosticDto> discovery = discoveryDiagnostics(observation);
             List<HibernateDiagnosticDto> retained = bounded(discovery);
             String message = observation.diagnostics().isEmpty()
@@ -228,6 +230,22 @@ public final class HibernateScanner {
                         HibernateFactorySettings.unknown(),
                         null),
                 globalApp);
+        // A diagnostic about something that is not an observed unit (repository metadata, a factory that failed to
+        // start) can lose findings, or flip an application-wide verdict, in any scope: nothing is then concluded.
+        java.util.Set<String> observedUnits = observation.units().stream()
+                .map(HibernatePersistenceUnitObservation::label)
+                .collect(java.util.stream.Collectors.toSet());
+        boolean discoveryGap = false;
+        for (HibernateObservationDiagnostic diagnostic : observation.diagnostics()) {
+            collector.markScopeUnverified(
+                    AdvisorFindingIdentity.encode("unit=" + diagnostic.unitLabel()),
+                    "Persistence unit " + diagnostic.unitLabel() + " could not be fully observed.");
+            discoveryGap |= !observedUnits.contains(diagnostic.unitLabel());
+        }
+        if (discoveryGap) {
+            collector.noteCoverageGap(
+                    "A persistence unit or its repositories could not be observed, so no finding was compared.");
+        }
         for (HibernateRule rule : rules) {
             List<HibernatePersistenceUnitObservation> units = rule.applicationWide() ? List.of() : observation.units();
             List<HibernateContext> contexts = units.isEmpty()
@@ -281,6 +299,9 @@ public final class HibernateScanner {
                             label,
                             advisorLimitOnly(evidence) ? INFO : WARNING,
                             prefix + " Required evidence unavailable: " + gaps + "."));
+                }
+                if (!discoveryGap && concluded(result, evidence)) {
+                    collector.markConcluded(ruleId, AdvisorFindingIdentity.encode(context.unitPart()));
                 }
                 if (HibernateRuleSupport.SKIPPED.equals(result.status())
                         && !failed.contains(identity)
@@ -384,6 +405,17 @@ public final class HibernateScanner {
                     + " naming each affected rule and unit.";
         return " Diagnostics show " + (retained.size() - 1) + " of " + total
                 + " entries; every affected rule and discovery reason keeps at least one, failures first.";
+    }
+
+    /**
+     * Whether a rule reached a verdict for its unit: it passed or reported findings, without a gap in the evidence it
+     * needs. A skipped or failed rule, or a partly evaluated one, cannot show that a finding is gone. Gaps that are
+     * the advisor's own deliberate limits do not count: they are the same on every scan.
+     */
+    private static boolean concluded(HibernateRuleResultDto result, HibernateEvaluationEvidence evidence) {
+        return (HibernateRuleSupport.PASS.equals(result.status()) || isViolation(result))
+                && evidence.evaluated()
+                && (!evidence.requiredUnknown() || advisorLimitOnly(evidence));
     }
 
     private static boolean advisorLimitOnly(HibernateEvaluationEvidence evidence) {

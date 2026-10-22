@@ -11,6 +11,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **`paged-without-order` observation** reports a SELECT that limits its rows without an `ORDER BY`, so its pages can
   repeat or skip rows ([#1522](https://github.com/jdubois/boot-ui/issues/1522)).
+- **`unbatched-write-loop` observation** reports a request that ran one write statement ten times or more, each without
+  a JDBC batch ([#1521](https://github.com/jdubois/boot-ui/issues/1521)).
 - **`HIB-CONFIG-021` (HIGH)** flags `hibernate.connection.provider_disables_autocommit=true` on a pool that hands out
   auto-commit connections, and `HIB-CONFIG-008` now reads the pool's auto-commit instead of always skipping
   ([Hibernate checks](docs/HIBERNATE-CHECKS.md#hib-config-021-provider-auto-commit-setting-should-match-the-pool); #1512).
@@ -23,6 +25,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`ARCH-SPRING-025` (LOW)** flags `RestClient.builder(..)`/`create(..)` and `WebClient.builder()`/`create(..)` when
   Spring Boot's auto-configured builder is available, since those clients skip metrics, tracing, and shared
   customizers ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-025---http-clients-should-be-built-from-spring-boots-auto-configured-builder); #1500).
+- **Changes since the previous scan** on the Hibernate and Database advisors show what a fix resolved and what is new,
+  and every finding carries a stable identity ([#1523](https://github.com/jdubois/boot-ui/issues/1523)).
 - **`readonly-candidate-transaction`** reports a read-write `@Transactional` method whose transactions never changed
   an entity or ran a write, so it may be declared read-only
   ([#1513](https://github.com/jdubois/boot-ui/issues/1513)).

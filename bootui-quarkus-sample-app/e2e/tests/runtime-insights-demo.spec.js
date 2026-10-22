@@ -48,6 +48,7 @@ test.describe('Runtime Insights demo', () => {
     for (const [title, subject] of [
       ['Repeated SELECTs', '/api/insights/orders'],
       ['Paged without ORDER BY', '/api/insights/orders/page'],
+      ['Unbatched write loops', '/api/insights/audit/one-by-one'],
       ['Anonymous writes', '/api/insights/debug/reset-totals']
     ]) {
       await expect(kind(title).locator('.insight-item', {hasText: subject}).first()).toBeVisible()

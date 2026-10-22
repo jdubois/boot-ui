@@ -3,7 +3,6 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedColumnFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedForeignKeyFacts;
-import java.util.List;
 
 /** Reviews annotation column names against a complete column inventory, not Hibernate's effective mapping. */
 final class HibernateMissingColumnRule extends AbstractHibernateCrossReferenceRule {
@@ -38,7 +37,7 @@ final class HibernateMissingColumnRule extends AbstractHibernateCrossReferenceRu
             DatabaseAdvisorContext context,
             MappedTableResolution primary,
             MappedEntityFacts entity,
-            List<String> details) {
+            DatabaseFindings details) {
         int eligible = 0;
         for (MappedColumnFacts column : entity.columns()) {
             MappedTableResolution resolution = resolveItemTable(context, entity, primary, column.tableName());
@@ -54,9 +53,12 @@ final class HibernateMissingColumnRule extends AbstractHibernateCrossReferenceRu
             }
             eligible++;
             if (physical == null) {
-                details.add(resolution.schema().dataSourceName() + ": " + column.attributeDescription()
-                        + " declares column " + table.qualifiedName() + "." + column.columnName()
-                        + ", whose declaration name was not found in the observed relation's column inventory.");
+                details.add(
+                        resolution.schema().dataSourceName() + ": " + column.attributeDescription()
+                                + " declares column " + table.qualifiedName() + "." + column.columnName()
+                                + ", whose declaration name was not found in the observed relation's column inventory.",
+                        DatabaseIdentities.mapped(
+                                resolution.schema(), table, column.attributeDescription(), column.columnName()));
             }
         }
         for (MappedForeignKeyFacts foreignKey : entity.foreignKeys()) {
@@ -77,9 +79,12 @@ final class HibernateMissingColumnRule extends AbstractHibernateCrossReferenceRu
                 }
                 eligible++;
                 if (physical == null) {
-                    details.add(resolution.schema().dataSourceName() + ": " + foreignKey.attributeDescription()
-                            + " declares join column " + table.qualifiedName() + "." + column
-                            + ", whose declaration name was not found in the observed relation's column inventory.");
+                    details.add(
+                            resolution.schema().dataSourceName() + ": " + foreignKey.attributeDescription()
+                                    + " declares join column " + table.qualifiedName() + "." + column
+                                    + ", whose declaration name was not found in the observed relation's column inventory.",
+                            DatabaseIdentities.mapped(
+                                    resolution.schema(), table, foreignKey.attributeDescription(), column));
                 }
             }
         }

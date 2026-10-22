@@ -55,6 +55,9 @@ public abstract class AbstractBootUiApiConformanceTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    /** The advisors whose findings carry a canonical identity and are compared between scans. */
+    private static final List<String> TRACKED_ADVISORS = List.of("hibernate", "database-advisor");
+
     private static final String DEFAULT_EXPECTED_PANELS =
             "/io/github/jdubois/bootui/conformance/expected-panels-spring.json";
 
@@ -876,6 +879,58 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void trackedAdvisorsCompareASecondScanWithTheFirstWithoutInventingChanges() {
+        for (String panel : TRACKED_ADVISORS) {
+            if (!isPanelUsableInLiveManifest(panel)) continue;
+            BootUiHttpProbe probe = probe();
+            JsonNode first = probe.request("POST", api("/" + panel + "/scan"), stateChangingHeaders(probe), "")
+                    .json()
+                    .path("violationDetails");
+            JsonNode second = probe.request("POST", api("/" + panel + "/scan"), stateChangingHeaders(probe), "")
+                    .json()
+                    .path("violationDetails");
+            JsonNode changes = second.path("changes");
+            if (changes.isNull() || changes.isMissingNode()) {
+                // An advisor with nothing to inspect concludes no rule, so its scans are never compared.
+                assertThat(first.path("total").asInt())
+                        .as(panel + " has nothing to compare")
+                        .isZero();
+                continue;
+            }
+            if (changes.path("previousScanId").isNull()) {
+                // A scan that concluded no rule has no baseline: it says so and claims nothing.
+                assertThat(changes.path("complete").asBoolean(true))
+                        .as(panel + " an uncompared scan is not complete")
+                        .isFalse();
+                assertThat(changes.path("notes")).as(panel + " explains why").isNotEmpty();
+                assertThat(changes.path("newCount").asInt()).isZero();
+                assertThat(changes.path("resolvedCount").asInt()).isZero();
+                continue;
+            }
+            assertThat(changes.path("previousScanId").asText())
+                    .as(panel + " compares with the first scan")
+                    .isEqualTo(first.path("scanId").asText());
+            assertThat(changes.path("complete").isBoolean()).isTrue();
+            assertThat(changes.path("resolved").isArray()).isTrue();
+            assertThat(changes.path("notes").isArray()).isTrue();
+            assertThat(changes.path("rules").isArray()).isTrue();
+            assertThat(changes.path("newCount").asInt())
+                    .as(panel + " invents no new finding")
+                    .isZero();
+            assertThat(changes.path("resolvedCount").asInt())
+                    .as(panel + " invents no resolved finding")
+                    .isZero();
+            assertThat(changes.path("resolved")).isEmpty();
+        }
+    }
+
+    private static void assertAlignedOrEmpty(String subject, JsonNode texts, JsonNode aligned) {
+        assertThat(aligned.isArray()).as(subject + " is an array").isTrue();
+        if (aligned.isEmpty()) return;
+        assertThat(aligned.size()).as(subject + " aligns with the violations").isEqualTo(texts.size());
+    }
+
+    @Test
     void advisorViolationPagesStayBoundToTheCountedSnapshot() {
         for (String panel :
                 List.of("architecture", "hibernate", "spring", "rest-api", "memory", "security", "database-advisor")) {
@@ -890,6 +945,9 @@ public abstract class AbstractBootUiApiConformanceTest {
             assertThat(scanId).as(panel + " snapshot identifier").isNotBlank();
             assertThat(metadata.path("retentionLimit").asInt()).isPositive();
             assertThat(metadata.path("truncated").isBoolean()).isTrue();
+            assertThat(metadata.has("changes"))
+                    .as(panel + " changes is always present, null when not compared")
+                    .isTrue();
             int counted = 0;
             for (JsonNode result : report.path("results"))
                 counted += result.path("violationCount").asInt();
@@ -919,6 +977,19 @@ public abstract class AbstractBootUiApiConformanceTest {
                         .isEqualTo(rule.path("violationCount").asInt());
                 assertThat(page.path("violations").isArray()).isTrue();
                 assertThat(page.path("violations").size()).isLessThanOrEqualTo(1);
+                assertAlignedOrEmpty(panel + " identities", page.path("violations"), page.path("identities"));
+                assertAlignedOrEmpty(panel + " changes", page.path("violations"), page.path("changes"));
+                if (!TRACKED_ADVISORS.contains(panel)) {
+                    assertThat(page.path("identities"))
+                            .as(panel + " is not keyed")
+                            .isEmpty();
+                    assertThat(page.path("changes"))
+                            .as(panel + " is not compared")
+                            .isEmpty();
+                    assertThat(metadata.path("changes").isNull())
+                            .as(panel + " has no changes")
+                            .isTrue();
+                }
                 assertThat(page.path("page").path("returned").asInt())
                         .isEqualTo(page.path("violations").size());
                 assertThat(page.path("page").path("total").asInt())
@@ -1884,7 +1955,7 @@ public abstract class AbstractBootUiApiConformanceTest {
         JsonNode report = probe.get(api("/runtime-insights")).json();
         assertThat(report.path("checks").size())
                 .as("every observation reports whether it ran")
-                .isEqualTo(26);
+                .isEqualTo(27);
         // Each kind's external validation (docs/PLAN-v2.md M4-20) decides its default listing on every stack, but
         // stays internal: no check carries it, and no row's reason mentions it.
         for (JsonNode check : report.path("checks")) {
@@ -1903,6 +1974,7 @@ public abstract class AbstractBootUiApiConformanceTest {
                 "split-transaction-writes",
                 "readonly-candidate-transaction",
                 "paged-without-order",
+                "unbatched-write-loop",
                 "framework-warnings-by-route",
                 "anonymous-data-reach",
                 "gc-inflated-latency",

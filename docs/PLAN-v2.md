@@ -1056,6 +1056,7 @@ Scope:
 | `lazy-sql-after-handler` | SQL executed after the handler returned, while the response was written or the view rendered, outside a transaction (open session in view), by route and fingerprint | ≥ 3 requests, or 1 request with ≥ 10 statements | Spring MVC. On Quarkus these surface as `LazyInitializationException` in `exception-hotspots`; not applicable to WebFlux |
 | `connections-per-request` | One request holding two or more connections of one pool at the same time, for example `REQUIRES_NEW` inside a transaction, with the known pool maximum and a labelled estimate of the first concurrency that can exhaust it while waiting for another connection: ⌊(pool − 1) ÷ (held − 1)⌋ + 1 requests, using the observed maximum held per request. Unknown pool sizes keep the symbolic formula. This assumes nested hold-and-wait checkouts, not parallel independent work; other pool users can exhaust it sooner. It is not proof of a deadlock | ≥ 1 request; `REQUEST_ID` tier only | All three, for JDBC pools (HikariCP and Agroal) |
 | `split-transaction-writes` | One request committing its writes in two or more independent transactions or autocommit statements, with their boundaries. Worded "if these writes must succeed together…" | ≥ 1 request | Spring MVC and WebFlux transactions, reactive ones as for `transaction-across-remote-call`; Quarkus is unavailable |
+| `unbatched-write-loop` | ✅ Delivered after 2.0 (#1521): a request that ran one write shape (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, or `REPLACE`) ≥ 10 times, each with a JDBC batch size of one, in one transaction when transactions are recorded; per route, with the shape, executions, total time, and call site. An execution of unknown batch size, or a Quarkus Hibernate preparation, is never counted as unbatched, and the check's reason counts what it left out | ≥ 2 requests | Spring MVC and WebFlux (JDBC); Quarkus counts executed JDBC writes per request, never Hibernate's prepared ones |
 | `safe-method-dml` | GET or HEAD requests that executed or, on Quarkus, prepared an INSERT, UPDATE, DELETE, or MERGE, by route, fingerprint, and call site. Preparations and timed JDBC executions are separate findings; a metered session with executions does not prove a particular prepared statement ran. Worded as a question: an incidental audit write, or a state change the caller asked for? | ≥ 1 request | All three for executed JDBC; Quarkus ORM statements are unverified preparations |
 | `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers (Hibernate, Spring, HikariCP, Quarkus, Vert.x, Reactor, Jackson, and Tomcat) carrying a request id, grouped by logger, message template, and route, and marked new in the run. About ten known codes carry a specific check, such as Hibernate's in-memory pagination `HHH90003004`, Hikari's leak detection, and Vert.x's blocked-thread warning | ≥ 1 event | All three |
 
@@ -1321,7 +1322,6 @@ Acceptance criteria:
 | `secret-shape-counts` | 💤 Deferred | Replaces `sensitive-runtime-egress`: per route, counts by category of secret-like assignments masked in log lines and outbound URLs, from §3.27's shared masking helper. Never values, and never prompts |
 | `virtual-thread-pinning` | 💤 Deferred | `jdk.VirtualThreadPinned` per route and application frame, frequent on JDK 21 with `synchronized`. Cheap once §5.11's opt-in JFR attribution exists |
 | `external-ack-before-rollback` | 💤 Deferred | A remote POST acknowledged inside a transaction that then rolled back: a consistency question, which needs careful boundary fixtures |
-| `unbatched-write-loop` | 💤 Deferred | Many single prepared INSERTs of one shape in a request and transaction, with no JDBC batch |
 | `unparameterized-sql-by-route` | 💤 Deferred | `DB-RUNTIME-001` joined with routes and call sites, never displaying literals or claiming injection |
 | `session-id-stable-across-login`, `outbound-host-fanout` | 💤 Deferred | Narrow runtime security facts; the first needs a keyed session hash per request |
 | Slow-versus-fast cohort comparison | 💤 Deferred | "What distinguishes the slow requests of a route?" over curated attributes (cache miss, statement set, exception, thread kind, principal group), as Honeycomb BubbleUp does. Curated dimensions first; an optional embedded analytics engine only if users ask for ad-hoc slicing |
@@ -2085,7 +2085,7 @@ Payload enrichments that need no new source, each additive:
 | --- | --- | --- | --- |
 | `TransactionPayload` | Read-only, isolation, propagation, rollback exception class | `read-only-transaction-writes` (§5.10), the cause of a rollback | M3-8 |
 | `HttpPayload` | Request and response sizes; the authentication class from `authorization` | `unbounded-result-ramp` (§5.10), §5.9 | M4-6, then by demand |
-| `SqlPayload` | Rows returned or updated, batch flag and size | `unbounded-result-ramp`, `unbatched-write-loop` (§5.10) | By demand |
+| `SqlPayload` | Rows returned or updated. Its batch size (`1`, `N`, or `0` for unknown) is delivered with `unbatched-write-loop` (§5.5) | `unbounded-result-ramp` (§5.10) | By demand |
 | `CachePayload` | A keyed per-run hash of the key | `cache-effectiveness` (§5.10) | By demand |
 | `ExceptionPayload` | Handled or propagated | `errors-behind-2xx` wording | By demand |
 | `ScheduledPayload` | Skipped or overlapping run, lateness against its trigger | `scheduled-overlap-drift` (§5.10) | By demand |
@@ -2197,6 +2197,7 @@ into `bootui-engine` (D50), and no shared module gains a Spring, Quarkus, or JSO
 | `route-time-breakdown` | ✓ | Authentication and the recorded calls; no handler or response phase, so the rest is unattributed | ✓, without the authentication phase; ORM SQL time unknown |
 | `repeated-selects`, `exception-hotspots`, `errors-behind-2xx`, `connections-per-request`, `safe-method-dml`, `framework-warnings-by-route` | ✓ | ✓; SQL checks `UNAVAILABLE` with R2DBC (D39) | ✓ (ORM statements are preparations) |
 | `transaction-across-remote-call`, `split-transaction-writes` | ✓ | Blocking transactions | Unavailable |
+| `unbatched-write-loop` | ✓ | ✓ JDBC; `UNAVAILABLE` with R2DBC (D39) | Executed JDBC writes, counted per request; Hibernate's prepared statements are never counted |
 | `lazy-sql-after-handler` | ✓ | Not applicable | As `LazyInitializationException` |
 | `proxy-bypass` | ✓ | ✓ | Not applicable: ArC intercepts self-invocation |
 | `change-impact` | Bean graph | Bean graph | ArC injection edges |

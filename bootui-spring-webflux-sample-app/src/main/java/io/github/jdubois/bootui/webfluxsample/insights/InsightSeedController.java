@@ -25,13 +25,21 @@ public class InsightSeedController {
     /** The notes the loop reads one at a time, more than the five repeats {@code repeated-selects} needs. */
     private static final int NOTES = 6;
 
+    /** The updates the write loop runs, more than the ten executions that make a loop. */
+    private static final int WRITES = 12;
+
     private final NoteRepository notes;
+    private final InsightNoteWriter writer;
     private final WebClient webClient;
     private final WebServerApplicationContext context;
 
     public InsightSeedController(
-            NoteRepository notes, WebClient.Builder webClients, WebServerApplicationContext context) {
+            NoteRepository notes,
+            InsightNoteWriter writer,
+            WebClient.Builder webClients,
+            WebServerApplicationContext context) {
         this.notes = notes;
+        this.writer = writer;
         this.webClient = webClients.build();
         this.context = context;
     }
@@ -74,6 +82,21 @@ public class InsightSeedController {
     @GetMapping("/notes/sorted-page")
     public Mono<List<Note>> notesSortedPage() {
         return Mono.fromCallable(notes::findSortedPage).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * {@code unbatched-write-loop}: one update per note in one transaction, off the event loop. A GET only because the
+     * sample's other routes are read in a browser; it is not a pattern to copy.
+     */
+    @GetMapping("/notes/write-one-by-one")
+    public Mono<Integer> notesWrittenOneByOne() {
+        return Mono.fromCallable(() -> writer.touchOneByOne(WRITES)).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /** The counterexample of the write loop: the same updates in one JDBC batch. */
+    @GetMapping("/notes/write-in-one-batch")
+    public Mono<Integer> notesWrittenInOneBatch() {
+        return Mono.fromCallable(() -> writer.touchInOneBatch(WRITES)).subscribeOn(Schedulers.boundedElastic());
     }
 
     /** The counterexample of the loop: one statement for every note. */

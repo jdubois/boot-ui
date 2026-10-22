@@ -295,6 +295,64 @@ describe('AdvisorRuleViolations', () => {
     expect(document.getElementById(a.attributes('aria-controls'))).not.toBeNull()
   })
 
+  describe('changes since the previous scan', () => {
+    const changedDetails = (newCount) => ({
+      ...details,
+      changes: {complete: true, rules: [{ruleId, newCount, resolvedCount: 0, unverifiedCount: 0}]}
+    })
+    const markers = (count, news) =>
+      Array.from({length: count}, (_, index) => (news.includes(index) ? 'NEW' : 'UNCHANGED'))
+
+    it('says how many findings are new and offers the paged view even when every finding is already a sample', () => {
+      const wrapper = render({
+        rule: {...rule, violationCount: 3, sampleViolations: violations(3)},
+        details: changedDetails(1)
+      })
+      expect(wrapper.text()).toContain('1 new since the previous scan')
+      expect(button(wrapper, 'View violations').exists()).toBe(true)
+      expect(wrapper.findAll('[data-testid="new-finding"]')).toHaveLength(0)
+      expect(fetch).not.toHaveBeenCalled()
+    })
+
+    it('adds nothing for a rule that has no new finding', () => {
+      const wrapper = render({
+        rule: {...rule, violationCount: 3, sampleViolations: violations(3)},
+        details: changedDetails(0)
+      })
+      expect(wrapper.text()).not.toContain('new since the previous scan')
+      expect(wrapper.findAll('button')).toHaveLength(0)
+    })
+
+    it('badges exactly the NEW findings of the page, with text and an icon', async () => {
+      const page = {...result({count: 3, retained: 3}), changes: markers(3, [1])}
+      fetch.mockResolvedValueOnce(response(page))
+      const wrapper = render({
+        rule: {...rule, violationCount: 3, sampleViolations: violations(3)},
+        details: changedDetails(1)
+      })
+      await button(wrapper, 'View violations').trigger('click')
+      await flushPromises()
+      const rows = wrapper.findAll('li')
+      expect(rows).toHaveLength(3)
+      expect(rows.map((row) => row.find('[data-testid="new-finding"]').exists())).toEqual([false, true, false])
+      const badge = rows[1].get('[data-testid="new-finding"]')
+      expect(badge.text()).toBe('New')
+      expect(badge.get('i').attributes('aria-hidden')).toBe('true')
+    })
+
+    it('ignores change markers that are not aligned with the page', async () => {
+      const page = {...result({count: 3, retained: 3}), changes: ['NEW']}
+      fetch.mockResolvedValueOnce(response(page))
+      const wrapper = render({
+        rule: {...rule, violationCount: 3, sampleViolations: violations(3)},
+        details: changedDetails(1)
+      })
+      await button(wrapper, 'View violations').trigger('click')
+      await flushPromises()
+      expect(wrapper.findAll('[data-testid="new-finding"]')).toHaveLength(0)
+    })
+  })
+
   describe('locations', () => {
     const located = (index) => ({
       className: `example.Service${index}`,

@@ -3,7 +3,6 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedColumnFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
 import java.sql.Types;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -62,7 +61,7 @@ final class HibernateNumericPrecisionMismatchRule extends AbstractHibernateCross
             DatabaseAdvisorContext context,
             MappedTableResolution primary,
             MappedEntityFacts entity,
-            List<String> details) {
+            DatabaseFindings details) {
         int eligible = 0;
         for (MappedColumnFacts column : entity.columns()) {
             if (!applicable(column)) {
@@ -84,7 +83,7 @@ final class HibernateNumericPrecisionMismatchRule extends AbstractHibernateCross
             SchemaSnapshot schema,
             TableModel table,
             MappedColumnFacts column,
-            List<String> details) {
+            DatabaseFindings details) {
         ColumnModel physical = schema.declaredColumn(table, column.columnName());
         if (physical == null) {
             unknownColumn(context, schema, table, column.columnName(), column.attributeDescription());
@@ -128,10 +127,12 @@ final class HibernateNumericPrecisionMismatchRule extends AbstractHibernateCross
                     : rounds
                             ? "rounds written values to " + digits + " fractional digits"
                             : "holds only " + (size - digits) + " integer digits instead of " + (precision - scale);
-            details.add(schema.dataSourceName() + ": " + column.attributeDescription() + " declares @Column(precision="
-                    + precision + ", scale=" + scale + "), but physical column " + table.qualifiedName() + "."
-                    + physical.name() + " (" + physical.describeType() + ") " + consequence
-                    + ". Review this DDL declaration; it is not a runtime validator.");
+            details.add(
+                    schema.dataSourceName() + ": " + column.attributeDescription() + " declares @Column(precision="
+                            + precision + ", scale=" + scale + "), but physical column " + table.qualifiedName() + "."
+                            + physical.name() + " (" + physical.describeType() + ") " + consequence
+                            + ". Review this DDL declaration; it is not a runtime validator.",
+                    DatabaseIdentities.mapped(schema, table, column.attributeDescription(), column.columnName()));
         }
         return true;
     }

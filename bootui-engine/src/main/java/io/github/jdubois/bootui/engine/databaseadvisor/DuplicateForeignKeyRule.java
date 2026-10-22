@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -23,7 +22,7 @@ final class DuplicateForeignKeyRule extends AbstractDatabaseAdvisorRule {
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
             for (TableModel table : DatabaseAdvisorContext.analyzableTables(schema)) {
@@ -52,7 +51,9 @@ final class DuplicateForeignKeyRule extends AbstractDatabaseAdvisorRule {
                             details.add(
                                     schema.dataSourceName() + ": " + table.qualifiedName() + " foreign keys "
                                             + first.name() + " and " + second.name()
-                                            + " have potentially duplicate observed definitions; match/enforcement semantics require review.");
+                                            + " have potentially duplicate observed definitions; match/enforcement semantics require review.",
+                                    DatabaseIdentities.table(
+                                            schema, table, DatabaseIdentities.foreignKeyPair(first, second)));
                         }
                     }
                 }

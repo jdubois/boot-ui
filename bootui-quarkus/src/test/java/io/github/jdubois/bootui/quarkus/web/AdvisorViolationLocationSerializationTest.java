@@ -44,6 +44,8 @@ class AdvisorViolationLocationSerializationTest {
                         .get(1)
                         .isNull())
                 .isTrue();
-        assertThat(mapper.writeValueAsString(page)).contains("\"page\":{").endsWith(",null]}");
+        assertThat(mapper.writeValueAsString(page))
+                .contains("\"page\":{")
+                .endsWith(",null],\"identities\":[],\"changes\":[]}");
     }
 }

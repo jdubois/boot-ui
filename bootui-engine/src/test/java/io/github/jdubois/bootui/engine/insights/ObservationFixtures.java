@@ -109,6 +109,7 @@ final class ObservationFixtures {
         proxyBypass(fixtures);
         anonymousAccess(fixtures);
         splitTransactionWrites(fixtures);
+        unbatchedWriteLoop(fixtures);
         transactionalListenerSkipped(fixtures);
         afterCommitWrites(fixtures);
         ormObservations(fixtures);
@@ -572,6 +573,167 @@ final class ObservationFixtures {
                                 sqlAt("insert into orders values (4)", RequestPhase.HANDLER, 150),
                                 transactionAt("OrderService.place", false, false, true, 100, 200),
                                 sqlAt("insert into audit values (4)", RequestPhase.HANDLER, 250))));
+    }
+
+    // ---- unbatched-write-loop -----------------------------------------------------------------------------------
+
+    private static final String AUDIT_INSERT = "insert into insight_audit (order_id) values (?)";
+
+    private static void unbatchedWriteLoop(List<Fixture> fixtures) {
+        fixtures.add(positive(UnbatchedWriteLoop.KIND, "the sample's row-by-row insert loop in one transaction")
+                .seed(recording -> {
+                    for (int i = 0; i < 2; i++) {
+                        recording.post("/api/insights/audit/loop").children(writesInTransaction(AUDIT_INSERT, 12));
+                    }
+                }));
+        fixtures.add(positive(UnbatchedWriteLoop.KIND, "a Quarkus JDBC loop, where no transaction is recorded")
+                .stack(InsightsStack.QUARKUS)
+                .seed(recording -> {
+                    for (int i = 0; i < 2; i++) {
+                        recording.post("/api/insights/audit/loop").children(writes(AUDIT_INSERT, 12, 1));
+                    }
+                }));
+        fixtures.add(positive(UnbatchedWriteLoop.KIND, "a loop of updates, run by a scheduled job")
+                .seed(recording -> {
+                    for (int i = 0; i < 2; i++) {
+                        recording.scheduled(
+                                "AuditJob.run", writes("update insight_audit set seen = true where id = ?", 11, 1));
+                    }
+                }));
+        fixtures.add(counterexample(UnbatchedWriteLoop.KIND, "the sample's batchUpdate, one batch of twelve")
+                .seed(recording -> {
+                    for (int i = 0; i < 2; i++) {
+                        recording.post("/api/insights/audit/batch").children(writes(AUDIT_INSERT, 1, 12));
+                    }
+                }));
+        fixtures.add(counterexample(UnbatchedWriteLoop.KIND, "Hibernate flushing its inserts in batches of five")
+                .seed(recording -> {
+                    for (int i = 0; i < 2; i++) {
+                        recording.post("/api/orders").children(writes(AUDIT_INSERT, 3, 5));
+                    }
+                }));
+        fixtures.add(counterexample(UnbatchedWriteLoop.KIND, "nine single inserts, one under the loop")
+                .seed(recording -> {
+                    for (int i = 0; i < 2; i++) {
+                        recording.post("/api/orders").children(writes(AUDIT_INSERT, 9, 1));
+                    }
+                }));
+        fixtures.add(counterexample(UnbatchedWriteLoop.KIND, "twelve identical selects, which write nothing")
+                .seed(recording -> {
+                    for (int i = 0; i < 2; i++) {
+                        recording
+                                .get("/api/insights/audit")
+                                .children(writes("select * from insight_audit where id = ?", 12, 1));
+                    }
+                }));
+        fixtures.add(counterexample(UnbatchedWriteLoop.KIND, "twelve inserts that all failed")
+                .seed(recording -> {
+                    for (int i = 0; i < 2; i++) {
+                        Ev[] failed = new Ev[12];
+                        for (int j = 0; j < failed.length; j++) {
+                            failed[j] = sql(new SqlPayload(AUDIT_INSERT, "Repo.run:1", "db", true));
+                        }
+                        recording.post("/api/orders").children(failed);
+                    }
+                }));
+        fixtures.add(counterexample(UnbatchedWriteLoop.KIND, "six inserts of each of two shapes")
+                .seed(recording -> {
+                    for (int i = 0; i < 2; i++) {
+                        List<Ev> both = new ArrayList<>(List.of(writes(AUDIT_INSERT, 6, 1)));
+                        both.addAll(List.of(writes("insert into insight_orders (customer) values (?)", 6, 1)));
+                        recording.post("/api/orders").children(both.toArray(Ev[]::new));
+                    }
+                }));
+        fixtures.add(counterexample(
+                        UnbatchedWriteLoop.KIND, "Quarkus Hibernate preparing twelve inserts, none executed")
+                .stack(InsightsStack.QUARKUS)
+                .seed(recording -> {
+                    for (int i = 0; i < 2; i++) {
+                        Ev[] prepared = new Ev[12];
+                        for (int j = 0; j < prepared.length; j++) {
+                            prepared[j] = sql(new SqlPayload(
+                                    AUDIT_INSERT,
+                                    "Repo.run:1",
+                                    "db",
+                                    false,
+                                    null,
+                                    null,
+                                    -1,
+                                    0L,
+                                    SqlPayload.Provenance.PREPARATION));
+                        }
+                        recording.post("/api/orders").children(prepared);
+                    }
+                }));
+        fixtures.add(counterexample(UnbatchedWriteLoop.KIND, "twelve executed inserts whose batch size is unknown")
+                .seed(recording -> {
+                    for (int i = 0; i < 2; i++) {
+                        recording.post("/api/orders").children(writes(AUDIT_INSERT, 12, 0));
+                    }
+                }));
+        fixtures.add(counterexample(UnbatchedWriteLoop.KIND, "twelve inserts, each committed in its own transaction")
+                .alsoFires(SplitTransactionWrites.KIND)
+                .seed(recording -> {
+                    for (int i = 0; i < 2; i++) {
+                        List<Ev> own = new ArrayList<>();
+                        for (int j = 0; j < 12; j++) {
+                            long completed = 1_000 + 100L * j;
+                            own.add(sqlAt(AUDIT_INSERT, RequestPhase.HANDLER, completed));
+                            own.add(transactionAt(
+                                    "AuditService.log", false, false, false, completed - 50, completed + 50));
+                        }
+                        recording.post("/api/orders").children(own.toArray(Ev[]::new));
+                    }
+                }));
+        fixtures.add(counterexample(UnbatchedWriteLoop.KIND, "twelve inserts split into two transactions of six")
+                .alsoFires(SplitTransactionWrites.KIND)
+                .seed(recording -> {
+                    for (int i = 0; i < 2; i++) {
+                        List<Ev> split = new ArrayList<>();
+                        for (int j = 0; j < 12; j++) {
+                            long completed = (j < 6 ? 110 : 310) + j;
+                            split.add(sqlAt(AUDIT_INSERT, RequestPhase.HANDLER, completed));
+                        }
+                        split.add(transactionAt("AuditService.first", false, false, false, 100, 200));
+                        split.add(transactionAt("AuditService.second", false, false, false, 300, 400));
+                        recording.post("/api/orders").children(split.toArray(Ev[]::new));
+                    }
+                }));
+        fixtures.add(counterexample(UnbatchedWriteLoop.KIND, "a loop in only one of the route's requests")
+                .toleratingInsufficient()
+                .seed(recording -> {
+                    recording.post("/api/orders").children(writesInTransaction(AUDIT_INSERT, 12));
+                    recording.post("/api/orders").children(writesInTransaction(AUDIT_INSERT, 3));
+                }));
+    }
+
+    /** {@code count} executions of {@code statement} that each submitted {@code batchSize} parameter sets. */
+    private static Ev[] writes(String statement, int count, int batchSize) {
+        Ev[] events = new Ev[count];
+        for (int i = 0; i < count; i++) {
+            events[i] = sql(new SqlPayload(
+                    statement,
+                    "Repo.run:1",
+                    "db",
+                    false,
+                    null,
+                    null,
+                    -1,
+                    0L,
+                    SqlPayload.Provenance.EXECUTION,
+                    batchSize));
+        }
+        return events;
+    }
+
+    /** {@code count} single executions of {@code statement}, all inside one transaction. */
+    private static Ev[] writesInTransaction(String statement, int count) {
+        List<Ev> events = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            events.add(sqlAt(statement, RequestPhase.HANDLER, 110L + i));
+        }
+        events.add(transactionAt("AuditService.logAll", false, false, false, 100, 200));
+        return events.toArray(Ev[]::new);
     }
 
     // ---- transactional-listener-skipped -------------------------------------------------------------------------

@@ -346,9 +346,11 @@ during the response write (SQL after the handler returned), an unreadable body (
 reset (Anonymous writes), and a payroll report whose exact security matcher misses `/api/insights/reports/PAYROLL`
 (Anonymous success on a restricted route), tags saved before each count against counted first (Hibernate
 auto-flushes), 600 tags loaded as entities against their labels only (Large persistence contexts), and three tag reads in separate
-transactions of one open session against the same reads in one transaction (Connections re-acquired in a session), and
-the second page of tags with no sort against the same page sorted by id (Paged without ORDER BY). The WebFlux
-sample adds blocking JDBC on the event loop, a per-note loop, and an unsorted page of notes.
+transactions of one open session against the same reads in one transaction (Connections re-acquired in a session), twelve
+audit rows inserted one statement at a time against the same rows in one JDBC batch (Unbatched write loops), and the
+second page of tags with no sort against the same page sorted by id (Paged without ORDER BY). The WebFlux sample adds
+blocking JDBC on the event loop, a per-note loop, the same unbatched and batched note updates, and an unsorted page of
+notes.
 
 The separate Hibernate eager-loading demo uses 16 orders with distinct customers. The JPQL finder behind
 `GET /api/insights/eager-orders` loads an eager customer for each order with a secondary SELECT; the
