@@ -41,6 +41,12 @@ final class DatabaseAdvisorRuleRegistry {
             new PostgresRewriteBatchedInsertsRule(),
             new MySqlRewriteBatchedStatementsRule(),
             new MySqlUseAffectedRowsRule(),
+            new MySqlStatementCacheRule(),
+            new PostgresStatementCacheRule(),
+            new PostgresAutosaveRule(),
+            new DriverDiagnosticSettingsRule(),
+            new DriverSocketTimeoutRule(),
+            new PostgresApplicationNameRule(),
             // Connection pool compared with the database server's limits
             new PoolIdleLimitRule(),
             new PoolExceedsServerConnectionsRule(),

@@ -236,7 +236,7 @@ class DatabaseAdvisorScannerTests {
                 });
         assertThat(report.diagnostics())
                 .filteredOn(diagnostic -> diagnostic.source().startsWith("DB-DRIVER"))
-                .hasSize(3)
+                .hasSize(9)
                 .allSatisfy(diagnostic -> assertThat(diagnostic.level()).isEqualTo("INFO"));
         assertThat(report.rulesSkipped()).isGreaterThanOrEqualTo(3);
     }
@@ -363,7 +363,7 @@ class DatabaseAdvisorScannerTests {
 
         assertThat(report.diagnostics())
                 .filteredOn(diagnostic -> diagnostic.source().startsWith("DB-DRIVER"))
-                .hasSize(3)
+                .hasSize(9)
                 .allSatisfy(diagnostic -> {
                     assertThat(diagnostic.level()).isEqualTo("INFO");
                     assertThat(diagnostic.message()).startsWith("Not applicable:");
@@ -934,7 +934,7 @@ class DatabaseAdvisorScannerTests {
     @Test
     void retiredIdsAreNotRegisteredOrReusedAndOldDismissalsAreHarmless() {
         Set<String> retired = Set.of("DB-SCHEMA-008", "DB-SCHEMA-009", "DB-HIB-001", "DB-HIB-008");
-        assertThat(DatabaseAdvisorRuleRegistry.activeRules()).hasSize(42);
+        assertThat(DatabaseAdvisorRuleRegistry.activeRules()).hasSize(48);
         assertThat(DatabaseAdvisorRuleRegistry.activeRules())
                 .noneMatch(rule -> retired.contains(rule.definition().id()));
         DatabaseAdvisorScanner scanner = scannerFor(List.of(new NamedDataSource("primary", dataSource)));
