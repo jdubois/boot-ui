@@ -22,7 +22,11 @@ The panel is available when Hibernate ORM and an `EntityManagerFactory` bean are
 metamodel cannot be read, BootUI returns a stable empty report with an explanatory status.
 
 The scan covers the mapped entities your JPA metamodel reports, which includes entities added through `@EntityScan` or
-custom persistence-unit configuration, without scanning the whole classpath.
+custom persistence-unit configuration, without scanning the whole classpath. Entities Hibernate Envers adds itself, such
+as `DefaultRevisionEntity`, are left out because the application cannot edit them (an application-declared revision
+entity is still scanned); Envers' generated `*_AUD` entities are map-based and never reach the metamodel. An entity
+mapped only in `.hbm.xml` is discovered, but its XML mapping is not read, so rules that look for missing annotations
+may report columns the XML configures.
 
 The active catalog contains 72 rules. Eight retired identifiers stay documented below so old links and persisted
 dismissals keep their meaning. Retired identifiers are never reused.
@@ -381,9 +385,13 @@ eliminate Cartesian multiplication when multiple collections are fetched togethe
 
 - **Severity**: MEDIUM (LOW when no lifecycle-dependency signal is detected)
 - **Inspects**: owning-side `@OneToOne` mappings.
-- **Fires when**: the association has no `mappedBy`, no `@MapsId`, and the association itself is not the identifier. The
-  finding is MEDIUM when the mapping looks lifecycle-dependent (`optional=false` or cascade `REMOVE` / `ALL`) and LOW
-  otherwise.
+- **Fires when**: the association has no `mappedBy`, no `@MapsId`, and the association itself is not the identifier, and
+  it does not target its own entity or another entity of the same `@Entity` inheritance hierarchy (a self-reference such
+  as `Employee.mentor` cannot share its primary key). Entities that share only a `@MappedSuperclass` are separate
+  hierarchies and are still reported. The finding is MEDIUM when the mapping looks lifecycle-dependent (`optional=false` or cascade
+  `REMOVE` / `ALL`) and LOW otherwise.
+- **Limitations**: any `@MapsId` attribute is skipped without checking that its value names an identifier attribute.
+  Hibernate 7.4.5 rejects an unmatched `@MapsId("name")` at bootstrap, so such a mapping does not reach the advisor.
 - **Why it matters**: dependent one-to-one rows often share the parent lifecycle and can avoid an extra foreign-key/index
   pair by sharing the primary key.
 - **Recommendation**: use `@MapsId` when the child row is lifecycle-dependent on the parent; keep a separate foreign key
@@ -422,6 +430,9 @@ eliminate Cartesian multiplication when multiple collections are fetched togethe
 - **Severity**: MEDIUM
 - **Inspects**: `@ElementCollection` attributes typed as `List`.
 - **Fires when**: the list does not declare `@OrderColumn` - regardless of whether it declares `@OrderBy`.
+- **Limitations**: `@Immutable` does not exempt a list. On the owning entity it leaves collections modifiable; on the
+  collection itself Hibernate 7.4.5 rejects in-place changes but still writes the collection when the owner is
+  persisted or when the attribute is assigned a replacement list.
 - **Why it matters**: unindexed bag-like collections can need broad delete/reinsert work for some mutations. The
   effective collection classification and mutation determine the cost; absent `@OrderColumn` does not prove every change
   rewrites every row, especially with Hibernate's implicit list-index support.
@@ -500,7 +511,11 @@ reported a supported lazy mapping. HIB-MAP-018 covers the inverse side, where en
 - **Severity**: MEDIUM
 - **Inspects**: non-owning (`mappedBy`) `@OneToOne` associations and whether the declaring entity is bytecode enhanced.
 - **Fires when**: relevant enhancement is known absent and an entity declares an explicitly lazy non-owning
-  `@OneToOne`. Eager declarations and unknown enhancement do not establish a failed lazy-loading request.
+  `@OneToOne`. Eager declarations and unknown enhancement do not establish a failed lazy-loading request. A mandatory
+  (`optional=false`) inverse side whose owning side shares the primary key (`@MapsId` or `@PrimaryKeyJoinColumn` on the
+  attribute named by `mappedBy`) is exempt, because Hibernate 7.4.5 proxies it without enhancement. With a separate
+  unique foreign key, or with `optional=true`, Hibernate loads it eagerly even when `optional=false`, so the check still
+  fires. A shared key declared through a plain `@JoinColumn` cannot be detected from declarations.
 - **Why it matters**: determining whether the inverse row exists can prevent the expected lazy behavior. Query plans,
   optionality, cache state and access patterns determine actual queries; this declaration does not prove N+1.
 - **Recommendation**: enable bytecode enhancement, or replace the bidirectional `@OneToOne` with a shared primary key
@@ -520,6 +535,8 @@ duplicate that work by assuming absent `@Index` means absent database index.
 - **Inspects**: unidirectional `@OneToMany` associations and their join-column annotations.
 - **Fires when**: a `@OneToMany` has no `mappedBy`, declares a join column, and that join column is not read-only
   (`insertable=false, updatable=false`). Composite `@JoinColumns` is exempt only when every join column is read-only.
+  `@Immutable` is not an exemption: Hibernate 7.4.5 still issues the join-column `UPDATE` when an owner with an
+  `@Immutable` collection is first persisted.
 - **Why it matters**: this ownership shape can require separate foreign-key UPDATE work depending on the effective
   mapping and mutation. The declaration alone does not prove an exact INSERT/UPDATE sequence.
 - **Recommendation**: make the association bidirectional with `@ManyToOne` on the child and `@OneToMany(mappedBy=...)` on
@@ -592,6 +609,8 @@ upgrade.
 - **Severity**: MEDIUM
 - **Inspects**: Hibernate `@OptimisticLocking`.
 - **Fires when**: `type=DIRTY` or `type=ALL` is used without `@DynamicUpdate`.
+- **Limitations**: Hibernate 7.4.5 fails bootstrap for this combination (with or without `@Immutable`), so on that
+  version the declaration normally cannot reach the advisor.
 - **Why it matters**: versionless optimistic locking relies on update predicates that match the chosen locking strategy.
 - **Recommendation**: add `@DynamicUpdate` when using versionless optimistic locking, or use a regular `@Version` column
   for simpler optimistic locking.
@@ -685,8 +704,9 @@ proves lazy loading here; safe ID-only implementations must not receive this fin
 - **Fires when**: a unique column exists and no attribute on the entity is annotated
   `org.hibernate.annotations.NaturalId`.
 - **Why it matters**: a unique business key (email, ISBN, order number) is frequently queried by value.
-  `@NaturalId` lets Hibernate resolve the entity from the natural-id cache/lookup without needing a full JPQL query - a
-  well-documented performance pattern. This is advisory, not a defect: a unique column is not always a natural lookup
+  `@NaturalId` lets Hibernate resolve the entity by that key through natural-id lookup, which is a well-documented
+  pattern. Any caching benefit needs the second-level or natural-id cache to be enabled and configured, and this check
+  does not assume either. This is advisory, not a defect: a unique column is not always a natural lookup
   key, so the finding is INFO severity.
 - **Recommendation**: consider annotating the business-key attribute(s) with `@NaturalId` so lookups by that value can
   use Hibernate's natural-id resolution instead of a full query. Adding the annotation does not automatically reroute

@@ -124,6 +124,7 @@ public final class OrmSessionEvents {
         public void statementEnd() {
             statements++;
             statementNanos += elapsed(statementStart);
+            OrmThreadActivity.statement();
         }
 
         public void flushStart() {
@@ -133,6 +134,9 @@ public final class OrmSessionEvents {
 
         public void flushEnd(int entities) {
             flushes++;
+            if (entities > 0) {
+                OrmThreadActivity.flush();
+            }
             long own = Math.max(0, elapsed(flushStart) - (statementNanos - flushStatementsAtStart));
             flushNanos += own;
             entitiesInContext = Math.max(entitiesInContext, entities);
@@ -165,6 +169,7 @@ public final class OrmSessionEvents {
         public void dirtyCalculationEnd(boolean dirty) {
             if (dirty) {
                 dirtyEntities++;
+                OrmThreadActivity.dirtyEntity();
             }
         }
 

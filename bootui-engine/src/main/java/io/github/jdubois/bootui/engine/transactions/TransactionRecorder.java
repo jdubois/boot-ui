@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.core.dto.TransactionReport;
 import io.github.jdubois.bootui.core.dto.TransactionStatsDto;
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.OrmThreadActivity;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
@@ -182,6 +183,23 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
             String traceId,
             boolean savepoint,
             boolean threadBound) {
+        return beginTransaction(methodName, readOnly, isolation, thread, traceId, savepoint, threadBound, threadBound);
+    }
+
+    /**
+     * Records the start of a transaction boundary, as the overload above does, saying whether the Hibernate work of its
+     * thread while it is active belongs to it ({@code ormEvidence}). A transaction that may suspend and resume on
+     * another thread, as a JTA one does, has none, since its work is not all on the thread it began on.
+     */
+    public long beginTransaction(
+            String methodName,
+            boolean readOnly,
+            String isolation,
+            String thread,
+            String traceId,
+            boolean savepoint,
+            boolean threadBound,
+            boolean ormEvidence) {
         if (!enabled) {
             return -1;
         }
@@ -210,7 +228,8 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
                 System.nanoTime(),
                 savepoint,
                 correlation.current(),
-                panel);
+                panel,
+                threadBound && ormEvidence && journal.records(JournalSource.ORM) ? OrmThreadActivity.mark() : null);
         active.put(id, transaction);
         if (stack != null) {
             stack.addLast(id);
@@ -291,6 +310,7 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
             }
             totalCaptured.incrementAndGet();
         }
+        OrmThreadActivity.Snapshot orm = ormWork(transaction);
         try {
             journal.offer(RuntimeEvent.of(
                     JournalSource.TRANSACTION,
@@ -310,13 +330,27 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
                             transaction.readOnly(),
                             ISOLATION_UNKNOWN.equals(transaction.isolation()) ? null : transaction.isolation(),
                             rollbackOnly,
-                            failureClass)));
+                            failureClass,
+                            orm == null ? -1 : orm.statements(),
+                            orm == null ? -1 : orm.flushes(),
+                            orm == null ? -1 : orm.dirtyEntities())));
         } catch (RuntimeException ex) {
             // Publishing never disturbs the transaction it observes.
         }
         if (transaction.panel()) {
             notifyListeners();
         }
+    }
+
+    /**
+     * The Hibernate work of the transaction's thread while it was active, or {@code null} when unknown: it is read as
+     * the difference between two moments of one thread, so a transaction that is not bound to a thread, or that
+     * completes on another one, has none.
+     */
+    private static OrmThreadActivity.Snapshot ormWork(ActiveTransaction transaction) {
+        return transaction.ormAtBegin() == null
+                ? null
+                : transaction.ormAtBegin().since();
     }
 
     /**
@@ -532,5 +566,6 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
             long startNanos,
             boolean savepoint,
             CorrelationContext context,
-            boolean panel) {}
+            boolean panel,
+            OrmThreadActivity.Mark ormAtBegin) {}
 }

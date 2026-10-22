@@ -11,11 +11,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **`--fail-on <severity>` for CLI advisor commands** exits `3` when a retained finding reaches the threshold, and `1`
   when the scan cannot be evaluated ([#1516](https://github.com/jdubois/boot-ui/issues/1516)).
+- **`connection-reacquisition` observation** reports a route whose Hibernate session borrowed a JDBC connection two or
+  more times in a row ([#1514](https://github.com/jdubois/boot-ui/issues/1514)).
 - **Low-footprint MCP and CLI controls** pause and resume BootUI recording, with explicit paused-evidence
   notices in affected diagnostic results ([#1479](https://github.com/jdubois/boot-ui/issues/1479)).
 - **`ARCH-SPRING-025` (LOW)** flags `RestClient.builder(..)`/`create(..)` and `WebClient.builder()`/`create(..)` when
   Spring Boot's auto-configured builder is available, since those clients skip metrics, tracing, and shared
   customizers ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-025---http-clients-should-be-built-from-spring-boots-auto-configured-builder); #1500).
+- **`readonly-candidate-transaction`** reports a read-write `@Transactional` method whose transactions never changed
+  an entity or ran a write, so it may be declared read-only
+  ([#1513](https://github.com/jdubois/boot-ui/issues/1513)).
 
 ### Changed
 
@@ -28,6 +33,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Hibernate advisor false positives** no longer flag a self-referencing `@OneToOne` for `@MapsId` (HIB-MAP-006), a
+  mandatory inverse `@OneToOne` over a shared primary key (HIB-MAP-018), or Envers' own revision entity ([#1511](https://github.com/jdubois/boot-ui/issues/1511)).
 - **Exact exception navigation** links failed request profiles and activity rows to their exception group's stack
   trace and causes, with a return path to the request ([#1477](https://github.com/jdubois/boot-ui/issues/1477)).
 

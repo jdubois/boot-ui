@@ -452,6 +452,8 @@ public final class RuntimeInsightsService {
                 new AfterCommitWrites(),
                 new OrmAutoFlush(),
                 new LargePersistenceContext(),
+                new ConnectionReacquisition(),
+                new ReadOnlyCandidateTransaction(),
                 new TransactionAcrossRemoteCall(),
                 new LazySqlAfterHandler(),
                 new EventLoopBlocking(),

@@ -24,6 +24,9 @@ public final class JpaMetamodelReader {
                 Metamodel metamodel = factory.getMetamodel();
                 for (EntityType<?> entityType : metamodel.getEntities()) {
                     try {
+                        if (isFrameworkProvided(entityType.getJavaType())) {
+                            continue;
+                        }
                         entities.add(toEntityModel(entityType));
                     } catch (RuntimeException | LinkageError ex) {
                         errors.add("Entity " + entityType.getName() + ": "
@@ -35,6 +38,18 @@ public final class JpaMetamodelReader {
             }
         }
         return new EntityDiscovery(entities, List.of(), errors);
+    }
+
+    /**
+     * Entities Hibernate Envers adds itself, such as {@code DefaultRevisionEntity}, appear in the JPA metamodel but
+     * cannot be edited by the application, so no finding about them is actionable. A revision entity the
+     * application declares in its own package is not excluded. Envers' generated {@code *_AUD} entities are
+     * map-based and never reach the JPA metamodel at all.
+     */
+    private static final String ENVERS_PACKAGE_PREFIX = "org.hibernate.envers.";
+
+    static boolean isFrameworkProvided(Class<?> javaType) {
+        return javaType != null && javaType.getName().startsWith(ENVERS_PACKAGE_PREFIX);
     }
 
     static HibernateEntityModel toEntityModel(EntityType<?> entityType) {
