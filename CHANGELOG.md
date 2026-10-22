@@ -26,6 +26,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Hibernate advisor false positives** no longer flag a self-referencing `@OneToOne` for `@MapsId` (HIB-MAP-006), a
+  mandatory inverse `@OneToOne` over a shared primary key (HIB-MAP-018), or Envers' own revision entity ([#1511](https://github.com/jdubois/boot-ui/issues/1511)).
 - **Exact exception navigation** links failed request profiles and activity rows to their exception group's stack
   trace and causes, with a return path to the request ([#1477](https://github.com/jdubois/boot-ui/issues/1477)).
 
