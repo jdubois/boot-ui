@@ -10,6 +10,9 @@ import java.util.List;
  * non-null {@link #error()} (already credential-redacted). A datasource that was introspected but whose
  * metadata is incomplete keeps its readable tables and reports the gaps through {@link #diagnostics()} —
  * partial data is still useful, silence is not.</p>
+ *
+ * <p>{@link #driver()} is the allow-listed driver evidence read from the same connection; it never carries the JDBC
+ * URL, user name or password, and is {@code null} when no driver evidence was gathered.</p>
  */
 record SchemaSnapshot(
         String dataSourceName,
@@ -22,7 +25,36 @@ record SchemaSnapshot(
         List<SchemaDiagnostic> diagnostics,
         boolean truncated,
         String error,
-        boolean relationInventoryComplete) {
+        boolean relationInventoryComplete,
+        DriverEvidence driver) {
+
+    /** Without driver evidence. */
+    SchemaSnapshot(
+            String dataSourceName,
+            Dialect dialect,
+            String databaseProductName,
+            DatabaseVersion version,
+            String identifierCase,
+            List<TableModel> tables,
+            VendorFindings vendorFindings,
+            List<SchemaDiagnostic> diagnostics,
+            boolean truncated,
+            String error,
+            boolean relationInventoryComplete) {
+        this(
+                dataSourceName,
+                dialect,
+                databaseProductName,
+                version,
+                identifierCase,
+                tables,
+                vendorFindings,
+                diagnostics,
+                truncated,
+                error,
+                relationInventoryComplete,
+                null);
+    }
 
     SchemaSnapshot(
             String dataSourceName,

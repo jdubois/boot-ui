@@ -5,14 +5,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource;
+import io.github.jdubois.bootui.quarkus.databaseadvisor.QuarkusDatabaseAdvisorEvidenceProvider;
+import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.JdbcBatching;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.QuarkusTestProfile;
 import io.quarkus.test.junit.TestProfile;
+import jakarta.enterprise.inject.Any;
+import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.spi.BeanManager;
+import jakarta.inject.Inject;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -42,6 +51,21 @@ class BootUiQuarkusDatabaseAdvisorTest {
 
     @TestHTTPResource
     URL baseUrl;
+
+    @Inject
+    @Any
+    Instance<DataSource> dataSources;
+
+    @Inject
+    BeanManager beanManager;
+
+    @Inject
+    @Any
+    Instance<ConnectionPoolProvider> connectionPools;
+
+    @Inject
+    @Any
+    Instance<HibernateAdvisorObservationSource> hibernate;
 
     private BootUiHttpProbe probe() {
         return new BootUiHttpProbe(baseUrl.toExternalForm());
@@ -103,7 +127,7 @@ class BootUiQuarkusDatabaseAdvisorTest {
                 .isGreaterThanOrEqualTo(3);
         assertThat(scanned.path("rulesEvaluated").asInt())
                 .as("the shared rule registry (schema + dialect + Hibernate cross-reference rules) must have run")
-                .isEqualTo(28);
+                .isEqualTo(31);
 
         // Arc reports two DataSource beans here: the real Agroal pool and BootUI's own @Alternative SQL Trace
         // wrapper around it. Introspecting both would analyze the same physical database twice, under two
@@ -151,6 +175,39 @@ class BootUiQuarkusDatabaseAdvisorTest {
         assertThat(cached.json())
                 .as("the last report is cached across requests")
                 .isEqualTo(scanned);
+    }
+
+    @Test
+    void driverEvidenceReachesTheDefaultDatasourceThroughTheTracedAgroalPool() {
+        QuarkusDatabaseAdvisorEvidenceProvider evidence =
+                new QuarkusDatabaseAdvisorEvidenceProvider(dataSources, beanManager, connectionPools, hibernate);
+
+        assertThat(evidence.dataSourceConfigurations())
+                .as("the default datasource is attributed to its Agroal pool even when SQL Trace wraps it")
+                .singleElement()
+                .satisfies(configuration -> {
+                    assertThat(configuration.dataSourceName()).isEqualTo("default");
+                    assertThat(configuration.pool()).isNotNull();
+                    assertThat(configuration.driverPropertiesKnown()).isTrue();
+                    assertThat(configuration.driverProperties())
+                            .containsOnly(Map.entry("reWriteBatchedInserts", "true"));
+                });
+        assertThat(evidence.jdbcBatching()).containsOnly(Map.entry("default", JdbcBatching.enabled(25)));
+    }
+
+    @Test
+    void theDriverRulesAreSkippedOnH2AndNothingAboutTheConnectionIsExposed() {
+        Response scan = probe().post("/bootui/api/database-advisor/scan", JSON_HEADERS);
+        assertThat(scan.status()).isEqualTo(200);
+
+        List<String> skipped = new ArrayList<>();
+        for (JsonNode diagnostic : scan.json().path("diagnostics")) {
+            if (diagnostic.path("source").asText().startsWith("DB-DRIVER")) {
+                skipped.add(diagnostic.path("message").asText());
+            }
+        }
+        assertThat(skipped).hasSize(3).allSatisfy(message -> assertThat(message).startsWith("Not applicable"));
+        assertThat(scan.body()).doesNotContain("jdbc:h2", "hibdemo");
     }
 
     /** Empty on purpose: its only job is to give this class its own isolated Quarkus test instance. */

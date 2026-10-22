@@ -106,8 +106,14 @@ public class BootUiSqlTraceProducer {
         AgroalDataSource real = defaultPool.orElseThrow();
         if (recorder.isEnabled()) {
             recorder.registerDataSource(DataSourceUtil.DEFAULT_DATASOURCE_NAME);
+            // The marker interfaces matter: PhysicalDataSources recognizes BootUI's proxy by SqlTracedDataSource, and
+            // the
+            // native-image proxy hint registers this exact interface set.
             return SqlTracingProxies.wrapNamed(
-                    real, recorder, DataSourceUtil.DEFAULT_DATASOURCE_NAME, AgroalDataSource.class);
+                    real,
+                    recorder,
+                    DataSourceUtil.DEFAULT_DATASOURCE_NAME,
+                    SqlTracingProxies.dataSourceInterfaces(AgroalDataSource.class));
         }
         return real;
     }

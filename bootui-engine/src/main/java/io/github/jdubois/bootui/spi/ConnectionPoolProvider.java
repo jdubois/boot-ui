@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.spi;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import javax.sql.DataSource;
 
@@ -47,5 +48,19 @@ public interface ConnectionPoolProvider {
      */
     default Optional<ConnectionPoolInfo> poolFor(DataSource dataSource) {
         return Optional.empty();
+    }
+
+    /**
+     * The driver properties each pool passes to its JDBC driver (HikariCP {@code dataSourceProperties}, Agroal's JDBC
+     * properties), keyed by {@link ConnectionPoolInfo#beanName()}. It exists for the Database Advisor, which judges
+     * driver settings that may be configured here rather than in the JDBC URL.
+     *
+     * <p>An implementation returns only the names of the engine's driver-setting allow-list
+     * ({@code DriverSettingCatalog}), compared case-insensitively, with each value capped at 64 characters. It never
+     * returns {@code user}, {@code password} or any other name, and never borrows a connection. The default is empty,
+     * for providers that cannot read them.</p>
+     */
+    default Map<String, Map<String, String>> driverProperties() {
+        return Map.of();
     }
 }

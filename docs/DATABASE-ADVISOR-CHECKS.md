@@ -1,8 +1,8 @@
 # Database checks
 
-The Database advisor runs **28 fixed, on-demand checks** over the physical schema reported by the application's
-JDBC datasources, supplemented by vendor catalogs, available JPA declarations and already-retained SQL Trace
-observations. It never executes DDL, advances a sequence, queries application rows or starts work on page load.
+The Database advisor runs **31 fixed, on-demand checks** over the physical schema reported by the application's
+JDBC datasources, supplemented by vendor catalogs, available JPA declarations, already-retained SQL Trace
+observations and the JDBC driver settings configured in the URL and the connection pool. It never executes DDL, advances a sequence, queries application rows or starts work on page load.
 
 These are structural observations and review prompts, not workload forecasts, business-model validation or
 automatic migration instructions. A finding describes the available evidence, not everything the database
@@ -471,6 +471,77 @@ produce variation. This does **not** establish that predicate values changed, th
 that a plan cache is inefficient or that an injection vulnerability exists. A larger variant count is not
 “high confidence” in any of those claims. Inspect the existing SQL Trace evidence and call site before
 deciding whether parameterization is relevant. An absent capture window is SKIPPED.
+
+## JDBC driver
+
+These rules judge **driver settings**, not the schema, and need two kinds of evidence beyond the scan connection:
+
+- **Configured settings.** The scan connection's `DatabaseMetaData.getURL()` is parsed for a short allow-list of
+  non-secret driver settings, and the datasource's pool supplies its driver properties (HikariCP
+  `dataSourceProperties`, Agroal additional JDBC properties). Every other name, `user` and `password` included, is
+  discarded unread. The URL, user name and password are never stored, logged or returned, and the findings are
+  labelled **configured**: they say what the URL and the pool configure, not what the driver ends up using.
+- **Effective JDBC batching.** The Hibernate advisor's observed `hibernate.jdbc.batch_size` of the persistence unit
+  attributed to the datasource's pool (see `HIB-CONFIG-004`). Only HikariCP and Agroal pools are attributed; a
+  datasource behind another pool, or one Hibernate does not demonstrably use, has *unknown* batching and the
+  batching rules are `SKIPPED`, never guessed. Several persistence units on one pool count as batching when any of
+  them batches. A datasource is reported as not batching only when every unit on it is known not to batch and no
+  unit could be hiding elsewhere.
+
+A rule never runs on missing evidence. It is `SKIPPED` with a reason when: the driver is not the one the rule
+verifies (MariaDB Connector/J is not evaluated: it has a different bulk setting); batching is off or unknown;
+the JDBC URL or the pool's driver properties could not be read and could change the answer; the URL and the pool
+disagree and the driver defines no winner; a `service` (pgjdbc) or `useConfigs` (Connector/J) setting makes the
+driver read more configuration from a file the advisor does not see, so an absent setting proves nothing; a
+Connector/J `propertiesTransform` can replace any explicit value, so nothing is judged; the setting is given as a
+Connector/J host-level property (`address=(host=h)(useAffectedRows=true)` or `(host=h,useAffectedRows=true)`); or a
+name is spelled other than exactly (both drivers read exact, undecoded names, so `rewritebatchedinserts` or
+`reWriteBatched%49nserts` is not the setting).
+
+The pool's driver properties are read only for URL-configured HikariCP and Agroal pools. A HikariCP pool built on a
+`DataSource` object or class (`dataSource`, `dataSourceClassName`) keeps its driver settings on that object, and an
+Agroal datasource that Quarkus has not created yet cannot be read: both are reported as "could not be read", not as
+"no settings".
+
+| Driver | URL and pool both set the same property | Boolean values |
+| ------ | --------------------------------------- | -------------- |
+| pgjdbc | The **URL wins** (*"the value from Properties object is ignored"*); a pool value is trusted only when the URL was read | `Boolean.parseBoolean`: only `true` (any case) is true, no trimming |
+| MySQL Connector/J | No precedence is relied on: differing values are `SKIPPED` as unsettled, and a value from one source is not trusted while the other could not be read. (Connector/J 9.7 lets a `Properties` value override the URL; older lines were not checked.) | `true`, `false`, `yes`, `no` (any case); anything else is `SKIPPED` |
+
+Driver rules are `MEDIUM` and use the **JDBC driver** category. Verified against pgjdbc 42.7 and MySQL Connector/J
+9.7.0 (names, defaults and the precedence above); the vendor documentation is cited in each rule.
+
+### DB-DRIVER-001 - PostgreSQL driver does not rewrite batched inserts
+
+**MEDIUM.** Applies to a PostgreSQL datasource using the PostgreSQL JDBC driver (pgjdbc, driver name exactly
+`PostgreSQL JDBC Driver`; other drivers are skipped). Fires when Hibernate JDBC batching is enabled for the
+datasource and `reWriteBatchedInserts` (default `false`) is not `true` in the URL or the pool's driver properties.
+Without it each batched insert still travels as its own one-row statement; pgjdbc documents that enabling it turns
+them into multi-row inserts, "2-3x performance improvement". It concerns `INSERT` only, and Hibernate cannot batch
+inserts of `IDENTITY` entities (see `HIB-ID-006`). Measure before and after.
+See [pgjdbc connection parameters](https://jdbc.postgresql.org/documentation/use/).
+
+### DB-DRIVER-002 - MySQL Connector/J does not rewrite batched statements
+
+**MEDIUM.** Applies to datasources using MySQL Connector/J (driver name contains `MySQL Connector`), including a
+MariaDB server reached through it. Fires when batching is enabled and `rewriteBatchedStatements` (default `false`)
+is not `true` (`yes` is accepted). Connector/J then does not rewrite a batch of prepared `INSERT`/`REPLACE`
+statements into multi-values statements. The recommendation carries the vendor warnings: enabling it turns on
+multi-queries, which "might allow SQL injection when using plain statements and the provided input is not
+properly sanitized" (Hibernate uses prepared statements); `Statement.getGeneratedKeys()` of a rewritten batch works
+only when the whole batch is `INSERT`/`REPLACE`; and rewritten `INSERT ... ON DUPLICATE KEY UPDATE` batches report
+different update counts. Read those notes before enabling it.
+See [Connector/J performance extension properties](https://dev.mysql.com/doc/connector-j/en/connector-j-connp-props-performance-extensions.html).
+
+### DB-DRIVER-003 - MySQL Connector/J reports affected rows instead of found rows
+
+**MEDIUM** (correctness). Applies to MySQL Connector/J. Fires when `useAffectedRows` is `true` in the URL or the
+pool's driver properties. Connector/J documents that it does not set `CLIENT_FOUND_ROWS`, which "is not
+JDBC-compliant and it will break most applications that rely on 'found' rows vs. 'affected rows' for DML
+statements". An `UPDATE` that writes the values a row already holds then reports 0 rows, which an ORM can read as a
+lost update (an optimistic-lock or stale-state failure). It needs no batching evidence. The effect on batched
+updates is not claimed here.
+See [Connector/J connection properties](https://dev.mysql.com/doc/connector-j/en/connector-j-connp-props-connection.html).
 
 ## Retired rules
 

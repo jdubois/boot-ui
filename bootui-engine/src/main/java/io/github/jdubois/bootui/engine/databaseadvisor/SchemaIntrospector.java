@@ -63,10 +63,23 @@ final class SchemaIntrospector {
 
     static SchemaSnapshot introspect(
             String dataSourceName, DataSource dataSource, ScanBudget budget, DatabaseAdvisorLimits limits) {
+        return introspect(dataSourceName, dataSource, budget, limits, null);
+    }
+
+    /**
+     * @param poolDriverProperties the driver properties the datasource's pool supplies (allow-listed names only), or
+     *     {@code null} when they could not be read, which is not the same as none being configured
+     */
+    static SchemaSnapshot introspect(
+            String dataSourceName,
+            DataSource dataSource,
+            ScanBudget budget,
+            DatabaseAdvisorLimits limits,
+            Map<String, String> poolDriverProperties) {
         if (dataSource == null) {
             return SchemaSnapshot.failed(dataSourceName, "DataSource bean is not available.");
         }
-        return introspect(dataSourceName, dataSource::getConnection, budget, limits);
+        return introspect(dataSourceName, dataSource::getConnection, budget, limits, poolDriverProperties);
     }
 
     /** Test seam: the same introspection over any source of a JDBC {@link Connection}. */
@@ -77,6 +90,15 @@ final class SchemaIntrospector {
 
     static SchemaSnapshot introspect(
             String dataSourceName, ConnectionSource connectionSource, ScanBudget budget, DatabaseAdvisorLimits limits) {
+        return introspect(dataSourceName, connectionSource, budget, limits, null);
+    }
+
+    static SchemaSnapshot introspect(
+            String dataSourceName,
+            ConnectionSource connectionSource,
+            ScanBudget budget,
+            DatabaseAdvisorLimits limits,
+            Map<String, String> poolDriverProperties) {
         if (budget.exhausted()) {
             return SchemaSnapshot.failed(
                     dataSourceName, "The Database Advisor scan budget ran out before this datasource was read.");
@@ -85,14 +107,18 @@ final class SchemaIntrospector {
             if (connection == null) {
                 return SchemaSnapshot.failed(dataSourceName, "The DataSource returned no connection.");
             }
-            return introspect(dataSourceName, connection, budget, limits);
+            return introspect(dataSourceName, connection, budget, limits, poolDriverProperties);
         } catch (SQLException | RuntimeException ex) {
             return SchemaSnapshot.failed(dataSourceName, describe(ex));
         }
     }
 
     private static SchemaSnapshot introspect(
-            String dataSourceName, Connection connection, ScanBudget budget, DatabaseAdvisorLimits limits)
+            String dataSourceName,
+            Connection connection,
+            ScanBudget budget,
+            DatabaseAdvisorLimits limits,
+            Map<String, String> poolDriverProperties)
             throws SQLException {
         if (budget.exhausted()) {
             return SchemaSnapshot.failed(
@@ -103,7 +129,7 @@ final class SchemaIntrospector {
         SchemaSnapshot snapshot;
         String restorationFailure = null;
         try {
-            snapshot = read(dataSourceName, connection, budget, limits);
+            snapshot = read(dataSourceName, connection, budget, limits, poolDriverProperties);
         } catch (SQLException | RuntimeException ex) {
             snapshot = SchemaSnapshot.failed(dataSourceName, describe(ex));
         } finally {
@@ -130,11 +156,16 @@ final class SchemaIntrospector {
                 diagnostics,
                 snapshot.truncated(),
                 snapshot.error(),
-                snapshot.relationInventoryComplete());
+                snapshot.relationInventoryComplete(),
+                snapshot.driver());
     }
 
     private static SchemaSnapshot read(
-            String dataSourceName, Connection connection, ScanBudget budget, DatabaseAdvisorLimits limits)
+            String dataSourceName,
+            Connection connection,
+            ScanBudget budget,
+            DatabaseAdvisorLimits limits,
+            Map<String, String> poolDriverProperties)
             throws SQLException {
         List<SchemaDiagnostic> diagnostics = new ArrayList<>();
         requireBudget(budget);
@@ -146,7 +177,10 @@ final class SchemaIntrospector {
                     "Database product could not be identified; vendor-check applicability is unknown."));
         }
         String productVersion = safeString(metaData::getDatabaseProductVersion, budget);
-        String url = safeString(metaData::getURL, budget);
+        MetaDataRead urlRead = metaDataRead(metaData::getURL, budget);
+        String url = urlRead.value();
+        DriverEvidence driver = readDriverEvidence(
+                dataSourceName, metaData, url, urlRead.failed(), poolDriverProperties, budget, diagnostics);
         Dialect dialect = resolveOracle(
                 connection,
                 Dialect.detect(productName, productVersion, url),
@@ -199,7 +233,49 @@ final class SchemaIntrospector {
                 diagnostics,
                 tableResult.truncated() || !findings.truncations().isEmpty(),
                 null,
-                tableResult.inventoryComplete());
+                tableResult.inventoryComplete(),
+                driver);
+    }
+
+    /**
+     * The driver's name and version and its allow-listed settings, each read on its own so one failing metadata call
+     * costs only that field. The JDBC URL is parsed for allow-listed settings and not kept; no diagnostic quotes it
+     * or an exception message.
+     */
+    private static DriverEvidence readDriverEvidence(
+            String dataSourceName,
+            DatabaseMetaData metaData,
+            String url,
+            boolean urlFailed,
+            Map<String, String> poolDriverProperties,
+            ScanBudget budget,
+            List<SchemaDiagnostic> diagnostics) {
+        MetaDataRead name = metaDataRead(metaData::getDriverName, budget);
+        MetaDataRead version = metaDataRead(metaData::getDriverVersion, budget);
+        if (name.failed()) {
+            diagnostics.add(SchemaDiagnostic.warning(
+                    dataSourceName, "The JDBC driver name could not be read; driver settings are not evaluated."));
+        }
+        if (version.failed()) {
+            diagnostics.add(SchemaDiagnostic.info(dataSourceName, "The JDBC driver version could not be read."));
+        }
+        if (urlFailed) {
+            diagnostics.add(SchemaDiagnostic.warning(
+                    dataSourceName,
+                    "The JDBC URL could not be read; driver settings configured in it are not evaluated."));
+        } else if (url == null || url.isBlank()) {
+            diagnostics.add(SchemaDiagnostic.info(
+                    dataSourceName,
+                    "The driver reported no JDBC URL; driver settings configured in it are not evaluated."));
+        }
+        try {
+            return DriverEvidenceReader.read(name.value(), version.value(), url, poolDriverProperties);
+        } catch (RuntimeException ex) {
+            // Driver evidence must never cost a datasource its schema scan.
+            diagnostics.add(SchemaDiagnostic.warning(
+                    dataSourceName, "The JDBC driver settings could not be evaluated; driver checks are skipped."));
+            return null;
+        }
     }
 
     /**
@@ -1088,11 +1164,18 @@ final class SchemaIntrospector {
     }
 
     private static String safeString(MetaDataString supplier, ScanBudget budget) {
+        return metaDataRead(supplier, budget).value();
+    }
+
+    /** A metadata string, or the fact that reading it failed, which a {@code null} answer is not. */
+    private record MetaDataRead(String value, boolean failed) {}
+
+    private static MetaDataRead metaDataRead(MetaDataString supplier, ScanBudget budget) {
         try {
             requireBudget(budget);
-            return supplier.get();
+            return new MetaDataRead(supplier.get(), false);
         } catch (SQLException | RuntimeException ex) {
-            return null;
+            return new MetaDataRead(null, true);
         }
     }
 

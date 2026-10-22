@@ -18,10 +18,15 @@ import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.DataSourceConfiguration;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.JdbcBatching;
 import io.github.jdubois.bootui.spi.NamedDataSource;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -57,6 +62,7 @@ public final class DatabaseAdvisorScanner {
     private final Supplier<DatabaseAdvisorDataSourceDiscovery> dataSourceSupplier;
     private final Supplier<EntityDiscovery> entityDiscoverySupplier;
     private final Supplier<List<SqlTraceEntryDto>> observedStatementSupplier;
+    private final DatabaseAdvisorEvidenceProvider evidenceProvider;
     private final Clock clock;
     private final DatabaseAdvisorLimits limits;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
@@ -97,10 +103,25 @@ public final class DatabaseAdvisorScanner {
             Supplier<EntityDiscovery> entityDiscoverySupplier,
             Supplier<List<SqlTraceEntryDto>> observedStatementSupplier,
             Clock clock) {
+        return usingDiscovery(dataSourceSupplier, entityDiscoverySupplier, observedStatementSupplier, null, clock);
+    }
+
+    /**
+     * The scanner with JDBC driver evidence. {@code evidenceProvider} supplies what a connection cannot report (the
+     * pool's driver properties and Hibernate's effective JDBC batching) and may be {@code null}, in which case the
+     * driver rules judge the URL alone and skip whatever needs batching.
+     */
+    public static DatabaseAdvisorScanner usingDiscovery(
+            Supplier<DatabaseAdvisorDataSourceDiscovery> dataSourceSupplier,
+            Supplier<EntityDiscovery> entityDiscoverySupplier,
+            Supplier<List<SqlTraceEntryDto>> observedStatementSupplier,
+            DatabaseAdvisorEvidenceProvider evidenceProvider,
+            Clock clock) {
         return new DatabaseAdvisorScanner(
                 dataSourceSupplier,
                 entityDiscoverySupplier,
                 observedStatementSupplier,
+                evidenceProvider,
                 clock,
                 DatabaseAdvisorLimits.DEFAULTS);
     }
@@ -116,9 +137,20 @@ public final class DatabaseAdvisorScanner {
             Supplier<List<SqlTraceEntryDto>> observedStatementSupplier,
             Clock clock,
             DatabaseAdvisorLimits limits) {
+        this(dataSourceSupplier, entityDiscoverySupplier, observedStatementSupplier, null, clock, limits);
+    }
+
+    private DatabaseAdvisorScanner(
+            Supplier<DatabaseAdvisorDataSourceDiscovery> dataSourceSupplier,
+            Supplier<EntityDiscovery> entityDiscoverySupplier,
+            Supplier<List<SqlTraceEntryDto>> observedStatementSupplier,
+            DatabaseAdvisorEvidenceProvider evidenceProvider,
+            Clock clock,
+            DatabaseAdvisorLimits limits) {
         this.dataSourceSupplier = dataSourceSupplier;
         this.entityDiscoverySupplier = entityDiscoverySupplier;
         this.observedStatementSupplier = observedStatementSupplier;
+        this.evidenceProvider = evidenceProvider;
         this.clock = clock;
         this.limits = limits;
     }
@@ -182,10 +214,17 @@ public final class DatabaseAdvisorScanner {
                     .build();
         }
 
+        List<DatabaseAdvisorDiagnosticDto> evidenceDiagnostics = new ArrayList<>();
+        DriverEvidenceInputs driverEvidence = safeDriverEvidence(dataSources, evidenceDiagnostics);
+
         ScanBudget budget = ScanBudget.of(limits.scanBudget());
         List<SchemaSnapshot> schemas = new ArrayList<>(dataSources.stream()
-                .map(dataSource ->
-                        SchemaIntrospector.introspect(dataSource.name(), dataSource.dataSource(), budget, limits))
+                .map(dataSource -> SchemaIntrospector.introspect(
+                        dataSource.name(),
+                        dataSource.dataSource(),
+                        budget,
+                        limits,
+                        driverEvidence.poolDriverProperties(dataSource.name())))
                 .toList());
         discovery.failures().forEach(failure -> schemas.add(SchemaSnapshot.failed(failure.name(), failure.message())));
         List<String> sourceNames = schemas.stream()
@@ -197,6 +236,7 @@ public final class DatabaseAdvisorScanner {
                 schemas.stream().filter(SchemaSnapshot::available).toList();
 
         List<DatabaseAdvisorDiagnosticDto> diagnostics = new ArrayList<>(schemaDiagnostics(schemas));
+        diagnostics.addAll(evidenceDiagnostics);
         List<DatabaseAdvisorDataSourceDto> dataSourceStatuses = dataSourceStatuses(schemas);
         boolean truncated = schemas.stream().anyMatch(SchemaSnapshot::truncated);
 
@@ -218,13 +258,25 @@ public final class DatabaseAdvisorScanner {
         List<MappedEntityFacts> mappedEntities = mappedEntities(entityDiscovery, diagnostics);
 
         DatabaseAdvisorContext context = new DatabaseAdvisorContext(
-                schemas, hibernateAvailable, mappedEntities, safeObservedStatements(diagnostics));
+                schemas,
+                hibernateAvailable,
+                mappedEntities,
+                safeObservedStatements(diagnostics),
+                List.of(),
+                null,
+                driverEvidence.jdbcBatching());
         List<DatabaseAdvisorRuleResultDto> results = new ArrayList<>();
         boolean usable = false;
         for (DatabaseAdvisorRule rule : DatabaseAdvisorRuleRegistry.activeRules()) {
             // Each rule gets its own gap journal: a bounded shared journal cannot prove later rules completed.
             DatabaseAdvisorContext evaluation = new DatabaseAdvisorContext(
-                    schemas, hibernateAvailable, mappedEntities, context.observedStatements(), List.of(), collector);
+                    schemas,
+                    hibernateAvailable,
+                    mappedEntities,
+                    context.observedStatements(),
+                    List.of(),
+                    collector,
+                    context.jdbcBatching());
             DatabaseAdvisorRuleResultDto result = rule.evaluate(evaluation);
             results.add(result);
             usable |= isViolation(result)
@@ -415,6 +467,81 @@ public final class DatabaseAdvisorScanner {
                     List.of(new DatabaseAdvisorDataSourceDiscovery.Failure(
                             "datasource discovery", "Datasource discovery failed: " + ex.getMessage())));
         }
+    }
+
+    /** The pool's driver properties per datasource and the effective JDBC batching, as the scan will use them. */
+    private record DriverEvidenceInputs(
+            Map<String, DataSourceConfiguration> configurations, Map<String, JdbcBatching> jdbcBatching) {
+
+        static final DriverEvidenceInputs NONE = new DriverEvidenceInputs(Map.of(), Map.of());
+
+        /** The pool's driver properties, or {@code null} when they were not read for this datasource. */
+        Map<String, String> poolDriverProperties(String dataSourceName) {
+            DataSourceConfiguration configuration = configurations.get(dataSourceName);
+            return configuration == null || !configuration.driverPropertiesKnown()
+                    ? null
+                    : configuration.driverProperties();
+        }
+    }
+
+    /**
+     * Driver evidence from the adapter, fully guarded: a failing provider degrades the driver rules to skipped, never
+     * the schema scan. Diagnostics use fixed text because a provider failure can quote connection settings. A name
+     * that is ambiguous (twice discovered or twice configured) gets no configuration rather than a guessed one.
+     */
+    private DriverEvidenceInputs safeDriverEvidence(
+            List<NamedDataSource> dataSources, List<DatabaseAdvisorDiagnosticDto> diagnostics) {
+        if (evidenceProvider == null) {
+            return DriverEvidenceInputs.NONE;
+        }
+        Map<String, DataSourceConfiguration> configurations = new HashMap<>();
+        try {
+            Set<String> discovered = new HashSet<>();
+            Set<String> ambiguous = new HashSet<>();
+            dataSources.forEach(dataSource -> {
+                if (!discovered.add(dataSource.name())) {
+                    ambiguous.add(dataSource.name());
+                }
+            });
+            List<DataSourceConfiguration> reported = evidenceProvider.dataSourceConfigurations();
+            for (DataSourceConfiguration configuration :
+                    reported == null ? List.<DataSourceConfiguration>of() : reported) {
+                if (configuration != null && discovered.contains(configuration.dataSourceName())) {
+                    if (configurations.put(configuration.dataSourceName(), configuration) != null) {
+                        ambiguous.add(configuration.dataSourceName());
+                    }
+                }
+            }
+            ambiguous.forEach(configurations::remove);
+        } catch (RuntimeException | LinkageError ex) {
+            configurations.clear();
+            evidenceDiagnostic(
+                    diagnostics,
+                    "JDBC driver evidence",
+                    SchemaDiagnostic.WARNING,
+                    "The connection pool's driver properties could not be read; settings configured there are not"
+                            + " evaluated.");
+        }
+        Map<String, JdbcBatching> batching = Map.of();
+        try {
+            Map<String, JdbcBatching> reported = evidenceProvider.jdbcBatching();
+            if (reported != null) {
+                Map<String, JdbcBatching> valid = new HashMap<>();
+                reported.forEach((name, value) -> {
+                    if (name != null && value != null && value.status() != null) {
+                        valid.put(name, value);
+                    }
+                });
+                batching = valid;
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            evidenceDiagnostic(
+                    diagnostics,
+                    "JDBC driver evidence",
+                    SchemaDiagnostic.WARNING,
+                    "Hibernate's JDBC batching could not be read; batching-dependent driver checks are skipped.");
+        }
+        return new DriverEvidenceInputs(configurations, batching);
     }
 
     private EntityDiscovery safeEntityDiscovery(List<DatabaseAdvisorDiagnosticDto> diagnostics) {

@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`DB-DRIVER-001..003` (MEDIUM)** flag a pgjdbc or MySQL Connector/J datasource that batches writes without
+  `reWriteBatchedInserts`/`rewriteBatchedStatements`, and Connector/J `useAffectedRows=true`
+  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#jdbc-driver); [#1517](https://github.com/jdubois/boot-ui/issues/1517)).
 - **`HIB-CONFIG-021` (HIGH)** flags `hibernate.connection.provider_disables_autocommit=true` on a pool that hands out
   auto-commit connections, and `HIB-CONFIG-008` now reads the pool's auto-commit instead of always skipping
   ([Hibernate checks](docs/HIBERNATE-CHECKS.md#hib-config-021-provider-auto-commit-setting-should-match-the-pool); #1512).

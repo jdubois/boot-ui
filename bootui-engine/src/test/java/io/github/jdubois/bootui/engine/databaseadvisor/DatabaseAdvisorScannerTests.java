@@ -13,6 +13,9 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.HibernateAttributeModel;
 import io.github.jdubois.bootui.engine.hibernate.HibernateEntityModel;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.DataSourceConfiguration;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.JdbcBatching;
 import io.github.jdubois.bootui.spi.NamedDataSource;
 import java.io.PrintWriter;
 import java.sql.Connection;
@@ -25,6 +28,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.logging.Logger;
 import javax.sql.DataSource;
@@ -69,6 +73,138 @@ class DatabaseAdvisorScannerTests {
         return DatabaseAdvisorScanner.using(() -> dataSources, () -> EntityDiscovery.empty(null), FIXED_CLOCK);
     }
 
+    private DatabaseAdvisorScanner scannerWith(DatabaseAdvisorEvidenceProvider evidence) {
+        return DatabaseAdvisorScanner.usingDiscovery(
+                () -> new DatabaseAdvisorDataSourceDiscovery(
+                        List.of(new NamedDataSource("primary", dataSource)), List.of()),
+                () -> EntityDiscovery.empty(null),
+                List::of,
+                evidence,
+                FIXED_CLOCK);
+    }
+
+    private static DatabaseAdvisorEvidenceProvider evidence(
+            List<DataSourceConfiguration> configurations, Map<String, JdbcBatching> batching) {
+        return new DatabaseAdvisorEvidenceProvider() {
+            @Override
+            public List<DataSourceConfiguration> dataSourceConfigurations() {
+                return configurations;
+            }
+
+            @Override
+            public Map<String, JdbcBatching> jdbcBatching() {
+                return batching;
+            }
+        };
+    }
+
+    @Test
+    void driverEvidenceAndBatchingReachTheDriverRulesAndThePoolPropertiesReachTheIntrospector() {
+        SchemaSnapshot postgres = DatabaseAdvisorFixtures.driverSchema(
+                "primary",
+                Dialect.POSTGRESQL,
+                DatabaseAdvisorFixtures.driverEvidence("PostgreSQL JDBC Driver", Map.of()));
+        DatabaseAdvisorScanner scanner = scannerWith(evidence(
+                List.of(new DataSourceConfiguration("primary", null, Map.of("useAffectedRows", "true"), true)),
+                Map.of("primary", JdbcBatching.enabled(30))));
+        try (var introspector = mockStatic(SchemaIntrospector.class)) {
+            introspector
+                    .when(() -> SchemaIntrospector.introspect(
+                            eq("primary"), any(DataSource.class), any(), any(), eq(Map.of("useAffectedRows", "true"))))
+                    .thenReturn(postgres);
+
+            DatabaseAdvisorReport report = scanner.scan();
+
+            assertThat(report.results())
+                    .filteredOn(result -> result.id().equals("DB-DRIVER-001"))
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.status()).isEqualTo("VIOLATION");
+                        assertThat(result.sampleViolations().get(0)).contains("batch size 30");
+                    });
+        }
+    }
+
+    @Test
+    void poolPropertiesThatWereNotReadReachTheIntrospectorAsUnknownNotAsEmpty() {
+        DatabaseAdvisorScanner scanner =
+                scannerWith(evidence(List.of(new DataSourceConfiguration("primary", null, Map.of(), false)), Map.of()));
+        try (var introspector = mockStatic(SchemaIntrospector.class)) {
+            introspector
+                    .when(() -> SchemaIntrospector.introspect(
+                            eq("primary"), any(DataSource.class), any(), any(), org.mockito.ArgumentMatchers.isNull()))
+                    .thenReturn(DatabaseAdvisorFixtures.schema("primary", Dialect.GENERIC, List.of()));
+
+            assertThat(scanner.scan().dataSources()).hasSize(1);
+        }
+    }
+
+    @Test
+    void aFailingEvidenceProviderDegradesTheDriverRulesWithAWarningAndNeverTheScan() {
+        DatabaseAdvisorEvidenceProvider failing = new DatabaseAdvisorEvidenceProvider() {
+            @Override
+            public List<DataSourceConfiguration> dataSourceConfigurations() {
+                throw new IllegalStateException("jdbc:postgresql://h/db?password=hunter2");
+            }
+
+            @Override
+            public Map<String, JdbcBatching> jdbcBatching() {
+                throw new LinkageError("hunter2");
+            }
+        };
+
+        DatabaseAdvisorReport report = scannerWith(failing).scan();
+
+        assertThat(report.dataSources())
+                .singleElement()
+                .satisfies(source -> assertThat(source.status()).isEqualTo("AVAILABLE"));
+        assertThat(report.diagnostics())
+                .filteredOn(diagnostic -> diagnostic.source().equals("JDBC driver evidence"))
+                .hasSize(2)
+                .allSatisfy(diagnostic -> {
+                    assertThat(diagnostic.level()).isEqualTo("WARNING");
+                    assertThat(diagnostic.message()).doesNotContain("hunter2", "password");
+                });
+        assertThat(report.diagnostics())
+                .filteredOn(diagnostic -> diagnostic.source().startsWith("DB-DRIVER"))
+                .hasSize(3)
+                .allSatisfy(diagnostic -> assertThat(diagnostic.level()).isEqualTo("INFO"));
+        assertThat(report.rulesSkipped()).isGreaterThanOrEqualTo(3);
+    }
+
+    @Test
+    void anAmbiguousOrUnknownConfigurationNameYieldsNoConfiguration() {
+        DatabaseAdvisorEvidenceProvider twice = evidence(
+                List.of(
+                        new DataSourceConfiguration("primary", null, Map.of("useAffectedRows", "true"), true),
+                        new DataSourceConfiguration("primary", null, Map.of("useAffectedRows", "false"), true),
+                        new DataSourceConfiguration("ghost", null, Map.of("useAffectedRows", "true"), true)),
+                Map.of());
+        try (var introspector = mockStatic(SchemaIntrospector.class)) {
+            introspector
+                    .when(() -> SchemaIntrospector.introspect(
+                            eq("primary"), any(DataSource.class), any(), any(), org.mockito.ArgumentMatchers.isNull()))
+                    .thenReturn(DatabaseAdvisorFixtures.schema("primary", Dialect.GENERIC, List.of()));
+
+            assertThat(scannerWith(twice).scan().dataSources()).hasSize(1);
+        }
+    }
+
+    @Test
+    void theDriverRulesAreNotApplicableToAnH2DatasourceAndTheScanNeverExposesAUrl() {
+        DatabaseAdvisorReport report =
+                scannerFor(List.of(new NamedDataSource("primary", dataSource))).scan();
+
+        assertThat(report.diagnostics())
+                .filteredOn(diagnostic -> diagnostic.source().startsWith("DB-DRIVER"))
+                .hasSize(3)
+                .allSatisfy(diagnostic -> {
+                    assertThat(diagnostic.level()).isEqualTo("INFO");
+                    assertThat(diagnostic.message()).startsWith("Not applicable:");
+                });
+        assertThat(report.toString()).doesNotContain("jdbc:h2");
+    }
+
     @Test
     void retainsEveryCountedTableBeforeSamplingWithoutQueryingAgain() {
         var tables = java.util.stream.IntStream.range(0, 16)
@@ -90,7 +226,8 @@ class DatabaseAdvisorScannerTests {
                 FIXED_CLOCK);
         try (var introspector = mockStatic(SchemaIntrospector.class)) {
             introspector
-                    .when(() -> SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any()))
+                    .when(() ->
+                            SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any(), any()))
                     .thenReturn(schema);
             DatabaseAdvisorReport report = scanner.scan();
             String scanId = report.violationDetails().scanId();
@@ -120,7 +257,7 @@ class DatabaseAdvisorScannerTests {
             assertThat(scanner.lastReport()).isSameAs(report);
             assertThat(discoveries).hasValue(1);
             introspector.verify(
-                    () -> SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any()));
+                    () -> SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any(), any()));
 
             scanner.setViolationRetentionLimit(() -> 7);
             DatabaseAdvisorReport bounded = scanner.scan();
@@ -148,7 +285,8 @@ class DatabaseAdvisorScannerTests {
         var postgres = DatabaseAdvisorFixtures.schema("primary", Dialect.POSTGRESQL, List.of(), findings);
         try (var introspector = mockStatic(SchemaIntrospector.class)) {
             introspector
-                    .when(() -> SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any()))
+                    .when(() ->
+                            SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any(), any()))
                     .thenReturn(postgres);
             var report = scannerFor(List.of(new NamedDataSource("primary", dataSource)))
                     .scan();
@@ -310,7 +448,8 @@ class DatabaseAdvisorScannerTests {
     private DatabaseAdvisorReport scanWithEntities(SchemaSnapshot snapshot, List<HibernateEntityModel> entities) {
         try (var introspector = mockStatic(SchemaIntrospector.class)) {
             introspector
-                    .when(() -> SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any()))
+                    .when(() ->
+                            SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any(), any()))
                     .thenReturn(snapshot);
             return DatabaseAdvisorScanner.using(
                             () -> List.of(new NamedDataSource("primary", dataSource)),
@@ -526,7 +665,7 @@ class DatabaseAdvisorScannerTests {
     @Test
     void retiredIdsAreNotRegisteredOrReusedAndOldDismissalsAreHarmless() {
         Set<String> retired = Set.of("DB-SCHEMA-008", "DB-SCHEMA-009", "DB-HIB-001", "DB-HIB-008");
-        assertThat(DatabaseAdvisorRuleRegistry.activeRules()).hasSize(28);
+        assertThat(DatabaseAdvisorRuleRegistry.activeRules()).hasSize(31);
         assertThat(DatabaseAdvisorRuleRegistry.activeRules())
                 .noneMatch(rule -> retired.contains(rule.definition().id()));
         DatabaseAdvisorScanner scanner = scannerFor(List.of(new NamedDataSource("primary", dataSource)));

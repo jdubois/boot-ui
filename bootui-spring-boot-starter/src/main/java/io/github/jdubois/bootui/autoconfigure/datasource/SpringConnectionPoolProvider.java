@@ -3,12 +3,15 @@ package io.github.jdubois.bootui.autoconfigure.datasource;
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import io.github.jdubois.bootui.autoconfigure.web.HikariDataSourceDiscovery;
+import io.github.jdubois.bootui.engine.databaseadvisor.DriverSettingCatalog;
 import io.github.jdubois.bootui.engine.datasource.PhysicalDataSources;
 import io.github.jdubois.bootui.spi.ConnectionPoolInfo;
 import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
 import io.github.jdubois.bootui.spi.ConnectionPoolSnapshot;
 import jakarta.annotation.Nullable;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
@@ -79,6 +82,36 @@ public final class SpringConnectionPoolProvider implements ConnectionPoolProvide
         return beanName == null
                 ? Optional.empty()
                 : Optional.of(toInfo(new HikariDataSourceDiscovery.PoolEntry(beanName, pool)));
+    }
+
+    /**
+     * Each Hikari pool's {@code dataSourceProperties}, reduced to the driver-setting allow-list so a credential the
+     * application also passes to the driver ({@code user}, {@code password}, ...) is never read into a value. A pool
+     * configured with a {@code DataSource} object or class has no entry: its driver settings are not readable here.
+     */
+    @Override
+    public Map<String, Map<String, String>> driverProperties() {
+        ListableBeanFactory factory = beanFactoryProvider.getIfAvailable();
+        if (factory == null) {
+            return Map.of();
+        }
+        Map<String, Map<String, String>> properties = new LinkedHashMap<>();
+        for (HikariDataSourceDiscovery.PoolEntry entry : HikariDataSourceDiscovery.discover(factory)) {
+            try {
+                if (entry.dataSource().getDataSource() != null
+                        || entry.dataSource().getDataSourceClassName() != null) {
+                    // The driver's settings live on that DataSource object (set directly or through its setters),
+                    // which neither the URL nor dataSourceProperties describe: unknown, not none.
+                    continue;
+                }
+                properties.put(
+                        entry.beanName(),
+                        DriverSettingCatalog.allowListed(entry.dataSource().getDataSourceProperties()));
+            } catch (RuntimeException ex) {
+                // A pool that cannot report its driver properties contributes no evidence.
+            }
+        }
+        return properties;
     }
 
     private static String existingBeanName(ListableBeanFactory factory, Class<?> type, HikariDataSource pool) {

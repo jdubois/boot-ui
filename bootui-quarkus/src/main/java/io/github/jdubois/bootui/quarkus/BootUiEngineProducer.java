@@ -109,6 +109,7 @@ import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusThreadKinds;
 import io.github.jdubois.bootui.quarkus.databaseadvisor.QuarkusDatabaseAdvisorDataSourceProvider;
+import io.github.jdubois.bootui.quarkus.databaseadvisor.QuarkusDatabaseAdvisorEvidenceProvider;
 import io.github.jdubois.bootui.quarkus.errorcontract.QuarkusErrorContractProvider;
 import io.github.jdubois.bootui.quarkus.faulttolerance.QuarkusFaultTolerancePolicyProvider;
 import io.github.jdubois.bootui.quarkus.health.QuarkusHealthGuidance;
@@ -1327,6 +1328,8 @@ public class BootUiEngineProducer {
             @Any Instance<DataSource> dataSources,
             Instance<EntityDiscoverySource> entityDiscoverySources,
             Instance<SqlTraceRecorder> sqlTraceRecorders,
+            @Any Instance<ConnectionPoolProvider> connectionPools,
+            Instance<io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource> hibernateObservations,
             BeanManager beanManager,
             Config config) {
         QuarkusDatabaseAdvisorDataSourceProvider dataSourceProvider =
@@ -1343,8 +1346,15 @@ public class BootUiEngineProducer {
         // skip rather than report a clean result they have no basis for.
         Supplier<List<SqlTraceEntryDto>> observedStatements =
                 () -> sqlTraceRecorders.isResolvable() ? sqlTraceRecorders.get().entries(false) : List.of();
+        // Driver evidence reaches the pool and the Hibernate observations only through Instances that are unsatisfied
+        // without the AGROAL or HIBERNATE_ORM capability, so no io.agroal or Hibernate type is linked here.
         DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.usingDiscovery(
-                dataSourceProvider::discover, discovery, observedStatements, Clock.systemUTC());
+                dataSourceProvider::discover,
+                discovery,
+                observedStatements,
+                new QuarkusDatabaseAdvisorEvidenceProvider(
+                        dataSources, beanManager, connectionPools, hibernateObservations),
+                Clock.systemUTC());
         scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
         return scanner;
     }
