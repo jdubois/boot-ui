@@ -1,8 +1,7 @@
 import {readFileSync} from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {mount} from '@vue/test-utils'
-import {nextTick} from 'vue'
+import {flushPromises, mount} from '@vue/test-utils'
 import {describe, expect, it} from 'vitest'
 
 import AdvisorSummary from './AdvisorSummary.vue'
@@ -180,6 +179,38 @@ describe('AdvisorSummary', () => {
   })
 
   describe('changes since the previous scan', () => {
+    it('announces the first scan run from an unscanned panel, then an identical rescan again', async () => {
+      const wrapper = mount(AdvisorSummary, {props: {...baseProps, score: null, changesEnabled: true, changes: null}})
+      const status = wrapper.get('[role="status"]')
+      expect(status.text()).toBe('')
+      await wrapper.setProps({scanned: true})
+      await flushPromises()
+      expect(status.text()).toContain('First scan: nothing to compare yet.')
+
+      const same = (previousScanId) => ({
+        previousScanId,
+        complete: true,
+        newCount: 0,
+        resolvedCount: 0,
+        unchangedCount: 2,
+        unkeyedCount: 0,
+        resolved: [],
+        notes: [],
+        unverifiedCount: 0,
+        rules: []
+      })
+      await wrapper.setProps({changes: same('scan-1')})
+      await flushPromises()
+      expect(status.text()).toBe('No changes since the previous scan. 2 unchanged.')
+      const seen = []
+      await wrapper.setProps({changes: same('scan-2')})
+      seen.push(status.text())
+      await flushPromises()
+      seen.push(status.text())
+      expect(seen[0]).toBe('')
+      expect(seen[1]).toBe('No changes since the previous scan. 2 unchanged.')
+    })
+
     const tracked = {...baseProps, score: 90, changesEnabled: true, scanned: true}
     const changes = (overrides = {}) => ({
       previousScanId: 'scan-1',
@@ -302,7 +333,7 @@ describe('AdvisorSummary', () => {
       expect(status.text()).toBe('')
 
       await wrapper.setProps({changes: changes({previousScanId: 'scan-2', newCount: 1, unchangedCount: 3})})
-      await nextTick()
+      await flushPromises()
       expect(status.text()).toBe('1 new, 0 resolved, 3 unchanged since the previous scan.')
 
       // The same scan read again (a dismissal reloads the report) is not announced twice.

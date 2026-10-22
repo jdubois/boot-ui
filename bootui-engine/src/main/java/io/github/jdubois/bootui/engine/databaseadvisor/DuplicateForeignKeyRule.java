@@ -53,7 +53,7 @@ final class DuplicateForeignKeyRule extends AbstractDatabaseAdvisorRule {
                                             + first.name() + " and " + second.name()
                                             + " have potentially duplicate observed definitions; match/enforcement semantics require review.",
                                     DatabaseIdentities.table(
-                                            schema, table, DatabaseIdentities.pair("fk", first.name(), second.name())));
+                                            schema, table, DatabaseIdentities.foreignKeyPair(first, second)));
                         }
                     }
                 }

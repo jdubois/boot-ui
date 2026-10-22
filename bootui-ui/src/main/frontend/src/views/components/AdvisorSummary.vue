@@ -1,5 +1,5 @@
 <script setup>
-import {computed, ref, watch} from 'vue'
+import {computed, nextTick, ref, watch} from 'vue'
 
 const props = defineProps({
   score: {type: Number, default: null},
@@ -68,9 +68,13 @@ const changesText = computed(() => {
 // the cached report read on arrival.
 const announcement = ref('')
 watch(
-  () => `${props.changes?.previousScanId ?? ''}|${changesText.value}`,
-  () => {
-    if (showChanges.value) announcement.value = changesText.value
+  () => `${showChanges.value}|${props.changes?.previousScanId ?? ''}|${changesText.value}`,
+  async () => {
+    if (!showChanges.value) return
+    // Clearing first lets an identical result be announced again.
+    announcement.value = ''
+    await nextTick()
+    announcement.value = changesText.value
   }
 )
 

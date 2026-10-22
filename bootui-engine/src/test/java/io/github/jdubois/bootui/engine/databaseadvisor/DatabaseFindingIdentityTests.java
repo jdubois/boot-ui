@@ -93,6 +93,28 @@ class DatabaseFindingIdentityTests {
     }
 
     @Test
+    void anUnnamedForeignKeyIsKeyedOnItsColumnsNotOnAShiftingOrdinal() {
+        ForeignKeyModel first = foreignKey("fk#0");
+        ForeignKeyModel shifted = foreignKey("fk#1");
+        ForeignKeyModel named = foreignKey("fk_orders_customer");
+
+        assertThat(DatabaseIdentities.foreignKey(first)).isEqualTo(DatabaseIdentities.foreignKey(shifted));
+        assertThat(DatabaseIdentities.foreignKey(first)).containsExactly("fkcolumn=customer_id", "references=customer");
+        assertThat(DatabaseIdentities.foreignKey(named)).containsExactly("fk=fk_orders_customer");
+    }
+
+    @Test
+    void namesThatContainSeparatorsStayDistinctSets() {
+        assertThat(DatabaseIdentities.parts(DatabaseIdentities.each("unique", List.of("a,b", "c"))))
+                .isNotEqualTo(DatabaseIdentities.parts(DatabaseIdentities.each("unique", List.of("a", "b,c"))));
+    }
+
+    private static ForeignKeyModel foreignKey(String name) {
+        return new ForeignKeyModel(
+                name, List.of("customer_id"), null, "public", "customer", List.of("id"), null, null, null);
+    }
+
+    @Test
     void aLiveStatementShapeIsKeyedOnADigestNeverOnSqlText() {
         String identity = DatabaseIdentities.parts("shape=" + "a".repeat(32));
 

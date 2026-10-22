@@ -101,8 +101,9 @@ final class HibernateMissingForeignKeyConstraintRule extends AbstractHibernateCr
                         DatabaseIdentities.table(
                                 resolution.schema(),
                                 table,
-                                "attribute=" + foreignKey.attributeDescription(),
-                                "columns=" + String.join(",", foreignKey.columns())));
+                                DatabaseIdentities.concat(
+                                        new String[] {"attribute=" + foreignKey.attributeDescription()},
+                                        DatabaseIdentities.each("fkcolumn", foreignKey.columns()))));
             }
         }
         return eligible;

@@ -87,6 +87,24 @@ class HibernateScanChangesTests {
     }
 
     @Test
+    void anUnobservedRepositoryOrFactoryBlocksEveryClaimOfThatScan() {
+        HibernateScanner scanner = scanner(new BulkUpdateVersionRule(), new AlwaysPassingRule());
+        scanner.scan();
+
+        methods.set(List.of("a", "c"));
+        diagnostics.set(List.of(new HibernateObservationDiagnostic(
+                "application", HibernateObservationDiagnostic.Reason.REPOSITORY_METADATA_UNAVAILABLE)));
+        AdvisorChangesDto changes = scanner.scan().violationDetails().changes();
+
+        assertThat(changes.resolvedCount()).isZero();
+        assertThat(changes.newCount()).isZero();
+        assertThat(changes.complete()).isFalse();
+        assertThat(changes.notes())
+                .anyMatch(note -> note.contains("could not be observed"))
+                .anyMatch(note -> note.contains("not compared"));
+    }
+
+    @Test
     void aScanWithNothingToInspectDoesNotReplaceTheBaseline() {
         HibernateScanner scanner = new HibernateScanner(
                 () -> new HibernateAdvisorObservation(

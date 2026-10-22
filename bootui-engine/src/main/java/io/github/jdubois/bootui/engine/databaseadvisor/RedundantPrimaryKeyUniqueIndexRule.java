@@ -22,10 +22,17 @@ final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRu
         int eligible = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
             for (TableModel table : DatabaseAdvisorContext.analyzableTables(schema)) {
+                if (!table.metadata().primaryKeyRead()) {
+                    unknown(
+                            context,
+                            schema.dataSourceName() + ": " + table.qualifiedName()
+                                    + " primary-key or index inventory is incomplete.");
+                    continue;
+                }
                 if (table.primaryKeyColumns().isEmpty()) {
                     continue;
                 }
-                if (!table.metadata().indexesRead() || !table.metadata().primaryKeyRead()) {
+                if (!table.metadata().indexesRead()) {
                     unknown(
                             context,
                             schema.dataSourceName() + ": " + table.qualifiedName()

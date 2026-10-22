@@ -37,6 +37,40 @@ final class DatabaseIdentities {
         return table(schema, table, "attribute=" + attribute, "column=" + column);
     }
 
+    /**
+     * A foreign key, by its name, or, when the catalog reported none and the name is a numbered placeholder that
+     * shifts when another key changes, by its child columns and the table it references.
+     */
+    static String[] foreignKey(ForeignKeyModel foreignKey) {
+        String name = foreignKey.name();
+        if (name != null && !name.startsWith("fk#")) {
+            return new String[] {"fk=" + name};
+        }
+        List<String> parts = new ArrayList<>();
+        foreignKey.columns().forEach(column -> parts.add("fkcolumn=" + column));
+        parts.add("references=" + foreignKey.referencedTable());
+        return parts.toArray(String[]::new);
+    }
+
+    /** The parts of two foreign keys in sorted order, so the pair has one identity whichever is listed first. */
+    static String[] foreignKeyPair(ForeignKeyModel first, ForeignKeyModel second) {
+        String[] a = foreignKey(first);
+        String[] b = foreignKey(second);
+        boolean ordered = String.join("|", a).compareTo(String.join("|", b)) <= 0;
+        return concat(ordered ? a : b, ordered ? b : a);
+    }
+
+    static String[] concat(String[]... arrays) {
+        List<String> all = new ArrayList<>();
+        for (String[] array : arrays) all.addAll(List.of(array));
+        return all.toArray(String[]::new);
+    }
+
+    /** One part for each name, so a name that contains a separator cannot alias a different set of names. */
+    static String[] each(String key, List<String> names) {
+        return names.stream().map(name -> key + "=" + name).toArray(String[]::new);
+    }
+
     /** A finding keyed on the given parts alone, for one that has no resolved physical object. */
     static String parts(String... parts) {
         return AdvisorFindingIdentity.of(VERSION, parts);

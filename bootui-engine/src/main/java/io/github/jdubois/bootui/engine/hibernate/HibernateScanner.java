@@ -230,10 +230,21 @@ public final class HibernateScanner {
                         HibernateFactorySettings.unknown(),
                         null),
                 globalApp);
+        // A diagnostic about something that is not an observed unit (repository metadata, a factory that failed to
+        // start) can lose findings, or flip an application-wide verdict, in any scope: nothing is then concluded.
+        java.util.Set<String> observedUnits = observation.units().stream()
+                .map(HibernatePersistenceUnitObservation::label)
+                .collect(java.util.stream.Collectors.toSet());
+        boolean discoveryGap = false;
         for (HibernateObservationDiagnostic diagnostic : observation.diagnostics()) {
             collector.markScopeUnverified(
                     AdvisorFindingIdentity.encode("unit=" + diagnostic.unitLabel()),
                     "Persistence unit " + diagnostic.unitLabel() + " could not be fully observed.");
+            discoveryGap |= !observedUnits.contains(diagnostic.unitLabel());
+        }
+        if (discoveryGap) {
+            collector.noteCoverageGap(
+                    "A persistence unit or its repositories could not be observed, so no finding was compared.");
         }
         for (HibernateRule rule : rules) {
             List<HibernatePersistenceUnitObservation> units = rule.applicationWide() ? List.of() : observation.units();
@@ -289,7 +300,7 @@ public final class HibernateScanner {
                             advisorLimitOnly(evidence) ? INFO : WARNING,
                             prefix + " Required evidence unavailable: " + gaps + "."));
                 }
-                if (concluded(result, evidence)) {
+                if (!discoveryGap && concluded(result, evidence)) {
                     collector.markConcluded(ruleId, AdvisorFindingIdentity.encode(context.unitPart()));
                 }
                 if (HibernateRuleSupport.SKIPPED.equals(result.status())

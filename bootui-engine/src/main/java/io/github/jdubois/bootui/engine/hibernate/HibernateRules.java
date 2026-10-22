@@ -107,6 +107,18 @@ final class HibernateRuleModelSupport {
     private HibernateRuleModelSupport() {}
 
     /**
+     * The concrete entity each attribute was read from, by identity: an attribute inherited from a mapped
+     * superclass is a separate object per entity, and its finding is keyed on that entity.
+     */
+    static Map<HibernateAttributeModel, HibernateEntityModel> attributeOwners(List<HibernateEntityModel> entities) {
+        Map<HibernateAttributeModel, HibernateEntityModel> owners = new java.util.IdentityHashMap<>();
+        for (HibernateEntityModel entity : entities) {
+            for (HibernateAttributeModel attribute : entity.attributes()) owners.put(attribute, entity);
+        }
+        return owners;
+    }
+
+    /**
      * True when a Quarkus Panache extension (ORM or Reactive) is present on the classpath. Panache rewrites public
      * field access application-wide on every JPA-managed class, not only on classes that extend
      * {@code PanacheEntityBase}/{@code PanacheEntity} (see {@code PanacheHibernateCommonResourceProcessor} and
@@ -923,6 +935,8 @@ final class MissingBatchFetchRule extends AbstractHibernateRule {
         }
         Map<String, HibernateEntityModel> entitiesByJavaType =
                 HibernateRuleModelSupport.entitiesByJavaType(context.entities());
+        Map<HibernateAttributeModel, HibernateEntityModel> owners =
+                HibernateRuleModelSupport.attributeOwners(context.entities());
         AdvisorFindings details = new AdvisorFindings();
         for (HibernateAttributeModel attribute : candidates) {
             if (isCoveredByBatchSize(attribute, entitiesByJavaType)) {
@@ -933,7 +947,7 @@ final class MissingBatchFetchRule extends AbstractHibernateRule {
                             + " can initialize through secondary selects without a global batch-fetch size or"
                             + " applicable @BatchSize.",
                     HibernateLocations.of(attribute),
-                    HibernateIdentities.of(context, attribute));
+                    HibernateIdentities.of(context, owners.get(attribute), attribute));
         }
         return violation(context, details);
     }
@@ -3388,7 +3402,7 @@ final class CompositeIdentifierContractRule extends AbstractHibernateRule {
                     checkCompositeIdClass(
                             attribute.rawType(),
                             attribute.description() + " (@EmbeddedId)",
-                            HibernateIdentities.of(context, entity, attribute),
+                            HibernateIdentities.idClass(context, attribute.rawType()),
                             checked,
                             details);
                 }
@@ -3399,7 +3413,7 @@ final class CompositeIdentifierContractRule extends AbstractHibernateRule {
                 checkCompositeIdClass(
                         idClass,
                         entity.name() + " (@IdClass)",
-                        HibernateIdentities.of(context, entity, "idclass=" + idClass.getName()),
+                        HibernateIdentities.idClass(context, idClass),
                         checked,
                         details);
             }
@@ -3795,6 +3809,8 @@ final class PostgresLobRule extends AbstractHibernateRule {
         if (!context.required(context.factorySettings().postgresql(), HibernateEvidenceGap.FACTORY_SETTING)) {
             return skipped("The persistence unit does not use PostgreSQL.");
         }
+        Map<HibernateAttributeModel, HibernateEntityModel> owners =
+                HibernateRuleModelSupport.attributeOwners(context.entities());
         AdvisorFindings details = new AdvisorFindings();
         for (HibernateAttributeModel attribute : candidates) {
             Boolean lob = bindsAsLob(attribute);
@@ -3805,7 +3821,7 @@ final class PostgresLobRule extends AbstractHibernateRule {
                         attribute.description() + " is @Lob on PostgreSQL, so Hibernate stores it as an oid large"
                                 + " object instead of text or bytea.",
                         HibernateLocations.of(attribute),
-                        HibernateIdentities.of(context, attribute));
+                        HibernateIdentities.of(context, owners.get(attribute), attribute));
             }
         }
         return violation(context, details);

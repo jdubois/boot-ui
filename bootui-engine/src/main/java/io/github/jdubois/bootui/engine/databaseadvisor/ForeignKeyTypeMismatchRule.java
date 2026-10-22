@@ -91,7 +91,12 @@ final class ForeignKeyTypeMismatchRule extends AbstractDatabaseAdvisorRule {
                     schema.dataSourceName() + ": " + table.qualifiedName() + "." + childColumn.name() + " ("
                             + childColumn.describeType() + ") references " + referenced.qualifiedName() + "."
                             + parentColumn.name() + " (" + parentColumn.describeType() + ") with " + mismatch + ".",
-                    DatabaseIdentities.table(schema, table, "fk=" + foreignKey.name(), "column=" + childColumn.name()));
+                    DatabaseIdentities.table(
+                            schema,
+                            table,
+                            DatabaseIdentities.concat(
+                                    DatabaseIdentities.foreignKey(foreignKey),
+                                    new String[] {"column=" + childColumn.name()})));
         }
     }
 }

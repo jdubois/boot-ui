@@ -102,7 +102,7 @@ final class HibernateMissingUniqueIndexRule extends AbstractHibernateCrossRefere
                             + " declares a unique constraint on " + table.qualifiedName() + " " + columns
                             + ", for which no enforcing key was found in the observed metadata. "
                             + "Confirm declaration-name correspondence and intended null semantics.",
-                    DatabaseIdentities.table(resolution.schema(), table, "unique=" + String.join(",", columns)));
+                    DatabaseIdentities.table(resolution.schema(), table, DatabaseIdentities.each("unique", columns)));
         }
         return eligible;
     }

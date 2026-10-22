@@ -204,7 +204,9 @@ public final class DatabaseAdvisorScanner {
         boolean truncated = schemas.stream().anyMatch(SchemaSnapshot::truncated);
 
         for (SchemaSnapshot schema : schemas) {
-            if (!schema.available() || schema.truncated()) {
+            // Only a dialect with partitioned tables can lose relations when the inventory falls back to plain tables.
+            boolean partialInventory = schema.dialect() == Dialect.POSTGRESQL && !schema.relationInventoryComplete();
+            if (!schema.available() || schema.truncated() || partialInventory) {
                 collector.markScopeUnverified(
                         AdvisorFindingIdentity.encode("ds=" + schema.dataSourceName()),
                         "Datasource " + schema.dataSourceName()
@@ -225,9 +227,12 @@ public final class DatabaseAdvisorScanner {
                     .build();
         }
 
+        int diagnosticsBeforeMappings = diagnostics.size();
         EntityDiscovery entityDiscovery = safeEntityDiscovery(diagnostics);
         boolean hibernateAvailable = !entityDiscovery.entities().isEmpty();
         List<MappedEntityFacts> mappedEntities = mappedEntities(entityDiscovery, diagnostics);
+        // A mapping that was lost leaves its findings unreported, so the cross-reference rules conclude nothing.
+        boolean mappingsComplete = diagnostics.size() == diagnosticsBeforeMappings;
 
         DatabaseAdvisorContext context = new DatabaseAdvisorContext(
                 schemas, hibernateAvailable, mappedEntities, safeObservedStatements(diagnostics));
@@ -240,6 +245,7 @@ public final class DatabaseAdvisorScanner {
             DatabaseAdvisorRuleResultDto result = rule.evaluate(evaluation);
             results.add(result);
             if (rule.comparableAcrossScans()
+                    && (mappingsComplete || !(rule instanceof AbstractHibernateCrossReferenceRule))
                     && (DatabaseAdvisorRuleSupport.PASS.equals(result.status()) || isViolation(result))
                     && evaluation.evaluationDiagnostics().isEmpty()) {
                 collector.markConcluded(rule.definition().id(), AdvisorViolationCollector.ALL_SCOPES);

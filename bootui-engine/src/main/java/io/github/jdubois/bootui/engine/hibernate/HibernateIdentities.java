@@ -23,9 +23,9 @@ final class HibernateIdentities {
         return key(context, parts(entityPart(entity), "member=" + attribute.name(), extra));
     }
 
-    /** An attribute known only by the class that declares it. */
-    static String of(HibernateContext context, HibernateAttributeModel attribute, String... extra) {
-        return key(context, parts("entity=" + attribute.entityName(), "member=" + attribute.name(), extra));
+    /** A composite identifier class, which several entities can share: keyed on the class, whichever entity is read first. */
+    static String idClass(HibernateContext context, Class<?> idClass) {
+        return key(context, "idclass=" + (idClass == null ? "" : idClass.getName()));
     }
 
     static String of(HibernateContext context, HibernateEntityModel entity, String... extra) {

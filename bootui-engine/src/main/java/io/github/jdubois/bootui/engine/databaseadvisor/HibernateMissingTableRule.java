@@ -59,8 +59,10 @@ final class HibernateMissingTableRule extends AbstractDatabaseAdvisorRule {
                         entity.entityName() + " declares relation name " + entity.qualifiedTableName()
                                 + ", which was not found in the scoped observed relation inventory. "
                                 + "Confirm effective physical naming before changing the mapping.",
-                        DatabaseIdentities.parts(
-                                "entity=" + entity.entityName(), "relation=" + entity.qualifiedTableName()));
+                        DatabaseIdentities.of(
+                                context.schemas().get(0).dataSourceName(),
+                                "entity=" + entity.entityName(),
+                                "relation=" + entity.qualifiedTableName()));
             } else if (resolution.resolved()) {
                 eligible++;
             } else {
@@ -77,8 +79,10 @@ final class HibernateMissingTableRule extends AbstractDatabaseAdvisorRule {
                     details.add(
                             entity.entityName() + " declares @SecondaryTable " + secondaryTable.qualifiedName()
                                     + ", whose name was not found in the scoped observed relation inventory.",
-                            DatabaseIdentities.parts(
-                                    "entity=" + entity.entityName(), "secondary=" + secondaryTable.qualifiedName()));
+                            DatabaseIdentities.of(
+                                    context.schemas().get(0).dataSourceName(),
+                                    "entity=" + entity.entityName(),
+                                    "secondary=" + secondaryTable.qualifiedName()));
                 } else if (secondaryResolution.resolved()) {
                     eligible++;
                 } else {

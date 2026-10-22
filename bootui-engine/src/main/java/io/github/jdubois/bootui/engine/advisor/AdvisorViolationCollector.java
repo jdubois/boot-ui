@@ -170,6 +170,11 @@ public final class AdvisorViolationCollector {
         addNote(reason);
     }
 
+    /** Records why part of this scan could not be compared, without blocking any particular scope. */
+    public void noteCoverageGap(String reason) {
+        addNote(reason);
+    }
+
     /** Declares that this scan cannot be compared at all, for example because no rule could run. */
     public void markScanUnverified(String reason) {
         scanUnverified = true;

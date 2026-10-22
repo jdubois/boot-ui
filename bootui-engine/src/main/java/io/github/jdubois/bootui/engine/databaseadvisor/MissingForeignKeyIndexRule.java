@@ -72,7 +72,7 @@ final class MissingForeignKeyIndexRule extends AbstractDatabaseAdvisorRule {
                                     + " " + fk.columns()
                                     + " has no observed usable ordinary index leading on the full column set. "
                                     + "Review parent modifications and query plans; this is not proof of a table scan.",
-                            DatabaseIdentities.table(schema, table, "fk=" + fk.name()));
+                            DatabaseIdentities.table(schema, table, DatabaseIdentities.foreignKey(fk)));
                 }
             }
         }
