@@ -113,6 +113,7 @@ public final class ExternalValidation {
         put(kinds, SlowFlush.KIND, Outcome.NOT_JUDGED, ON_REQUEST);
         put(kinds, ConnectionReacquisition.KIND, Outcome.NOT_JUDGED, ON_REQUEST);
         put(kinds, ReadOnlyCandidateTransaction.KIND, Outcome.UNDER_SAMPLED, ON_REQUEST);
+        put(kinds, PagedWithoutOrder.KIND, Outcome.UNDER_SAMPLED, ON_REQUEST);
         put(kinds, GcInflatedLatency.KIND, Outcome.NOT_LISTED, DefaultListing.MEMORY);
         put(kinds, HeapGrowthAfterGc.KIND, Outcome.NOT_LISTED, DefaultListing.MEMORY);
         put(kinds, WorkAfterResponse.KIND, Outcome.NOT_VALIDATED, null);

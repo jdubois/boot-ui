@@ -456,6 +456,7 @@ public final class RuntimeInsightsService {
                 new SlowFlush(),
                 new ConnectionReacquisition(),
                 new ReadOnlyCandidateTransaction(),
+                new PagedWithoutOrder(),
                 new TransactionAcrossRemoteCall(),
                 new LazySqlAfterHandler(),
                 new EventLoopBlocking(),

@@ -11,6 +11,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **`slow-flush` observation** reports a route whose requests spent 100 ms or more, and a fifth of their ORM time, in
   Hibernate flushes ([#1515](https://github.com/jdubois/boot-ui/issues/1515)).
+- **`paged-without-order` observation** reports a SELECT that limits its rows without an `ORDER BY`, so its pages can
+  repeat or skip rows ([#1522](https://github.com/jdubois/boot-ui/issues/1522)).
 - **`unbatched-write-loop` observation** reports a request that ran one write statement ten times or more, each without
   a JDBC batch ([#1521](https://github.com/jdubois/boot-ui/issues/1521)).
 - **`HIB-CONFIG-021` (HIGH)** flags `hibernate.connection.provider_disables_autocommit=true` on a pool that hands out
@@ -33,6 +35,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **SQL Trace reads MySQL `#` line comments** like `--` comments when it normalizes a statement, so a comment no
+  longer hides or fakes a keyword and its values are not shown.
 - **Faster CI builds.** The integration tests that run the BootUI agent in forked JVMs, the slowest in the build, now
   run in their own parallel `agent-integration-tests` job instead of holding up every module that depends on the agent,
   and that job runs the agent's Failsafe tests on two forks. `-Dbootui.skipAgentIts` and `-Dbootui.skipFrontendTests` skip those tests

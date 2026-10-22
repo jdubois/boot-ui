@@ -72,6 +72,18 @@ public class InsightSeedController {
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
+    /** {@code paged-without-order}: the second page of notes, limited and offset without an {@code ORDER BY}. */
+    @GetMapping("/notes/unsorted-page")
+    public Mono<List<Note>> notesUnsortedPage() {
+        return Mono.fromCallable(notes::findUnsortedPage).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /** The counterexample of the page: the same page ordered by id. */
+    @GetMapping("/notes/sorted-page")
+    public Mono<List<Note>> notesSortedPage() {
+        return Mono.fromCallable(notes::findSortedPage).subscribeOn(Schedulers.boundedElastic());
+    }
+
     /**
      * {@code unbatched-write-loop}: one update per note in one transaction, off the event loop. A GET only because the
      * sample's other routes are read in a browser; it is not a pattern to copy.

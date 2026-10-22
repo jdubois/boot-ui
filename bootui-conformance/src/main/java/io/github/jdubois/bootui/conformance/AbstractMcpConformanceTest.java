@@ -1221,6 +1221,7 @@ public abstract class AbstractMcpConformanceTest {
                                 "lazy-sql-after-handler",
                                 "split-transaction-writes",
                                 "readonly-candidate-transaction",
+                                "paged-without-order",
                                 "unbatched-write-loop",
                                 "framework-warnings-by-route",
                                 "anonymous-data-reach");

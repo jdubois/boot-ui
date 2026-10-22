@@ -12,7 +12,8 @@ Items marked **deferred** are not implemented in the current code. They are not 
 - **Several kinds are not listed by default.** `route-time-breakdown`, `exception-hotspots`,
   `connections-per-request`, and `ai-usage-by-route` are reached from the panels that show the same evidence;
   `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `unbatched-write-loop`,
-  `readonly-candidate-transaction`, `framework-warnings-by-route`, `anonymous-data-reach`, `connection-reacquisition`, and `slow-flush` only with **Show all routes**, a search, or an agent query
+  `readonly-candidate-transaction`, `framework-warnings-by-route`, `anonymous-data-reach`, `connection-reacquisition`,
+  `paged-without-order`, and `slow-flush` only with **Show all routes**, a search, or an agent query
   naming them. Every row stays reachable, and any row is a fact to verify against the code before acting on it.
 - **`slow-flush` measures the time in Hibernate's flush callbacks against a fixed 100 ms.** It excludes the statements the journal recorded a flush executing but includes a wait for a pooled connection or a statement preparation inside it, and a persistence context that is slow to flush only on a cold or loaded host, such as a garbage-collection pause inside the flush, counts too. A Hibernate session that executed no statement and flushed nothing is not recorded, so auto-flush checks alone in such a session are not counted. It needs three such requests of a route, so a route with fewer is silent. A flush time that is mostly auto-flushes may also be reported by `orm-auto-flush`, which counts only auto-flushes that wrote, and the flush timeline keeps only a session's first 16 flushes while the totals include all.
 - **`connection-reacquisition` counts Hibernate's acquisition callbacks**, not the pool's borrow count or how long a
@@ -49,6 +50,14 @@ See [WebFlux design notes](WEBFLUX-SUPPORT.md) for the panel-by-panel detail.
   inside a function a query calls, or to something that is not a database is not seen, and a method that writes only for
   some inputs is held back only while an execution that wrote is retained: a method it names is a fact to verify
   against the code, not a proof.
+- **`paged-without-order` reads SQL text, not what the database returns.** It does not report the first page of a
+  pageable query filtered only by equalities, a literal limit of one, or a statement it cannot read: SQL Trace's
+  shortened text, a statement longer than the scan limit, a string or quoted name that holds a backslash, Oracle `q'...'`
+  strings, a `#` that may be a PostgreSQL operator or a name's suffix rather than a MySQL comment, a `/*! ... */` or
+  `/*M! ... */` comment, several statements, or a `LIMIT`, `TOP`, or `FETCH` count that is not a plain number or bind.
+  Oracle `ROWNUM` wrappers are not read. A bound limit cannot be known to be one row, so a `findFirstBy...` or jOOQ
+  `limit(1)` over a filter with `IS NULL`, `IN`, or a function is reported. A row is a fact to verify, since the rows
+  may be arbitrary on purpose.
 - **`route-time-breakdown` has no handler or response phase.** It times authentication and the recorded calls; the
   rest of a request's time is reported as unattributed, never as application code.
 - **A reactive transaction has no thread-bound context.** A `ReactiveTransactionManager`'s transactions are recorded
