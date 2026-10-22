@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 # Decides whether a workflow run must exercise the BootUI agent's CI legs (PLAN-v2 M5-12): the agent-attached
-# Playwright legs and the overhead benchmark in build.yml, and the JDK 21/25/27 lanes of jdk-compatibility.yml.
+# integration/Playwright legs and overhead benchmarks in build.yml, and the JDK-specific agent checks.
 #
-# Pushes, schedules, and manual runs always run them, so every merge to main or v2 is covered. A pull request runs them
-# when it carries the `agent` label or changes a path below; any other pull request skips them, which keeps the queue
-# short while many pull requests are open. Writes `agent=true|false` to $GITHUB_OUTPUT, and `extras=true|false`: the
-# costlier agent measurements (the sensors' own-overhead A/Bs, about two hours) run only for pushes, manual runs, and
-# pull requests labelled `agent`, never for a pull request that only changes an agent path.
+# Pull requests and pushes run only the legs affected by their changed paths. `agent` covers integration and browser
+# tests, including the engine/adapter wiring; `overhead` covers the agent runtime and benchmark inputs, not every
+# consumer of agent evidence. The costlier `extras` measurements run only on relevant pushes or with the `agent`
+# label. Schedules, manual runs, and the label run everything.
 #
-# Inputs (environment): GITHUB_EVENT_NAME, GITHUB_OUTPUT, and for pull requests PR_NUMBER, PR_LABELS (comma
-# separated), GITHUB_REPOSITORY, and GH_TOKEN. With FORCE_ALL=true it always answers true (used for pull requests into
-# main, whose 1.x policy runs every lane).
+# Inputs (environment): GITHUB_EVENT_NAME, GITHUB_OUTPUT; for pull requests PR_NUMBER, PR_LABELS (comma separated),
+# GITHUB_REPOSITORY, GH_TOKEN; for pushes PUSH_BEFORE and PUSH_AFTER (with both commits in the checkout).
 set -euo pipefail
 
 # Paths whose changes can change what the agent legs observe: the agent and its bridge, the engine and adapter code
@@ -50,14 +48,26 @@ pattern+='|bootui-spring-sample-app/e2e/(tests|scripts)/'
 pattern+='|bootui-spring-sample-app/(pom\.xml|e2e/package\.json)$'
 pattern+='|bootui-quarkus-sample-app/e2e/(tests-agent|playwright\.agent\.config)'
 pattern+='|bootui-spring-sample-app/src/test/java/.*Agent'
+pattern+='|bootui-quarkus-deployment/src/test/java/.*/BootUiAgentLiveReloadLeakIT\.java$'
+pattern+='|bootui-(quarkus(-parent|-deployment)?|spring-webflux-sample-app)/pom\.xml$'
 pattern+='|bootui-spring-sample-app/src/test/java/io/github/jdubois/bootui/sample/SampleExecutableJar(ReadinessTests)?\.java$'
 pattern+='|bootui-quarkus/src/main/java/io/github/jdubois/bootui/quarkus/web/SideEffectsResource'
 pattern+='|bootui-(spring-sample-app|spring-webflux-sample-app|quarkus-sample-app)/src/main/java/.*/sideeffects/'
 pattern+='|bootui-(spring|quarkus)-sample-app/e2e/tests[^/]*/side-effects\.spec\.js$'
-pattern+='|pom\.xml$'
-pattern+='|\.github/workflows/(build|jdk-compatibility)\.yml$'
-pattern+='|\.github/scripts/(agent-changes\.sh|test_agent_changes\.py)$'
 pattern+=')'
+
+build_pattern='^(pom\.xml$|bootui-(engine|spring-boot-starter|spring-sample-app|ui)/pom\.xml$'
+build_pattern+='|\.mvn/|mvnw(\.cmd)?$'
+build_pattern+='|\.github/workflows/(build|jdk-compatibility)\.yml$'
+build_pattern+='|\.github/scripts/(agent-changes\.sh|test_agent_changes\.py)$)'
+
+overhead_pattern='^(bootui-agent(-bridge)?/'
+overhead_pattern+='|bootui-engine/src/main/java/io/github/jdubois/bootui/engine/(javaagent|journal)/'
+overhead_pattern+='|bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/(javaagent/|BootUiEngineConfiguration\.java$)'
+overhead_pattern+='|bootui-spring-sample-app/src/main/'
+overhead_pattern+='|bootui-spring-sample-app/src/test/java/io/github/jdubois/bootui/sample/(AgentOverheadBenchmarkIT|JournalOverheadBenchmarkIT|CaptureOverheadBenchmarkTest|SampleExecutableJar(ReadinessTests)?)\.java$)'
+overhead_pattern+="|$build_pattern"
+pattern+="|$overhead_pattern"
 
 # `--match` reads paths from standard input, prints the first one the list matches, and exits 0 when one does, 1 when
 # none does; test_agent_changes.py checks the list against the files the agent legs depend on with it.
@@ -65,41 +75,55 @@ if [[ "${1:-}" == "--match" ]]; then
   grep -E -m 1 "$pattern" || exit 1
   exit 0
 fi
+if [[ "${1:-}" == "--match-overhead" ]]; then
+  grep -E -m 1 "$overhead_pattern" || exit 1
+  exit 0
+fi
 
 answer() {
-  echo "agent=$1" >> "${GITHUB_OUTPUT:-/dev/stdout}"
-  echo "Agent legs: $1 ($2)"
+  {
+    echo "agent=$1"
+    echo "overhead=$2"
+    echo "extras=$3"
+  } >> "${GITHUB_OUTPUT:-/dev/stdout}"
+  echo "Agent legs: $1; overhead: $2; extras: $3 ($4)"
 }
 
-extras() {
-  echo "extras=$1" >> "${GITHUB_OUTPUT:-/dev/stdout}"
-}
-
-if [[ "${FORCE_ALL:-false}" == "true" ]]; then
-  answer true "every lane runs for this branch"
-  extras true
+if [[ "${GITHUB_EVENT_NAME:-}" != "pull_request" && "${GITHUB_EVENT_NAME:-}" != "push" ]]; then
+  answer true true true "${GITHUB_EVENT_NAME:-local} runs every lane"
   exit 0
 fi
 
-if [[ "${GITHUB_EVENT_NAME:-}" != "pull_request" ]]; then
-  answer true "${GITHUB_EVENT_NAME:-local} runs every lane"
-  extras true
+if [[ "${GITHUB_EVENT_NAME}" == "pull_request" && ",${PR_LABELS:-}," == *",agent,"* ]]; then
+  answer true true true "the pull request is labelled agent"
   exit 0
 fi
 
-if [[ ",${PR_LABELS:-}," == *",agent,"* ]]; then
-  answer true "the pull request is labelled agent"
-  extras true
-  exit 0
-fi
-
-extras false
-
-
-files="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" --jq '.[].filename')"
-match="$(grep -E -m 1 "$pattern" <<< "$files" || true)"
-if [[ -n "$match" ]]; then
-  answer true "changes $match"
+if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+  # Include both sides of a rename so moving a file out of an agent path cannot bypass its tests.
+  files="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+    --jq '.[] | .filename, (.previous_filename // empty)')"
 else
-  answer false "no agent-related path changed; label the pull request agent to run them"
+  : "${PUSH_BEFORE:?The push must supply its before commit}"
+  : "${PUSH_AFTER:?The push must supply its after commit}"
+  if [[ "$PUSH_BEFORE" =~ ^0+$ ]]; then
+    answer true true true "a new branch has no previous commit to compare"
+    exit 0
+  fi
+  # Compare the whole push, not just HEAD^; --no-renames keeps both paths of renamed files.
+  files="$(git diff --name-only --no-renames "$PUSH_BEFORE" "$PUSH_AFTER" --)"
+fi
+
+match="$(grep -E -m 1 "$pattern" <<< "$files" || true)"
+overhead_match="$(grep -E -m 1 "$overhead_pattern" <<< "$files" || true)"
+if [[ -n "$overhead_match" ]]; then
+  extras=false
+  if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+    extras=true
+  fi
+  answer true true "$extras" "changes $overhead_match"
+elif [[ -n "$match" ]]; then
+  answer true false false "changes $match"
+else
+  answer false false false "no agent-related path changed; label the pull request agent to run them"
 fi
