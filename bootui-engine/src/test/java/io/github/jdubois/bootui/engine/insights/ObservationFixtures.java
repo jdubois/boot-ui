@@ -113,6 +113,7 @@ final class ObservationFixtures {
         transactionalListenerSkipped(fixtures);
         afterCommitWrites(fixtures);
         ormObservations(fixtures);
+        slowFlush(fixtures);
         connectionReacquisition(fixtures);
         readOnlyCandidateTransaction(fixtures);
         transactionAcrossRemoteCall(fixtures);
@@ -878,6 +879,71 @@ final class ObservationFixtures {
                         ormRequest(recording, "/api/report/twice", orm(0, 3, 0, 800));
                     }
                 }));
+    }
+
+    private static void slowFlush(List<Fixture> fixtures) {
+        fixtures.add(positive(SlowFlush.KIND, "a full flush of 1,200 entities taking 150 ms in each of three requests")
+                .alsoFires(LargePersistenceContext.KIND)
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        ormRequest(recording, "/api/insights/tags/export", flushing(150 * MS, 0, 4, 1_200));
+                    }
+                }));
+        fixtures.add(positive(SlowFlush.KIND, "auto-flushes and a full flush adding up to 100 ms")
+                .alsoFires(OrmAutoFlush.KIND)
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        ormRequest(recording, "/api/insights/tags/mixed", flushing(40 * MS, 60 * MS, 4, 40));
+                    }
+                }));
+        fixtures.add(positive(SlowFlush.KIND, "auto-flush checks that wrote nothing, over a small context")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        ormRequest(recording, "/api/insights/tags/checks", flushing(0, 150 * MS, 0, 4, 300));
+                    }
+                }));
+        fixtures.add(counterexample(SlowFlush.KIND, "flushes of 5 ms in each of three requests")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        ormRequest(recording, "/api/tags/quick", flushing(5 * MS, 0, 4, 20));
+                    }
+                }));
+        fixtures.add(counterexample(SlowFlush.KIND, "a slow flush in only two of three requests")
+                .seed(recording -> {
+                    ormRequest(recording, "/api/tags/sometimes", flushing(150 * MS, 0, 4, 40));
+                    ormRequest(recording, "/api/tags/sometimes", flushing(150 * MS, 0, 4, 40));
+                    ormRequest(recording, "/api/tags/sometimes", flushing(5 * MS, 0, 4, 20));
+                }));
+        fixtures.add(counterexample(SlowFlush.KIND, "a 100 ms flush that is under a fifth of a request's ORM time")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        ormRequest(recording, "/api/tags/statements", flushing(100 * MS, 0, 100, 40));
+                    }
+                }));
+    }
+
+    /** A session with {@code flushNanos} in full flushes, {@code partialNanos} in auto-flushes, and 5 ms statements. */
+    private static OrmPayload flushing(long flushNanos, long partialNanos, int statements, int entities) {
+        return flushing(flushNanos, partialNanos, partialNanos > 0 ? 1 : 0, statements, entities);
+    }
+
+    private static OrmPayload flushing(
+            long flushNanos, long partialNanos, int partialFlushes, int statements, int entities) {
+        return new OrmPayload(
+                null,
+                statements,
+                statements * 5L * MS,
+                1,
+                MS,
+                1,
+                flushNanos,
+                partialFlushes,
+                partialNanos,
+                0,
+                entities,
+                0,
+                0,
+                0);
     }
 
     private static void connectionReacquisition(List<Fixture> fixtures) {

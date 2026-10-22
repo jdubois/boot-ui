@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`slow-flush` observation** reports a route whose requests spent 100 ms or more, and a fifth of their ORM time, in
+  Hibernate flushes ([#1515](https://github.com/jdubois/boot-ui/issues/1515)).
 - **`unbatched-write-loop` observation** reports a request that ran one write statement ten times or more, each without
   a JDBC batch ([#1521](https://github.com/jdubois/boot-ui/issues/1521)).
 - **`HIB-CONFIG-021` (HIGH)** flags `hibernate.connection.provider_disables_autocommit=true` on a pool that hands out

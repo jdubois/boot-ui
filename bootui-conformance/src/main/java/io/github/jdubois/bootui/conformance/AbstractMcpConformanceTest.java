@@ -1215,6 +1215,7 @@ public abstract class AbstractMcpConformanceTest {
                                 "exception-hotspots",
                                 "connections-per-request",
                                 "connection-reacquisition",
+                                "slow-flush",
                                 "ai-usage-by-route",
                                 "repeated-selects",
                                 "lazy-sql-after-handler",
