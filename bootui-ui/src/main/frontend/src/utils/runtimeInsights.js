@@ -22,7 +22,8 @@ export const THEMES = [
       'unbatched-write-loop',
       'lazy-sql-after-handler',
       'orm-auto-flush',
-      'large-persistence-context'
+      'large-persistence-context',
+      'paged-without-order'
     ]
   },
   {id: 'errors', label: 'Errors', kinds: ['exception-hotspots', 'errors-behind-2xx']},

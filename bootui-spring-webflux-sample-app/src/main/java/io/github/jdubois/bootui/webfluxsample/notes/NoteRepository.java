@@ -15,6 +15,8 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class NoteRepository {
 
+    private static final int PAGE_SIZE = 3;
+
     private final JdbcTemplate jdbcTemplate;
 
     public NoteRepository(JdbcTemplate jdbcTemplate) {
@@ -25,6 +27,24 @@ public class NoteRepository {
         return jdbcTemplate.query(
                 "select id, title, body from sample_note order by id",
                 (rs, rowNum) -> new Note(rs.getLong("id"), rs.getString("title"), rs.getString("body")));
+    }
+
+    /** The second page of notes, three at a time, with no order: the database may return any three. */
+    public List<Note> findUnsortedPage() {
+        return jdbcTemplate.query(
+                "select id, title, body from sample_note limit ? offset ?",
+                (rs, rowNum) -> new Note(rs.getLong("id"), rs.getString("title"), rs.getString("body")),
+                PAGE_SIZE,
+                PAGE_SIZE);
+    }
+
+    /** The same page ordered by id, so every request returns the same three notes. */
+    public List<Note> findSortedPage() {
+        return jdbcTemplate.query(
+                "select id, title, body from sample_note order by id limit ? offset ?",
+                (rs, rowNum) -> new Note(rs.getLong("id"), rs.getString("title"), rs.getString("body")),
+                PAGE_SIZE,
+                PAGE_SIZE);
     }
 
     public Optional<Note> findById(long id) {

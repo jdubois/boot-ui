@@ -75,6 +75,7 @@ test.describe('Runtime Insights demo', () => {
       ['Writes split across transactions', '/api/insights/orders/{id}/confirm', onRequest],
       ['Unbatched write loops', '/api/insights/audit/one-by-one', onRequest],
       ['Read-write transactions that only read', 'InsightTagService.summary', onRequest],
+      ['Paged without ORDER BY', 'GET /api/insights/tags/unsorted-page', onRequest],
       ['Exception hotspots', 'GET /api/sample/boom', 'Exceptions panel'],
       ['Anonymous writes', '/api/insights/debug/reset-totals', onRequest],
       ['SQL after the handler returned', '/api/insights/orders/report', onRequest]
