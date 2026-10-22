@@ -552,14 +552,14 @@ class VendorCatalogReaderTests {
                         new ServerSetting("max_connections", "100", null));
         String sql = queries.get(0);
         assertThat(sql)
-                .isEqualTo(
-                        "select name, setting, unit from pg_settings where name in (?, ?, ?, ?) order by name limit ?")
+                .isEqualTo("select name, setting, unit from pg_settings where name in (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                        + " order by name limit ?")
                 .doesNotContain("max_connections");
         PreparedStatement statement = statements.get(0);
         for (int index = 0; index < PostgresCatalogReader.SERVER_SETTING_NAMES.size(); index++) {
             verify(statement).setObject(index + 1, PostgresCatalogReader.SERVER_SETTING_NAMES.get(index));
         }
-        verify(statement).setInt(5, DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
+        verify(statement).setInt(11, DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
         verify(statement).setMaxRows(DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
         verify(statement).setQueryTimeout(5);
     }
@@ -606,6 +606,87 @@ class VendorCatalogReaderTests {
     }
 
     @Test
+    void postgresPgStatStatementsExtensionIsReadByAConstantNameThroughTheBoundedRead() throws Exception {
+        List<String> queries = new ArrayList<>();
+        List<PreparedStatement> statements = new ArrayList<>();
+        VendorFindings findings = postgres(
+                16,
+                queries,
+                statements,
+                sql -> sql.contains("pg_extension where extname")
+                        ? List.of(Map.of("extname", "pg_stat_statements"))
+                        : List.of());
+
+        assertThat(findings.available(VendorFindingKinds.POSTGRES_PG_STAT_STATEMENTS_EXTENSION))
+                .isTrue();
+        assertThat(findings.findings(VendorFindingKinds.POSTGRES_PG_STAT_STATEMENTS_EXTENSION))
+                .containsExactly(new PostgresInstalledExtension("pg_stat_statements"));
+        // Right after the server settings, so the cheap reads precede the larger catalog ones.
+        assertThat(queries.get(1))
+                .isEqualTo("select extname from pg_extension where extname = 'pg_stat_statements' limit ?");
+        PreparedStatement statement = statements.get(1);
+        verify(statement).setInt(1, DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
+        verify(statement).setMaxRows(DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
+        verify(statement).setQueryTimeout(5);
+    }
+
+    @Test
+    void anAbsentPgStatStatementsExtensionIsAnAvailableEmptyReadNotAFailure() throws Exception {
+        VendorFindings findings = postgres(16, new ArrayList<>(), sql -> List.of());
+
+        assertThat(findings.available(VendorFindingKinds.POSTGRES_PG_STAT_STATEMENTS_EXTENSION))
+                .isTrue();
+        assertThat(findings.findings(VendorFindingKinds.POSTGRES_PG_STAT_STATEMENTS_EXTENSION))
+                .isEmpty();
+    }
+
+    @Test
+    void aFailingPgStatStatementsExtensionReadIsCapturedAndLeavesTheSettingsRead() throws Exception {
+        Connection connection = mock(Connection.class);
+        when(connection.prepareStatement(anyString())).thenAnswer(call -> {
+            String sql = call.getArgument(0);
+            if (sql.contains("pg_extension where extname")) {
+                throw new java.sql.SQLException("refused jdbc:postgresql://h/db?user=app&password=hunter2");
+            }
+            PreparedStatement statement = mock(PreparedStatement.class);
+            when(statement.executeQuery()).thenReturn(resultSet(List.of()));
+            return statement;
+        });
+        VendorFindings.Builder findings = VendorFindings.builder();
+        DatabaseVersion version = new DatabaseVersion(16, 0, 0, "16");
+        PostgresCatalogReader.read(
+                connection,
+                version,
+                DialectCapabilities.of(Dialect.POSTGRESQL, version),
+                budget(),
+                DatabaseAdvisorLimits.DEFAULTS,
+                findings);
+        VendorFindings built = findings.build();
+
+        VendorAugmentation<PostgresInstalledExtension> extension =
+                built.augmentation(VendorFindingKinds.POSTGRES_PG_STAT_STATEMENTS_EXTENSION);
+        assertThat(extension.failed()).isTrue();
+        assertThat(extension.reason()).contains("pg_stat_statements extension could not be read");
+        assertThat(extension.reason()).doesNotContain("hunter2");
+        assertThat(built.available(VendorFindingKinds.POSTGRES_SERVER_SETTINGS)).isTrue();
+    }
+
+    @Test
+    void postgresServerSettingsIncludeTheNamesTheServerRulesJudge() {
+        assertThat(PostgresCatalogReader.SERVER_SETTING_NAMES)
+                .contains(
+                        "idle_in_transaction_session_timeout",
+                        "statement_timeout",
+                        "autovacuum",
+                        "track_io_timing",
+                        "log_min_duration_statement",
+                        "shared_preload_libraries")
+                .doesNotContainNull()
+                .doesNotHaveDuplicates();
+        assertThat(MySqlCatalogReader.SERVER_SETTINGS_SQL).contains("'performance_schema'");
+    }
+
+    @Test
     void mysqlAndMariaDbServerSettingsUseOneFixedStatementWithNothingBound() throws Exception {
         for (Dialect dialect : List.of(Dialect.MYSQL, Dialect.MARIADB)) {
             List<String> queries = new ArrayList<>();
@@ -633,7 +714,8 @@ class VendorCatalogReaderTests {
                             new ServerSetting("max_connections", "151", null),
                             new ServerSetting("wait_timeout", "28800", null));
             assertThat(queries.get(0))
-                    .isEqualTo("show session variables where Variable_name in ('wait_timeout', 'max_connections')");
+                    .isEqualTo("show session variables where Variable_name in"
+                            + " ('wait_timeout', 'max_connections', 'performance_schema')");
             PreparedStatement statement = statements.get(0);
             verify(statement).setQueryTimeout(5);
             verify(statement).setMaxRows(DatabaseAdvisorLimits.DEFAULTS.maxVendorFindings() + 1);
@@ -668,7 +750,16 @@ class VendorCatalogReaderTests {
 
     private static VendorFindings postgres(
             int major, List<String> queries, Function<String, List<Map<String, Object>>> rows) throws Exception {
-        Connection connection = connection(queries, new ArrayList<>(), rows);
+        return postgres(major, queries, new ArrayList<>(), rows);
+    }
+
+    private static VendorFindings postgres(
+            int major,
+            List<String> queries,
+            List<PreparedStatement> statements,
+            Function<String, List<Map<String, Object>>> rows)
+            throws Exception {
+        Connection connection = connection(queries, statements, rows);
         DatabaseVersion version = new DatabaseVersion(major, 0, 0, Integer.toString(major));
         VendorFindings.Builder findings = VendorFindings.builder();
         PostgresCatalogReader.read(

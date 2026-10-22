@@ -1,8 +1,9 @@
 # Database checks
 
-The Database advisor runs **35 fixed, on-demand checks** over the physical schema reported by the application's
+The Database advisor runs **42 fixed, on-demand checks** over the physical schema reported by the application's
 JDBC datasources, supplemented by vendor catalogs, available JPA declarations, already-retained SQL Trace
-observations, the JDBC driver settings configured in the URL and the connection pool, and the connection pool compared with the server's limits. It never executes DDL, advances a sequence, queries application rows or starts work on page load.
+observations, the JDBC driver settings configured in the URL and the connection pool, the connection pool compared with
+the server's limits, and a few of the database server's own settings. It never executes DDL, advances a sequence, queries application rows or starts work on page load.
 
 These are structural observations and review prompts, not workload forecasts, business-model validation or
 automatic migration instructions. A finding describes the available evidence, not everything the database
@@ -81,6 +82,7 @@ percent-encoded parts joined with `|`, derived from the physical object and neve
 | A mapped entity with no table     | `entity=<entity>`, then `relation=` or `secondary=`                                              |
 | A runtime SQL shape (DB-RUNTIME-001) | `shape=<digest of the normalized statement>`                                                  |
 | A connection-pool setting (DB-POOL-001..004) | `ds=<datasource>`, then `pool=idle-limit`, `pool=maximum-size` or `pool=max-lifetime`; never a value |
+| A database-server setting (DB-SERVER-001..007) | `ds=<datasource>`, then `server=<setting name>` (`server=pg_stat_statements` for DB-SERVER-004); never a value |
 
 Catalog, schema and table are separate parts, so a table named `a.b` cannot alias table `b` of schema `a`. A comparison
 never claims a finding is resolved for DB-RUNTIME-001, because its evidence is the SQL Trace window, or for a rule or
@@ -661,6 +663,102 @@ gate use; and it is quiet when `DB-POOL-002` reports the datasource. The Agroal 
 threshold for a stock PostgreSQL server (97 usable connections), so a default Quarkus application on PostgreSQL gets this
 finding; dismiss it when the application never runs more than one instance on the server.
 
+## Server
+
+These rules read **a few settings of the database server itself** and flag the values that remove a safety net or the
+data the [PostgreSQL](features/database.md#postgresql) and [MySQL](features/database.md#mysql) panels need. The panels
+show the same numbers without a verdict; the advisor is where a verdict belongs, because it is scored and each rule can
+be dismissed. They use the **Server** category and the LOW or MEDIUM level of the [severity scale](#severity-scale).
+
+Evidence is labelled **effective, as seen by the scan connection**: the values come from the same bounded scan as the other
+catalog reads (query timeout, row bound, scan budget, a failure is a diagnostic and never a borrowed second connection),
+through the allow-listed read the [connection-pool rules](#connection-pool) already use: PostgreSQL
+`select name, setting, unit from pg_settings where name in (...)` with bound names, and the fixed MySQL/MariaDB
+`show session variables where Variable_name in (...)`. A pool `connectionInitSql`, a driver option or a role or database
+setting can give the pooled sessions another value, and a proxy changes what a server limit means; dismiss a finding that
+does not apply to the real deployment.
+
+A setting the server did not report (a role may be denied some), one this server version lacks, a value that does not
+parse, or a read that failed or was cut short is **unknown, never a pass**: the rule is `SKIPPED` for that datasource with
+the reason, and when another datasource is assessed the omission is reported as a coverage gap. Each finding is keyed on
+the datasource and the setting, never on the value.
+
+| Rule | Server | Severity | Fires when |
+| ---- | ------ | -------- | ---------- |
+| `DB-SERVER-001` | PostgreSQL | LOW | `idle_in_transaction_session_timeout = 0` |
+| `DB-SERVER-002` | PostgreSQL | LOW | `statement_timeout = 0` |
+| `DB-SERVER-003` | PostgreSQL | MEDIUM | `autovacuum = off` |
+| `DB-SERVER-004` | PostgreSQL | LOW | `pg_stat_statements` is not in `shared_preload_libraries`, or its extension is not created in the connected database |
+| `DB-SERVER-005` | PostgreSQL | LOW | `track_io_timing = off` |
+| `DB-SERVER-006` | PostgreSQL | LOW | `log_min_duration_statement = -1` |
+| `DB-SERVER-007` | MySQL | LOW | `performance_schema = OFF` |
+
+### DB-SERVER-001 - PostgreSQL does not end sessions that are idle in a transaction
+
+**LOW.** Fires when `idle_in_transaction_session_timeout` is `0` (the default). A session left idle inside an open
+transaction is then never terminated, so it keeps its locks, and the PostgreSQL manual notes that an open transaction
+prevents vacuuming away recently dead tuples. The setting exists from PostgreSQL 9.6; a server that does not report it is
+`SKIPPED` as "no such setting" below that version and as unknown from it. A review prompt, not a defect: a server that only
+runs short, trusted transactions can keep `0`. The PostgreSQL panel's Sessions section shows the sessions idle in a
+transaction right now. See
+[`idle_in_transaction_session_timeout`](https://www.postgresql.org/docs/current/runtime-config-client.html#GUC-IDLE-IN-TRANSACTION-SESSION-TIMEOUT).
+
+### DB-SERVER-002 - PostgreSQL has no statement timeout
+
+**LOW.** Fires when `statement_timeout` is `0` (the default), so the server never aborts a runaway statement. The advisor's
+own scan connection does not pin it (BootUI's PostgreSQL panel does, for its own read, and for that reason leaves it out of
+its notable settings), so the value is the server's, the role's or the pool's. A role that runs long reports or migrations
+needs no limit; the usual remedy is a limit on the role the application's requests use. See
+[`statement_timeout`](https://www.postgresql.org/docs/current/runtime-config-client.html#GUC-STATEMENT-TIMEOUT).
+
+### DB-SERVER-003 - PostgreSQL autovacuum is disabled
+
+**MEDIUM.** Fires when `autovacuum = off`. The anti-wraparound vacuum still runs, to prevent transaction ID wraparound, but
+routine vacuum and analyze never do, so dead tuples accumulate and planner statistics go stale unless something else
+vacuums and analyzes. It can be deliberate for a bulk load or with an external scheduler (dismiss it then), and a table can
+still enable autovacuum through its storage parameter. The PostgreSQL panel's Autovacuum health section shows the
+per-table state. See [`autovacuum`](https://www.postgresql.org/docs/current/runtime-config-autovacuum.html#GUC-AUTOVACUUM).
+
+### DB-SERVER-004 - PostgreSQL `pg_stat_statements` is not available
+
+**LOW.** Fires when `pg_stat_statements` cannot be used: it is **not in `shared_preload_libraries`**, or the **extension is
+not created** in the connected database (`CREATE EXTENSION` is per database, and
+`select extname from pg_extension where extname = 'pg_stat_statements' limit ?` is the bounded read). Without it the
+PostgreSQL panel's Statement ranking section is empty. Both halves must be known: if the library list is hidden from the role
+(no row), has no value, or the extension read failed or was cut short, the rule is `SKIPPED` with that reason, even when
+the other half is known to be absent.
+
+`shared_preload_libraries` is a comma-separated list, so it is **tokenised, never matched as a substring**: it is split on
+`,`, each entry is trimmed, stripped of one pair of single or double quotes, reduced to its file name (a `$libdir/` prefix or
+any other directory is dropped) and of a `.so`, `.dylib` or `.dll` suffix (the server accepts a library name with or without
+the platform suffix), and compared for equality with `pg_stat_statements`. `pg_stat_statements_extra`, `my_pg_stat_statements`,
+an empty value and a value that is not listed do not match. See
+[`pg_stat_statements`](https://www.postgresql.org/docs/current/pgstatstatements.html).
+
+### DB-SERVER-005 - PostgreSQL does not measure I/O time
+
+**LOW.** Fires when `track_io_timing = off` (the default): block read and write time is then missing from
+`pg_stat_database`, `pg_stat_statements` and `EXPLAIN (ANALYZE, BUFFERS)`, so a slow statement cannot be told apart as
+I/O-bound from the server's own numbers. The timing adds a small overhead per block access, negligible on most current
+systems; the manual points to `pg_test_timing` to check it. See
+[`track_io_timing`](https://www.postgresql.org/docs/current/runtime-config-statistics.html#GUC-TRACK-IO-TIMING).
+
+### DB-SERVER-006 - PostgreSQL does not log slow statements
+
+**LOW.** Fires when `log_min_duration_statement` is `-1` (the default), so no statement is logged for its duration. `0`
+logs every statement and any other value is a threshold, so only `-1` is reported. `auto_explain` or a managed service's
+slow-query log can cover the same need: dismiss the finding then. See
+[`log_min_duration_statement`](https://www.postgresql.org/docs/current/runtime-config-logging.html#GUC-LOG-MIN-DURATION-STATEMENT).
+
+### DB-SERVER-007 - MySQL Performance Schema is disabled
+
+**LOW.** Fires on MySQL when `performance_schema` is `OFF`. It is on by default, so it was disabled on purpose or by a
+memory-saving configuration; without it the server keeps no statement digests, wait or lock instrumentation, which is the
+evidence behind the MySQL panel's Statement ranking, Sessions and blocking and Index handler sections. The variable is
+read-only at runtime. **MariaDB is `SKIPPED`**: it leaves the Performance Schema off by default and BootUI treats MariaDB as
+best effort. The variable exists from MySQL 5.5; below that the rule is `SKIPPED` as unsupported. See
+[Performance Schema startup configuration](https://dev.mysql.com/doc/refman/8.4/en/performance-schema-startup-configuration.html).
+
 ## Retired rules
 
 These IDs remain reserved so old dismissals stay harmless and are never applied to unrelated future checks.
@@ -693,7 +791,10 @@ bare names. See the matching
 
 ## Deliberately not checked
 
-No aggregation of several pools onto one server, no DBCP2, Tomcat JDBC, c3p0 or Oracle UCP pools, no validation-query
+No capacity-tuning verdicts on factory defaults: `shared_buffers`, `effective_cache_size`, `random_page_cost`, `work_mem`,
+`innodb_buffer_pool_size` and the redo log size are permanently "default" on a developer's local database, so a rule would
+only add noise, and the right value depends on a workload and a machine the advisor cannot see. The PostgreSQL and MySQL
+panels show them without a verdict. No aggregation of several pools onto one server, no DBCP2, Tomcat JDBC, c3p0 or Oracle UCP pools, no validation-query
 checks, no application row counts, index cardinality/usage, bloat, cache-size tuning, sequence gaps, blanket
 NOT NULL policy, automatic sequence restart, arbitrary query plans or production workload predictions.
 PostgreSQL data-type preferences from the community "Don't Do This" list (`money`, `json` versus `jsonb`,

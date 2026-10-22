@@ -58,7 +58,7 @@ final class MySqlCatalogReader {
      * is fixed and takes no bind parameter.
      */
     static final String SERVER_SETTINGS_SQL =
-            "show session variables where Variable_name in ('wait_timeout', 'max_connections')";
+            "show session variables where Variable_name in ('wait_timeout', 'max_connections', 'performance_schema')";
 
     private MySqlCatalogReader() {}
 
