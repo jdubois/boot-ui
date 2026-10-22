@@ -33,9 +33,8 @@ permissions:
   checks: write
 
 jobs:
-  # Whether this run exercises the BootUI agent's legs (PLAN-v2 M5-12): pushes to main and v2 always do; a pull request
-  # does when it is labelled `agent` or changes an agent-related path (.github/scripts/agent-changes.sh), so the
-  # agent-attached Playwright legs and the overhead benchmark don't queue for every pull request.
+  # Pull requests and pushes exercise only the affected agent legs (.github/scripts/agent-changes.sh).
+  # Overhead has a narrower path list than integration tests; manual runs and the `agent` label run everything.
   changes:
     name: Agent-related changes
     runs-on: ubuntu-latest
@@ -44,10 +43,13 @@ jobs:
       pull-requests: read
     outputs:
       agent: ${{ steps.agent.outputs.agent }}
+      overhead: ${{ steps.agent.outputs.overhead }}
       extras: ${{ steps.agent.outputs.extras }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Decide whether the agent legs run
         id: agent
@@ -55,6 +57,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
         run: bash .github/scripts/agent-changes.sh
 
   build:
@@ -134,6 +138,14 @@ jobs:
       - name: Build all modules with coverage
         run: ./mvnw -T 1C -B -ntp -Pcoverage -Dbootui.skipQuarkusExtensionIts -Dbootui.skipAgentIts clean install
 
+      # This packaged-runtime regression shares the sample's Failsafe setup but does not use the agent.
+      # Run it here against the jar built above, even when the separate agent job is skipped.
+      - name: Test packaged ThreadFactory analysis
+        run: >
+          ./mvnw -B -ntp -pl bootui-spring-sample-app
+          -Dit.test=ThreadFactoryExecutableJarIT
+          dependency:properties failsafe:integration-test failsafe:verify
+
       - name: Require executed MySQL collector, Spring HTTP, and activity store tests
         run: >
           python3 .github/scripts/check-mysql-live-tests.py
@@ -211,6 +223,7 @@ jobs:
           name: junit-test-reports
           path: |
             **/target/surefire-reports/TEST-*.xml
+            **/target/failsafe-reports/TEST-*.xml
             bootui-ui/src/main/frontend/test-results/vitest-junit.xml
           if-no-files-found: ignore
           retention-days: 7
@@ -347,6 +360,8 @@ jobs:
   agent-integration-tests:
     name: Agent integration tests (Java 17)
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.agent == 'true'
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -373,6 +388,7 @@ jobs:
           ./mvnw -T 1C -B -ntp
           -pl bootui-agent,bootui-spring-sample-app,bootui-quarkus-deployment -am
           -Dbootui.skipFrontendTests -Dbootui.agent.its.forkCount=2
+          -Dit.test='*IT,!ThreadFactoryExecutableJarIT'
           -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
           verify
 
@@ -784,10 +800,10 @@ jobs:
   # job records the report in its summary and warns above the budget, but fails only above 30 %, so a noisy shared
   # runner never fails a build while a clear regression does. The first CI runs measured about 17 % (pairs from 9 to
   # 22 %), above the budget, so a gate any closer to it would fail on noise alone (see CONTRIBUTING.md). One more
-  # measurement runs on every agent run, on the I/O route, which adds one outbound connect and one file read per request
+  # measurement runs on every overhead run, on the I/O route, which adds one outbound connect and one file read per request
   # so the side-effect sensors that hook them are exercised (M5-5b): every default sensor against no agent, nine pairs.
-  # On pushes, manual runs, and pull requests labelled `agent` only, each default side-effect sensor's own share runs
-  # against the same agent without it: network's on the I/O route, nine pairs; blocking's (M5-5c), fifteen pairs, which
+  # On overhead-related pushes, manual runs, and pull requests labelled `agent` only, each default side-effect sensor's
+  # own share runs against the same agent without it: network's on the I/O route, nine pairs; blocking's (M5-5c), fifteen pairs, which
   # stays on by default only while its median increment is at most 3 % and the lower bound of the cumulative median's
   # 95 % interval at most 10 % (D48), which a final step checks and fails the job otherwise; and files' on the I/O route
   # (D49), fifteen pairs, which fails the build when the lower bound of its median's 95 % interval is above 3 %
@@ -810,13 +826,13 @@ jobs:
   # Maven cache), runs its measurement with the same arguments it had as a step of one job, and uploads its report; it
   # fails, as the step did, above its 30 % alarm or on a FAIL its enforce-when-default asks for. The `agent-overhead`
   # job below, which keeps the job's name, gathers every leg's report, runs the checks, publishes the combined report,
-  # and fails when any leg failed. The extra legs run only where their steps ran: pushes, manual runs, and pull
+  # and fails when any leg failed. The extra legs run only on overhead-related pushes, manual runs, and pull
   # requests labelled `agent`.
   agent-overhead-legs:
     name: Agent overhead leg, ${{ matrix.leg.name }} (Java 17)
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.agent == 'true'
+    if: needs.changes.outputs.overhead == 'true'
     # The longest leg, fifteen pairs, takes about 25 minutes.
     timeout-minutes: 60
     strategy:
@@ -887,14 +903,14 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # The measurements that run only on pushes, manual runs, and pull requests labelled `agent` (the `extras` output of
-  # the changes job, which is true only where `agent` is), gated here at job level so a run without them starts no
+  # The measurements that run only on overhead-related pushes, manual runs, and pull requests labelled `agent` (the
+  # `extras` output of the changes job), gated here at job level so a run without them starts no
   # runner for them. The legs run the steps of agent-overhead-legs above.
   agent-overhead-extra-legs:
     name: Agent overhead leg, ${{ matrix.leg.name }} (Java 17)
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.agent == 'true' && needs.changes.outputs.extras == 'true'
+    if: needs.changes.outputs.overhead == 'true' && needs.changes.outputs.extras == 'true'
     # The longest leg, fifteen pairs, takes about 25 minutes.
     timeout-minutes: 60
     strategy:
@@ -1152,7 +1168,7 @@ jobs:
     name: Agent overhead (Java 17)
     runs-on: ubuntu-latest
     needs: [ changes, agent-overhead-legs, agent-overhead-extra-legs ]
-    if: ${{ !cancelled() && needs.changes.outputs.agent == 'true' }}
+    if: ${{ !cancelled() && needs.changes.outputs.overhead == 'true' }}
     timeout-minutes: 15
     steps:
       # The thread-activity, thread-locals, and resources checks read the default sensors from the checkout.
