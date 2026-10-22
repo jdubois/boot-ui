@@ -113,8 +113,10 @@ final class ObservationFixtures {
         transactionalListenerSkipped(fixtures);
         afterCommitWrites(fixtures);
         ormObservations(fixtures);
+        slowFlush(fixtures);
         connectionReacquisition(fixtures);
         readOnlyCandidateTransaction(fixtures);
+        pagedWithoutOrder(fixtures);
         transactionAcrossRemoteCall(fixtures);
         lazySqlAfterHandler(fixtures);
         eventLoopBlocking(fixtures);
@@ -880,6 +882,71 @@ final class ObservationFixtures {
                 }));
     }
 
+    private static void slowFlush(List<Fixture> fixtures) {
+        fixtures.add(positive(SlowFlush.KIND, "a full flush of 1,200 entities taking 150 ms in each of three requests")
+                .alsoFires(LargePersistenceContext.KIND)
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        ormRequest(recording, "/api/insights/tags/export", flushing(150 * MS, 0, 4, 1_200));
+                    }
+                }));
+        fixtures.add(positive(SlowFlush.KIND, "auto-flushes and a full flush adding up to 100 ms")
+                .alsoFires(OrmAutoFlush.KIND)
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        ormRequest(recording, "/api/insights/tags/mixed", flushing(40 * MS, 60 * MS, 4, 40));
+                    }
+                }));
+        fixtures.add(positive(SlowFlush.KIND, "auto-flush checks that wrote nothing, over a small context")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        ormRequest(recording, "/api/insights/tags/checks", flushing(0, 150 * MS, 0, 4, 300));
+                    }
+                }));
+        fixtures.add(counterexample(SlowFlush.KIND, "flushes of 5 ms in each of three requests")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        ormRequest(recording, "/api/tags/quick", flushing(5 * MS, 0, 4, 20));
+                    }
+                }));
+        fixtures.add(counterexample(SlowFlush.KIND, "a slow flush in only two of three requests")
+                .seed(recording -> {
+                    ormRequest(recording, "/api/tags/sometimes", flushing(150 * MS, 0, 4, 40));
+                    ormRequest(recording, "/api/tags/sometimes", flushing(150 * MS, 0, 4, 40));
+                    ormRequest(recording, "/api/tags/sometimes", flushing(5 * MS, 0, 4, 20));
+                }));
+        fixtures.add(counterexample(SlowFlush.KIND, "a 100 ms flush that is under a fifth of a request's ORM time")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        ormRequest(recording, "/api/tags/statements", flushing(100 * MS, 0, 100, 40));
+                    }
+                }));
+    }
+
+    /** A session with {@code flushNanos} in full flushes, {@code partialNanos} in auto-flushes, and 5 ms statements. */
+    private static OrmPayload flushing(long flushNanos, long partialNanos, int statements, int entities) {
+        return flushing(flushNanos, partialNanos, partialNanos > 0 ? 1 : 0, statements, entities);
+    }
+
+    private static OrmPayload flushing(
+            long flushNanos, long partialNanos, int partialFlushes, int statements, int entities) {
+        return new OrmPayload(
+                null,
+                statements,
+                statements * 5L * MS,
+                1,
+                MS,
+                1,
+                flushNanos,
+                partialFlushes,
+                partialNanos,
+                0,
+                entities,
+                0,
+                0,
+                0);
+    }
+
     private static void connectionReacquisition(List<Fixture> fixtures) {
         fixtures.add(positive(
                         ConnectionReacquisition.KIND, "the sample's three reads, each in a transaction of its own")
@@ -1078,6 +1145,123 @@ final class ObservationFixtures {
         fixtures.add(counterexample(ReadOnlyCandidateTransaction.KIND, "two clean transactions are not enough")
                 .toleratingInsufficient()
                 .seed(recording -> repeat(2, () -> readRequest(recording, "GET", cleanRead(100, 200)))));
+    }
+
+    // ---- paged-without-order ------------------------------------------------------------------------------------
+
+    private static void pagedWithoutOrder(List<Fixture> fixtures) {
+        String unsorted = "select o1_0.id,o1_0.name from insight_owner o1_0 limit ? offset ?";
+        fixtures.add(positive(PagedWithoutOrder.KIND, "an unsorted later page of a pageable query")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording.get("/api/insights/owners").children(sql(unsorted));
+                    }
+                }));
+        fixtures.add(positive(PagedWithoutOrder.KIND, "an unsorted MySQL limit with an offset")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners")
+                                .children(sql("select id,name from insight_owner limit ?, ?"));
+                    }
+                }));
+        fixtures.add(positive(PagedWithoutOrder.KIND, "an unsorted limit over a range filter")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners")
+                                .children(sql("select id from insight_owner where id > ? limit ?"));
+                    }
+                }));
+        fixtures.add(positive(PagedWithoutOrder.KIND, "an order by that only a window of the statement has")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners")
+                                .children(sql("select id,row_number() over (order by id) from insight_owner"
+                                        + " limit ? offset ?"));
+                    }
+                }));
+        fixtures.add(positive(PagedWithoutOrder.KIND, "a scheduled job paging without an order")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording.scheduled("OwnerJob.run", sql(unsorted));
+                    }
+                }));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "the same page with a unique order")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners/sorted")
+                                .children(sql("select o1_0.id,o1_0.name from insight_owner o1_0"
+                                        + " order by o1_0.name,o1_0.id limit ? offset ?"));
+                    }
+                }));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "an existsBy key lookup, equalities only")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners/exists")
+                                .children(sql("select c1_0.id from insight_owner c1_0 where c1_0.a=? and c1_0.b=?"
+                                        + " limit ?"));
+                    }
+                }));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "a count and an exists that carry a limit")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners/count")
+                                .children(
+                                        sql("select count(*) from insight_owner limit ?"),
+                                        sql("select 1 from insight_owner where id > ? limit ?"));
+                    }
+                }));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "a literal limit of one")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners/first")
+                                .children(sql("select id from insight_owner where id > ? limit 1"));
+                    }
+                }));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "a union, which is not read")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners/all")
+                                .children(sql(
+                                        "select id from insight_owner union select id from insight_vet" + " limit ?"));
+                    }
+                }));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "a statement SQL Trace shortened")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners/long")
+                                .children(sql("select id from insight_owner where name like ? limit ? offset ?…"));
+                    }
+                }));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "an unsorted page in one request only")
+                .toleratingInsufficient()
+                .seed(recording -> recording.get("/api/insights/owners/once").children(sql(unsorted))));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "Quarkus Hibernate preparing an unsorted page")
+                .stack(InsightsStack.QUARKUS)
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners")
+                                .children(sql(new SqlPayload(
+                                        unsorted,
+                                        "Repo.run:1",
+                                        "db",
+                                        false,
+                                        null,
+                                        null,
+                                        -1,
+                                        0,
+                                        SqlPayload.Provenance.PREPARATION)));
+                    }
+                }));
     }
 
     private static void repeat(int times, Runnable action) {

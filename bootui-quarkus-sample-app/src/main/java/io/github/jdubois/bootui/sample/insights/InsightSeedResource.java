@@ -32,6 +32,9 @@ import javax.sql.DataSource;
 @Produces(MediaType.APPLICATION_JSON)
 public class InsightSeedResource {
 
+    /** The orders per page; the second page holds the last three of the six seeded orders. */
+    private static final int PAGE_SIZE = 3;
+
     /** The rows each audit route writes: more than the ten executions that make a loop. */
     private static final int AUDIT_ROWS = 12;
 
@@ -75,6 +78,20 @@ public class InsightSeedResource {
                         + " from insight_orders o join insight_order_lines l on l.order_id = o.id order by o.id")) {
             return rows(joined.executeQuery());
         }
+    }
+
+    /** {@code paged-without-order}: the second page of orders, limited and offset without an {@code ORDER BY}. */
+    @GET
+    @Path("/orders/page")
+    public List<Map<String, Object>> ordersPage() throws SQLException {
+        return page("select id, customer from insight_orders limit ? offset ?");
+    }
+
+    /** The counterexample: the same page ordered by id. */
+    @GET
+    @Path("/orders/page-sorted")
+    public List<Map<String, Object>> ordersPageSorted() throws SQLException {
+        return page("select id, customer from insight_orders order by id limit ? offset ?");
     }
 
     /** {@code event-loop-blocking}: a non-blocking route that still runs JDBC, on the Vert.x event loop. */
@@ -177,6 +194,15 @@ public class InsightSeedResource {
             case "summary" -> Response.ok(Map.of("report", report, "rows", 3)).build();
             default -> Response.status(Response.Status.NOT_FOUND).build();
         };
+    }
+
+    private List<Map<String, Object>> page(String sql) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement page = connection.prepareStatement(sql)) {
+            page.setInt(1, PAGE_SIZE);
+            page.setInt(2, PAGE_SIZE);
+            return rows(page.executeQuery());
+        }
     }
 
     private static List<Long> orderIds(Connection connection) throws SQLException {
