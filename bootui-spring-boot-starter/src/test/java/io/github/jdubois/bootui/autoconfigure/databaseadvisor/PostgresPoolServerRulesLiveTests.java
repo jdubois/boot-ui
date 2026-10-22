@@ -75,7 +75,8 @@ class PostgresPoolServerRulesLiveTests {
                         result -> assertThat(result.sampleViolations().get(0))
                                 .contains("is not in shared_preload_libraries and is not created in this database"));
         assertThat(report.diagnostics())
-                .noneMatch(diagnostic -> diagnostic.message().contains("could not be read"));
+                .noneMatch(diagnostic -> diagnostic.message().contains("server settings could not be read")
+                        || diagnostic.message().contains("pg_stat_statements extension could not be read"));
 
         // The library is still not preloaded, but the extension row is now read from pg_extension.
         try (Connection connection = dataSource.getConnection();
@@ -92,6 +93,6 @@ class PostgresPoolServerRulesLiveTests {
     }
 
     private static String status(DatabaseAdvisorReport report, String id) {
-        return PoolServerLiveSupport.rule(report, id).orElseThrow().status();
+        return PoolServerLiveSupport.outcome(report, id);
     }
 }

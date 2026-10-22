@@ -22,8 +22,8 @@ final class PostgresTrackIoTimingRule extends AbstractServerSettingRule {
                                 + " as I/O-bound or CPU-bound from the server's own numbers. The value is the one the"
                                 + " scan connection's own session sees. It is a review prompt: the timing adds a small"
                                 + " overhead per block access, which is negligible on most current systems.",
-                        "Enable track_io_timing (a reload is enough, no restart) after checking the clock overhead"
-                                + " with pg_test_timing, so that the PostgreSQL panel's Statement ranking and Vital"
+                        "Enable track_io_timing (a reload is enough, no restart) after measuring the timing"
+                                + " overhead on the server's hardware, so that the PostgreSQL panel's Statement ranking and Vital"
                                 + " signs sections report I/O time.",
                         "https://www.postgresql.org/docs/current/runtime-config-statistics.html#GUC-TRACK-IO-TIMING"),
                 true,

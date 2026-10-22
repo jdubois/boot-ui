@@ -62,7 +62,11 @@ class MariaDbPoolServerRulesLiveTests {
         DatabaseAdvisorReport report = PoolServerLiveSupport.scan(
                 dataSource, PoolServerLiveSupport.hikari(10, 10, 0, 45_000L, 0), mariadb.getPassword());
 
-        assertThat(PoolServerLiveSupport.rule(report, "DB-SERVER-007"))
-                .hasValueSatisfying(result -> assertThat(result.status()).isEqualTo("SKIPPED"));
+        // A skipped rule has no result; its reason is a diagnostic.
+        assertThat(PoolServerLiveSupport.outcome(report, "DB-SERVER-007")).isEqualTo("SKIPPED");
+        assertThat(report.diagnostics())
+                .filteredOn(diagnostic -> diagnostic.source().equals("DB-SERVER-007"))
+                .singleElement()
+                .satisfies(diagnostic -> assertThat(diagnostic.message()).contains("MariaDB"));
     }
 }

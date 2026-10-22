@@ -61,7 +61,6 @@ class MySqlPoolServerRulesLiveTests {
         DatabaseAdvisorReport report = PoolServerLiveSupport.scan(
                 dataSource, PoolServerLiveSupport.hikari(10, 10, 0, 45_000L, 0), mysql.getPassword());
 
-        assertThat(PoolServerLiveSupport.rule(report, "DB-SERVER-007"))
-                .hasValueSatisfying(result -> assertThat(result.status()).isEqualTo("PASS"));
+        assertThat(PoolServerLiveSupport.outcome(report, "DB-SERVER-007")).isEqualTo("PASS");
     }
 }
