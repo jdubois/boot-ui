@@ -40,12 +40,7 @@ public record AdvisorChangesDto(
     private static final int MAX_NOTE_LENGTH = 240;
 
     public AdvisorChangesDto {
-        resolved = resolved == null
-                ? List.of()
-                : resolved.stream()
-                        .filter(Objects::nonNull)
-                        .limit(MAX_RESOLVED)
-                        .toList();
+        resolved = bounded(resolved, MAX_RESOLVED);
         notes = notes == null
                 ? List.of()
                 : notes.stream()
@@ -56,9 +51,12 @@ public record AdvisorChangesDto(
                         .distinct()
                         .limit(MAX_NOTES)
                         .toList();
-        rules = rules == null
-                ? List.of()
-                : rules.stream().filter(Objects::nonNull).limit(MAX_RULES).toList();
+        rules = bounded(rules, MAX_RULES);
+    }
+
+    private static <T> List<T> bounded(List<T> values, int limit) {
+        List<T> copy = DtoCollections.immutableCopy(values);
+        return copy.size() <= limit ? copy : DtoCollections.immutableCopy(copy.subList(0, limit));
     }
 
     public AdvisorChangesDto(

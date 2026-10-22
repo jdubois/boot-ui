@@ -34,7 +34,7 @@ final class PostgresUnvalidatedConstraintRule extends AbstractDatabaseAdvisorRul
         if (skipReason != null) {
             return skipped(skipReason);
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         for (SchemaSnapshot schema : schemas) {
             VendorRuleSupport.coverage(
                     context, definition().id(), schema, VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS);
@@ -51,7 +51,8 @@ final class PostgresUnvalidatedConstraintRule extends AbstractDatabaseAdvisorRul
                                 : Boolean.FALSE.equals(constraint.enforced())
                                         ? "It is NOT ENFORCED; new writes are not checked. "
                                         : "Enforcement state is unknown. ")
-                        + "The snapshot does not establish when this state began or whether any row violates it.");
+                        + "The snapshot does not establish when this state began or whether any row violates it.",
+                DatabaseIdentities.table(schema.dataSourceName(), null, constraint.schema(), constraint.table(), "constraint=" + constraint.constraint()));
             }
         }
         int eligible = (int) schemas.stream()

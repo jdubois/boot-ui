@@ -38,7 +38,7 @@ final class PostgresUnloggedTableRule extends AbstractDatabaseAdvisorRule {
         if (skipReason != null) {
             return skipped(skipReason);
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         for (SchemaSnapshot schema : schemas) {
             VendorRuleSupport.coverage(context, definition().id(), schema, VendorFindingKinds.POSTGRES_UNLOGGED_TABLES);
             if (!VendorRuleSupport.available(schema, VendorFindingKinds.POSTGRES_UNLOGGED_TABLES)) {
@@ -49,7 +49,8 @@ final class PostgresUnloggedTableRule extends AbstractDatabaseAdvisorRule {
                 details.add(schema.dataSourceName() + ": " + (table.partition() ? "partition " : "table ")
                         + table.qualifiedTable()
                         + " is UNLOGGED: its rows are truncated after a crash and are absent from physical standbys "
-                        + "and WAL-based point-in-time recovery.");
+                        + "and WAL-based point-in-time recovery.",
+                DatabaseIdentities.table(schema.dataSourceName(), null, table.schema(), table.table()));
             }
         }
         int eligible = (int) schemas.stream()

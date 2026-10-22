@@ -45,7 +45,7 @@ final class HibernateColumnLengthMismatchRule extends AbstractHibernateCrossRefe
             DatabaseAdvisorContext context,
             MappedTableResolution primary,
             MappedEntityFacts entity,
-            List<String> details) {
+            DatabaseFindings details) {
         int eligible = 0;
         for (MappedColumnFacts column : entity.columns()) {
             if (!applicable(column)) {
@@ -67,7 +67,7 @@ final class HibernateColumnLengthMismatchRule extends AbstractHibernateCrossRefe
             SchemaSnapshot schema,
             TableModel table,
             MappedColumnFacts column,
-            List<String> details) {
+            DatabaseFindings details) {
         Integer declaredLength = column.declaredLength();
         ColumnModel physical = schema.declaredColumn(table, column.columnName());
         if (physical == null) {
@@ -93,7 +93,8 @@ final class HibernateColumnLengthMismatchRule extends AbstractHibernateCrossRefe
             details.add(schema.dataSourceName() + ": " + column.attributeDescription() + " declares @Column(length="
                     + declaredLength + "), which is longer than physical column " + table.qualifiedName() + "."
                     + column.columnName() + " (" + physical.describeType() + "). Review this DDL declaration; "
-                    + "it is not a runtime length validator.");
+                    + "it is not a runtime length validator.",
+                DatabaseIdentities.mapped(schema, table, column.attributeDescription(), column.columnName()));
         }
         return true;
     }

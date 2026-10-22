@@ -117,6 +117,12 @@ public final class AdvisorViolationCollector {
         return List.copyOf(sanitized.subList(0, toSample));
     }
 
+    /** The retained findings of one rule so far, in recording order; empty for a rule that reported none. */
+    public List<AdvisorViolation> retained(String ruleId) {
+        MutableRule rule = rules.get(ruleId);
+        return rule == null ? List.of() : List.copyOf(rule.details);
+    }
+
     /** Visits every retained location, for example to collect the classes an explicit scan must resolve. */
     public void forEachLocation(Consumer<AdvisorViolationLocationDto> visitor) {
         for (MutableRule rule : rules.values()) {

@@ -27,7 +27,7 @@ abstract class AbstractHibernateCrossReferenceRule extends AbstractDatabaseAdvis
             DatabaseAdvisorContext context,
             MappedTableResolution primary,
             MappedEntityFacts entity,
-            List<String> details);
+            DatabaseFindings details);
 
     abstract boolean hasApplicableDeclarations(MappedEntityFacts entity);
 
@@ -51,7 +51,7 @@ abstract class AbstractHibernateCrossReferenceRule extends AbstractDatabaseAdvis
             unknown(context, "The mapping facts do not associate persistence units with the discovered datasources.");
             return skipped("Multiple datasource inventories cannot be attributed to these mapping declarations.");
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (MappedEntityFacts entity : targeted) {
             MappedTableResolution resolution = MappedTableResolution.resolve(context, entity);

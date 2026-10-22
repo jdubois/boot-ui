@@ -68,7 +68,7 @@ final class VendorRuleSupport {
     }
 
     static DatabaseAdvisorRuleResultDto assessed(
-            AbstractDatabaseAdvisorRule rule, DatabaseAdvisorContext context, int eligible, List<String> details) {
+            AbstractDatabaseAdvisorRule rule, DatabaseAdvisorContext context, int eligible, DatabaseFindings details) {
         if (details.isEmpty()) {
             List<String> gaps = context.evaluationDiagnostics().stream()
                     .filter(diagnostic -> rule.definition().id().equals(diagnostic.source()))

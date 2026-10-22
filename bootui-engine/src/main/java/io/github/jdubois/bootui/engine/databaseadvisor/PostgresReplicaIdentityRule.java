@@ -41,7 +41,7 @@ final class PostgresReplicaIdentityRule extends AbstractDatabaseAdvisorRule {
         if (reason != null) {
             return skipped(reason);
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
             VendorRuleSupport.coverage(
@@ -79,7 +79,8 @@ final class PostgresReplicaIdentityRule extends AbstractDatabaseAdvisorRule {
                                     : candidate.usesDefault()
                                             ? "DEFAULT with no primary key"
                                             : "selected index not usable")
-                            + "). Subscriber attachment is not required for affected writes to fail.");
+                            + "). Subscriber attachment is not required for affected writes to fail.",
+                DatabaseIdentities.table(schema.dataSourceName(), null, candidate.schema(), candidate.table()));
                 }
             }
         }

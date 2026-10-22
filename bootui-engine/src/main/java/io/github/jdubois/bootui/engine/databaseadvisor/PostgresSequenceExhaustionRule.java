@@ -37,7 +37,7 @@ final class PostgresSequenceExhaustionRule extends AbstractDatabaseAdvisorRule {
         if (skipReason != null) {
             return skipped(skipReason);
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
             VendorRuleSupport.coverage(context, definition().id(), schema, VendorFindingKinds.POSTGRES_SEQUENCES);
@@ -67,7 +67,7 @@ final class PostgresSequenceExhaustionRule extends AbstractDatabaseAdvisorRule {
         return VendorRuleSupport.assessed(this, context, eligible, details);
     }
 
-    private void checkSequence(SchemaSnapshot schema, PostgresSequenceUsage sequence, List<String> details) {
+    private void checkSequence(SchemaSnapshot schema, PostgresSequenceUsage sequence, DatabaseFindings details) {
         if ((sequence.cycle() && !sequence.limitedByColumn()) || sequence.effectiveBound() == null) {
             return;
         }
@@ -80,6 +80,7 @@ final class PostgresSequenceExhaustionRule extends AbstractDatabaseAdvisorRule {
                 + "% toward effective bound " + sequence.effectiveBound() + limitedBy + "; owner "
                 + sequence.describeOwner() + "; reserved last_value " + sequence.lastValue()
                 + " (start " + sequence.startValue() + ", increment " + sequence.incrementBy()
-                + ", cache " + sequence.cacheSize() + "). Not committed rows.");
+                + ", cache " + sequence.cacheSize() + "). Not committed rows.",
+                DatabaseIdentities.of(schema.dataSourceName(), "schema=" + sequence.schema(), "sequence=" + sequence.sequence()));
     }
 }

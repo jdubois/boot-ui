@@ -42,7 +42,7 @@ final class MySqlNonInnodbEngineRule extends AbstractDatabaseAdvisorRule {
         if (skipReason != null) {
             return skipped(skipReason);
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
             VendorRuleSupport.coverage(context, definition().id(), schema, VendorFindingKinds.MYSQL_TABLES);
@@ -60,7 +60,8 @@ final class MySqlNonInnodbEngineRule extends AbstractDatabaseAdvisorRule {
                             + table.engine() + " engine, which does not provide transactional rollback."
                             + ("aria".equalsIgnoreCase(table.engine())
                                     ? " Aria can provide crash safety; that is distinct from transaction support."
-                                    : ""));
+                                    : ""),
+                DatabaseIdentities.table(schema.dataSourceName(), null, table.schema(), table.table()));
                 }
             }
         }

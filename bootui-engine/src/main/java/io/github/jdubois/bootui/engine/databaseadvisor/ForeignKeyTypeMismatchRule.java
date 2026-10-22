@@ -35,7 +35,7 @@ final class ForeignKeyTypeMismatchRule extends AbstractDatabaseAdvisorRule {
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
             for (TableModel table : DatabaseAdvisorContext.analyzableTables(schema)) {
@@ -72,7 +72,7 @@ final class ForeignKeyTypeMismatchRule extends AbstractDatabaseAdvisorRule {
     }
 
     private void checkForeignKey(
-            SchemaSnapshot schema, TableModel table, ForeignKeyModel foreignKey, List<String> details) {
+            SchemaSnapshot schema, TableModel table, ForeignKeyModel foreignKey, DatabaseFindings details) {
         if (!foreignKey.consistent()) {
             return;
         }
@@ -91,7 +91,8 @@ final class ForeignKeyTypeMismatchRule extends AbstractDatabaseAdvisorRule {
             }
             details.add(schema.dataSourceName() + ": " + table.qualifiedName() + "." + childColumn.name() + " ("
                     + childColumn.describeType() + ") references " + referenced.qualifiedName() + "."
-                    + parentColumn.name() + " (" + parentColumn.describeType() + ") with " + mismatch + ".");
+                    + parentColumn.name() + " (" + parentColumn.describeType() + ") with " + mismatch + ".",
+                DatabaseIdentities.table(schema, table, "fk=" + foreignKey.name(), "column=" + childColumn.name()));
         }
     }
 }

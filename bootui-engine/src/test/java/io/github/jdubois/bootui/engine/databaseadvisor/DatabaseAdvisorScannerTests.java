@@ -70,6 +70,67 @@ class DatabaseAdvisorScannerTests {
     }
 
     @Test
+    void rescanningReportsANewTableAndAResolvedTableAgainstThePreviousScan() throws SQLException {
+        DatabaseAdvisorScanner scanner = scannerFor(List.of(new NamedDataSource("primary", dataSource)));
+        DatabaseAdvisorReport first = scanner.scan();
+        assertThat(first.violationDetails().changes()).isNull();
+
+        DatabaseAdvisorReport unchanged = scanner.scan();
+        var same = unchanged.violationDetails().changes();
+        assertThat(same.previousScanId()).isEqualTo(first.violationDetails().scanId());
+        assertThat(same.newCount()).isZero();
+        assertThat(same.resolvedCount()).isZero();
+        assertThat(same.unchangedCount()).isPositive();
+        assertThat(same.unverifiedCount()).isZero();
+        assertThat(same.complete()).isTrue();
+
+        execute("create table staging (note varchar(255))");
+        var added = scanner.scan().violationDetails().changes();
+        assertThat(added.newCount()).isEqualTo(1);
+        assertThat(added.resolvedCount()).isZero();
+
+        execute("drop table staging");
+        DatabaseAdvisorReport removed = scanner.scan();
+        var fixed = removed.violationDetails().changes();
+        assertThat(fixed.resolvedCount()).isEqualTo(1);
+        assertThat(fixed.resolved()).singleElement().satisfies(resolved -> {
+            assertThat(resolved.ruleId()).isEqualTo("DB-SCHEMA-001");
+            assertThat(resolved.text()).contains("STAGING");
+        });
+        var page = scanner.ruleViolations("DB-SCHEMA-001", removed.violationDetails().scanId(), 0, 10);
+        assertThat(page.identities()).doesNotContainNull();
+        assertThat(page.changes()).containsOnly("UNCHANGED");
+    }
+
+    @Test
+    void anUnreadableDatasourceNeverMakesItsFindingsLookResolved() {
+        java.util.concurrent.atomic.AtomicReference<List<NamedDataSource>> sources =
+                new java.util.concurrent.atomic.AtomicReference<>(List.of(new NamedDataSource("primary", dataSource)));
+        DatabaseAdvisorScanner scanner =
+                DatabaseAdvisorScanner.using(sources::get, () -> EntityDiscovery.empty(null), FIXED_CLOCK);
+        scanner.scan();
+
+        sources.set(List.of(new NamedDataSource("primary", new FailingDataSource("connection refused"))));
+        DatabaseAdvisorReport outage = scanner.scan();
+        var notCompared = outage.violationDetails().changes();
+        assertThat(notCompared.complete()).isFalse();
+        assertThat(notCompared.resolvedCount()).isZero();
+
+        sources.set(List.of(new NamedDataSource("primary", dataSource)));
+        var recovered = scanner.scan().violationDetails().changes();
+        assertThat(recovered.newCount()).isZero();
+        assertThat(recovered.resolvedCount()).isZero();
+        assertThat(recovered.unchangedCount()).isPositive();
+    }
+
+    private void execute(String sql) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                Statement statement = connection.createStatement()) {
+            statement.execute(sql);
+        }
+    }
+
+    @Test
     void retainsEveryCountedTableBeforeSamplingWithoutQueryingAgain() {
         var tables = java.util.stream.IntStream.range(0, 16)
                 .mapToObj(index ->

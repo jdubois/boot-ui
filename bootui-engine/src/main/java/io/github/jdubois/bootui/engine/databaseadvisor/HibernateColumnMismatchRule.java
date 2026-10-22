@@ -42,7 +42,7 @@ final class HibernateColumnMismatchRule extends AbstractHibernateCrossReferenceR
             DatabaseAdvisorContext context,
             MappedTableResolution primary,
             MappedEntityFacts entity,
-            List<String> details) {
+            DatabaseFindings details) {
         int eligible = 0;
         for (MappedColumnFacts column : entity.columns()) {
             if (!Boolean.FALSE.equals(column.nullable())) {
@@ -75,12 +75,13 @@ final class HibernateColumnMismatchRule extends AbstractHibernateCrossReferenceR
             TableModel table,
             MappedColumnFacts column,
             ColumnModel physical,
-            List<String> details) {
+            DatabaseFindings details) {
         if (physical.nullable() && Boolean.FALSE.equals(column.nullable())) {
             details.add(
                     schema.dataSourceName() + ": " + column.attributeDescription() + " declares column "
                             + table.qualifiedName() + "." + column.columnName()
-                            + " with nullable=false, while the observed column allows NULL. Review declaration-name correspondence.");
+                            + " with nullable=false, while the observed column allows NULL. Review declaration-name correspondence.",
+                DatabaseIdentities.mapped(schema, table, column.attributeDescription(), column.columnName()));
         }
     }
 }

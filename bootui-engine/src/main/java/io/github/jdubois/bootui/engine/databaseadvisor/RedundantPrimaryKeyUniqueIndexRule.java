@@ -20,7 +20,7 @@ final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRu
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
             for (TableModel table : DatabaseAdvisorContext.analyzableTables(schema)) {
@@ -62,7 +62,8 @@ final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRu
                     if (index.exactDuplicateOf(backing)) {
                         details.add(schema.dataSourceName() + ": " + table.qualifiedName() + " unique index "
                                 + index.name() + " has the same observed definition as primary-key backing index "
-                                + backing.name() + "; review ownership and dependencies.");
+                                + backing.name() + "; review ownership and dependencies.",
+                DatabaseIdentities.table(schema, table, "index=" + index.name()));
                     }
                 }
             }

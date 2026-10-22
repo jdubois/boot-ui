@@ -34,7 +34,7 @@ final class OracleInvalidConstraintRule extends AbstractDatabaseAdvisorRule {
         if (reason != null) {
             return skipped(reason);
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
             VendorRuleSupport.coverage(context, definition().id(), schema, VendorFindingKinds.ORACLE_CONSTRAINTS);
@@ -59,7 +59,8 @@ final class OracleInvalidConstraintRule extends AbstractDatabaseAdvisorRule {
                                     : constraint.validatedAgainstExistingRows()
                                             ? "DISABLE VALIDATE retains validated state and can restrict DML; it does not mean unrestricted writes."
                                             : "Review the disabled state and any dependent constraints.")
-                            + " The snapshot does not prove invalid rows or forgotten validation.");
+                            + " The snapshot does not prove invalid rows or forgotten validation.",
+                DatabaseIdentities.table(schema.dataSourceName(), null, constraint.schema(), constraint.table(), "constraint=" + constraint.constraintName()));
                 }
             }
         }

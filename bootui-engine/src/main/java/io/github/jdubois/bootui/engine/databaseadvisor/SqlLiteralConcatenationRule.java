@@ -44,6 +44,11 @@ final class SqlLiteralConcatenationRule extends AbstractDatabaseAdvisorRule {
     }
 
     @Override
+    public boolean comparableAcrossScans() {
+        return false;
+    }
+
+    @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         List<SqlTraceEntryDto> statements = context.observedStatements();
         if (statements.isEmpty()) {
@@ -83,9 +88,9 @@ final class SqlLiteralConcatenationRule extends AbstractDatabaseAdvisorRule {
             return pass();
         }
 
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         for (ShapeEvidence evidence : reportable) {
-            details.add(evidence.describe(statements.size()));
+            details.add(evidence.describe(statements.size()), DatabaseIdentities.parts("shape=" + evidence.shapeKey()));
         }
         return violation(context, details);
     }
@@ -125,6 +130,11 @@ final class SqlLiteralConcatenationRule extends AbstractDatabaseAdvisorRule {
 
         private String shape() {
             return shape;
+        }
+
+        /** A digest of the normalized shape, so the identity never carries SQL text. */
+        private String shapeKey() {
+            return digest(shape).substring(0, 32);
         }
 
         private boolean isReportable() {

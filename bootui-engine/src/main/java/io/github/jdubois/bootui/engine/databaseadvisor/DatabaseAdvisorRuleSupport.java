@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorFindingIdentity;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolation;
 import io.github.jdubois.bootui.engine.support.CredentialRedaction;
 import io.github.jdubois.bootui.engine.support.DetailText;
 import java.util.ArrayList;
@@ -36,12 +38,18 @@ final class DatabaseAdvisorRuleSupport {
     }
 
     static DatabaseAdvisorRuleResultDto violation(
-            DatabaseAdvisorContext context, DatabaseAdvisorRuleDefinition definition, List<String> details) {
+            DatabaseAdvisorContext context, DatabaseAdvisorRuleDefinition definition, DatabaseFindings findings) {
+        List<AdvisorViolation> details = findings.list();
+        assert details.stream()
+                        .allMatch(detail -> AdvisorFindingIdentity.VALID
+                                .matcher(detail.identity())
+                                .matches())
+                : definition.id() + " reported a finding without a valid canonical identity";
         if (context.violationCollector() != null) {
             context.violationCollector()
-                    .record(definition.id(), details.size(), details, DatabaseAdvisorRuleSupport::detail);
+                    .record(definition.id(), details.size(), details, DatabaseAdvisorRuleSupport::detail, 0);
         }
-        return result(definition, VIOLATION, details.size(), samples(details));
+        return result(definition, VIOLATION, details.size(), samples(AdvisorViolation.texts(details)));
     }
 
     static DatabaseAdvisorRuleResultDto result(

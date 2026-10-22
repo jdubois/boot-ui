@@ -36,7 +36,7 @@ final class PostgresInvalidIndexRule extends AbstractDatabaseAdvisorRule {
         if (skipReason != null) {
             return skipped(skipReason);
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : schemas) {
             VendorRuleSupport.coverage(context, definition().id(), schema, VendorFindingKinds.POSTGRES_INVALID_INDEXES);
@@ -66,7 +66,8 @@ final class PostgresInvalidIndexRule extends AbstractDatabaseAdvisorRule {
                         : "";
                 details.add(schema.dataSourceName() + ": index " + index.index() + " on table " + index.qualifiedTable()
                         + " has explicit invalid/unready/dead state (" + index.describeFlags()
-                        + "). Concurrent build/drop activity can be transient." + uniquenessImpact);
+                        + "). Concurrent build/drop activity can be transient." + uniquenessImpact,
+                DatabaseIdentities.table(schema.dataSourceName(), null, index.schema(), index.table(), "index=" + index.index()));
             }
         }
         return VendorRuleSupport.assessed(this, context, eligible, details);

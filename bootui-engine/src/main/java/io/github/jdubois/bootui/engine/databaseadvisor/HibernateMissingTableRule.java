@@ -50,7 +50,7 @@ final class HibernateMissingTableRule extends AbstractDatabaseAdvisorRule {
             return skipped("The table list was truncated for at least one datasource, so a missing mapped table "
                     + "cannot be distinguished from an unread one.");
         }
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (MappedEntityFacts entity : targeted) {
             MappedTableResolution resolution = MappedTableResolution.resolve(context, entity);
@@ -58,7 +58,8 @@ final class HibernateMissingTableRule extends AbstractDatabaseAdvisorRule {
                 eligible++;
                 details.add(entity.entityName() + " declares relation name " + entity.qualifiedTableName()
                         + ", which was not found in the scoped observed relation inventory. "
-                        + "Confirm effective physical naming before changing the mapping.");
+                        + "Confirm effective physical naming before changing the mapping.",
+                DatabaseIdentities.parts("entity=" + entity.entityName(), "relation=" + entity.qualifiedTableName()));
             } else if (resolution.resolved()) {
                 eligible++;
             } else {
@@ -73,7 +74,8 @@ final class HibernateMissingTableRule extends AbstractDatabaseAdvisorRule {
                 if (secondaryResolution.status() == MappedTableResolution.Status.NOT_FOUND) {
                     eligible++;
                     details.add(entity.entityName() + " declares @SecondaryTable " + secondaryTable.qualifiedName()
-                            + ", whose name was not found in the scoped observed relation inventory.");
+                            + ", whose name was not found in the scoped observed relation inventory.",
+                DatabaseIdentities.parts("entity=" + entity.entityName(), "secondary=" + secondaryTable.qualifiedName()));
                 } else if (secondaryResolution.resolved()) {
                     eligible++;
                 } else {

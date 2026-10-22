@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
+import io.github.jdubois.bootui.engine.advisor.AdvisorFindingIdentity;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge;
@@ -63,8 +64,9 @@ public final class DatabaseAdvisorScanner {
     private final AdvisorScanState<DatabaseAdvisorReport> state = new AdvisorScanState<>(
             DatabaseAdvisorReport::withViolationDetails,
             () -> AdvisorScanState.ruleIds(
-                    DatabaseAdvisorRuleRegistry.activeRules(),
-                    rule -> rule.definition().id()));
+                            DatabaseAdvisorRuleRegistry.activeRules(),
+                            rule -> rule.definition().id()))
+            .trackingChanges();
 
     public static DatabaseAdvisorScanner using(
             Supplier<List<NamedDataSource>> dataSourceSupplier,
@@ -175,6 +177,7 @@ public final class DatabaseAdvisorScanner {
         DatabaseAdvisorDataSourceDiscovery discovery = discoverDataSources();
         List<NamedDataSource> dataSources = discovery.dataSources();
         if (dataSources.isEmpty() && discovery.failures().isEmpty()) {
+            collector.markScanUnverified("No datasource was found, so no rule could run.");
             return new ReportBuilder()
                     .status("DISABLED")
                     .message("No DataSource beans were found to inspect.")
@@ -200,7 +203,16 @@ public final class DatabaseAdvisorScanner {
         List<DatabaseAdvisorDataSourceDto> dataSourceStatuses = dataSourceStatuses(schemas);
         boolean truncated = schemas.stream().anyMatch(SchemaSnapshot::truncated);
 
+        for (SchemaSnapshot schema : schemas) {
+            if (!schema.available() || schema.truncated()) {
+                collector.markScopeUnverified(
+                        AdvisorFindingIdentity.encode("ds=" + schema.dataSourceName()),
+                        "Datasource " + schema.dataSourceName()
+                                + (schema.available() ? " was read only in part." : " could not be read."));
+            }
+        }
         if (available.isEmpty()) {
+            collector.markScanUnverified("No physical schema could be read, so no rule could run.");
             return new ReportBuilder()
                     .status("ERROR")
                     .message(
@@ -227,6 +239,11 @@ public final class DatabaseAdvisorScanner {
                     schemas, hibernateAvailable, mappedEntities, context.observedStatements(), List.of(), collector);
             DatabaseAdvisorRuleResultDto result = rule.evaluate(evaluation);
             results.add(result);
+            if (rule.comparableAcrossScans()
+                    && (DatabaseAdvisorRuleSupport.PASS.equals(result.status()) || isViolation(result))
+                    && evaluation.evaluationDiagnostics().isEmpty()) {
+                collector.markConcluded(rule.definition().id(), AdvisorViolationCollector.ALL_SCOPES);
+            }
             usable |= isViolation(result)
                     || evaluation.evaluationDiagnostics().isEmpty()
                             && DatabaseAdvisorRuleSupport.PASS.equals(result.status());

@@ -37,7 +37,7 @@ final class InvisibleIndexRule extends AbstractDatabaseAdvisorRule {
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
             if (!schema.dialect().isMySqlFamily() && schema.dialect() != Dialect.ORACLE) {
@@ -70,7 +70,8 @@ final class InvisibleIndexRule extends AbstractDatabaseAdvisorRule {
                             details.add(schema.dataSourceName() + ": " + table.qualifiedName() + " "
                                     + (index.unique() ? "unique index " : "index ") + index.name() + " "
                                     + index.columnNames() + " is " + invisibleState(schema.dialect())
-                                    + ": still maintained on every write but not used by the optimizer by default.");
+                                    + ": still maintained on every write but not used by the optimizer by default.",
+                DatabaseIdentities.table(schema, table, "index=" + index.name()));
                         }
                         case UNKNOWN -> unknownVisibility = true;
                     }

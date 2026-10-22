@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
-import java.util.List;
 
 abstract class AbstractDatabaseAdvisorRule implements DatabaseAdvisorRule {
 
@@ -36,7 +35,7 @@ abstract class AbstractDatabaseAdvisorRule implements DatabaseAdvisorRule {
         return DatabaseAdvisorRuleSupport.skipped(definition, reason);
     }
 
-    DatabaseAdvisorRuleResultDto violation(DatabaseAdvisorContext context, List<String> details) {
+    DatabaseAdvisorRuleResultDto violation(DatabaseAdvisorContext context, DatabaseFindings details) {
         return details.isEmpty() ? pass() : DatabaseAdvisorRuleSupport.violation(context, definition, details);
     }
 
@@ -44,7 +43,7 @@ abstract class AbstractDatabaseAdvisorRule implements DatabaseAdvisorRule {
         context.unknown(definition.id(), reason);
     }
 
-    DatabaseAdvisorRuleResultDto assessed(DatabaseAdvisorContext context, int eligible, List<String> details) {
+    DatabaseAdvisorRuleResultDto assessed(DatabaseAdvisorContext context, int eligible, DatabaseFindings details) {
         return eligible == 0 && details.isEmpty()
                 ? skipped("No applicable targets were available for this check.")
                 : violation(context, details);

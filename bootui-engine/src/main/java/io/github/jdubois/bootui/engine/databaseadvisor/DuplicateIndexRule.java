@@ -22,7 +22,7 @@ final class DuplicateIndexRule extends AbstractDatabaseAdvisorRule {
 
     @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
-        List<String> details = new ArrayList<>();
+        DatabaseFindings details = new DatabaseFindings();
         int eligible = 0;
         for (SchemaSnapshot schema : context.availableSchemas()) {
             for (TableModel table : DatabaseAdvisorContext.analyzableTables(schema)) {
@@ -47,7 +47,8 @@ final class DuplicateIndexRule extends AbstractDatabaseAdvisorRule {
                         if (first.exactDuplicateOf(second)) {
                             details.add(schema.dataSourceName() + ": " + table.qualifiedName() + " indexes "
                                     + first.name() + " and " + second.name()
-                                    + " have identical observed ordinary-index definitions; review dependencies.");
+                                    + " have identical observed ordinary-index definitions; review dependencies.",
+                DatabaseIdentities.table(schema, table, DatabaseIdentities.pair("index", first.name(), second.name())));
                         }
                     }
                 }
