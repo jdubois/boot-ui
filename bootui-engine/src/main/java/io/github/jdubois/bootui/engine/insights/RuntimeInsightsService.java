@@ -455,6 +455,7 @@ public final class RuntimeInsightsService {
                 new LargePersistenceContext(),
                 new ConnectionReacquisition(),
                 new ReadOnlyCandidateTransaction(),
+                new PagedWithoutOrder(),
                 new TransactionAcrossRemoteCall(),
                 new LazySqlAfterHandler(),
                 new EventLoopBlocking(),
