@@ -110,6 +110,7 @@ public final class ExternalValidation {
         put(kinds, AnonymousSuccessOnRestrictedRoute.KIND, Outcome.NOT_VALIDATED, null);
         put(kinds, OrmAutoFlush.KIND, Outcome.NOT_VALIDATED, null);
         put(kinds, LargePersistenceContext.KIND, Outcome.NOT_VALIDATED, null);
+        put(kinds, SlowFlush.KIND, Outcome.NOT_JUDGED, ON_REQUEST);
         put(kinds, ConnectionReacquisition.KIND, Outcome.NOT_JUDGED, ON_REQUEST);
         put(kinds, ReadOnlyCandidateTransaction.KIND, Outcome.UNDER_SAMPLED, ON_REQUEST);
         put(kinds, PagedWithoutOrder.KIND, Outcome.UNDER_SAMPLED, ON_REQUEST);
