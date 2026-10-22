@@ -37,6 +37,7 @@ class DefaultListingTests {
             Map.entry(LargePersistenceContext.KIND, ExternalValidation.Outcome.NOT_VALIDATED),
             Map.entry(ConnectionReacquisition.KIND, ExternalValidation.Outcome.NOT_JUDGED),
             Map.entry(ReadOnlyCandidateTransaction.KIND, ExternalValidation.Outcome.UNDER_SAMPLED),
+            Map.entry(PagedWithoutOrder.KIND, ExternalValidation.Outcome.UNDER_SAMPLED),
             Map.entry(UnbatchedWriteLoop.KIND, ExternalValidation.Outcome.UNDER_SAMPLED),
             Map.entry(GcInflatedLatency.KIND, ExternalValidation.Outcome.NOT_LISTED),
             Map.entry(HeapGrowthAfterGc.KIND, ExternalValidation.Outcome.NOT_LISTED),

@@ -6,6 +6,7 @@ import jakarta.persistence.EntityManager;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,8 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
  * three times in one transaction, makes Hibernate write each pending insert before the count, which {@code
  * orm-auto-flush} reports; counting first and saving afterwards writes once, at commit, and must not be reported.
  * {@code readonly-candidate-transaction} reads a read-write transaction that only reads, which the methods marked
- * {@code @Transactional} without {@code readOnly} below seed, with the writes that must keep it from being reported.
- * Never copy these methods into an application.
+ * {@code @Transactional} without {@code readOnly} below seed, with the writes that must keep it from being reported;
+ * their pages are sorted, so they are not also the unsorted pages {@code paged-without-order} reports, which {@code
+ * unsortedPage} seeds beside its sorted counterexample. Never copy these methods into an application.
  */
 @Service
 public class InsightTagService {
@@ -25,6 +27,8 @@ public class InsightTagService {
     static final int EXPORTED_TAGS = 600;
 
     private static final int SUMMARY_TAGS = 5;
+
+    private static final Sort BY_ID = Sort.by("id");
 
     private final SampleTagRepository tags;
     private final EntityManager entityManager;
@@ -112,13 +116,14 @@ public class InsightTagService {
      */
     @Transactional
     public int summary() {
-        return tags.findAll(PageRequest.of(0, SUMMARY_TAGS)).getNumberOfElements();
+        return tags.findAll(PageRequest.of(0, SUMMARY_TAGS, BY_ID)).getNumberOfElements();
     }
 
     /** The counterexample: the same read, then a label that changes, which Hibernate finds dirty and updates. */
     @Transactional
     public int summaryThenRelabel() {
-        List<SampleTag> page = tags.findAll(PageRequest.of(0, SUMMARY_TAGS)).getContent();
+        List<SampleTag> page =
+                tags.findAll(PageRequest.of(0, SUMMARY_TAGS, BY_ID)).getContent();
         SampleTag first = page.get(0);
         first.relabel(
                 first.getLabel().endsWith("*")
@@ -130,10 +135,21 @@ public class InsightTagService {
     /** The counterexample: the same read, then a write through JDBC, which Hibernate never sees as a dirty entity. */
     @Transactional
     public int summaryThenJdbcWrite() {
-        List<SampleTag> page = tags.findAll(PageRequest.of(0, SUMMARY_TAGS)).getContent();
+        List<SampleTag> page =
+                tags.findAll(PageRequest.of(0, SUMMARY_TAGS, BY_ID)).getContent();
         jdbc.update(
                 "update sample_advisor_tags set label = label where id = ?",
                 page.get(0).getId());
         return page.size();
+    }
+
+    /** {@code paged-without-order}: the second page of tags with no sort, which Hibernate limits without an order. */
+    public int unsortedPage() {
+        return tags.findAll(PageRequest.of(1, SUMMARY_TAGS)).getNumberOfElements();
+    }
+
+    /** The counterexample: the same page sorted by id, which Hibernate orders before it limits. */
+    public int sortedPage() {
+        return tags.findAll(PageRequest.of(1, SUMMARY_TAGS, BY_ID)).getNumberOfElements();
     }
 }

@@ -29,7 +29,7 @@ import java.util.Locale;
 public final class SqlStatementNormalizer {
 
     /** Upper bound on the SQL length scanned, so a pathological statement cannot dominate a report. */
-    private static final int MAX_SCAN_LENGTH = 20_000;
+    public static final int MAX_SCAN_LENGTH = 20_000;
 
     private SqlStatementNormalizer() {}
 
@@ -51,7 +51,7 @@ public final class SqlStatementNormalizer {
             return new Result("", "", 0, 0);
         }
         String source = sql.length() > MAX_SCAN_LENGTH ? sql.substring(0, MAX_SCAN_LENGTH) : sql;
-        Scan scan = scan(source, null);
+        Scan scan = scan(source, null, null);
         String collapsed = collapsePlaceholderLists(scan.out.toString().trim());
         return new Result(collapsed, fingerprint(collapsed), scan.literals, scan.predicateLiterals);
     }
@@ -74,8 +74,41 @@ public final class SqlStatementNormalizer {
         }
         String source = sql.length() > MAX_SCAN_LENGTH ? sql.substring(0, MAX_SCAN_LENGTH) : sql;
         Ranges ranges = new Ranges();
-        scan(source, ranges);
+        scan(source, ranges, null);
         return java.util.Arrays.copyOf(ranges.values, ranges.size);
+    }
+
+    /** A {@link #tokens} entry's kind: a run of identifier characters, a keyword, a name, or a bind such as {@code $1}. */
+    public static final int TOKEN_WORD = 1;
+
+    /** A {@link #tokens} entry's kind: a string, dollar-quoted string, number, or {@code true}/{@code false} literal. */
+    public static final int TOKEN_LITERAL = 2;
+
+    /** A {@link #tokens} entry's kind: a {@code "quoted"}, {@code `quoted`}, or {@code [quoted]} identifier. */
+    public static final int TOKEN_QUOTED_IDENTIFIER = 3;
+
+    /** A {@link #tokens} entry's kind: a comment, including a MySQL or MariaDB {@code #} comment. */
+    public static final int TOKEN_COMMENT = 4;
+
+    /** A {@link #tokens} entry's kind: any other single character, such as {@code (}, {@code ,}, {@code =}, or {@code ?}. */
+    public static final int TOKEN_SYMBOL = 5;
+
+    /**
+     * The lexical tokens of {@code sql}'s first {@value #MAX_SCAN_LENGTH} characters, exactly as {@link #normalize}
+     * lexes them, as {@code {start, end, kind}} triples in order ({@link #TOKEN_WORD}, {@link #TOKEN_LITERAL},
+     * {@link #TOKEN_QUOTED_IDENTIFIER}, {@link #TOKEN_COMMENT}, {@link #TOKEN_SYMBOL}); whitespace is not a token.
+     * It exposes the scanner's treatment of strings, dollar quoting, quoted identifiers, and comments to a caller that
+     * needs more than the normalized text, without a second lexer. A quoted run or comment a truncated statement
+     * leaves open ends at the end of the text, so a caller can tell it was never closed. Empty for {@code null}.
+     */
+    public static int[] tokens(String sql) {
+        if (sql == null || sql.isEmpty()) {
+            return new int[0];
+        }
+        String source = sql.length() > MAX_SCAN_LENGTH ? sql.substring(0, MAX_SCAN_LENGTH) : sql;
+        Ranges tokens = new Ranges();
+        scan(source, null, tokens);
+        return java.util.Arrays.copyOf(tokens.values, tokens.size);
     }
 
     /** The normalized text and literal counts of one scan. */
@@ -112,7 +145,7 @@ public final class SqlStatementNormalizer {
         }
     }
 
-    private static Scan scan(String source, Ranges ranges) {
+    private static Scan scan(String source, Ranges ranges, Ranges tokens) {
         Scan scan = new Scan(source.length());
         StringBuilder out = scan.out;
         int index = 0;
@@ -125,20 +158,24 @@ public final class SqlStatementNormalizer {
                 index = skipLineComment(source, index);
                 appendSpace(out);
                 record(ranges, start, index, RANGE_COMMENT);
+                record(tokens, start, index, TOKEN_COMMENT);
             } else if (isBlockCommentStart(source, index)) {
                 index = skipBlockComment(source, index);
                 appendSpace(out);
                 record(ranges, start, index, RANGE_COMMENT);
+                record(tokens, start, index, TOKEN_COMMENT);
             } else if (c == '\'') {
                 index = skipQuoted(source, index, '\'');
                 scan.literal();
                 record(ranges, start, index, RANGE_LITERAL);
+                record(tokens, start, index, TOKEN_LITERAL);
             } else if (dollarEnd > 0) {
                 // PostgreSQL dollar quoting ($$value$$, $tag$value$tag$) is a string literal that ignores
                 // the usual escaping rules, so it must be replaced rather than emitted verbatim.
                 index = dollarEnd;
                 scan.literal();
                 record(ranges, start, index, RANGE_LITERAL);
+                record(tokens, start, index, TOKEN_LITERAL);
             } else if (c == '"' || c == '`' || c == '[') {
                 int end = skipQuoted(source, index, c == '[' ? ']' : c);
                 if (c == '"' && !isIdentifierLike(source, index, end)) {
@@ -146,16 +183,19 @@ public final class SqlStatementNormalizer {
                     // run that does not read like a column name is masked rather than shown.
                     scan.literal();
                     record(ranges, start, end, RANGE_LITERAL);
+                    record(tokens, start, end, TOKEN_LITERAL);
                 } else {
                     // A quoted identifier is a name, not a value: keep it verbatim so two different columns
                     // never collapse into the same normalized statement.
                     out.append(source, index, end);
+                    record(tokens, start, end, TOKEN_QUOTED_IDENTIFIER);
                 }
                 index = end;
             } else if (isKeywordLiteralStart(source, index, out)) {
                 int end = skipKeywordLiteral(source, index);
                 scan.literal();
                 record(ranges, start, end, RANGE_LITERAL);
+                record(tokens, start, end, TOKEN_LITERAL);
                 index = end;
             } else if (Character.isWhitespace(c)) {
                 appendSpace(out);
@@ -164,12 +204,32 @@ public final class SqlStatementNormalizer {
                 index = skipNumber(source, index);
                 scan.literal();
                 record(ranges, start, index, RANGE_LITERAL);
+                record(tokens, start, index, TOKEN_LITERAL);
             } else {
                 out.append(c);
                 index++;
+                if (isIdentifierCharacter(c)) {
+                    // Adjacent characters this scanner leaves as they are form one word token.
+                    extendWord(tokens, start, index);
+                } else {
+                    record(tokens, start, index, TOKEN_SYMBOL);
+                }
             }
         }
         return scan;
+    }
+
+    private static void extendWord(Ranges tokens, int start, int end) {
+        if (tokens == null) {
+            return;
+        }
+        if (tokens.size >= 3
+                && tokens.values[tokens.size - 1] == TOKEN_WORD
+                && tokens.values[tokens.size - 2] == start) {
+            tokens.values[tokens.size - 2] = end;
+        } else {
+            tokens.add(start, end, TOKEN_WORD);
+        }
     }
 
     private static void record(Ranges ranges, int start, int end, int kind) {
@@ -284,12 +344,24 @@ public final class SqlStatementNormalizer {
         }
     }
 
+    /**
+     * Whether a line comment starts at {@code index}: {@code --}, or a MySQL and MariaDB {@code #} followed by white
+     * space or the end of the text and not directly after a name. A {@code #} otherwise is not read as a comment, since
+     * PostgreSQL spells operators {@code #>} and {@code #>>}, SQL Server names a temporary table {@code #name}, and
+     * Oracle names columns such as {@code emp#}.
+     */
     private static boolean isLineCommentStart(String sql, int index) {
-        return sql.charAt(index) == '-' && index + 1 < sql.length() && sql.charAt(index + 1) == '-';
+        char c = sql.charAt(index);
+        if (c == '#') {
+            // Oracle, DB2, and T-SQL name columns such as emp# and dept#, which no comment follows.
+            boolean afterName = index > 0 && isIdentifierCharacter(sql.charAt(index - 1));
+            return !afterName && (index + 1 >= sql.length() || Character.isWhitespace(sql.charAt(index + 1)));
+        }
+        return c == '-' && index + 1 < sql.length() && sql.charAt(index + 1) == '-';
     }
 
     private static int skipLineComment(String sql, int index) {
-        int cursor = index + 2;
+        int cursor = sql.charAt(index) == '#' ? index + 1 : index + 2;
         while (cursor < sql.length() && sql.charAt(cursor) != '\n') {
             cursor++;
         }
