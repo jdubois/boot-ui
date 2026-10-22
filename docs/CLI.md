@@ -236,7 +236,10 @@ explain a missing path in `violationDetails.locationNotes`. See [violation locat
 
 `page.total` and `page.matched` both count retained details for this rule; `violationCount` remains the real count.
 Always inspect `truncated`: a terminal page is not proof that all counted details were retained. Reports expose
-`violationDetails` with `scanId`, `total`, `retained`, `retentionLimit`, and `truncated`. The default retention
+`violationDetails` with `scanId`, `total`, `retained`, `retentionLimit`, `truncated`, and, for the Hibernate and Database
+advisors from the second scan on, `changes` (what the rescan resolved or added; see
+[Changes since the previous scan](features/advisors.md#changes-since-the-previous-scan)). A page adds `identities` and
+`changes`, aligned with `violations`. The default retention
 budget is 10,000 sanitized details per advisor scan (`bootui.advisors.max-retained-violations`). Raising the
 budget only affects an explicitly requested new scan. Retention completeness is separate from evidence coverage;
 verify every finding before changing code.

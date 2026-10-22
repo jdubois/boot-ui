@@ -31,6 +31,11 @@ abstract class AbstractHibernateCrossReferenceRule extends AbstractDatabaseAdvis
     abstract boolean hasApplicableDeclarations(MappedEntityFacts entity);
 
     @Override
+    public final boolean readsMappings() {
+        return true;
+    }
+
+    @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         if (!context.hibernateAvailable()) {
             return skipped("No EntityManagerFactory/Hibernate metamodel is available to cross-reference.");

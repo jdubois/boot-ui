@@ -68,7 +68,7 @@ const changesText = computed(() => {
 // the cached report read on arrival.
 const announcement = ref('')
 watch(
-  () => `${showChanges.value}|${props.changes?.previousScanId ?? ''}|${changesText.value}`,
+  () => `${showChanges.value}|${props.scanTime}|${props.changes?.previousScanId ?? ''}|${changesText.value}`,
   async () => {
     if (!showChanges.value) return
     // Clearing first lets an identical result be announced again.

@@ -35,6 +35,7 @@ Each report has additive `violationDetails` metadata:
 | `retentionLimit` | Effective per-advisor limit frozen for this scan.                                           |
 | `truncated`      | Some counted details are missing from the retained index.                                   |
 | `locationNotes`  | Why some [violation locations](#violation-locations) carry no source path; empty otherwise. |
+| `changes`        | What this scan [changed](#changes-since-the-previous-scan); `null` on a first scan and for most advisors. |
 
 While another scan is running, detail reads still refer to the previous completed snapshot; publishing its replacement
 changes the ID. Dismiss and restore change neither the ID nor the retained details. Retention completeness is not
@@ -155,9 +156,9 @@ values, SQL text or free-form messages, and it is exposed on every detail page (
 `violations`) so an agent or a later tool never has to derive one from a message. Rules that report no identity are
 "unkeyed": counted, but never compared.
 
-BootUI never calls a comparison complete unless it can stand behind it. A finding is only **new** or **resolved** when
-both scans actually concluded its rule and kept all of that rule's details; otherwise it is counted as **could not be
-compared**, never as resolved. That happens when a rule failed, was skipped, lacked evidence, or lost findings to the
+BootUI never calls a comparison complete unless it can stand behind it. A finding is only **resolved** when this scan
+concluded its rule and kept all of that rule's details, and only **new** when the previous scan did; otherwise it is
+counted as **could not be compared**, never as resolved. That happens when a rule failed, was skipped, lacked evidence, or lost findings to the
 retention limit; when a datasource or persistence unit could not be read; and for the runtime SQL rule, whose evidence
 is a sliding window. A scan that could not evaluate any rule is not compared at all and does not replace the baseline,
 so the next good scan is compared with the last one that could be. The `notes` of the comparison say why.

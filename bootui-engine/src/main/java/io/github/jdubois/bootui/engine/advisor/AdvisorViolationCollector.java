@@ -30,6 +30,7 @@ public final class AdvisorViolationCollector {
     private final List<String> locationNotes = new ArrayList<>();
     private final Set<String> concluded = new LinkedHashSet<>();
     private final Set<String> unverifiedScopes = new LinkedHashSet<>();
+    private final Set<String> observedScopes = new LinkedHashSet<>();
     private final List<String> coverageNotes = new ArrayList<>();
     private boolean scanUnverified;
     private int total;
@@ -162,6 +163,14 @@ public final class AdvisorViolationCollector {
     }
 
     /**
+     * Declares that {@code scope} was looked at in this scan. Once any scope is declared observed, a scope that was not
+     * is treated as unread: its findings cannot be resolved by this scan.
+     */
+    public void markScopeObserved(String scope) {
+        observedScopes.add(Objects.requireNonNull(scope, "Advisor scope is required."));
+    }
+
+    /**
      * Declares that nothing in {@code scope} can be compared in this scan, for example a datasource that could not
      * be read: its findings are neither resolved nor new.
      */
@@ -203,6 +212,7 @@ public final class AdvisorViolationCollector {
                 new Coverage(
                         Set.copyOf(concluded),
                         Set.copyOf(unverifiedScopes),
+                        Set.copyOf(observedScopes),
                         List.copyOf(coverageNotes),
                         scanUnverified));
     }
@@ -215,12 +225,18 @@ public final class AdvisorViolationCollector {
     }
 
     /** What this scan could and could not conclude, which decides what a comparison may claim. */
-    record Coverage(Set<String> concluded, Set<String> unverifiedScopes, List<String> notes, boolean scanUnverified) {
+    record Coverage(
+            Set<String> concluded,
+            Set<String> unverifiedScopes,
+            Set<String> observedScopes,
+            List<String> notes,
+            boolean scanUnverified) {
 
-        static final Coverage NONE = new Coverage(Set.of(), Set.of(), List.of(), false);
+        static final Coverage NONE = new Coverage(Set.of(), Set.of(), Set.of(), List.of(), false);
 
         boolean concludes(String ruleId, String scope) {
             if (scanUnverified || (scope != null && unverifiedScopes.contains(scope))) return false;
+            if (!observedScopes.isEmpty() && (scope == null || !observedScopes.contains(scope))) return false;
             return concluded.contains(concludedKey(ruleId, scope))
                     || concluded.contains(concludedKey(ruleId, ALL_SCOPES));
         }

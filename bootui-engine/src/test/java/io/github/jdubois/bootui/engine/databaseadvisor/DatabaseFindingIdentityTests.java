@@ -115,6 +115,42 @@ class DatabaseFindingIdentityTests {
     }
 
     @Test
+    void onlyTheRuntimeSqlRuleReadsASlidingWindowAndOnlyCrossReferencesReadMappings() {
+        assertThat(DatabaseAdvisorRuleRegistry.activeRules())
+                .filteredOn(rule -> !rule.comparableAcrossScans())
+                .extracting(rule -> rule.definition().id())
+                .containsExactly("DB-RUNTIME-001");
+        assertThat(DatabaseAdvisorRuleRegistry.activeRules())
+                .filteredOn(DatabaseAdvisorRule::readsMappings)
+                .extracting(rule -> rule.definition().id())
+                .allMatch(id -> id.startsWith("DB-HIB-"));
+    }
+
+    @Test
+    void aRuleWithNoTargetLeftIsToldApartFromAnyOtherSkip() {
+        TableModel single = table(
+                "one",
+                List.of(column("id", "int", Types.INTEGER)),
+                List.of(),
+                List.of(),
+                List.of(btree("only", List.of("id"))));
+        DatabaseAdvisorContext context = new DatabaseAdvisorContext(
+                List.of(schema("main", Dialect.GENERIC, List.of(single))),
+                false,
+                List.of(),
+                List.of(),
+                List.of(),
+                new AdvisorViolationCollector(10));
+
+        var result = new DuplicateIndexRule().evaluate(context);
+
+        assertThat(DatabaseAdvisorRuleSupport.noTargets(result)).isTrue();
+        assertThat(DatabaseAdvisorRuleSupport.noTargets(
+                        DatabaseAdvisorRuleSupport.skipped(new DuplicateIndexRule().definition(), "Not applicable.")))
+                .isFalse();
+    }
+
+    @Test
     void aLiveStatementShapeIsKeyedOnADigestNeverOnSqlText() {
         String identity = DatabaseIdentities.parts("shape=" + "a".repeat(32));
 

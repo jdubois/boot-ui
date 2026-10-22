@@ -15,4 +15,9 @@ interface DatabaseAdvisorRule {
     default boolean comparableAcrossScans() {
         return true;
     }
+
+    /** Whether this rule reads the application's mapped entities, so a mapping lost from a scan loses its findings. */
+    default boolean readsMappings() {
+        return false;
+    }
 }

@@ -24,6 +24,11 @@ final class HibernateMissingTableRule extends AbstractDatabaseAdvisorRule {
     }
 
     @Override
+    public boolean readsMappings() {
+        return true;
+    }
+
+    @Override
     DatabaseAdvisorRuleResultDto evaluateRule(DatabaseAdvisorContext context) {
         if (!context.hibernateAvailable()) {
             return skipped("No EntityManagerFactory/Hibernate metamodel is available to cross-reference.");

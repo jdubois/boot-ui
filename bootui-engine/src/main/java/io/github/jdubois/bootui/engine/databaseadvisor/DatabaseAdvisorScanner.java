@@ -204,6 +204,7 @@ public final class DatabaseAdvisorScanner {
         boolean truncated = schemas.stream().anyMatch(SchemaSnapshot::truncated);
 
         for (SchemaSnapshot schema : schemas) {
+            collector.markScopeObserved(AdvisorFindingIdentity.encode("ds=" + schema.dataSourceName()));
             // Only a dialect with partitioned tables can lose relations when the inventory falls back to plain tables.
             boolean partialInventory = schema.dialect() == Dialect.POSTGRESQL && !schema.relationInventoryComplete();
             if (!schema.available() || schema.truncated() || partialInventory) {
@@ -245,8 +246,10 @@ public final class DatabaseAdvisorScanner {
             DatabaseAdvisorRuleResultDto result = rule.evaluate(evaluation);
             results.add(result);
             if (rule.comparableAcrossScans()
-                    && (mappingsComplete || !(rule instanceof AbstractHibernateCrossReferenceRule))
-                    && (DatabaseAdvisorRuleSupport.PASS.equals(result.status()) || isViolation(result))
+                    && (mappingsComplete || !rule.readsMappings())
+                    && (DatabaseAdvisorRuleSupport.PASS.equals(result.status())
+                            || isViolation(result)
+                            || DatabaseAdvisorRuleSupport.noTargets(result))
                     && evaluation.evaluationDiagnostics().isEmpty()) {
                 collector.markConcluded(rule.definition().id(), AdvisorViolationCollector.ALL_SCOPES);
             }

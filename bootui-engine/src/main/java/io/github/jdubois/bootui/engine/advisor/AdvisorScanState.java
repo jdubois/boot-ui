@@ -107,7 +107,10 @@ public final class AdvisorScanState<R> {
         if (trackChanges) {
             Baseline previous = baseline;
             if (!index.coverage().informative()) {
-                changes = previous == null ? null : AdvisorScanDiff.notCompared(previous.scanId(), index.coverage());
+                // The very first scan has nothing to compare; a later one that concluded nothing says so.
+                changes = previous == null && completed == null
+                        ? null
+                        : AdvisorScanDiff.notCompared(previous == null ? null : previous.scanId(), index.coverage());
             } else {
                 if (previous != null) {
                     AdvisorScanDiff.Result diff = AdvisorScanDiff.compare(previous.scanId(), previous.index(), index);

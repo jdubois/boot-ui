@@ -124,6 +124,47 @@ class DatabaseAdvisorScannerTests {
         assertThat(recovered.unchangedCount()).isPositive();
     }
 
+    @Test
+    void aDatasourceThatIsUnreadableOrAbsentNeverMakesItsFindingsLookResolved() throws SQLException {
+        H2DataSource second =
+                new H2DataSource("jdbc:h2:mem:database-advisor-second-" + System.nanoTime() + ";DB_CLOSE_DELAY=-1");
+        try (Connection connection = second.getConnection();
+                Statement statement = connection.createStatement()) {
+            statement.execute("create table second_log (message varchar(255))");
+        }
+        java.util.concurrent.atomic.AtomicReference<List<NamedDataSource>> sources =
+                new java.util.concurrent.atomic.AtomicReference<>(
+                        List.of(new NamedDataSource("primary", dataSource), new NamedDataSource("second", second)));
+        DatabaseAdvisorScanner scanner =
+                DatabaseAdvisorScanner.using(sources::get, () -> EntityDiscovery.empty(null), FIXED_CLOCK);
+        scanner.scan();
+
+        sources.set(List.of(
+                new NamedDataSource("primary", dataSource),
+                new NamedDataSource("second", new FailingDataSource("connection refused"))));
+        var unreadable = scanner.scan().violationDetails().changes();
+        assertThat(unreadable.resolvedCount()).isZero();
+        assertThat(unreadable.unverifiedCount()).isPositive();
+        assertThat(unreadable.unchangedCount()).isPositive();
+        assertThat(unreadable.complete()).isFalse();
+
+        // Recovery: the findings the unreadable scan lost are not new either, because that scan could not see them.
+        sources.set(List.of(new NamedDataSource("primary", dataSource), new NamedDataSource("second", second)));
+        var recovered = scanner.scan().violationDetails().changes();
+        assertThat(recovered.newCount()).isZero();
+        assertThat(recovered.unverifiedCount()).isPositive();
+
+        sources.set(List.of(new NamedDataSource("primary", dataSource), new NamedDataSource("second", second)));
+        DatabaseAdvisorScanner fresh =
+                DatabaseAdvisorScanner.using(sources::get, () -> EntityDiscovery.empty(null), FIXED_CLOCK);
+        fresh.scan();
+        sources.set(List.of(new NamedDataSource("primary", dataSource)));
+        var absent = fresh.scan().violationDetails().changes();
+        assertThat(absent.resolvedCount()).isZero();
+        assertThat(absent.unverifiedCount()).isPositive();
+        assertThat(absent.complete()).isFalse();
+    }
+
     private void execute(String sql) throws SQLException {
         try (Connection connection = dataSource.getConnection();
                 Statement statement = connection.createStatement()) {

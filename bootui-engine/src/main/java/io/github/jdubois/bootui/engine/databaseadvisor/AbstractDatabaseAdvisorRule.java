@@ -45,7 +45,7 @@ abstract class AbstractDatabaseAdvisorRule implements DatabaseAdvisorRule {
 
     DatabaseAdvisorRuleResultDto assessed(DatabaseAdvisorContext context, int eligible, DatabaseFindings details) {
         return eligible == 0 && details.isEmpty()
-                ? skipped("No applicable targets were available for this check.")
+                ? skipped(DatabaseAdvisorRuleSupport.NO_TARGETS)
                 : violation(context, details);
     }
 }

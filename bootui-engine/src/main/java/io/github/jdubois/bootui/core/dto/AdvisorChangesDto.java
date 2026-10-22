@@ -7,8 +7,9 @@ import java.util.Objects;
  * What changed in the retained findings since the previous comparable scan. Present only for advisors that track
  * finding identity, and {@code null} on the first scan.
  *
- * <p>A finding is only called new or resolved when both scans concluded its rule and retained all of its findings;
- * otherwise it is counted as {@code unverifiedCount} instead, never as resolved.</p>
+ * <p>The claims are directional. A finding is only called resolved when this scan concluded its rule and retained all
+ * of the rule's findings, and only called new when the previous scan did; otherwise it is counted as
+ * {@code unverifiedCount} instead, never as resolved.</p>
  *
  * @param previousScanId the scan this one was compared with
  * @param complete {@code false} when either scan truncated its retained details, contains unkeyed findings, or
