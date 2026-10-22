@@ -15,6 +15,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`DB-DRIVER-004..009` (LOW)** flag a small or disabled prepared-statement cache, `autosave=always`, enabled driver
   diagnostics, no `socketTimeout` and a missing pgjdbc `ApplicationName`
   ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#jdbc-driver); [#1518](https://github.com/jdubois/boot-ui/issues/1518)).
+- **`slow-flush` observation** reports a route whose requests spent 100 ms or more, and a fifth of their ORM time, in
+  Hibernate flushes ([#1515](https://github.com/jdubois/boot-ui/issues/1515)).
 - **`paged-without-order` observation** reports a SELECT that limits its rows without an `ORDER BY`, so its pages can
   repeat or skip rows ([#1522](https://github.com/jdubois/boot-ui/issues/1522)).
 - **`unbatched-write-loop` observation** reports a request that ran one write statement ten times or more, each without

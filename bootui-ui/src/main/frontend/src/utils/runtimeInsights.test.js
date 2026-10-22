@@ -230,6 +230,7 @@ describe('theme coverage', () => {
       'orm-auto-flush',
       'large-persistence-context',
       'paged-without-order',
+      'slow-flush',
       'exception-hotspots',
       'errors-behind-2xx',
       'connections-per-request',
