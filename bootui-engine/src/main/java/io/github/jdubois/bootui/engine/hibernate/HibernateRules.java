@@ -1322,11 +1322,12 @@ final class ProviderDisablesAutocommitRule extends AbstractHibernateRule {
             PoolAutoCommitEvidence evidence = PoolAutoCommitEvidence.of(context);
             if (evidence.skipped()) return skipped(evidence.skipReason());
             if (!evidence.providerDisablesAutoCommit() && !evidence.poolAutoCommit()) {
-                return violation(
+                return settingViolation(
                         context,
-                        List.of(evidence.poolDescription() + " disables auto-commit (autoCommit=false) but"
+                        "hibernate.connection.provider_disables_autocommit",
+                        evidence.poolDescription() + " disables auto-commit (autoCommit=false) but"
                                 + " hibernate.connection.provider_disables_autocommit is off, so Hibernate acquires"
-                                + " connections eagerly."));
+                                + " connections eagerly.");
             }
             return pass();
         }
@@ -1388,11 +1389,12 @@ final class ProviderAutoCommitContradictionRule extends AbstractHibernateRule {
         PoolAutoCommitEvidence evidence = PoolAutoCommitEvidence.of(context);
         if (evidence.skipped()) return skipped(evidence.skipReason());
         if (evidence.providerDisablesAutoCommit() && evidence.poolAutoCommit()) {
-            return violation(
+            return settingViolation(
                     context,
-                    List.of("hibernate.connection.provider_disables_autocommit=true, but "
+                    "hibernate.connection.provider_disables_autocommit",
+                    "hibernate.connection.provider_disables_autocommit=true, but "
                             + evidence.poolDescription() + " hands out auto-commit connections (autoCommit=true), so"
-                            + " transactions are not atomic."));
+                            + " transactions are not atomic.");
         }
         return pass();
     }
