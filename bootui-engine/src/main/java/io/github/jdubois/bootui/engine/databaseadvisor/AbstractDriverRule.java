@@ -82,47 +82,49 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
         return null;
     }
 
-    /** How one boolean driver setting stands on one datasource, or why that cannot be said. */
-    record BooleanSetting(Boolean value, DriverSetting configured, Outcome unresolved) {
+    /**
+     * How one driver setting stands on one datasource before its value is interpreted: the configured setting, which is
+     * {@code null} when it is configured nowhere the advisor can see (so the driver default applies), or why that
+     * cannot be said.
+     */
+    record SettingReading(DriverSetting configured, Outcome unresolved) {
 
-        static BooleanSetting of(DriverEvidence driver, String name) {
+        static SettingReading of(DriverEvidence driver, String name) {
             if (driver.overrideConfigured()) {
-                return new BooleanSetting(
-                        null,
+                return new SettingReading(
                         driver.settings().get(name),
                         Outcome.gap("a properties transform is configured and can replace any explicit value of `"
                                 + name + "`, so it is not evaluated."));
             }
             DriverSetting setting = driver.settings().get(name);
             if (setting == null) {
-                Outcome gap = absentIsNotEvidence(driver, name);
-                return new BooleanSetting(null, null, gap);
+                return new SettingReading(null, absentIsNotEvidence(driver, name));
             }
             if (setting.conflicting()) {
-                return unresolved(
+                return new SettingReading(
                         setting,
-                        "the configuration of `" + name + "` cannot be settled: the URL and the pool disagree and the"
-                                + " driver defines no winner, or the name is spelled or scoped in a way whose effect"
-                                + " on this driver is not modeled.");
+                        Outcome.gap("the configuration of `" + name + "` cannot be settled: the URL and the pool"
+                                + " disagree and the driver defines no winner, or the name is spelled or scoped in a"
+                                + " way whose effect on this driver is not modeled."));
             }
             boolean urlWins = setting.source() == DriverSetting.Source.URL
                     && DriverSettingCatalog.precedence(driver.driver()) == DriverSettingCatalog.Precedence.URL_WINS;
             if (!urlWins && !(driver.urlSettingsKnown() && driver.poolSettingsKnown())) {
-                return unresolved(
+                return new SettingReading(
                         setting,
-                        "`" + name + "` is configured in the " + setting.label() + ", but the "
+                        Outcome.gap("`" + name + "` is configured in the " + setting.label() + ", but the "
                                 + (driver.urlSettingsKnown() ? "pool's driver properties" : "JDBC URL")
-                                + " could not be read and may override it.");
+                                + " could not be read and may override it."));
             }
-            Boolean value = DriverSettingCatalog.asBoolean(driver.driver(), setting.value());
-            return value == null
-                    ? unresolved(
-                            setting, "`" + name + "` is configured with a value the driver does not read as a boolean.")
-                    : new BooleanSetting(value, setting, null);
+            return new SettingReading(setting, null);
         }
 
-        private static BooleanSetting unresolved(DriverSetting setting, String reason) {
-            return new BooleanSetting(null, setting, Outcome.gap(reason));
+        /** The unresolved gap for a configured value the driver cannot read as the type {@code expected}. */
+        SettingReading unreadable(String name, String expected) {
+            return new SettingReading(
+                    configured,
+                    Outcome.gap(
+                            "`" + name + "` is configured with a value the driver does not read as " + expected + "."));
         }
 
         /** {@code null} when not finding {@code name} in the URL and the pool really means it is not configured there. */
@@ -141,10 +143,64 @@ abstract class AbstractDriverRule extends AbstractDatabaseAdvisorRule {
             }
             return null;
         }
+    }
+
+    /** How one boolean driver setting stands on one datasource, or why that cannot be said. */
+    record BooleanSetting(Boolean value, DriverSetting configured, Outcome unresolved) {
+
+        static BooleanSetting of(DriverEvidence driver, String name) {
+            SettingReading reading = SettingReading.of(driver, name);
+            if (reading.unresolved() != null || reading.configured() == null) {
+                return new BooleanSetting(null, reading.configured(), reading.unresolved());
+            }
+            Boolean value = DriverSettingCatalog.asBoolean(
+                    driver.driver(), reading.configured().value());
+            return value == null
+                    ? new BooleanSetting(
+                            null,
+                            reading.configured(),
+                            reading.unreadable(name, "a boolean").unresolved())
+                    : new BooleanSetting(value, reading.configured(), null);
+        }
 
         boolean configuredTrue() {
             return Boolean.TRUE.equals(value);
         }
+    }
+
+    /**
+     * How one integer driver setting stands on one datasource, or why that cannot be said. {@code value} is
+     * {@code null} when the setting is configured nowhere the advisor can see, so the driver default applies.
+     */
+    record IntegerSetting(Integer value, DriverSetting configured, Outcome unresolved) {
+
+        static IntegerSetting of(DriverEvidence driver, String name) {
+            SettingReading reading = SettingReading.of(driver, name);
+            if (reading.unresolved() != null || reading.configured() == null) {
+                return new IntegerSetting(null, reading.configured(), reading.unresolved());
+            }
+            Integer value = DriverSettingCatalog.asInteger(
+                    driver.driver(), reading.configured().value());
+            return value == null
+                    ? new IntegerSetting(
+                            null,
+                            reading.configured(),
+                            reading.unreadable(name, "an integer").unresolved())
+                    : new IntegerSetting(value, reading.configured(), null);
+        }
+
+        /** The value in force: the configured one, or {@code driverDefault} when none is configured. */
+        int effective(int driverDefault) {
+            return value == null ? driverDefault : value;
+        }
+    }
+
+    /**
+     * What a datasource's outcome is once its settings were judged one by one: assessed when a finding was recorded
+     * or every setting was settled, otherwise the first gap, so an unsettled setting never reads as a clean pass.
+     */
+    static Outcome conclude(boolean found, List<Outcome> unresolved) {
+        return found || unresolved.isEmpty() ? Outcome.assessed() : unresolved.get(0);
     }
 
     /** The canonical identity of a driver-setting finding: the datasource and the setting, never the value. */

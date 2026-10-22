@@ -40,7 +40,13 @@ final class DatabaseAdvisorRuleRegistry {
             // JDBC driver settings read from the URL and the pool's driver properties
             new PostgresRewriteBatchedInsertsRule(),
             new MySqlRewriteBatchedStatementsRule(),
-            new MySqlUseAffectedRowsRule());
+            new MySqlUseAffectedRowsRule(),
+            new MySqlStatementCacheRule(),
+            new PostgresStatementCacheRule(),
+            new PostgresAutosaveRule(),
+            new DriverDiagnosticSettingsRule(),
+            new DriverSocketTimeoutRule(),
+            new PostgresApplicationNameRule());
 
     private DatabaseAdvisorRuleRegistry() {}
 
