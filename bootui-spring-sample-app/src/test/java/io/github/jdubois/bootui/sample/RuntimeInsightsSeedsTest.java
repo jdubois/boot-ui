@@ -107,6 +107,8 @@ class RuntimeInsightsSeedsTest {
             assertThat(probe.post("/api/insights/tags/summary-then-jdbc-write", JSON)
                             .status())
                     .isEqualTo(200);
+            assertThat(probe.get("/api/insights/tags/unsorted-page").status()).isEqualTo(200);
+            assertThat(probe.get("/api/insights/tags/sorted-page").status()).isEqualTo(200);
         }
         assertThat(probe.post("/api/insights/debug/reset-totals", JSON).status())
                 .isEqualTo(200);
@@ -249,6 +251,18 @@ class RuntimeInsightsSeedsTest {
     }
 
     /**
+     * A page Hibernate limits without an order is found, even though its count query and the sorted page beside it are
+     * not, and so are the pages of the other seeds not: they all sort.
+     */
+    @Test
+    void anUnsortedPageIsFoundButNotTheSortedPageNorTheSortedSummaries() {
+        assertThat(subjects("paged-without-order", "OBSERVED")).containsExactly("GET /api/insights/tags/unsorted-page");
+        assertThat(unlisted("paged-without-order"))
+                .as("not listed by default, but reachable by its kind")
+                .containsExactly("GET /api/insights/tags/unsorted-page");
+    }
+
+    /**
      * The real Hibernate lifecycle behind that observation: Spring's transaction listener begins after the session is
      * created and completes before it closes, so what the transaction reports is the work of its own thread between the
      * two, and a flush at commit over entities that none changed is what makes a read-write method a candidate.
@@ -360,6 +374,7 @@ class RuntimeInsightsSeedsTest {
         justified.put("POST /api/insights/tags/summary-then-relabel", anonymousWrite);
         justified.put("POST /api/insights/tags/summary-then-jdbc-write", anonymousWrite);
         justified.put("GET /api/insights/tags/export-labels", Set.of());
+        justified.put("GET /api/insights/tags/sorted-page", Set.of());
         justified.put("GET /api/insights/tags/reacquire-one-transaction", Set.of());
         justified.put("consume websocket:/app/insights/rooms/{room}/orders-joined", Set.of());
 

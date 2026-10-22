@@ -1106,6 +1106,7 @@
     'split-transaction-writes',
     'unbatched-write-loop',
     'readonly-candidate-transaction',
+    'paged-without-order',
     'framework-warnings-by-route',
     'ai-usage-by-route',
     'anonymous-data-reach',
@@ -1247,6 +1248,16 @@
           'io.github.jdubois.bootui.sample.insights.InsightTagService.summary'
         ]
       ]
+    },
+    {
+      key: 'paged-without-order',
+      label: 'Paged without ORDER BY',
+      text: 'Reads the second page of tags with no sort, three times; then the same page sorted by id.',
+      steps: [
+        ['GET', '/api/insights/tags/unsorted-page', 3],
+        ['GET', '/api/insights/tags/sorted-page', 3]
+      ],
+      expect: [['paged-without-order', 'Paged without ORDER BY', 'GET /api/insights/tags/unsorted-page']]
     },
     {
       key: 'unbatched-write-loop',

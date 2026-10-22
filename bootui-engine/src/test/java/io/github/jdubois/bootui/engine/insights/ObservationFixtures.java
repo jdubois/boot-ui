@@ -115,6 +115,7 @@ final class ObservationFixtures {
         ormObservations(fixtures);
         connectionReacquisition(fixtures);
         readOnlyCandidateTransaction(fixtures);
+        pagedWithoutOrder(fixtures);
         transactionAcrossRemoteCall(fixtures);
         lazySqlAfterHandler(fixtures);
         eventLoopBlocking(fixtures);
@@ -1078,6 +1079,123 @@ final class ObservationFixtures {
         fixtures.add(counterexample(ReadOnlyCandidateTransaction.KIND, "two clean transactions are not enough")
                 .toleratingInsufficient()
                 .seed(recording -> repeat(2, () -> readRequest(recording, "GET", cleanRead(100, 200)))));
+    }
+
+    // ---- paged-without-order ------------------------------------------------------------------------------------
+
+    private static void pagedWithoutOrder(List<Fixture> fixtures) {
+        String unsorted = "select o1_0.id,o1_0.name from insight_owner o1_0 limit ? offset ?";
+        fixtures.add(positive(PagedWithoutOrder.KIND, "an unsorted later page of a pageable query")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording.get("/api/insights/owners").children(sql(unsorted));
+                    }
+                }));
+        fixtures.add(positive(PagedWithoutOrder.KIND, "an unsorted MySQL limit with an offset")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners")
+                                .children(sql("select id,name from insight_owner limit ?, ?"));
+                    }
+                }));
+        fixtures.add(positive(PagedWithoutOrder.KIND, "an unsorted limit over a range filter")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners")
+                                .children(sql("select id from insight_owner where id > ? limit ?"));
+                    }
+                }));
+        fixtures.add(positive(PagedWithoutOrder.KIND, "an order by that only a window of the statement has")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners")
+                                .children(sql("select id,row_number() over (order by id) from insight_owner"
+                                        + " limit ? offset ?"));
+                    }
+                }));
+        fixtures.add(positive(PagedWithoutOrder.KIND, "a scheduled job paging without an order")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording.scheduled("OwnerJob.run", sql(unsorted));
+                    }
+                }));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "the same page with a unique order")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners/sorted")
+                                .children(sql("select o1_0.id,o1_0.name from insight_owner o1_0"
+                                        + " order by o1_0.name,o1_0.id limit ? offset ?"));
+                    }
+                }));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "an existsBy key lookup, equalities only")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners/exists")
+                                .children(sql("select c1_0.id from insight_owner c1_0 where c1_0.a=? and c1_0.b=?"
+                                        + " limit ?"));
+                    }
+                }));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "a count and an exists that carry a limit")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners/count")
+                                .children(
+                                        sql("select count(*) from insight_owner limit ?"),
+                                        sql("select 1 from insight_owner where id > ? limit ?"));
+                    }
+                }));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "a literal limit of one")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners/first")
+                                .children(sql("select id from insight_owner where id > ? limit 1"));
+                    }
+                }));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "a union, which is not read")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners/all")
+                                .children(sql(
+                                        "select id from insight_owner union select id from insight_vet" + " limit ?"));
+                    }
+                }));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "a statement SQL Trace shortened")
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners/long")
+                                .children(sql("select id from insight_owner where name like ? limit ? offset ?…"));
+                    }
+                }));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "an unsorted page in one request only")
+                .toleratingInsufficient()
+                .seed(recording -> recording.get("/api/insights/owners/once").children(sql(unsorted))));
+        fixtures.add(counterexample(PagedWithoutOrder.KIND, "Quarkus Hibernate preparing an unsorted page")
+                .stack(InsightsStack.QUARKUS)
+                .seed(recording -> {
+                    for (int i = 0; i < 3; i++) {
+                        recording
+                                .get("/api/insights/owners")
+                                .children(sql(new SqlPayload(
+                                        unsorted,
+                                        "Repo.run:1",
+                                        "db",
+                                        false,
+                                        null,
+                                        null,
+                                        -1,
+                                        0,
+                                        SqlPayload.Provenance.PREPARATION)));
+                    }
+                }));
     }
 
     private static void repeat(int times, Runnable action) {

@@ -58,6 +58,8 @@ class WebFluxRuntimeInsightsSeedsTest {
             assertThat(probe.get("/api/insights/notes/on-event-loop").status()).isEqualTo(200);
             assertThat(probe.get("/api/insights/notes/one-by-one").status()).isEqualTo(200);
             assertThat(probe.get("/api/insights/notes/at-once").status()).isEqualTo(200);
+            assertThat(probe.get("/api/insights/notes/unsorted-page").status()).isEqualTo(200);
+            assertThat(probe.get("/api/insights/notes/sorted-page").status()).isEqualTo(200);
             assertThat(probe.get("/api/insights/notes/write-one-by-one").status())
                     .isEqualTo(200);
             assertThat(probe.get("/api/insights/notes/write-in-one-batch").status())
@@ -125,14 +127,22 @@ class WebFluxRuntimeInsightsSeedsTest {
                 .doesNotContain("GET /api/insights/notes/at-once", "GET /api/notes");
     }
 
+    @Test
+    void anUnsortedPageIsFoundButNotTheSortedPageNorTheOtherNotesRoutes() {
+        assertThat(subjects("paged-without-order")).containsExactly("GET /api/insights/notes/unsorted-page");
+    }
+
     /**
      * The cross-observation check on the WebFlux sample's counterexamples (M4-18e): JDBC offloaded to boundedElastic,
      * one statement for every note, and an asynchronous client fire no kind at all.
      */
     @Test
     void noObservationOfAnyKindFiresOnACounterexampleRoute() {
-        List<String> counterexamples =
-                List.of("GET /api/notes", "GET /api/insights/notes/at-once", "GET /api/sample/rest-client");
+        List<String> counterexamples = List.of(
+                "GET /api/notes",
+                "GET /api/insights/notes/at-once",
+                "GET /api/insights/notes/sorted-page",
+                "GET /api/sample/rest-client");
         Set<String> exercised = journal.entries().stream()
                 .map(entry -> entry.event().payload())
                 .filter(HttpPayload.class::isInstance)
