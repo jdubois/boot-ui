@@ -446,6 +446,21 @@ or unknown, or the evidence could not be settled. See
 [DATABASE-ADVISOR-CHECKS.md](../DATABASE-ADVISOR-CHECKS.md#jdbc-driver).
 :::
 
+::: details What the connection-pool checks add
+
+Four rules compare the HikariCP or Agroal pool behind a PostgreSQL, MySQL or MariaDB datasource with the server's own
+limits. The pool's numbers are read without borrowing a connection; the server's `wait_timeout`/`idle_session_timeout`
+and connection limits are read in the same bounded scan, as the scan connection's session sees them.
+
+- A pool that can hold an idle connection longer than the server allows (HikariCP only).
+- A pool larger than the connections the server lets an ordinary role hold, and (as a LOW heuristic) one that leaves no
+  room for a second instance.
+- A pool whose connections are never retired for age (`maxLifetime` of `0`).
+
+A pool that cannot be attributed, another pool library, or a server value that could not be read leaves the rule
+`SKIPPED` with the reason. See [DATABASE-ADVISOR-CHECKS.md](../DATABASE-ADVISOR-CHECKS.md#connection-pool).
+:::
+
 ::: details What the Hibernate cross-reference checks
 
 - An explicit association without a matching physical foreign-key constraint, excluding `NO_CONSTRAINT`.

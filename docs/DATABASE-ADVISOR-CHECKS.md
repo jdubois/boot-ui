@@ -1,8 +1,8 @@
 # Database checks
 
-The Database advisor runs **31 fixed, on-demand checks** over the physical schema reported by the application's
+The Database advisor runs **35 fixed, on-demand checks** over the physical schema reported by the application's
 JDBC datasources, supplemented by vendor catalogs, available JPA declarations, already-retained SQL Trace
-observations and the JDBC driver settings configured in the URL and the connection pool. It never executes DDL, advances a sequence, queries application rows or starts work on page load.
+observations, the JDBC driver settings configured in the URL and the connection pool, and the connection pool compared with the server's limits. It never executes DDL, advances a sequence, queries application rows or starts work on page load.
 
 These are structural observations and review prompts, not workload forecasts, business-model validation or
 automatic migration instructions. A finding describes the available evidence, not everything the database
@@ -80,6 +80,7 @@ percent-encoded parts joined with `|`, derived from the physical object and neve
 | A Hibernate mapping mismatch      | the resolved table parts, then `attribute=` and `column=` (or `columns=`, `unique=`)             |
 | A mapped entity with no table     | `entity=<entity>`, then `relation=` or `secondary=`                                              |
 | A runtime SQL shape (DB-RUNTIME-001) | `shape=<digest of the normalized statement>`                                                  |
+| A connection-pool setting (DB-POOL-001..004) | `ds=<datasource>`, then `pool=idle-limit`, `pool=maximum-size` or `pool=max-lifetime`; never a value |
 
 Catalog, schema and table are separate parts, so a table named `a.b` cannot alias table `b` of schema `a`. A comparison
 never claims a finding is resolved for DB-RUNTIME-001, because its evidence is the SQL Trace window, or for a rule or
@@ -563,6 +564,102 @@ lost update (an optimistic-lock or stale-state failure). It needs no batching ev
 updates is not claimed here.
 See [Connector/J connection properties](https://dev.mysql.com/doc/connector-j/en/connector-j-connp-props-connection.html).
 
+## Connection pool
+
+A pool and the database server each enforce limits, and the two have to agree: a session the server closed while the pool
+still held it, a pool larger than the server can serve, a connection that is never retired. These rules compare the
+pool's numbers with the server's, and use the **Connection pool** category.
+
+Two kinds of evidence, both labelled **effective** (read from the live object or connection, not from configuration):
+
+- **The pool.** The sanitized numbers of the HikariCP or Agroal pool attributed to the datasource (maximum size,
+  `minimumIdle`, `idleTimeout`, `maxLifetime`, `keepaliveTime`), read without borrowing a connection and without the
+  JDBC URL, user name or bean name. They are read **after** the schema, because the scan connection is what starts a
+  pool that initializes lazily, and HikariCP validates and may replace its configured values when it starts (a
+  `maxLifetime` under 30 seconds becomes the default, a `keepaliveTime` not shorter than `maxLifetime` is dropped). Pools
+  are matched to a datasource by exact name; a datasource whose pool cannot be attributed, or that uses another pool
+  library, is `SKIPPED` with that reason.
+- **The server.** A small allow-listed read in the same bounded scan as the other catalog reads (query timeout, row bound,
+  scan budget, failure reported as a diagnostic, never a connection borrowed for the pool half):
+  PostgreSQL `select name, setting, unit from pg_settings where name in (...)` (bound names:
+  `max_connections`, `superuser_reserved_connections`, `reserved_connections`, `idle_session_timeout`) and MySQL/MariaDB
+  `show session variables where Variable_name in ('wait_timeout', 'max_connections')`, which, unlike a `UNION`, tolerates
+  a name the server does not know. The values are those of **the scan connection's own session**: a pool init statement
+  or driver option can give pooled sessions another value. A setting the server did not report, one this version lacks
+  (`idle_session_timeout` before PostgreSQL 14 is "not supported by this server version", `reserved_connections` before
+  16 is simply `0`), or a value that does not parse is **unknown**, never zero.
+
+The rules judge PostgreSQL, MySQL and MariaDB datasources, one pool at a time: several pools to the same server are not
+added together. A proxy that multiplexes connections (PgBouncer, RDS Proxy, ProxySQL) is not visible from the
+application, and changes the meaning of both server limits; dismiss the rule when one sits in the path.
+
+| Rule | Severity | Fires when |
+| ---- | -------- | ---------- |
+| `DB-POOL-001` | MEDIUM | the pool can hold an idle connection longer than the server allows |
+| `DB-POOL-002` | MEDIUM | the pool's maximum size exceeds the connections the server lets an ordinary role hold |
+| `DB-POOL-003` | LOW | `maxLifetime` is `0` (no limit) and `DB-POOL-001` does not report the datasource |
+| `DB-POOL-004` | LOW | the pool fits but takes more than 50 % of the usable connections (heuristic) |
+
+### DB-POOL-001 - Connection pool can keep a connection idle longer than the server allows
+
+**MEDIUM.** HikariCP only. Let `S` be the server's idle-session limit: MySQL/MariaDB `wait_timeout` (seconds), or
+PostgreSQL `idle_session_timeout` when above `0` (`0` means disabled, so there is nothing to compare). The rule fires
+when **all three** hold:
+
+1. `maxLifetime == 0` or `maxLifetime >= S`: the connection is not retired by age before the server closes it;
+2. `keepaliveTime == 0` or `keepaliveTime >= S`: nothing pings it before then;
+3. idle retirement does not cover it: **not** (`minimumIdle == 0` and `idleTimeout > 0` and `idleTimeout + 30 s < S`).
+   HikariCP retires idle connections on a housekeeping timer, up to 30 seconds *after* `idleTimeout`, so the
+   configured value alone is not proof; with `minimumIdle` above `0` (HikariCP's unset value means the maximum size)
+   the idle connections are never retired.
+
+Each condition is three-valued: a defence that is known to cover settles the answer whatever the others are, and one
+that cannot be read can neither cause nor hide a finding. The message states the three pool values and `S`, and that
+the pool may hand out a connection the server has already closed. It does **not** say whether the application sees an
+error or only pays reconnection latency: HikariCP validates a connection that was idle for more than 500 ms before
+handing it out, and `PoolSettings` carries no validation evidence. Stock settings do not fire it: the HikariCP defaults
+(`maxLifetime` 30 min, `keepaliveTime` 2 min since 6.2.1) cover MySQL's default `wait_timeout` of 8 hours, and
+PostgreSQL's `idle_session_timeout` defaults to `0`.
+
+`SKIPPED` for Agroal, which exposes neither a keepalive nor a validation setting, so the judgement would miss half of its
+inputs. See [HikariCP configuration](https://github.com/brettwooldridge/HikariCP#gear-configuration-knobs-baby),
+[MySQL `wait_timeout`](https://dev.mysql.com/doc/refman/8.4/en/server-system-variables.html#sysvar_wait_timeout) and
+[PostgreSQL `idle_session_timeout`](https://www.postgresql.org/docs/current/runtime-config-client.html#GUC-IDLE-SESSION-TIMEOUT),
+which warns to "be wary of enforcing this timeout on connections made through connection-pooling software".
+
+### DB-POOL-002 - Connection pool is larger than the server's connection limit
+
+**MEDIUM.** Fires when `maximumPoolSize` is greater than the usable connections: `max_connections` on MySQL/MariaDB,
+`max_connections - superuser_reserved_connections - reserved_connections` on PostgreSQL. The pool can never fill, and
+other clients of the server count against the same limit. This is the budget of an ordinary role: a role granted
+`pg_use_reserved_connections`, or a superuser, may use the reserved slots. Evaluates for Agroal too. An unreadable pool
+size, or a server limit that is missing, truncated or does not parse, is `SKIPPED` for that datasource.
+
+### DB-POOL-003 - Connection pool has no maximum connection lifetime
+
+**LOW.** Fires when `maxLifetime` is `0` and `DB-POOL-001` does not report the same datasource. HikariCP recommends a
+lifetime several seconds shorter than any limit the database or the infrastructure in between imposes, which BootUI cannot
+see. It needs no server evidence and still runs when the server could not be read, with one exception: when whether
+`DB-POOL-001` owns the datasource is **unsettled** (the server limit could not be read for a HikariCP pool) the rule is
+`SKIPPED` rather than guess, so that the next scan cannot present a replaced finding as resolved. On Agroal `0` is the
+default unless `quarkus.datasource.jdbc.max-lifetime` is set, and Agroal's background validation is not observable here,
+so the finding is a review prompt there.
+
+**Ownership.** `DB-POOL-001` owns a datasource whenever it fires, because its finding already includes the unlimited
+`maxLifetime`; `DB-POOL-003` stays quiet, so one problem is never counted twice. Both use the same pure function, so the
+ownership cannot drift.
+
+### DB-POOL-004 - Connection pool leaves no headroom for a second instance
+
+**LOW.** Fires when the pool fits (`maximumPoolSize` is not above the usable connections) but is more than
+`POOL_SHARE_PERCENT = 50` percent of them, compared with exact integer arithmetic (`size * 100 > usable * 50`). It is a
+heuristic that assumes a second instance of the application, as in a rolling deploy or a scale-out, opens a pool of the
+same size on the same server, and it knows nothing about other clients. It is a rule of its own, not a tier of
+`DB-POOL-002`, because a rule has one severity, which is what the report's counts, the score and the CLI's `--fail-on`
+gate use; and it is quiet when `DB-POOL-002` reports the datasource. The Agroal default maximum size of 50 is above the
+threshold for a stock PostgreSQL server (97 usable connections), so a default Quarkus application on PostgreSQL gets this
+finding; dismiss it when the application never runs more than one instance on the server.
+
 ## Retired rules
 
 These IDs remain reserved so old dismissals stay harmless and are never applied to unrelated future checks.
@@ -595,7 +692,8 @@ bare names. See the matching
 
 ## Deliberately not checked
 
-No application row counts, index cardinality/usage, bloat, cache-size tuning, sequence gaps, blanket
+No aggregation of several pools onto one server, no DBCP2, Tomcat JDBC, c3p0 or Oracle UCP pools, no validation-query
+checks, no application row counts, index cardinality/usage, bloat, cache-size tuning, sequence gaps, blanket
 NOT NULL policy, automatic sequence restart, arbitrary query plans or production workload predictions.
 PostgreSQL data-type preferences from the community "Don't Do This" list (`money`, `json` versus `jsonb`,
 `char(n)`, `timetz`) were reviewed and not added: each has intentional uses, and one rule-level dismissal would

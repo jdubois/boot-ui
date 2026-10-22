@@ -182,6 +182,13 @@ final class PostgresCatalogReader {
             limit ?
             """;
 
+    /**
+     * The {@code pg_settings} names the advisor reads, bound as parameters. {@code idle_session_timeout} exists from
+     * PostgreSQL 14 and {@code reserved_connections} from 16; a name the server lacks simply returns no row.
+     */
+    static final List<String> SERVER_SETTING_NAMES = List.of(
+            "max_connections", "superuser_reserved_connections", "reserved_connections", "idle_session_timeout");
+
     private PostgresCatalogReader() {}
 
     static void read(
@@ -191,6 +198,9 @@ final class PostgresCatalogReader {
             ScanBudget budget,
             DatabaseAdvisorLimits limits,
             VendorFindings.Builder findings) {
+        // First, and tiny: the other catalog reads must not spend the scan budget before the pool rules get their
+        // limits.
+        findings.add(readServerSettings(connection, budget, limits));
         findings.add(CatalogQuery.read(
                 connection,
                 VendorFindingKinds.POSTGRES_INVALID_INDEXES,
@@ -267,6 +277,28 @@ final class PostgresCatalogReader {
                     VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES,
                     "Publication catalogs require PostgreSQL 10 or later; server version must be known."));
         }
+    }
+
+    /** The session values of {@link #SERVER_SETTING_NAMES}, through the bounded, parameterized read. */
+    static VendorAugmentation<ServerSetting> readServerSettings(
+            Connection connection, ScanBudget budget, DatabaseAdvisorLimits limits) {
+        return CatalogQuery.read(
+                connection,
+                VendorFindingKinds.POSTGRES_SERVER_SETTINGS,
+                serverSettingsSql(SERVER_SETTING_NAMES.size()),
+                List.copyOf(SERVER_SETTING_NAMES),
+                budget,
+                limits,
+                PostgresCatalogReader::readServerSetting);
+    }
+
+    static String serverSettingsSql(int names) {
+        return "select name, setting, unit from pg_settings where name in ("
+                + String.join(", ", java.util.Collections.nCopies(names, "?")) + ") order by name limit ?";
+    }
+
+    private static ServerSetting readServerSetting(ResultSet rs) throws SQLException {
+        return new ServerSetting(rs.getString("name"), rs.getString("setting"), rs.getString("unit"));
     }
 
     static String unloggedTablesSql(DialectCapabilities capabilities) {

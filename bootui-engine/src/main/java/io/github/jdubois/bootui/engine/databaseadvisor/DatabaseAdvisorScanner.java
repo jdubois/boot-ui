@@ -22,6 +22,7 @@ import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.DataSourceConfiguration;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.JdbcBatching;
+import io.github.jdubois.bootui.spi.DatabaseAdvisorEvidenceProvider.PoolSettings;
 import io.github.jdubois.bootui.spi.NamedDataSource;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -230,6 +231,7 @@ public final class DatabaseAdvisorScanner {
                         driverEvidence.poolDriverProperties(dataSource.name())))
                 .toList());
         discovery.failures().forEach(failure -> schemas.add(SchemaSnapshot.failed(failure.name(), failure.message())));
+        Map<String, PoolSettings> pools = safePoolSettings(dataSources, evidenceDiagnostics);
         List<String> sourceNames = schemas.stream()
                 .map(SchemaSnapshot::dataSourceName)
                 .distinct()
@@ -282,7 +284,8 @@ public final class DatabaseAdvisorScanner {
                 safeObservedStatements(diagnostics),
                 List.of(),
                 null,
-                driverEvidence.jdbcBatching());
+                driverEvidence.jdbcBatching(),
+                pools);
         List<DatabaseAdvisorRuleResultDto> results = new ArrayList<>();
         boolean usable = false;
         for (DatabaseAdvisorRule rule : DatabaseAdvisorRuleRegistry.activeRules()) {
@@ -294,7 +297,8 @@ public final class DatabaseAdvisorScanner {
                     context.observedStatements(),
                     List.of(),
                     collector,
-                    context.jdbcBatching());
+                    context.jdbcBatching(),
+                    context.pools());
             DatabaseAdvisorRuleResultDto result = rule.evaluate(evaluation);
             results.add(result);
             if (rule.comparableAcrossScans()
@@ -522,25 +526,8 @@ public final class DatabaseAdvisorScanner {
         }
         Map<String, DataSourceConfiguration> configurations = new HashMap<>();
         try {
-            Set<String> discovered = new HashSet<>();
-            Set<String> ambiguous = new HashSet<>();
-            dataSources.forEach(dataSource -> {
-                if (!discovered.add(dataSource.name())) {
-                    ambiguous.add(dataSource.name());
-                }
-            });
-            List<DataSourceConfiguration> reported = evidenceProvider.dataSourceConfigurations();
-            for (DataSourceConfiguration configuration :
-                    reported == null ? List.<DataSourceConfiguration>of() : reported) {
-                if (configuration != null && discovered.contains(configuration.dataSourceName())) {
-                    if (configurations.put(configuration.dataSourceName(), configuration) != null) {
-                        ambiguous.add(configuration.dataSourceName());
-                    }
-                }
-            }
-            ambiguous.forEach(configurations::remove);
+            configurations.putAll(configurationsOf(dataSources));
         } catch (RuntimeException | LinkageError ex) {
-            configurations.clear();
             evidenceDiagnostic(
                     diagnostics,
                     "JDBC driver evidence",
@@ -568,6 +555,61 @@ public final class DatabaseAdvisorScanner {
                     "Hibernate's JDBC batching could not be read; batching-dependent driver checks are skipped.");
         }
         return new DriverEvidenceInputs(configurations, batching);
+    }
+
+    /**
+     * The configuration of every datasource the provider reports under a name that was discovered exactly once. A name
+     * that is ambiguous (twice discovered or twice configured) gets no configuration rather than a guessed one.
+     */
+    private Map<String, DataSourceConfiguration> configurationsOf(List<NamedDataSource> dataSources) {
+        Map<String, DataSourceConfiguration> configurations = new HashMap<>();
+        Set<String> discovered = new HashSet<>();
+        Set<String> ambiguous = new HashSet<>();
+        dataSources.forEach(dataSource -> {
+            if (!discovered.add(dataSource.name())) {
+                ambiguous.add(dataSource.name());
+            }
+        });
+        List<DataSourceConfiguration> reported = evidenceProvider.dataSourceConfigurations();
+        for (DataSourceConfiguration configuration : reported == null ? List.<DataSourceConfiguration>of() : reported) {
+            if (configuration != null && discovered.contains(configuration.dataSourceName())) {
+                if (configurations.put(configuration.dataSourceName(), configuration) != null) {
+                    ambiguous.add(configuration.dataSourceName());
+                }
+            }
+        }
+        ambiguous.forEach(configurations::remove);
+        return configurations;
+    }
+
+    /**
+     * The pool numbers per datasource, read <em>after</em> the schemas were introspected. Introspection borrows the
+     * scan connection, which is what starts a lazily initialized pool, and a pool validates and may replace its
+     * configured values when it starts (HikariCP resets a {@code maxLifetime} under 30 seconds and drops a keepalive
+     * that is not shorter than the lifetime). Reading earlier would judge numbers the pool never uses. This borrows
+     * no connection: it only asks the provider again. A failure leaves the pool unknown, never guessed.
+     */
+    private Map<String, PoolSettings> safePoolSettings(
+            List<NamedDataSource> dataSources, List<DatabaseAdvisorDiagnosticDto> diagnostics) {
+        if (evidenceProvider == null) {
+            return Map.of();
+        }
+        try {
+            Map<String, PoolSettings> pools = new HashMap<>();
+            configurationsOf(dataSources).forEach((name, configuration) -> {
+                if (configuration.pool() != null) {
+                    pools.put(name, configuration.pool());
+                }
+            });
+            return pools;
+        } catch (RuntimeException | LinkageError ex) {
+            evidenceDiagnostic(
+                    diagnostics,
+                    "Connection pool",
+                    SchemaDiagnostic.WARNING,
+                    "The connection pool settings could not be read; the pool checks are skipped.");
+            return Map.of();
+        }
     }
 
     private EntityDiscovery safeEntityDiscovery(List<DatabaseAdvisorDiagnosticDto> diagnostics) {

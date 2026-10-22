@@ -191,6 +191,103 @@ class DatabaseAdvisorScannerTests {
     }
 
     @Test
+    void poolSettingsReachThePoolRulesAndAreReadAfterTheSchemaSoALazyPoolIsAlreadyValidated() {
+        SchemaSnapshot mysql = DatabaseAdvisorFixtures.serverSchema(
+                "primary",
+                Dialect.MYSQL,
+                8,
+                VendorFindingKinds.MYSQL_SERVER_SETTINGS,
+                DatabaseAdvisorFixtures.setting("wait_timeout", "600"),
+                DatabaseAdvisorFixtures.setting("max_connections", "151"));
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicBoolean introspected = new java.util.concurrent.atomic.AtomicBoolean();
+        DatabaseAdvisorEvidenceProvider lazyPool = new DatabaseAdvisorEvidenceProvider() {
+            @Override
+            public List<DataSourceConfiguration> dataSourceConfigurations() {
+                reads.incrementAndGet();
+                // Before the pool started HikariCP still reports the raw 10 s lifetime it will later replace with 30
+                // min.
+                var pool = introspected.get()
+                        ? DatabaseAdvisorFixtures.hikari(10, 10, 600_000, 0, 0)
+                        : DatabaseAdvisorFixtures.hikari(10, 10, 600_000, 10_000, 0);
+                return List.of(new DataSourceConfiguration("primary", pool, Map.of(), true));
+            }
+
+            @Override
+            public Map<String, JdbcBatching> jdbcBatching() {
+                return Map.of();
+            }
+        };
+        try (var introspector = mockStatic(SchemaIntrospector.class)) {
+            introspector
+                    .when(() ->
+                            SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any(), any()))
+                    .thenAnswer(call -> {
+                        introspected.set(true);
+                        return mysql;
+                    });
+
+            DatabaseAdvisorReport report = scannerWith(lazyPool).scan();
+
+            assertThat(reads.get()).isEqualTo(2);
+            assertThat(report.results())
+                    .filteredOn(result -> result.id().equals("DB-POOL-001"))
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.status()).isEqualTo("VIOLATION");
+                        assertThat(result.sampleViolations().get(0)).contains("maxLifetime 0 (none)");
+                    });
+        }
+    }
+
+    @Test
+    void aFailingPoolReadAfterTheSchemaLeavesThePoolUnknownAndTheScanIntact() {
+        SchemaSnapshot mysql = DatabaseAdvisorFixtures.serverSchema(
+                "primary",
+                Dialect.MYSQL,
+                8,
+                VendorFindingKinds.MYSQL_SERVER_SETTINGS,
+                DatabaseAdvisorFixtures.setting("wait_timeout", "600"));
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        DatabaseAdvisorEvidenceProvider flaky = new DatabaseAdvisorEvidenceProvider() {
+            @Override
+            public List<DataSourceConfiguration> dataSourceConfigurations() {
+                if (reads.incrementAndGet() > 1) {
+                    throw new IllegalStateException("jdbc:mysql://h/db?******");
+                }
+                return List.of(new DataSourceConfiguration(
+                        "primary", DatabaseAdvisorFixtures.hikari(10, 10, 0, 0, 0), Map.of(), true));
+            }
+
+            @Override
+            public Map<String, JdbcBatching> jdbcBatching() {
+                return Map.of();
+            }
+        };
+        try (var introspector = mockStatic(SchemaIntrospector.class)) {
+            introspector
+                    .when(() ->
+                            SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any(), any()))
+                    .thenReturn(mysql);
+
+            DatabaseAdvisorReport report = scannerWith(flaky).scan();
+
+            assertThat(report.diagnostics())
+                    .filteredOn(diagnostic -> diagnostic.source().equals("Connection pool"))
+                    .singleElement()
+                    .satisfies(diagnostic -> {
+                        assertThat(diagnostic.level()).isEqualTo("WARNING");
+                        assertThat(diagnostic.message()).doesNotContain("jdbc:mysql", "******");
+                    });
+            assertThat(report.results()).noneMatch(result -> result.id().equals("DB-POOL-001"));
+            assertThat(report.diagnostics())
+                    .filteredOn(diagnostic -> diagnostic.source().equals("DB-POOL-001"))
+                    .singleElement()
+                    .satisfies(diagnostic -> assertThat(diagnostic.message()).contains("no HikariCP or Agroal"));
+        }
+    }
+
+    @Test
     void theDriverRulesAreNotApplicableToAnH2DatasourceAndTheScanNeverExposesAUrl() {
         DatabaseAdvisorReport report =
                 scannerFor(List.of(new NamedDataSource("primary", dataSource))).scan();
@@ -768,7 +865,7 @@ class DatabaseAdvisorScannerTests {
     @Test
     void retiredIdsAreNotRegisteredOrReusedAndOldDismissalsAreHarmless() {
         Set<String> retired = Set.of("DB-SCHEMA-008", "DB-SCHEMA-009", "DB-HIB-001", "DB-HIB-008");
-        assertThat(DatabaseAdvisorRuleRegistry.activeRules()).hasSize(31);
+        assertThat(DatabaseAdvisorRuleRegistry.activeRules()).hasSize(35);
         assertThat(DatabaseAdvisorRuleRegistry.activeRules())
                 .noneMatch(rule -> retired.contains(rule.definition().id()));
         DatabaseAdvisorScanner scanner = scannerFor(List.of(new NamedDataSource("primary", dataSource)));
