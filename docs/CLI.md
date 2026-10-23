@@ -266,7 +266,7 @@ the offset after any failure or silently rescan to recover. See [agent paginatio
 | Code | Meaning |
 | --- | --- |
 | `0` | The tool ran and answered. |
-| `1` | Usage error, a rejected argument, authentication was rejected, or the application could not be reached or did not answer. |
+| `1` | Usage error, a rejected argument, authentication was rejected, or the application could not be reached or did not answer. Also an advisor command run with [`--fail-on`](#gate-on-severity) whose answer cannot be evaluated. |
 | `2` | BootUI declined to run the tool: its panel is disabled, read-only and the tool is an action, or its CLI catalog confirms the endpoint is disabled. |
 | `3` | An advisor command run with [`--fail-on`](#gate-on-severity) found a retained finding at or above the threshold. |
 

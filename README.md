@@ -73,7 +73,7 @@ bootui hibernate scan --json | jq '.topFindings[]'
 ```
 
 It needs no MCP client and no agent, prints exact JSON when piped, and exits `2` when a panel's own policy
-declines the call, so CI can branch on it. Windows has a PowerShell installer, and JBang works too — see the
+declines the call and `3` when `--fail-on <severity>` finds a finding at or above that severity, so CI can branch on it. Windows has a PowerShell installer, and JBang works too — see the
 [command-line guide](https://www.julien-dubois.com/boot-ui/cli).
 
 ## Project resources

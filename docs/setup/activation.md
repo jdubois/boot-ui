@@ -121,7 +121,7 @@ The Configuration panel can create, update, and delete local runtime overrides. 
 configuration. Already-bound `@ConfigurationProperties` beans can keep their previous value until the application
 restarts, and BootUI returns that warning with every override mutation.
 
-Set `bootui.overrides-file` to move that file. BootUI resolves the advisor dismissed-findings file, `boot-ui.yml`, in
+Set `bootui.overrides-file` to move that file. BootUI resolves the advisor dismissals file, `boot-ui.yml` (dismissed rules and findings), in
 the same directory.
 
 ::: warning Set it from the environment

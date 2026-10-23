@@ -112,11 +112,12 @@ percent-encoded parts joined with `|`, and it never contains a value, SQL text o
 | A repository query method            | `unit=<unit>`, `repository=<interface>`, `method=<name>(<parameter types>)`      |
 | A setting                            | `unit=<unit>`, `setting=<property>`                                               |
 
-A rule can add a part when one element has several findings (`path=` for each paged `JOIN FETCH` path of HIB-FETCH-003;
-`idclass=` for HIB-ID-007). An inherited attribute is keyed on the concrete entity, so two entities that inherit it
+A rule can add a part when one element has several findings (`path=` for each paged `JOIN FETCH` path of HIB-FETCH-003).
+HIB-ID-007 is keyed on `unit=<unit>` and `idclass=<class>` alone, since several entities can share one identifier class. An inherited attribute is keyed on the concrete entity, so two entities that inherit it
 have two identities, and overloaded repository methods stay apart. A finding without a persistence unit uses
 `unit=application`. The unit is its label, which is the persistence unit name where the framework reports one and a
-positional `unit-N` otherwise, so a positional label can shift when a factory fails to start.
+positional `unit-N` otherwise, so a positional label can shift when a factory fails to start. The same identity is what a
+[single-finding dismissal](features/advisors.md#dismissing-a-single-finding) is matched on.
 
 ### Version baseline
 
@@ -130,7 +131,7 @@ runtime evidence. Primary references and version caveats are listed at the end o
 | Severity | Meaning |
 | -------- | ------- |
 | **CRITICAL** | A configuration choice that can immediately damage production data. Currently emitted only by HIB-CONFIG-002, for destructive schema actions under a production-like profile. |
-| **HIGH** | A mapping choice that commonly causes large performance surprises. |
+| **HIGH** | A mapping or configuration choice that commonly causes large performance surprises, or that breaks transactional atomicity (HIB-CONFIG-021). |
 | **MEDIUM** | A mapping or configuration issue that usually warrants review before production use. |
 | **LOW** | Lower-impact hygiene findings. |
 | **INFO** | An informational prompt where the fix depends heavily on project context. |
@@ -534,9 +535,9 @@ reported a supported lazy mapping. HIB-MAP-018 covers the inverse side, where en
 - **Fires when**: relevant enhancement is known absent and an entity declares an explicitly lazy non-owning
   `@OneToOne`. Eager declarations and unknown enhancement do not establish a failed lazy-loading request. A mandatory
   (`optional=false`) inverse side whose owning side shares the primary key (`@MapsId` or `@PrimaryKeyJoinColumn` on the
-  attribute named by `mappedBy`) is exempt, because Hibernate 7.4.5 proxies it without enhancement. With a separate
-  unique foreign key, or with `optional=true`, Hibernate loads it eagerly even when `optional=false`, so the check still
-  fires. A shared key declared through a plain `@JoinColumn` cannot be detected from declarations.
+  attribute named by `mappedBy`) is exempt, because Hibernate 7.4.5 proxies it without enhancement. The exemption needs
+  `optional=false` and an owning side that shares the primary key: with a separate unique foreign key, or with
+  `optional=true`, Hibernate loads the inverse side eagerly, so the check still fires. A shared key declared through a plain `@JoinColumn` cannot be detected from declarations.
 - **Why it matters**: determining whether the inverse row exists can prevent the expected lazy behavior. Query plans,
   optionality, cache state and access patterns determine actual queries; this declaration does not prove N+1.
 - **Recommendation**: enable bytecode enhancement, or replace the bidirectional `@OneToOne` with a shared primary key

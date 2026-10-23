@@ -67,7 +67,7 @@ equivalents).
 
 | Key                     | Spring                                                                                                              | Quarkus                                                                                                                            |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `bootui.overrides-file` | The Configuration panel persists runtime overrides here, and the key also locates the advisor dismissed-rules file. | The Configuration panel is read-only on Quarkus, so the key only locates the advisor dismissed-rules file (`.bootui/boot-ui.yml`). |
+| `bootui.overrides-file` | The Configuration panel persists runtime overrides here, and the key also locates the advisor dismissals file (`.bootui/boot-ui.yml`). | The Configuration panel is read-only on Quarkus, so the key only locates the advisor dismissals file (`.bootui/boot-ui.yml`). |
 | `bootui.agent.*` | Read at startup, before the context exists, to decide whether and how the run claims an attached BootUI agent. | Build-time configuration read when the application is built (augmented); dev mode rebuilds when it changes. |
 | `bootui.email.dev-trap` | Suppresses handing captured mail to the real transport when enabled. | Not a send gate; sent/not-sent comes from `quarkus.mailer.mock`, because capture occurs after sending. |
 | `bootui.websockets.*` | Endpoint/session topology is supported; frame capture requires servlet STOMP. | Endpoint/session topology is supported with Quarkus WebSockets Next; no frame capture or STOMP subscriptions. |
@@ -115,7 +115,7 @@ settings" below.
 | `bootui.free-on-idle.enabled`    | `true`                                  | Release BootUI's live in-memory diagnostic buffers (captured SQL, ingested traces, and the request/security correlation windows) and pause recording into them after the console has been idle for `bootui.free-on-idle.timeout`, refilling them from live traffic once the console is used again. Dev-only (BootUI is inactive in production); the Exceptions and Log Tail buffers are always retained, and the [runtime journal](#runtime-journal) keeps recording while the buffers are released. Set to `false` to keep all buffers recording continuously. While [low-footprint mode](features/runtime.md#low-footprint-mode) is on, buffers are never resumed by console activity. |
 | `bootui.free-on-idle.timeout`    | `5m`                                    | How long the console may go without any BootUI request (UI load, API poll, or stream open) before its live buffers are released. The timer resets on every BootUI request, so an open console never reclaims. Clamped to a minimum of one second. |
 | `bootui.read-only`               | `false`                                 | Block panel actions through the browser, REST, MCP, and CLI while keeping reads visible. |
-| `bootui.overrides-file`          | `.bootui/application-bootui.properties` | File used by the Configuration panel to persist local runtime overrides. BootUI resolves the advisor dismissed-findings file (`boot-ui.yml`) in the same directory. Set it from the environment, not from `application.properties`. |
+| `bootui.overrides-file`          | `.bootui/application-bootui.properties` | File used by the Configuration panel to persist local runtime overrides. BootUI resolves the advisor dismissals file (`boot-ui.yml`, holding `dismissedRules` and `dismissedFindings`) in the same directory. Set it from the environment, not from `application.properties`. |
 | `bootui.monitoring.exclude-self` | `true`                                  | Hide BootUI's own beans, mappings, loggers, metrics, traces, and related runtime data from monitoring panels.                   |
 
 ### Remote API authentication
@@ -297,7 +297,7 @@ remain gated. Retrieval completeness does not affect evidence coverage or scores
 | -------------------------------- | --------------------------------------- | ---------------------------------------------------------------------- |
 | `bootui.panels.config.enabled`   | `true`                                  | Show the Configuration panel and allow its read APIs.                  |
 | `bootui.panels.config.read-only` | `false`                                 | Disable creating, updating, and deleting runtime property overrides.   |
-| `bootui.overrides-file`          | `.bootui/application-bootui.properties` | Local file where runtime overrides are persisted. Also locates `boot-ui.yml` (advisor dismissed findings), which BootUI resolves in the same directory. |
+| `bootui.overrides-file`          | `.bootui/application-bootui.properties` | Local file where runtime overrides are persisted. Also locates `boot-ui.yml` (advisor dismissed rules and findings), which BootUI resolves in the same directory. |
 | `bootui.expose-values`           | `MASKED`                                | Controls whether property values are masked, hidden, or fully exposed. |
 
 ### Loggers

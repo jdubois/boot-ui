@@ -20,7 +20,7 @@ Items marked **deferred** are not implemented in the current code. They are not 
   connection was held. JTA and `DELAYED_ACQUISITION_AND_RELEASE_AFTER_STATEMENT` connection handling legitimately
   re-acquire per statement, and work Hibernate runs on a connection of its own, such as a table-based identifier
   generator, counts too. Spring's JPA vendor adapter and stock Quarkus make a session hold its connection until it
-  closes, so those sessions show one acquisition unless `hibernate.connection.handling_mode` says otherwise. Its call sites
+  closes, so those sessions show one acquisition of the main connection unless `hibernate.connection.handling_mode` says otherwise. Its call sites
   need recorded transactions, so Quarkus keeps the count without them.
 - **`unbatched-write-loop` counts executions, not what the database did with them.** It reports a write shape run ten
   times or more with a JDBC batch size of one, within one transaction when transactions are recorded. An execution
@@ -51,7 +51,7 @@ See [WebFlux design notes](WEBFLUX-SUPPORT.md) for the panel-by-panel detail.
   some inputs is held back only while an execution that wrote is retained: a method it names is a fact to verify
   against the code, not a proof.
 - **`paged-without-order` reads SQL text, not what the database returns.** It does not report the first page of a
-  pageable query filtered only by equalities, a literal limit of one, or a statement it cannot read: SQL Trace's
+  pageable query filtered only by equalities (unless it has an offset, a bound one included), a literal limit of one, or a statement it cannot read: SQL Trace's
   shortened text, a statement longer than the scan limit, a string or quoted name that holds a backslash, Oracle `q'...'`
   strings, a `#` that may be a PostgreSQL operator or a name's suffix rather than a MySQL comment, a `/*! ... */` or
   `/*M! ... */` comment, several statements, or a `LIMIT`, `TOP`, or `FETCH` count that is not a plain number or bind.
