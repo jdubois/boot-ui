@@ -761,7 +761,7 @@ class ReleaseIntegrityTests(unittest.TestCase):
             with self.subTest(old=old):
                 self.assert_rejected(None, message, docker=self.mutate_file(DOCKER, old, new))
 
-    def test_docker_image_jobs_cannot_run_after_a_skipped_gate(self):
+    def test_docker_build_job_cannot_run_after_a_skipped_gate(self):
         condition = "    if: github.repository == 'jdubois/boot-ui'\n"
         for replacement in (
             "    if: ${{ always() && github.repository == 'jdubois/boot-ui' }}\n",
@@ -769,15 +769,85 @@ class ReleaseIntegrityTests(unittest.TestCase):
             "",
         ):
             with self.subTest(replacement=replacement):
-                content = DOCKER.read_text(encoding="utf-8")
-                self.assertEqual(content.count(condition), 2, "fixture drifted: image job conditions")
-                for occurrence in range(2):
-                    mutated = content
-                    start = -1
-                    for _ in range(occurrence + 1):
-                        start = mutated.index(condition, start + 1)
-                    mutated = mutated[:start] + replacement + mutated[start + len(condition):]
-                    self.assert_rejected(None, "never runs after a skipped docker-config", docker=mutated)
+                self.assert_rejected(
+                    None, "never runs after a skipped docker-config",
+                    docker=self.mutate_file(DOCKER, condition, replacement),
+                )
+
+    def test_docker_merge_runs_per_image_only_after_a_successful_docker_config(self):
+        condition = (
+            "    if: ${{ !cancelled() && github.repository == 'jdubois/boot-ui' "
+            "&& needs.docker-config.result == 'success' }}\n"
+        )
+        for replacement in (
+            "    if: ${{ always() && github.repository == 'jdubois/boot-ui' }}\n",
+            "    if: ${{ !cancelled() && github.repository == 'jdubois/boot-ui' }}\n",
+            "    if: github.repository == 'jdubois/boot-ui'\n",
+            "",
+        ):
+            with self.subTest(replacement=replacement):
+                self.assert_rejected(
+                    None, "the merge job must run",
+                    docker=self.mutate_file(DOCKER, condition, replacement),
+                )
+        self.assert_rejected(
+            None, "must follow the gated docker-config job",
+            docker=self.mutate_file(DOCKER, "    needs: [docker-config, build]\n", "    needs: build\n"),
+        )
+
+    def test_docker_merge_steps_publish_nothing_for_an_incomplete_image(self):
+        ready = "        if: steps.ready.outputs.ready == 'true'\n"
+        marker = "      - name: Apply release tags to the retained manifest list\n"
+        docker = DOCKER.read_text(encoding="utf-8")
+        start = docker.index(marker) + len(marker)
+        self.assertTrue(docker.startswith(ready, start), "fixture drifted: merge step condition")
+        mutated = docker[:start] + docker[start + len(ready):]
+        self.assert_rejected(None, "must run only when both platform images", docker=mutated)
+
+    def test_docker_build_failure_without_a_recovered_image_must_fail_the_job(self):
+        self.assert_rejected(
+            None, "step failing the job when the build and its retry did not produce an image",
+            docker=self.mutate_file(
+                DOCKER, "- name: Fail when no image build attempt succeeded", "- name: Continue regardless"
+            ),
+        )
+
+    def test_docker_retries_must_repeat_the_first_attempt_exactly(self):
+        docker = DOCKER.read_text(encoding="utf-8")
+        for step in (
+            "Build the image and load it for the smoke test",
+            "Push the smoke-tested image with a retention tag",
+        ):
+            with self.subTest(step=step):
+                marker = f"      - name: {step} (retry)\n"
+                start = docker.index(marker)
+                end = docker.index("          labels:", start)
+                mutated = docker[:end] + "          build-args: DRIFT=1\n" + docker[end:]
+                self.assert_rejected(None, f"retry of '{step}' must repeat", docker=mutated)
+
+    def test_docker_digest_must_come_from_the_successful_push_attempt(self):
+        self.assert_rejected(
+            None,
+            "digest of the successful push attempt",
+            docker=self.mutate_file(
+                DOCKER,
+                "steps.push_retry.outputs.digest || steps.push_first.outputs.digest",
+                "steps.push_first.outputs.digest",
+            ),
+        )
+
+    def test_docker_retry_steps_keep_their_failure_semantics(self):
+        smoke = "      - name: Smoke-test the loaded image\n"
+        for old, new, message in (
+            ("        id: push_retry\n", "        id: push_retry\n        continue-on-error: true\n", "must not continue on error"),
+            ("        id: build_retry\n", "        id: build_retry\n        continue-on-error: true\n", "must not continue on error"),
+            ("        id: build_retry\n        if: steps.build_first.outcome == 'failure' && steps.build_wait.outputs.retry == 'true'\n", "        id: build_retry\n", "run only after build_first failed"),
+            ("        id: push_retry\n        if: steps.push_first.outcome == 'failure'\n", "        id: push_retry\n        if: always()\n", "run only after push_first failed"),
+            (smoke, smoke + "        continue-on-error: true\n", "only the first build and push attempts may continue on error"),
+            ("        id: build_first\n        continue-on-error: true\n", "        id: build_first\n", "must have id build_first and continue on error"),
+        ):
+            with self.subTest(old=old, new=new):
+                self.assert_rejected(None, message, docker=self.mutate_file(DOCKER, old, new))
 
     def test_release_comes_only_from_main_or_its_maintenance_branch(self):
         self.assert_rejected(

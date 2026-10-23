@@ -33,6 +33,12 @@ REPOSITORIES = tuple(
     for suffix in ("", "-aot", "-crac", "-native", "-webflux", "-quarkus")
 )
 DIGEST = r"sha256:[0-9a-f]{64}"
+# The retention-tag push has a first attempt and a retry; either may have pushed the manifest.
+PUSH_STEPS = (
+    "Push the smoke-tested image by digest",
+    "Push the smoke-tested image with a retention tag",
+    "Push the smoke-tested image with a retention tag (retry)",
+)
 TIMED_LINE = re.compile(r"^(\d{4}-\d\d-\d\dT[\d:.]+Z) (.*)$")
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 MAX_BYTES = 32 * 1024 * 1024
@@ -348,10 +354,7 @@ def build_digests(content, namespace, repository, steps):
     found = set()
     lines = list(log_lines(content))
     for step in steps:
-        if step.get("name") not in (
-            "Push the smoke-tested image by digest",
-            "Push the smoke-tested image with a retention tag",
-        ) or step.get("conclusion") == "skipped":
+        if step.get("name") not in PUSH_STEPS or step.get("conclusion") == "skipped":
             continue
         if not step.get("started_at") or not step.get("completed_at"):
             continue
@@ -445,10 +448,7 @@ def bootstrap(github, namespace, workflow_id, current_run, now):
                     continue
                 steps = [
                     step for step in job.get("steps", [])
-                    if step.get("name") in (
-                        "Push the smoke-tested image by digest",
-                        "Push the smoke-tested image with a retention tag",
-                    ) and step.get("conclusion") != "skipped"
+                    if step.get("name") in PUSH_STEPS and step.get("conclusion") != "skipped"
                 ]
                 if not steps:
                     continue

@@ -3,8 +3,7 @@
 The fastest way to see BootUI is to run a published sample-app image. No clone, no build, and no JDK are required —
 only a Docker-compatible engine such as Docker Desktop, Docker Engine, or Podman.
 
-The published images follow the released line. To try the v2-only runtime journal, Runtime Insights, and Java-agent
-panels before 2.0 publication, [build the v2 branch](V2-EARLY-ADOPTERS.md) and use the sample's source launchers instead.
+The images are rebuilt nightly from `main`, so they include the runtime journal and Runtime Insights.
 
 ```bash
 docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app

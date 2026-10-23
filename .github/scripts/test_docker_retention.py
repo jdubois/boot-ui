@@ -122,6 +122,52 @@ class RetentionTests(unittest.TestCase):
         plan, _ = self.plan()
         self.assertNotIn(digest("new-index"), plan["repositories"][REPO]["manifests"])
 
+    def test_partial_night_keeps_the_latest_graph_of_an_image_that_was_not_republished(self):
+        # One image was republished tonight; the other one failed to build, so its `latest`, dated
+        # and sha tags are all older than the retention window.
+        stale, fresh = "bootui-sample-app-native", "bootui-sample-app"
+        very_old = iso(NOW - timedelta(days=9))
+        hubs = {}
+        for repo, latest_pushed in ((stale, very_old), (fresh, NEW)):
+            hub = FakeHub()
+            hub.tag_data = {
+                "latest": tag("latest", "current-index", latest_pushed),
+                "20260830": tag("20260830", "current-index", latest_pushed),
+                "sha-current": tag("sha-current", "current-index", latest_pushed),
+                "20260801": tag("20260801", "ancient-index", very_old),
+            }
+            hub.images = {
+                digest("current-index"): [digest("shared"), digest("current-arm")],
+                digest("ancient-index"): [digest("shared"), digest("ancient-arm")],
+                digest("shared"): [],
+                digest("current-arm"): [],
+                digest("ancient-arm"): [],
+            }
+            hubs[repo] = hub
+
+        class PartialNight(FakeHub):
+            def tags(self, repo):
+                return copy.deepcopy(hubs[repo].tag_data)
+
+            def manifest(self, repo, image):
+                return hubs[repo].images.get(image)
+
+        plan, _ = plan_retention(PartialNight(), {}, NOW, repositories=(stale, fresh))
+        for repo in (stale, fresh):
+            operations = plan["repositories"][repo]
+            deleted_tags = {t["name"] for t in operations["tags"]}
+            self.assertNotIn("latest", deleted_tags)
+            # The stale image's dated and sha tags are expired, yet its latest graph stays intact.
+            for kept in ("current-index", "current-arm", "shared"):
+                self.assertNotIn(digest(kept), operations["manifests"], (repo, kept))
+            self.assertIn("20260801", deleted_tags)
+            self.assertEqual([digest("ancient-index"), digest("ancient-arm")], operations["manifests"])
+        self.assertEqual(
+            {"20260830", "sha-current", "20260801"},
+            {t["name"] for t in plan["repositories"][stale]["tags"]},
+        )
+        self.assertEqual({"20260801"}, {t["name"] for t in plan["repositories"][fresh]["tags"]})
+
     def test_exact_cutoff_and_recent_pushes_are_kept(self):
         for name, pushed in (("boundary", iso(NOW - timedelta(days=7))), ("fresh", NEW)):
             self.hub.images[digest(name)] = []
