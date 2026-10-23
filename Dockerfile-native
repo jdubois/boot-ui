@@ -54,7 +54,13 @@ RUN chmod +x mvnw
 # (libz.a) this requires. Use lighter compilation and a single build thread, and raise the builder's heap
 # above its default (about 75% of RAM, 12 GB on the 16 GB hosted arm64 runner), where the build ran out of
 # heap or thrashed in GC until the watchdog aborted it; 13 GB leaves the rest for the OS and the Maven JVM.
+#
+# On arm64 even -O1 still exhausts that heap while compiling methods (the 4-core, 16 GB hosted runner
+# fails with "Java heap space" after ~27 minutes, or thrashes until the job timeout), so arm64 builds
+# use the quick build mode -Ob, which needs far less memory and time. amd64 keeps -O1.
 ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC -O1 --parallelism=1 -J-Xmx13g"
+# Set automatically by BuildKit to the platform being built.
+ARG TARGETARCH
 
 # Build the native executable for the sample app and its reactor dependencies.
 # The `native` profile (declared in bootui-spring-sample-app/pom.xml) runs Spring
@@ -71,7 +77,9 @@ ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC -O1 --parallelism=
 RUN --mount=type=cache,target=/root/.m2 \
     --mount=type=cache,target=/root/.npm \
     --mount=type=secret,id=npmrc,target=/root/.npmrc \
-    { ./mvnw -B -ntp -Pnative -DskipTests -pl bootui-spring-sample-app -am clean package > /tmp/native-build.log 2>&1 \
+    if [ "$TARGETARCH" = "arm64" ]; then NATIVE_IMAGE_OPTIONS=$(echo "$NATIVE_IMAGE_OPTIONS" | sed 's/-O1/-Ob/'); export NATIVE_IMAGE_OPTIONS; fi \
+    && echo "NATIVE_IMAGE_OPTIONS=$NATIVE_IMAGE_OPTIONS" \
+    && { ./mvnw -B -ntp -Pnative -DskipTests -pl bootui-spring-sample-app -am clean package > /tmp/native-build.log 2>&1 \
       || { grep -q "Native Image build process ran out of memory" /tmp/native-build.log \
            && echo "native-image ran out of memory; retrying once" \
            && ./mvnw -B -ntp -Pnative -DskipTests -pl bootui-spring-sample-app -am clean package > /tmp/native-build.log 2>&1; } \
