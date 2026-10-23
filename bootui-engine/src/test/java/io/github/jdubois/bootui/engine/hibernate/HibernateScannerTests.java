@@ -57,7 +57,7 @@ import org.springframework.data.domain.Page;
 
 class HibernateScannerTests {
 
-    private static final int RULE_COUNT = 73;
+    private static final int RULE_COUNT = 72;
     private static final String AFFECTED_HIBERNATE_VERSION = "7.3.9.Final";
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
@@ -207,7 +207,6 @@ class HibernateScannerTests {
                 TableIdentifierEntity.class,
                 SequenceEntity.class,
                 TablePerClassEntity.class,
-                VersionlessEntity.class,
                 CacheableEntity.class,
                 UncachedAssociation.class,
                 SingleTableRootEntity.class,
@@ -251,7 +250,6 @@ class HibernateScannerTests {
                         "HIB-MAP-014",
                         "HIB-MAP-015",
                         "HIB-MAP-016",
-                        "HIB-ENTITY-002",
                         "HIB-ENTITY-005",
                         "HIB-QUERY-001",
                         "HIB-QUERY-002",
@@ -262,6 +260,7 @@ class HibernateScannerTests {
                 .doesNotContain(
                         "HIB-FETCH-004",
                         "HIB-MAP-012",
+                        "HIB-ENTITY-002",
                         "HIB-ENTITY-003",
                         "HIB-ENTITY-004",
                         "HIB-MAP-017",
@@ -795,14 +794,6 @@ class HibernateScannerTests {
     @Entity
     @Inheritance(strategy = InheritanceType.TABLE_PER_CLASS)
     static class TablePerClassEntity {
-
-        @Id
-        Long id;
-    }
-
-    @Entity
-    @OptimisticLocking(type = OptimisticLockType.DIRTY)
-    static class VersionlessEntity {
 
         @Id
         Long id;

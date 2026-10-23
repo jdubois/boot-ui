@@ -35,6 +35,7 @@ class HibernateAdvisorObservationTests {
         "HIB-MAP-017",
         "HIB-MAP-019",
         "HIB-MAP-021",
+        "HIB-ENTITY-002",
         "HIB-ENTITY-003",
         "HIB-ENTITY-004",
         "HIB-CONFIG-001"
@@ -662,7 +663,7 @@ class HibernateAdvisorObservationTests {
 
     @Test
     void retiredIdsAreNotRegisteredOrReported() {
-        assertThat(HibernateRuleRegistry.activeRules()).hasSize(73);
+        assertThat(HibernateRuleRegistry.activeRules()).hasSize(72);
         assertThat(HibernateRuleRegistry.activeRules())
                 .extracting(rule -> rule.definition().id())
                 .doesNotContain(RETIRED_IDS);

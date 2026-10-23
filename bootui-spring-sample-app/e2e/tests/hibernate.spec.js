@@ -15,7 +15,7 @@ test.describe('Hibernate Advisor view', () => {
     const response = await scanResponse
     expect(response.ok()).toBeTruthy()
     const report = await response.json()
-    expect(report.rulesEvaluated).toBe(73)
+    expect(report.rulesEvaluated).toBe(72)
     expect(report.scan.status).toBe('PARTIAL')
     expect(report.scan.message).toBeTruthy()
     expect(Array.isArray(report.diagnostics)).toBe(true)
@@ -34,6 +34,7 @@ test.describe('Hibernate Advisor view', () => {
       'HIB-MAP-017',
       'HIB-MAP-019',
       'HIB-MAP-021',
+      'HIB-ENTITY-002',
       'HIB-ENTITY-003',
       'HIB-ENTITY-004',
       'HIB-CONFIG-001'

@@ -32,11 +32,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.Immutable;
 import org.hibernate.annotations.NaturalId;
-import org.hibernate.annotations.OptimisticLockType;
-import org.hibernate.annotations.OptimisticLocking;
 import org.hibernate.envers.DefaultRevisionEntity;
 import org.junit.jupiter.api.Test;
 
@@ -309,22 +306,6 @@ class HibernateMappingScenarioTests {
         assertThat(result.sampleViolations())
                 .singleElement()
                 .satisfies(sample -> assertThat(sample).contains("ImmutableCollections#joinTableLines"));
-    }
-
-    /**
-     * Verified on Hibernate ORM 7.4.5.Final: {@code @OptimisticLocking(DIRTY|ALL)} without {@code @DynamicUpdate}
-     * fails bootstrap with "has 'OptimisticLockType.ALL' but is not annotated '@DynamicUpdate'", whether or not the
-     * entity is {@code @Immutable}, so the declaration cannot reach the advisor on the baseline. The rule keeps
-     * reporting it; retiring HIB-ENTITY-002 is a catalogue decision and is left to a follow-up.
-     */
-    @Test
-    void scenario04_immutableEntityWithVersionlessLocking_HIB_ENTITY_002_currentBehaviour_knownGap() {
-        HibernateRuleResultDto result = evaluate(new OptimisticLockingDynamicUpdateRule(), ImmutableVersionless.class);
-
-        assertThat(result.status()).isEqualTo(VIOLATION);
-        assertThat(evaluate(new OptimisticLockingDynamicUpdateRule(), ImmutableVersionlessDynamic.class)
-                        .status())
-                .isEqualTo(PASS);
     }
 
     // --- S5: @ElementCollection of enums -----------------------------------------------------------------------
@@ -812,27 +793,6 @@ class HibernateMappingScenarioTests {
         @ElementCollection
         @Immutable
         List<String> tags;
-    }
-
-    @Entity
-    @Immutable
-    @OptimisticLocking(type = OptimisticLockType.ALL)
-    static class ImmutableVersionless {
-        @Id
-        Long id;
-
-        String name;
-    }
-
-    @Entity
-    @Immutable
-    @DynamicUpdate
-    @OptimisticLocking(type = OptimisticLockType.ALL)
-    static class ImmutableVersionlessDynamic {
-        @Id
-        Long id;
-
-        String name;
     }
 
     enum Color {

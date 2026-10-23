@@ -48,7 +48,7 @@ class HibernateScanWiringTest {
 
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
         assertThat(report.entitiesAnalyzed()).isPositive();
-        assertThat(report.rulesEvaluated()).isEqualTo(73);
+        assertThat(report.rulesEvaluated()).isEqualTo(72);
         assertThat(report.results()).allSatisfy(result -> {
             assertThat(result.status()).isEqualTo("VIOLATION");
             assertThat(result.sampleViolations()).allMatch(sample -> sample.startsWith("["));
@@ -56,7 +56,13 @@ class HibernateScanWiringTest {
         assertThat(report.results())
                 .extracting(result -> result.id())
                 .doesNotHaveDuplicates()
-                .doesNotContain("HIB-FETCH-004", "HIB-MAP-012", "HIB-ENTITY-003", "HIB-ENTITY-004", "HIB-MAP-019");
+                .doesNotContain(
+                        "HIB-FETCH-004",
+                        "HIB-MAP-012",
+                        "HIB-ENTITY-002",
+                        "HIB-ENTITY-003",
+                        "HIB-ENTITY-004",
+                        "HIB-MAP-019");
         var factory = entityManagerFactory.unwrap(SessionFactoryImplementor.class);
         var options = factory.getSessionFactoryOptions();
         var observed = observationSource.observe();

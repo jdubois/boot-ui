@@ -45,7 +45,6 @@ final class HibernateRuleRegistry {
 
             // Entity design
             new EqualsHashCodePairRule(),
-            new OptimisticLockingDynamicUpdateRule(),
             new PublicPersistentFieldRule(),
             new PrimitiveIdentifierOrVersionRule(),
             new AssignedIdPersistableRule(),

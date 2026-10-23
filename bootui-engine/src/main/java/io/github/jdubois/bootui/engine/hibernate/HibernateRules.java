@@ -1695,41 +1695,6 @@ final class EqualsHashCodePairRule extends AbstractHibernateRule {
     }
 }
 
-final class OptimisticLockingDynamicUpdateRule extends AbstractHibernateRule {
-
-    OptimisticLockingDynamicUpdateRule() {
-        super(
-                new HibernateRuleDefinition(
-                        "HIB-ENTITY-002",
-                        "Versionless optimistic locking should use dynamic updates",
-                        HibernateCategory.ENTITY_DESIGN,
-                        "MEDIUM",
-                        "Detects Hibernate @OptimisticLocking(DIRTY/ALL) without @DynamicUpdate.",
-                        "Add @DynamicUpdate when using versionless optimistic locking so UPDATE statements include the"
-                                + " intended changed columns.",
-                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#locking-optimistic-versionless"));
-    }
-
-    @Override
-    HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        AdvisorFindings details = new AdvisorFindings();
-        for (HibernateEntityModel entity : context.targets(
-                context.entities(),
-                candidate -> candidate.annotationInHierarchy("org.hibernate.annotations.OptimisticLocking") != null)) {
-            Annotation optimisticLocking = entity.annotationInHierarchy("org.hibernate.annotations.OptimisticLocking");
-            String type = entity.annotationValueName(optimisticLocking, "type");
-            if (("DIRTY".equals(type) || "ALL".equals(type))
-                    && entity.annotationInHierarchy("org.hibernate.annotations.DynamicUpdate") == null) {
-                details.add(
-                        entity.name() + " uses @OptimisticLocking(" + type + ") without @DynamicUpdate.",
-                        HibernateLocations.of(entity),
-                        HibernateIdentities.of(context, entity));
-            }
-        }
-        return violation(context, details);
-    }
-}
-
 final class LobLazyFetchRule extends AbstractHibernateRule {
 
     LobLazyFetchRule() {

@@ -145,7 +145,7 @@ class BootUiQuarkusHibernateAdvisorTest {
                 .isGreaterThanOrEqualTo(3);
         assertThat(scanned.path("rulesEvaluated").asInt())
                 .as("the shared curated rule registry must have run")
-                .isEqualTo(73);
+                .isEqualTo(72);
 
         List<String> violationIds = ruleIds(scanned.path("results"));
         assertThat(violationIds)
@@ -156,6 +156,7 @@ class BootUiQuarkusHibernateAdvisorTest {
                         "HIB-MAP-017",
                         "HIB-MAP-019",
                         "HIB-MAP-021",
+                        "HIB-ENTITY-002",
                         "HIB-ENTITY-003",
                         "HIB-ENTITY-004",
                         "HIB-CONFIG-001");
