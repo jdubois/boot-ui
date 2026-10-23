@@ -75,7 +75,9 @@ RUN --mount=type=cache,target=/root/.m2 \
     --mount=type=secret,id=npmrc,target=/root/.npmrc \
     { ./mvnw -B -ntp -Pnative -DskipTests -pl bootui-spring-sample-app -am clean package > /tmp/native-build.log 2>&1 \
       || { grep -Eq "Native Image build process ran out of memory|Image generator watchdog is aborting image generation" /tmp/native-build.log \
-           && echo "native-image ran out of memory or was aborted by its watchdog; retrying once" \
+           && echo "native-image ran out of memory or was aborted by its watchdog; first attempt, last 60 log lines:" \
+           && tail -n 60 /tmp/native-build.log \
+           && echo "retrying once" \
            && ./mvnw -B -ntp -Pnative -DskipTests -pl bootui-spring-sample-app -am clean package > /tmp/native-build.log 2>&1; } \
       || { echo "Native build failed; last 300 log lines:"; tail -n 300 /tmp/native-build.log; exit 1; }; } \
     && tail -n 40 /tmp/native-build.log

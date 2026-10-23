@@ -213,9 +213,10 @@ jobs:
     # base-image pull-rate limit, and the verified image is pushed by digest from here.
     environment: docker-hub
     # The native builds dominate the runtime (healthy: about 10-20 minutes to build, 30 with the smoke
-    # test and push), so they get a tighter cap that stops a thrashing native-image early; every other
-    # image finishes in well under 10 minutes.
-    timeout-minutes: ${{ matrix.image == 'bootui-sample-app-native' && 50 || 90 }}
+    # test and push), so they get a tighter cap that stops a thrashing native-image, which never finishes,
+    # well before 90 minutes while still leaving room for one late failure and the retry inside
+    # Dockerfile-native. The other images finish in well under 10 minutes.
+    timeout-minutes: ${{ matrix.image == 'bootui-sample-app-native' && 60 || 90 }}
     # Only build from the canonical repository: forks lack the Docker Hub secrets.
     if: github.repository == 'jdubois/boot-ui'
     strategy:
