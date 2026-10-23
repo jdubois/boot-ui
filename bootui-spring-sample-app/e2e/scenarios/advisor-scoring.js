@@ -1049,7 +1049,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
             : page
                 .locator('.list-group-item')
                 .filter({has: page.getByText(id, {exact: true})})
-                .getByRole('button', {name: new RegExp(`${action}$`)})
+                .getByRole('button', {name: action === 'Dismiss' ? /^Dismiss rule / : /Restore$/})
         await button.click()
         await expect(actions).toHaveCount(4)
         for (const button of await actions.all()) await expect(button).toBeDisabled()
@@ -1088,7 +1088,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         await page.locator('a[href$="#/scorecard"]').first().click()
         await expect(card.locator('.scanner-score')).toHaveText('90')
         await card.getByRole('link', {name: 'Open panel'}).click()
-        await page.getByRole('button', {name: /Dismiss$/}).click()
+        await page.getByRole('button', {name: /^Dismiss rule /}).click()
         await expect(page.locator('.list-group-item.opacity-50')).toContainText('ARCH-TEST-1')
         await expect(page.locator('.advisor-summary__dismissed')).toContainText(
           '1 dismissed rule(s) excluded from active findings'
@@ -1144,7 +1144,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       await expect(page.locator('.advisor-summary__score')).toHaveCount(0)
       await expect(page.locator('.advisor-summary__assessment')).toContainText('No usable assessment evidence')
       await expect(page.locator('details.advisor-summary__notes')).toHaveCount(0)
-      await page.getByRole('button', {name: /Dismiss$/}).click()
+      await page.getByRole('button', {name: /^Dismiss rule /}).click()
       await expect(page.getByRole('button', {name: /Restore$/})).toBeVisible()
       await expect(page.locator('.advisor-summary__score')).toHaveCount(0)
       await page.locator('a[href$="#/scorecard"]').first().click()
