@@ -167,7 +167,7 @@ describe('advisor detail integration', () => {
     await wrapper.get('[aria-label="View violations for RULE-1"]').trigger('click')
     await flushPromises()
     const secondRule = () => wrapper.findAll('.list-group-item').find((item) => item.text().includes('RULE-2'))
-    await secondRule().get('button[title="Dismiss this rule"]').trigger('click')
+    await secondRule().get('button[aria-label="Dismiss rule RULE-2"]').trigger('click')
     await flushPromises()
     expect(wrapper.findAll('.advisor-rule-violations')).toHaveLength(1)
     expect(wrapper.get('.advisor-rule-violations').findAll('li')).toHaveLength(29)

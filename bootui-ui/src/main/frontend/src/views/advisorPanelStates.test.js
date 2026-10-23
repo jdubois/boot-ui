@@ -102,7 +102,9 @@ describe('advisor panel states', () => {
   function actionButtons(wrapper) {
     return [
       wrapper.get('.panel-header__actions button'),
-      ...wrapper.findAll('.list-group-item button').filter((button) => ['Dismiss', 'Restore'].includes(button.text()))
+      ...wrapper
+        .findAll('.list-group-item button')
+        .filter((button) => ['Dismiss', 'Dismiss rule', 'Restore'].includes(button.text()))
     ]
   }
 
@@ -177,7 +179,7 @@ describe('advisor panel states', () => {
         const button =
           action === 'scan'
             ? actionButtons(wrapper)[0]
-            : actionButtons(wrapper).find((button) => button.text() === action)
+            : actionButtons(wrapper).find((button) => button.text().replace(/ rule$/, '') === action)
         await button.trigger('click')
         await flushPromises()
         const pendingRequests = fetchMock.mock.calls.length

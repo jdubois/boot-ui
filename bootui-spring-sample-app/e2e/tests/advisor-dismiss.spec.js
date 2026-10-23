@@ -80,7 +80,9 @@ test.describe('Advisor rule dismiss/restore', () => {
     expect(report.scan.message).toBeTruthy()
 
     // Wait for the rule-results list to populate with at least one dismissible finding.
-    const activeItems = page.locator('.list-group-item').filter({has: page.getByRole('button', {name: 'Dismiss'})})
+    const activeItems = page
+      .locator('.list-group-item')
+      .filter({has: page.getByRole('button', {name: /^Dismiss rule /})})
     await expect(activeItems.first()).toBeVisible({timeout: 30_000})
 
     const findingsCard = page.locator('.advisor-summary__metric', {hasText: 'Advisor findings'})
@@ -106,7 +108,7 @@ test.describe('Advisor rule dismiss/restore', () => {
     const dismissedReportResponse = page.waitForResponse(
       (response) => response.request().method() === 'GET' && /\/hibernate$/.test(new URL(response.url()).pathname)
     )
-    await firstActive.getByRole('button', {name: 'Dismiss'}).click()
+    await firstActive.getByRole('button', {name: /^Dismiss rule /}).click()
     const dismissedReport = await (await dismissedReportResponse).json()
 
     // Dismissal removes penalties but preserves observed evidence and partial qualification.
@@ -236,7 +238,7 @@ test.describe('Advisor rule dismiss/restore', () => {
     expect(cached).not.toContain('Intentional')
 
     // Rule-level dismissal keeps its meaning and takes precedence over the dismissed finding.
-    await ruleCard.getByRole('button', {name: 'Dismiss'}).first().click()
+    await ruleCard.getByRole('button', {name: /^Dismiss rule /}).click()
     await expect(
       page.locator('.list-group-item.opacity-50').filter({has: page.getByText(rule.id, {exact: true})})
     ).toBeVisible()
