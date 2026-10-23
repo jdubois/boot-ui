@@ -212,8 +212,10 @@ jobs:
     # job must opt in to that environment to read them: the login raises the anonymous
     # base-image pull-rate limit, and the verified image is pushed by digest from here.
     environment: docker-hub
-    # The native build dominates the runtime; allow generous headroom.
-    timeout-minutes: 90
+    # The native builds dominate the runtime (healthy: about 10-20 minutes to build, 30 with the smoke
+    # test and push), so they get a tighter cap that stops a thrashing native-image early; every other
+    # image finishes in well under 10 minutes.
+    timeout-minutes: ${{ matrix.image == 'bootui-sample-app-native' && 50 || 90 }}
     # Only build from the canonical repository: forks lack the Docker Hub secrets.
     if: github.repository == 'jdubois/boot-ui'
     strategy:

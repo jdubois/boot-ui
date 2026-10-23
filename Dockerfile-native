@@ -52,9 +52,11 @@ RUN chmod +x mvnw
 # honors this via the NATIVE_IMAGE_OPTIONS environment variable, so it needs no pom changes and does
 # not affect a local, host `-Pnative` build. The GraalVM build image already ships the static zlib
 # (libz.a) this requires. Use lighter compilation and a single build thread, and raise the builder's heap
-# above its default (about 75% of RAM, 12 GB on the 16 GB hosted arm64 runner), where the build ran out of
-# heap or thrashed in GC until the watchdog aborted it; 13 GB leaves the rest for the OS and the Maven JVM.
-ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC -O1 --parallelism=1 -J-Xmx13g"
+# above its default (about 75% of RAM, 12 GB on the 16 GB hosted runners). The analysis phase needs about
+# 8 GB, but a heap cap below about 16 GB makes the collector thrash: the build ran out of heap, was aborted by
+# the image generator watchdog, or never finished (13 GB did not fit on the arm64 runner; 16 GB builds in
+# about 19 minutes). The cap is a ceiling, not a reservation: peak RSS stays around 13.5-14.5 GB.
+ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC -O1 --parallelism=1 -J-Xmx16g"
 
 # Build the native executable for the sample app and its reactor dependencies.
 # The `native` profile (declared in bootui-spring-sample-app/pom.xml) runs Spring
@@ -72,8 +74,8 @@ RUN --mount=type=cache,target=/root/.m2 \
     --mount=type=cache,target=/root/.npm \
     --mount=type=secret,id=npmrc,target=/root/.npmrc \
     { ./mvnw -B -ntp -Pnative -DskipTests -pl bootui-spring-sample-app -am clean package > /tmp/native-build.log 2>&1 \
-      || { grep -q "Native Image build process ran out of memory" /tmp/native-build.log \
-           && echo "native-image ran out of memory; retrying once" \
+      || { grep -Eq "Native Image build process ran out of memory|Image generator watchdog is aborting image generation" /tmp/native-build.log \
+           && echo "native-image ran out of memory or was aborted by its watchdog; retrying once" \
            && ./mvnw -B -ntp -Pnative -DskipTests -pl bootui-spring-sample-app -am clean package > /tmp/native-build.log 2>&1; } \
       || { echo "Native build failed; last 300 log lines:"; tail -n 300 /tmp/native-build.log; exit 1; }; } \
     && tail -n 40 /tmp/native-build.log
