@@ -57,6 +57,8 @@ RUN chmod +x mvnw
 # the image generator watchdog, or never finished (13 GB did not fit on the arm64 runner; 16 GB builds in
 # about 19 minutes). The cap is a ceiling, not a reservation: peak RSS stays around 13.5-14.5 GB.
 ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC -O1 --parallelism=1 -J-Xmx16g"
+# A failed build is not retried here: repeating the same configuration only failed again and held the job
+# until its timeout.
 
 # Build the native executable for the sample app and its reactor dependencies.
 # The `native` profile (declared in bootui-spring-sample-app/pom.xml) runs Spring
@@ -74,11 +76,6 @@ RUN --mount=type=cache,target=/root/.m2 \
     --mount=type=cache,target=/root/.npm \
     --mount=type=secret,id=npmrc,target=/root/.npmrc \
     { ./mvnw -B -ntp -Pnative -DskipTests -pl bootui-spring-sample-app -am clean package > /tmp/native-build.log 2>&1 \
-      || { grep -Eq "Native Image build process ran out of memory|Image generator watchdog is aborting image generation" /tmp/native-build.log \
-           && echo "native-image ran out of memory or was aborted by its watchdog; first attempt, last 60 log lines:" \
-           && tail -n 60 /tmp/native-build.log \
-           && echo "retrying once" \
-           && ./mvnw -B -ntp -Pnative -DskipTests -pl bootui-spring-sample-app -am clean package > /tmp/native-build.log 2>&1; } \
       || { echo "Native build failed; last 300 log lines:"; tail -n 300 /tmp/native-build.log; exit 1; }; } \
     && tail -n 40 /tmp/native-build.log
 

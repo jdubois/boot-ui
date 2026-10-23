@@ -214,8 +214,8 @@ jobs:
     environment: docker-hub
     # The native builds dominate the runtime (healthy: about 10-20 minutes to build, 30 with the smoke
     # test and push), so they get a tighter cap that stops a thrashing native-image, which never finishes,
-    # well before 90 minutes while still leaving room for one late failure and the retry inside
-    # Dockerfile-native. The other images finish in well under 10 minutes.
+    # well before 90 minutes, with twice the healthy time as margin. The other images finish in well
+    # under 10 minutes.
     timeout-minutes: ${{ matrix.image == 'bootui-sample-app-native' && 60 || 90 }}
     # Only build from the canonical repository: forks lack the Docker Hub secrets.
     if: github.repository == 'jdubois/boot-ui'
@@ -321,6 +321,19 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY_IMAGE }}
+
+      # Extra memory headroom for the native-image builder, whose peak RSS is about 13.5-14.5 GB on the
+      # 16 GB hosted runners. Swap is not what made the arm64 build succeed (a heap cap below 16 GB, see
+      # Dockerfile-native, was the cause of the thrashing); it is a harmless safety margin.
+      - name: Add swap for the native-image build
+        if: matrix.image == 'bootui-sample-app-native'
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 16G /mnt/native-swap || sudo fallocate -l 8G /mnt/native-swap
+          sudo chmod 600 /mnt/native-swap
+          sudo mkswap /mnt/native-swap
+          sudo swapon /mnt/native-swap
+          free -h
 
       # A transient failure here (a Maven Central download whose checksum does not match, a registry
       # or GitHub Actions cache blip) used to fail the job. The first attempt may fail without failing
