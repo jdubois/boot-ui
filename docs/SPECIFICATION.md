@@ -1977,7 +1977,7 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   `unbatched-write-loop`, `readonly-candidate-transaction`, `paged-without-order`, `framework-warnings-by-route`,
   `anonymous-data-reach`), `NOT_LISTED`
   (`gc-inflated-latency`, `heap-growth-after-gc`,
-  reached from the Memory panel), and `NOT_JUDGED` (any kind added after the external validation) are not.
+  reached from the Memory panel), and `NOT_JUDGED` (`slow-flush`, `connection-reacquisition`, the M5 panel-row kinds, and any kind the registry does not name) are not.
   Every observation carries `listed`, whether the panel's and the agents' default list shows it, and, when it does
   not, `unlistedReason`: for a kind that is not listed, where its evidence is shown (the panel it is
   folded into, the Memory panel, its own panel, or the full list, a search, or a query naming it), or else the kind's own rule. Within the kinds, a `route-time-breakdown` is prominent with a warm median of 20 ms or more, authorization
@@ -2353,6 +2353,8 @@ Data sources:
 - JPA `EntityManagerFactory` metamodel when Hibernate ORM is present.
 - Spring Data repository metadata for query and paging heuristics.
 - Selected Spring Boot and Hibernate configuration properties.
+- The auto-commit default of the HikariCP or Agroal pool behind a resource-local persistence unit, read without
+  borrowing a connection (`HIB-CONFIG-008` and `HIB-CONFIG-021`).
 
 Features:
 
@@ -2510,8 +2512,9 @@ Acceptance criteria:
 
 ### 5.17.4 Database Advisor Panel
 
-Purpose: answer "Which deterministic structural risks exist in the application's physical database schema, and where
-does that schema disagree with explicit Hibernate mappings?"
+Purpose: answer "Which deterministic structural risks exist in the application's physical database schema, where does
+that schema disagree with explicit Hibernate mappings, and do the JDBC driver, the connection pool and the database
+server settings agree with each other?"
 
 Data sources:
 
@@ -2524,6 +2527,12 @@ Data sources:
 - The Hibernate/JPA metamodel, when available, for cross-referencing explicitly named entity tables (including
   `@SecondaryTable`), columns, foreign keys, unique constraints, numeric precision/scale and `IDENTITY` key generation
   with observed schema metadata.
+- The JDBC driver settings the scan connection's URL reports and the pool's driver properties carry (a short
+  allow-list of non-secret names, everything else discarded unread), and the sanitized sizing of the HikariCP or Agroal
+  pool attributed to the datasource, read without borrowing a connection.
+- A bounded, allow-listed read of a few server settings through the same scan connection (`pg_settings` on
+  PostgreSQL, `SHOW SESSION VARIABLES` on MySQL and MariaDB, plus the `pg_stat_statements` extension on PostgreSQL),
+  never application rows.
 
 Features:
 
@@ -2539,6 +2548,11 @@ Features:
   confirmed against the server's version banner before Oracle augmentation runs, since some Oracle-compatible
   databases report the same product name; Tibero, OceanBase, EDB Postgres Advanced Server, and H2's Oracle
   compatibility mode are never classified as Oracle. Catalog-query failures do not fail the generic scan.
+- Judge the JDBC driver settings (nine `DB-DRIVER-*` rules: batching rewrite, prepared-statement caches, savepoints,
+  diagnostic settings, socket timeout and application name), compare the connection pool with the server's limits
+  (four `DB-POOL-*` rules) and flag server settings that remove a safety net or the data the PostgreSQL and MySQL panels
+  need (seven `DB-SERVER-*` rules). These rules never run on missing evidence: they are `SKIPPED` with a reason, and the
+  Database Connection Pools, PostgreSQL and MySQL panels stay neutral, since the verdict belongs to the scored advisor.
 - When a Hibernate metamodel is available, compare only entities with explicit `@Table(name = ...)` (and
   `@SecondaryTable`) declarations against observed metadata. Even explicit logical names may be transformed by a
   physical naming strategy; discrepancies do not establish broken effective runtime mappings. Composite
@@ -2829,7 +2843,7 @@ Acceptance criteria:
 
 MySQL is an operational sibling to PostgreSQL, not another Database advisor. Oracle MySQL 8.4 LTS and 9.7 LTS are
 the tested server lines, with live coverage on 8.4.6 and 9.7.2 using Spring's Connector/J 9.7.0 / HikariCP 7.0.2 and
-Quarkus' Connector/J 9.6.0 / Agroal 3.0.1. Any other Oracle MySQL Community or Enterprise version is read with an INFO
+Quarkus' Connector/J 9.7.0 / Agroal 3.2.1. Any other Oracle MySQL Community or Enterprise version is read with an INFO
 diagnostic naming it as untested; sections the server cannot answer report their own reasons, and the read-only session
 guards still fail closed. Other compatible/managed flavors are skipped with an INFO diagnostic.
 MariaDB reached through MySQL Connector/J (detected from the driver's product version before any SQL, and confirmed by
@@ -3153,6 +3167,15 @@ advisor's rule catalogue (`Unknown advisor rule: ...`) and catalogue rules witho
 failed (`Advisor rule has no findings in the current scan.`), both return 404 with those distinct messages; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
 retrievable. Reads obey panel availability, enabled and safety policy, but are allowed in read-only mode, and never
 rescan or collect new observations.
+
+The Hibernate and Database advisors also let a developer dismiss one finding without hiding its rule, matched by rule
+id and canonical finding identity. Their reports add `suppression {suppressedFindings, incompleteRules, findings (the first 100),
+omitted}`, each rule result adds `suppressedCount` (its `violationCount`, samples, the severity counts and the score then
+describe the active findings), and a detail page adds `suppressed`, aligned with `violations` and empty when no finding on the page is
+dismissed, and `suppressedCount` while its `violationCount` stays the scan's total. Findings are stored in the strict,
+self-encoded `dismissedFindings` section of `.bootui/boot-ui.yml` (at most 1000, notes of at most 200 characters), and
+`/dismissed-findings` is governed by the global read-only policy like `/dismissed-rules`. Notes are user text served only
+by `GET /dismissed-findings`; no MCP tool or CLI command dismisses a finding or reads a note.
 
 Architecture, REST API, and Hibernate results add `sampleLocations`, aligned index-for-index with `sampleViolations`,
 and their pages fill `locations`, aligned with `violations`. Each non-null entry is an

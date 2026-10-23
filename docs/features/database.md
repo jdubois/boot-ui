@@ -170,7 +170,7 @@ ones; R2DBC-only applications are unavailable.
 
 ::: tip Tested compatibility
 **Oracle MySQL 8.4 LTS and 9.7 LTS** are the tested server lines, with Connector/J 9.7.0 and HikariCP on Spring and
-Connector/J 9.6.0 and Agroal on Quarkus. Other Oracle MySQL versions are read with an informational "not a tested
+Connector/J 9.7.0 and Agroal on Quarkus. Other Oracle MySQL versions are read with an informational "not a tested
 server line" diagnostic. Other flavors, such as Percona Server, are skipped.
 :::
 

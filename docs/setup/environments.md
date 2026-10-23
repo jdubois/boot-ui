@@ -107,7 +107,7 @@ BootUI keeps two developer-local files under `.bootui/` in the application's wor
 | File                            | Holds                                                           |
 | ------------------------------- | --------------------------------------------------------------- |
 | `application-bootui.properties` | Runtime overrides created from the Configuration panel.         |
-| `boot-ui.yml`                   | Advisor findings you dismissed, under a `dismissedRules:` node. |
+| `boot-ui.yml`                   | Advisor rules and findings you dismissed, under `dismissedRules:` and `dismissedFindings:` nodes. |
 
 Inside a container that directory belongs to the image, so a rebuild starts from a clean slate: toggles return to
 their configured value and dismissed findings reappear. `bootui.overrides-file` fixes both at once, because BootUI
@@ -153,6 +153,8 @@ into the image, so every rebuild starts from the same "these findings are known 
 dismissedRules:
   - RAPI-MAP-004
   - HIB-FETCH-001
+dismissedFindings:
+  - HIB-MAP-006 v1:unit=app|entity=com.acme.Order|member=customer
 ```
 
 ```dockerfile

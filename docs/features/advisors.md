@@ -247,7 +247,7 @@ badge and a **Restore** action, so nothing is hidden. Counts and the score follo
 whose findings are all dismissed leaves the active list for **All findings dismissed**, like a dismissed rule, and
 rule-level dismissal keeps its meaning and takes precedence.
 
-A collapsed **Dismissed findings** list under the rule results shows every dismissed finding of the advisor with what
+A collapsed **Dismissed findings** list under the rule results shows the dismissed findings of the advisor (up to 100, with the rest counted in `suppression.omitted`) with what
 the last scan says about it: still reported (**Restore**), no longer reported by a scan that concluded its rule
 (_orphaned_, **Remove**), not confirmable (for example no scan yet, a rule that failed, or details cut by the
 retention limit), or a rule this advisor no longer has. Each entry can carry a short note (up to 200 characters) that

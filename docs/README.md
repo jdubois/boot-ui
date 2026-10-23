@@ -18,7 +18,7 @@ features:
     link: /features/runtime
     linkText: Runtime panels
   - title: Advisors dashboard
-    details: Analyze and score your application with advanced advisors for architecture, REST API, Spring, Hibernate, JVM memory, Spring Security, pentesting, and vulnerabilities.
+    details: Analyze and score your application with advanced advisors for architecture, REST API, Spring, Hibernate, database, JVM memory, Spring Security, pentesting, and vulnerabilities.
     link: /features/advisors
     linkText: Advisor catalog
   - title: Diagnostics toolbox

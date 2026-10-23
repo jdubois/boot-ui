@@ -680,7 +680,7 @@ limit cannot recover discarded details without an explicitly authorized new scan
 separate from the report's `evidence` coverage. Dismissal does not change the scan ID or remove retained details.
 On the Hibernate and Database advisors a developer can also dismiss single findings in the console. A result's
 `violationCount` then counts active findings and `suppressedCount` those dismissed one by one; a page's `violationCount`
-stays the scan's total, its `suppressed` list (empty when none is dismissed) flags the dismissed ones, and
+stays the scan's total, its `suppressed` list (empty when no finding on that page is dismissed) flags the dismissed ones, and
 `suppressedCount` says how many. Treat flagged findings as developer-dismissed, not as fixed. Dismissing is not an
 agent action: there is no tool for it, and the developer's notes are never part of any MCP or CLI output.
 Some upstream observations supply a count but not every affected identity; their diagnostics and truncation remain

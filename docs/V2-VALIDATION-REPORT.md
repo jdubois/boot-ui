@@ -418,7 +418,7 @@ main-merge authorization, and administrative prerequisites remain separate and u
 ## Journal throughput budget revision, 2026-10-12
 
 The maintainer increased the journal-on versus journal-off throughput budget from 5 % to **10 %**
-([PLAN-v2.md D52](PLAN-v2.md#12-decisions)). The paired workload, median and interval reporting, report-only
+([PLAN-v2.md D52](PLAN-v2.md#_12-decisions)). The paired workload, median and interval reporting, report-only
 enforcement, capture-p99 target, retained-memory bound and agent budgets are unchanged. Historical reports below
 retain their original measured values, targets and verdicts; this is a prospective policy change, not a performance
 optimization or a rescore of earlier experiments.

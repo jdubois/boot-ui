@@ -919,7 +919,7 @@ Dismissing a rule removes all of its instances from the score.
   identified as generated, such as an OpenAPI Generator `ApiClient` whose default constructor calls
   `RestClient.builder()` when its `@Generated` source is available. Dismiss the finding for generated code that BootUI
   cannot identify. `new RestTemplate(..)` is out of scope: some APIs still require a `RestOperations`, and
-  [SPRING-WIRING-007](SPRING-CHECKS.md#spring-wiring-007---review-resttemplate-migration) already reviews RestTemplate.
+  [SPRING-WIRING-007](SPRING-CHECKS.md#spring-wiring-007-review-resttemplate-migration) already reviews RestTemplate.
 - **Recommendation**: inject `RestClient.Builder` or `WebClient.Builder` and build from it. Call `clone()` before
   building several clients from one builder instance. To start from Boot's defaults on a fresh builder, use
   `RestClientBuilderConfigurer`.

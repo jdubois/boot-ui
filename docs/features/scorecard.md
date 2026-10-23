@@ -19,9 +19,10 @@ findings for you.
 ## Overall score
 
 The overall score is the rounded arithmetic mean of the eligible, available, visible advisor scores, plus the GitHub
-security-alert score when that is eligible. **Average of N scores** names the contributing count, and the **Points
-deducted per score** grid shows each contributor's own score minus 100. Those deductions are not summed to produce the
-overall score.
+security-alert score when that is eligible. **Average of N scores** names the contributing count, and the **Where the
+points went** list names the contributors scoring below 100, worst first, each with a bar and its deduction (its own
+score minus 100); contributors at 100 are named on one **No deductions** line. Those deductions are not summed to
+produce the overall score.
 
 The gauge bands are **Good** (80–100), **Needs attention** (50–79), and **At risk** (0–49). They describe the scored
 results and help prioritize review. They do not measure application safety or assessment completeness, and running one

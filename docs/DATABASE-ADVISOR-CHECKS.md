@@ -81,12 +81,14 @@ percent-encoded parts joined with `|`, derived from the physical object and neve
 | A Hibernate mapping mismatch      | the resolved table parts, then `attribute=` and `column=` (or `columns=`, `unique=`)             |
 | A mapped entity with no table     | `entity=<entity>`, then `relation=` or `secondary=`                                              |
 | A runtime SQL shape (DB-RUNTIME-001) | `shape=<digest of the normalized statement>`                                                  |
+| A JDBC driver setting (DB-DRIVER-001..009) | `ds=<datasource>`, then `setting=<setting name>` (`setting=cachePrepStmts` for DB-DRIVER-004); never a value |
 | A connection-pool setting (DB-POOL-001..004) | `ds=<datasource>`, then `pool=idle-limit`, `pool=maximum-size` or `pool=max-lifetime`; never a value |
 | A database-server setting (DB-SERVER-001..007) | `ds=<datasource>`, then `server=<setting name>` (`server=pg_stat_statements` for DB-SERVER-004); never a value |
 
 Catalog, schema and table are separate parts, so a table named `a.b` cannot alias table `b` of schema `a`. A comparison
 never claims a finding is resolved for DB-RUNTIME-001, because its evidence is the SQL Trace window, or for a rule or
-datasource the scan could not fully read.
+datasource the scan could not fully read. The same identity is what a
+[single-finding dismissal](features/advisors.md#dismissing-a-single-finding) is matched on.
 
 ## Severity scale
 
@@ -652,10 +654,11 @@ Two kinds of evidence, both labelled **effective** (read from the live object or
   reported as a coverage gap, so a clean result never hides it and an earlier finding on it is not shown as resolved.
 - **The server.** A small allow-listed read in the same bounded scan as the other catalog reads (query timeout, row bound,
   scan budget, failure reported as a diagnostic, never a connection borrowed for the pool half):
-  PostgreSQL `select name, setting, unit from pg_settings where name in (...)` (bound names:
+  PostgreSQL `select name, setting, unit from pg_settings where name in (...)` (bound names the pool rules use:
   `max_connections`, `superuser_reserved_connections`, `reserved_connections`, `idle_session_timeout`) and MySQL/MariaDB
-  `show session variables where Variable_name in ('wait_timeout', 'max_connections')`, which, unlike a `UNION`, tolerates
-  a name the server does not know. The values are those of **the scan connection's own session**: a pool init statement
+  `show session variables where Variable_name in (...)` (`wait_timeout`, `max_connections`), which, unlike a `UNION`,
+  tolerates a name the server does not know. The same statements also carry the settings the [Server rules](#server)
+  judge, so one read serves both groups. The values are those of **the scan connection's own session**: a pool init statement
   or driver option can give pooled sessions another value. A setting the server did not report, one this version lacks
   (`idle_session_timeout` before PostgreSQL 14 is "not supported by this server version", `reserved_connections` before
   16 is simply `0`), or a value that does not parse is **unknown**, never zero.
@@ -711,7 +714,7 @@ size, or a server limit that is missing, truncated or does not parse, is `SKIPPE
 **LOW.** Fires when `maxLifetime` is `0` and `DB-POOL-001` does not report the same datasource. HikariCP recommends a
 lifetime several seconds shorter than any limit the database or the infrastructure in between imposes, which BootUI cannot
 see. It needs no server evidence and still runs when the server could not be read, with one exception: when whether
-`DB-POOL-001` owns the datasource is **unsettled** (the server limit could not be read for a HikariCP pool) the rule is
+`DB-POOL-001` owns a HikariCP datasource is **unsettled** (the server limit, or a pool setting that decides it, could not be read) the rule is
 `SKIPPED` rather than guess, so that the next scan cannot present a replaced finding as resolved. On Agroal `0` is the
 default unless `quarkus.datasource.jdbc.max-lifetime` is set, and Agroal's background validation is not observable here,
 so the finding is a review prompt there.
