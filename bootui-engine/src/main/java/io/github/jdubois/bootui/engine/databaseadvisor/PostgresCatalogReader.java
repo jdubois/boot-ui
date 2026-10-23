@@ -184,10 +184,24 @@ final class PostgresCatalogReader {
 
     /**
      * The {@code pg_settings} names the advisor reads, bound as parameters. {@code idle_session_timeout} exists from
-     * PostgreSQL 14 and {@code reserved_connections} from 16; a name the server lacks simply returns no row.
+     * PostgreSQL 14, {@code reserved_connections} from 16 and {@code idle_in_transaction_session_timeout} from 9.6; a
+     * name the server lacks, or hides from this role, simply returns no row.
      */
     static final List<String> SERVER_SETTING_NAMES = List.of(
-            "max_connections", "superuser_reserved_connections", "reserved_connections", "idle_session_timeout");
+            "max_connections",
+            "superuser_reserved_connections",
+            "reserved_connections",
+            "idle_session_timeout",
+            "idle_in_transaction_session_timeout",
+            "statement_timeout",
+            "autovacuum",
+            "track_io_timing",
+            "log_min_duration_statement",
+            "shared_preload_libraries");
+
+    /** Whether {@code pg_stat_statements} is created in the connected database; a constant, so nothing is bound. */
+    static final String PG_STAT_STATEMENTS_EXTENSION_SQL =
+            "select extname from pg_extension where extname = 'pg_stat_statements' limit ?";
 
     private PostgresCatalogReader() {}
 
@@ -201,6 +215,13 @@ final class PostgresCatalogReader {
         // First, and tiny: the other catalog reads must not spend the scan budget before the pool rules get their
         // limits.
         findings.add(readServerSettings(connection, budget, limits));
+        findings.add(CatalogQuery.read(
+                connection,
+                VendorFindingKinds.POSTGRES_PG_STAT_STATEMENTS_EXTENSION,
+                PG_STAT_STATEMENTS_EXTENSION_SQL,
+                budget,
+                limits,
+                resultSet -> new PostgresInstalledExtension(resultSet.getString("extname"))));
         findings.add(CatalogQuery.read(
                 connection,
                 VendorFindingKinds.POSTGRES_INVALID_INDEXES,

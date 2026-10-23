@@ -42,6 +42,12 @@ final class VendorFindingKinds {
     static final VendorFindingKind<ServerSetting> POSTGRES_SERVER_SETTINGS =
             new VendorFindingKind<>("postgresql.server-settings", "PostgreSQL server settings", ServerSetting.class);
 
+    static final VendorFindingKind<PostgresInstalledExtension> POSTGRES_PG_STAT_STATEMENTS_EXTENSION =
+            new VendorFindingKind<>(
+                    "postgresql.pg-stat-statements-extension",
+                    "PostgreSQL pg_stat_statements extension",
+                    PostgresInstalledExtension.class);
+
     static final VendorFindingKind<ServerSetting> MYSQL_SERVER_SETTINGS =
             new VendorFindingKind<>("mysql.server-settings", "MySQL/MariaDB server settings", ServerSetting.class);
 

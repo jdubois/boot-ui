@@ -51,7 +51,15 @@ final class DatabaseAdvisorRuleRegistry {
             new PoolIdleLimitRule(),
             new PoolExceedsServerConnectionsRule(),
             new PoolUnlimitedLifetimeRule(),
-            new PoolServerShareRule());
+            new PoolServerShareRule(),
+            // Database-server settings as the scan connection sees them
+            new PostgresIdleInTransactionTimeoutRule(),
+            new PostgresStatementTimeoutRule(),
+            new PostgresAutovacuumDisabledRule(),
+            new PostgresStatStatementsRule(),
+            new PostgresTrackIoTimingRule(),
+            new PostgresSlowStatementLogRule(),
+            new MySqlPerformanceSchemaDisabledRule());
 
     private DatabaseAdvisorRuleRegistry() {}
 

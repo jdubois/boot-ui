@@ -127,7 +127,7 @@ class BootUiQuarkusDatabaseAdvisorTest {
                 .isGreaterThanOrEqualTo(3);
         assertThat(scanned.path("rulesEvaluated").asInt())
                 .as("the shared rule registry (schema + dialect + Hibernate cross-reference rules) must have run")
-                .isEqualTo(41);
+                .isEqualTo(48);
 
         // Arc reports two DataSource beans here: the real Agroal pool and BootUI's own @Alternative SQL Trace
         // wrapper around it. Introspecting both would analyze the same physical database twice, under two

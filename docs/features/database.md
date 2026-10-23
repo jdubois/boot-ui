@@ -60,7 +60,10 @@ that belongs to `pg_monitor` where you can.
 
 ::: details How it relates to the Database advisor and SQL Trace
 
-- **Database advisor** checks physical schema structure from metadata and vendor catalogs.
+- **Database advisor** checks physical schema structure from metadata and vendor catalogs. Its
+  [Server rules](../DATABASE-ADVISOR-CHECKS.md#server) also judge a few of the settings shown here (a missing
+  `pg_stat_statements`, `track_io_timing`, autovacuum, the idle-in-transaction and statement timeouts, the slow-statement
+  log); this panel itself stays neutral.
 - **SQL Trace** shows statements this JVM recently issued.
 - **PostgreSQL** reads PostgreSQL's own cumulative `pg_stat_*` and `pg_catalog` views, which include work from every
   client of the database.
@@ -140,7 +143,8 @@ PostgreSQL-and-Redis stack.
 
 The MySQL panel is the operational sibling of the PostgreSQL panel. It reports what the connected server says, from
 MySQL's own Performance Schema and Information Schema. That complements the Database advisor's schema checks and SQL
-Trace's view of the statements this JVM issued.
+Trace's view of the statements this JVM issued. When the Performance Schema is off, the Database advisor's
+[Server rules](../DATABASE-ADVISOR-CHECKS.md#server) say so (`DB-SERVER-007`); the panel itself only reports it.
 
 Each datasource is one card, with vital signs in view and the other sections as tabs. A section that could not be read
 names its reason, so incomplete evidence never reads as an idle server. There are no grades, severities, or

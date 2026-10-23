@@ -99,6 +99,75 @@ class DatabaseAdvisorScannerTests {
     }
 
     @Test
+    void theServerSettingRulesJudgeTheCatalogReadAndTheirFindingsCanBeSuppressedByIdentity() {
+        SchemaSnapshot postgres = new SchemaSnapshot(
+                "primary",
+                Dialect.POSTGRESQL,
+                "PostgreSQL",
+                DatabaseVersion.of(17, 0, "17.0"),
+                "LOWER",
+                List.of(),
+                VendorFindings.builder()
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.POSTGRES_SERVER_SETTINGS,
+                                List.of(
+                                        DatabaseAdvisorFixtures.setting("idle_in_transaction_session_timeout", "0"),
+                                        DatabaseAdvisorFixtures.setting("statement_timeout", "30000"),
+                                        DatabaseAdvisorFixtures.setting("autovacuum", "on"),
+                                        DatabaseAdvisorFixtures.setting("track_io_timing", "on"),
+                                        DatabaseAdvisorFixtures.setting("log_min_duration_statement", "-1"),
+                                        DatabaseAdvisorFixtures.setting("shared_preload_libraries", "auto_explain")),
+                                false))
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.POSTGRES_PG_STAT_STATEMENTS_EXTENSION, List.of(), false))
+                        .build(),
+                List.of(),
+                false,
+                null);
+        DatabaseAdvisorScanner scanner = scannerWith(evidence(List.of(), Map.of()));
+        try (var introspector = mockStatic(SchemaIntrospector.class)) {
+            introspector
+                    .when(() ->
+                            SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any(), any()))
+                    .thenReturn(postgres);
+
+            DatabaseAdvisorReport report = scanner.scan();
+
+            assertThat(report.results())
+                    .filteredOn(result -> result.id().startsWith("DB-SERVER-"))
+                    .extracting(result -> result.id() + ":" + result.status())
+                    .containsExactly("DB-SERVER-001:VIOLATION", "DB-SERVER-004:VIOLATION", "DB-SERVER-006:VIOLATION");
+            // a PostgreSQL-only inventory makes the MySQL rule not applicable
+            assertThat(report.diagnostics())
+                    .filteredOn(diagnostic -> diagnostic.source().equals("DB-SERVER-007"))
+                    .singleElement()
+                    .satisfies(diagnostic -> assertThat(diagnostic.message()).startsWith("Not applicable:"));
+            String scanId = report.violationDetails().scanId();
+            assertThat(scanner.ruleViolations("DB-SERVER-001", scanId, 0, 100).violations())
+                    .singleElement()
+                    .asString()
+                    .contains("idle_in_transaction_session_timeout is 0");
+
+            String identity = "v1:ds=primary|server=idle_in_transaction_session_timeout";
+            DatabaseAdvisorReport dismissed = scanner.dismissedReport(
+                    java.util.Set.of(),
+                    List.of(new io.github.jdubois.bootui.core.dto.DismissedFindingDto(
+                            "DB-SERVER-001", identity, null)));
+            assertThat(dismissed.results())
+                    .filteredOn(result -> result.id().equals("DB-SERVER-001"))
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.violationCount()).isZero();
+                        assertThat(result.suppressedCount()).isEqualTo(1);
+                    });
+            assertThat(dismissed.results())
+                    .filteredOn(result -> result.id().equals("DB-SERVER-004"))
+                    .singleElement()
+                    .satisfies(result -> assertThat(result.violationCount()).isEqualTo(1));
+        }
+    }
+
+    @Test
     void driverEvidenceAndBatchingReachTheDriverRulesAndThePoolPropertiesReachTheIntrospector() {
         SchemaSnapshot postgres = DatabaseAdvisorFixtures.driverSchema(
                 "primary",
@@ -865,7 +934,7 @@ class DatabaseAdvisorScannerTests {
     @Test
     void retiredIdsAreNotRegisteredOrReusedAndOldDismissalsAreHarmless() {
         Set<String> retired = Set.of("DB-SCHEMA-008", "DB-SCHEMA-009", "DB-HIB-001", "DB-HIB-008");
-        assertThat(DatabaseAdvisorRuleRegistry.activeRules()).hasSize(41);
+        assertThat(DatabaseAdvisorRuleRegistry.activeRules()).hasSize(48);
         assertThat(DatabaseAdvisorRuleRegistry.activeRules())
                 .noneMatch(rule -> retired.contains(rule.definition().id()));
         DatabaseAdvisorScanner scanner = scannerFor(List.of(new NamedDataSource("primary", dataSource)));

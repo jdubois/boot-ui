@@ -1,5 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.databaseadvisor;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -51,5 +54,13 @@ class MySqlPoolServerRulesLiveTests {
     @Test
     void aPoolLargerThanMaxConnectionsFiresDbPool002() {
         PoolServerLiveSupport.assertOversizedPoolExceedsTheServer(dataSource, mysql.getPassword());
+    }
+
+    @Test
+    void performanceSchemaIsReadFromTheLiveServerAndPassesWhenOn() {
+        DatabaseAdvisorReport report = PoolServerLiveSupport.scan(
+                dataSource, PoolServerLiveSupport.hikari(10, 10, 0, 45_000L, 0), mysql.getPassword());
+
+        assertThat(PoolServerLiveSupport.outcome(report, "DB-SERVER-007")).isEqualTo("PASS");
     }
 }

@@ -9,6 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`DB-SERVER-001..007`** flag PostgreSQL and MySQL server settings that remove a safety net or the data the panels need:
+  no idle-in-transaction or statement timeout, autovacuum off, `pg_stat_statements` missing, `track_io_timing` off, no
+  slow-statement log, and MySQL `performance_schema` off
+  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#server); [#1520](https://github.com/jdubois/boot-ui/issues/1520)).
 - **`DB-POOL-001..004`** compare a HikariCP or Agroal pool with the PostgreSQL or MySQL/MariaDB server: idle connections
   outliving the server's limit, a pool larger than the server, no pool headroom, and an unlimited `maxLifetime`
   ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#connection-pool); [#1519](https://github.com/jdubois/boot-ui/issues/1519)).

@@ -63,6 +63,21 @@ final class PoolServerLiveSupport {
                 .findFirst();
     }
 
+    /**
+     * How a rule ended: a reported rule keeps its status, a skipped rule is only a diagnostic, and a clean pass
+     * leaves neither.
+     */
+    static String outcome(DatabaseAdvisorReport report, String id) {
+        Optional<DatabaseAdvisorRuleResultDto> result = rule(report, id);
+        if (result.isPresent()) {
+            return result.get().status();
+        }
+        return report.diagnostics().stream()
+                        .anyMatch(diagnostic -> diagnostic.source().equals(id))
+                ? "SKIPPED"
+                : "PASS";
+    }
+
     /** Asserts that the server short timeout plus a long pool {@code maxLifetime} is judged, from a real server. */
     static void assertIdleLimitFires(DataSource dataSource, String password, String setting) {
         DatabaseAdvisorReport report = scan(dataSource, hikari(10, 10, 10 * MINUTE, 30 * MINUTE, 0), password);
