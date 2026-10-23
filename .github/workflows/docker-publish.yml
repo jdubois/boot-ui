@@ -212,8 +212,11 @@ jobs:
     # job must opt in to that environment to read them: the login raises the anonymous
     # base-image pull-rate limit, and the verified image is pushed by digest from here.
     environment: docker-hub
-    # The native build dominates the runtime; allow generous headroom.
-    timeout-minutes: 90
+    # The native builds dominate the runtime (healthy: about 10-20 minutes to build, 30 with the smoke
+    # test and push), so they get a tighter cap that stops a thrashing native-image, which never finishes,
+    # well before 90 minutes, with twice the healthy time as margin. The other images finish in well
+    # under 10 minutes.
+    timeout-minutes: ${{ matrix.image == 'bootui-sample-app-native' && 60 || 90 }}
     # Only build from the canonical repository: forks lack the Docker Hub secrets.
     if: github.repository == 'jdubois/boot-ui'
     strategy:
@@ -319,16 +322,9 @@ jobs:
         with:
           images: ${{ env.REGISTRY_IMAGE }}
 
-      # A transient failure here (a Maven Central download whose checksum does not match, a registry
-      # or GitHub Actions cache blip) used to fail the job. The first attempt may fail without failing
-      # the job; the retry below repeats the identical build (the BuildKit cache makes it cheap) and is
-      # the attempt the later steps depend on. A deterministic failure therefore still fails the job:
-      # the retry fails the same way, and this attempt's error stays in the log. Only an early failure
-      # is retried (see the wait step): a build that already ran for a quarter of an hour, such as a
-      # native-image out-of-memory, would just fail again and eat the job's timeout. Keep the two
-      # `with:` blocks identical: check-release-integrity.sh compares them.
-      # The native-image builder ran out of memory on the 16 GB hosted arm64 runner (its heap alone is
-      # 13 GB), after which the build hung until the job timeout. Swap gives it headroom.
+      # Extra memory headroom for the native-image builder, whose peak RSS is about 13.5-14.5 GB on the
+      # 16 GB hosted runners. Swap is not what made the arm64 build succeed (a heap cap below 16 GB, see
+      # Dockerfile-native, was the cause of the thrashing); it is a harmless safety margin.
       - name: Add swap for the native-image build
         if: matrix.image == 'bootui-sample-app-native'
         run: |
@@ -339,6 +335,14 @@ jobs:
           sudo swapon /mnt/native-swap
           free -h
 
+      # A transient failure here (a Maven Central download whose checksum does not match, a registry
+      # or GitHub Actions cache blip) used to fail the job. The first attempt may fail without failing
+      # the job; the retry below repeats the identical build (the BuildKit cache makes it cheap) and is
+      # the attempt the later steps depend on. A deterministic failure therefore still fails the job:
+      # the retry fails the same way, and this attempt's error stays in the log. Only an early failure
+      # is retried (see the wait step): a build that already ran for a quarter of an hour, such as a
+      # native-image out-of-memory, would just fail again and eat the job's timeout. Keep the two
+      # `with:` blocks identical: check-release-integrity.sh compares them.
       - name: Record the build start time
         run: echo "BUILD_STARTED=$(date +%s)" >> "$GITHUB_ENV"
 

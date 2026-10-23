@@ -52,11 +52,13 @@ RUN chmod +x mvnw
 # honors this via the NATIVE_IMAGE_OPTIONS environment variable, so it needs no pom changes and does
 # not affect a local, host `-Pnative` build. The GraalVM build image already ships the static zlib
 # (libz.a) this requires. Use lighter compilation and a single build thread, and raise the builder's heap
-# above its default (about 75% of RAM, 12 GB on the 16 GB hosted arm64 runner), where the build ran out of
-# heap or thrashed in GC until the watchdog aborted it; 13 GB leaves the rest for the OS and the Maven JVM.
-# A failed build is not retried here: repeating the same configuration only ran out of memory again and
-# held the job until its timeout. The publish workflow adds swap on the runner for this image instead.
-ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC -O1 --parallelism=1 -J-Xmx13g"
+# above its default (about 75% of RAM, 12 GB on the 16 GB hosted runners). The analysis phase needs about
+# 8 GB, but a heap cap below about 16 GB makes the collector thrash: the build ran out of heap, was aborted by
+# the image generator watchdog, or never finished (13 GB did not fit on the arm64 runner; 16 GB builds in
+# about 19 minutes). The cap is a ceiling, not a reservation: peak RSS stays around 13.5-14.5 GB.
+ENV NATIVE_IMAGE_OPTIONS="-H:+StaticExecutableWithDynamicLibC -O1 --parallelism=1 -J-Xmx16g"
+# A failed build is not retried here: repeating the same configuration only failed again and held the job
+# until its timeout.
 
 # Build the native executable for the sample app and its reactor dependencies.
 # The `native` profile (declared in bootui-spring-sample-app/pom.xml) runs Spring
