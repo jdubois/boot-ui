@@ -7,62 +7,59 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+This release adds 20 Database advisor rules (28 to 48), five Runtime Insights observations (23 to 28), a CLI
+severity gate, and per-finding change tracking and dismissal on the Hibernate and Database advisors.
+
 ### Added
 
-- **`DB-SERVER-001..007`** flag PostgreSQL and MySQL server settings that remove a safety net or the data the panels need:
-  no idle-in-transaction or statement timeout, autovacuum off, `pg_stat_statements` missing, `track_io_timing` off, no
-  slow-statement log, and MySQL `performance_schema` off
-  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#server); [#1520](https://github.com/jdubois/boot-ui/issues/1520)).
-- **`DB-POOL-001..004`** compare a HikariCP or Agroal pool with the PostgreSQL or MySQL/MariaDB server: idle connections
-  outliving the server's limit, a pool larger than the server, no pool headroom, and an unlimited `maxLifetime`
-  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#connection-pool); [#1519](https://github.com/jdubois/boot-ui/issues/1519)).
-- **`DB-DRIVER-001..003` (MEDIUM)** flag a pgjdbc or MySQL Connector/J datasource that batches writes without
-  `reWriteBatchedInserts`/`rewriteBatchedStatements`, and Connector/J `useAffectedRows=true`
-  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#jdbc-driver); [#1517](https://github.com/jdubois/boot-ui/issues/1517)).
-- **`DB-DRIVER-004..009` (LOW)** flag a small or disabled prepared-statement cache, `autosave=always`, enabled driver
-  diagnostics, no `socketTimeout` and a missing pgjdbc `ApplicationName`
-  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md#jdbc-driver); [#1518](https://github.com/jdubois/boot-ui/issues/1518)).
-- **`slow-flush` observation** reports a route whose requests spent 100 ms or more, and a fifth of their ORM time, in
-  Hibernate flushes ([#1515](https://github.com/jdubois/boot-ui/issues/1515)).
-- **`paged-without-order` observation** reports a SELECT that limits its rows without an `ORDER BY`, so its pages can
-  repeat or skip rows ([#1522](https://github.com/jdubois/boot-ui/issues/1522)).
-- **`unbatched-write-loop` observation** reports a request that ran one write statement ten times or more, each without
-  a JDBC batch ([#1521](https://github.com/jdubois/boot-ui/issues/1521)).
+- **20 Database advisor rules** (28 to 48; [Database checks](docs/DATABASE-ADVISOR-CHECKS.md)), plus a bounded read-only
+  read of the server's settings:
+  **`DB-DRIVER-001..009`** for pgjdbc and MySQL Connector/J settings (MEDIUM 001-003, LOW 004-009;
+  [#1517](https://github.com/jdubois/boot-ui/issues/1517), [#1518](https://github.com/jdubois/boot-ui/issues/1518)),
+  **`DB-POOL-001..004`** for a HikariCP or Agroal pool that does not fit its server (MEDIUM 001-002, LOW 003-004;
+  [#1519](https://github.com/jdubois/boot-ui/issues/1519)), and
+  **`DB-SERVER-001..007`** for PostgreSQL and MySQL settings that remove a safety net or the data the panels need
+  (MEDIUM 003, LOW the rest; [#1520](https://github.com/jdubois/boot-ui/issues/1520)).
+- **Five Runtime Insights observations** (23 to 28; [Runtime Insights](docs/features/runtime-insights.md)):
+  `readonly-candidate-transaction` ([#1513](https://github.com/jdubois/boot-ui/issues/1513)),
+  `connection-reacquisition` ([#1514](https://github.com/jdubois/boot-ui/issues/1514)),
+  `slow-flush` ([#1515](https://github.com/jdubois/boot-ui/issues/1515)),
+  `unbatched-write-loop` ([#1521](https://github.com/jdubois/boot-ui/issues/1521)), and
+  `paged-without-order` ([#1522](https://github.com/jdubois/boot-ui/issues/1522)).
+- **Changes since the previous scan** on the Hibernate and Database advisors show what a fix resolved and what is new
+  ([#1523](https://github.com/jdubois/boot-ui/issues/1523)).
+- **Per-finding dismissal** on the Hibernate and Database advisors stops one finding counting towards the totals and
+  score, and keeps it restorable ([#1524](https://github.com/jdubois/boot-ui/issues/1524)).
+- **`--fail-on <severity>` for CLI advisor commands** exits `3` when a retained finding reaches the threshold, and `1`
+  when the scan cannot be evaluated ([CLI](docs/CLI.md#gate-on-severity); [#1516](https://github.com/jdubois/boot-ui/issues/1516)).
 - **`HIB-CONFIG-021` (HIGH)** flags `hibernate.connection.provider_disables_autocommit=true` on a pool that hands out
   auto-commit connections, and `HIB-CONFIG-008` now reads the pool's auto-commit instead of always skipping
-  ([Hibernate checks](docs/HIBERNATE-CHECKS.md#hib-config-021-provider-auto-commit-setting-should-match-the-pool); #1512).
-- **`--fail-on <severity>` for CLI advisor commands** exits `3` when a retained finding reaches the threshold, and `1`
-  when the scan cannot be evaluated ([#1516](https://github.com/jdubois/boot-ui/issues/1516)).
-- **`connection-reacquisition` observation** reports a route whose Hibernate session borrowed a JDBC connection two or
-  more times in a row ([#1514](https://github.com/jdubois/boot-ui/issues/1514)).
-- **Low-footprint MCP and CLI controls** pause and resume BootUI recording, with explicit paused-evidence
-  notices in affected diagnostic results ([#1479](https://github.com/jdubois/boot-ui/issues/1479)).
-- **`ARCH-SPRING-025` (LOW)** flags `RestClient.builder(..)`/`create(..)` and `WebClient.builder()`/`create(..)` when
-  Spring Boot's auto-configured builder is available, since those clients skip metrics, tracing, and shared
-  customizers ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-025---http-clients-should-be-built-from-spring-boots-auto-configured-builder); #1500).
-- **Changes since the previous scan** on the Hibernate and Database advisors show what a fix resolved and what is new,
-  and every finding carries a stable identity ([#1523](https://github.com/jdubois/boot-ui/issues/1523)).
-- **Per-finding dismissal** on the Hibernate and Database advisors hides one finding of a rule from the counts and
-  score, keeps it restorable, and lists orphaned dismissals ([#1524](https://github.com/jdubois/boot-ui/issues/1524)).
-- **`readonly-candidate-transaction`** reports a read-write `@Transactional` method whose transactions never changed
-  an entity or ran a write, so it may be declared read-only
-  ([#1513](https://github.com/jdubois/boot-ui/issues/1513)).
+  ([Hibernate checks](docs/HIBERNATE-CHECKS.md#hib-config-021---provider-auto-commit-setting-should-match-the-pool); [#1512](https://github.com/jdubois/boot-ui/issues/1512)).
+- **`ARCH-SPRING-025` (LOW)** flags `RestClient` and `WebClient` instances built outside Spring Boot's auto-configured
+  builder, which skip metrics, tracing, and shared customizers
+  ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-025---http-clients-should-be-built-from-spring-boots-auto-configured-builder); [#1500](https://github.com/jdubois/boot-ui/issues/1500)).
+- **Low-footprint MCP and CLI controls** pause and resume BootUI recording, mark affected results as paused, and refuse
+  recorder resumes and new method probes while the mode is on ([#1479](https://github.com/jdubois/boot-ui/issues/1479)).
 
 ### Changed
 
-- **SQL Trace reads MySQL `#` line comments** like `--` comments when it normalizes a statement, so a comment no
-  longer hides or fakes a keyword and its values are not shown.
-- **Faster CI builds.** The integration tests that run the BootUI agent in forked JVMs, the slowest in the build, now
-  run in their own parallel `agent-integration-tests` job instead of holding up every module that depends on the agent,
-  and that job runs the agent's Failsafe tests on two forks. `-Dbootui.skipAgentIts` and `-Dbootui.skipFrontendTests` skip those tests
-  and the Vitest run on their own, and `-DskipTests` still skips both ([Contributing](CONTRIBUTING.md#testing)).
 - **Paused panels can turn low-footprint mode off** from their banner, and AI Framework now shows that banner too
   ([#1478](https://github.com/jdubois/boot-ui/pull/1478)).
+- **SQL Trace reads MySQL `#` line comments** that are followed by whitespace like `--` comments
+  ([#1533](https://github.com/jdubois/boot-ui/pull/1533)).
+- **The Scorecard's overall score card lists only the advisors that lost points**, worst first
+  ([#1527](https://github.com/jdubois/boot-ui/issues/1527)).
+
+### Removed
+
+- **`HIB-ENTITY-002`** is retired: Hibernate 7 refuses to start with the mapping it checked, so it could never fire.
+  Its ID stays documented as retired and is not reused ([Hibernate checks](docs/HIBERNATE-CHECKS.md); [#1542](https://github.com/jdubois/boot-ui/pull/1542)).
 
 ### Fixed
 
-- **Hibernate advisor false positives** no longer flag a self-referencing `@OneToOne` for `@MapsId` (HIB-MAP-006), a
-  mandatory inverse `@OneToOne` over a shared primary key (HIB-MAP-018), or Envers' own revision entity ([#1511](https://github.com/jdubois/boot-ui/issues/1511)).
+- **Hibernate advisor false positives** no longer flag a self-referencing `@OneToOne` for `@MapsId` (`HIB-MAP-006`), a
+  mandatory inverse `@OneToOne` over a shared primary key (`HIB-MAP-018`), or Envers' own revision entity
+  ([#1511](https://github.com/jdubois/boot-ui/issues/1511)).
 - **Exact exception navigation** links failed request profiles and activity rows to their exception group's stack
   trace and causes, with a return path to the request ([#1477](https://github.com/jdubois/boot-ui/issues/1477)).
 
