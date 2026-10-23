@@ -325,7 +325,7 @@ async function refreshCachedReport() {
 }
 
 .advisor-violation-location {
-  font-size: 0.8125rem;
+  font-size: 0.85rem;
 }
 
 .advisor-finding-actions {
