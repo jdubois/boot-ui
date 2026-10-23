@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.AgentRing;
+import java.lang.ref.Reference;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
@@ -88,12 +89,15 @@ class AgentClaimTests {
 
     @Test
     void releasingWithoutATokenSparesAnotherApplicationsArmedClaim() {
-        AgentClaim.claim(access, "app", "app@1", "dev", List.of("com.example"));
+        AgentClaim holder = AgentClaim.claim(access, "app", "app@1", "dev", List.of("com.example"));
+        System.gc();
 
         assertThat(AgentClaim.release(access, "disabled", "dev")).containsEntry("status", "held");
         assertThat(bridgeClaim()).containsEntry("owner", "app@1");
         assertThat(AgentClaim.release(access, "app", "dev")).containsEntry("status", "released");
         assertThat(AgentBridge.status().get("claim")).isNull();
+        // The bridge holds the claim's capture weakly: a collected claim is abandoned, and a release then removes it.
+        Reference.reachabilityFence(holder);
     }
 
     @Test

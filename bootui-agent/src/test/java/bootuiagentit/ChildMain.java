@@ -116,6 +116,9 @@ public final class ChildMain {
         Map<String, Object> status =
                 (Map<String, Object>) bridge.getMethod("status").invoke(null);
         System.out.println("EXECUTORS=" + status.get("executors"));
+        // The bridge holds the claim's capture and reopen weakly: they must outlive every task submitted above.
+        java.lang.ref.Reference.reachabilityFence(capture);
+        java.lang.ref.Reference.reachabilityFence(reopen);
     }
 
     static void claimOnly() throws Exception {
