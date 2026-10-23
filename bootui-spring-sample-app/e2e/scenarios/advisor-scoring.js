@@ -1144,7 +1144,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       await expect(page.locator('.advisor-summary__score')).toHaveCount(0)
       await expect(page.locator('.advisor-summary__assessment')).toContainText('No usable assessment evidence')
       await expect(page.locator('details.advisor-summary__notes')).toHaveCount(0)
-      await page.getByRole('button', {name: /^Dismiss rule /}).click()
+      await page.getByRole('button', {name: /Dismiss$/}).click()
       await expect(page.getByRole('button', {name: /Restore$/})).toBeVisible()
       await expect(page.locator('.advisor-summary__score')).toHaveCount(0)
       await page.locator('a[href$="#/scorecard"]').first().click()
