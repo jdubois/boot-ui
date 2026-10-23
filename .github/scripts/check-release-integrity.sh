@@ -697,25 +697,83 @@ if ! grep -Eq '^    needs: gate$' <<<"$docker_config" ||
   [[ "$(grep -E '^    if:' <<<"$docker_config" || true)" != "    if: \${{ !inputs.cleanup_only && needs.gate.outputs.publish == 'true' }}" ]]; then
   report_workflow_error "$DOCKER_WORKFLOW" 'docker-config must run only when the release-line gate allows it'
 fi
-if ! grep -Eq '^    needs: docker-config$' <<<"$docker_build" || ! grep -Eq '^    needs: build$' <<<"$docker_merge"; then
+if ! grep -Eq '^    needs: docker-config$' <<<"$docker_build" || ! grep -Eq '^    needs: \[docker-config, build\]$' <<<"$docker_merge"; then
   report_workflow_error "$DOCKER_WORKFLOW" 'image builds and tags must follow the gated docker-config job'
 fi
-# A status function such as always() would run a job after a skipped docker-config, so the image
-# jobs keep exactly the repository condition and nothing else.
+# A status function such as always() would run a job after a skipped docker-config, so the build job
+# keeps exactly the repository condition and nothing else. The merge job runs per image after a failed
+# build of another image (!cancelled()), so it must instead require docker-config to have succeeded,
+# which a skipped release-line gate or a failed validation never does.
 readonly DOCKER_JOB_CONDITION="    if: github.repository == 'jdubois/boot-ui'"
-for job in build merge; do
-  block="$(job_block "$DOCKER_WORKFLOW" "$job")"
-  if [[ "$(grep -E '^    if:' <<<"$block" || true)" != "$DOCKER_JOB_CONDITION" ]]; then
-    report_workflow_error "$DOCKER_WORKFLOW" \
-      "the $job job must keep exactly \"if: github.repository == 'jdubois/boot-ui'\" so it never runs after a skipped docker-config"
-  fi
-done
+readonly DOCKER_MERGE_CONDITION="    if: \${{ !cancelled() && github.repository == 'jdubois/boot-ui' && needs.docker-config.result == 'success' }}"
+if [[ "$(grep -E '^    if:' <<<"$docker_build" || true)" != "$DOCKER_JOB_CONDITION" ]]; then
+  report_workflow_error "$DOCKER_WORKFLOW" \
+    "the build job must keep exactly \"if: github.repository == 'jdubois/boot-ui'\" so it never runs after a skipped docker-config"
+fi
+if [[ "$(grep -E '^    if:' <<<"$docker_merge" || true)" != "$DOCKER_MERGE_CONDITION" ]]; then
+  report_workflow_error "$DOCKER_WORKFLOW" \
+    "the merge job must run after a skipped docker-config never (needs.docker-config.result == 'success') and per image after a failed build (!cancelled())"
+fi
 for job in $(job_names "$DOCKER_WORKFLOW"); do
   case "$job" in
     gate | docker-config | build | merge | prune) ;;
     *) report_workflow_error "$DOCKER_WORKFLOW" "unexpected job '$job' outside the release-line gate" ;;
   esac
 done
+
+# The image build and push each get one retry, so a transient failure does not hold back the night's
+# `latest` tags. The retry must repeat the first attempt exactly, only run after its failure, and be the
+# attempt the digest comes from; otherwise the retried image could differ from the one that was tested.
+step_block() {
+  job_block "$1" "$2" | awk -v name="      - name: $3" '
+    $0 == name { inside = 1; print; next }
+    inside && /^      - / { inside = 0 }
+    inside { print }
+  '
+}
+step_with() {
+  step_block "$1" "$2" "$3" | awk '
+    /^        uses:/ { print }
+    /^        with:/ { with = 1; next }
+    with && $0 !~ /^[[:space:]]*#/ { print }
+  '
+}
+for pair in \
+  "Build the image and load it for the smoke test|build_first|build_retry|steps.build_first.outcome == 'failure' && steps.build_wait.outputs.retry == 'true'" \
+  "Push the smoke-tested image with a retention tag|push_first|push_retry|steps.push_first.outcome == 'failure'"; do
+  IFS='|' read -r step first retry condition <<<"$pair"
+  first_block="$(step_block "$DOCKER_WORKFLOW" build "$step")"
+  retry_block="$(step_block "$DOCKER_WORKFLOW" build "$step (retry)")"
+  first_with="$(step_with "$DOCKER_WORKFLOW" build "$step")"
+  retry_with="$(step_with "$DOCKER_WORKFLOW" build "$step (retry)")"
+  if [[ -z "$first_with" || "$first_with" != "$retry_with" ]]; then
+    report_workflow_error "$DOCKER_WORKFLOW" "the retry of '$step' must repeat the first attempt's inputs exactly"
+  fi
+  if ! grep -Fxq "        id: $first" <<<"$first_block" ||
+    ! grep -Fxq '        continue-on-error: true' <<<"$first_block"; then
+    report_workflow_error "$DOCKER_WORKFLOW" "the first attempt of '$step' must have id $first and continue on error"
+  fi
+  if ! grep -Fxq "        id: $retry" <<<"$retry_block" ||
+    ! grep -Fxq "        if: $condition" <<<"$retry_block" ||
+    grep -Fq 'continue-on-error' <<<"$retry_block"; then
+    report_workflow_error "$DOCKER_WORKFLOW" \
+      "the retry of '$step' must have id $retry, run only after $first failed ($condition), and must not continue on error"
+  fi
+done
+if [[ "$(grep -Fc -- '        continue-on-error: true' <<<"$docker_build" || true)" -ne 2 ]]; then
+  report_workflow_error "$DOCKER_WORKFLOW" 'only the first build and push attempts may continue on error'
+fi
+require_workflow_literal "$DOCKER_WORKFLOW" "- name: Fail when no image build attempt succeeded" \
+  'the step failing the job when the build and its retry did not produce an image'
+# A skipped image must publish nothing: every merge step after the readiness check depends on it.
+for step in 'Download the per-platform digests' 'Log in to Docker Hub' 'Create the retention-tagged manifest list' \
+  'Apply release tags to the retained manifest list' 'Inspect the published manifest list'; do
+  if ! grep -Fxq "        if: steps.ready.outputs.ready == 'true'" <<<"$(step_block "$DOCKER_WORKFLOW" merge "$step")"; then
+    report_workflow_error "$DOCKER_WORKFLOW" "the merge step '$step' must run only when both platform images of the image were published"
+  fi
+done
+require_workflow_literal "$DOCKER_WORKFLOW" \
+  'steps.push_retry.outputs.digest || steps.push_first.outputs.digest' 'the digest of the successful push attempt'
 
 # Every branch declares its release line, consistent with its project version.
 project_version="$(perl -0ne 'print $1 and exit if m{<artifactId>bootui-parent</artifactId>\s*<version>([^<]+)</version>}' "$ROOT_POM")"

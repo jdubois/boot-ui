@@ -399,6 +399,25 @@ class HistoryTests(unittest.TestCase):
                 result = self.recover(client)
                 self.assertEqual({D1: NEW}, result["repositories"][REPO])
 
+    def test_build_fallback_recovers_a_push_made_by_the_retry_attempt(self):
+        retry_push = {
+            "name": "Push the smoke-tested image with a retention tag (retry)",
+            "conclusion": "success",
+            "started_at": "2026-09-01T08:03:00Z",
+            "completed_at": "2026-09-01T08:03:10Z",
+        }
+        first_push = {**retry_push, "name": "Push the smoke-tested image with a retention tag",
+                      "started_at": "2026-09-01T08:02:00Z", "completed_at": "2026-09-01T08:02:10Z"}
+        client = FakeGitHub(
+            runs=[run(conclusion="failure")],
+            jobs={10: [merge_job(conclusion="skipped"), build_job(steps=[first_push, retry_push])]},
+            downloads={
+                "/actions/jobs/20/logs": log("##[error]merge skipped"),
+                "/actions/jobs/21/logs": build_log(),
+            },
+        )
+        self.assertEqual({D1: NEW}, self.recover(client)["repositories"][REPO])
+
     def test_failed_merge_can_recover_partially_pushed_index_too(self):
         client = FakeGitHub(
             runs=[run(conclusion="failure")],

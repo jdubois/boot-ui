@@ -170,7 +170,7 @@ jobs:
         run: ./node_modules/.bin/playwright install --with-deps chromium
 
       - name: Pre-pull the Docker Compose images
-        run: docker compose -f bootui-spring-sample-app/compose.yaml pull
+        run: bash .github/scripts/retry.sh 2 30 docker compose -f bootui-spring-sample-app/compose.yaml pull
 
       - name: Run the end-to-end suite against the Docker profile
         working-directory: bootui-spring-sample-app/e2e
@@ -319,7 +319,20 @@ jobs:
         with:
           images: ${{ env.REGISTRY_IMAGE }}
 
+      # A transient failure here (a Maven Central download whose checksum does not match, a registry
+      # or GitHub Actions cache blip) used to fail the job. The first attempt may fail without failing
+      # the job; the retry below repeats the identical build (the BuildKit cache makes it cheap) and is
+      # the attempt the later steps depend on. A deterministic failure therefore still fails the job:
+      # the retry fails the same way, and this attempt's error stays in the log. Only an early failure
+      # is retried (see the wait step): a build that already ran for a quarter of an hour, such as a
+      # native-image out-of-memory, would just fail again and eat the job's timeout. Keep the two
+      # `with:` blocks identical: check-release-integrity.sh compares them.
+      - name: Record the build start time
+        run: echo "BUILD_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Build the image and load it for the smoke test
+        id: build_first
+        continue-on-error: true
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -339,6 +352,43 @@ jobs:
           # without repeating the (expensive, native) build.
           cache-from: type=gha,scope=${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
+
+      - name: Decide whether to retry the image build
+        id: build_wait
+        if: steps.build_first.outcome == 'failure'
+        run: |
+          elapsed=$(( $(date +%s) - BUILD_STARTED ))
+          if [ "$elapsed" -gt 900 ]; then
+            echo "::warning title=Image build not retried::The first build attempt of ${{ matrix.image }} (${{ matrix.platform }}) failed after ${elapsed}s; only a failure within 900s is treated as transient."
+            echo "retry=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning title=Image build retried::The first build attempt of ${{ matrix.image }} (${{ matrix.platform }}) failed after ${elapsed}s; retrying once. Its error is in the previous step's log."
+            echo "retry=true" >> "$GITHUB_OUTPUT"
+            sleep 30
+          fi
+
+      - name: Build the image and load it for the smoke test (retry)
+        id: build_retry
+        if: steps.build_first.outcome == 'failure' && steps.build_wait.outputs.retry == 'true'
+        # A wedged retry must not consume the rest of the job's budget.
+        timeout-minutes: 60
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          push: false
+          load: true
+          tags: ${{ env.REGISTRY_IMAGE }}:smoke-${{ env.PLATFORM_PAIR }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
+
+      - name: Fail when no image build attempt succeeded
+        if: steps.build_first.outcome == 'failure' && steps.build_retry.outcome != 'success'
+        run: |
+          echo "::error::The image build failed and was not recovered by a retry; see the failed step above."
+          exit 1
 
       - name: Smoke-test the loaded image
         env:
@@ -566,8 +616,13 @@ jobs:
           fi
           echo "OK: CRaC restore (${second_start_seconds}s) is at least 2x faster than the initial start (${FIRST_START_SECONDS}s)."
 
+      # Pushing can fail transiently too (a registry or network blip), so it gets the same single
+      # retry as the build: the retry pushes the same cached layers to the same retention tag, which is
+      # idempotent, and the digest below comes from whichever attempt succeeded. Keep the two `with:`
+      # blocks identical: check-release-integrity.sh compares them.
       - name: Push the smoke-tested image with a retention tag
-        id: build
+        id: push_first
+        continue-on-error: true
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -592,10 +647,35 @@ jobs:
           provenance: false
           sbom: false
 
+      - name: Wait before retrying the image push
+        if: steps.push_first.outcome == 'failure'
+        run: |
+          echo "::warning title=Image push retried::The first push attempt of ${{ matrix.image }} (${{ matrix.platform }}) failed; retrying once. Its error is in the previous step's log."
+          sleep 30
+
+      - name: Push the smoke-tested image with a retention tag (retry)
+        id: push_retry
+        if: steps.push_first.outcome == 'failure'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ env.REGISTRY_IMAGE }}:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ env.PLATFORM_PAIR }}
+          outputs: type=image,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
+          provenance: false
+          sbom: false
+
       - name: Save the pushed image's digest to a file
         run: |
           mkdir -p "${{ runner.temp }}/digests"
-          digest='${{ steps.build.outputs.digest }}'
+          digest='${{ steps.push_retry.outputs.digest || steps.push_first.outputs.digest }}'
+          if [ -z "$digest" ]; then
+            echo "ERROR: the push produced no image digest." >&2
+            exit 1
+          fi
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
       - name: Upload the digest as an artifact
@@ -604,6 +684,9 @@ jobs:
           name: digests-${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
+          # `gh run rerun --failed` re-runs only the failed legs: a leg that failed after uploading
+          # (for example in a post step) must be able to replace its own artifact.
+          overwrite: true
           retention-days: 1
 
       - name: Print container logs on failure
@@ -622,11 +705,17 @@ jobs:
   merge:
     name: Merge ${{ matrix.image }} manifests
     runs-on: ubuntu-latest
-    # Apply release tags only after every smoke-tested platform image was pushed.
-    needs: build
-    if: github.repository == 'jdubois/boot-ui'
+    # Each image is merged independently, as soon as both of its platform images were smoke-tested
+    # and pushed, so one failing image no longer holds back the others' `latest`. The run still ends
+    # red when any build failed. docker-config must have succeeded: a skipped or failed one (including
+    # a release-line gate that refuses publishing) never reaches a release tag.
+    needs: [docker-config, build]
+    if: ${{ !cancelled() && github.repository == 'jdubois/boot-ui' && needs.docker-config.result == 'success' }}
     environment: docker-hub
     timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -638,10 +727,38 @@ jobs:
           - bootui-sample-app-webflux
           - bootui-sample-app-quarkus
     steps:
+      # Only for .github/scripts/retry.sh; the merge job otherwise needs no source.
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Resolve image name
         run: echo "REGISTRY_IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}" >> "$GITHUB_ENV"
 
+      # A platform uploads its digest only after its smoke test and push succeeded, so both
+      # artifacts exist exactly when this image is complete. The listing covers the whole run, not one
+      # attempt: after `gh run rerun --failed`, the legs that passed in an earlier attempt keep their
+      # artifacts and only the re-run legs upload new ones; every merge leg then runs again, which
+      # is harmless because it re-applies the same tested digests.
+      - name: Check that both platform images of ${{ matrix.image }} were published
+        id: ready
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          names=$(gh api --paginate "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            --jq '.artifacts[] | select(.expired | not) | .name')
+          missing=''
+          for platform in linux-amd64 linux-arm64; do
+            grep -Fxq "digests-${{ matrix.image }}-${platform}" <<<"$names" || missing="$missing $platform"
+          done
+          if [ -n "$missing" ]; then
+            echo "::warning title=${{ matrix.image }} not published::No tested image digest for${missing}; leaving the previous tags of ${{ matrix.image }} untouched. The failed build job is the error."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download the per-platform digests
+        if: steps.ready.outputs.ready == 'true'
         uses: actions/download-artifact@v8
         with:
           path: ${{ runner.temp }}/digests
@@ -654,15 +771,18 @@ jobs:
           merge-multiple: true
 
       - name: Log in to Docker Hub
+        if: steps.ready.outputs.ready == 'true'
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set up Docker Buildx
+        if: steps.ready.outputs.ready == 'true'
         uses: docker/setup-buildx-action@v4
 
       - name: Extract image metadata (tags and labels)
+        if: steps.ready.outputs.ready == 'true'
         id: meta
         uses: docker/metadata-action@v6
         with:
@@ -673,9 +793,11 @@ jobs:
             type=sha,format=short
 
       - name: Create the retention-tagged manifest list
+        if: steps.ready.outputs.ready == 'true'
         working-directory: ${{ runner.temp }}/digests
         run: |
-          docker buildx imagetools create \
+          # Creating an index from the same digests is idempotent, so a registry blip is retried once.
+          bash "$GITHUB_WORKSPACE/.github/scripts/retry.sh" 2 30 docker buildx imagetools create \
             -t "${REGISTRY_IMAGE}:build-${{ github.run_id }}-${{ github.run_attempt }}-index" \
             $(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)
 
@@ -683,12 +805,14 @@ jobs:
       # publishes of the same commit/day can orphan an undiscoverable index even
       # though its platform images still have retention tags.
       - name: Apply release tags to the retained manifest list
+        if: steps.ready.outputs.ready == 'true'
         run: |
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+          bash .github/scripts/retry.sh 2 30 docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             "${REGISTRY_IMAGE}:build-${{ github.run_id }}-${{ github.run_attempt }}-index"
 
       - name: Inspect the published manifest list
-        run: docker buildx imagetools inspect "${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }}"
+        if: steps.ready.outputs.ready == 'true'
+        run: bash .github/scripts/retry.sh 2 30 docker buildx imagetools inspect "${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }}"
 
   prune:
     name: Prune expired Docker Hub images
