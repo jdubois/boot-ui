@@ -327,6 +327,18 @@ jobs:
       # is retried (see the wait step): a build that already ran for a quarter of an hour, such as a
       # native-image out-of-memory, would just fail again and eat the job's timeout. Keep the two
       # `with:` blocks identical: check-release-integrity.sh compares them.
+      # The native-image builder ran out of memory on the 16 GB hosted arm64 runner (its heap alone is
+      # 13 GB), after which the build hung until the job timeout. Swap gives it headroom.
+      - name: Add swap for the native-image build
+        if: matrix.image == 'bootui-sample-app-native'
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 16G /mnt/native-swap || sudo fallocate -l 8G /mnt/native-swap
+          sudo chmod 600 /mnt/native-swap
+          sudo mkswap /mnt/native-swap
+          sudo swapon /mnt/native-swap
+          free -h
+
       - name: Record the build start time
         run: echo "BUILD_STARTED=$(date +%s)" >> "$GITHUB_ENV"
 
