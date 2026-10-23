@@ -39,7 +39,7 @@ test.describe('Architecture advisor (Quarkus)', () => {
     const codeStreamsRow = page.locator('.list-group-item', {hasText: 'ARCH-CODE-001'})
     await expect(codeStreamsRow).toBeVisible({timeout: 20_000})
 
-    await codeStreamsRow.getByRole('button', {name: 'Dismiss'}).click()
+    await codeStreamsRow.getByRole('button', {name: /^Dismiss rule /}).click()
 
     // The dismissed rule moves out of the scored results into its own "Dismissed rules" section.
     const dismissedSection = page.locator('.card-header', {hasText: 'Dismissed rules'})

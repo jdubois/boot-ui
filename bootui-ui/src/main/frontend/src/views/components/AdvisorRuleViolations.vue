@@ -197,63 +197,73 @@ async function refreshCachedReport() {
       </button>
     </div>
     <div :id="regionId" :aria-labelledby="`${regionId}-label`">
-      <ul v-if="rows.length" class="small mb-0">
-        <li v-for="(row, index) in rows" :key="index" :data-row="index">
-          <span
-            v-if="row.dismissed"
-            class="advisor-rule-violations__badge badge text-bg-secondary me-1"
-            data-testid="suppressed-finding"
-            ><i class="bi bi-eye-slash me-1" aria-hidden="true"></i>Dismissed</span
-          >
-          <span
-            v-if="row.isNew"
-            class="advisor-rule-violations__badge badge text-bg-primary me-1"
-            data-testid="new-finding"
-            ><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>New</span
-          >
-          <span :class="['font-monospace', {'text-muted': row.dismissed}]">{{ row.text }}</span>
-          <span v-if="suppressible && page && row.identity" class="advisor-finding-actions">
-            <button
-              v-if="row.dismissed"
-              type="button"
-              class="btn btn-outline-secondary btn-sm advisor-finding-action"
-              :disabled="!canAct"
-              :aria-label="`Restore finding ${page.page.offset + index + 1} of ${rule.id}`"
-              @click="restoreRow(row, index)"
-            >
-              <i class="bi bi-eye me-1" aria-hidden="true"></i>Restore
-            </button>
-            <button
-              v-else
-              type="button"
-              class="btn btn-outline-secondary btn-sm advisor-finding-action"
-              :disabled="!canAct"
-              :aria-label="`Dismiss finding ${page.page.offset + index + 1} of ${rule.id}`"
-              @click="dismissRow(row, index)"
-            >
-              <i class="bi bi-eye-slash me-1" aria-hidden="true"></i>Dismiss
-            </button>
-          </span>
-          <span v-if="row.location" class="advisor-violation-location d-flex flex-wrap align-items-center gap-1">
-            <i class="bi bi-geo-alt text-muted" aria-hidden="true"></i>
-            <a
-              v-if="openInHref(row.location, openIn)"
-              :href="openInHref(row.location, openIn)"
-              class="btn btn-outline-secondary btn-sm font-monospace"
-              :aria-label="`Open ${row.label} in ${openInLabel}`"
-              >{{ row.label }}</a
-            >
-            <span v-else class="font-monospace text-muted">{{ row.label }}</span>
-            <button
-              type="button"
-              class="btn btn-outline-secondary btn-sm advisor-copy-location"
-              :aria-label="`Copy location ${row.label}`"
-              @click="copyLocation(row, index)"
-            >
-              <i :class="['bi', copiedKey === copyKey(index) ? 'bi-check-lg' : 'bi-clipboard']" aria-hidden="true"></i>
-              {{ copiedKey === copyKey(index) ? 'Copied' : 'Copy location' }}
-            </button>
-          </span>
+      <ul v-if="rows.length" class="small mb-0 advisor-findings">
+        <li v-for="(row, index) in rows" :key="index" :data-row="index" :class="{'is-dismissed': row.dismissed}">
+          <div class="advisor-finding-row">
+            <div class="advisor-finding-main">
+              <span
+                v-if="row.dismissed"
+                class="advisor-rule-violations__badge badge text-bg-secondary me-1"
+                data-testid="suppressed-finding"
+                ><i class="bi bi-eye-slash me-1" aria-hidden="true"></i>Dismissed</span
+              >
+              <span
+                v-if="row.isNew"
+                class="advisor-rule-violations__badge badge text-bg-primary me-1"
+                data-testid="new-finding"
+                ><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>New</span
+              >
+              <span :class="['font-monospace', {'text-muted': row.dismissed}]">{{ row.text }}</span>
+              <span v-if="row.location" class="advisor-violation-location d-flex flex-wrap align-items-center gap-1">
+                <i class="bi bi-geo-alt text-muted" aria-hidden="true"></i>
+                <a
+                  v-if="openInHref(row.location, openIn)"
+                  :href="openInHref(row.location, openIn)"
+                  class="btn btn-outline-secondary btn-sm font-monospace"
+                  :aria-label="`Open ${row.label} in ${openInLabel}`"
+                  >{{ row.label }}</a
+                >
+                <span v-else class="font-monospace text-muted">{{ row.label }}</span>
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary btn-sm advisor-copy-location"
+                  :aria-label="`Copy location ${row.label}`"
+                  @click="copyLocation(row, index)"
+                >
+                  <i
+                    :class="['bi', copiedKey === copyKey(index) ? 'bi-check-lg' : 'bi-clipboard']"
+                    aria-hidden="true"
+                  ></i>
+                  {{ copiedKey === copyKey(index) ? 'Copied' : 'Copy location' }}
+                </button>
+              </span>
+            </div>
+            <span v-if="suppressible && page && row.identity" class="advisor-finding-actions">
+              <button
+                v-if="row.dismissed"
+                type="button"
+                class="btn btn-outline-secondary btn-sm advisor-finding-action"
+                :disabled="!canAct"
+                title="Restore this finding"
+                :aria-label="`Restore finding ${page.page.offset + index + 1} of ${rule.id}`"
+                @click="restoreRow(row, index)"
+              >
+                <i class="bi bi-eye" aria-hidden="true"></i><span class="advisor-finding-action__label">Restore</span>
+              </button>
+              <button
+                v-else
+                type="button"
+                class="btn btn-outline-secondary btn-sm advisor-finding-action"
+                :disabled="!canAct"
+                title="Dismiss this finding"
+                :aria-label="`Dismiss finding ${page.page.offset + index + 1} of ${rule.id}`"
+                @click="dismissRow(row, index)"
+              >
+                <i class="bi bi-eye-slash" aria-hidden="true"></i
+                ><span class="advisor-finding-action__label">Dismiss</span>
+              </button>
+            </span>
+          </div>
         </li>
       </ul>
       <p v-else-if="page" class="small text-muted mb-0">No retained violations on this page.</p>
@@ -328,15 +338,58 @@ async function refreshCachedReport() {
   font-size: 0.85rem;
 }
 
+.advisor-finding-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.advisor-finding-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .advisor-finding-actions {
-  display: inline-block;
-  margin-left: 0.5rem;
+  flex: none;
   white-space: nowrap;
 }
 
 .advisor-finding-action {
   font-size: inherit;
   vertical-align: baseline;
+}
+
+/* Hairline-divided rows: the text leads, and the action sits in a fixed right rail that stays quiet until the row
+   is hovered or focused, so it reads as a row-level action next to the outlined, rule-level "Dismiss rule" button. */
+.advisor-findings {
+  list-style: none;
+  padding-left: 0;
+  border-top: 1px solid var(--bootui-border);
+}
+
+.advisor-findings > li {
+  padding: 0.55rem 0.25rem;
+  border-bottom: 1px solid var(--bootui-border);
+}
+
+.advisor-findings > li.is-dismissed {
+  background: color-mix(in srgb, var(--bootui-text-muted) 6%, transparent);
+}
+
+.advisor-findings .advisor-finding-action {
+  --bs-btn-padding-y: 0.1rem;
+  --bs-btn-padding-x: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-color: transparent;
+  color: var(--bootui-text-muted);
+}
+
+.advisor-findings > li:hover .advisor-finding-action:not(:disabled),
+.advisor-findings .advisor-finding-action:focus-visible {
+  border-color: var(--bs-btn-border-color);
+  color: var(--bs-btn-color);
 }
 
 .advisor-copy-location {

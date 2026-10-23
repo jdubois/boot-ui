@@ -178,10 +178,11 @@ const diagnostics = computed(() => panel.report?.diagnostics || [])
                 class="btn btn-sm btn-outline-secondary ms-auto"
                 type="button"
                 :disabled="panel.actionsDisabled"
+                :aria-label="`Dismiss rule ${result.id}`"
                 @click="panel.dismiss(result.id)"
-                title="Dismiss this rule"
+                title="Dismiss this whole rule: none of its findings count towards the score"
               >
-                <i class="bi bi-eye-slash me-1"></i>Dismiss
+                <i class="bi bi-eye-slash me-1"></i>Dismiss rule
               </button>
             </div>
             <h3 class="h6 mb-1">{{ result.name }}</h3>
