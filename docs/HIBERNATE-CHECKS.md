@@ -28,7 +28,7 @@ entity is still scanned); Envers' generated `*_AUD` entities are map-based and n
 mapped only in `.hbm.xml` is discovered, but its XML mapping is not read, so rules that look for missing annotations
 may report columns the XML configures.
 
-The active catalog contains 73 rules. Eight retired identifiers stay documented below so old links and persisted
+The active catalog contains 72 rules. Nine retired identifiers stay documented below so old links and persisted
 dismissals keep their meaning. Retired identifiers are never reused.
 
 ### Evidence and incomplete scans
@@ -627,14 +627,9 @@ upgrade.
 
 ### HIB-ENTITY-002 - Versionless optimistic locking should use dynamic updates
 
-- **Severity**: MEDIUM
-- **Inspects**: Hibernate `@OptimisticLocking`.
-- **Fires when**: `type=DIRTY` or `type=ALL` is used without `@DynamicUpdate`.
-- **Limitations**: Hibernate 7.4.5 fails bootstrap for this combination (with or without `@Immutable`), so on that
-  version the declaration normally cannot reach the advisor.
-- **Why it matters**: versionless optimistic locking relies on update predicates that match the chosen locking strategy.
-- **Recommendation**: add `@DynamicUpdate` when using versionless optimistic locking, or use a regular `@Version` column
-  for simpler optimistic locking.
+**Retired.** Hibernate ORM 7 refuses to start an application whose entity declares `@OptimisticLocking(type = DIRTY)`
+or `ALL` without `@DynamicUpdate` (a `MappingException`, verified on 7.4.5 and 7.4.13, with or without `@Immutable`),
+so the declaration can never reach the advisor of a running application and the rule could not fire.
 
 ### HIB-ENTITY-003 - equals/hashCode should not include lazy associations
 

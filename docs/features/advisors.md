@@ -554,7 +554,7 @@ common performance and mapping risks: eager fetching, problematic identifier gen
 unsafe cascades, cache misconfiguration, and risky `ddl-auto` values. It never intercepts queries, invokes
 repositories, executes SQL, or modifies mappings. See [HIBERNATE-CHECKS.md](../HIBERNATE-CHECKS.md).
 
-The catalog has 73 active rules. Unavailable observations and rule failures yield `PARTIAL` while keeping valid
+The catalog has 72 active rules. Unavailable observations and rule failures yield `PARTIAL` while keeping valid
 findings, and the report's `diagnostics` (**Scan diagnostics** in the panel) names every failed or incompletely evaluated
 rule. A finding whose rule was only partly evaluated carries a `coverageNote`. An empty findings list is not proof that
 every mapping or query was verified.
@@ -566,7 +566,7 @@ a connection; a unit that cannot be attributed to one pool, and any JTA unit, is
 
 ::: details On Quarkus
 
-The panel runs the same 73-rule registry when `quarkus-hibernate-orm` is present, discovering entities from the live
+The panel runs the same 72-rule registry when `quarkus-hibernate-orm` is present, discovering entities from the live
 `EntityManagerFactory` across all persistence units. Spring Data query rules skip when repository metadata is
 unavailable. Differences:
 
