@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-10-23
+
 This release adds 20 Database advisor rules (28 to 48), five Runtime Insights observations (23 to 28), a CLI
 severity gate, and per-finding change tracking and dismissal on the Hibernate and Database advisors.
 
