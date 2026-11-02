@@ -11,6 +11,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Upgrade the shared Quarkus platform to 3.40.1.1, the newest micro release of the latest Quarkus LTS stream.
 
+### Fixed
+
+- Keep the resource sampler's own thread inside the bounded thread sweep so a busy JVM cannot hide BootUI's CPU
+  family behind the thread-read cap.
+
 ## [2.2.0] - 2026-10-23
 
 This release adds 20 Database advisor rules (28 to 48), five Runtime Insights observations (23 to 28), a CLI

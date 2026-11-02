@@ -555,6 +555,29 @@ class ResourceSamplerTests {
     }
 
     @Test
+    @SuppressWarnings("deprecation") // Thread.threadId() is JDK 19+; the baseline is 17.
+    void theJvmProbeAlwaysIncludesItsOwnThreadInsideTheReadCap() {
+        Sweep sweep = new ResourceSampler.JvmProbe().threads(1);
+
+        assertThat(sweep.threads()).singleElement().satisfies(reading -> {
+            assertThat(reading.id()).isEqualTo(Thread.currentThread().getId());
+            assertThat(reading.name()).isEqualTo(Thread.currentThread().getName());
+        });
+        assertThat(sweep.unreadThreads()).isPositive();
+    }
+
+    @Test
+    @SuppressWarnings("deprecation") // Thread.threadId() is JDK 19+; the baseline is 17.
+    void theJvmProbeDoesNotDuplicateItsOwnThreadWhenReadingEveryThread() {
+        Sweep sweep = new ResourceSampler.JvmProbe().threads(Integer.MAX_VALUE);
+
+        assertThat(sweep.threads())
+                .extracting(ThreadReading::id)
+                .containsOnlyOnce(Thread.currentThread().getId());
+        assertThat(sweep.unreadThreads()).isZero();
+    }
+
+    @Test
     void theJvmSamplerRecordsBalancedPointsOnItsOwnThread() throws Exception {
         ResourceTrack jvmTrack = new ResourceTrack();
         try (ResourceSampler ignored =
