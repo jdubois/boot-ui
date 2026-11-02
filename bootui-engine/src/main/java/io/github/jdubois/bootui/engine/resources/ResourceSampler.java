@@ -205,7 +205,7 @@ public final class ResourceSampler implements AutoCloseable {
     }
 
     /** The JVM's own readings; {@code com.sun.management} only through guarded nested classes. */
-    private static final class JvmProbe implements Probe {
+    static final class JvmProbe implements Probe {
 
         private final ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
         private final MemoryMXBean memory = ManagementFactory.getMemoryMXBean();
@@ -226,6 +226,16 @@ public final class ResourceSampler implements AutoCloseable {
         @SuppressWarnings("deprecation") // Thread.threadId() is JDK 19+; the baseline is 17.
         public Sweep threads(int maxThreads) {
             Thread[] all = platformThreads();
+            // Read the sweeping thread within the cap, even when older application threads fill it.
+            // Swapping rather than adding keeps the bound and unread count unchanged, without duplicates.
+            Thread sampling = Thread.currentThread();
+            for (int i = 0; i < all.length; i++) {
+                if (all[i] == sampling) {
+                    all[i] = all[0];
+                    all[0] = sampling;
+                    break;
+                }
+            }
             int read = Math.min(all.length, maxThreads);
             List<ThreadReading> threads = new ArrayList<>(read);
             for (int i = 0; i < read; i++) {
