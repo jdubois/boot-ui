@@ -16,7 +16,7 @@
 
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
-        <spring-ai.version>2.0.1</spring-ai.version>
+        <spring-ai.version>2.0.2</spring-ai.version>
         <commons-exec.version>1.6.0</commons-exec.version>
     </properties>
 
