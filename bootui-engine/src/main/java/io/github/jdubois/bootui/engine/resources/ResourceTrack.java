@@ -24,7 +24,10 @@ public final class ResourceTrack {
     /** The most recent points kept: 15 minutes at the default interval. */
     public static final int CAPACITY = 900;
 
-    /** The most thread families the track names; the others share {@link #OTHER_FAMILY}. */
+    /**
+     * The most thread families the track names, including a reserved {@link #BOOTUI_FAMILY} slot; the others share
+     * {@link #OTHER_FAMILY}.
+     */
     public static final int MAX_FAMILIES = 32;
 
     /** The family of the threads beyond {@link #MAX_FAMILIES}. */
@@ -34,7 +37,7 @@ public final class ResourceTrack {
     public static final String BOOTUI_FAMILY = "BootUI";
 
     private final Point[] ring = new Point[CAPACITY];
-    private final List<String> families = new ArrayList<>();
+    private final List<String> families = new ArrayList<>(List.of(BOOTUI_FAMILY));
     private int next;
     private int size;
     private long sweeps;
