@@ -529,7 +529,7 @@ class ResourceSamplerTests {
     void theTrackKeepsItsMostRecentPointsAndTheRunsTotals() {
         track.family("pool-N-thread-N");
         for (int i = 0; i < ResourceTrack.CAPACITY + 5; i++) {
-            track.add(new Point(i, i, 1, 10, 3, 2, new long[] {5}, 0, 0, 0, 0, 0, 0, 0));
+            track.add(new Point(i, i, 1, 10, 3, 2, new long[] {0, 5}, 0, 0, 0, 0, 0, 0, 0));
         }
 
         assertThat(track.points()).hasSize(ResourceTrack.CAPACITY);
@@ -537,6 +537,9 @@ class ResourceSamplerTests {
         ResourceTrack.Totals totals = track.totals();
         assertThat(totals.sweeps()).isEqualTo(ResourceTrack.CAPACITY + 5);
         assertThat(totals.processCpuNanos()).isEqualTo(10L * (ResourceTrack.CAPACITY + 5));
+        assertThat(totals.familyCpuNanos())
+                .containsOnlyKeys("pool-N-thread-N")
+                .containsEntry("pool-N-thread-N", 5L * (ResourceTrack.CAPACITY + 5));
 
         track.clear();
         assertThat(track.points()).isEmpty();
@@ -544,14 +547,82 @@ class ResourceSamplerTests {
     }
 
     @Test
+    void bootUiCpuStaysSeparateWhenApplicationFamiliesFillTheTrackFirst() {
+        ResourceSampler sampler = sampler(500);
+        int applicationThreads = ResourceTrack.MAX_FAMILIES + 5;
+        for (int i = 1; i <= applicationThreads; i++) {
+            probe.thread(i, "worker-" + "x".repeat(i), 0);
+        }
+        sampler.sweep(0, 0);
+        for (int i = 1; i <= applicationThreads; i++) {
+            probe.thread(i, "worker-" + "x".repeat(i), 10);
+        }
+        probe.processCpu = applicationThreads * 10L;
+        sampler.sweep(0, 1);
+        assertThat(track.families()).contains(ResourceTrack.OTHER_FAMILY);
+        List<String> familiesBeforeBootUi = track.families();
+
+        probe.thread(1_002, ResourceSampler.THREAD_NAME, 0);
+        sampler.sweep(0, 2);
+        probe.thread(1_002, ResourceSampler.THREAD_NAME, 7);
+        probe.processCpu += 12;
+        sampler.sweep(0, 3);
+
+        Point point = track.points().get(2);
+        assertThat(byFamily(point))
+                .containsEntry(ResourceTrack.BOOTUI_FAMILY, 7L)
+                .doesNotContainKey(ResourceTrack.OTHER_FAMILY);
+        assertThat(track.families()).startsWith(familiesBeforeBootUi.toArray(String[]::new));
+        assertThat(track.families()).hasSizeLessThanOrEqualTo(ResourceTrack.MAX_FAMILIES + 1);
+        assertThat(track.totals().familyCpuNanos())
+                .containsEntry(ResourceTrack.BOOTUI_FAMILY, 7L)
+                .containsEntry(ResourceTrack.OTHER_FAMILY, (applicationThreads - ResourceTrack.MAX_FAMILIES + 1) * 10L);
+        assertThat(track.points()).allSatisfy(ResourceSamplerTests::assertBalanced);
+
+        track.clear();
+        probe.thread(1_002, ResourceSampler.THREAD_NAME, 14);
+        probe.processCpu += 12;
+        sampler.sweep(0, 4);
+        assertThat(byFamily(track.points().get(0))).containsEntry(ResourceTrack.BOOTUI_FAMILY, 7L);
+        assertThat(track.totals().familyCpuNanos()).containsOnlyKeys(ResourceTrack.BOOTUI_FAMILY);
+        assertBalanced(track.points().get(0));
+    }
+
+    @Test
     void familiesBeyondTheCapShareTheOtherFamily() {
-        for (int i = 0; i < ResourceTrack.MAX_FAMILIES; i++) {
-            assertThat(track.family("family-" + (char) ('a' + i))).isEqualTo(i);
+        assertThat(track.family(ResourceTrack.BOOTUI_FAMILY)).isZero();
+        for (int i = 0; i < ResourceTrack.MAX_FAMILIES - 1; i++) {
+            assertThat(track.family("family-" + (char) ('a' + i))).isEqualTo(i + 1);
         }
 
         assertThat(track.family("one-too-many")).isEqualTo(ResourceTrack.MAX_FAMILIES);
         assertThat(track.family("another")).isEqualTo(ResourceTrack.MAX_FAMILIES);
+        assertThat(track.family(ResourceTrack.BOOTUI_FAMILY)).isZero();
+        assertThat(track.families()).hasSize(ResourceTrack.MAX_FAMILIES + 1);
         assertThat(track.families()).last().isEqualTo(ResourceTrack.OTHER_FAMILY);
+    }
+
+    @Test
+    @SuppressWarnings("deprecation") // Thread.threadId() is JDK 19+; the baseline is 17.
+    void theJvmProbeAlwaysIncludesItsOwnThreadInsideTheReadCap() {
+        Sweep sweep = new ResourceSampler.JvmProbe().threads(1);
+
+        assertThat(sweep.threads()).singleElement().satisfies(reading -> {
+            assertThat(reading.id()).isEqualTo(Thread.currentThread().getId());
+            assertThat(reading.name()).isEqualTo(Thread.currentThread().getName());
+        });
+        assertThat(sweep.unreadThreads()).isPositive();
+    }
+
+    @Test
+    @SuppressWarnings("deprecation") // Thread.threadId() is JDK 19+; the baseline is 17.
+    void theJvmProbeDoesNotDuplicateItsOwnThreadWhenReadingEveryThread() {
+        Sweep sweep = new ResourceSampler.JvmProbe().threads(Integer.MAX_VALUE);
+
+        assertThat(sweep.threads())
+                .extracting(ThreadReading::id)
+                .containsOnlyOnce(Thread.currentThread().getId());
+        assertThat(sweep.unreadThreads()).isZero();
     }
 
     @Test
