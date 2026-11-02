@@ -222,7 +222,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>3.6.0</version>
+                    <version>3.6.1</version>
                     <configuration>
                         <!-- A modest, fixed number of test-class forks, reused across classes assigned to
                              each one (JVM start-up is amortized instead of paid per class). This is
