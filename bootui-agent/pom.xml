@@ -31,7 +31,7 @@
              machines; the agent-integration-tests job in build.yml passes 2. Each fork has its own work directory
              (bootui.agent.work below). -->
         <bootui.agent.its.forkCount>1</bootui.agent.its.forkCount>
-        <blockhound.version>1.0.17.RELEASE</blockhound.version>
+        <blockhound.version>1.0.18.RELEASE</blockhound.version>
     </properties>
 
     <dependencies>
