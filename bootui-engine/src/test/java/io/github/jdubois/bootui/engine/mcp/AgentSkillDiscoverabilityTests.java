@@ -3,14 +3,17 @@ package io.github.jdubois.bootui.engine.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Users find the BootUI skill through a skill registry and install it with a command copied from the
@@ -124,31 +127,60 @@ class AgentSkillDiscoverabilityTests {
         List<Path> documentedPaths =
                 DOCUMENTED_SURFACES.stream().map(root::resolve).toList();
 
-        try (Stream<Path> markdown = Files.walk(root)) {
-            List<Path> unchecked = markdown.filter(AgentSkillDiscoverabilityTests::isSourceMarkdown)
-                    .filter(path -> !documentedPaths.contains(path))
-                    .filter(AgentSkillDiscoverabilityTests::carriesAnInstallCommand)
-                    .map(root::relativize)
-                    .toList();
+        List<Path> unchecked = sourceMarkdown(root).stream()
+                .filter(path -> !documentedPaths.contains(path))
+                .filter(AgentSkillDiscoverabilityTests::carriesAnInstallCommand)
+                .map(root::relativize)
+                .toList();
 
-            assertThat(unchecked)
-                    .as("these documents carry a skill install command; add them to DOCUMENTED_SURFACES so "
-                            + "the canonical path is enforced there too")
-                    .isEmpty();
-        }
+        assertThat(unchecked)
+                .as("these documents carry a skill install command; add them to DOCUMENTED_SURFACES so "
+                        + "the canonical path is enforced there too")
+                .isEmpty();
     }
 
-    private static boolean isSourceMarkdown(Path path) {
-        if (!path.getFileName().toString().endsWith(".md")) {
-            return false;
+    @Test
+    void sourceMarkdownExcludesGeneratedTreesButIncludesRepositoryCustomizations(@TempDir Path root)
+            throws IOException {
+        Path readme = Files.writeString(root.resolve("README.md"), "Source documentation");
+        Path customization =
+                Files.createDirectories(root.resolve(".github/instructions")).resolve("agent.md");
+        Files.writeString(customization, "Source customization");
+        for (String generated : List.of("target", "node_modules", "dist", ".m2", ".m2-test")) {
+            Path directory = Files.createDirectories(
+                    root.resolve("module").resolve(generated).resolve("nested"));
+            Files.writeString(directory.resolve("README.md"), "npx skills add unchecked/generated/skill");
         }
-        for (Path segment : path) {
-            String name = segment.toString();
-            if (name.equals("target") || name.equals("node_modules") || name.equals("dist") || name.startsWith(".m2")) {
-                return false;
+        Files.writeString(root.resolve("not-markdown.txt"), "Other source");
+
+        assertThat(sourceMarkdown(root)).containsExactlyInAnyOrder(readme, customization);
+    }
+
+    private static List<Path> sourceMarkdown(Path root) throws IOException {
+        List<Path> markdown = new ArrayList<>();
+        Files.walkFileTree(root, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
+                String name = directory.getFileName().toString();
+                if (!directory.equals(root)
+                        && (name.equals("target")
+                                || name.equals("node_modules")
+                                || name.equals("dist")
+                                || name.startsWith(".m2"))) {
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                return FileVisitResult.CONTINUE;
             }
-        }
-        return true;
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
+                if (attributes.isRegularFile() && file.getFileName().toString().endsWith(".md")) {
+                    markdown.add(file);
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        return markdown;
     }
 
     private static boolean carriesAnInstallCommand(Path path) {
