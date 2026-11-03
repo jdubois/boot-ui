@@ -1,12 +1,14 @@
 package io.github.jdubois.bootui.quarkus.it;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import java.net.URL;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -37,7 +39,7 @@ class BootUiQuarkusRequestCorrelationTest {
 
         assertThat(observed[0]).as("served on a worker thread").doesNotContain("eventloop");
         assertThat(observed[1]).matches("[0-9a-f]{16}");
-        assertThat(exchangeIds("/it/correlation/worker")).contains(observed[1]);
+        awaitExchangeIds("/it/correlation/worker", List.of(observed[1]));
     }
 
     @Test
@@ -46,7 +48,7 @@ class BootUiQuarkusRequestCorrelationTest {
 
         assertThat(observed[0]).as("served on the event loop").contains("eventloop");
         assertThat(observed[1]).matches("[0-9a-f]{16}");
-        assertThat(exchangeIds("/it/correlation/event-loop")).contains(observed[1]);
+        awaitExchangeIds("/it/correlation/event-loop", List.of(observed[1]));
     }
 
     @Test
@@ -72,7 +74,13 @@ class BootUiQuarkusRequestCorrelationTest {
         }
 
         assertThat(observed).doesNotHaveDuplicates().doesNotContainNull();
-        assertThat(exchangeIds("/it/correlation/worker")).containsAll(observed);
+        awaitExchangeIds("/it/correlation/worker", observed);
+    }
+
+    private void awaitExchangeIds(String path, List<String> expected) {
+        // The client can finish reading before Vert.x's body-end callback publishes the exchange.
+        await().atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(exchangeIds(path)).containsAll(expected));
     }
 
     private List<String> exchangeIds(String path) {

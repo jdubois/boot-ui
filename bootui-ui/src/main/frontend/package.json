@@ -33,7 +33,7 @@
     "vue-tsc": "^3.3.13"
   },
   "overrides": {
-    "@xmldom/xmldom": "0.8.13",
+    "@xmldom/xmldom": "0.8.15",
     "js-beautify": "2.0.3"
   },
   "allowScripts": {

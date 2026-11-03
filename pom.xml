@@ -71,6 +71,14 @@
         <maven.compiler.target>${java.version}</maven.compiler.target>
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <spring-boot.version>4.1.2</spring-boot.version>
+        <!-- Security fixes not yet included in the framework BOMs. The instrumentation BOM aligns the patched
+             OpenTelemetry 1.67 SDK/API, incubators, and instrumentation that must not link older internal APIs. -->
+        <opentelemetry-instrumentation.version>2.33.1</opentelemetry-instrumentation.version>
+        <rabbitmq-amqp-client.version>5.37.0</rabbitmq-amqp-client.version>
+        <guava.version>33.7.2-jre</guava.version>
+        <mariadb-java-client.version>3.5.11</mariadb-java-client.version>
+        <lz4-java.version>1.11.4</lz4-java.version>
+        <snappy-java.version>1.1.10.11</snappy-java.version>
         <!-- Latest Quarkus LTS, shared by the extension, integration tests, and sample app. -->
         <quarkus.platform.version>3.40.1.1</quarkus.platform.version>
         <!-- Neither Resilience4j nor Spring Retry is managed by the Spring Boot 4.1 BOM, so both are
@@ -139,11 +147,38 @@
     <dependencyManagement>
         <dependencies>
             <dependency>
+                <groupId>io.opentelemetry.instrumentation</groupId>
+                <artifactId>opentelemetry-instrumentation-bom-alpha</artifactId>
+                <version>${opentelemetry-instrumentation.version}-alpha</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
                 <version>${spring-boot.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.rabbitmq</groupId>
+                <artifactId>amqp-client</artifactId>
+                <version>${rabbitmq-amqp-client.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mariadb.jdbc</groupId>
+                <artifactId>mariadb-java-client</artifactId>
+                <version>${mariadb-java-client.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>at.yawk.lz4</groupId>
+                <artifactId>lz4-java</artifactId>
+                <version>${lz4-java.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.xerial.snappy</groupId>
+                <artifactId>snappy-java</artifactId>
+                <version>${snappy-java.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.tngtech.archunit</groupId>
