@@ -1,6 +1,9 @@
 // @ts-check
-import {expect, test} from '../tests/fixtures.js'
+import {acceptConfirm, expect, test} from '../tests/fixtures.js'
 import {registerResourceLedgerTests} from '../scenarios/resource-ledger.js'
+import {registerThreadAnalysisTests} from '../scenarios/thread-analysis.js'
+
+registerThreadAnalysisTests(test, expect, acceptConfirm)
 
 async function expandAllSidebarGroups(page) {
   const toggles = page.locator('aside .bootui-nav-group__toggle')
@@ -33,6 +36,12 @@ test.describe('BootUI on Spring WebFlux', () => {
   test('navbar shows the reactive sample app name and Spring Boot / Java versions', async ({page}) => {
     await page.goto('/bootui/')
 
+    const theme = await page.request.get('/bootui/bootui-theme.css')
+    expect(theme.ok()).toBe(true)
+    expect(theme.headers()['content-type']).toContain('text/css')
+    expect(
+      await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bootui-green').trim())
+    ).toBe('#198754')
     await expect(page.locator('.brand-name')).toHaveText('BootUI')
     await expect(page.locator('.topbar-title')).toContainText('bootui-webflux-sample')
     const subtitle = page.locator('.topbar-subtitle')

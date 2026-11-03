@@ -190,6 +190,8 @@ public class BootUiProperties {
      * Heap Dump panel settings.
      */
     private HeapDump heapDump = new HeapDump();
+    /** Bounded thread capture and finite-observation settings. */
+    private Threads threads = new Threads();
     /**
      * OTLP-based telemetry receiver and trace store settings.
      */
@@ -578,6 +580,14 @@ public class BootUiProperties {
 
     public void setHeapDump(HeapDump heapDump) {
         this.heapDump = heapDump == null ? new HeapDump() : heapDump;
+    }
+
+    public Threads getThreads() {
+        return threads;
+    }
+
+    public void setThreads(Threads threads) {
+        this.threads = threads == null ? new Threads() : threads;
     }
 
     public Telemetry getTelemetry() {
@@ -2042,6 +2052,109 @@ public class BootUiProperties {
 
         public void setMaxSessions(int maxSessions) {
             this.maxSessions = maxSessions;
+        }
+    }
+
+    /** Static acquisition and retention limits, validated when the lazy thread reader is created. */
+    public static class Threads {
+        private int maxThreads = 2048;
+        private int maxStackDepth = 128;
+        private int maxOwnedLocks = 256;
+        private long captureDeadlineMillis = 2000;
+        private boolean includeSynchronizers;
+        private int maxCaptures = 6;
+        private long maxRetainedBytes = 16 * 1024 * 1024L;
+        private long maxCaptureBytes = 4 * 1024 * 1024L;
+        private long ttlMillis = 300_000;
+        private int observationSamples = 3;
+        private long observationIntervalMillis = 5000;
+
+        public int getMaxThreads() {
+            return maxThreads;
+        }
+
+        public void setMaxThreads(int value) {
+            maxThreads = value;
+        }
+
+        public int getMaxStackDepth() {
+            return maxStackDepth;
+        }
+
+        public void setMaxStackDepth(int value) {
+            maxStackDepth = value;
+        }
+
+        public int getMaxOwnedLocks() {
+            return maxOwnedLocks;
+        }
+
+        public void setMaxOwnedLocks(int value) {
+            maxOwnedLocks = value;
+        }
+
+        public long getCaptureDeadlineMillis() {
+            return captureDeadlineMillis;
+        }
+
+        public void setCaptureDeadlineMillis(long value) {
+            captureDeadlineMillis = value;
+        }
+
+        public boolean isIncludeSynchronizers() {
+            return includeSynchronizers;
+        }
+
+        public void setIncludeSynchronizers(boolean value) {
+            includeSynchronizers = value;
+        }
+
+        public int getMaxCaptures() {
+            return maxCaptures;
+        }
+
+        public void setMaxCaptures(int value) {
+            maxCaptures = value;
+        }
+
+        public long getMaxRetainedBytes() {
+            return maxRetainedBytes;
+        }
+
+        public void setMaxRetainedBytes(long value) {
+            maxRetainedBytes = value;
+        }
+
+        public long getMaxCaptureBytes() {
+            return maxCaptureBytes;
+        }
+
+        public void setMaxCaptureBytes(long value) {
+            maxCaptureBytes = value;
+        }
+
+        public long getTtlMillis() {
+            return ttlMillis;
+        }
+
+        public void setTtlMillis(long value) {
+            ttlMillis = value;
+        }
+
+        public int getObservationSamples() {
+            return observationSamples;
+        }
+
+        public void setObservationSamples(int value) {
+            observationSamples = value;
+        }
+
+        public long getObservationIntervalMillis() {
+            return observationIntervalMillis;
+        }
+
+        public void setObservationIntervalMillis(long value) {
+            observationIntervalMillis = value;
         }
     }
 

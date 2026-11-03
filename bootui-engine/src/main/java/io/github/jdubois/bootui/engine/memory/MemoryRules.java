@@ -644,6 +644,9 @@ final class HighBlockedThreadRatioRule extends AbstractMemoryRule {
     @Override
     MemoryEvaluation evaluateRule(MemoryContext context) {
         ThreadData threads = context.threads();
+        if (!threads.populationComplete()) {
+            return skipped("Thread state counts are incomplete; a JVM-wide blocked ratio cannot be assessed.");
+        }
         if (threads.total() <= 0) {
             return skipped("No thread snapshot is available.");
         }
@@ -1018,6 +1021,9 @@ final class CommittedFootprintNearContainerLimitRule extends AbstractMemoryRule 
         if (context.threads().collectionError() != null) {
             return MemoryEvaluation.unknown(
                     MemoryRuleSupport.error(definition(), context.threads().collectionError()));
+        }
+        if (!context.threads().populationComplete()) {
+            return skipped("Thread population is incomplete; the platform-thread footprint cannot be assessed.");
         }
         if (context.threads().total() <= 0 || context.runtime().threadStackBytes() <= 0) {
             return skipped("Platform-thread stack estimate is unavailable.");
@@ -1403,6 +1409,9 @@ final class PlatformThreadStackReservationRule extends AbstractMemoryRule {
         if (context.threads().collectionError() != null) {
             return MemoryEvaluation.unknown(
                     MemoryRuleSupport.error(definition(), context.threads().collectionError()));
+        }
+        if (!context.threads().populationComplete()) {
+            return skipped("Thread population is incomplete; stack reservation cannot be assessed.");
         }
         if (platformThreads <= 0) {
             return skipped("No thread snapshot is available.");

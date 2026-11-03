@@ -4,140 +4,206 @@
   <meta charset="utf-8">
   <meta content="width=device-width, initial-scale=1" name="viewport">
   <link href="/favicon.svg" rel="icon" type="image/svg+xml">
+  <link href="bootui-theme.css" rel="stylesheet">
+  <link href="sample-lab.css" rel="stylesheet">
   <title>BootUI Quarkus Sample App</title>
-  <link href="/index.css" rel="stylesheet">
 </head>
 <body>
 <main>
   <div class="hero">
     <div>
-      <p class="eyebrow">Quarkus demo</p>
       <h1>Welcome to the BootUI sample app</h1>
       <p class="lead">
-        This app demonstrates a small Quarkus service with public endpoints,
-        secured admin routes, scheduled work, Hibernate ORM data, and enough
-        runtime state for BootUI to inspect.
+        Choose a Quarkus scenario, run it, then inspect the result in BootUI.
+        No scenario starts until you click.
       </p>
-      <div aria-label="Primary links" class="actions">
-        <a class="button" href="/bootui/">Open BootUI</a>
-      </div>
+    </div>
+    <div aria-label="Primary links" class="actions">
+      <a class="button button-primary" href="/bootui/" target="_blank" rel="noopener">Open BootUI</a>
     </div>
   </div>
 
   <div class="content-grid">
-    <section aria-labelledby="lab-heading" class="wide">
-      <h2 id="lab-heading">Sample action lab</h2>
-      <p>
-        Run a few safe requests to generate data for BootUI panels. Then open the linked panels to see how BootUI
-        explains the same app from different angles.
-      </p>
-      <div class="test-grid">
-        <article class="test-action">
-          <button class="button" id="products-button" type="button">Check products</button>
-          <p>Calls <code>GET /api/sample/products</code> to exercise Hibernate ORM, Quarkus Cache, and HTTP Exchanges.</p>
-          <small>Inspect: Cache, SQL Trace, HTTP Exchanges</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="sql-query-button" type="button">Run an SQL query</button>
-          <p>Calls <code>GET /api/sample/product-search</code> to run a live, uncached SQL <code>SELECT</code>.</p>
-          <small>Inspect: SQL Trace, Database Connection Pools</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="greeting-button" type="button">Call configured greeting</button>
-          <p>Calls <code>GET /api/sample/hello</code> so BootUI can show configuration-backed behavior.</p>
-          <small>Inspect: Configuration, Cache, HTTP Probe</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="public-api-button" type="button">Call public API</button>
-          <p>Calls <code>GET /api/hello</code> as a simple public endpoint for mappings and probes.</p>
-          <small>Inspect: Mappings, HTTP Probe, HTTP Exchanges</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="secure-admin-button" type="button">Secure API as admin</button>
-          <p>Calls <code>GET /api/secure</code> with <code>admin/admin</code> credentials.</p>
-          <small>Inspect: Security, Security Logs</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="secure-sql-button" type="button">Secure SQL request as admin</button>
-          <p>Calls <code>GET /api/secure/products</code> with <code>admin/admin</code> to run a secured, SQL-backed request.</p>
-          <small>Inspect: Live Activity, Security, SQL Trace</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="secure-user-button" type="button">Secure API as developer</button>
-          <p>Calls the same secured endpoint with <code>developer/developer</code> to produce a forbidden response.</p>
-          <small>Inspect: Security, Security Logs, Pentesting</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="exception-button" type="button">Trigger an exception</button>
-          <p>Calls <code>GET /api/sample/boom</code>, which throws on purpose to record a server-side failure.</p>
-          <small>Inspect: Exceptions, Log Tail, Traces</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="metrics-burst-button" type="button">Generate metrics traffic</button>
-          <p>Calls <code>GET /api/sample/metrics-burst</code> to record a custom counter and timer several times.</p>
-          <small>Inspect: Metrics</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="allocate-button" type="button">Allocate sample memory</button>
-          <p>Calls <code>GET /api/sample/allocate</code> to briefly allocate a bounded heap buffer.</p>
-          <small>Inspect: Live Memory, Heap Dump, JVM Tuning</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="slow-button" type="button">Run a slow request</button>
-          <p>Calls <code>GET /api/sample/slow</code>, which sleeps briefly so a request thread stays busy.</p>
-          <small>Inspect: Threads, Metrics, HTTP Exchanges</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="pool-stress-button" type="button">Exercise the connection pool</button>
-          <p>Calls <code>GET /api/sample/pool-stress</code> to run several concurrent read-only queries.</p>
-          <small>Inspect: Database Connection Pools, SQL Trace</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="chained-button" type="button">Make a multi-hop request</button>
-          <p>Calls <code>GET /api/sample/chained</code>, which nests spans across a catalog read and a live query.</p>
-          <small>Inspect: Traces, Diagnostics, HTTP Exchanges, SQL Trace</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="send-email-button" type="button">Send test email</button>
-          <p>Calls <code>GET /api/sample/send-email</code> to send a demo email through the app's mailer.</p>
-          <small>Inspect: Email</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="auth-fail-button" type="button">Fail authentication</button>
-          <p>Calls <code>GET /api/secure</code> with bad credentials to produce an unauthorized response.</p>
-          <small>Inspect: Security, Security Logs, Pentesting</small>
-        </article>
+    <h2 id="lab-heading">Sample action lab</h2>
+    <nav class="scenario-nav" aria-labelledby="lab-heading">
+      <div class="scenario-tabs" role="tablist" aria-label="Scenario groups">
+        <button id="tab-requests" role="tab" aria-controls="lab-requests" aria-selected="true" tabindex="0" type="button">Requests</button>
+        <button id="tab-runtime" role="tab" aria-controls="lab-runtime" aria-selected="false" tabindex="-1" type="button">Runtime</button>
+        <button id="tab-threads" role="tab" aria-controls="lab-threads" aria-selected="false" tabindex="-1" type="button">Threads</button>
+        <button id="tab-data" role="tab" aria-controls="lab-data" aria-selected="false" tabindex="-1" type="button">Data</button>
+        <button id="tab-security" role="tab" aria-controls="lab-security" aria-selected="false" tabindex="-1" type="button">Security</button>
+        <button id="tab-integrations" role="tab" aria-controls="lab-integrations" aria-selected="false" tabindex="-1" type="button">Integrations &amp; AI</button>
       </div>
-      <div class="form-row">
-        <span aria-live="polite" class="chat-status" id="sample-action-status" role="status"></span>
-      </div>
-      <pre class="action-result" hidden id="sample-action-result"></pre>
-    </section>
+    </nav>
+    <div class="action-feedback" id="sample-action-feedback" hidden>
+      <span aria-live="polite" class="chat-status" id="sample-action-status" role="status"></span>
+      <details id="sample-action-details">
+        <summary>Response details</summary>
+        <pre class="action-result" hidden id="sample-action-result"></pre>
+      </details>
+    </div>
 
-    <section aria-labelledby="ai-prompt-heading" class="wide">
-      <h2 id="ai-prompt-heading">Ask the LLM</h2>
-      <p>
-        Send a prompt through the sample app's LangChain4j <code>AiAssistant</code>
-        (Ollama) using <code>POST /api/chat</code>. Then open BootUI's
-        <a href="/bootui/#/ai">AI Framework</a> panel to inspect the generated
-        observations, spans, and token usage. The endpoint returns a clear
-        "AI unavailable" response when Ollama is not running, so the rest of the
-        demo works without it.
-      </p>
-      <form id="ai-chat-form">
-        <label for="ai-chat-message">Question for the LLM</label>
-        <textarea id="ai-chat-message" name="message" required
-                  rows="4">What can BootUI show me about this app?</textarea>
-        <div class="form-row">
-          <button class="button" type="submit">Ask the LLM</button>
-          <span aria-live="polite" class="chat-status" id="ai-chat-status" role="status"></span>
+    <div class="lab-panel" id="lab-runtime" role="tabpanel" aria-labelledby="tab-runtime" tabindex="0" hidden>
+      <section aria-labelledby="runtime-heading">
+        <h2 id="runtime-heading">Runtime signals</h2>
+        <p>Generate a controlled failure, record custom meters, or briefly allocate memory.</p>
+        <div class="test-grid">
+          <article class="test-action">
+            <button class="button" id="exception-button" type="button">Trigger an exception</button>
+            <p>Calls <code>GET /api/sample/boom</code>, which throws on purpose to record a server-side failure.</p>
+            <small>Inspect: Exceptions, Log Tail, Traces</small>
+          </article>
+          <article class="test-action">
+            <button class="button" id="metrics-burst-button" type="button">Generate metrics traffic</button>
+            <p>Calls <code>GET /api/sample/metrics-burst</code> to record a custom counter and timer several times.</p>
+            <small>Inspect: Metrics</small>
+          </article>
+          <article class="test-action">
+            <button class="button" id="allocate-button" type="button">Allocate sample memory</button>
+            <p>Calls <code>GET /api/sample/allocate</code> to briefly allocate a bounded heap buffer.</p>
+            <small>Inspect: Live Memory, Heap Dump, JVM Tuning</small>
+          </article>
         </div>
-      </form>
-      <pre class="chat-result" hidden id="ai-chat-result"></pre>
-    </section>
+      </section>
+    </div>
 
+    <div class="lab-panel" id="lab-threads" role="tabpanel" aria-labelledby="tab-threads" tabindex="0" hidden>
+      <section aria-labelledby="threads-heading">
+        <h2 id="threads-heading">Inspect a waiting worker</h2>
+        <p>
+          Open <a href="/bootui/#/threads" target="_blank" rel="noopener">Threads</a> in another tab before starting.
+          No Java agent needed.
+        </p>
+        <details class="scenario-help">
+          <summary>How to inspect the request</summary>
+          <p>
+            Choose <strong>Live</strong> in <strong>Thread source</strong>, or use
+            <strong>Capture snapshot → Contention</strong> while the request runs.
+            <strong>Observe threads → Observe &amp; compare</strong> shows the sampled interval.
+            Waiting alone is not evidence of contention or a deadlock.
+            Explicit snapshots and observations also work with low-footprint mode on.
+          </p>
+        </details>
+        <div class="test-grid test-grid-single">
+          <article class="test-action">
+            <button class="button" id="slow-button" type="button">Run a slow request</button>
+            <p>Holds a request worker in timed waiting for five seconds.</p>
+            <small>Inspect while running: Threads. The response includes the worker name; the request stops automatically.</small>
+          </article>
+        </div>
+      </section>
+    </div>
+
+    <div class="lab-panel" id="lab-data" role="tabpanel" aria-labelledby="tab-data" tabindex="0" hidden>
+      <section aria-labelledby="data-heading">
+        <h2 id="data-heading">Data &amp; connection pools</h2>
+        <p>Compare a cached product lookup with live SQL and concurrent read-only queries.</p>
+        <div class="test-grid">
+          <article class="test-action">
+            <button class="button" id="products-button" type="button">Check products</button>
+            <p>Calls <code>GET /api/sample/products</code> to exercise Hibernate ORM, Quarkus Cache, and HTTP Exchanges.</p>
+            <small>Inspect: Cache, SQL Trace, HTTP Exchanges</small>
+          </article>
+          <article class="test-action">
+            <button class="button" id="sql-query-button" type="button">Run an SQL query</button>
+            <p>Calls <code>GET /api/sample/product-search</code> to run a live, uncached SQL <code>SELECT</code>.</p>
+            <small>Inspect: SQL Trace, Database Connection Pools</small>
+          </article>
+          <article class="test-action">
+            <button class="button" id="pool-stress-button" type="button">Exercise the connection pool</button>
+            <p>Calls <code>GET /api/sample/pool-stress</code> to run several concurrent read-only queries.</p>
+            <small>Inspect: Database Connection Pools, SQL Trace</small>
+          </article>
+        </div>
+      </section>
+    </div>
+
+    <div class="lab-panel" id="lab-security" role="tabpanel" aria-labelledby="tab-security" tabindex="0" hidden>
+      <section aria-labelledby="security-heading">
+        <h2 id="security-heading">Security outcomes</h2>
+        <p>Compare successful admin requests with forbidden and unauthenticated outcomes.</p>
+        <div class="test-grid test-grid-pairs">
+          <article class="test-action">
+            <button class="button" id="secure-admin-button" type="button">Secure API as admin</button>
+            <p>Calls <code>GET /api/secure</code> with <code>admin/admin</code> credentials.</p>
+            <small>Inspect: Security, Security Logs</small>
+          </article>
+          <article class="test-action">
+            <button class="button" id="secure-sql-button" type="button">Secure SQL request as admin</button>
+            <p>Calls <code>GET /api/secure/products</code> as admin to run a secured SQL request.</p>
+            <small>Inspect: Live Activity, Security, SQL Trace</small>
+          </article>
+          <article class="test-action">
+            <button class="button" id="secure-user-button" type="button">Secure API as developer</button>
+            <p>Calls the same secured endpoint with <code>developer/developer</code> to produce a forbidden response.</p>
+            <small>Inspect: Security, Security Logs, Pentesting</small>
+          </article>
+          <article class="test-action">
+            <button class="button" id="auth-fail-button" type="button">Fail authentication</button>
+            <p>Calls <code>GET /api/secure</code> with bad credentials to produce an unauthorized response.</p>
+            <small>Inspect: Security, Security Logs, Pentesting</small>
+          </article>
+        </div>
+      </section>
+    </div>
+
+    <div class="lab-panel integration-columns" id="lab-integrations" role="tabpanel" aria-labelledby="tab-integrations" tabindex="0" hidden>
+      <section aria-labelledby="integrations-heading">
+        <h2 id="integrations-heading">Messaging &amp; integrations</h2>
+        <p>Send a demo email through the app's mailer, or try the optional LLM.</p>
+        <div class="test-grid test-grid-single">
+          <article class="test-action">
+            <button class="button" id="send-email-button" type="button">Send test email</button>
+            <p>Calls <code>GET /api/sample/send-email</code> to send a demo email through the app's mailer.</p>
+            <small>Inspect: Email</small>
+          </article>
+        </div>
+      </section>
+      <section aria-labelledby="ai-prompt-heading">
+        <h2 id="ai-prompt-heading">Ask the LLM</h2>
+        <p>
+          Send a prompt through LangChain4j and Ollama, then inspect
+          <a href="/bootui/#/ai" target="_blank" rel="noopener">AI Framework</a>.
+          If Ollama is unavailable, the endpoint reports that explicitly; other scenarios still work.
+        </p>
+        <form id="ai-chat-form">
+          <label for="ai-chat-message">Question for the LLM</label>
+          <textarea id="ai-chat-message" name="message" required rows="4">What can BootUI show me about this app?</textarea>
+          <div class="form-row">
+            <button class="button" type="submit">Ask the LLM</button>
+            <span aria-live="polite" class="chat-status" id="ai-chat-status" role="status"></span>
+          </div>
+        </form>
+        <pre class="chat-result" hidden id="ai-chat-result"></pre>
+      </section>
+    </div>
+
+    <div class="lab-panel" id="lab-requests" role="tabpanel" aria-labelledby="tab-requests" tabindex="0">
+      <section aria-labelledby="requests-heading">
+        <h2 id="requests-heading">Requests &amp; traces</h2>
+        <p>Start with a public endpoint, then follow a multi-hop request through the service.</p>
+        <div class="test-grid">
+          <article class="test-action">
+            <button class="button" id="public-api-button" type="button">Call public API</button>
+            <p>Calls <code>GET /api/hello</code>, a public endpoint for mappings and probes.</p>
+            <small>Inspect: Mappings, HTTP Probe, HTTP Exchanges</small>
+          </article>
+          <article class="test-action">
+            <button class="button" id="greeting-button" type="button">Call configured greeting</button>
+            <p>Calls <code>GET /api/sample/hello</code> to show configuration-backed behavior.</p>
+            <small>Inspect: Configuration, Cache, HTTP Probe</small>
+          </article>
+          <article class="test-action">
+            <button class="button" id="chained-button" type="button">Make a multi-hop request</button>
+            <p>Calls <code>GET /api/sample/chained</code>, nesting spans across a catalog read and live SQL.</p>
+            <small>Inspect: Traces, HTTP Exchanges, SQL Trace</small>
+          </article>
+        </div>
+      </section>
+    </div>
   </div>
 </main>
-<script src="/index.js"></script>
+<script src="sample-lab.js"></script>
+<script src="index.js"></script>
 </body>
 </html>

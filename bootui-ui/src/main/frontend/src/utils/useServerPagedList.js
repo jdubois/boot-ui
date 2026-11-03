@@ -1,5 +1,5 @@
 import {computed, onBeforeUnmount, ref} from 'vue'
-import {apiFetch} from '../api.js'
+import {actionBusyMessage, getJson, isActionBusyError} from '../api.js'
 import {describeLoadError, isAbortError} from './loadError.js'
 
 export const SERVER_PAGE_SIZE = 200
@@ -62,9 +62,7 @@ export function useServerPagedList(endpoint, itemsKey, queryParams, options = {}
       loadingMore.value = true
       error.value = null
       try {
-        const res = await apiFetch(requestUrl, {signal: ac.signal})
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const next = await res.json()
+        const next = await getJson(requestUrl, {signal: ac.signal})
         if (appendAc !== ac || requestUrl !== buildUrl(currentItems.length)) return
         data.value = data.value
           ? {
@@ -74,7 +72,8 @@ export function useServerPagedList(endpoint, itemsKey, queryParams, options = {}
           : next
       } catch (e) {
         if (isAbortError(e)) return
-        if (appendAc === ac) error.value = describeLoadError(e, errorContext)
+        if (appendAc === ac)
+          error.value = describeLoadError(isActionBusyError(e) ? actionBusyMessage(e) : e, errorContext)
       } finally {
         if (appendAc === ac) {
           appendAc = null
@@ -98,14 +97,13 @@ export function useServerPagedList(endpoint, itemsKey, queryParams, options = {}
       loading.value = true
       error.value = null
       try {
-        const res = await apiFetch(requestUrl, {signal: ac.signal})
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const next = await res.json()
+        const next = await getJson(requestUrl, {signal: ac.signal})
         if (baseAc !== ac || requestUrl !== buildUrl(0)) return
         data.value = next
       } catch (e) {
         if (isAbortError(e)) return
-        if (baseAc === ac) error.value = describeLoadError(e, errorContext)
+        if (baseAc === ac)
+          error.value = describeLoadError(isActionBusyError(e) ? actionBusyMessage(e) : e, errorContext)
       } finally {
         if (baseAc === ac) {
           baseAc = null

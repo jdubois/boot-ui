@@ -22,6 +22,7 @@ test.describe('Transactions view', () => {
 
   test('generates representative transaction samples from the sample app', async ({openView, page}) => {
     await page.goto('/')
+    await page.getByRole('tab', {name: 'Data', exact: true}).click()
     await page.getByRole('button', {name: 'Generate transaction samples'}).click()
     await expect(page.locator('#sample-action-status')).toContainText('Generated 4 transaction scenarios')
 

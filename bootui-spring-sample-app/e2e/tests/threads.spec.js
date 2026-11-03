@@ -1,5 +1,8 @@
 // @ts-check
-import {expect, test} from './fixtures.js'
+import {acceptConfirm, expect, test} from './fixtures.js'
+import {registerThreadAnalysisTests} from '../scenarios/thread-analysis.js'
+
+registerThreadAnalysisTests(test, expect, acceptConfirm)
 
 test.describe('Threads view', () => {
   test('shows a live thread snapshot with state summary and stack traces', async ({openView, page}) => {

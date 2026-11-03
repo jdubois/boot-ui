@@ -870,7 +870,27 @@ The JMS panel is a dedicated view over the same bounded Spring JMS capture that 
 | Property                          | Default | Description                                                     |
 | --------------------------------- | ------- | --------------------------------------------------------------- |
 | `bootui.panels.threads.enabled`   | `true`  | Show the Threads panel when a `ThreadMXBean` is available.      |
-| `bootui.panels.threads.read-only` | `false` | Disable the confirmation-gated raw thread-dump download action. |
+| `bootui.panels.threads.read-only` | `false` | Disable fresh text downloads, retained capture/export/clear, and observation start/cancel actions. Existing evidence remains readable. |
+| `bootui.threads.max-threads` | `2048` | Maximum platform-thread IDs selected before stack acquisition; hard ceiling `10000`. |
+| `bootui.threads.max-stack-depth` | `128` | Visible frames per captured thread; hard ceiling `256`. |
+| `bootui.threads.max-owned-locks` | `256` | Retained owned-lock entries per thread; hard ceiling `1024`. |
+| `bootui.threads.capture-deadline-millis` | `2000` | Soft acquisition deadline, at most `30000`; native JVM calls cannot be interrupted. |
+| `bootui.threads.include-synchronizers` | `false` | Opt into one ownable-synchronizer inventory per acquisition, which can walk the heap. |
+| `bootui.threads.max-captures` | `6` | Retained capture count including active reservations; hard ceiling `20`. |
+| `bootui.threads.max-retained-bytes` | `16777216` | Aggregate estimated evidence budget including observation reservation overhead; hard ceiling `67108864`. |
+| `bootui.threads.max-capture-bytes` | `4194304` | Estimated per-capture budget, from `4096` to `16777216`. This does not bound transient native allocations. |
+| `bootui.threads.ttl-millis` | `300000` | Retained evidence lifetime, from `30000` to `600000`; active observations pin their samples. |
+| `bootui.threads.observation-samples` | `3` | Default finite sample count, from `2` to `5`, subject to count and byte reservation capacity. |
+| `bootui.threads.observation-interval-millis` | `5000` | Default cadence, at least `1000`; the sampling window plus the last capture's deadline must fit within `30000` milliseconds. |
+
+These static limits use the same names and defaults on Spring MVC, Spring WebFlux, and Quarkus and require an
+application restart. Invalid combinations fail instead of silently falling back: all observation samples plus
+`524288` bytes of session overhead must fit in the retained budget. Default budgets permit at most three samples,
+not five. Inventory `maxObservationSamples` also accounts for `max-captures` and the minimum cadence/final-capture
+deadline. For example, an approved `max-retained-bytes=25165824` (24 MiB) change permits five samples with the other
+default limits. Browser and REST requests may choose any finite observation within those bounds; MCP and CLI use
+the configured defaults. See the
+[Threads contract](SPECIFICATION.md#_5-20-threads-panel) for completeness, retention, and lifecycle semantics.
 
 ### Architecture
 

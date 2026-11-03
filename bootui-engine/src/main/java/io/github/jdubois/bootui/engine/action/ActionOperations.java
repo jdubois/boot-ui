@@ -19,6 +19,7 @@ public final class ActionOperations {
     public static final String SECURITY_SCAN = "security.scan";
     public static final String SPRING_SCAN = "spring.scan";
     public static final String VULNERABILITIES_SCAN = "vulnerabilities.scan";
+    public static final String THREAD_CAPTURE = "threads.capture";
 
     private ActionOperations() {}
 }

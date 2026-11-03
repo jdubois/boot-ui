@@ -471,12 +471,38 @@ record MemoryContext(
             List<ThreadStateCountDto> stateCounts,
             List<ThreadInfoDto> threads,
             boolean detailsTruncated,
+            boolean populationComplete,
             String collectionError) {
 
         ThreadData {
             deadlockedThreadIds = deadlockedThreadIds == null ? List.of() : List.copyOf(deadlockedThreadIds);
             stateCounts = stateCounts == null ? List.of() : List.copyOf(stateCounts);
             threads = threads == null ? List.of() : List.copyOf(threads);
+        }
+
+        ThreadData(
+                int total,
+                int peak,
+                int daemon,
+                boolean cpuTimeSupported,
+                boolean deadlockDetected,
+                List<Long> deadlockedThreadIds,
+                List<ThreadStateCountDto> stateCounts,
+                List<ThreadInfoDto> threads,
+                boolean detailsTruncated,
+                String collectionError) {
+            this(
+                    total,
+                    peak,
+                    daemon,
+                    cpuTimeSupported,
+                    deadlockDetected,
+                    deadlockedThreadIds,
+                    stateCounts,
+                    threads,
+                    detailsTruncated,
+                    true,
+                    collectionError);
         }
 
         ThreadData(

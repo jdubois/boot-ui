@@ -426,6 +426,31 @@ The command is `request-profile`, at the top level, because `bootui activity` is
 cannot also be the parent of another. It is unavailable, and exits `2`, when the Live Activity panel is disabled. See
 [Investigate one request](AI-AGENTS.md#investigate-one-request) for the same workflow over MCP.
 
+### Investigating a blocked thread
+
+Thread diagnostics need no Java agent and work on Spring MVC, WebFlux, and Quarkus. Start with retained evidence:
+
+```bash
+bootui thread-analysis list --json
+bootui thread-analysis show <capture-id> --json
+bootui thread-analysis thread <thread-observation-id> --json
+```
+
+Follow `rootBlockers[].observationId` for a lock owner and its `blockedObservationIds` for waiters, then inspect both
+stacks at their actual application source. These are capture-scoped IDs from the report, not numeric live thread IDs.
+If suitable evidence is absent, obtain approval for `bootui thread-analysis capture --json` first.
+For persistence/interval CPU, `thread-analysis observe` starts an approved finite session; read
+`thread-analysis observation <session-id> --json`, and cancel with `thread-analysis cancel <session-id> --json`
+before clearing if remaining samples must stop.
+While it runs, poll retained observation status only; live `bootui threads`, captures, and fresh dump downloads
+compete for JVM acquisition and can fail a sample. Busy/missed ticks fail visibly without retrying.
+
+The `show` and `observation` commands take an optional ID, not arbitrary filter or paging flags. Check section
+`hasMore`/truncated-ID flags and capture quality; use the same retained capture's REST pages for omitted evidence.
+Comparison pages use `GET <api-base>/threads/observations/<session-id>?offset=25&limit=25`.
+An empty/partial result or an ordinary waiting pool thread is not proof of a defect or a fix.
+See the [blocked-thread agent workflow](AI-AGENTS.md#investigate-a-blocked-thread) for source changes and verification.
+
 ## The MCP server
 
 The MCP server is a panel like any other, so the CLI can inspect and toggle it — subject to that panel's own
@@ -632,6 +657,14 @@ exposes a tool is still what `bootui tools` says.
 | `bootui sql traces` | `get_sql_traces` | `--query`, `--limit` | read | all |
 | `bootui startup` | `get_startup_timeline` | `--query`, `--limit` | read | Spring MVC, WebFlux |
 | `bootui threads` | `get_threads` | `--query`, `--limit` | read | all |
+| `bootui thread-analysis capture` | `capture_thread_snapshot` | — | action | all |
+| `bootui thread-analysis list` | `get_thread_snapshots` | `--limit` | read | all |
+| `bootui thread-analysis show` | `get_thread_analysis` | `[<id>]` (capture; latest if omitted) | read | all |
+| `bootui thread-analysis thread` | `get_thread_detail` | `<id>` (thread observation) | read | all |
+| `bootui thread-analysis clear` | `clear_thread_snapshots` | — | action | all |
+| `bootui thread-analysis observe` | `start_thread_observation` | — | action | all |
+| `bootui thread-analysis observation` | `get_thread_observation` | `[<id>]` (finite session; latest if omitted) | read | all |
+| `bootui thread-analysis cancel` | `cancel_thread_observation` | `<id>` (finite session) | action | all |
 | `bootui traces clear` | `clear_traces` | — | action | all |
 | `bootui traces list` | `get_traces` | `--limit` | read | all |
 | `bootui tx clear` | `clear_transactions` | — | action | Spring MVC, WebFlux |

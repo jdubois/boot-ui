@@ -28,6 +28,31 @@ class ClaudeCodePluginPayloadTests {
     }
 
     @Test
+    void shippedReferencesMatchTheCanonicalReferences() throws IOException {
+        Path canonical = RepositoryFiles.file("skills/bootui/references");
+        Path shipped = RepositoryFiles.file("plugins/bootui/skills/bootui/references");
+        try (var canonicalFiles = Files.walk(canonical);
+                var shippedFiles = Files.walk(shipped)) {
+            var references = canonicalFiles
+                    .filter(Files::isRegularFile)
+                    .map(canonical::relativize)
+                    .sorted()
+                    .toList();
+            assertThat(shippedFiles
+                            .filter(Files::isRegularFile)
+                            .map(shipped::relativize)
+                            .sorted()
+                            .toList())
+                    .containsExactlyElementsOf(references);
+            for (Path reference : references) {
+                assertThat(Files.readString(shipped.resolve(reference)))
+                        .as("plugin reference %s must match the canonical skill", reference)
+                        .isEqualTo(Files.readString(canonical.resolve(reference)));
+            }
+        }
+    }
+
+    @Test
     void pluginShipsOnlyTheUserFacingSkill() throws IOException {
         Path shippedSkills = RepositoryFiles.file("plugins/bootui/skills");
 

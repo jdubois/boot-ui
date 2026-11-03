@@ -52,6 +52,27 @@ final class LowFootprintContract {
             for (String name : List.of("get_health", "get_live_memory", "get_jvm_tuning", "get_config")) {
                 assertThat(call.apply(name, "{}").has("lowFootprint")).as(name).isFalse();
             }
+            JsonNode capture = call.apply("capture_thread_snapshot", "{}");
+            String captureId = capture.path("id").asText();
+            assertThat(captureId).matches("[0-9a-f-]{36}");
+            assertThat(capture.path("capturePaused").asBoolean()).isFalse();
+            assertThat(call.apply("get_thread_analysis", "{}")
+                            .path("capture")
+                            .path("id")
+                            .asText())
+                    .isEqualTo(captureId);
+            JsonNode observation = call.apply("start_thread_observation", "{}");
+            String observationId = observation.path("id").asText();
+            assertThat(observationId).matches("[0-9a-f-]{36}");
+            assertThat(observation.path("capturePaused").asBoolean()).isFalse();
+            assertThat(call.apply("get_thread_observation", "{}").path("id").asText())
+                    .isEqualTo(observationId);
+            assertThat(call.apply("get_low_footprint", "{}").path("active").asBoolean())
+                    .isTrue();
+            call.apply("disable_low_footprint", "{}");
+            call.apply("enable_low_footprint", "{}");
+            assertThat(call.apply("get_thread_observation", "{}").path("status").asText())
+                    .isEqualTo("POLICY_STOPPED");
         } finally {
             assertThat(call.apply("disable_low_footprint", "{}").path("active").asBoolean())
                     .isFalse();

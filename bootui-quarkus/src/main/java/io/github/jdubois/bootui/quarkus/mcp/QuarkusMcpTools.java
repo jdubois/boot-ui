@@ -672,6 +672,10 @@ public class QuarkusMcpTools {
                         "analyze_heap_dump",
                         McpToolDescriptions.quarkus("analyze_heap_dump"),
                         args -> heapDump.analyze()));
+        for (McpTool threadTool : io.github.jdubois.bootui.engine.mcp.ThreadAnalysisMcpTools.tools(
+                threads.analysisService(), McpToolCatalog.Stack.QUARKUS)) {
+            addIfAvailable(registry, availability, threadTool);
+        }
         addIfAvailable(
                 registry,
                 availability,

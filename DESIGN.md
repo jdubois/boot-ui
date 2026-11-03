@@ -177,7 +177,7 @@ A cool, confident palette: two brand hues (Spring green, signal blue) over a nea
 - **Indigo Accent** (`#6610f2`): a sparing third hue for the "output" data series and multi-series charts. Never used for chrome or interactive state — purely categorical.
 
 ### Semantic Status (accessible)
-Bootstrap's raw contextual colors are tuned for white fills and fail WCAG AA as text in places, so BootUI defines accessible companions as `--bootui-*-text` tokens (in `App.vue`) and references them for status text and icons. Most are shared across themes; warning adds a per-theme body companion (below). Light-surface contrast:
+Bootstrap's raw contextual colors are tuned for white fills and fail WCAG AA as text in places, so BootUI defines accessible companions as `--bootui-*-text` tokens (in `public/bootui-theme.css`, shared with the Spring sample action lab) and references them for status text and icons. Most are shared across themes; warning adds a per-theme body companion (below). Light-surface contrast:
 - **Accessible Deep Blue** (`#0a53be`): `.text-primary` text and the *selected* master-list row (white-on-blue ~7:1). The accessible companion to Signal Blue.
 - **Accessible Danger** (`#b02a37`, `--bootui-danger-text`): error/at-risk text (~6.5:1).
 - **Accessible Info** (`#087990`, `--bootui-info-text`): informational text (~5:1; raw Bootstrap cyan ~1.9:1 is never used as text).
@@ -294,7 +294,7 @@ BootUI is a **layered** system, not a flat one — but the elevation is calm. Fr
   selected tab is the nav's active fill (the green→blue gradient in light and dark) with white text. Focus is the shared
   branded ring via `.bootui-keyboard-target`. Disabled labels use Slate Subtle. Optional count chips (`.bootui-tabs__count`)
   take a soft `currentColor` wash.
-- **Tokens:** `--bootui-tab-*` in `App.vue` default to the nav-link states, so a skin that repaints its nav repaints its
+- **Tokens:** `--bootui-tab-*` in `public/bootui-theme.css` default to the nav-link states, so a skin that repaints its nav repaints its
   tabs. A skin overrides a token only where its tab idiom differs and adds geometry in its own `theme-<id>.css`:
   Graphite adds an accent underline to the selected fill, Cyberpunk a neon glow and a cyan hover scanline, Minimal an
   ink underline on a hairline rule, France the DSFR `fr-tabs` (blue-tinted tabs; the selected one white with a Blue France

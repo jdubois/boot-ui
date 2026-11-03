@@ -8,6 +8,7 @@ const sourceRoot = path.dirname(fileURLToPath(import.meta.url))
 const appSource = fs.readFileSync(path.join(sourceRoot, 'App.vue'), 'utf8')
 const {descriptor} = parseSfc(appSource, {filename: 'App.vue'})
 const css = descriptor.styles.map((style) => style.content).join('\n')
+const themeCss = fs.readFileSync(path.join(sourceRoot, '../public/bootui-theme.css'), 'utf8')
 const commandPaletteSource = fs.readFileSync(path.join(sourceRoot, 'views/components/CommandPalette.vue'), 'utf8')
 const {descriptor: commandPaletteDescriptor} = parseSfc(commandPaletteSource, {filename: 'CommandPalette.vue'})
 const commandPaletteCss = commandPaletteDescriptor.styles.map((style) => style.content).join('\n')
@@ -33,8 +34,8 @@ function declarations(block) {
   )
 }
 
-const lightTokens = declarations(cssBlock(':global(:root) {'))
-const darkTokens = {...lightTokens, ...declarations(cssBlock(":global(:root[data-bootui-theme='dark']) {"))}
+const lightTokens = declarations(cssBlock(':root {', themeCss))
+const darkTokens = {...lightTokens, ...declarations(cssBlock(":root[data-bootui-theme='dark'] {", themeCss))}
 
 function parseColor(value) {
   if (value.startsWith('#')) {
