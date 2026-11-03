@@ -31,6 +31,7 @@ test.describe('Sample application REST API', () => {
 
   test('homepage action lab exercises sample flows', async ({page}) => {
     await page.goto('/')
+    await page.getByRole('tab', {name: 'Data', exact: true}).click()
 
     await page.getByRole('button', {name: 'Check products'}).click()
     await expect(page.locator('#sample-action-status')).toContainText(/Loaded \d+ active products/)
@@ -44,6 +45,7 @@ test.describe('Sample application REST API', () => {
     await expect(page.locator('#sample-action-status')).toContainText(/Observed \d+ second-level cache hit/)
     await expect(page.locator('#sample-action-result')).toContainText('Hits: +1')
 
+    await page.getByRole('tab', {name: 'Runtime', exact: true}).click()
     await page.getByRole('button', {name: 'Trigger a retry'}).click()
     await expect(page.locator('#sample-action-status')).toContainText(
       'Spring Retry recovered FlakyInventoryClient#reserve'
@@ -69,6 +71,7 @@ test.describe('Sample application REST API', () => {
       )
     expect(faultToleranceCardsFitTheirGridColumns).toBe(true)
 
+    await page.getByRole('tab', {name: 'Security', exact: true}).click()
     await page.getByRole('button', {name: 'Create session data'}).click()
     await expect(page.locator('#session-data-status')).toContainText('Added 5 attributes')
     await expect(page.locator('#sample-action-result')).toContainText('sampleMessage')
@@ -84,12 +87,15 @@ test.describe('Sample application REST API', () => {
     await page.getByRole('button', {name: 'Secure API as developer'}).click()
     await expect(page.locator('#sample-action-status')).toContainText('HTTP 403')
 
+    await page.getByRole('tab', {name: 'Runtime', exact: true}).click()
     await page.getByRole('button', {name: 'Generate metrics traffic'}).click()
     await expect(page.locator('#sample-action-status')).toContainText(/Recorded \d+ samples/)
 
+    await page.getByRole('tab', {name: 'Requests', exact: true}).click()
     await page.getByRole('button', {name: 'Make a multi-hop request'}).click()
     await expect(page.locator('#sample-action-status')).toContainText('Completed a multi-hop request')
 
+    await page.getByRole('tab', {name: 'Integrations & AI', exact: true}).click()
     await page.getByRole('button', {name: 'Test native WebSocket echo'}).click()
     await expect(page.locator('#sample-action-status')).toContainText('Native WebSocket echo received')
     await expect(page.locator('#sample-action-result')).toContainText('echo: Hello from the sample app')
@@ -98,6 +104,7 @@ test.describe('Sample application REST API', () => {
     await expect(page.locator('#sample-action-status')).toContainText('STOMP chat message received')
     await expect(page.locator('#sample-action-result')).toContainText('echo: Hello from the sample app')
 
+    await page.getByRole('tab', {name: 'Security', exact: true}).click()
     await page.getByRole('button', {name: 'Fail authentication'}).click()
     await expect(page.locator('#sample-action-status')).toContainText('Authentication failed with HTTP 401')
   })

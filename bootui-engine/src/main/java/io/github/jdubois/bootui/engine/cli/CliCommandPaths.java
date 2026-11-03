@@ -23,6 +23,14 @@ public final class CliCommandPaths {
 
     /** Command path by MCP tool name, without the {@code bootui} executable prefix. */
     public static final Map<String, String> BY_TOOL = Map.ofEntries(
+            Map.entry("capture_thread_snapshot", "thread-analysis capture"),
+            Map.entry("get_thread_snapshots", "thread-analysis list"),
+            Map.entry("get_thread_analysis", "thread-analysis show"),
+            Map.entry("get_thread_detail", "thread-analysis thread"),
+            Map.entry("clear_thread_snapshots", "thread-analysis clear"),
+            Map.entry("start_thread_observation", "thread-analysis observe"),
+            Map.entry("get_thread_observation", "thread-analysis observation"),
+            Map.entry("cancel_thread_observation", "thread-analysis cancel"),
             Map.entry("analyze_heap_dump", "memory heap analyze"),
             Map.entry("architecture_scan", "architecture scan"),
             Map.entry("get_agent_status", "agent status"),

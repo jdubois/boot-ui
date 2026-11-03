@@ -37,6 +37,9 @@ before any such call. Use already available JVM arguments for initial NMT config
 BootUI's raw heap capture/download, raw thread-dump download, and resource/JFR profiler are not these catalog reads.
 Its JFR control is browser-only. Do not invent `bootui` commands for them. If a user performs a permitted browser
 capture, keep the same artifact/disclosure policy. Local JDK collection below is a separate authorized operation.
+For blocked platform threads, prefer the existing [bounded thread-investigation workflow](../thread-investigation.md)
+when its tools are advertised. It reuses retained evidence and requires approval before fresh snapshots or observations;
+it does not require the Java agent. Keep this playbook's shared budget and verification baseline.
 
 Record CPU/process memory, available heap/GC/thread trends, route context, and workload timestamps before escalation.
 No single heap reading or WAITING thread proves a defect.

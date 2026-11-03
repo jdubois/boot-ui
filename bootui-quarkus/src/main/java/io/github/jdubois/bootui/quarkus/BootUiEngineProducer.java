@@ -97,6 +97,8 @@ import io.github.jdubois.bootui.engine.support.BootUiHttpClients;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
+import io.github.jdubois.bootui.engine.threads.ThreadAnalysisService;
+import io.github.jdubois.bootui.engine.threads.ThreadCaptureSettings;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
@@ -118,6 +120,7 @@ import io.github.jdubois.bootui.quarkus.javaagent.QuarkusAgentClaim;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLogCoverage;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
 import io.github.jdubois.bootui.quarkus.mappings.QuarkusMappingProvider;
+import io.github.jdubois.bootui.quarkus.mcp.QuarkusMcpPanelPolicy;
 import io.github.jdubois.bootui.quarkus.pentesting.QuarkusPentestingObservationCollector;
 import io.github.jdubois.bootui.quarkus.quarkusapp.QuarkusAppSnapshotProviderImpl;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
@@ -503,8 +506,58 @@ public class BootUiEngineProducer {
 
     @Produces
     @Singleton
-    public ThreadDumpService threadDumpService(QuarkusExposurePolicy exposure) {
-        return new ThreadDumpService(exposure);
+    public ThreadDumpService threadDumpService(QuarkusExposurePolicy exposure, ThreadCaptureSettings settings) {
+        return new ThreadDumpService(exposure, settings);
+    }
+
+    @Produces
+    @Singleton
+    public ThreadCaptureSettings threadCaptureSettings(Config config) {
+        ThreadCaptureSettings defaults = ThreadCaptureSettings.defaults();
+        return new ThreadCaptureSettings(
+                config.getOptionalValue("bootui.threads.max-threads", Integer.class)
+                        .orElse(defaults.maxThreads()),
+                config.getOptionalValue("bootui.threads.max-stack-depth", Integer.class)
+                        .orElse(defaults.maxStackDepth()),
+                config.getOptionalValue("bootui.threads.max-owned-locks", Integer.class)
+                        .orElse(defaults.maxOwnedLocks()),
+                config.getOptionalValue("bootui.threads.capture-deadline-millis", Long.class)
+                        .orElse(defaults.captureDeadlineMillis()),
+                config.getOptionalValue("bootui.threads.include-synchronizers", Boolean.class)
+                        .orElse(defaults.includeSynchronizers()),
+                config.getOptionalValue("bootui.threads.max-captures", Integer.class)
+                        .orElse(defaults.maxCaptures()),
+                config.getOptionalValue("bootui.threads.max-retained-bytes", Long.class)
+                        .orElse(defaults.maxRetainedBytes()),
+                config.getOptionalValue("bootui.threads.max-capture-bytes", Long.class)
+                        .orElse(defaults.maxCaptureBytes()),
+                config.getOptionalValue("bootui.threads.ttl-millis", Long.class).orElse(defaults.ttlMillis()),
+                config.getOptionalValue("bootui.threads.observation-samples", Integer.class)
+                        .orElse(defaults.observationSamples()),
+                config.getOptionalValue("bootui.threads.observation-interval-millis", Long.class)
+                        .orElse(defaults.observationIntervalMillis()));
+    }
+
+    @Produces
+    @Singleton
+    public ThreadAnalysisService threadAnalysisService(
+            ThreadDumpService reader,
+            ThreadCaptureSettings settings,
+            QuarkusApplicationInfo application,
+            QuarkusExposurePolicy exposure,
+            Config config,
+            LowFootprintService lowFootprint) {
+        return new ThreadAnalysisService(
+                reader,
+                settings,
+                application.run(),
+                exposure,
+                new QuarkusMcpPanelPolicy(new QuarkusPanelAccessConfig(config)),
+                lowFootprint::active);
+    }
+
+    public void closeThreadAnalysis(@Disposes ThreadAnalysisService service) {
+        service.close();
     }
 
     @Produces

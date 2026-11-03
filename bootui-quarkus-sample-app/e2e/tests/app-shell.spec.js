@@ -88,6 +88,12 @@ test.describe('BootUI app shell (Quarkus)', () => {
   test('navbar shows the application name and Quarkus / Java versions', async ({page}) => {
     await page.goto('/bootui/')
 
+    const theme = await page.request.get('/bootui/bootui-theme.css')
+    expect(theme.ok()).toBe(true)
+    expect(theme.headers()['content-type']).toContain('text/css')
+    expect(
+      await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bootui-green').trim())
+    ).toBe('#198754')
     await expect(page.locator('.brand-name')).toHaveText('BootUI')
     await expect(page.locator('.topbar-title')).toContainText('bootui-quarkus-sample')
     const subtitle = page.locator('.topbar-subtitle')

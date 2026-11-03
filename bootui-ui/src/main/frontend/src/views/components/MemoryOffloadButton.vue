@@ -107,8 +107,8 @@ async function toggleMode() {
     title: 'Turn on low-footprint mode?',
     message:
       "BootUI's buffered diagnostics — runtime journal, traces, captured exchanges, SQL statements, " +
-      'messages, exceptions, log tail, and emails — will be discarded, a garbage collection is requested, and ' +
-      'BootUI stops recording until you turn the mode off. Settings and configuration overrides are kept.' +
+      'messages, exceptions, log tail, emails, and retained thread captures — will be discarded, a garbage collection is requested, and ' +
+      'BootUI pauses background recording until you turn the mode off. Explicit thread snapshots and finite observations remain available. Settings and configuration overrides are kept.' +
       agentNote,
     confirmLabel: 'Turn on',
     danger: true,
@@ -238,13 +238,16 @@ async function apply(enabled) {
         <p class="mb-1">Cleared:</p>
         <ul class="mb-2 ps-3">
           <li>Runtime journal and its aggregates, and in-memory Live Activity</li>
+          <li>Previous thread captures; observations already running when the mode is turned on are stopped</li>
           <li>HTTP exchanges, traces, SQL statements, REST client calls, and transactions</li>
           <li>Kafka, RabbitMQ, JMS, and WebSocket activity; cache events and scheduled runs</li>
           <li>Fault-tolerance events, exceptions (with their triage status), security events, and captured emails</li>
         </ul>
         <p class="mb-2">
           Kept: settings, configuration overrides, dismissed rules, scan reports, and persisted Live Activity history.
-          Buffers start filling again once the mode is turned off. The mode resets when the application restarts.
+          Background buffers start filling again once the mode is turned off. You can still explicitly capture thread
+          snapshots or run finite observations, within the usual memory limits and expiry. The mode resets when the
+          application restarts.
         </p>
         <p class="mb-0 text-muted">
           The cleared data cannot be recovered. A garbage collection request is only a hint: the JVM may defer it, and

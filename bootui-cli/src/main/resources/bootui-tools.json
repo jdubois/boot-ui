@@ -1486,6 +1486,130 @@
       "queryHelp": "a step name or tag value, such as a bean name"
     },
     {
+      "name": "cancel_thread_observation",
+      "command": "thread-analysis cancel",
+      "schema": "ID",
+      "panel": "threads",
+      "action": true,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Cancel the finite observation id returned by start_thread_observation.",
+      "description": "Cancel the finite observation id returned by start_thread_observation. A native JVM management call already in flight cannot be interrupted; cancellation prevents its publication and future samples. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
+      "example": "bootui thread-analysis cancel <id>",
+      "idHelp": "A finite observation id from 'bootui thread-analysis observe'."
+    },
+    {
+      "name": "capture_thread_snapshot",
+      "command": "thread-analysis capture",
+      "schema": "NONE",
+      "panel": "threads",
+      "action": true,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Explicitly acquire one bounded, masked platform-thread capture for retained analysis.",
+      "description": "Explicitly acquire one bounded, masked platform-thread capture for retained analysis. Collection can briefly pause the JVM. No virtual-thread census is implied. Obtain permission for the collection cost. No Java agent is required. Inspect get_thread_analysis using the returned capture id; never infer a complete population or complete lock ownership when quality reports omissions. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
+      "example": "bootui thread-analysis capture"
+    },
+    {
+      "name": "clear_thread_snapshots",
+      "command": "thread-analysis clear",
+      "schema": "NONE",
+      "panel": "threads",
+      "action": true,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Clear retained thread evidence.",
+      "description": "Clear retained thread evidence. An active finite observation can collect its remaining samples; use cancel_thread_observation first to stop it. Cleared samples are reported explicitly. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
+      "example": "bootui thread-analysis clear"
+    },
+    {
+      "name": "get_thread_snapshots",
+      "command": "thread-analysis list",
+      "schema": "LIMIT",
+      "panel": "threads",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "List retained thread capture metadata without acquiring JVM stacks.",
+      "description": "List retained thread capture metadata without acquiring JVM stacks. Captures expire or can be cleared; use capture_thread_snapshot explicitly to collect evidence. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
+      "example": "bootui thread-analysis list --limit 5"
+    },
+    {
+      "name": "get_thread_observation",
+      "command": "thread-analysis observation",
+      "schema": "OPTIONAL_ID",
+      "panel": "threads",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Read finite observation status and bounded comparisons without collecting another sample.",
+      "description": "Read finite observation status and bounded comparisons without collecting another sample. id comes from start_thread_observation; omit it for the latest session. CPU is an adjacent counter delta over a measured interval, not a lifetime total or a wall-clock utilization guess. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
+      "example": "bootui thread-analysis observation <id>",
+      "idHelp": "A finite observation id (omit for latest) from 'bootui thread-analysis observe'."
+    },
+    {
+      "name": "start_thread_observation",
+      "command": "thread-analysis observe",
+      "schema": "NONE",
+      "panel": "threads",
+      "action": true,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Explicitly start a finite bounded thread observation using configured sample count and cadence.",
+      "description": "Explicitly start a finite bounded thread observation using configured sample count and cadence. This schedules JVM stack acquisitions, not continuous monitoring. Obtain permission for the collection cost. Read get_thread_observation with the returned observation id; repeated sampled stacks do not establish continuous inactivity or a busy loop. While running, poll retained status only: live get_threads, snapshots, and downloads share acquisition and can fail a scheduled sample. Busy or missed samples fail without retrying. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
+      "example": "bootui thread-analysis observe"
+    },
+    {
+      "name": "get_thread_analysis",
+      "command": "thread-analysis show",
+      "schema": "OPTIONAL_ID",
+      "panel": "threads",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Read retained contention roots, direct/transitive impact, cycles, unresolved waits and exact visible-stack groups.",
+      "description": "Read retained contention roots, direct/transitive impact, cycles, unresolved waits and exact visible-stack groups. id is a capture id from capture_thread_snapshot or get_thread_snapshots; omit it for the latest retained capture. An expired explicit id never falls back to fresh evidence. Follow rootBlockers[].observationId and blockedObservationIds with get_thread_detail to inspect both the lock owner and its blocked waiters before proposing a source fix. This tool accepts id only; section page.hasMore or truncated ID lists mean incomplete coverage, not absence of other blockers. A cycle is not automatically a native deadlock and repeated visible stacks are not proof of a hang. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
+      "example": "bootui thread-analysis show <id>",
+      "idHelp": "A retained capture id (omit for latest) from 'bootui thread-analysis capture' or 'bootui thread-analysis list'."
+    },
+    {
+      "name": "get_thread_detail",
+      "command": "thread-analysis thread",
+      "schema": "ID",
+      "panel": "threads",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Read one retained thread's masked stack and lock context using its exact capture-scoped observation id from get_thread_analysis, not a live numeric thread id or finite session id.",
+      "description": "Read one retained thread's masked stack and lock context using its exact capture-scoped observation id from get_thread_analysis, not a live numeric thread id or finite session id. Inspect thread.stackTrace, lockOwnerId, activity and truncation/ownership flags; locate relevant application frames in source before changing synchronization. No JVM collection occurs and no native lock identity is inferred. While relevant capture is held, lowFootprint identifies paused or partially paused evidence, not a quiet application; native statistics and Java-agent instrumentation may still run.",
+      "example": "bootui thread-analysis thread <id>",
+      "idHelp": "A root observationId, blockedObservationIds entry, cycle participantId, or unresolved waiterId/ownerId from 'bootui thread-analysis show'."
+    },
+    {
       "name": "get_threads",
       "command": "threads",
       "schema": "QUERY_LIMIT",

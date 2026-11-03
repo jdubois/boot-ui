@@ -20,6 +20,43 @@ the Playwright suite under `e2e/` exercises.
 - Local diagnostics for Architecture, Pentesting, Vulnerabilities, Traces,
   HTTP Exchanges, Security Logs, Threads, GraalVM, AI Framework, Heap Dump, and other release-supported panels.
 
+## Use the sample action lab
+
+The welcome page opens with **Requests** first, followed by BootUI's menu order: **Runtime Insights**, **Runtime**,
+**Threads**, **Data**, **Security**, **Integrations & AI**, and **Java agent**.
+It shares BootUI's default theme stylesheet, including its palette, typography, surfaces, and selected-tab styling.
+The build copies that stylesheet into the sample's static resources, so the welcome page is styled even when
+BootUI is disabled or mounted at a different path.
+WebFlux and Quarkus reuse this sample's `sample-lab.css` and `sample-lab.js` for the same compact layout and passive,
+keyboard-accessible tab navigation; their builds copy those assets without adding runtime dependencies.
+Only the selected group is shown; switching tabs never
+runs a scenario. Arrow keys, Home, and End navigate the tabs, and the URL remembers the selected group for reloads
+and bookmarks. Request results appear above the group, with raw output under **Response details**.
+
+Use **Filter findings** in Runtime Insights to find a scenario by name, route, or expected finding.
+The Java agent tab adds paired examples for caught exceptions, process launches, outbound calls, and thread-local
+cleanup using the existing sample routes. Their requests work without an agent; inspecting agent evidence requires
+the BootUI Java agent and its corresponding sensor.
+
+## Try thread investigations
+
+The welcome page's **Threads** tab provides buttons for monitor contention, exclusive lock contention,
+CPU-heavy work, timed waiting, and a recoverable two-lock deadlock. No Java agent is needed. Each scenario creates
+named platform threads (`sample-threads-*`), runs for at most 30 seconds, and refuses overlapping scenarios.
+**Stop thread scenario** releases the workload early; application shutdown also cleans up its workers.
+**Check scenario status** reads the current state without starting or stopping anything.
+
+Open **Threads** in another tab while a scenario runs. Use **Capture snapshot → Contention** for
+owners, blocked threads, cycles, and stack groups, or **Observe threads → Compare** for measured interval CPU and
+repetition. Waiting alone is not an exclusive dependency, and repeated sampled stacks are not proof of a hang.
+Select **Live** in **Thread source** to return to the current thread list.
+Explicit snapshots and finite observations are also available while low-footprint mode stays on.
+Stopping a sample scenario does not remove previously retained BootUI evidence.
+
+The CPU button uses one core. The deadlock deliberately uses interruptible `ReentrantLock` acquisition, rather than
+uninterruptible monitor deadlock, so both Stop and automatic expiry can recover without restarting the JVM.
+Scenario start/stop use CSRF-protected POSTs under `/api/sample/threads/`; merely opening the page starts no workload.
+
 ## Prerequisites
 
 - Java 17 or later

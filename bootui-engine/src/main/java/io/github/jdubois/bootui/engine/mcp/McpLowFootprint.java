@@ -46,7 +46,8 @@ public final class McpLowFootprint {
             Map.entry(BootUiPanels.FAULT_TOLERANCE, Set.of("fault-tolerance")),
             Map.entry(BootUiPanels.CODE_PATHS, Set.of("runtime-journal")),
             Map.entry(BootUiPanels.CODE_INVENTORY, Set.of("runtime-journal")),
-            Map.entry(BootUiPanels.SIDE_EFFECTS, Set.of("runtime-journal")));
+            Map.entry(BootUiPanels.SIDE_EFFECTS, Set.of("runtime-journal")),
+            Map.entry(BootUiPanels.THREADS, Set.of("thread-analysis")));
 
     private McpLowFootprint() {}
 
@@ -55,7 +56,7 @@ public final class McpLowFootprint {
 
     /** Whether a tool reads buffered evidence, including the global context carried by Overview. */
     public static boolean affected(String tool) {
-        if (tool.equals("get_method_probe") || tool.equals("start_method_probe")) {
+        if (tool.equals("get_threads") || tool.equals("get_method_probe") || tool.equals("start_method_probe")) {
             return false;
         }
         return McpToolCatalog.byName(tool)
@@ -135,7 +136,8 @@ public final class McpLowFootprint {
         if (components.isEmpty() && !tool.panelId().equals(BootUiPanels.OVERVIEW)) {
             return payload;
         }
-        boolean paused = components.stream().anyMatch(SuspendedComponentDto::suspended);
+        boolean explicitThreads = tool.panelId().equals(BootUiPanels.THREADS);
+        boolean paused = !explicitThreads && components.stream().anyMatch(SuspendedComponentDto::suspended);
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("active", true);
         metadata.put("paused", paused);
@@ -152,10 +154,12 @@ public final class McpLowFootprint {
         metadata.put("warnings", List.copyOf(warnings));
         metadata.put(
                 "hint",
-                paused
-                        ? RESUME_HINT
-                        : "Low-footprint mode is active, but relevant capture is not known to be paused. Inspect warnings "
-                                + "and get_low_footprint before relying on capture.");
+                explicitThreads
+                        ? "Explicit bounded thread captures and finite observations remain available in low-footprint mode."
+                        : paused
+                                ? RESUME_HINT
+                                : "Low-footprint mode is active, but relevant capture is not known to be paused. Inspect warnings "
+                                        + "and get_low_footprint before relying on capture.");
         return new Result(payload, java.util.Collections.unmodifiableMap(metadata), paused);
     }
 }

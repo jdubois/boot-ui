@@ -39,6 +39,7 @@ import io.github.jdubois.bootui.autoconfigure.kafka.KafkaProducerCaptureBeanPost
 import io.github.jdubois.bootui.autoconfigure.liquibase.SpringLiquibaseProvider;
 import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
 import io.github.jdubois.bootui.autoconfigure.mappings.SpringMappingProvider;
+import io.github.jdubois.bootui.autoconfigure.mcp.SpringMcpPanelPolicy;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.pentesting.SpringPentestingObservationCollector;
 import io.github.jdubois.bootui.autoconfigure.rabbit.RabbitConsumerCaptureBeanPostProcessor;
@@ -129,6 +130,8 @@ import io.github.jdubois.bootui.engine.sideeffects.JournalExecutions;
 import io.github.jdubois.bootui.engine.sideeffects.JournalNetworkCapture;
 import io.github.jdubois.bootui.engine.sideeffects.SideEffectsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.threads.ThreadAnalysisService;
+import io.github.jdubois.bootui.engine.threads.ThreadCaptureSettings;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyProvider;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
@@ -719,8 +722,41 @@ public class BootUiEngineConfiguration {
     @Bean
     @Lazy
     @ConditionalOnMissingBean
-    ThreadDumpService bootUiThreadDumpService(BootUiExposure exposure) {
-        return new ThreadDumpService(exposure);
+    ThreadDumpService bootUiThreadDumpService(BootUiExposure exposure, ThreadCaptureSettings settings) {
+        return new ThreadDumpService(exposure, settings);
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    ThreadCaptureSettings bootUiThreadCaptureSettings(BootUiProperties properties) {
+        var limits = properties.getThreads();
+        return new ThreadCaptureSettings(
+                limits.getMaxThreads(),
+                limits.getMaxStackDepth(),
+                limits.getMaxOwnedLocks(),
+                limits.getCaptureDeadlineMillis(),
+                limits.isIncludeSynchronizers(),
+                limits.getMaxCaptures(),
+                limits.getMaxRetainedBytes(),
+                limits.getMaxCaptureBytes(),
+                limits.getTtlMillis(),
+                limits.getObservationSamples(),
+                limits.getObservationIntervalMillis());
+    }
+
+    @Bean(destroyMethod = "close")
+    @Lazy
+    @ConditionalOnMissingBean
+    ThreadAnalysisService bootUiThreadAnalysisService(
+            ThreadDumpService reader,
+            ThreadCaptureSettings settings,
+            RunIdentity run,
+            BootUiExposure exposure,
+            BootUiProperties properties,
+            LowFootprintService lowFootprint) {
+        return new ThreadAnalysisService(
+                reader, settings, run, exposure, new SpringMcpPanelPolicy(properties), lowFootprint::active);
     }
 
     @Bean

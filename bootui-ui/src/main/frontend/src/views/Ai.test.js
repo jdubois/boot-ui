@@ -14,6 +14,7 @@ const viewsRoot = path.dirname(fileURLToPath(import.meta.url))
 const appSource = fs.readFileSync(path.join(viewsRoot, '../App.vue'), 'utf8')
 const {descriptor: appDescriptor} = parseSfc(appSource, {filename: 'App.vue'})
 const appCss = appDescriptor.styles.map((style) => style.content).join('\n')
+const themeCss = fs.readFileSync(path.join(viewsRoot, '../../public/bootui-theme.css'), 'utf8')
 
 function jsonResponse(body) {
   return {ok: true, status: 200, json: () => Promise.resolve(body)}
@@ -45,15 +46,15 @@ function overviewWithChats() {
   }
 }
 
-function cssBlock(marker) {
-  const markerIndex = appCss.indexOf(marker)
+function cssBlock(marker, source = appCss) {
+  const markerIndex = source.indexOf(marker)
   if (markerIndex < 0) throw new Error(`Missing CSS block: ${marker}`)
-  const openingBrace = appCss.indexOf('{', markerIndex)
+  const openingBrace = source.indexOf('{', markerIndex)
   let depth = 0
-  for (let index = openingBrace; index < appCss.length; index += 1) {
-    if (appCss[index] === '{') depth += 1
-    if (appCss[index] === '}') depth -= 1
-    if (depth === 0) return appCss.slice(openingBrace + 1, index)
+  for (let index = openingBrace; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1
+    if (source[index] === '}') depth -= 1
+    if (depth === 0) return source.slice(openingBrace + 1, index)
   }
   throw new Error(`Unclosed CSS block: ${marker}`)
 }
@@ -64,8 +65,8 @@ function declarations(block) {
   )
 }
 
-const lightTokens = declarations(cssBlock(':global(:root) {'))
-const darkTokens = {...lightTokens, ...declarations(cssBlock(":global(:root[data-bootui-theme='dark']) {"))}
+const lightTokens = declarations(cssBlock(':root {', themeCss))
+const darkTokens = {...lightTokens, ...declarations(cssBlock(":root[data-bootui-theme='dark'] {", themeCss))}
 
 function parseColor(value) {
   const hex = value.slice(1)

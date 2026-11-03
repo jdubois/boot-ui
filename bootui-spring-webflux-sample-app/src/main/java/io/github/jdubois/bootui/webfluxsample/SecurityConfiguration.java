@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.webfluxsample;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.web.server.SecurityWebFilterChain;
@@ -11,22 +12,30 @@ import org.springframework.security.web.server.SecurityWebFilterChain;
  *
  * <p>The BootUI permit-all chain ({@code BootUiReactiveSpringSecurityAutoConfiguration}) has
  * highest precedence and handles the exact {@code /bootui} root plus all descendants. This
- * configuration defines the application's own catch-all chain: it permits the demo API and requires
- * authentication for everything else — just enough to demonstrate a non-trivial reactive security
- * setup that BootUI can inspect via the Spring Security panel.</p>
+ * configuration defines the application's own catch-all chain: it permits the welcome page, its
+ * assets, and the demo API, and requires authentication for everything else. This demonstrates a
+ * non-trivial reactive security setup that BootUI can inspect via the Spring Security panel.</p>
  */
 @Configuration
 @EnableWebFluxSecurity
 public class SecurityConfiguration {
 
     /**
-     * Public access for the demo REST API paths, the echo WebSocket, and static resources; everything else
-     * (including the root) requires authentication. This is intentionally kept simple so CI can run without a
-     * login step.
+     * Public access for the welcome page's exact GET resources, demo REST API paths, and echo WebSocket.
+     * Other application paths still require authentication.
      */
     @Bean
     public SecurityWebFilterChain applicationSecurityWebFilterChain(ServerHttpSecurity http) {
         return http.authorizeExchange(exchanges -> exchanges
+                        .pathMatchers(
+                                HttpMethod.GET,
+                                "/",
+                                "/index.html",
+                                "/bootui-theme.css",
+                                "/sample-lab.css",
+                                "/sample-lab.js",
+                                "/index.js")
+                        .permitAll()
                         .pathMatchers("/greeting/**", "/api/**", "/actuator/**", "/echo")
                         .permitAll()
                         .anyExchange()

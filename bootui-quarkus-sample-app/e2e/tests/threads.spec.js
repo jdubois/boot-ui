@@ -1,5 +1,8 @@
 // @ts-check
 import {acceptConfirm, expect, test} from './fixtures.js'
+import {registerThreadAnalysisTests} from '../../../bootui-spring-sample-app/e2e/scenarios/thread-analysis.js'
+
+registerThreadAnalysisTests(test, expect, acceptConfirm)
 
 /**
  * Threads renders the same shared Threads.vue on both adapters over a byte-identical DTO; the data is

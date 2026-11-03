@@ -8,6 +8,7 @@ import {describe, expect, it} from 'vitest'
 const sourceRoot = path.dirname(fileURLToPath(import.meta.url))
 const viewsRoot = path.join(sourceRoot, 'views')
 const appSource = fs.readFileSync(path.join(sourceRoot, 'App.vue'), 'utf8')
+const themeSource = fs.readFileSync(path.join(sourceRoot, '../public/bootui-theme.css'), 'utf8')
 
 function vueFiles(directory) {
   return fs.readdirSync(directory, {withFileTypes: true}).flatMap((entry) => {
@@ -229,7 +230,7 @@ describe('BootUI design system contracts', () => {
   // Terminal output stays dark in both themes, but it must do so through the shared
   // token rather than a hard-coded hex repeated in each panel.
   it('routes machine-output panes through the shared code-pane tokens', () => {
-    expect(appSource).toContain('--bootui-code-pane-bg: #111827')
+    expect(themeSource).toContain('--bootui-code-pane-bg: #111827')
 
     const offenders = vueFiles(viewsRoot).filter((file) =>
       descriptorFor(file)
@@ -246,7 +247,7 @@ describe('BootUI design system contracts', () => {
   // copies the literal instead of the token is a panel that can silently drift away
   // from its neighbours, and it re-opens the design finding on every edit.
   it('routes glyph badges through the shared icon-size token', () => {
-    expect(appSource).toContain('--bootui-icon-size: 1.5rem')
+    expect(themeSource).toContain('--bootui-icon-size: 1.5rem')
 
     const offenders = []
 

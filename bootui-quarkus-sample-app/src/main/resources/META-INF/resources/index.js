@@ -19,8 +19,10 @@ const authFailButton = document.getElementById('auth-fail-button')
 const sendEmailButton = document.getElementById('send-email-button')
 const sampleActionStatus = document.getElementById('sample-action-status')
 const sampleActionResult = document.getElementById('sample-action-result')
+const sampleActionFeedback = document.getElementById('sample-action-feedback')
+const sampleActionDetails = document.getElementById('sample-action-details')
 
-chatForm.addEventListener('submit', async event => {
+chatForm.addEventListener('submit', async (event) => {
   event.preventDefault()
 
   const message = chatMessage.value.trim()
@@ -43,9 +45,7 @@ chatForm.addEventListener('submit', async event => {
       body: JSON.stringify({message})
     })
     const contentType = response.headers.get('content-type') || ''
-    const body = contentType.includes('application/json')
-      ? await response.json()
-      : {error: await response.text()}
+    const body = contentType.includes('application/json') ? await response.json() : {error: await response.text()}
 
     if (!response.ok) {
       throw new Error(body.error || `Request failed with HTTP ${response.status}`)
@@ -65,6 +65,8 @@ chatForm.addEventListener('submit', async event => {
 
 async function runSampleAction(button, loadingText, action) {
   button.disabled = true
+  sampleActionFeedback.hidden = false
+  sampleActionDetails.open = false
   sampleActionStatus.textContent = loadingText
   sampleActionResult.hidden = true
   sampleActionResult.textContent = ''
@@ -75,6 +77,7 @@ async function runSampleAction(button, loadingText, action) {
     sampleActionStatus.textContent = 'Action failed'
     sampleActionResult.textContent = error instanceof Error ? error.message : String(error)
     sampleActionResult.hidden = false
+    sampleActionDetails.open = true
   } finally {
     button.disabled = false
   }
@@ -102,7 +105,7 @@ productsButton.addEventListener('click', () =>
     if (!response.ok) {
       throw new Error(`Products request failed with HTTP ${response.status}`)
     }
-    const names = products.map(product => `- ${product.name} (${product.category})`).join('\n')
+    const names = products.map((product) => `- ${product.name} (${product.category})`).join('\n')
     showSampleResult(
       `Loaded ${products.length} active products`,
       `${names}\n\nOpen BootUI Cache, SQL Trace, or HTTP Exchanges to inspect this request.`
@@ -120,7 +123,7 @@ sqlQueryButton.addEventListener('click', () =>
     if (!response.ok) {
       throw new Error(`SQL query failed with HTTP ${response.status}`)
     }
-    const names = products.map(product => `- ${product.name} (${product.category})`).join('\n') || '(no rows)'
+    const names = products.map((product) => `- ${product.name} (${product.category})`).join('\n') || '(no rows)'
     showSampleResult(
       `Ran a live SQL SELECT and matched ${products.length} product(s) for "${term}"`,
       `${names}\n\nOpen BootUI SQL Trace to inspect the captured statement.`
@@ -172,7 +175,7 @@ secureSqlButton.addEventListener('click', () =>
     if (!response.ok) {
       throw new Error(`Secure SQL request failed with HTTP ${response.status}`)
     }
-    const names = products.map(product => `- ${product.name} (${product.category})`).join('\n') || '(no rows)'
+    const names = products.map((product) => `- ${product.name} (${product.category})`).join('\n') || '(no rows)'
     showSampleResult(
       `Authenticated as admin and ran a live SQL SELECT returning ${products.length} product(s)`,
       `${names}\n\nOpen BootUI Live Activity and profile this request: it links a security event to the SQL it ran.`
@@ -196,9 +199,12 @@ secureUserButton.addEventListener('click', () =>
 exceptionButton.addEventListener('click', () =>
   runSampleAction(exceptionButton, 'Triggering a sample exception...', async () => {
     const response = await fetch('/api/sample/boom', {
-      headers: {Accept: 'application/json'}
+      headers: {Accept: 'text/plain'}
     })
     await response.text()
+    if (response.status !== 500) {
+      throw new Error(`Expected the sample exception, but received HTTP ${response.status}`)
+    }
     showSampleResult(
       `Triggered a sample exception (HTTP ${response.status})`,
       'The server threw an IllegalStateException on purpose.\n\n' +
@@ -239,14 +245,16 @@ allocateButton.addEventListener('click', () =>
 
 slowButton.addEventListener('click', () =>
   runSampleAction(slowButton, 'Running a slow request...', async () => {
-    const response = await fetch('/api/sample/slow', {headers: {Accept: 'application/json'}})
+    const response = await fetch('/api/sample/slow?ms=5000', {headers: {Accept: 'application/json'}})
     const body = await response.json()
     if (!response.ok) {
       throw new Error(`Slow request failed with HTTP ${response.status}`)
     }
     showSampleResult(
       `Request slept for ${body.sleptMillis} ms on thread ${body.thread}`,
-      'Open BootUI Threads (during the request) or Metrics to inspect the timing.'
+      'Thread source → Live: locate the worker by its returned name.\n' +
+        'Capture snapshot → Contention: inspect its wait and stack.\n' +
+        'Observe threads → Observe & compare: compare the sampled interval. Timed waiting is not a deadlock.'
     )
   })
 )

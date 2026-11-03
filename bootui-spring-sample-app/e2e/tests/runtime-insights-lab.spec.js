@@ -43,6 +43,7 @@ test.describe('Runtime Insights buttons on the sample home page', () => {
   test('generate every finding this app can produce and link each to the panel', async ({page, agentAttached}) => {
     test.setTimeout(180_000)
     await page.goto('/')
+    await page.getByRole('tab', {name: 'Runtime Insights', exact: true}).click()
     const section = page.locator('#runtime-insights-lab')
     const card = (/** @type {string} */ key) => section.locator(`[data-family="${key}"]`)
     const generateAll = section.getByRole('button', {name: 'Generate all findings'})

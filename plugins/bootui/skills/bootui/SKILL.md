@@ -1,6 +1,6 @@
 ---
 name: bootui
-description: Install, configure, and use BootUI in Spring Boot and Quarkus applications; assess a running application, propose a prioritized action plan, and execute only approved fixes using runtime evidence. Use when asked to add or troubleshoot BootUI, assess application health, or investigate a slow or failing endpoint, exceptions, SQL, Hibernate, beans, mappings, configuration, health, metrics, logs, or traces; to find runtime-only bugs such as N+1 queries, split transactions, or bypassed @Transactional proxies, or check which routes a code change affects and verify what it changed at runtime after the tests; also for architecture, security, memory, database, REST, pentest, GraalVM, CRaC, or vulnerability scans, connecting an AI agent to BootUI, guided improvement playbooks, or JVM CPU, GC, heap retention, thread dumps, and JFR investigations.
+description: Install, configure, and use BootUI in Spring Boot and Quarkus applications; assess a running application, propose a prioritized action plan, and execute only approved fixes using runtime evidence. Use when asked to add or troubleshoot BootUI, assess application health, or investigate a slow or failing endpoint, blocked threads, lock contention, deadlocks, exceptions, SQL, Hibernate, beans, mappings, configuration, health, metrics, logs, or traces; to find runtime-only bugs such as N+1 queries, split transactions, or bypassed @Transactional proxies, or check which routes a code change affects and verify what it changed at runtime after the tests; also for architecture, security, memory, database, REST, pentest, GraalVM, CRaC, or vulnerability scans, connecting an AI agent to BootUI, guided improvement playbooks, or JVM CPU, GC, heap retention, thread dumps, and JFR investigations.
 license: Apache-2.0
 ---
 
@@ -165,6 +165,9 @@ bootui code paths --json                        # with the agent: which methods 
 bootui side-effects --json                      # with the agent: processes, hosts, files, env reads per route or work
 bootui hibernate statistics --json              # Hibernate ORM counters, when statistics are enabled
 bootui websockets --json                        # WebSocket endpoints, sessions, and frame metadata
+bootui thread-analysis list --json              # passive retained platform-thread captures; never starts collection
+bootui thread-analysis show [<capture-id>] --json # retained contention evidence; omit id for latest
+bootui thread-analysis thread <observation-id> --json # follow an id returned by thread-analysis show
 bootui hibernate scan --json | jq '.severityCounts'
 bootui exceptions show <id> --json
 bootui request-profile <id> --json # retained journal profile, or HTTP-exchange fallback
@@ -177,6 +180,13 @@ bootui request-profile <id> --json # retained journal profile, or HTTP-exchange 
   authentication; Host and cross-site-write checks still apply.
 - **Always pass `--json` when parsing.** The human table rendering is not a contract, and terminal auto-detection is
   unreliable on JDK 22 or later.
+- For thread investigation, `thread-analysis capture` and `thread-analysis observe` need explicit approval for bounded
+  JVM collection. Observe uses configured finite defaults, not continuous sampling. Read `thread-analysis observation`
+  for interval CPU and sampled-stack comparisons; repetition is not proof of a hang. `thread-analysis clear` discards
+  evidence but does not stop remaining samples: cancel the session first with `thread-analysis cancel <id>`.
+  Expired capture IDs never trigger recapture. Entering low-footprint mode stops existing observations and clears old
+  evidence; new approved captures and finite observations still work while it stays on. Resume never restarts a session.
+  Existing `threads` stays live and reports cumulative CPU, not current utilization. New subcommands require a current CLI.
 - `bootui tools` prints a human table whose `status` column reads `ready`, `action`, `read-only`, or `panel disabled`.
   With `--json` it prints the endpoint's own document instead, where each entry in `tools` carries `name`, `command`,
   `description`, `panel`, `action`, `schema`, `arguments`, `panelEnabled`, and `panelReadOnly`, but no `status`.
@@ -225,6 +235,14 @@ Read [references/java-agent-and-recipes.md](references/java-agent-and-recipes.md
 agent, using method probes, route handler timing, MySQL evidence, or retained advisor violations, or checking what a
 fix changed with `violationDetails.changes` after a Hibernate or Database rescan.
 
+### Blocked threads, contention, and deadlocks
+
+Read [references/thread-investigation.md](references/thread-investigation.md) for the complete
+**blocked waiter → lock owner → application source → approved fix → runtime verification** workflow.
+Use `get_thread_snapshots` / `thread-analysis list` before collecting; take one approved capture only when needed.
+Follow the capture's returned thread observation IDs, not live numeric thread IDs, with `get_thread_detail`.
+These diagnostics need no Java agent and work on Spring MVC, WebFlux, and Quarkus, but cover platform threads only.
+Do not kill a thread, release a lock, change exposure, or attach instrumentation to make a diagnostic succeed.
 
 ## Use BootUI on a running application
 

@@ -3000,25 +3000,82 @@ Acceptance criteria:
 
 ### 5.20 Threads Panel
 
-Purpose: answer "What are the application's threads doing right now?"
+Purpose: inspect live platform threads and investigate bounded, retained evidence without mixing different captures.
 
 Data sources:
 
-- In-process `java.lang.management.ThreadMXBean` snapshot (`dumpAllThreads`, `findDeadlockedThreads` /
-  `findMonitorDeadlockedThreads`, and CPU/user time where supported), read directly rather than requiring the host app
-  to expose the Actuator `threaddump` endpoint over HTTP.
+- In-process `java.lang.management.ThreadMXBean`: enumerate IDs, bound the selected population before acquiring
+  stacks with `getThreadInfo`, then record native deadlock and supported CPU/user-time evidence. No Actuator
+  `threaddump` exposure is required. This provider covers platform threads, not a virtual-thread census.
 
 Features:
 
-- Show a single bounded thread snapshot per request with a per-state count summary.
-- Detect and flag deadlocked threads.
-- Report virtual-thread context when running on a JDK that supports it.
-- Filter threads by name and by state, with stable server-side paging.
-- Expand a thread to view its stack trace.
-- Offer a confirmation-gated raw text thread dump download as a mutating `POST` that is blocked when the panel is
-  read-only.
+- Preserve `GET /threads`, `POST /threads/download`, and `get_threads` / `bootui threads`. Live refreshes replace
+  one page, never append rows acquired at different times. CPU totals are labelled cumulative.
+- One **Thread source** selector chooses live threads or a retained capture, with **Threads**, **Contention**, and
+  **Observe & compare** as the only view tabs. Observation settings live in that tab and display the interval in
+  seconds; the request contract remains integer milliseconds. It explains that comparisons use observation samples,
+  not manually captured snapshots, and hides the unrelated source/export controls. The header always exposes capture,
+  observation, and low-footprint controls.
+  Opening the panel defaults to live threads. Explicitly confirmed capture and finite-observation actions
+  acquire retained evidence; source/tab selection, filtering, paging, expanding evidence, and exporting do not.
+  Capture inventory carries the latest retained `observationId`, so reopening the workbench restores comparison
+  and cancellation controls without starting another observation.
+- Retained captures have opaque IDs, application-run identity, timestamps, expiry, estimated byte usage, and quality
+  metadata separating enumerated, captured, vanished, and omitted threads from response pagination.
+- Browse stable pages sorted by ID, name, state, family, activity, or cumulative CPU, with visible-stack search.
+- **Show BootUI threads** defaults off for live, capture, and comparison lists. The `bootui-` name convention is
+  classified before masking and filtered before paging, with `hiddenBootUiThreads` reported separately.
+  Summary counts, retained payloads, exports, details, and contention/deadlock evidence are never reduced.
+  List/observation HTTP responses accept `includeBootUi` (default `true` for API compatibility); the UI sends
+  `false` until enabled. Changing this display filter never captures a new retained snapshot.
+- Inspect supported root blockers with direct/transitive impact over the whole captured population, derived wait
+  cycles with incoming tails, unresolved/non-exclusive waits, and exact visible-stack groups. Condition waits,
+  shared waits, and missing owners never become invented exclusive dependency edges.
+  Read/write-lock waits require a visible JDK `WriteLock.lock`, `lockInterruptibly`, or timed `tryLock` acquisition
+  frame to be classified as exclusive. Shared read-lock waits and hidden/truncated entry points remain unresolved,
+  even when the JVM reports a writer owner.
+- Navigate capture-scoped thread, owner, and lock evidence. Identity hashes are not native object identities.
+  Lock correlation uses opaque capture-local keys established before display masking; masked names never merge
+  unrelated locks. A root with an unresolved upstream wait is explicitly partial.
+- Compare finite samples using observed occurrences, consecutive visible-stack streaks, state changes, and adjacent
+  counter CPU deltas over monotonic intervals. Missing or reset counters remain unavailable; sampled repetition
+  does not establish a continuous hang, deadlock, or busy loop.
+  Stacks containing masked frame text remain visible but are excluded from equality-based grouping and comparison.
+- Download custom BootUI text (`thread-dump.txt`) or a versioned retained JSON artifact
+  (`format=bootui-thread-capture`, `schemaVersion=1`). Neither claims native JVM dump compatibility.
 
-Status: implemented and supported for the 1.0 release surface.
+Acquisition and retention limits (`bootui.threads.*`, identical on all request stacks):
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `max-threads` | 2048 | IDs selected before stack acquisition; hard ceiling 10000 |
+| `max-stack-depth` | 128 | Displayed frames; an extra frame detects truncation; ceiling 256 |
+| `max-owned-locks` | 256 | Retained ownership records per thread; ceiling 1024 |
+| `capture-deadline-millis` | 2000 | Soft processing deadline, not an interruptible JVM timeout |
+| `include-synchronizers` | false | Explicitly opt into one full ownable-synchronizer inventory; this can walk the heap |
+| `max-captures` | 6 | Retained count, including active reservations; ceiling 20 |
+| `max-retained-bytes` | 16777216 | Estimated aggregate evidence budget, including session reservation overhead; ceiling 64 MiB |
+| `max-capture-bytes` | 4194304 | Estimated per-capture budget; ceiling 16 MiB |
+| `ttl-millis` | 300000 | Unpinned capture lifetime; configurable from 30 seconds to 10 minutes |
+| `observation-samples` | 3 | Default finite sample count; 2–5, with capacity reserved upfront |
+| `observation-interval-millis` | 5000 | Default cadence; minimum one second, with the last sample plus its capture deadline within 30 seconds |
+
+Settings are validated when lazy settings are first materialized and require restart to change. Native enumeration,
+management calls, and their transient allocations cannot be hard bounded by a caller timeout. Monitor ownership can
+be incomplete below the stack-depth cap. Do not silently substitute a full unbounded stack walk on unsupported JVMs.
+An exhausted soft deadline prevents subsequent acquisition phases and fallbacks. Capacity admission is atomic:
+an impossible reservation does not evict existing captures.
+REST observation starts optionally accept `{"samples":2,"intervalMillis":1000}` within the same count, time, and
+reservation limits; MCP/CLI use configured defaults without introducing a new argument schema.
+The inventory exposes `captureDeadlineMillis` and `maxObservationSamples` for equivalent browser validation.
+The sample ceiling is the minimum of five, retained count capacity, worst-case byte reservation capacity
+(`floor((max-retained-bytes - 524288) / max-capture-bytes)`), and the number fitting at the minimum one-second
+cadence with the final capture deadline. Default budgets allow at most three samples, not five.
+For the default 2-second capture budget, two samples may be scheduled 28 seconds apart, not 30 seconds apart.
+Unresolved acquisitions precede non-exclusive/idle waits before paging. Comparison rows prioritize the longest
+consecutive sampled acquisition streak, then interval CPU descending, numeric thread ID, and first observation time.
+This ordering is a triage aid, not proof of continuous blocking.
 
 Acceptance criteria:
 
@@ -3026,8 +3083,26 @@ Acceptance criteria:
   omitted under metadata-only exposure and secret-like names are masked unless `bootui.expose-values=FULL`.
 - The panel fails closed, returning a stable empty report with an explained unavailable reason when thread information
   cannot be read.
-- The raw dump download is a `POST` and is blocked when the panel is read-only.
-- The UI does not issue the download `POST` until the developer explicitly confirms the capture.
+- One shared non-queuing acquisition gate covers live reads, downloads, retained capture, and observation ticks.
+  Busy returns canonical 409; the UI preserves the last good live rows and their original timestamp.
+  While a finite observation is active, this browser pauses live acquisition and fresh snapshot/download actions,
+  retaining existing rows. Passive status polling continues across tabs and restores live controls at termination;
+  other clients may still cause a busy tick.
+- Native deadlock detection is separate evidence from the captured supported-wait graph. Absence of either is not
+  proof that an incomplete or virtual-thread population is deadlock-free.
+- Retained names, stacks, and ownership are sanitized before publication. Metadata-only retains no hidden stack
+  fingerprint or lock graph; exposure changes clear old evidence instead of resurrecting it.
+- Read-only/disabled policy is checked before work and before publication. Entering low-footprint mode stops existing
+  observations and clears previous evidence, including in-flight publication through generation invalidation.
+  New explicitly requested captures and finite observations remain available under the same budgets and expiry,
+  including for late-created services. Background recording stays paused; resume never restarts a previous session.
+- One-shot memory offload clears evidence but permits remaining finite samples, with cleared-sample counts explicit.
+  Generation invalidation prevents in-flight writers from repopulating cleared evidence. Shutdown closes the worker.
+- There is no worker before an explicit finite observation. Missed/busy ticks fail visibly rather than queueing
+  catch-up bursts; cancellation never claims to interrupt an in-flight native management call.
+- Explicit malformed IDs fail with 400; valid but expired/cleared capture IDs return 409, never fresh fallback.
+- All mutations and artifact downloads are POSTs under the existing Threads panel policy and browser confirmations.
+  Virtual-thread acquisition and external dump import are not included.
 
 ## 6. Technical architecture
 
@@ -3219,8 +3294,19 @@ Initial endpoints:
 | `/bootui/api/loggers`                        | GET    | Logger levels                                                                          |
 | `/bootui/api/loggers/{name}`                 | POST   | Change logger level                                                                    |
 | `/bootui/api/startup`                        | GET    | Startup timeline                                                                       |
-| `/bootui/api/threads`                        | GET    | Stable, paged live thread snapshot with state counts and deadlock info                 |
-| `/bootui/api/threads/download`               | POST   | Confirmation-gated raw text thread dump download                                       |
+| `/bootui/api/threads`                        | GET    | Bounded live platform-thread page with quality metadata; a fresh snapshot per request |
+| `/bootui/api/threads/download`               | POST   | Confirmation-gated custom BootUI text thread dump download                            |
+| `/bootui/api/threads/captures`               | GET / POST | List retained capture metadata / explicitly capture masked evidence                |
+| `/bootui/api/threads/captures/{id}`          | GET    | Retained capture summary and independently paged contention evidence                  |
+| `/bootui/api/threads/captures/{id}/contention` | GET  | Alias for retained contention analysis; `offset`, `limit`                              |
+| `/bootui/api/threads/captures/{id}/threads`  | GET    | Stable capture pages: `q`, `state`, `sort`, `direction`, `offset`, `limit`               |
+| `/bootui/api/threads/captures/{id}/threads/{observationId}` | GET | Retained thread detail; observation ID must belong to this capture          |
+| `/bootui/api/threads/captures/{id}/locks/{lockId}` | GET | Capture-scoped lock evidence and paged matching waiters                              |
+| `/bootui/api/threads/captures/{id}/export`   | POST   | Versioned retained JSON attachment; no new JVM collection                             |
+| `/bootui/api/threads/captures/clear`         | POST   | Clear evidence; an active observation may still collect remaining samples             |
+| `/bootui/api/threads/observations`           | POST   | Start a finite observation, optionally specifying bounded sample count/cadence        |
+| `/bootui/api/threads/observations/{id}`      | GET    | Observation status and paged sampled comparisons                                     |
+| `/bootui/api/threads/observations/{id}/cancel` | POST | Cancel future collection/publication without claiming native-call interruption         |
 | `/bootui/api/metrics`                        | GET    | Micrometer meter list with search, type, `group`, `provenance`, and `explanation` filters, paged at 200 by default (1,000 maximum) |
 | `/bootui/api/metrics/detail`                 | GET    | Meter detail with tag filters and samples paged at 100 by default (1,000 maximum)       |
 | `/bootui/api/database-connection-pools/pools` | GET    | JDBC connection pool metadata                                                          |
@@ -3596,7 +3682,8 @@ Design rules:
     `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
     `get_cache_stats`,
     `get_database_connection_pools`, `get_postgresql_report`, `get_mysql_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
-    `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
+    `get_threads`, `get_thread_snapshots`, `get_thread_analysis`, `get_thread_detail`, `get_thread_observation`,
+    `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
     `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
     `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_agent_status`, `get_code_inventory`,
     `get_code_paths`, `get_method_probe`, `get_side_effects`, `get_devtools_status`,
@@ -3605,6 +3692,10 @@ Design rules:
   - Advisor violation pages: `get_architecture_rule_violations`, `get_spring_rule_violations`,
     `get_hibernate_rule_violations`, `get_database_advisor_rule_violations`, `get_memory_rule_violations`,
     `get_security_rule_violations`, and `get_rest_api_rule_violations` (see Advisor violation pages above).
+  - Bounded thread investigations: `capture_thread_snapshot`, `start_thread_observation`,
+     `cancel_thread_observation`, and `clear_thread_snapshots`, governed by the Threads policy on all stacks.
+     Capture-scoped thread IDs and finite session IDs are distinct; retained reads never recapture.
+     See section 5.20 for acquisition, reservation, paging, quality, and lifecycle limits.
   - Bounded actions: `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
     `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
     `resume_transaction_recording`, `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`,

@@ -83,6 +83,15 @@ feed described in [Live Activity](live-activity.md#feed-types), grouped by reque
 [per-request profile](live-activity.md#the-per-request-profiler). An unknown, cleared, or expired id returns an explicit
 tool error. `get_exception_detail` returns a group's stack trace, causes, and occurrences.
 
+**Thread investigations** — `get_thread_snapshots`, `get_thread_analysis`, `get_thread_detail`, and
+`get_thread_observation` reuse retained platform-thread evidence on every stack, without the optional Java agent.
+`capture_thread_snapshot` and `start_thread_observation` require approval for bounded JVM acquisition;
+`cancel_thread_observation` stops remaining samples and `clear_thread_snapshots` discards evidence.
+Follow the [blocked-thread workflow](../AI-AGENTS.md#investigate-a-blocked-thread) from waiter to owner to application
+source, then verify an approved fix. Poll retained status during an observation; live reads and fresh captures share
+acquisition and can fail a sample. Partial evidence or repeated stacks are not proof of no contention or a continuous
+stall.
+
 **Runtime and integration reads** are named `get_<panel>`, such as `get_overview`, `get_health`, `get_config`,
 `get_beans`, `get_mappings`, `get_loggers`, `get_metrics`, `get_threads`, `get_flyway_migrations`, `get_emails`,
 `get_kafka_activity`, `get_websockets`, and `get_github_dashboard`. The other read tools are `get_ai_overview`,
@@ -145,7 +154,7 @@ The server inherits BootUI's full safety model:
 The protocol core lives in the shared engine, so requests and responses are byte-identical across backends.
 
 **Quarkus** runs the same endpoint and runtime toggle, reading `bootui.mcp.*` from MicroProfile Config. Its catalog
-declares 89 tools against Spring MVC's 105, before runtime capability filtering, and withholds tools behind Spring-only
+declares 100 tools against Spring MVC's 116, before runtime capability filtering, and withholds tools behind Spring-only
 panels: the GraalVM and CRaC scans and reports, Conditions, Startup Timeline, HTTP Sessions, Spring Data, Spring
 Security, JMS, DevTools, and every transaction tool. `spring_scan` runs the Quarkus-native idiom advisor.
 

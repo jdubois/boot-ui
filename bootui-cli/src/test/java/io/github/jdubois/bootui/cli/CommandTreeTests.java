@@ -110,6 +110,18 @@ class CommandTreeTests {
     }
 
     @Test
+    void threadEvidenceReadsOmitOptionalIdsOrForwardTheExplicitSelection() {
+        for (String command : List.of("show", "observation")) {
+            bodies.clear();
+            assertThat(run(List.of("thread-analysis", command))).isEqualTo(ExitCodes.SUCCESS);
+            assertThat(bodies).containsExactly("{}");
+            bodies.clear();
+            assertThat(run(List.of("thread-analysis", command, "evidence-7"))).isEqualTo(ExitCodes.SUCCESS);
+            assertThat(bodies).containsExactly("{\"id\":\"evidence-7\"}");
+        }
+    }
+
+    @Test
     void aQueryCommandSendsTheFilterItWasGiven() {
         bodies.clear();
 
