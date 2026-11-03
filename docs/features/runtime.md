@@ -193,14 +193,43 @@ and downloading the raw `.hprof` file is disabled unless explicitly enabled. Use
 
 ![BootUI Threads panel](../images/bootui-threads.webp)
 
-The Threads panel shows a live snapshot of the JVM's threads, read in-process through `ThreadMXBean`, so the
-application does not need to expose the Actuator `threaddump` endpoint. It presents counts per thread state, a flag when
-a deadlock is detected, and virtual-thread context on a supporting JDK. The list filters by name and state on the server
-with paging, and each row expands to its stack trace.
+The Threads panel reads bounded **platform-thread** snapshots through `ThreadMXBean`, without exposing the Actuator
+`threaddump` endpoint. It shows state counts, native deadlock evidence, cumulative CPU time, filters, and expandable
+stacks. Live refresh replaces one page rather than mixing rows from different moments; this is not a virtual-thread census.
 
-Stack frames and thread names can incidentally contain sensitive values, so names that look like secrets are masked and
-stack traces are omitted under metadata-only exposure. The raw text thread dump is a confirmation-gated `POST` download,
-blocked when the panel is read-only.
+The header always exposes outlined **Observe threads**, primary **Capture snapshot**, and the shared
+**Low-footprint mode** control. One **Thread source** selector chooses **Live** or a retained capture;
+**Threads / Contention / Observe & compare** are the only tabs. Opening the panel defaults to live threads, even when
+previous captures exist. Selecting Live returns to the current thread list without acquiring retained evidence.
+**Capture snapshot** selects its new capture and opens **Contention** for root blockers and
+downstream impact, supported wait cycles, unresolved waits, and exact visible-stack groups. Follow a thread to inspect
+its stack and owner/lock context. Quality and omission metadata stay attached to the original capture.
+
+**Observe & compare** contains the observation settings, with the interval shown in seconds. Use the header's
+**Observe threads** action to start a finite comparison: three samples five seconds apart by default, after
+confirmation. The tab compares the observation's samples, not manually captured snapshots; its empty state explains
+that distinction. The unrelated Thread source and export controls are hidden here, and existing observation results
+are restored on reopening. Settings beside existing results apply to the next observation.
+Results distinguish repeated sampled stacks from consecutive streaks and report interval CPU only when adjacent
+counters are valid. Repetition alone does not establish a hang or busy loop.
+
+**Show BootUI threads** is off by default for live, retained, and comparison lists, with a hidden-count indicator.
+Filtering happens before paging and uses the `bootui-` thread-name convention before masking. Summary counts,
+captures, text/JSON exports, thread details, contention, and deadlock evidence remain complete; BootUI owners
+and cycle participants remain visible in contention evidence. The switch is disabled in Contention because that
+view always includes all threads.
+
+Captures are masked before retention, expire after five minutes by default, and share count/estimated-byte budgets.
+Metadata-only stores no hidden stack fingerprint or lock graph. Turning on low-footprint mode clears previous captures
+and stops any observation already running. Explicit snapshots and finite observations remain available while the
+mode stays on, within the same count, byte, duration, and expiry limits. Background recording stays paused;
+turning the mode off never restarts a stopped observation.
+Clear captures discards evidence, not the remaining scheduled samples:
+cancel an observation first to stop it.
+
+Collection, clearing, cancellation, and exports require confirmation and obey read-only policy. Text downloads use
+BootUI's custom format; retained JSON uses `bootui-thread-capture` schema version 1. Neither is a native JVM dump.
+See [Threads specification](../SPECIFICATION.md#520-threads-panel) for limits and API routes.
 
 ## Startup Timeline
 

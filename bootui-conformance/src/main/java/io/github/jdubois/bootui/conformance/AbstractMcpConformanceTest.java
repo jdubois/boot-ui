@@ -94,7 +94,9 @@ public abstract class AbstractMcpConformanceTest {
                                             "/bootui/api/mcp",
                                             Map.of("Content-Type", "application/json"),
                                             McpCompactAnswerContract.call(tool, arguments));
-                    assertThat(response.status()).isEqualTo(200);
+                    assertThat(response.status())
+                            .as("%s: %s", tool, response.body())
+                            .isEqualTo(200);
                     JsonNode result = response.json().path("result");
                     assertThat(result.path("isError").asBoolean())
                             .as(response.body())
@@ -1345,6 +1347,181 @@ public abstract class AbstractMcpConformanceTest {
                         .as("the comparison has no %s section without the agent: %s", section, value)
                         .isTrue();
             }
+        }
+    }
+
+    @Test
+    void testThreadToolsAdvertiseTheirActionsAndExactIdContracts() {
+        assertThat(enableMcp()).isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            JsonNode tools = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}")
+                    .json()
+                    .path("result")
+                    .path("tools");
+            Map.of(
+                            "capture_thread_snapshot", true,
+                            "get_thread_snapshots", false,
+                            "get_thread_analysis", false,
+                            "get_thread_detail", false,
+                            "clear_thread_snapshots", true,
+                            "start_thread_observation", true,
+                            "get_thread_observation", false,
+                            "cancel_thread_observation", true)
+                    .forEach((name, action) -> {
+                        JsonNode descriptor = java.util.stream.StreamSupport.stream(tools.spliterator(), false)
+                                .filter(tool -> tool.path("name").asText().equals(name))
+                                .findFirst()
+                                .orElseThrow(() -> new AssertionError("Missing advertised Threads tool: " + name));
+                        assertThat(descriptor
+                                        .path("annotations")
+                                        .path("readOnlyHint")
+                                        .asBoolean())
+                                .as(name)
+                                .isEqualTo(!action);
+                        assertThat(descriptor.path("description").asText()).isNotBlank();
+                        JsonNode schema = descriptor.path("inputSchema");
+                        if (name.equals("get_thread_detail") || name.equals("cancel_thread_observation")) {
+                            assertThat(schema.path("required").toString()).isEqualTo("[\"id\"]");
+                        } else {
+                            assertThat(schema.path("required").isMissingNode()
+                                            || schema.path("required").isEmpty())
+                                    .as("%s has no required arguments", name)
+                                    .isTrue();
+                        }
+                        var properties = new java.util.ArrayList<String>();
+                        schema.path("properties").fieldNames().forEachRemaining(properties::add);
+                        if (name.equals("get_thread_snapshots")) {
+                            assertThat(properties).containsExactly("limit");
+                        } else if (name.equals("get_thread_analysis")
+                                || name.equals("get_thread_detail")
+                                || name.equals("get_thread_observation")
+                                || name.equals("cancel_thread_observation")) {
+                            assertThat(properties).containsExactly("id");
+                        } else {
+                            assertThat(properties).isEmpty();
+                        }
+                    });
+        }
+    }
+
+    @Test
+    void testThreadToolsTraceBlockedWaiterToOwnerAndApplicationSource() throws Exception {
+        assertThat(enableMcp()).isTrue();
+        Object monitor = new Object();
+        var progressed = new java.util.concurrent.atomic.AtomicBoolean();
+        Thread waiter = new Thread(
+                () -> {
+                    synchronized (monitor) {
+                        progressed.set(true);
+                    }
+                },
+                "mcp-conformance-blocked-waiter");
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            try {
+                synchronized (monitor) {
+                    waiter.start();
+                    long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+                    while (waiter.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) {
+                        java.util.concurrent.locks.LockSupport.parkNanos(1_000_000);
+                    }
+                    assertThat(waiter.getState()).isEqualTo(Thread.State.BLOCKED);
+                    JsonNode capture = callTool("capture_thread_snapshot", "{}");
+                    JsonNode analysis = callTool(
+                            "get_thread_analysis",
+                            "{\"id\":\"" + capture.path("id").asText() + "\"}");
+                    JsonNode root = java.util.stream.StreamSupport.stream(
+                                    analysis.path("rootBlockers").spliterator(), false)
+                            .filter(row -> row.path("threadId").asLong()
+                                    == Thread.currentThread().getId())
+                            .findFirst()
+                            .orElseThrow(() -> new AssertionError("MCP analysis must identify the monitor owner"));
+                    assertThat(root.path("directBlocked").asInt()).isGreaterThanOrEqualTo(1);
+                    JsonNode owner = callTool(
+                            "get_thread_detail",
+                            "{\"id\":\"" + root.path("observationId").asText() + "\"}");
+                    assertThat(owner.path("thread").path("stackTrace").toString())
+                            .contains(
+                                    "AbstractMcpConformanceTest.testThreadToolsTraceBlockedWaiterToOwnerAndApplicationSource");
+                    boolean foundWaiter = false;
+                    for (JsonNode observationId : root.path("blockedObservationIds")) {
+                        JsonNode detail = callTool("get_thread_detail", "{\"id\":\"" + observationId.asText() + "\"}");
+                        if (detail.path("thread").path("id").asLong() != waiter.getId()) {
+                            continue;
+                        }
+                        foundWaiter = true;
+                        assertThat(detail.path("thread").path("state").asText()).isEqualTo("BLOCKED");
+                        assertThat(detail.path("thread").path("lockOwnerId").asLong())
+                                .isEqualTo(owner.path("thread").path("id").asLong());
+                        assertThat(detail.path("activity").asText()).isEqualTo("MONITOR_ACQUISITION");
+                        assertThat(detail.path("thread").path("stackTrace").toString())
+                                .contains(
+                                        "AbstractMcpConformanceTest.lambda$testThreadToolsTraceBlockedWaiterToOwnerAndApplicationSource");
+                    }
+                    assertThat(foundWaiter)
+                            .as("follow returned IDs without a REST-only thread lookup")
+                            .isTrue();
+                    assertThat(progressed).isFalse();
+                }
+            } finally {
+                waiter.join(5000);
+                assertThat(waiter.isAlive())
+                        .as("the bounded test workload must stop")
+                        .isFalse();
+                callTool("clear_thread_snapshots", "{}");
+            }
+            assertThat(progressed)
+                    .as("releasing the critical section restores waiter progress")
+                    .isTrue();
+        }
+    }
+
+    @Test
+    void testThreadToolsRetainExplicitEvidenceAndReturnStaleIdsAsToolErrors() throws Exception {
+        assertThat(enableMcp()).isTrue();
+        String sessionId = null;
+        try {
+            callTool("clear_thread_snapshots", "{}");
+            assertThat(callTool("get_thread_snapshots", "{}").path("captures")).isEmpty();
+            JsonNode capture = callTool("capture_thread_snapshot", "{}");
+            String id = capture.path("id").asText();
+            assertThat(id).matches("[0-9a-f-]{36}");
+            JsonNode analysis = callTool("get_thread_analysis", "{\"id\":\"" + id + "\"}");
+            assertThat(analysis.path("capture")).isEqualTo(capture);
+            assertThat(callTool("get_thread_analysis", "{}").path("capture")).isEqualTo(capture);
+            assertThat(callTool("get_thread_snapshots", "{\"limit\":1}").path("captures"))
+                    .hasSize(1);
+            String observationId = probe().get("/bootui/api/threads/captures/" + id + "/threads?limit=1")
+                    .json()
+                    .path("threads")
+                    .get(0)
+                    .path("observationId")
+                    .asText();
+            assertThat(callTool("get_thread_detail", "{\"id\":\"" + observationId + "\"}")
+                            .path("observationId")
+                            .asText())
+                    .isEqualTo(observationId);
+            JsonNode session = callTool("start_thread_observation", "{}");
+            sessionId = session.path("id").asText();
+            assertThat(callTool("get_thread_observation", "{}").path("id").asText())
+                    .isEqualTo(sessionId);
+            assertThat(callTool("cancel_thread_observation", "{\"id\":\"" + sessionId + "\"}")
+                            .path("status")
+                            .asText())
+                    .isIn("CANCEL_REQUESTED", "CANCELLED", "COMPLETED");
+            callTool("clear_thread_snapshots", "{}");
+            JsonNode stale = callToolResult("get_thread_analysis", "{\"id\":\"" + id + "\"}");
+            assertThat(stale.path("isError").asBoolean()).isTrue();
+            assertThat(stale.path("content").get(0).path("text").asText()).contains("not retained");
+        } finally {
+            if (sessionId != null) {
+                callTool("cancel_thread_observation", "{\"id\":\"" + sessionId + "\"}");
+            }
+            callTool("clear_thread_snapshots", "{}");
+            disableMcp();
         }
     }
 

@@ -15,6 +15,47 @@ class MemoryCollectorTests {
     Path tempDir;
 
     @Test
+    void acquisitionOmissionsInvalidatePopulationRulesEvenWhenTheDetailPageIsNotFull() {
+        var quality = new io.github.jdubois.bootui.core.dto.ThreadCaptureQuality(
+                "ThreadMXBean",
+                List.of("PLATFORM"),
+                3000,
+                0,
+                0,
+                3000,
+                128,
+                false,
+                true,
+                true,
+                false,
+                List.of("deadline"));
+        var report = new io.github.jdubois.bootui.core.dto.ThreadDumpReport(
+                true,
+                null,
+                1000L,
+                0,
+                0,
+                3000,
+                3000,
+                false,
+                true,
+                false,
+                List.of(),
+                List.of(),
+                List.of(),
+                new io.github.jdubois.bootui.core.dto.PageMetadata(0, 0, 0, 1000, 0, false),
+                quality);
+        MemoryContext context =
+                new MemoryCollector(() -> report, () -> null, ContainerMemoryLimitDetector.disabled()).collect();
+
+        assertThat(context.threads().total()).isEqualTo(3000);
+        assertThat(context.threads().populationComplete()).isFalse();
+        assertThat(context.threads().detailsTruncated()).isTrue();
+        assertThat(new HighBlockedThreadRatioRule().evaluate(context).status()).isEqualTo("SKIPPED");
+        assertThat(new RunawayCpuThreadRule().evaluate(context).status()).isEqualTo("SKIPPED");
+    }
+
+    @Test
     void latestGcEventIsSelectedByCompletionTimestampNotLongestDuration() {
         MemoryCollector.LastGcEvent latest = MemoryCollector.latestGcEvent(List.of(
                 new MemoryCollector.LastGcEventCandidate(2_000, 1_500, "G1 Old Generation"),

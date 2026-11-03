@@ -198,6 +198,22 @@ class BackendPanelCatalogConsistencyTest {
     }
 
     @Test
+    void everyThreadActionHasAPolicyContractOnEveryRuntime() {
+        for (var runtime : BootUiApiContractCatalog.Runtime.values()) {
+            assertThat(BootUiApiContractCatalog.actions(runtime))
+                    .filteredOn(action -> "threads".equals(action.panelId()))
+                    .extracting(BootUiApiContractCatalog.ActionContract::id)
+                    .containsExactlyInAnyOrder(
+                            "threads.download",
+                            "threads.capture",
+                            "threads.clear",
+                            "threads.export",
+                            "threads.observe",
+                            "threads.cancel");
+        }
+    }
+
+    @Test
     void actionContractCatalogIsUniqueAndResolvesThroughThePanelRegistry() {
         List<BootUiApiContractCatalog.ActionContract> actions = BootUiApiContractCatalog.actions();
 

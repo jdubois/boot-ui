@@ -4,6 +4,7 @@ import {acceptConfirm, expect, test} from './fixtures.js'
 test.describe('HTTP Sessions view', () => {
   test('lists sample Tomcat sessions with masked contents and clears attributes', async ({openView, page}) => {
     await page.goto('/')
+    await page.getByRole('tab', {name: 'Security', exact: true}).click()
     const sessionResponsePromise = page.waitForResponse(
       (response) => response.url().endsWith('/api/sample/session') && response.request().method() === 'GET'
     )

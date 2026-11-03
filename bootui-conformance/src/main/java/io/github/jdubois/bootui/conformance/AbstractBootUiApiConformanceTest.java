@@ -539,6 +539,120 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void threadActionsRejectCrossSiteRequestsBeforeResourceLookup() {
+        for (var action : BootUiApiContractCatalog.actions(runtime())) {
+            if (!"threads".equals(action.panelId())) continue;
+            Response rejected = probe().post(
+                            api(action.relativePath()),
+                            Map.of("Origin", "http://evil.example.com", "Sec-Fetch-Site", "cross-site"));
+            assertThat(rejected.status()).as(action.id()).isEqualTo(403);
+            assertThat(rejected.json().path("error").asText())
+                    .as(action.id())
+                    .isEqualTo("BootUI rejected a cross-site request to a state-changing endpoint.");
+            assertSecurityHeaders(rejected, NO_STORE, true);
+        }
+    }
+
+    @Test
+    void threadCapturesHaveStableEvidenceAndFiniteExplicitObservationsOnEveryStack() {
+        BootUiHttpProbe probe = probe();
+        Map<String, String> headers = stateChangingHeaders(probe);
+        assertThat(probe.post(api("/threads/captures/clear"), headers).status()).isEqualTo(200);
+        try {
+            Response acquired = probe.post(api("/threads/captures"), headers);
+            assertThat(acquired.status()).as("explicit capture status").isEqualTo(200);
+            JsonNode capture = acquired.json();
+            String id = capture.path("id").asText();
+            assertThat(id).matches("[0-9a-f-]{36}");
+            assertThat(capture.path("quality").path("provider").isTextual()).isTrue();
+            assertThat(capture.path("quality").path("populationComplete").isBoolean())
+                    .isTrue();
+            assertThat(capture.path("quality").path("threadKinds").toString()).contains("PLATFORM");
+            Response rows = probe.get(api("/threads/captures/" + id + "/threads?limit=1&sort=id"));
+            assertThat(rows.status()).isEqualTo(200);
+            assertThat(rows.json().path("captureId").asText()).isEqualTo(id);
+            assertThat(rows.json().path("threads").size()).isEqualTo(1);
+            assertThat(rows.json().path("hiddenBootUiThreads").asInt()).isZero();
+            Response filtered =
+                    probe.get(api("/threads/captures/" + id + "/threads?limit=1&sort=id&includeBootUi=false"));
+            assertThat(filtered.status()).isEqualTo(200);
+            assertThat(filtered.json().path("hiddenBootUiThreads").isInt()).isTrue();
+            assertThat(filtered.json().path("page").path("matched").asInt())
+                    .isEqualTo(filtered.json().path("page").path("total").asInt()
+                            - filtered.json().path("hiddenBootUiThreads").asInt());
+            filtered.json()
+                    .path("threads")
+                    .forEach(row ->
+                            assertThat(row.path("thread").path("name").asText()).doesNotStartWith("bootui-"));
+            Response live = probe.get(api("/threads?includeBootUi=false&limit=1"));
+            assertThat(live.status()).isEqualTo(200);
+            assertThat(live.json().path("hiddenBootUiThreads").isInt()).isTrue();
+            String observationId =
+                    rows.json().path("threads").get(0).path("observationId").asText();
+            Response detail = probe.get(api("/threads/captures/" + id + "/threads/" + observationId));
+            assertThat(detail.status()).isEqualTo(200);
+            assertThat(detail.json().path("observationId").asText()).isEqualTo(observationId);
+            Response analysis = probe.get(api("/threads/captures/" + id + "/contention?limit=1"));
+            assertThat(analysis.status()).isEqualTo(200);
+            assertThat(analysis.json().path("capture")).isEqualTo(capture);
+            assertThat(analysis.json().path("rootBlockers").isArray()).isTrue();
+            Response exported = probe.post(api("/threads/captures/" + id + "/export"), headers);
+            assertThat(exported.status()).isEqualTo(200);
+            assertThat(exported.json().path("format").asText()).isEqualTo("bootui-thread-capture");
+            assertThat(exported.json().path("schemaVersion").asInt()).isEqualTo(1);
+            assertThat(exported.json().path("capture")).isEqualTo(capture);
+            assertThat(exported.json().path("threads").size())
+                    .isEqualTo(capture.path("quality").path("capturedThreads").asInt());
+            assertThat(exported.headerValues("Content-Disposition"))
+                    .singleElement()
+                    .asString()
+                    .contains(id + ".json");
+            Response invalid = probe.get(api("/threads/captures/" + id + "/threads?sort=unknown"));
+            assertThat(invalid.status()).isEqualTo(400);
+            assertThat(invalid.json().path("error").asText()).contains("sort");
+            Response invalidSession = probe.request("POST", api("/threads/observations"), headers, "{\"samples\":50}");
+            assertThat(invalidSession.status()).isEqualTo(400);
+            JsonNode inventory = probe.get(api("/threads/captures")).json();
+            int maximumSamples = inventory.path("maxObservationSamples").asInt();
+            assertThat(maximumSamples).isBetween(2, 5);
+            assertThat(inventory.path("observationSamples").asInt()).isLessThanOrEqualTo(maximumSamples);
+            Response overBudget = probe.request(
+                    "POST",
+                    api("/threads/observations"),
+                    headers,
+                    "{\"samples\":" + (maximumSamples + 1) + ",\"intervalMillis\":1000}");
+            assertThat(overBudget.status()).isEqualTo(400);
+            Response session = probe.request(
+                    "POST", api("/threads/observations"), headers, "{\"samples\":2,\"intervalMillis\":1000}");
+            assertThat(session.status()).isEqualTo(200);
+            String sessionId = session.json().path("id").asText();
+            assertThat(session.json().path("requestedSamples").asInt()).isEqualTo(2);
+            Response cancelled = probe.post(api("/threads/observations/" + sessionId + "/cancel"), headers);
+            assertThat(cancelled.status()).isEqualTo(200);
+            assertThat(cancelled.json().path("status").asText()).isIn("CANCEL_REQUESTED", "CANCELLED", "COMPLETED");
+            assertThat(probe.get(api("/threads/observations/" + sessionId)).status())
+                    .isEqualTo(200);
+            Response filteredComparison = probe.get(api("/threads/observations/" + sessionId + "?includeBootUi=false"));
+            assertThat(filteredComparison.status()).isEqualTo(200);
+            assertThat(filteredComparison.json().path("hiddenBootUiThreads").isInt())
+                    .isTrue();
+            assertThat(probe.post(api("/threads/captures/clear"), headers).status())
+                    .isEqualTo(200);
+            Response stale = probe.get(api("/threads/captures/" + id));
+            assertThat(stale.status()).isEqualTo(409);
+            assertThat(stale.json().path("error").asText()).contains("not retained");
+            assertThat(probe.get(api("/threads/captures"))
+                            .json()
+                            .path("captures")
+                            .size())
+                    .isZero();
+        } finally {
+            assertThat(probe.post(api("/threads/captures/clear"), headers).status())
+                    .isEqualTo(200);
+        }
+    }
+
+    @Test
     void logTailMasksSecretAssignmentsInTheSnapshotAndTheStream() {
         LogTailExposureContract snapshot = new LogTailExposureContract().log();
         Response recent = probe().get(api("/log-tail/recent"));

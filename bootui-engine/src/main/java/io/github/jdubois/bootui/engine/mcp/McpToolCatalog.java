@@ -245,6 +245,14 @@ public final class McpToolCatalog {
             entry("get_heap_dump_report", McpToolSchema.NONE, BootUiPanels.HEAP_DUMP, false, ALL_STACKS),
             entry("analyze_heap_dump", McpToolSchema.NONE, BootUiPanels.HEAP_DUMP, true, ALL_STACKS),
             entry("get_threads", McpToolSchema.QUERY_LIMIT, BootUiPanels.THREADS, false, ALL_STACKS),
+            entry("capture_thread_snapshot", McpToolSchema.NONE, BootUiPanels.THREADS, true, ALL_STACKS),
+            entry("get_thread_snapshots", McpToolSchema.LIMIT, BootUiPanels.THREADS, false, ALL_STACKS),
+            entry("get_thread_analysis", McpToolSchema.OPTIONAL_ID, BootUiPanels.THREADS, false, ALL_STACKS),
+            entry("get_thread_detail", McpToolSchema.ID, BootUiPanels.THREADS, false, ALL_STACKS),
+            entry("clear_thread_snapshots", McpToolSchema.NONE, BootUiPanels.THREADS, true, ALL_STACKS),
+            entry("start_thread_observation", McpToolSchema.NONE, BootUiPanels.THREADS, true, ALL_STACKS),
+            entry("get_thread_observation", McpToolSchema.OPTIONAL_ID, BootUiPanels.THREADS, false, ALL_STACKS),
+            entry("cancel_thread_observation", McpToolSchema.ID, BootUiPanels.THREADS, true, ALL_STACKS),
             entry(
                     "get_startup_timeline",
                     McpToolSchema.QUERY_LIMIT,
@@ -319,6 +327,10 @@ public final class McpToolCatalog {
      * {@code max-results} rows ({@code docs/PLAN-v2.md} §5.6).
      */
     private static final Map<String, Integer> DEFAULT_LIMITS = Map.ofEntries(
+            Map.entry("get_thread_snapshots", 6),
+            Map.entry("get_thread_analysis", 25),
+            Map.entry("get_thread_observation", 25),
+            Map.entry("cancel_thread_observation", 25),
             Map.entry("get_runtime_insights", RuntimeInsightsAgentReportDto.DEFAULT_LIMIT),
             Map.entry("get_code_inventory", CodeInventoryAgentReport.DEFAULT_LIMIT),
             Map.entry("get_code_paths", CodePathsAgentReport.DEFAULT_LIMIT),

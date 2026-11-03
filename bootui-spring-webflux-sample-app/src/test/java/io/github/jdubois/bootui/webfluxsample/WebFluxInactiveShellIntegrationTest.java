@@ -60,9 +60,15 @@ class WebFluxInactiveShellIntegrationTest {
     void hostApplicationRoutesAreUntouched() throws Exception {
         // The guard sits at HIGHEST_PRECEDENCE, ahead of Spring Security, so this also proves it does
         // not swallow requests outside the reserved mount: /api/** is permitAll and still answers,
-        // and / still reaches the sample's security chain (401) rather than the guard's 404.
+        // the welcome page stays public, and other paths still reach the security chain (401).
         assertThat(status("/api/greetings/bootui")).isEqualTo(200);
-        assertThat(status("/")).isEqualTo(401);
+        assertThat(status("/")).isEqualTo(200);
+        assertThat(status("/index.html")).isEqualTo(200);
+        for (String asset : new String[] {"bootui-theme.css", "sample-lab.css", "sample-lab.js", "index.js"}) {
+            assertThat(status("/" + asset)).as(asset).isEqualTo(200);
+        }
+        assertThat(status("/private")).isEqualTo(401);
+        assertThat(status("/static/index.html")).isEqualTo(401);
     }
 
     private int status(String path) throws Exception {

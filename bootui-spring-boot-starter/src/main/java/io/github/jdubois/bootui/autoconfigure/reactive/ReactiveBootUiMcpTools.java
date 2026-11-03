@@ -632,6 +632,8 @@ public class ReactiveBootUiMcpTools {
         }
         ThreadDumpController threadsBean = threads.getIfAvailable();
         if (threadsBean != null) {
+            registry.addAll(io.github.jdubois.bootui.engine.mcp.ThreadAnalysisMcpTools.tools(
+                    threadsBean.analysisService(), McpToolCatalog.Stack.SPRING_WEBFLUX));
             registry.add(tool(
                     "get_threads",
                     McpToolDescriptions.spring("get_threads"),

@@ -44,9 +44,11 @@ Usable known-findings scores retain these limitations under the shared
   context returns `ERROR`. The `results` list contains findings, not passing or skipped checks; **no findings
   does not mean every measurement was available or the JVM is healthy**.
 - **Threads are platform threads.** ThreadMXBean excludes virtual threads and cannot detect every deadlock
-  involving them. The existing synchronizer-capability fallback can cover monitors only. Summary counts remain
-  complete when the detail page is capped at 1,000 threads; CPU-hot-thread analysis skips an incomplete detail page.
-  A failed thread report never becomes a passing deadlock check.
+  involving them. The bounded ownership fallback may omit monitors and synchronizers. Pagination truncation and
+  acquisition omissions are distinct: overall enumeration remains independent of the captured state population.
+  Blocked ratios and population-dependent footprint/stack estimates skip incomplete acquisition; CPU-hot-thread
+  analysis also skips incomplete detail. Native deadlock evidence remains independently usable. A failed thread
+  report never becomes a passing deadlock check.
 - **Histogram bytes are shallow.** Totals cover parsed rows; displayed/evaluated class rows are limited to the
   largest 200, and finding examples remain bounded. Aggregate array/collection observations can consequently
   undercount the tail. A histogram does not identify one owning collection, retention paths, or retained graphs.

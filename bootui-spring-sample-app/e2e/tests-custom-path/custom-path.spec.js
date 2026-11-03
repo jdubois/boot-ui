@@ -25,6 +25,13 @@ test('loads the SPA and assets only from the configured path', async ({page, req
   )
   expect(resourcePaths.length).toBeGreaterThan(0)
   expect(resourcePaths.every((path) => path.startsWith(`${UI_PATH}/assets/`))).toBeTruthy()
+  const theme = await request.get(`${UI_PATH}/bootui-theme.css`)
+  expect(theme.ok()).toBe(true)
+  expect(theme.headers()['content-type']).toContain('text/css')
+  expect(await theme.text()).toContain('--bootui-green: #198754')
+  expect(
+    await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bootui-green').trim())
+  ).toBe('#198754')
 
   expect((await request.get('/host/bootui/')).status()).toBe(404)
   expect((await request.get('/host/bootui/api/overview')).status()).toBe(404)

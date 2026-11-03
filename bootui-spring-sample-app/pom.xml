@@ -245,6 +245,18 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>${project.basedir}/../bootui-ui/src/main/frontend/public</directory>
+                <targetPath>static</targetPath>
+                <includes>
+                    <include>bootui-theme.css</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

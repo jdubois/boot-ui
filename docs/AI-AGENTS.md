@@ -19,8 +19,8 @@ the running application instead:
   CRaC readiness. The agent gets the same prioritized, severity-ranked findings the panels show, with remediation hints.
 - **Runtime diagnostics** — a correlated live activity feed (recent HTTP requests, SQL statements, exceptions, and
   security events grouped by request/trace), full exception detail (stack trace, causes, occurrences) by id, security
-  audit events, SQL traces, distributed traces, log tail, and HTTP exchanges, so the agent can correlate a failure with
-  what the app actually did.
+  audit events, SQL traces, distributed traces, log tail, HTTP exchanges, and retained thread contention/owner evidence,
+  so the agent can correlate a failure with what the app actually did.
 - **Core context** — application overview, health, effective configuration (secrets masked), beans, and request
   mappings.
 
@@ -328,7 +328,8 @@ user; BootUI's own panel and read-only gates still apply.
   `get_mappings`, `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
   `get_cache_stats`,
   `get_database_connection_pools`, `get_postgresql_report`, `get_mysql_report`, `get_metrics`, `get_live_memory`, `get_low_footprint`, `get_jvm_tuning`, `get_heap_dump_report`,
-  `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
+  `get_threads`, `get_thread_snapshots`, `get_thread_analysis`, `get_thread_detail`, `get_thread_observation`,
+  `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
   `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
   `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_agent_status`, `get_devtools_status`,
   `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, `get_claude_code_sessions`,
@@ -833,6 +834,7 @@ They carry the `page` envelope above (Live Activity uses `pageInfo`):
 | `get_vulnerabilities_report` (`bootui vulnerabilities report`) | 10 dependencies, vulnerable first, each with at most 5 advisories without details | Coordinates, severity, or an advisory id or alias; an exact `group:artifact` lists all its advisories, an exact advisory id or alias returns it whole |
 | `get_live_activity` (`bootui activity`) | 25 newest entries | An entry type (`SQL`, `EXCEPTION`, ...), a severity (`SLOW`, `WARN`, `ERROR`), or text such as a route |
 | `get_config`, `get_beans`, `get_metrics`, `get_conditions`, `get_threads` | 25 rows | As before; `get_conditions` pages positive then negative matches and also narrows `unconditionalClasses` and `exclusions` |
+| `get_thread_snapshots`, `get_thread_analysis`, `get_thread_observation` | bounded by configured `max-results` and engine limits | Passive retained evidence; explicit expired IDs never acquire or silently fall back |
 | `get_http_exchanges` (`bootui http exchanges`) | 25 newest exchanges | No `query` argument; raise `limit` within the server cap |
 
 Totals such as the vulnerabilities report's `total` and `vulnerable` still count the whole report. Live Activity keeps
@@ -847,6 +849,74 @@ lists the fixed limitations of a sensor's rows only for sensors with listed rows
 `executors`, for its hooks (and, from agent status, its self-test steps). A 1.x CLI, which knows these commands without the newer
 options, keeps working for commands it already provides and gets the same first page. New Java-agent commands require
 a CLI version that includes them; an old binary does not gain commands just because the running server advertises them.
+
+### Investigate a blocked thread
+
+The Threads tools work on Spring MVC, WebFlux, and Quarkus without the optional Java agent.
+They let a coding agent trace **blocked waiter → lock owner → application source**, make an approved change, and
+verify it against the same workload. They do not automatically repair the application or interrupt threads.
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `get_thread_snapshots` | optional `limit` | Reuse retained evidence; inspect time, `run.runId`, expiry, quality, and latest observation session ID |
+| `capture_thread_snapshot` | none; action | Acquire one bounded masked platform-thread capture with approval |
+| `get_thread_analysis` | optional capture `id` | Read roots, downstream impact, cycles, unresolved waits, and exact visible-stack groups |
+| `get_thread_detail` | required thread observation `id` | Read the returned owner or waiter stack and lock context |
+| `start_thread_observation` | none; action | Collect a finite session using configured defaults, with approval |
+| `get_thread_observation` | optional session `id` | Read status and interval CPU / sampled-stack comparisons |
+| `cancel_thread_observation` | required session `id`; action | Stop remaining samples without claiming to interrupt an in-flight native call |
+| `clear_thread_snapshots` | none; action | Discard retained evidence; does not cancel remaining samples |
+
+1. Reuse a suitable capture or ask permission to collect one. Keep its explicit ID throughout the investigation;
+   "latest" can change when another client collects. `get_threads` with `query: "BLOCKED"` can narrow a live
+   snapshot, but its numeric thread IDs are not retained observation IDs.
+2. Read `get_thread_analysis`. Follow a root's `observationId` and `blockedObservationIds` using `get_thread_detail`.
+   Inspect the owner and waiter application frames, state, `lockOwnerId`, acquisition activity, and truncation/ownership
+   flags. Cycles expose `participantIds`; unresolved waits expose `waiterId` and possibly `ownerId`.
+3. Read the actual source at those application frames. Establish why the owner holds the lock and what waits on it
+   before proposing a change. For example, check a remote call inside a critical section or inconsistent lock ordering;
+   a waiting pool thread or JDK parking frame alone is not a defect.
+4. Make only the approved application fix, preserving synchronization correctness, and add a bounded concurrent
+   regression test. Reproduce the original workload after the change/reload and, with collection approval, inspect
+   fresh evidence and progress. A missing thread after a restart is not proof of a fix.
+
+Each analysis section has independent page metadata. These MCP analysis/observation reads accept `id` only:
+do not send unsupported `query`, `limit`, or `offset` arguments. If `hasMore` or a truncated-ID flag is set, the first
+answer does not cover every thread. Follow returned IDs or use the same capture's bounded
+[REST analysis and filtered thread pages](SPECIFICATION.md#520-threads-panel); do not silently acquire again.
+Expired explicit IDs return a tool error, never a recapture.
+Comparison continuation uses `GET <api-base>/threads/observations/<session-id>?offset=25&limit=25`.
+Unresolved acquisitions appear before idle waits; comparison rows prioritize consecutive sampled acquisitions,
+then interval CPU and numeric thread ID. Neither ordering nor repeated stacks proves continuous blocking.
+
+::: details Evidence limits and observation lifecycle
+These are platform-thread diagnostics, not a virtual-thread census. Quality omissions, incomplete ownership, or
+metadata-only exposure are limitations, not "no contention". Native deadlock detection is separate from derived
+supported-wait cycles. Conditions/shared waits are not exclusive acquisition edges. Ownable-synchronizer inventory is
+opt-in and can walk the heap; do not enable it or relax masking automatically.
+
+The browser's **Observe & compare** tab configures the next finite observation, not a comparison of manual captures.
+MCP/CLI starts use configured defaults (three samples, five seconds apart), not continuous sampling.
+Repeated sampled stacks are not proof of continuous inactivity; `get_threads` CPU is cumulative, while observation
+CPU requires adjacent valid counters. Poll at the configured cadence and stop at terminal status.
+During a running/cancelling session, use retained status reads only: live `get_threads`, new captures, and dump
+downloads share JVM acquisition and can fail a scheduled sample. Busy/missed samples fail without retries.
+The browser pauses its competing live acquisition while observing and continues passive status checks across tabs;
+another client can still interfere.
+To establish persistence, inspect successive `captureIds` and match same-run numeric thread IDs and lock context,
+using each sample's own opaque IDs for detail. Do not equate repeated stack text with a continuous stall.
+Inventory `maxObservationSamples` accounts for count, bytes, and the 30-second window; default budgets allow three,
+not five. Increasing static budgets requires an approved configuration change/restart.
+
+Entering low-footprint mode stops existing sessions and clears their evidence, but new explicitly requested snapshots
+and finite observations remain available under the same budgets/expiry. Background recording stays paused; explicit
+investigations report `lowFootprint.paused` and `capturePaused` as false. Resume never restarts a session.
+Cancel before clearing when remaining samples must stop. The `thread-analysis` CLI family needs a current CLI;
+existing `bootui threads` stays compatible.
+:::
+
+The [consumer skill's thread investigation recipe](https://github.com/jdubois/boot-ui/blob/main/skills/bootui/references/thread-investigation.md)
+provides the full agent workflow, including source fixes, coverage checks, and safe runtime verification.
 
 ### Compact answers from scans and capture controls
 

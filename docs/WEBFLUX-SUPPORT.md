@@ -47,7 +47,7 @@ Connector/J is read but unsupported. See [MySQL](features/database.md#mysql).
 | Liquibase            | update                               |
 | Heap Dump            | capture / analyze / delete / download |
 | Live Memory          | free BootUI memory; low-footprint mode (browser, MCP, CLI) |
-| Threads              | download                             |
+| Threads              | download, capture, finite observation, cancel, clear, retained export |
 | Traces               | clear                                |
 | SQL Trace            | toggle recording / clear             |
 | Transactions         | clear / toggle recording             |
@@ -691,6 +691,15 @@ for populated, correctly-nested (`parentId`) trace ids — none of which a unit 
   and an H2 datasource (Flyway + Liquibase migrations on separate baselined schemas) so the data-source-backed panels (Flyway,
   Liquibase, Database Connection Pools, SQL Trace, PostgreSQL) have something real to show or a truthful wrong-vendor
   skip.
+- Its welcome page shares the Spring sample's compact action-lab assets and BootUI's default theme. **Runtime**,
+  **Threads**, **Data**, **Integrations & AI**, and **Requests** tabs follow the console's menu order, remember their
+  URL fragment, and support arrow keys, Home, and End. Switching tabs starts no work. Raw responses are expandable
+  and open on failure. The **Threads** action holds a bounded-elastic worker for five seconds, off the Netty event loop,
+  with guidance for Live, Capture snapshot / Contention, and Observe threads / Observe & compare. No Java agent is needed.
+  Virtual workers, enabled by default on JDK 21+, are not in the platform-thread snapshot; start with
+  `-Dspring-boot.run.arguments=--spring.threads.virtual.enabled=false` for a visible demo worker.
+  The welcome page and its exact static asset paths are public even with BootUI disabled; other application paths
+  retain their authentication requirement.
 - **`bootui-conformance`** gained `expected-panels-webflux.json` — identical to `expected-panels-spring.json` except
   `platform: "spring-boot-reactive"`, itself evidence the shared-contract thesis holds even in the golden fixture — and
   the sample app's `WebFluxApiConformanceTest extends AbstractBootUiApiConformanceTest` reuses the entire shared HTTP

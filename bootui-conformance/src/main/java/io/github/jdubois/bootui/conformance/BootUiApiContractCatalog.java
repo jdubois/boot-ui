@@ -851,6 +851,21 @@ public final class BootUiApiContractCatalog {
         all(actions, "heap-dump.analyze", "heap-dump", "POST", "/heap-dump/analyze");
         all(actions, "heap-dump.delete", "heap-dump", "POST", "/heap-dump/delete");
         all(actions, "threads.download", "threads", "POST", "/threads/download");
+        all(actions, "threads.capture", "threads", "POST", "/threads/captures");
+        all(actions, "threads.clear", "threads", "POST", "/threads/captures/clear");
+        all(
+                actions,
+                "threads.export",
+                "threads",
+                "POST",
+                "/threads/captures/00000000-0000-0000-0000-000000000000/export");
+        all(actions, "threads.observe", "threads", "POST", "/threads/observations");
+        all(
+                actions,
+                "threads.cancel",
+                "threads",
+                "POST",
+                "/threads/observations/00000000-0000-0000-0000-000000000000/cancel");
         all(actions, "memory.scan", "memory", "POST", "/memory/scan");
         all(
                 actions,

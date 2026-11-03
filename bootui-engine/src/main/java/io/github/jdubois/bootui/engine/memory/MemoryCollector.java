@@ -231,8 +231,12 @@ final class MemoryCollector {
         if (report == null || !report.available()) {
             return ThreadData.failed("Thread snapshot is unavailable; see the Threads panel for availability details.");
         }
+        boolean populationComplete =
+                report.quality() == null || report.quality().populationComplete();
         return new ThreadData(
-                report.totalThreads(),
+                report.quality() == null
+                        ? report.totalThreads()
+                        : report.quality().enumeratedThreads(),
                 report.peakThreads(),
                 report.daemonThreads(),
                 report.cpuTimeSupported(),
@@ -240,7 +244,9 @@ final class MemoryCollector {
                 report.deadlockedThreadIds(),
                 report.stateCounts(),
                 report.threads(),
-                report.page() != null && report.page().hasMore());
+                !populationComplete || (report.page() != null && report.page().hasMore()),
+                populationComplete,
+                null);
     }
 
     private HeapContentData collectHeapContent() {

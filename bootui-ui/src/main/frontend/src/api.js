@@ -66,7 +66,7 @@ export function actionBusyMessage(error) {
     : 'This action is already in progress.'
 }
 
-async function apiError(response) {
+export async function apiError(response) {
   if (!response.headers?.get('content-type')?.toLowerCase().includes('json')) {
     return new ApiError(response.status)
   }

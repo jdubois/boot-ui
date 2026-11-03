@@ -23,12 +23,82 @@ public record ThreadDumpReport(
         List<Long> deadlockedThreadIds,
         List<ThreadStateCountDto> stateCounts,
         List<ThreadInfoDto> threads,
-        PageMetadata page) {
+        PageMetadata page,
+        ThreadCaptureQuality quality,
+        int hiddenBootUiThreads) {
 
     public ThreadDumpReport {
         deadlockedThreadIds = DtoCollections.immutableCopy(deadlockedThreadIds);
         stateCounts = DtoCollections.immutableCopy(stateCounts);
         threads = DtoCollections.immutableCopy(threads);
+    }
+
+    public ThreadDumpReport(
+            boolean available,
+            String unavailableReason,
+            Long capturedAt,
+            int totalThreads,
+            int daemonThreads,
+            int peakThreads,
+            long startedThreadCount,
+            boolean virtualThreadsSupported,
+            boolean cpuTimeSupported,
+            boolean deadlockDetected,
+            List<Long> deadlockedThreadIds,
+            List<ThreadStateCountDto> stateCounts,
+            List<ThreadInfoDto> threads,
+            PageMetadata page,
+            ThreadCaptureQuality quality) {
+        this(
+                available,
+                unavailableReason,
+                capturedAt,
+                totalThreads,
+                daemonThreads,
+                peakThreads,
+                startedThreadCount,
+                virtualThreadsSupported,
+                cpuTimeSupported,
+                deadlockDetected,
+                deadlockedThreadIds,
+                stateCounts,
+                threads,
+                page,
+                quality,
+                0);
+    }
+
+    public ThreadDumpReport(
+            boolean available,
+            String unavailableReason,
+            Long capturedAt,
+            int totalThreads,
+            int daemonThreads,
+            int peakThreads,
+            long startedThreadCount,
+            boolean virtualThreadsSupported,
+            boolean cpuTimeSupported,
+            boolean deadlockDetected,
+            List<Long> deadlockedThreadIds,
+            List<ThreadStateCountDto> stateCounts,
+            List<ThreadInfoDto> threads,
+            PageMetadata page) {
+        this(
+                available,
+                unavailableReason,
+                capturedAt,
+                totalThreads,
+                daemonThreads,
+                peakThreads,
+                startedThreadCount,
+                virtualThreadsSupported,
+                cpuTimeSupported,
+                deadlockDetected,
+                deadlockedThreadIds,
+                stateCounts,
+                threads,
+                page,
+                null);
     }
 
     /**

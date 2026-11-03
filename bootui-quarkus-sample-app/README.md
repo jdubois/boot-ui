@@ -25,6 +25,16 @@ Each ingredient maps to a BootUI panel, mirroring the Spring sample's demo inten
 
 ## Demo endpoints
 
+The welcome page uses BootUI's default theme and a compact action lab. **Requests** is the first and default tab;
+**Runtime**, **Threads**, **Data**, **Security**, and **Integrations & AI** follow in the console's menu order.
+Arrow keys, Home, and End navigate the tabs; URL fragments preserve the selected group. Tab changes run no requests.
+Raw responses stay under **Response details**, which opens automatically on failure.
+
+The **Threads** tab runs the existing slow endpoint for five seconds so its waiting worker can be inspected with
+**Thread source → Live**, **Capture snapshot → Contention**, or **Observe threads → Observe & compare**. No Java agent is
+required, and explicit investigations work in low-footprint mode. This is a timed-wait demo, not a deadlock.
+The LangChain4j form stays in **Integrations & AI** and retains its prompt and response when tabs change.
+
 `SampleResource` (`/api/sample/*`) mirrors the Spring sample's `SampleController`: `hello`, `products`,
 `product-search`, `metrics-burst`, `allocate`, `slow`, `pool-stress`, `chained`, and `boom`. The
 `advisor/hibernate` package contains intentional JPA mapping anti-patterns (the Hibernate advisor scans the

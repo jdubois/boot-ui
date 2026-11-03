@@ -4,337 +4,83 @@
   <meta charset="utf-8">
   <meta content="width=device-width, initial-scale=1" name="viewport">
   <link href="/favicon.svg" rel="icon" type="image/svg+xml">
+  <link href="bootui-theme.css" rel="stylesheet">
   <title>BootUI Sample App</title>
-  <style>
-    :root {
-      color-scheme: light;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      line-height: 1.5;
-      color: #172033;
-      background: #f5f7fb;
-    }
-
-    body {
-      margin: 0;
-    }
-
-    main {
-      max-width: 1040px;
-      margin: 0 auto;
-      padding: 56px 24px;
-    }
-
-    .hero {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr);
-      gap: 24px;
-      padding: 40px;
-      border-radius: 28px;
-      background: linear-gradient(135deg, #ffffff 0%, #eef4ff 100%);
-      box-shadow: 0 24px 70px rgba(23, 32, 51, 0.12);
-    }
-
-    .eyebrow {
-      margin: 0;
-      font-size: 0.78rem;
-      font-weight: 700;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: #3451b2;
-    }
-
-    h1 {
-      margin: 0;
-      max-width: 760px;
-      font-size: clamp(2.25rem, 6vw, 4.5rem);
-      line-height: 1;
-      letter-spacing: -0.05em;
-    }
-
-    .lead {
-      max-width: 760px;
-      margin: 0;
-      font-size: 1.2rem;
-      color: #4a5568;
-    }
-
-    .actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-top: 28px;
-    }
-
-    a {
-      color: #3451b2;
-      font-weight: 650;
-      text-decoration: none;
-    }
-
-    a:hover {
-      text-decoration: underline;
-    }
-
-    .button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 44px;
-      padding: 0 18px;
-      border: 0;
-      border-radius: 999px;
-      background: #3451b2;
-      color: #ffffff;
-      box-shadow: 0 10px 24px rgba(52, 81, 178, 0.25);
-      cursor: pointer;
-      font: inherit;
-    }
-
-    .button:hover {
-      text-decoration: none;
-      background: #2b459f;
-    }
-
-    .button:disabled {
-      cursor: progress;
-      opacity: 0.65;
-    }
-
-    .content-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 20px;
-      margin-top: 28px;
-    }
-
-    section {
-      padding: 24px;
-      border-radius: 20px;
-      background: #ffffff;
-      box-shadow: 0 12px 36px rgba(23, 32, 51, 0.08);
-    }
-
-    .wide {
-      grid-column: 1 / -1;
-    }
-
-    h2 {
-      margin: 0 0 12px;
-      font-size: 1.1rem;
-    }
-
-    form {
-      display: grid;
-      gap: 12px;
-      margin-top: 16px;
-    }
-
-    label {
-      font-weight: 700;
-    }
-
-    textarea {
-      width: 100%;
-      box-sizing: border-box;
-      padding: 14px 16px;
-      border: 1px solid #cbd5e1;
-      border-radius: 14px;
-      color: #172033;
-      font: inherit;
-      resize: vertical;
-    }
-
-    textarea:focus {
-      border-color: #3451b2;
-      box-shadow: 0 0 0 3px rgba(52, 81, 178, 0.16);
-      outline: none;
-    }
-
-    .form-row {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .chat-status {
-      color: #4a5568;
-      font-size: 0.95rem;
-    }
-
-    .chat-result {
-      margin: 16px 0 0;
-      padding: 16px;
-      overflow: auto;
-      white-space: pre-wrap;
-      border-radius: 14px;
-      background: #172033;
-      color: #f8fafc;
-      font: 0.95rem/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-    }
-
-    .test-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 14px;
-      margin-top: 18px;
-    }
-
-    .test-action {
-      display: grid;
-      min-width: 0;
-      gap: 10px;
-      align-content: start;
-      padding: 16px;
-      border: 1px solid #d9e2f1;
-      border-radius: 18px;
-      background: #f8fbff;
-    }
-
-    .test-action code {
-      overflow-wrap: anywhere;
-    }
-
-    .test-action p {
-      margin: 0;
-      color: #4a5568;
-      font-size: 0.95rem;
-    }
-
-    .test-action small {
-      color: #64748b;
-    }
-
-    .action-result {
-      margin-top: 16px;
-      padding: 16px;
-      overflow: auto;
-      white-space: pre-wrap;
-      border-radius: 14px;
-      background: #eef2f7;
-      color: #263245;
-      font: 0.92rem/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-    }
-
-    ul {
-      margin: 0;
-      padding-left: 1.2rem;
-    }
-
-    li + li {
-      margin-top: 8px;
-    }
-
-    code {
-      padding: 0.15rem 0.35rem;
-      border-radius: 0.4rem;
-      background: #eef2f7;
-      color: #263245;
-    }
-
-    .insight-actions {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 12px 20px;
-      margin-top: 16px;
-    }
-
-    .insight-card h3 {
-      margin: 0;
-      font-size: 1rem;
-    }
-
-    .insight-expect strong {
-      color: #263245;
-    }
-
-    .insight-listing {
-      display: grid;
-      gap: 4px;
-    }
-
-    .insight-tag {
-      justify-self: start;
-      padding: 0.1rem 0.55rem;
-      border-radius: 999px;
-      font-size: 0.8rem;
-      font-weight: 650;
-    }
-
-    .insight-tag.listed {
-      background: #e3f4ea;
-      color: #14532d;
-    }
-
-    .insight-tag.unlisted {
-      background: #fff4d6;
-      color: #713f12;
-    }
-
-    .test-action .insight-requirement {
-      color: #9a3412;
-    }
-
-    .insight-listing details {
-      color: #64748b;
-      font-size: 0.85rem;
-    }
-
-    .insight-listing summary {
-      cursor: pointer;
-    }
-
-    .insight-result {
-      margin: 0;
-      padding-left: 1.1rem;
-      overflow-wrap: anywhere;
-      font-size: 0.92rem;
-    }
-
-    .insight-result span {
-      display: block;
-      color: #4a5568;
-      font-size: 0.85rem;
-    }
-
-    .button[data-unavailable]:disabled {
-      cursor: not-allowed;
-      opacity: 0.55;
-    }
-
-    .insights-footnote {
-      margin: 18px 0 0;
-      color: #4a5568;
-      font-size: 0.92rem;
-    }
-
-  </style>
+  <link href="sample-lab.css" rel="stylesheet">
 </head>
 <body>
 <main>
   <div class="hero">
     <div>
-      <p class="eyebrow">Spring Boot 4 demo</p>
       <h1>Welcome to the BootUI sample app</h1>
       <p class="lead">
-        This app demonstrates a small Spring Boot service with public endpoints,
-        secured admin routes, scheduled work, JPA data, and enough runtime state
-        for BootUI to inspect.
+        Choose a scenario, run it, then inspect the result in BootUI.
+        No scenario starts until you click.
       </p>
-      <div aria-label="Primary links" class="actions">
-        <a class="button" href="/bootui/">Open BootUI</a>
-      </div>
+    </div>
+    <div aria-label="Primary links" class="actions">
+      <a class="button button-primary" href="/bootui/" target="_blank" rel="noopener">Open BootUI</a>
     </div>
   </div>
 
   <div class="content-grid">
-    <section aria-labelledby="lab-heading" class="wide">
-      <h2 id="lab-heading">Sample action lab</h2>
-      <p>
-        Run a few safe requests to generate data for BootUI panels. Then open the linked panels to see how BootUI
-        explains the same app from different angles.
-      </p>
+    <h2 id="lab-heading">Sample action lab</h2>
+    <nav class="scenario-nav" aria-labelledby="lab-heading">
+      <div class="scenario-tabs" role="tablist" aria-label="Scenario groups">
+        <button id="tab-requests" role="tab" aria-controls="lab-requests" aria-selected="true" tabindex="0" type="button">Requests</button>
+        <button id="tab-insights" role="tab" aria-controls="lab-insights" aria-selected="false" tabindex="-1" type="button">Runtime Insights</button>
+        <button id="tab-runtime" role="tab" aria-controls="lab-runtime" aria-selected="false" tabindex="-1" type="button">Runtime</button>
+        <button id="tab-threads" role="tab" aria-controls="lab-threads" aria-selected="false" tabindex="-1" type="button">Threads</button>
+        <button id="tab-data" role="tab" aria-controls="lab-data" aria-selected="false" tabindex="-1" type="button">Data</button>
+        <button id="tab-security" role="tab" aria-controls="lab-security" aria-selected="false" tabindex="-1" type="button">Security</button>
+        <button id="tab-integrations" role="tab" aria-controls="lab-integrations" aria-selected="false" tabindex="-1" type="button">Integrations &amp; AI</button>
+        <button id="tab-agent" role="tab" aria-controls="lab-agent" aria-selected="false" tabindex="-1" type="button">Java agent</button>
+      </div>
+    </nav>
+    <div class="action-feedback" id="sample-action-feedback" hidden>
+      <div class="form-row">
+        <span aria-live="polite" class="chat-status" id="sample-action-status" role="status"></span>
+        <span class="chat-status" id="session-data-status"></span>
+      </div>
+      <details id="sample-action-details">
+        <summary>Response details</summary>
+        <pre class="action-result" hidden id="sample-action-result"></pre>
+      </details>
+    </div>
+
+    <div class="lab-panel" id="lab-requests" role="tabpanel" aria-labelledby="tab-requests" tabindex="0">
+    <section aria-labelledby="requests-heading">
+      <h2 id="requests-heading">Requests &amp; traces</h2>
+      <p>Start with a single request, then follow it through HTTP Exchanges, Mappings, and Traces.</p>
+      <div class="test-grid test-grid-pairs">
+        <article class="test-action">
+          <button class="button" id="public-api-button" type="button">Call public API</button>
+          <p>Calls <code>GET /api/hello</code>, a simple public endpoint for mappings and probes.</p>
+          <small>Inspect: Mappings, HTTP Probe, HTTP Exchanges</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="greeting-button" type="button">Call configured greeting</button>
+          <p>Calls <code>GET /api/sample/hello</code> to show configuration-backed behavior.</p>
+          <small>Inspect: Configuration, Cache, HTTP Probe</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="chained-button" type="button">Make a multi-hop request</button>
+          <p>Calls <code>GET /api/sample/chained</code>, nesting spans across a catalog read and live SQL query.</p>
+          <small>Inspect: Traces, Diagnostics, HTTP Exchanges, SQL Trace</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="quarkus-cross-service-button" type="button">Call the Quarkus sample app</button>
+          <p>Calls the companion app's secured, SQL-backed products endpoint over HTTP.</p>
+          <small>Requires the companion Quarkus sample. Inspect: Traces in both apps</small>
+        </article>
+      </div>
+    </section>
+    </div>
+
+    <div class="lab-panel" id="lab-data" role="tabpanel" aria-labelledby="tab-data" tabindex="0" hidden>
+    <section aria-labelledby="data-heading">
+      <h2 id="data-heading">Data &amp; transactions</h2>
+      <p>Generate SQL, cache hits, and transaction outcomes against the sample database.</p>
       <div class="test-grid">
         <article class="test-action">
           <button class="button" id="products-button" type="button">Check products</button>
@@ -357,39 +103,23 @@
           <small>Inspect: Transactions</small>
         </article>
         <article class="test-action">
-          <button class="button" id="retry-button" type="button">Trigger a retry</button>
-          <p>Calls <code>GET /api/sample/fault-tolerance/retry</code>, which fails once and then recovers through Spring Retry.</p>
-          <small>Inspect: Fault Tolerance, Live Activity</small>
+          <button class="button" id="pool-stress-button" type="button">Exercise the connection pool</button>
+          <p>Calls <code>GET /api/sample/pool-stress</code> to run several concurrent read-only queries.</p>
+          <small>Inspect: Database Connection Pools, Spring Data, SQL Trace</small>
         </article>
-        <article class="test-action">
-          <button class="button" id="circuit-breaker-button" type="button">Exercise the circuit breaker</button>
-          <p>Calls <code>GET /api/sample/fault-tolerance/circuit-breaker</code> to open the sample Resilience4j breaker.</p>
-          <small>Inspect: Fault Tolerance, Live Activity</small>
-        </article>
+      </div>
+    </section>
+    </div>
+
+    <div class="lab-panel" id="lab-security" role="tabpanel" aria-labelledby="tab-security" tabindex="0" hidden>
+    <section aria-labelledby="security-heading">
+      <h2 id="security-heading">Security &amp; sessions</h2>
+      <p>Compare successful access, forbidden access, and failed authentication. Credentials are sample-only.</p>
+      <div class="test-grid">
         <article class="test-action">
           <button class="button" id="session-data-button" type="button">Create session data</button>
           <p>Adds demo attributes, including a fake token, to this browser session.</p>
           <small>Inspect: HTTP Sessions</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="greeting-button" type="button">Call configured greeting</button>
-          <p>Calls <code>GET /api/sample/hello</code> so BootUI can show configuration-backed behavior.</p>
-          <small>Inspect: Configuration, Cache, HTTP Probe</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="public-api-button" type="button">Call public API</button>
-          <p>Calls <code>GET /api/hello</code> as a simple public endpoint for mappings and probes.</p>
-          <small>Inspect: Mappings, HTTP Probe, HTTP Exchanges</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="websocket-echo-button" type="button">Test native WebSocket echo</button>
-          <p>Opens <code>/echo</code>, sends one text message, and waits for the echoed response.</p>
-          <small>Inspect: WebSockets → Endpoints and Sessions</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="stomp-chat-button" type="button">Test STOMP chat</button>
-          <p>Subscribes to <code>/topic/chat</code> and sends one message to <code>/app/chat</code>.</p>
-          <small>Inspect: WebSockets → Subscriptions and Activity</small>
         </article>
         <article class="test-action">
           <button class="button" id="secure-admin-button" type="button">Secure API as admin</button>
@@ -406,6 +136,67 @@
           <p>Calls the same secured endpoint with <code>developer/developer</code> to produce a forbidden response.</p>
           <small>Inspect: Spring Security, Security Logs, Pentesting</small>
         </article>
+        <article class="test-action">
+          <button class="button" id="auth-fail-button" type="button">Fail authentication</button>
+          <p>Calls <code>GET /api/secure</code> with bad credentials to produce an unauthorized response.</p>
+          <small>Inspect: Spring Security, Security Logs, Pentesting</small>
+        </article>
+      </div>
+    </section>
+    </div>
+
+    <div class="lab-panel" id="lab-integrations" role="tabpanel" aria-labelledby="tab-integrations" tabindex="0" hidden>
+    <section aria-labelledby="integrations-heading">
+      <h2 id="integrations-heading">Messaging &amp; integrations</h2>
+      <p>Send one message at a time. Kafka requires the <code>docker</code> profile; WebSocket scenarios work locally.</p>
+      <div class="test-grid test-grid-pairs">
+        <article class="test-action">
+          <button class="button" id="websocket-echo-button" type="button">Test native WebSocket echo</button>
+          <p>Opens <code>/echo</code>, sends one text message, and waits for the echoed response.</p>
+          <small>Inspect: WebSockets → Endpoints and Sessions</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="stomp-chat-button" type="button">Test STOMP chat</button>
+          <p>Subscribes to <code>/topic/chat</code> and sends one message to <code>/app/chat</code>.</p>
+          <small>Inspect: WebSockets → Subscriptions and Activity</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="send-email-button" type="button">Send test email</button>
+          <p>Sends a demo email through the app's mail sender.</p>
+          <small>Inspect: Email</small>
+        </article>
+        <article class="test-action">
+          <button class="button" id="send-kafka-button" type="button">Send Kafka message</button>
+          <p>Publishes a demo "order created" event.</p>
+          <small>Requires the "docker" profile. Inspect: Kafka</small>
+        </article>
+      </div>
+    </section>
+    <section aria-labelledby="ai-prompt-heading">
+      <h2 id="ai-prompt-heading">Ask Spring AI</h2>
+      <p>
+        Send a prompt through <code>POST /api/chat</code>, then inspect observations and token usage in
+        <a href="/bootui/#/ai" target="_blank" rel="noopener">AI Framework</a>.
+        Requires a configured chat model, available with the <code>docker</code> profile.
+      </p>
+      <form id="ai-chat-form">
+        <label for="ai-chat-message">Question for the LLM</label>
+        <textarea id="ai-chat-message" name="message" required
+                  rows="3">What can BootUI show me about this app?</textarea>
+        <div class="form-row">
+          <button class="button" type="submit">Ask the LLM</button>
+          <span aria-live="polite" class="chat-status" id="ai-chat-status" role="status"></span>
+        </div>
+      </form>
+      <pre class="chat-result" hidden id="ai-chat-result"></pre>
+    </section>
+    </div>
+
+    <div class="lab-panel" id="lab-runtime" role="tabpanel" aria-labelledby="tab-runtime" tabindex="0" hidden>
+    <section aria-labelledby="runtime-heading">
+      <h2 id="runtime-heading">Runtime &amp; resilience</h2>
+      <p>Generate bounded memory and metrics activity, or exercise the app's failure and recovery paths.</p>
+      <div class="test-grid">
         <article class="test-action">
           <button class="button" id="exception-button" type="button">Trigger an exception</button>
           <p>Calls <code>GET /api/sample/boom</code>, which throws on purpose to record a server-side failure.</p>
@@ -427,47 +218,72 @@
           <small>Inspect: Threads, Metrics, HTTP Exchanges</small>
         </article>
         <article class="test-action">
-          <button class="button" id="pool-stress-button" type="button">Exercise the connection pool</button>
-          <p>Calls <code>GET /api/sample/pool-stress</code> to run several concurrent read-only queries.</p>
-          <small>Inspect: Database Connection Pools, Spring Data, SQL Trace</small>
+          <button class="button" id="retry-button" type="button">Trigger a retry</button>
+          <p>Calls <code>GET /api/sample/fault-tolerance/retry</code>, which fails once and then recovers through Spring Retry.</p>
+          <small>Inspect: Fault Tolerance, Live Activity</small>
         </article>
         <article class="test-action">
-          <button class="button" id="chained-button" type="button">Make a multi-hop request</button>
-          <p>Calls <code>GET /api/sample/chained</code>, which nests spans across a catalog read and a live query.</p>
-          <small>Inspect: Traces, Diagnostics, HTTP Exchanges, SQL Trace</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="send-email-button" type="button">Send test email</button>
-          <p>Calls <code>GET /api/sample/send-email</code> to send a demo email through the app's mail sender.</p>
-          <small>Inspect: Email</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="send-kafka-button" type="button">Send Kafka message</button>
-          <p>Calls <code>GET /api/sample/send-kafka-message</code> to publish a demo "order created" event.</p>
-          <small>Inspect: Kafka (requires the "docker" profile)</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="quarkus-cross-service-button" type="button">Call the Quarkus sample app</button>
-          <p>
-            Calls <code>GET /api/sample/quarkus-secure-products</code>, which this Spring Boot app uses to call the
-            companion Quarkus sample app's own secured, SQL-backed <code>GET /api/secure/products</code>
-            (admin/admin) over HTTP.
-          </p>
-          <small>Inspect: Traces (here, for the merged waterfall), SQL Trace and Spring Security on the Quarkus app</small>
-        </article>
-        <article class="test-action">
-          <button class="button" id="auth-fail-button" type="button">Fail authentication</button>
-          <p>Calls <code>GET /api/secure</code> with bad credentials to produce an unauthorized response.</p>
-          <small>Inspect: Spring Security, Security Logs, Pentesting</small>
+          <button class="button" id="circuit-breaker-button" type="button">Exercise the circuit breaker</button>
+          <p>Calls <code>GET /api/sample/fault-tolerance/circuit-breaker</code> to open the sample Resilience4j breaker.</p>
+          <small>Inspect: Fault Tolerance, Live Activity</small>
         </article>
       </div>
-      <div class="form-row">
-        <span aria-live="polite" class="chat-status" id="sample-action-status" role="status"></span>
-        <span aria-live="polite" class="chat-status" id="session-data-status" role="status"></span>
-      </div>
-      <pre class="action-result" hidden id="sample-action-result"></pre>
     </section>
+    </div>
 
+    <div class="lab-panel" id="lab-threads" role="tabpanel" aria-labelledby="tab-threads" tabindex="0" hidden>
+    <section aria-labelledby="thread-scenarios-heading" class="wide" id="thread-scenarios-lab">
+      <h2 id="thread-scenarios-heading">Thread investigation lab</h2>
+      <p>
+        Run one scenario at a time, for at most 30 seconds. Open
+        <a href="/bootui/#/threads" target="_blank" rel="noopener">Threads</a> to inspect it. No Java agent needed.
+      </p>
+      <details class="scenario-help">
+        <summary>How to inspect thread scenarios</summary>
+        <p>
+          <strong>Capture snapshot</strong> opens <strong>Contention</strong>;
+          <strong>Observe threads</strong> opens <strong>Observe &amp; compare</strong>. For current states, choose
+          <strong>Live</strong> in <strong>Thread source</strong> and filter for <code>sample-threads-</code>.
+          Snapshots and observations also work with low-footprint mode on.
+        </p>
+      </details>
+      <div class="form-row thread-toolbar">
+        <button class="button" id="thread-scenarios-stop" type="button">Stop thread scenario</button>
+        <button class="button" id="thread-scenarios-check" type="button">Check scenario status</button>
+        <span aria-live="polite" class="chat-status" id="thread-scenarios-status" role="status"></span>
+      </div>
+      <pre class="action-result" hidden id="thread-scenarios-result"></pre>
+      <div class="test-grid">
+        <article class="test-action">
+          <button class="button" data-thread-scenario="monitor" type="button">Create monitor contention</button>
+          <p>One owner holds a monitor while three workers are BLOCKED.</p>
+          <small>Capture snapshot → Contention: inspect the root blocker and downstream impact.</small>
+        </article>
+        <article class="test-action">
+          <button class="button" data-thread-scenario="synchronizer" type="button">Create lock contention</button>
+          <p>Three workers park behind a ReentrantLock owner.</p>
+          <small>Capture snapshot → Contention: follow exclusive waits back to the lock owner.</small>
+        </article>
+        <article class="test-action">
+          <button class="button" data-thread-scenario="cpu" type="button">Run CPU-heavy work</button>
+          <p>One RUNNABLE worker uses one CPU core for bounded computation.</p>
+          <small>Observe threads → Observe &amp; compare: inspect measured interval CPU, not cumulative CPU totals.</small>
+        </article>
+        <article class="test-action">
+          <button class="button" data-thread-scenario="waiting" type="button">Create timed waiting threads</button>
+          <p>Three workers wait at the same call site without an exclusive lock dependency.</p>
+          <small>Capture snapshot → Contention: inspect stack groups. Observe threads → Observe &amp; compare: see repeated stacks.</small>
+        </article>
+        <article class="test-action">
+          <button class="button" data-thread-scenario="deadlock" type="button">Create a recoverable deadlock</button>
+          <p>Two workers each hold a lock the other needs. Stop or automatic expiry releases both safely.</p>
+          <small>Capture snapshot → Contention: inspect the native deadlock alert and supported wait cycle.</small>
+        </article>
+      </div>
+    </section>
+    </div>
+
+    <div class="lab-panel" id="lab-insights" role="tabpanel" aria-labelledby="tab-insights" tabindex="0" hidden>
     <section aria-labelledby="insights-heading" class="wide" id="runtime-insights-lab">
       <h2 id="insights-heading">Runtime Insights</h2>
       <p>
@@ -485,7 +301,13 @@
         <span class="chat-status" id="insights-progress"></span>
       </div>
       <p class="chat-status" id="insights-availability">Checking whether BootUI is running...</p>
+      <div class="scenario-filter">
+        <label for="insights-filter">Filter findings</label>
+        <input id="insights-filter" type="search" placeholder="Name, route, or expected finding" aria-describedby="insights-filter-count">
+        <span class="chat-status" id="insights-filter-count"></span>
+      </div>
       <div class="test-grid" id="insights-grid"></div>
+      <p id="insights-filter-empty" hidden>No findings match this filter. Clear it to see every scenario.</p>
       <p class="insights-footnote">
         Not generated here: <strong>Pauses during slow requests</strong> and <strong>Heap growth after GC</strong>
         depend on when the JVM collects garbage, and are reached from the Memory panel. Agent-only rows of the
@@ -494,29 +316,44 @@
         <code>/api/thread-activity</code> routes seed them when the BootUI agent is attached.
       </p>
     </section>
+    </div>
 
-    <section aria-labelledby="ai-prompt-heading" class="wide">
-      <h2 id="ai-prompt-heading">Ask Spring AI</h2>
+    <div class="lab-panel" id="lab-agent" role="tabpanel" aria-labelledby="tab-agent" tabindex="0" hidden>
+    <section aria-labelledby="agent-heading">
+      <h2 id="agent-heading">Java agent comparisons</h2>
       <p>
-        Send a prompt through the sample app's Spring AI <code>ChatClient</code>
-        using <code>POST /api/chat</code>. Then open BootUI's
-        <a href="/bootui/#/ai">AI Framework</a> panel to inspect the generated
-        observations, spans, and token usage.
+        Each button sends a seeded request and its counterexample. To inspect agent evidence, attach the BootUI
+        Java agent and enable the corresponding sensor. The requests also work without the agent, but produce no
+        agent findings.
       </p>
-      <form id="ai-chat-form">
-        <label for="ai-chat-message">Question for the LLM</label>
-        <textarea id="ai-chat-message" name="message" required
-                  rows="4">What can BootUI show me about this app?</textarea>
-        <div class="form-row">
-          <button class="button" type="submit">Ask the LLM</button>
-          <span aria-live="polite" class="chat-status" id="ai-chat-status" role="status"></span>
-        </div>
-      </form>
-      <pre class="chat-result" hidden id="ai-chat-result"></pre>
+      <div class="test-grid test-grid-pairs">
+        <article class="test-action">
+          <button class="button" data-sample-path="/api/caught/swallowed" data-control-path="/api/caught/logged" type="button">Compare caught exceptions</button>
+          <p>Swallows an exception, then logs one at WARN instead.</p>
+          <small>Sensor: caught-exceptions. Inspect: <a href="/bootui/#/exceptions" target="_blank" rel="noopener">Exceptions</a></small>
+        </article>
+        <article class="test-action">
+          <button class="button" data-sample-path="/api/side-effects/java-version" data-control-path="/api/side-effects/runtime-version" type="button">Compare process launches</button>
+          <p>Runs the local JDK's <code>java -version</code>, then reads the version without starting a process.</p>
+          <small>Sensor: processes. Inspect: <a href="/bootui/#/side-effects" target="_blank" rel="noopener">Side Effects</a></small>
+        </article>
+        <article class="test-action">
+          <button class="button" data-sample-path="/api/side-effects/sdk-call" data-control-path="/api/side-effects/rest-call" type="button">Compare outbound calls</button>
+          <p>Calls this app through a direct socket, then through a recorded REST client. No external service needed.</p>
+          <small>Sensor: network. Inspect: <a href="/bootui/#/side-effects" target="_blank" rel="noopener">Side Effects</a></small>
+        </article>
+        <article class="test-action">
+          <button class="button" data-sample-path="/api/thread-locals/leak" data-control-path="/api/thread-locals/cleared" type="button">Compare thread-local cleanup</button>
+          <p>Leaves sample tenant context set, then exercises a request that removes it in <code>finally</code>.</p>
+          <small>Sensor: thread-locals. Inspect: <a href="/bootui/#/side-effects" target="_blank" rel="noopener">Side Effects</a></small>
+        </article>
+      </div>
     </section>
+    </div>
 
   </div>
 </main>
+<script src="sample-lab.js"></script>
 <script>
   const chatForm = document.getElementById('ai-chat-form')
   const chatMessage = document.getElementById('ai-chat-message')
@@ -549,6 +386,58 @@
   const sessionDataStatus = document.getElementById('session-data-status')
   const sampleActionStatus = document.getElementById('sample-action-status')
   const sampleActionResult = document.getElementById('sample-action-result')
+  const sampleActionFeedback = document.getElementById('sample-action-feedback')
+  const sampleActionDetails = document.getElementById('sample-action-details')
+  const threadScenarioButtons = [...document.querySelectorAll('[data-thread-scenario]')]
+  const threadScenarioStop = document.getElementById('thread-scenarios-stop')
+  const threadScenarioCheck = document.getElementById('thread-scenarios-check')
+  const threadScenarioStatus = document.getElementById('thread-scenarios-status')
+  const threadScenarioResult = document.getElementById('thread-scenarios-result')
+
+  async function runThreadScenario(scenario) {
+    const checking = scenario === 'status'
+    const buttons = [...threadScenarioButtons, threadScenarioStop, threadScenarioCheck]
+    buttons.forEach(button => button.disabled = true)
+    threadScenarioStatus.textContent = checking ? 'Checking thread scenario...' : scenario === 'stop' ? 'Stopping thread scenario...' : 'Starting thread scenario...'
+    threadScenarioResult.hidden = true
+    try {
+      let response
+      if (checking) {
+        response = await fetch('/api/sample/threads', {headers: {Accept: 'application/json'}})
+      } else {
+        const csrfResponse = await fetch('/api/sample/threads/csrf', {headers: {Accept: 'application/json'}})
+        if (!csrfResponse.ok) throw new Error(`Could not obtain CSRF protection (HTTP ${csrfResponse.status}).`)
+        const csrf = await csrfResponse.json()
+        response = await fetch(`/api/sample/threads/${scenario}`, {
+          method: 'POST',
+          headers: {Accept: 'application/json', [csrf.headerName]: csrf.token}
+        })
+      }
+      if (!response.ok) {
+        throw new Error(response.status === 409
+          ? 'A thread scenario is already active. Stop it before starting another.'
+          : `Thread scenario failed with HTTP ${response.status}.`)
+      }
+      const body = await response.json()
+      threadScenarioStatus.textContent = body.active
+        ? `${checking ? 'Running' : 'Started'} ${body.scenario}; stops automatically at ${new Date(body.expiresAt).toLocaleTimeString()}.`
+        : checking ? 'No thread scenario is running.' : 'Thread scenario stopped.'
+      threadScenarioResult.textContent = body.active
+        ? `${body.threads.join('\n')}\n\nCapture snapshot → Contention: owners, waits, cycles, and stack groups.\nObserve threads → Observe & compare: interval CPU and repeated stacks.\nThread source → Live: current states; filter for sample-threads-.`
+        : 'All scenario workers have stopped. Previously captured evidence remains available in Threads.'
+      threadScenarioResult.hidden = false
+    } catch (error) {
+      threadScenarioStatus.textContent = 'Thread scenario failed'
+      threadScenarioResult.textContent = error instanceof Error ? error.message : String(error)
+      threadScenarioResult.hidden = false
+    } finally {
+      buttons.forEach(button => button.disabled = false)
+    }
+  }
+  threadScenarioButtons.forEach(button =>
+    button.addEventListener('click', () => runThreadScenario(button.dataset.threadScenario)))
+  threadScenarioStop.addEventListener('click', () => runThreadScenario('stop'))
+  threadScenarioCheck.addEventListener('click', () => runThreadScenario('status'))
 
   chatForm.addEventListener('submit', async event => {
     event.preventDefault()
@@ -595,6 +484,9 @@
 
   async function runSampleAction(button, loadingText, action) {
     button.disabled = true
+    sampleActionFeedback.hidden = false
+    sampleActionDetails.open = false
+    sessionDataStatus.textContent = ''
     sampleActionStatus.textContent = loadingText
     sampleActionResult.hidden = true
     sampleActionResult.textContent = ''
@@ -605,10 +497,25 @@
       sampleActionStatus.textContent = 'Action failed'
       sampleActionResult.textContent = error instanceof Error ? error.message : String(error)
       sampleActionResult.hidden = false
+      sampleActionDetails.open = true
     } finally {
       button.disabled = false
     }
   }
+
+  document.querySelectorAll('[data-sample-path]').forEach(button => {
+    button.addEventListener('click', () =>
+      runSampleAction(button, `${button.textContent}: sending requests...`, async () => {
+        const results = []
+        for (const path of [button.dataset.samplePath, button.dataset.controlPath]) {
+          const response = await fetch(path, {headers: {Accept: 'application/json'}})
+          if (!response.ok) throw new Error(`${path} failed with HTTP ${response.status}. Try the scenario again.`)
+          results.push(`${path}\n${await readTextResponse(response)}`)
+        }
+        showSampleResult(`${button.textContent}: both requests completed`, results.join('\n\n'))
+      })
+    )
+  })
 
   function showSampleResult(status, result) {
     sampleActionStatus.textContent = status
@@ -1430,6 +1337,18 @@
   }
 
   INSIGHT_FAMILIES.forEach(family => insightsGrid.append(insightCard(family)))
+
+  document.getElementById('insights-filter').addEventListener('input', event => {
+    const query = event.target.value.trim().toLowerCase()
+    let matched = 0
+    INSIGHT_FAMILIES.forEach(family => {
+      const visible = [family.label, family.text, ...family.expect.flat()].join(' ').toLowerCase().includes(query)
+      family.ui.button.closest('article').hidden = !visible
+      if (visible) matched++
+    })
+    document.getElementById('insights-filter-count').textContent = `${matched} of ${INSIGHT_FAMILIES.length} findings`
+    document.getElementById('insights-filter-empty').hidden = matched > 0
+  })
 
   async function fetchInsightsReport() {
     const response = await fetch(`${BOOTUI_API}/runtime-insights`, {headers: {Accept: 'application/json'}})

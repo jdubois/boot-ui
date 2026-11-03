@@ -59,6 +59,11 @@ public final class McpToolGuide {
             Map.entry("get_conditions", args("query", "DataSource")),
             Map.entry("get_metrics", args("query", "jvm.memory")),
             Map.entry("get_threads", args("query", "http", "limit", 10)),
+            Map.entry("get_thread_snapshots", args("limit", 5)),
+            Map.entry("get_thread_analysis", args("id", "<id>")),
+            Map.entry("get_thread_detail", args("id", "<id>")),
+            Map.entry("get_thread_observation", args("id", "<id>")),
+            Map.entry("cancel_thread_observation", args("id", "<id>")),
             Map.entry("get_code_inventory", args("query", "changed")),
             Map.entry("get_code_paths", args("query", "GET /orders")),
             Map.entry("get_side_effects", args("query", "processes", "limit", 20)),
@@ -78,6 +83,22 @@ public final class McpToolGuide {
             Map.entry("get_database_advisor_rule_violations", ruleViolations()));
 
     private static final Map<String, IdSource> ID_SOURCES = Map.ofEntries(
+            Map.entry(
+                    "get_thread_analysis",
+                    new IdSource(
+                            "a retained capture id (omit for latest)",
+                            List.of("capture_thread_snapshot", "get_thread_snapshots"))),
+            Map.entry(
+                    "get_thread_detail",
+                    new IdSource(
+                            "a root observationId, blockedObservationIds entry, cycle participantId, or unresolved waiterId/ownerId",
+                            List.of("get_thread_analysis"))),
+            Map.entry(
+                    "get_thread_observation",
+                    new IdSource("a finite observation id (omit for latest)", List.of("start_thread_observation"))),
+            Map.entry(
+                    "cancel_thread_observation",
+                    new IdSource("a finite observation id", List.of("start_thread_observation"))),
             Map.entry(
                     "get_request_profile",
                     new IdSource(

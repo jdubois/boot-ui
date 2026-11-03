@@ -470,6 +470,55 @@ public final class McpToolDescriptions {
                             + "summaries. This does not generate or download the raw thread-dump artifact. At most limit (25) "
                             + "threads; page.hasMore means more matched."),
             Map.entry(
+                    "capture_thread_snapshot",
+                    "Explicitly acquire one bounded, masked platform-thread capture for retained analysis. "
+                            + "Collection can briefly pause the JVM. No virtual-thread census is implied. "
+                            + "Obtain permission for the collection cost. No Java agent is required. "
+                            + "Inspect get_thread_analysis using the returned capture id; never infer a complete population "
+                            + "or complete lock ownership when quality reports omissions."),
+            Map.entry(
+                    "get_thread_snapshots",
+                    "List retained thread capture metadata without acquiring JVM stacks. Captures expire or can be cleared; "
+                            + "use capture_thread_snapshot explicitly to collect evidence."),
+            Map.entry(
+                    "get_thread_analysis",
+                    "Read retained contention roots, direct/transitive impact, cycles, unresolved waits and exact visible-stack "
+                            + "groups. id is a capture id from capture_thread_snapshot or get_thread_snapshots; omit it for "
+                            + "the latest retained capture. An expired explicit id never falls back to fresh evidence. "
+                            + "Follow rootBlockers[].observationId and blockedObservationIds with get_thread_detail "
+                            + "to inspect both the lock owner and its blocked waiters before proposing a source fix. "
+                            + "This tool accepts id only; section page.hasMore or truncated ID lists mean incomplete "
+                            + "coverage, not absence of other blockers. A cycle is not automatically a native "
+                            + "deadlock and repeated visible stacks are not proof of a hang."),
+            Map.entry(
+                    "get_thread_detail",
+                    "Read one retained thread's masked stack and lock context using its exact capture-scoped observation "
+                            + "id from get_thread_analysis, not a live numeric thread id or finite session id. "
+                            + "Inspect thread.stackTrace, lockOwnerId, activity and truncation/ownership flags; "
+                            + "locate relevant application frames in source before changing synchronization. "
+                            + "No JVM collection occurs and no native lock identity is inferred."),
+            Map.entry(
+                    "clear_thread_snapshots",
+                    "Clear retained thread evidence. An active finite observation can collect its remaining samples; "
+                            + "use cancel_thread_observation first to stop it. Cleared samples are reported explicitly."),
+            Map.entry(
+                    "start_thread_observation",
+                    "Explicitly start a finite bounded thread observation using configured sample count and cadence. "
+                            + "This schedules JVM stack acquisitions, not continuous monitoring. Obtain permission for the "
+                            + "collection cost. Read get_thread_observation with the returned observation id; repeated "
+                            + "sampled stacks do not establish continuous inactivity or a busy loop. While running, "
+                            + "poll retained status only: live get_threads, snapshots, and downloads share acquisition "
+                            + "and can fail a scheduled sample. Busy or missed samples fail without retrying."),
+            Map.entry(
+                    "get_thread_observation",
+                    "Read finite observation status and bounded comparisons without collecting another sample. "
+                            + "id comes from start_thread_observation; omit it for the latest session. CPU is an adjacent "
+                            + "counter delta over a measured interval, not a lifetime total or a wall-clock utilization guess."),
+            Map.entry(
+                    "cancel_thread_observation",
+                    "Cancel the finite observation id returned by start_thread_observation. A native JVM management call "
+                            + "already in flight cannot be interrupted; cancellation prevents its publication and future samples."),
+            Map.entry(
                     "get_profile_diff",
                     "Return the current active-profile configuration comparison using masked local configuration data. "
                             + "Use it to identify profile-specific differences without changing profiles."),

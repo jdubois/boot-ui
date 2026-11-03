@@ -27,7 +27,10 @@ class McpLowFootprintTests {
     @Test
     void mappedPanelReadsAndControlsKeepTheirPayloadAndIdentifyTheActualPausedSource() {
         for (var entry : McpToolCatalog.entries()) {
-            if (!McpLowFootprint.affected(entry.name()) || entry.name().startsWith("resume_")) {
+            if (!McpLowFootprint.affected(entry.name())
+                    || entry.name().startsWith("resume_")
+                    || entry.name().equals("capture_thread_snapshot")
+                    || entry.name().equals("start_thread_observation")) {
                 continue;
             }
             var service = service(
@@ -43,10 +46,12 @@ class McpLowFootprintTests {
             assertThat(result.payload()).isSameAs(original);
             assertThat(result.lowFootprint())
                     .containsEntry("active", true)
-                    .containsEntry("paused", true)
+                    .containsEntry("paused", !entry.panelId().equals("threads"))
                     .containsEntry("sinceEpochMillis", 42L);
             assertThat((List<?>) result.lowFootprint().get("components")).isNotEmpty();
-            assertThat(result.lowFootprint().get("hint").toString()).contains("disable_low_footprint");
+            assertThat(result.lowFootprint().get("hint").toString())
+                    .contains(entry.panelId().equals("threads") ? "remain available" : "disable_low_footprint");
+            assertThat(result.capturePaused()).isEqualTo(!entry.panelId().equals("threads"));
         }
     }
 
@@ -66,6 +71,7 @@ class McpLowFootprintTests {
                 "memory_scan",
                 "security_scan",
                 "get_agent_status",
+                "get_threads",
                 "get_method_probe")) {
             assertThat(McpLowFootprint.decorate(
                                     tool(name, original),
@@ -163,6 +169,21 @@ class McpLowFootprintTests {
             assertThat(calls).hasValue(0);
             when(service.active()).thenReturn(false);
             assertThat(decorated.invoke(ARGS)).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void explicitThreadActionsRunWhileLowFootprintModeRemainsActive() {
+        for (String name : List.of("capture_thread_snapshot", "start_thread_observation")) {
+            var payload = Map.of("id", "explicit");
+            var service = service(
+                    true,
+                    List.of(new SuspendedComponentDto("thread-analysis", "Pre-existing observations", true, null)));
+            var result = (McpLowFootprint.Result)
+                    McpLowFootprint.decorate(tool(name, payload), service).invoke(ARGS);
+            assertThat(result.payload()).isSameAs(payload);
+            assertThat(result.capturePaused()).isFalse();
+            assertThat(result.lowFootprint()).containsEntry("active", true).containsEntry("paused", false);
         }
     }
 
