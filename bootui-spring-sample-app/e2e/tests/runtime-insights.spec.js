@@ -1,5 +1,6 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {openInsightObservation, verifyInsightGroups} from '../scenarios/runtime-insights.js'
 
 for (const platform of ['spring-boot', 'spring-boot-reactive', 'quarkus']) {
   for (const state of ['available', 'detached', 'disabled']) {
@@ -36,7 +37,7 @@ for (const platform of ['spring-boot', 'spring-boot-reactive', 'quarkus']) {
       )
       const section = page.locator('.insight-performance-deep-dives')
       await expect(section).toBeVisible()
-      await expect(page.locator('.insight-item[aria-expanded="true"]')).toContainText(route)
+      await expect(page.locator('.insight-row.open')).toContainText(route)
       const action = section.getByRole('button', {name: 'Open the JFR profile tab'})
       await action.focus()
       await page.keyboard.press('Enter')
@@ -44,7 +45,7 @@ for (const platform of ['spring-boot', 'spring-boot-reactive', 'quarkus']) {
       await expect(tab).toHaveAttribute('aria-selected', 'true')
       await expect(tab).toBeFocused()
       expect(recordings).toEqual([])
-      await page.getByRole('tab', {name: /^Findings/}).click()
+      await page.getByRole('tab', {name: /^Observations/}).click()
 
       const link = section.getByRole('link', {name: `Open ${route} in Code Paths`})
       if (state === 'available') {
@@ -72,9 +73,16 @@ for (const platform of ['spring-boot', 'spring-boot-reactive', 'quarkus']) {
 /**
  * Runtime Insights (docs/PLAN-v2.md §5.5): the runtime journal's retained requests projected into observations.
  * Seven calls to one route give it the five warm requests `route-time-breakdown` needs, so the panel always has one
- * observation to open, whatever ran before; a short route is reached with **Show all routes** (M4-19).
+ * observation to open, whatever ran before; short routes are visible without changing filters.
  */
 test.describe('Runtime Insights view', () => {
+  test('opens group evidence in one click with accessible selection and fetch-free filters', async ({
+    openView,
+    page
+  }) => {
+    await verifyInsightGroups(page, expect, openView)
+  })
+
   test('lists a route time breakdown with its window, coverage, checks, and evidence', async ({
     openView,
     page,
@@ -85,20 +93,20 @@ test.describe('Runtime Insights view', () => {
       expect(search.ok()).toBeTruthy()
     }
 
-    // ?all=1 is Show all routes (M4-19): a short route's breakdown is reachable but not listed by default.
-    await openView('runtime-insights?all=1', 'Runtime Insights')
+    await openView('runtime-insights', 'Runtime Insights')
 
     await expect(page.getByText('What this run did that no single panel shows.')).toBeVisible()
     await expect(page.locator('#insight-verdict-title')).toContainText('across')
 
-    await expect(page.locator('.insight-show-all')).toHaveAttribute('aria-pressed', 'true')
-    const item = page
-      .locator('.insight-item', {hasText: 'Route time breakdown'})
-      .filter({hasText: '/api/sample/product-search'})
-      .first()
-    await expect(item).toBeVisible({timeout: 15_000})
-    await item.click()
-    await expect(item).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.locator('.insight-show-all')).toHaveCount(0)
+    await expect(page.getByRole('combobox', {name: 'Topic', exact: true})).toHaveValue('')
+    const timing = page.locator('.insight-group').filter({has: page.getByText('Route time breakdown', {exact: true})})
+    const toggle = timing.locator('.insight-group-toggle')
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await toggle.focus()
+    await page.keyboard.press('Enter')
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await openInsightObservation(page, expect, 'Route time breakdown', 'GET /api/sample/product-search')
 
     const detail = page.locator('.insight-detail')
     await expect(detail.locator('#insight-sentence')).toContainText('warm median')
@@ -124,7 +132,7 @@ test.describe('Runtime Insights view', () => {
     await expect(page.getByRole('tab', {name: 'JFR profile'})).toBeFocused()
     await expect(page.locator('.insight-profile-running')).toHaveCount(0)
     await expect(page.locator('.insight-profile').getByRole('button', {name: /Profile resources/})).toBeVisible()
-    await page.getByRole('tab', {name: /^Findings/}).click()
+    await page.getByRole('tab', {name: /^Observations/}).click()
     if (agentAttached) {
       await codePathsLink.click()
       await expect(page).toHaveURL(/#\/code-paths\?route=GET\+\/api\/sample\/product-search$/)
@@ -187,9 +195,9 @@ test.describe('Runtime Insights view', () => {
     await expect(impact.locator('.insight-impact-node')).toContainText('SampleController#products')
     await expect(impact.locator('[data-list="observed"]')).toContainText('GET /api/sample/products')
 
-    await page.getByRole('tab', {name: /^Findings/}).click()
+    await page.getByRole('tab', {name: /^Observations/}).click()
     await page.locator('.insight-search').fill('no-such-route-xyz')
-    await expect(page.getByText('No observation matches this search.')).toBeVisible()
+    await expect(page.locator('.insight-no-matches')).toContainText('No observations match your filters.')
 
     // ?impact=<symbol> opens the Change impact tab already checked.
     await openView('runtime-insights?impact=ProductRepository', 'Runtime Insights')

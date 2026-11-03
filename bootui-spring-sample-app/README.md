@@ -393,7 +393,7 @@ The separate Hibernate eager-loading demo uses 16 orders with distinct customers
 `GET /api/insights/eager-orders` loads an eager customer for each order with a secondary SELECT; the
 `GET /api/insights/eager-orders/joined` control returns identical data with `JOIN FETCH`. Use the
 **Hibernate eager N+1** welcome-page button to make three requests to each route and inspect the N+1 badge in
-Live Activity, **Repeated SELECTs** in Runtime Insights (possibly under **Show all routes**), and the SQL groups in
+Live Activity, **Repeated SELECTs** through the card's Runtime Insights link, and the SQL groups in
 the request profile. An explicit Hibernate advisor scan surfaces the eager-mapping warning in the Scorecard; the
 Runtime Insights observation itself does not change the Scorecard. The optional Java agent supplies Code Paths.
 The six-order `JdbcTemplate` fixture above remains a separate demo. These routes are intentionally inefficient
@@ -407,12 +407,17 @@ latency difference. For SQL text in Log Tail, enable `org.hibernate.SQL` at DEBU
 bind values). The demo never changes its data, so repeated runs use the same 16 orders.
 
 The easiest way to try it is the **Runtime Insights** section of the welcome page (`http://localhost:8080/`): one button
-per finding sends that finding's requests, then reads the panel's report and links to what it found, saying whether the
-panel lists it by default or only with **Show all routes**. **Generate all findings** runs every button this run can
+per finding sends that finding's requests, then reads the panel's report and links to what it found.
+Every retained observation is available in a compact group in Runtime Insights, with specific review candidates first.
+Open a group to see its first observation and evidence directly; larger groups have an Observation selector and
+Previous/Next controls. Search and Topic narrow matches without loading evidence or changing the run's total.
+The lab's result links open the exact observation and its group. Evidence limits appear beside the affected
+observation, with details when it is opened.
+**Generate all findings** runs every button this run can
 use. Each card reads BootUI's own report to disable the findings this app cannot produce, with the reason: **Work after
 the response** needs the BootUI agent, **AI usage by route** a chat model (the `docker` profile), **Blocking on event
 loops** the WebFlux sample, and **Changed code not executed** the agent plus a previous run: edit a method, let
-DevTools restart the app, then click it. Garbage-collection rows are reached from the Memory panel instead.
+DevTools restart the app, then click it. Garbage-collection rows are also reachable from the Memory panel.
 
 From a terminal, send the same traffic and open the panel, no tracing needed:
 

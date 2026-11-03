@@ -4,7 +4,7 @@
 /** The garbage collection and heap kinds the Memory panel counts and links to (docs/PLAN-v2.md M4-19). */
 export const MEMORY_KINDS = ['gc-inflated-latency', 'heap-growth-after-gc']
 
-/** The theme chips, in display order, and the observation kinds each one gathers. */
+/** The topics, in display order, and the observation kinds each one gathers. */
 export const THEMES = [
   {
     id: 'time',
@@ -48,6 +48,38 @@ export const THEMES = [
 
 const STATUS_ORDER = {OBSERVED: 0, PARTIAL: 1, INSUFFICIENT: 2}
 
+// Browser presentation order, not severity, evidence quality, or the engine's default agent selection.
+const GROUP_SUMMARIES = {
+  'errors-behind-2xx': 'Successful responses with recorded failures in the same request.',
+  'anonymous-success-on-restricted-route': 'Anonymous success on a route that also restricted requests.',
+  'after-commit-writes': 'Database writes recorded after transaction completion.',
+  'transactional-listener-skipped': 'Transactional listeners skipped without an active transaction.',
+  'safe-method-dml': 'GET or HEAD requests with recorded database write activity.',
+  'proxy-bypass': 'Recorded calls that bypassed proxy advice.',
+  'paged-without-order': 'Paged database reads without an explicit ORDER BY.',
+  'event-loop-blocking': 'JDBC statements started on an event-loop thread.',
+  'transaction-across-remote-call': 'Transactions and their connections span outbound calls.',
+  'split-transaction-writes': 'A request committed its writes in separate transactions.',
+  'repeated-selects': 'The same SELECT repeated after another statement.',
+  'unbatched-write-loop': 'Repeated database writes without JDBC batching.',
+  'lazy-sql-after-handler': 'SQL executed after the request handler returned.',
+  'connections-per-request': 'A request held more than one database connection together.',
+  'connection-reacquisition': 'A session released and re-acquired its database connection.',
+  'slow-flush': 'Hibernate flushes took a substantial part of recorded ORM time.',
+  'large-persistence-context': 'Recorded persistence contexts with many managed entities.',
+  'gc-inflated-latency': 'Slow requests that overlapped recorded garbage collection pauses.',
+  'heap-growth-after-gc': 'Old-generation occupancy rising after collections.',
+  'work-after-response': 'Executor work still running after a response started.',
+  'orm-auto-flush': 'Hibernate flushed changes before executing a query.',
+  'exception-hotspots': 'Recorded exceptions grouped by the route or execution that encountered them.',
+  'readonly-candidate-transaction': 'Read-write transactions with reads and no recorded writes.',
+  'framework-warnings-by-route': 'Framework warnings and errors recorded during this run.',
+  'anonymous-data-reach': 'Database write activity reached by anonymous callers; this may be intended.',
+  'ai-usage-by-route': 'Recorded model calls and token usage by route, job, or listener.',
+  'route-time-breakdown': 'Per-route measurements and phase evidence, not a defect verdict.'
+}
+const GROUP_ORDER = new Map(Object.keys(GROUP_SUMMARIES).map((kind, index) => [kind, index]))
+
 /** The theme an observation kind belongs to, or null. */
 export function themeOf(kind) {
   return THEMES.find((theme) => theme.kinds.includes(kind))?.id ?? null
@@ -60,29 +92,11 @@ export function availableThemes(report) {
 }
 
 /**
- * Whether the default list shows an observation (docs/PLAN-v2.md M4-19). A server that predates the flag lists them
- * all.
- */
-export function isListed(observation) {
-  return observation?.listed !== false
-}
-
-/**
- * Whether an observation is shown under the current filters: listed by default, or every row is asked for with
- * **Show all routes** or a search, which is explicit intent.
- */
-function shown(observation, {query = '', all = false, selectedId = null} = {}) {
-  return all || query.trim() !== '' || isListed(observation) || observation.id === selectedId
-}
-
-/**
- * The observations matching the search text and theme, grouped by check in the report's check order. The search
+ * The observations matching the search text and theme, grouped by check in suggested review order. The search
  * matches the check's title and kind, the route or subject, the sentence, and the evidence a sentence names, such as a
- * table or a logger. Without
- * `all` or a search, only the observations listed by default are shown, and the selected one, so a refresh that leaves
- * it out never takes it away from the developer; with them, the listed ones stay first.
+ * table or a logger. Every retained observation is shown unless the developer filters it out.
  */
-export function groupObservations(report, {query = '', theme = '', all = false, selectedId = null} = {}) {
+export function groupObservations(report, {query = '', theme = ''} = {}) {
   const needle = query.trim().toLowerCase()
   const titles = new Map((report?.checks ?? []).map((check) => [check.kind, check.title]))
   const groups = new Map()
@@ -91,9 +105,8 @@ export function groupObservations(report, {query = '', theme = '', all = false, 
   }
   for (const observation of report?.observations ?? []) {
     if (theme && themeOf(observation.kind) !== theme) continue
-    const searched = `${titles.get(observation.kind) ?? ''} ${observation.kind} ${observation.subject} ${observation.sentence}`
+    const searched = `${titles.get(observation.kind) ?? ''} ${observation.kind} ${observation.subject} ${observation.sentence} ${(observation.limitations ?? []).join(' ')}`
     if (needle && !searched.toLowerCase().includes(needle)) continue
-    if (!shown(observation, {query, all, selectedId})) continue
     if (!groups.has(observation.kind)) {
       groups.set(observation.kind, {
         kind: observation.kind,
@@ -105,54 +118,29 @@ export function groupObservations(report, {query = '', theme = '', all = false, 
   }
   return [...groups.values()]
     .filter((group) => group.observations.length > 0)
+    .sort((a, b) => (GROUP_ORDER.get(a.kind) ?? GROUP_ORDER.size) - (GROUP_ORDER.get(b.kind) ?? GROUP_ORDER.size))
     .map((group) => ({
       ...group,
+      summary: GROUP_ORDER.has(group.kind) ? GROUP_SUMMARIES[group.kind] : '',
       observations: [...group.observations].sort(
-        (a, b) =>
-          Number(!isListed(a)) - Number(!isListed(b)) ||
-          (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) ||
-          b.affected - a.affected
+        (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || b.affected - a.affected
       )
     }))
 }
 
 /**
- * The theme filters above the list, each with the number of rows it would show under the current search and listing,
- * led by every theme. A theme with nothing to show is left out unless it is the one selected, so no filter leads to an
- * empty list by construction.
+ * Topics represented by retained observations, keeping the selected topic available even when it has no rows.
  */
-export function themeFilters(report, {query = '', theme = '', all = false, selectedId = null} = {}) {
-  const observations = groupObservations(report, {query, all, selectedId}).flatMap((group) => group.observations)
+export function themeFilters(report, {theme = ''} = {}) {
+  const observations = report?.observations ?? []
   return [
-    {id: '', label: 'All', count: observations.length},
-    ...availableThemes(report)
-      .map((entry) => ({
-        id: entry.id,
-        label: entry.label,
-        count: observations.filter((observation) => themeOf(observation.kind) === entry.id).length
-      }))
-      .filter((entry) => entry.count > 0 || entry.id === theme)
+    {id: '', label: 'Any topic', count: observations.length},
+    ...THEMES.map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      count: observations.filter((observation) => themeOf(observation.kind) === entry.id).length
+    })).filter((entry) => entry.count > 0 || entry.id === theme)
   ]
-}
-
-/**
- * The observations the current filters leave out only because the default list does not show them, counted per check
- * in the report's check order, so the panel can say what **Show all routes** would add. Empty when every row is shown.
- */
-export function unlistedSummary(report, {query = '', theme = '', all = false, selectedId = null} = {}) {
-  if (all || query.trim() !== '') return {total: 0, groups: []}
-  const titles = new Map((report?.checks ?? []).map((check) => [check.kind, check.title]))
-  const counts = new Map()
-  for (const observation of report?.observations ?? []) {
-    if (isListed(observation) || observation.id === selectedId) continue
-    if (theme && themeOf(observation.kind) !== theme) continue
-    counts.set(observation.kind, (counts.get(observation.kind) ?? 0) + 1)
-  }
-  const order = (report?.checks ?? []).map((check) => check.kind)
-  const groups = [...counts.entries()]
-    .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
-    .map(([kind, count]) => ({kind, title: titles.get(kind) ?? kind, count}))
-  return {total: groups.reduce((sum, group) => sum + group.count, 0), groups}
 }
 
 // Garbage collections belong to the JVM, never to one request: a request's pauses are joined to it by collection id.

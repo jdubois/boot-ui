@@ -28,7 +28,7 @@ is incomplete; pairing is preferable to spending an entire chapter reinstalling 
 | --- | --- | --- |
 | Empty activity | Journal/source policy, exact port, agreed route traffic | Send only the authorized workload and inspect Recording |
 | Missing profile/exception detail | Current id, retained journal vs panel buffer | Select a fresh profileable request; report eviction/missing rich details |
-| No repeated SELECT observation | Show all routes/search, >=3 qualifying requests, >=5 repeated SELECTs | Use six sequential samples, allow processing, inspect SQL groups |
+| No repeated SELECT observation | Search for the route, >=3 qualifying requests, >=5 repeated SELECTs | Use six sequential samples, allow processing, inspect SQL groups; CLI needs `--query repeated-selects` |
 | Earlier advisor/import evidence disappeared | Chapter 05 full process restart | Use labeled worksheet history, collect a new eager-order baseline; fresh scans need separate approval |
 | PowerShell request loop fails | `Invoke-RestMethod -ErrorAction Stop` and actual response error | Stop immediately; do not count incomplete traffic as six samples |
 | Windows agent jar path fails | Warm build result, exact jar, comma in path | Stop on missing jar; rebuild or use a supported path, never an empty agent argument |

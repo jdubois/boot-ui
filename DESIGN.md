@@ -303,21 +303,32 @@ BootUI is a **layered** system, not a flat one — but the elevation is calm. Fr
   and the selected tab's own indicator to 3:1 against its tray, so selection never rests on text color alone.
 
 ### Findings Panels
+
 - **Verdict first:** a panel that reports findings, such as Runtime Insights, opens on one sentence that answers the
-  developer's question, "9 things to check across 147 requests", followed by the facts that qualify it (how many are
-  proven, how many the default list leaves out, coverage, the comparison). The verdict counts the whole run, never the
-  current filter.
+  developer's question, "9 observations recorded across 147 requests", followed by the facts that qualify it
+  (coverage, limitations, the comparison). Observations describe recorded behavior, not confirmed defects. The count
+  covers the whole run, never the current filter.
 - **One list, opened in place:** findings are one bordered list whose rows open their detail beneath themselves
   (`aria-expanded`/`aria-controls`), so the detail never leaves its row on a narrow screen. Nothing opens on its own; a
-  deep link opens the row it names. Filters with counts sit above the list as `aria-pressed` buttons, not a second tab
-  strip.
+  deep link opens the row it names. Runtime Insights keeps every retained observation available in compact groups:
+  check name, plain-language summary, and an explicit observation count. Groups start collapsed, in suggested review
+  order with specific review candidates before broad timing and usage summaries, never a severity score. Search and
+  one labeled Topic selector filter the complete report without opening details or loading evidence. Opening a group
+  selects its first matching observation and opens the explanation and evidence directly, closing any previously open
+  group. A multi-observation group has one labeled Observation selector, a position count, and Previous/Next controls;
+  a single-observation group needs none of these. The opened group has a complete outline, rounded corners, and a
+  workspace gap above and below it; closed groups remain compact stacks. The boundary includes the evidence and its
+  limits, so white detail content cannot merge into the next white group heading.
+  Direct links select the exact named observation. Retained selection
+  survives refreshes; closing the group returns focus to its trigger. Filtering reports matches and groups out of the
+  stable run total, not competing counted scopes or visibility toggles. Clear filters restores all groups and focuses Search.
 - **Everything else in tabs:** tools and caveats about the run (comparison, change impact, profiling, coverage, check
   limits) move to `PanelTabs` beside the findings rather than stacking under them. A tool that answers its own question,
   such as change impact's search, gets its own tab with its field first, never a card below a long report; the report
   links into it (a changed method's "See its impact").
-- **Calm caveats:** a qualifier such as "Not listed by default" is a muted inline mark, with its reason in the open
-  row, never a filled badge competing with the finding's own title. Internal process, such as how a check was
-  validated or plan identifiers, never reaches the screen.
+- **Calm caveats:** an evidence limit is a muted inline explanation beside the affected observation, with its specific
+  limitations in the open row, never another scope or a filled badge competing with the observation's title. Internal
+  process, such as how a check was validated or plan identifiers, never reaches the screen.
 
 ### Signature: Brand Mark & Ambient Orbs
 - **Brand mark:** a solid Spring-green rounded square (1rem radius, 2.75rem) holding a white coffee-cup glyph (`bi-cup-hot-fill`), with a green glow (`0 0.6rem 1.2rem rgba(25,135,84,0.28)`). The "BootUI" wordmark sits beside it.

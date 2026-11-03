@@ -2,7 +2,7 @@
 import {computed, inject, ref} from 'vue'
 import {formatNumber} from '../../utils/format.js'
 import {panelDisabledReason} from '../../utils/panelNavigation.js'
-import {isListed, isMachineColumn} from '../../utils/runtimeInsights.js'
+import {isMachineColumn} from '../../utils/runtimeInsights.js'
 import AiExportPreview from './AiExportPreview.vue'
 import InsightText from './InsightText.vue'
 
@@ -49,11 +49,6 @@ const agentSetupAvailable = computed(() => {
       <i class="bi bi-robot me-1" aria-hidden="true"></i>Copy for AI
     </button>
   </div>
-  <p v-if="!isListed(ctx.selected)" class="small mb-2 insight-unlisted-reason">
-    {{
-      ctx.selected.unlistedReason ? `Not listed by default: ${ctx.selected.unlistedReason}` : 'Not listed by default'
-    }}
-  </p>
   <p class="small text-muted mb-3">
     <template v-if="ctx.selected.eligible > 0">
       {{ formatNumber(ctx.selected.affected) }} of {{ formatNumber(ctx.selected.eligible) }} requests · linked by
@@ -145,8 +140,19 @@ const agentSetupAvailable = computed(() => {
     {{ ctx.detail.unavailableReason }}
   </div>
   <template v-else-if="ctx.detail">
-    <div class="table-responsive mb-2">
-      <table class="table table-sm align-middle insight-evidence mb-0" :class="{'insight-evidence-shares': ctx.shares}">
+    <p v-if="ctx.detail.columns.length > 3" class="small text-muted d-sm-none mb-1">
+      Scroll sideways to see all evidence columns.
+    </p>
+    <div
+      class="table-responsive mb-2"
+      role="region"
+      aria-label="Recorded evidence"
+      :tabindex="ctx.detail.columns.length > 3 ? 0 : null"
+    >
+      <table
+        class="table table-sm align-middle insight-evidence mb-0"
+        :class="{'insight-evidence-shares': ctx.shares, 'insight-evidence-wide': ctx.detail.columns.length > 3}"
+      >
         <thead>
           <tr>
             <th
@@ -213,9 +219,13 @@ const agentSetupAvailable = computed(() => {
 <style scoped>
 .insight-sentence {
   flex: 1 1 16rem;
-  font-size: 1.15rem;
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 400;
   max-width: 75ch;
+}
+
+.insight-evidence-wide {
+  min-width: 760px;
 }
 
 .insight-share-cell {

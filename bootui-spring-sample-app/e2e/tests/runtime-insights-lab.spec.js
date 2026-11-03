@@ -1,12 +1,14 @@
 // @ts-check
+import {fileURLToPath} from 'node:url'
 import {expect, test} from './fixtures.js'
+import {openInsightObservation} from '../scenarios/runtime-insights.js'
 
 // The docker profile runs Ollama, so the sample has a Spring AI chat model and AI usage can be generated.
 const profiles = (process.env.BOOTUI_SAMPLE_PROFILES || '').split(',').map((profile) => profile.trim())
 const chatModel = profiles.includes('docker')
 
-/** The findings a default run lists in the panel, as [card, title, subject] (docs/PLAN-v2.md M4-20). */
-const LISTED = [
+/** Seeded observations, as [card, title, subject]. */
+const FINDINGS = [
   ['errors-behind-2xx', 'Errors behind 2xx responses', 'POST /api/insights/orders/{id}/import'],
   ['safe-method-dml', 'Writes in GET requests', 'GET /api/insights/orders/{id}'],
   ['transaction-across-remote-call', 'Transactions open across remote calls', '/api/insights/orders/{id}/price-check'],
@@ -18,8 +20,7 @@ const LISTED = [
   ['large-persistence-context', 'Large persistence contexts', 'GET /api/insights/tags/export']
 ]
 
-/** Seeds whose findings the panel leaves out of its default list, reached with Show all routes. */
-const UNLISTED = [
+const ADDITIONAL_FAMILIES = [
   'repeated-selects',
   'eager-repeated-selects',
   'lazy-sql-after-handler',
@@ -35,11 +36,51 @@ const UNLISTED = [
 ]
 
 /**
- * The sample home page's Runtime Insights buttons: each card says which finding to expect and whether the panel lists
- * it by default, from BootUI's own report; a card whose check cannot run on this application is disabled with the
- * reason BootUI gives; and Generate all findings makes the default-listed findings appear in the panel.
+ * The sample home page's Runtime Insights buttons name the observation to expect and link to it. A check that cannot
+ * run is disabled with BootUI's reason; every generated observation appears in the panel without widening its list.
  */
 test.describe('Runtime Insights buttons on the sample home page', () => {
+  test('names expected observations without obsolete visibility tags', async ({page}) => {
+    await page.route(
+      (url) => url.pathname === '/',
+      (route) =>
+        route.fulfill({
+          path: fileURLToPath(new URL('../../src/main/resources/static/index.html', import.meta.url)),
+          contentType: 'text/html'
+        })
+    )
+    for (const [asset, path, contentType] of [
+      ['sample-lab.js', '../../src/main/resources/static/sample-lab.js', 'application/javascript'],
+      ['sample-lab.css', '../../src/main/resources/static/sample-lab.css', 'text/css'],
+      ['bootui-theme.css', '../../../bootui-ui/src/main/frontend/public/bootui-theme.css', 'text/css']
+    ]) {
+      await page.route(`**/${asset}`, (route) =>
+        route.fulfill({path: fileURLToPath(new URL(path, import.meta.url)), contentType})
+      )
+    }
+    await page.route('**/bootui/api/runtime-insights', (route) =>
+      route.fulfill({
+        json: {
+          available: true,
+          checks: [
+            {kind: 'errors-behind-2xx', title: 'Errors behind 2xx responses'},
+            {kind: 'repeated-selects', title: 'Repeated SELECTs'}
+          ],
+          observations: []
+        }
+      })
+    )
+    await page.route('**/bootui/api/beans?*', (route) => route.fulfill({json: {beans: []}}))
+    await page.goto('/')
+    await page.getByRole('tab', {name: 'Runtime Insights', exact: true}).click()
+    await expect(page.getByRole('tabpanel', {name: 'Runtime Insights', exact: true})).toBeVisible()
+    const section = page.locator('#runtime-insights-lab')
+    await expect(section.locator('[data-family="errors-behind-2xx"]')).toContainText('Errors behind 2xx responses')
+    await expect(section.locator('[data-family="repeated-selects"]')).toContainText('Repeated SELECTs')
+    await expect(section.locator('.insight-tag')).toHaveCount(0)
+    await expect(section).not.toContainText(/Show all routes|listed by default/)
+  })
+
   test('generate every finding this app can produce and link each to the panel', async ({page, agentAttached}) => {
     test.setTimeout(180_000)
     await page.goto('/')
@@ -70,13 +111,7 @@ test.describe('Runtime Insights buttons on the sample home page', () => {
       await expect(card('work-after-response').locator('.insight-requirement')).toContainText('BootUI agent')
     }
 
-    // Each card says whether its finding is listed by default.
-    for (const [key] of LISTED) {
-      await expect(card(key).locator('.insight-tag')).toHaveText('listed by default')
-    }
-    for (const key of UNLISTED) {
-      await expect(card(key).locator('.insight-tag').first()).toContainText('only with Show all routes')
-    }
+    await expect(section.locator('.insight-tag')).toHaveCount(0)
 
     // A local model's answers are not timed here, so AI usage is not part of the exact count.
     const runnable = 21 + (agentAttached ? 1 : 0) + (chatModel ? 1 : 0)
@@ -86,14 +121,12 @@ test.describe('Runtime Insights buttons on the sample home page', () => {
     await generateAll.click()
     await expect(section.locator('#insights-status')).toContainText('Generated all findings', {timeout: 140_000})
     await expect(section.locator('#insights-status')).toContainText(reported)
-    for (const [key, title] of LISTED) {
-      await expect(card(key).locator('.insight-result')).toContainText(
-        /\((observed|partial evidence), listed by default\)/
-      )
+    for (const [key, title] of FINDINGS) {
+      await expect(card(key).locator('.insight-result')).toContainText(/\((observed|partial evidence)\)/)
       await expect(card(key).getByRole('link', {name: new RegExp(`^${title}:`)})).toBeVisible()
     }
-    for (const key of UNLISTED) {
-      await expect(card(key).locator('.insight-result')).toContainText('not listed by default')
+    for (const key of ADDITIONAL_FAMILIES) {
+      await expect(card(key).locator('.insight-result a').first()).toBeVisible()
     }
     await expect(
       card('repeated-selects').getByRole('link', {name: 'Repeated SELECTs: GET /api/insights/orders'})
@@ -102,29 +135,44 @@ test.describe('Runtime Insights buttons on the sample home page', () => {
       card('eager-repeated-selects').getByRole('link', {name: 'Repeated SELECTs: GET /api/insights/eager-orders'})
     ).toHaveAttribute('href', /^\/bootui\/#\/runtime-insights\?insight=repeated-selects%3A/)
 
-    // A card's link opens its finding, even one the default list leaves out.
+    // Every result link names a row that must be visible without changing filters.
     const lazy = card('lazy-sql-after-handler')
     const lazyHref = await lazy.getByRole('link').first().getAttribute('href')
+    const generatedIds = await section
+      .locator('.insight-result a')
+      .evaluateAll((links) =>
+        links.map((link) => new URLSearchParams(link.getAttribute('href')?.split('?')[1]).get('insight'))
+      )
 
-    // The panel lists every default finding the buttons generated.
+    // Every generated observation remains available inside its compact group, including agent-default exclusions.
     await section.getByRole('link', {name: 'Open Runtime Insights'}).click()
     const main = page.locator('main')
-    // Each row names its check above its route or subject.
     const row = (/** @type {string} */ title) =>
-      main.locator('.insight-row').filter({has: page.getByText(title, {exact: true})})
-    const listed = agentAttached
-      ? [...LISTED, ['work-after-response', 'Work after the response', 'GET /api/insights/orders/after-response']]
-      : LISTED
-    for (const [, title, subject] of listed) {
-      await expect(row(title).locator('.insight-item', {hasText: subject}).first()).toBeVisible({timeout: 15_000})
+      main.locator('.insight-group').filter({has: page.getByText(title, {exact: true})})
+    await expect(main.locator('.insight-group-toggle').first()).toBeVisible()
+    await expect(main.locator('.insight-detail')).toHaveCount(0)
+    const findings = agentAttached
+      ? [...FINDINGS, ['work-after-response', 'Work after the response', 'GET /api/insights/orders/after-response']]
+      : FINDINGS
+    for (const [, title, subject] of findings) {
+      await openInsightObservation(page, expect, title, subject)
     }
+    for (const id of generatedIds) {
+      expect(id).toBeTruthy()
+      await page.goto(`/bootui/#/runtime-insights?insight=${encodeURIComponent(String(id))}`)
+      await expect(main.locator(`[id="insight-row-${id}"]`)).toBeVisible()
+      await expect(main.locator('.insight-detail')).toHaveCount(1)
+    }
+    await expect(main).not.toContainText(/Show all routes|Not listed by default/)
 
     await page.goto(String(lazyHref))
     await expect(page).toHaveURL(/#\/runtime-insights\?insight=lazy-sql-after-handler/)
     // The deep link opens the finding's row in place.
     const opened = main.locator('.insight-row.open')
-    await expect(opened.locator('.insight-row-kind')).toHaveText('SQL after the handler returned')
-    await expect(opened.locator('.insight-item')).toHaveAttribute('aria-expanded', 'true')
+    await expect(row('SQL after the handler returned').locator('.insight-group-toggle')).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    )
     await expect(opened).toContainText('GET /api/insights/orders/report')
   })
 })

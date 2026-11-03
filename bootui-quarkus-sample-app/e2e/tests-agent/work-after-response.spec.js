@@ -1,5 +1,6 @@
 // @ts-check
 import {expect, test} from '../tests/fixtures.js'
+import {openInsightObservation} from '../../../bootui-spring-sample-app/e2e/scenarios/runtime-insights.js'
 
 const SEED = '/api/insights/orders/after-response'
 
@@ -56,8 +57,8 @@ test.describe('Work after the response (Quarkus)', () => {
     ).toHaveLength(0)
 
     await openView('runtime-insights', 'Runtime Insights')
-    const group = page.locator('.insight-row').filter({has: page.getByText('Work after the response', {exact: true})})
-    await expect(group.locator('.insight-item', {hasText: SEED}).first()).toBeVisible({timeout: 15_000})
-    await expect(group.locator('.insight-item', {hasText: `${SEED}/waits`})).toHaveCount(0)
+    const group = page.locator('.insight-group').filter({has: page.getByText('Work after the response', {exact: true})})
+    await openInsightObservation(page, expect, 'Work after the response', SEED)
+    await expect(group).not.toContainText(`${SEED}/waits`)
   })
 })

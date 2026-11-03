@@ -1,12 +1,12 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
 import {seedInsights} from '../scripts/insights-demo.mjs'
+import {openInsightObservation} from '../scenarios/runtime-insights.js'
 
 /**
  * The scripted Runtime Insights demo on Spring MVC (docs/PLAN-v2.md M3-6, §5.5): with tracing off, the seeded traffic
- * lists each seed's observation whose kind is listed by default since its external validation (M4-20), which the panel
- * never mentions; **Show all routes** reaches the others with their reason; the secured route's time
- * breakdown opens with its evidence, and its exemplar request opens in Live Activity.
+ * shows every seeded observation without widening the list; the secured route's time breakdown opens with its
+ * evidence, and its exemplar request opens in Live Activity.
  */
 test.describe('Runtime Insights demo', () => {
   test('shows each seeded observation and follows the secured route to its request', async ({openView, page}) => {
@@ -55,46 +55,34 @@ test.describe('Runtime Insights demo', () => {
       .toEqual([])
 
     await openView('runtime-insights', 'Runtime Insights')
-    // Each row names its check above its route or subject.
-    const kind = (title) => page.locator('.insight-row').filter({has: page.getByText(title, {exact: true})})
+    await expect(page.locator('.insight-detail')).toHaveCount(0)
     for (const [, title, subject] of seeded) {
-      await expect(kind(title).locator('.insight-item', {hasText: subject}).first()).toBeVisible({timeout: 15_000})
+      await openInsightObservation(page, expect, title, subject)
     }
 
-    const group = kind
-    // The external validation (M4-20) decides what is listed, but stays in the plan: no row mentions it.
+    // Internal validation history is not a user-facing classification.
     await expect(page.locator('.insight-list')).not.toContainText(/validat/i)
 
-    // Left out of the default list: the kinds that did not pass their external validation, or had too few facts to
-    // judge (M4-20). Show all routes lists them, each in its own group, saying where they are shown.
-    const onRequest = 'when all rows are shown'
-    const leftOut = [
-      ['Repeated SELECTs', '/api/insights/orders', onRequest],
-      ['Connections held together', '/api/insights/orders/{id}/confirm', 'Database connection pools panel'],
-      ['Connections re-acquired in a session', '/api/insights/tags/reacquire', onRequest],
-      ['Writes split across transactions', '/api/insights/orders/{id}/confirm', onRequest],
-      ['Unbatched write loops', '/api/insights/audit/one-by-one', onRequest],
-      ['Read-write transactions that only read', 'InsightTagService.summary', onRequest],
-      ['Paged without ORDER BY', 'GET /api/insights/tags/unsorted-page', onRequest],
-      ['Exception hotspots', 'GET /api/sample/boom', 'Exceptions panel'],
-      ['Anonymous writes', '/api/insights/debug/reset-totals', onRequest],
-      ['SQL after the handler returned', '/api/insights/orders/report', onRequest]
+    const additional = [
+      ['Repeated SELECTs', '/api/insights/orders'],
+      ['Connections held together', '/api/insights/orders/{id}/confirm'],
+      ['Connections re-acquired in a session', '/api/insights/tags/reacquire'],
+      ['Writes split across transactions', '/api/insights/orders/{id}/confirm'],
+      ['Unbatched write loops', '/api/insights/audit/one-by-one'],
+      ['Read-write transactions that only read', 'InsightTagService.summary'],
+      ['Paged without ORDER BY', 'GET /api/insights/tags/unsorted-page'],
+      ['Exception hotspots', 'GET /api/sample/boom'],
+      ['Anonymous writes', '/api/insights/debug/reset-totals'],
+      ['SQL after the handler returned', '/api/insights/orders/report']
     ]
-    for (const [title] of leftOut) {
-      await expect(group(title)).toHaveCount(0)
-    }
-    await expect(page.locator('.insight-unlisted')).toContainText('not listed by default')
-    await page.locator('.insight-show-all').click()
-    for (const [title, subject, reason] of leftOut) {
-      const item = group(title).locator('.insight-item', {hasText: subject}).first()
-      await expect(item).toContainText('Not listed by default')
-      await item.click()
-      await expect(page.locator('.insight-unlisted-reason')).toContainText(reason)
+    await expect(page.locator('.insight-show-all')).toHaveCount(0)
+    for (const [title, subject] of additional) {
+      await openInsightObservation(page, expect, title, subject)
+      await expect(page.locator('.insight-detail')).not.toContainText('Not listed by default')
       await expect(page.locator('.insight-detail')).not.toContainText(/validat/i)
     }
 
-    const secured = page.locator('.insight-item', {hasText: 'GET /api/secure/products'}).first()
-    await secured.click()
+    await openInsightObservation(page, expect, 'Route time breakdown', 'GET /api/secure/products')
     const detail = page.locator('.insight-detail')
     await expect(detail.locator('#insight-sentence')).toContainText('warm median')
     await expect(detail.locator('.insight-evidence')).toContainText('Authentication')

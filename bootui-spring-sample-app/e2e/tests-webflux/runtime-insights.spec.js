@@ -1,5 +1,10 @@
 // @ts-check
 import {expect, test} from '../tests/fixtures.js'
+import {openInsightObservation, verifyInsightGroups} from '../scenarios/runtime-insights.js'
+
+test('opens group evidence in one click with accessible selection and fetch-free filters', async ({page, openView}) => {
+  await verifyInsightGroups(page, expect, openView)
+})
 
 /**
  * @param {string} url
@@ -43,13 +48,18 @@ test.describe('Runtime Insights on Spring WebFlux', () => {
       expect(greeting.ok()).toBeTruthy()
     }
 
-    // ?all=1 is Show all routes (M4-19): a short route without phases is reachable but not listed by default.
-    await page.goto('/bootui/#/runtime-insights?all=1')
+    await page.goto('/bootui/#/runtime-insights')
     await expect(page.getByText('What this run did that no single panel shows.')).toBeVisible()
+    await expect(page.locator('.insight-show-all')).toHaveCount(0)
+    await expect(page.getByRole('combobox', {name: 'Topic', exact: true})).toHaveValue('')
 
-    const item = page.locator('.insight-item', {hasText: '/api/greetings/{name}'}).first()
-    await expect(item).toBeVisible({timeout: 15_000})
-    await item.click()
+    const timing = page.locator('.insight-group').filter({has: page.getByText('Route time breakdown', {exact: true})})
+    const toggle = timing.locator('.insight-group-toggle')
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await toggle.focus()
+    await page.keyboard.press('Enter')
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await openInsightObservation(page, expect, 'Route time breakdown', 'GET /api/greetings/{name}')
     await expect(page.locator('#insight-sentence')).toContainText('warm median')
     await expect(page.locator('.insight-detail')).toContainText('WebFlux marks no phases')
 
@@ -77,7 +87,7 @@ test.describe('Runtime Insights on Spring WebFlux', () => {
     await expect(page.getByRole('tab', {name: 'JFR profile'})).toBeFocused()
     await expect(page.locator('.insight-profile-running')).toHaveCount(0)
     await expect(page.locator('.insight-profile').getByRole('button', {name: /Profile resources/})).toBeVisible()
-    await page.getByRole('tab', {name: /^Findings/}).click()
+    await page.getByRole('tab', {name: /^Observations/}).click()
     if (agentAttached) {
       await codePathsLink.click()
       await expect(page).toHaveURL((url) => matchesCodePathsRoute(url.href, 'GET /api/greetings/{name}'))

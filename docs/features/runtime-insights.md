@@ -1,6 +1,6 @@
 # Runtime Insights
 
-![Runtime Insights: a route's warm requests split into authentication, SQL, and response write, with explicit performance deep dives](../images/bootui-runtime-insights.webp)
+![Runtime Insights: compact observation groups in suggested review order, with search, Topic, and stable run totals](../images/bootui-runtime-insights.webp)
 
 **Runtime Insights** answers what this run did that no single panel shows. It reads the
 [runtime journal](live-activity.md#runtime-journal) and projects its retained events into observations. Each one names
@@ -15,19 +15,20 @@ The panel is available while the runtime journal is enabled (`bootui.runtime-jou
 WebFlux, and Quarkus. Where a stack lacks a fact, the observations that need it say so: WebFlux marks no request phases,
 Quarkus records no transactions and intercepts self-invocation, and Spring MVC has no event loop.
 
-The panel leads with a **verdict** on the run: how many things it lists to check across how many requests, how many rows
-the default list leaves out, the share of events linked to their request, and the comparison with the previous run.
+The panel leads with the run's **observation count** across its recorded requests, the share of events linked to their
+request, and the comparison with the previous run. This total stays the same when the list is filtered.
 Five tabs follow:
 
 | Tab                   | What it holds                                                               | Deep link                         |
 | --------------------- | --------------------------------------------------------------------------- | --------------------------------- |
-| **Findings**          | One searchable list of observations, filtered by theme                      | (default)                         |
+| **Observations**      | Every retained observation in compact groups, narrowed by search and Topic  | (default)                         |
 | **Changes**           | The comparison with the previous run                                        | `?tab=changes`                    |
 | **Change impact**     | What a changed route, bean, class, table, cache, or host reaches            | `?tab=impact`, `?impact=<symbol>` |
 | **JFR profile**       | The on-demand resource profiler                                             | `?tab=profile`                    |
 | **Coverage & limits** | How events were linked, checks that did not fully run, routes not exercised | `?tab=coverage`                   |
 
-Nothing opens on its own: a deep link opens the row, theme, tab, or change impact it names. Agents read the same facts
+Opening a group immediately shows its first matching observation and loads its evidence. Filters alone load no
+evidence; a deep link selects the exact observation, topic, tab, or change impact it names. Agents read the same facts
 through the `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and `get_runtime_run_comparison` MCP
 tools and the `bootui insights` CLI commands ([AI agents](../AI-AGENTS.md#runtime-insights-for-agents)).
 
@@ -36,7 +37,8 @@ request's drawer, **Why this route is slow** loads that route's breakdown on dem
 
 ## Findings
 
-Each theme counts its rows. A row opens in place on its sentence, what to check, the requests to open, its evidence, and
+Each group names its check, summarizes what it records, and counts its observations. Expand it to see its routes or
+subjects. A row opens in place on its sentence, what to check, the requests to open, its evidence, and
 its limits. Each finding has a stable id that survives refreshes and restarts, one to three conditional checks, up to
 three exemplar request ids to open in Live Activity, and at most 20 evidence rows. A breakdown's evidence draws each
 phase's share as a bar, with the largest phase emphasized and every number kept beside it.
@@ -85,13 +87,13 @@ changed-method evidence. The table says what each counts; the drawers below hold
 | `anonymous-data-reach`                  | Anonymous successful requests that wrote a table                                          |
 | `anonymous-success-on-restricted-route` | 2xx answers to anonymous requests on a restricted route                                   |
 | `split-transaction-writes`              | Requests whose writes committed in two or more transactions                               |
-| `unbatched-write-loop`                  | Requests that ran one write statement ten times or more, each without a JDBC batch       |
+| `unbatched-write-loop`                  | Requests that ran one write statement ten times or more, each without a JDBC batch        |
 | `transaction-across-remote-call`        | Transactions still open during a slow REST client or AI call                              |
 | `lazy-sql-after-handler`                | SQL run while the response was written, outside every transaction                         |
 | `event-loop-blocking`                   | JDBC statements started on an event-loop thread                                           |
 | `orm-auto-flush`                        | Requests where Hibernate flushed before queries often                                     |
 | `large-persistence-context`             | Requests whose Hibernate session held 500 entities or more at a flush                     |
-| `slow-flush`                            | Requests whose Hibernate flushes took 100 ms or more and a fifth of their ORM time       |
+| `slow-flush`                            | Requests whose Hibernate flushes took 100 ms or more and a fifth of their ORM time        |
 | `connection-reacquisition`              | Requests whose Hibernate session borrowed a JDBC connection two or more times in a row    |
 | `readonly-candidate-transaction`        | Spring: read-write transactions of one method that changed no entity and ran no write     |
 | `paged-without-order`                   | SELECTs that limit their rows without an `ORDER BY`, per route                            |
@@ -149,37 +151,46 @@ changed-method evidence. The table says what each counts; the drawers below hold
 
 :::
 
-### The default list
+### Observations and evidence limits
 
-The panel lists fewer rows than the report holds, so the rows worth reading first are not buried. A row it leaves out
-stays in the report and its JSON, marked `listed: false` with an `unlistedReason`. **Show all routes**, any search, a
-deep link to the row (such as **Why this route is slow** in a request's drawer), and an agent query naming its kind or
-route, or `all`, reach it. The panel counts what it left out under the list.
+The browser keeps **every retained observation** available in compact groups, including short route timings,
+repeated SELECTs, AI usage, and memory observations. Groups start collapsed, with specific review candidates before
+broad timing and usage summaries. This suggested review order is not a severity score and does not use agent-default
+selection or evidence quality as a proxy for importance. Group counts count observations, not affected requests.
 
-Each kind's place in the default list is recorded once in the engine, so every stack, the panel, and the agent tools
-list the same rows:
+Search and the **Topic** selector narrow the same report without changing each other or opening details.
+The result count reports matching observations and groups, while the run total and tab count stay unchanged.
+**Clear filters** restores the complete set of groups and returns keyboard focus to Search. A selected observation
+stays open if it still matches, including across refreshes.
 
-- **Listed:** `errors-behind-2xx`, `changed-code-not-executed`, `safe-method-dml`, `transaction-across-remote-call`, `after-commit-writes`, `transactional-listener-skipped`, `proxy-bypass`, `event-loop-blocking`, `anonymous-success-on-restricted-route`, `orm-auto-flush`, `large-persistence-context`, `work-after-response`.
-- **Not listed; the named panel shows the same evidence and links to its rows:** `route-time-breakdown` (a request's **Why this route is slow** in Live Activity), `exception-hotspots` (Exceptions), `connections-per-request` (Database Connection Pools), `ai-usage-by-route` (AI).
-- **Not listed; reached with Show all routes, a search, or a query naming it:** `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `unbatched-write-loop`, `readonly-candidate-transaction`, `framework-warnings-by-route`, `anonymous-data-reach`, `connection-reacquisition`, `paged-without-order`, `slow-flush`.
-- **Not listed; reached from the Memory panel:** `gc-inflated-latency`, `heap-growth-after-gc`.
+Opening a group selects its first matching observation and loads only that observation's evidence, with no second
+disclosure to open. Larger groups have an **Observation** selector, a position count, and **Previous / Next** controls.
+Single-observation groups show their subject directly, without extra controls. Only one group's detail is open at a
+time; closing it returns keyboard focus to the group heading.
+The opened group has its own outline and a visible gap from neighboring groups, including below its evidence limits.
+Closed groups stay compact, making the end of the inline detail clear without adding another control.
 
-The observations of the BootUI agent's own panels, such as Side Effects, are shown there rather than in this list. When
-nothing is reported, or no request was recorded yet, the findings say that some checks show their findings in other
-panels, with links to Live Activity, Exceptions, Database Connection Pools, AI Framework, and Memory.
+An observation describes recorded behavior, not a confirmed defect. Rows with incomplete capture say **Evidence limit:
+Some source events were dropped**; rows below their check's evidence minimum say **Evidence limit: Not enough evidence**.
+The inline detail gives its sentence, evidence, conditional checks, and specific limitations. These qualifications do not
+hide the row or form another counted category.
 
-::: details Default list rules and how a hidden row is shown
+Related panels still link directly to their observations. Memory opens the **Memory** topic, and a request's
+**Why this route is slow** link opens that route's time breakdown. Existing links with `?all=1` continue to work; that
+parameter is no longer needed. The BootUI agent's own panels, such as Side Effects, still present their own findings.
 
-The panel keeps the open row in view when a refresh leaves it out, marks such a row **Not listed by default**, and says
-why in its detail and in **Copy for AI**. A row of a kind that is not listed gives where its evidence is shown as the
-reason: the panel it is folded into, the Memory panel, its own panel, or the full list. Within the kinds, these rules
-also apply, and are what **Show all routes** orders by:
+::: details Report projection and agent compatibility
 
-- A `route-time-breakdown` that is not prominent is left out. One is prominent when its warm median is 20 ms or more, when authorization takes 20 % or more of its warm requests' time, or when its requests make a median of 50 authorization decisions or more. Five warm requests are needed to split a route into phases; a route with fewer is reported as not enough evidence. A route whose requests reached no handler BootUI marks, such as a form login the security filters answered, says how much of its time authentication took whenever its evidence names authentication.
+The JSON report remains complete and its `listed` and `unlistedReason` fields are unchanged. They describe the
+engine's default **agent** selection, not browser visibility or evidence quality. MCP and CLI queries can still request
+a kind, route, or `all`; the browser does not use this metadata to hide or prioritize observations.
+
+Showing every observation does not change the checks' evidence requirements or how they consolidate observations:
+
+- Five warm requests are needed to split a `route-time-breakdown` into phases; a route with fewer is reported as not enough evidence. A route whose requests reached no handler BootUI marks, such as a form login the security filters answered, says how much of its time authentication took whenever its evidence names authentication.
 - `exception-hotspots` collapses the groups seen only behind 4xx responses, usually intended, into one counted row, **Behind 4xx responses**, unless (nearly) every request to their route, at least three, recorded them: such a route may never succeed, so its group is its own row. Groups caught in scheduled runs or messages that completed are counted in **Caught in completed runs or messages**; Errors behind 2xx responses reports the 2xx ones.
 - `repeated-selects` does not report a statement that `lazy-sql-after-handler` reports on the same route, at least as sufficiently, when every affected request repeated it after the handler returned (five times or more there, fewer before) and the lazy row names the call site of each of its rows, since that row names its cause. The check's reason counts them. A handler's own N+1 stays reported even when the view repeats the same statement elsewhere. A statement run after the handler returned, while a view rendered, takes its render-time call site, such as the formatter a template called.
-- A `framework-warnings-by-route` `WARN` message without a specific check, and Spring MVC's `Resolved [...]` note when every request it was written in answered 4xx, are left out.
-- The Memory panel counts the `gc-inflated-latency` and `heap-growth-after-gc` rows beside its link, which opens this panel on the **Memory** theme with every row shown.
+- A `framework-warnings-by-route` `WARN` message without a specific check, and Spring MVC's `Resolved [...]` note when every request it was written in answered 4xx, remain excluded from default agent selection, but their retained observations are visible in the browser.
 
 :::
 
@@ -219,7 +230,7 @@ The sample apps seed one case for each observation beside the counterexample it 
 
 Open the Spring sample's welcome page (`http://localhost:8080/`) and use its **Runtime Insights** section: one button
 per finding, such as **N+1 selects**, **Error behind a 200**, or **Proxy bypass**, sends the requests that produce it
-and links to the finding, saying whether the panel lists it by default or only with **Show all routes**.
+and links to the finding. Every retained observation is visible in the panel without changing a display control.
 **Generate all findings** runs them all. Findings this application cannot produce are disabled with BootUI's reason,
 such as **Work after the response** without the BootUI agent. The sample's README, under _Runtime Insights demo_, lists
 what each finding needs.

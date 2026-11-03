@@ -23,8 +23,10 @@ PowerShell:
 ```
 
 If a request fails, stop and resolve the displayed error; an incomplete loop is not six samples. Wait briefly for
-journal processing, then open **Runtime Insights**. Use **Show all routes**, search, or the CLI;
-the default recommendation list does not include repeated SELECTs.
+journal processing, then open **Runtime Insights** and search for the original route. Open the **Repeated SELECTs**
+group to see that route's observation directly. If several match, choose the route in **Observation**.
+Search also reveals its observations on older releases. The CLI's compact default omits repeated SELECTs, so request
+the kind explicitly:
 
 ```bash
 bootui insights list --query repeated-selects --json
