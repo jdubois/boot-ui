@@ -230,8 +230,10 @@ class SpanEnrichmentTests {
     @Test
     void nPlusOneSupplierIsEvaluatedOnlyUntilTheSpanIsFlagged() {
         OtelSpanEnricher enricher = new OtelSpanEnricher(ENABLED);
+        TelemetryStore store = new TelemetryStore(ENABLED);
         SdkTracerProvider provider = SdkTracerProvider.builder()
                 .setResource(Resource.create(Attributes.empty()))
+                .addSpanProcessor(SimpleSpanProcessor.create(new BootUiSpanExporter(store, SELF, ENABLED)))
                 .build();
         java.util.concurrent.atomic.AtomicInteger evaluations = new java.util.concurrent.atomic.AtomicInteger();
         try {
@@ -259,6 +261,13 @@ class SpanEnrichmentTests {
                 span.end();
             }
             assertThat(evaluations.get()).isEqualTo(2);
+            NormalizedSpan stored = store.recentTraces(1).get(0).spans().get(0);
+            assertThat(stored.attributes().get(BootUiSpanAttributes.SQL_QUERIES).asLong())
+                    .isEqualTo(3L);
+            assertThat(stored.attributes()
+                            .get(BootUiSpanAttributes.SQL_N_PLUS_ONE)
+                            .value())
+                    .isEqualTo(true);
         } finally {
             provider.shutdown().join(1, TimeUnit.SECONDS);
         }
