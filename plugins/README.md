@@ -20,14 +20,16 @@ The repository advertises that directory through both
 
 ## Do not hand-edit the shipped skill
 
-`plugins/bootui/skills/bootui/SKILL.md` is a byte-for-byte copy of the canonical
-[`skills/bootui/SKILL.md`](../skills/bootui/SKILL.md). Edit the canonical file and copy it over:
+`plugins/bootui/skills/bootui/` is a byte-for-byte copy of the entire canonical
+[`skills/bootui/`](../skills/bootui/SKILL.md) directory, including references and playbooks. Edit the canonical files
+and copy the whole tree:
 
 ```bash
-cp skills/bootui/SKILL.md plugins/bootui/skills/bootui/SKILL.md
+cp -R skills/bootui/. plugins/bootui/skills/bootui/
 ```
 
-`ClaudeCodePluginPayloadTests` in `bootui-engine` fails the build when the two drift, so a hand-edit
+When removing canonical files, remove the corresponding retired plugin files too; copying alone does not delete stale
+references. `ClaudeCodePluginPayloadTests` checks both file sets and bytes and fails the build when they drift, so a hand-edit
 here turns the build red rather than quietly forking the instructions users get from the ones
 `gh skill install` gives Copilot.
 
@@ -88,5 +90,5 @@ process. Awesome Copilot also schedules maintainer re-review six months after ap
 
 `.github/skills/bootui-java-development` is a maintainer skill: it teaches an agent how to work on
 *this repository*. Shipping it to someone who just wants to scan their own application is noise at
-best and misdirection at worst. It is not under `plugins/bootui/skills/`, and the second test in
+best and misdirection at worst. It is not under `plugins/bootui/skills/`, and the payload test in
 `ClaudeCodePluginPayloadTests` fails if anything but `bootui` ever appears there.

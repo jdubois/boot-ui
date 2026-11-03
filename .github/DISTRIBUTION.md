@@ -205,8 +205,9 @@ None of this needs repeating.
 - `.cursor-plugin/marketplace.json`, `plugins/bootui/plugin.json`, and `plugins/bootui/mcp.json` — the repository
   marketplace pointer and portable Agent Plugins manifest. They make the same payload loadable by Cursor; public
   discovery still requires the manual submissions above.
-- `plugins/bootui/skills/bootui/SKILL.md` — the shipped copy of the canonical `skills/bootui/SKILL.md`, and only that
-  skill. The maintainer-only `bootui-java-development` skill is deliberately kept out of the plugin payload.
+- `plugins/bootui/skills/bootui/` — the shipped copy of the entire canonical `skills/bootui/` tree, including its
+  references and playbooks, and only that skill. Sync with `cp -R skills/bootui/. plugins/bootui/skills/bootui/` and
+  remove any retired mirrored files. The maintainer-only `bootui-java-development` skill stays out of the payload.
 - `ClaudeCodePluginPayloadTests` in `bootui-engine` — the drift guard. It fails the build if the shipped skill stops
   matching the canonical one, and if any skill other than `bootui` ever appears in the plugin payload.
 - `AgentSkillDiscoverabilityTests` in `bootui-engine` — the discoverability guard. It fails the build if the canonical

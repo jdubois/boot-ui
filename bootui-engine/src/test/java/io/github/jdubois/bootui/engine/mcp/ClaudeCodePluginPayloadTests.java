@@ -1,11 +1,14 @@
 package io.github.jdubois.bootui.engine.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * The Claude Code plugin under {@code plugins/bootui} ships a copy of the canonical {@code
@@ -18,13 +21,28 @@ class ClaudeCodePluginPayloadTests {
 
     @Test
     void shippedSkillMatchesTheCanonicalSkill() throws IOException {
-        String canonical = Files.readString(RepositoryFiles.file("skills/bootui/SKILL.md"));
-        String shipped = Files.readString(RepositoryFiles.file("plugins/bootui/skills/bootui/SKILL.md"));
+        assertMatchingSkillTrees(
+                RepositoryFiles.file("skills/bootui"), RepositoryFiles.file("plugins/bootui/skills/bootui"));
+    }
 
-        assertThat(shipped)
-                .as("plugins/bootui/skills/bootui/SKILL.md is generated from skills/bootui/SKILL.md; "
-                        + "copy the canonical file over it rather than editing it in place")
-                .isEqualTo(canonical);
+    @Test
+    void treeGuardRejectsMissingExtraAndChangedReferences(@TempDir Path directory) throws IOException {
+        Path canonical = Files.createDirectories(directory.resolve("canonical"));
+        Path shipped = Files.createDirectories(directory.resolve("shipped"));
+        Files.writeString(canonical.resolve("SKILL.md"), "skill");
+        Files.writeString(shipped.resolve("SKILL.md"), "skill");
+        assertMatchingSkillTrees(canonical, shipped);
+
+        Files.writeString(canonical.resolve("reference.md"), "guide");
+        assertThatExceptionOfType(AssertionError.class).isThrownBy(() -> assertMatchingSkillTrees(canonical, shipped));
+        Files.writeString(shipped.resolve("reference.md"), "guide");
+        assertMatchingSkillTrees(canonical, shipped);
+
+        Files.writeString(shipped.resolve("stale.md"), "old guide");
+        assertThatExceptionOfType(AssertionError.class).isThrownBy(() -> assertMatchingSkillTrees(canonical, shipped));
+        Files.delete(shipped.resolve("stale.md"));
+        Files.writeString(shipped.resolve("reference.md"), "changed");
+        assertThatExceptionOfType(AssertionError.class).isThrownBy(() -> assertMatchingSkillTrees(canonical, shipped));
     }
 
     @Test
@@ -37,6 +55,32 @@ class ClaudeCodePluginPayloadTests {
                             + ".github/skills/bootui-java-development must not reach users")
                     .extracting(path -> path.getFileName().toString())
                     .containsExactly("bootui");
+        }
+    }
+
+    private static void assertMatchingSkillTrees(Path canonical, Path shipped) throws IOException {
+        List<Path> canonicalFiles = skillFiles(canonical);
+        assertThat(skillFiles(shipped))
+                .as("the plugin must ship the entire canonical skill tree, without missing or stale references")
+                .containsExactlyElementsOf(canonicalFiles);
+        for (Path relative : canonicalFiles) {
+            assertThat(Files.readAllBytes(shipped.resolve(relative)))
+                    .as(
+                            "plugin file %s must match skills/bootui; copy the canonical tree, not individual edits",
+                            relative)
+                    .isEqualTo(Files.readAllBytes(canonical.resolve(relative)));
+        }
+    }
+
+    private static List<Path> skillFiles(Path root) throws IOException {
+        try (var entries = Files.walk(root)) {
+            return entries.peek(path -> assertThat(Files.isSymbolicLink(path))
+                            .as("a self-contained skill must not depend on symlinks: %s", path)
+                            .isFalse())
+                    .filter(Files::isRegularFile)
+                    .map(root::relativize)
+                    .sorted()
+                    .toList();
         }
     }
 }

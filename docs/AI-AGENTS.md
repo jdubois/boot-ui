@@ -88,6 +88,51 @@ Repository-wide skill searches may show both `skills/bootui` and `plugins/bootui
 plugin because plugin clients install a self-contained directory and cannot follow a reference to the canonical file
 outside it. A build test prevents the two copies from drifting.
 
+## Application-improvement playbooks
+
+The skill includes six guides. Install the whole skill directory, including its references; the plugins bundle the same
+guides. Ask for a goal and the agent loads the relevant playbook rather than running every diagnostic.
+
+| Ask your agent to | Playbook |
+| --- | --- |
+| Find the most useful improvements | Application checkup |
+| Investigate repeated SQL or transaction problems | Database efficiency |
+| Explain a slow route | Slow endpoint |
+| Diagnose exceptions or errors behind successful responses | Errors and hidden failures |
+| Check that changed code ran and had the intended effect | Verify my changes |
+| Investigate CPU, GC, retention, hangs, or thread growth | JVM performance and memory |
+
+For example:
+
+> Use BootUI's database-efficiency playbook. Start with existing evidence, ask before fresh scans or reproductions,
+> and propose an evidence-backed plan. Do not change code yet.
+
+**Review first** is the default. For **fix within scope**, explicitly delegate the permitted work:
+
+> Use the database-efficiency playbook. You may run the Hibernate scan and existing local integration tests, make focused
+> fixes in the affected service/entity code, restart the dev app, and replay my specified local read-only request three
+> times against the agreed test dataset to verify. Stop before migrations, dependency upgrades, external queries,
+> or changes to API behavior.
+
+The agent records that scope, retains a sanitized baseline, validates findings against source, and executes only covered
+actions. The [assessment workflow](#assess-an-application-and-approve-an-action-plan) still requires separate permission
+for sensitive actions; selecting the MCP `assess_application` prompt remains review first. A playbook name or
+"fix automatically" is not blanket permission, and the host's permissions remain the enforcement boundary.
+
+All guides work through existing MCP tools, the CLI, or plain HTTP; neither a CLI installation nor MCP setup is
+mandatory. The optional BootUI Java agent adds method-execution, code-path, and side-effect evidence. Tests must exercise
+the application being observed: passing tests in a separate JVM does not establish that its changed paths ran.
+
+The JVM guide can additionally use already-installed compatible JDK tools and a local heap analyzer with explicit
+permission. BootUI's live histogram is **not** HPROF retained-size/dominator analysis. Raw heap capture needs dedicated
+approval for pauses, uncertain disk usage, and sensitive contents; JFR and raw dumps also need careful local handling.
+Captures are not uploaded or sent to an AI provider automatically. Unavailable tooling or incomparable workloads produce
+an explicit limitation, not a verified performance improvement.
+
+The bundled [playbook index](https://github.com/jdubois/boot-ui/blob/main/skills/bootui/references/playbooks/README.md)
+contains the shared budget, authorization, evidence, and reporting contract. These are agent workflows, not new tools
+or server-side jobs.
+
 ## Install the BootUI Cursor plugin
 
 BootUI ships an [Agent Plugins](https://agent-plugins.org) payload that Cursor loads as a plugin. It bundles the same
@@ -1065,7 +1110,9 @@ can use the skill and the request above; there is no `bootui assess` command or 
 ### What the assessment does
 
 The agent identifies the running application and its source repository, discovers the actual tool catalog and panel
-policies, and starts with Overview, Health, cached reports, and bounded diagnostic summaries. It accounts for relevant
+policies, and starts with Overview, existing health evidence, cached reports, and bounded diagnostic summaries.
+Calling Health executes live indicators that may query databases or services; when indicator behavior is unknown or
+that external work is outside the authorized scope, the agent obtains approval first. It accounts for relevant
 capabilities rather than blindly invoking every tool. Spring MVC, WebFlux, and Quarkus share the workflow but may expose
 different capabilities.
 
@@ -1096,9 +1143,13 @@ exception/trace identifiers, timestamps, and links back to the appropriate panel
 investigation action instead of a speculative fix. Native-image or CRaC readiness remains optional unless relevant to
 your goal.
 
-The agent stops after presenting the plan. For example, after reviewing plan `P1` version `1`, you can say:
+In review-first mode the agent stops after presenting the plan. For example, after reviewing plan `P1` version `1`, you can say:
 
 > Approve A1 and A3 in plan P1 version 1. Leave the other actions unchanged.
+
+With explicit **fix-within-scope** delegation, the agent retains the same plan and maps each executable action to the
+recorded permission instead of asking again for ordinary covered edits. Missing permissions, unapproved dependencies,
+and scope expansion still require approval. Selecting the MCP `assess_application` prompt does not enable this mode.
 
 ### Approved execution and reassessment
 
@@ -1106,8 +1157,9 @@ The external coding agent owns edits, builds, tests, and permitted restarts. It 
 versioned plan in its local session/workspace outside tracked source so an application restart does not erase the
 comparison. If that storage is unavailable, it must say so and obtain the baseline again before executing.
 
-Before editing, it rechecks runtime/repository identity, revision, working-tree state, and relevant evidence. Changed
-context requires reassessment and renewed approval for affected actions; dependencies are not implicitly approved.
+Before editing, it rechecks runtime/repository identity, revision, working-tree state, and relevant evidence. Unexpected
+changed context requires reassessment and renewed approval for affected actions; dependencies are not implicitly approved.
+An authorized edit/reload is an expected transition, but the agent still confirms the resulting identity.
 Destructive operations, external calls, and scope expansion still require separate approval.
 
 After changes, the agent confirms the intended application is running the changed code, repeats the agreed reproduction
