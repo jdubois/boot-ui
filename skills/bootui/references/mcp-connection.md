@@ -31,7 +31,8 @@ availability-driven, so do not assume every framework exposes every tool.
 
 When BootUI MCP tools are available:
 
-1. Call core reads such as `get_overview` and `get_health` first.
+1. Establish context with `get_overview` and supplied/prior health evidence. `get_health` executes live indicators that
+   may query databases or services; obtain approval when behavior is unknown or that work is outside scope.
 2. Use targeted diagnostic reads such as `get_live_activity`, `get_request_profile` (a journal-first selection for one
    retained request or execution, with its journal timeline and optional HTTP-exchange `buffers` profile),
    `get_agent_status` (BootUI Java agent attachment/claim state), `get_exceptions`,
@@ -41,7 +42,7 @@ When BootUI MCP tools are available:
    concluding that a request, statement, or call never happened, check the `retention` object for evictions.
    For what a run did across requests, use `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
    `get_runtime_run_comparison`, as described in the two Runtime Insights workflows above.
-3. Run only the advisor relevant to the task, such as `architecture_scan`, `spring_scan`, `hibernate_scan`,
+3. Run only the advisor relevant to the task and within the approved scan scope, such as `architecture_scan`, `spring_scan`, `hibernate_scan`,
    `memory_scan`, `security_scan`, `pentest_scan`, or `rest_api_scan`. On Quarkus, `spring_scan`,
    `get_spring_report`, and `get_spring_rule_violations` keep their Spring names but run the Quarkus application
    advisor (QA-* rules).
@@ -57,4 +58,3 @@ all of one dependency's advisories, or an exact advisory id or alias to read it 
 and Side Effects summarize each sensor; pass `--query <sensor id>` for its hooks. Log and exception messages have secret-like assignments and
 authorization credentials masked, and are omitted under `bootui.expose-values=METADATA_ONLY`; a `get_log_tail` line
 with `messageOmitted: true` had its message withheld, not an empty one.
-

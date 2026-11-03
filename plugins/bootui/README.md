@@ -2,11 +2,17 @@
 
 This plugin lets an agent consult running Spring Boot and Quarkus applications through BootUI. It installs:
 
-- the `bootui` skill, which teaches the agent how to add, configure, and use BootUI safely;
+- the `bootui` skill and its six improvement playbooks, which teach the agent how to add, configure, investigate, and
+  verify BootUI-backed application changes safely;
 - the local MCP server connection at `http://127.0.0.1:8080/bootui/api/mcp`.
 
 The payload follows the [Agent Plugins standard](https://agent-plugins.org), so it can load in Cursor and other
 compatible clients. It also carries a Claude Code manifest for installation from this repository's marketplace.
+
+The playbooks cover application checkup, database efficiency, slow endpoints, errors and hidden failures, change
+verification, and JVM performance/memory. They default to an evidence-backed plan before edits; bounded automatic fixes
+require explicit permission. The JVM guide may need separately available local JDK tools and a heap analyzer.
+The plugin installs neither those tools nor BootUI's optional Java agent.
 
 ## Before using the plugin
 
