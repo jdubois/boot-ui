@@ -62,8 +62,8 @@ change-verification labs. An AI coding agent is not needed to use the browser, C
 
 ## 2. Version and delivery policy
 
-Publish the workshop together with **BootUI 2.1.0**. All participant instructions assume that release is already
-available: use its published starter/extension, Java agent, and CLI, and its immutable `v2.1.0` source tag for the
+Use **BootUI 2.3.0** as the workshop baseline. All participant instructions assume that release is already
+available: use its published starter/extension, Java agent, and CLI, and its immutable `v2.3.0` source tag for the
 editable sample and consumer skill. No early-adopter build or unreleased `v2` branch is a participant prerequisite.
 
 Record the release tag's source SHA and keep every component on the same release. Use an isolated local Maven
@@ -92,7 +92,7 @@ Complete installation and downloads **before** the three-hour session:
 | Build | Maven Wrapper and a warmed isolated `.m2`; the baseline sample builds successfully |
 | Application | Start the Docker-free Spring MVC sample once and open its welcome page and BootUI |
 | Instrumentation | Run once with the Java agent; check `ARMED` and the required sensors, then stop it |
-| CLI | Install the published CLI pinned to 2.1.0; verify overview, Insights, and agent-status reads |
+| CLI | Install the published CLI pinned to 2.3.0; verify overview, Insights, and agent-status reads |
 | Coding agent | Install/authenticate GitHub Copilot CLI or a supported IDE agent and confirm entitlement |
 | Consumer skill | Review the pinned `skills/bootui` payload and install it in the participant project's supported skill directory |
 | MCP | Rehearse client-specific loopback configuration; confirm an actual tool read from the coding agent |
@@ -117,10 +117,10 @@ reference patch provide a fallback, but the worksheet must distinguish that from
 ### Preparation and launch templates
 
 The workshop uses the released sample source so participants can edit application code. These commands are for the
-workshop's published 2.1.0 baseline, not a development-branch build:
+workshop's published 2.3.0 baseline, not a development-branch build:
 
 ```bash
-git clone --branch v2.1.0 --depth 1 https://github.com/jdubois/boot-ui.git workshop
+git clone --branch v2.3.0 --depth 1 https://github.com/jdubois/boot-ui.git workshop
 cd workshop
 git switch -c workshop-exercises
 
@@ -154,7 +154,7 @@ Install the published CLI at the workshop version using the [CLI guide](../docs/
 On macOS/Linux, review the installer first, then pin the version:
 
 ```bash
-curl -fsSL https://www.julien-dubois.com/boot-ui/install.sh | sh -s -- --version 2.1.0
+curl -fsSL https://www.julien-dubois.com/boot-ui/install.sh | sh -s -- --version 2.3.0
 bootui overview --json
 ```
 
@@ -268,7 +268,7 @@ source changed" is not the same as "the changed code ran."
 **Question:** What is active, what is recording, and what access have I granted?
 
 Allocate five minutes to installation/activation, seven to the prepared startup and tool checks, and three to safety.
-Demonstrate the published 2.1.0 starter/extension installation on a prepared application; the reference sample already
+Demonstrate the published 2.3.0 starter/extension installation on a prepared application; the reference sample already
 contains BootUI. Keep setup snippets aligned with the workshop's released version.
 
 Launch the sample without instrumentation. Confirm the profile, framework, run identity, and localhost-only
@@ -345,8 +345,9 @@ request, or inspect a scheduled execution rather than pretending all work is HTT
 
 Allocate five minutes to reading an observation, fifteen to cases and counterexamples, and five to coverage.
 Open **Runtime Insights** and read its verdict and **Coverage & limits** before its findings.
-Find repeated SELECTs using **Show all routes**, a search, or an explicit kind query; that kind is not in the default
-list. Follow its verification guidance and exemplar request back to SQL and its application call site.
+Find the route in the **Repeated SELECTs** group or by searching. For the CLI's compact default, request the kind
+explicitly with `--query repeated-selects`. Follow its verification guidance and exemplar request back to SQL and
+its application call site.
 
 Use two required cases:
 
@@ -364,7 +365,7 @@ Open a route-time breakdown from the request's **Why this route is slow** entry.
 Explain cold versus warm requests, measured phases, unattributed time, and why a SQL count is different from SQL time.
 Use **Database Connection Pools** and **Hibernate Statistics** when the selected observation needs them.
 
-Read an insufficient/unavailable check and **Not exercised in this run**. An empty default list, a skipped source,
+Read an insufficient/unavailable check and **Not exercised in this run**. An empty group, a skipped source,
 or a route that never ran cannot establish health. Runtime observations carry neither advisor severity nor a
 Scorecard penalty.
 
@@ -703,11 +704,11 @@ No lab requires `FULL` exposure or disabling a guard.
 
 | Symptom | Safe recovery |
 | --- | --- |
-| Wrong features/unknown CLI command | Check the release-tagged sample and published CLI/Java agent versions; all components must match the workshop's 2.1.0 baseline |
+| Wrong features/unknown CLI command | Check the release-tagged sample and published CLI/Java agent versions; all components must match the workshop's 2.3.0 baseline |
 | Console 404 or wrong application | Check port, root path, profile, activation, and run identity; do not force-enable production |
 | Build starts optional services | Return to the Docker-free `dev` launch; optional infrastructure is not a blocker |
 | Journal or Insights is empty | Generate the agreed workload; read source coverage, checks, retention, and not-exercised routes |
-| Repeated SELECTs are missing from the list | Query `repeated-selects`/the route or use Show all routes; verify minimum samples and retained complete requests |
+| Repeated SELECTs are missing from the list | Open the Repeated SELECTs group or query `repeated-selects`/the route; verify minimum samples and retained complete requests |
 | Java Agent is not recording | Read claim/protocol/package and individual sensor/self-test states; attachment is not proof of successful capture |
 | Code Paths has no tree | Confirm instrumented bean methods and requests, allow bounded aggregation to settle, and read exclusion/assembly-only limits |
 | Side Effects is empty or off | Read sensor coverage first; absence is not a full-run no-effects claim |

@@ -99,7 +99,7 @@ test('setup uses the requested workshop directory and introduction has no v2 com
     const content = fs.readFileSync(path.join(docsRoot, file), 'utf8')
     assert.match(
       content,
-      /git clone --branch v2\.0\.0 --depth 1 https:\/\/github\.com\/jdubois\/boot-ui\.git workshop\ncd workshop/
+      /git clone --branch v2\.3\.0 --depth 1 https:\/\/github\.com\/jdubois\/boot-ui\.git workshop\ncd workshop/
     )
     assert.doesNotMatch(content, /bootui-v2-workshop/)
   }
