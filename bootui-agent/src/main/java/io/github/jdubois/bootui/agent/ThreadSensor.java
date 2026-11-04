@@ -373,7 +373,7 @@ final class ThreadSensor {
 
         @Override
         public boolean matches(TypeDescription target) {
-            if (target.isInterface() || !AgentInstaller.inPackages(target.getName(), current)) {
+            if (!AgentInstaller.inPackages(target.getName(), current) || target.isInterface()) {
                 return false;
             }
             try {

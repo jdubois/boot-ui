@@ -63,9 +63,10 @@ public final class AgentClassLoader extends ClassLoader {
      * how many. A class defined here runs no registered transformer inside another transformer's class loading, as one
      * first needed by a transformer does: a thread that holds this loader's lock for that class, and waits for a JDK class
      * another thread's transformer is loading, deadlocks with that thread when it waits for the same lock. A class that
-     * does not load is left for its first use.
+     * does not load is left for its first use. Public because the isolated implementation and this parent-defined
+     * loader belong to different runtime packages.
      */
-    int define(String prefix) {
+    public int define(String prefix) {
         String entryPrefix = "inst/" + prefix.replace('.', '/');
         int defined = 0;
         for (Enumeration<JarEntry> entries = jar.entries(); entries.hasMoreElements(); ) {
