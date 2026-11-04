@@ -16,8 +16,8 @@ final class CiCommands {
     private CiCommands() {}
 
     static void add(CliContext context, CommandSpec root) {
-        CommandSpec ci =
-                newGroup("ci", "Assess one explicitly selected live local Spring application or saved bundle.");
+        CommandSpec ci = newGroup(
+                "ci", "Assess one explicitly selected live local Spring Boot or Quarkus application or saved bundle.");
         ci.addSubcommand("attach", new CommandLine(attach(context)));
         ci.addSubcommand("assess", new CommandLine(assess(context)));
         ci.addSubcommand("check", new CommandLine(check(context)));
@@ -29,7 +29,7 @@ final class CiCommands {
         CommandSpec spec = CommandSpec.wrapWithoutInspection(command).name("attach");
         spec.usageMessage()
                 .description(
-                        "Preflight a local Spring application and atomically create an identity witness; runs no scans.")
+                        "Preflight a local Spring Boot or Quarkus development application and atomically create an identity witness; runs no scans.")
                 .footer(
                         "",
                         "The witness records the application identity before the workload. It does not prove that tests exercise this process.");
@@ -232,13 +232,15 @@ final class CiCommands {
 
         @Override
         public Integer call() {
-            int result = new CiAssessmentRunner(
-                            url[0], apiPath[0], timeoutSeconds[0], assessmentId, policy, output, null)
-                    .attach();
+            CiAssessmentRunner runner =
+                    new CiAssessmentRunner(url[0], apiPath[0], timeoutSeconds[0], assessmentId, policy, output, null);
+            int result = runner.attach();
             if (result == 0) {
                 context.out().println("BootUI target attached; no scans were run.");
             } else {
-                context.err().println("BootUI attach failed; do not assess with this witness unless attach succeeds.");
+                context.err()
+                        .println("BootUI attach failed: " + runner.attachFailureCode()
+                                + "; do not assess with this witness unless attach succeeds.");
             }
             return result;
         }

@@ -160,7 +160,7 @@ public record CiPolicy(Map<Advisor, Selection> advisors, boolean includeInsights
         }
     }
 
-    /** Existing advisor tool names and supported Spring report projections. */
+    /** Existing advisor tool names and supported report projections. */
     public enum Advisor {
         ARCHITECTURE(
                 "architecture",

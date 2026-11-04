@@ -7,6 +7,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.github.jdubois.bootui.cli.BootUiCli;
 import io.github.jdubois.bootui.client.JsonValue;
+import io.github.jdubois.bootui.client.JsonWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -15,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -43,6 +45,8 @@ class CiAssessmentRunnerTests {
     private int detailRequests;
     private Path obstructOutput;
     private int overviewRequests;
+    private String frameworkName = "Spring Boot";
+    private boolean changeFrameworkBeforeFinalIdentity;
     private String currentInstance = "a1b2c3d4";
     private boolean runtimeInsightsAdvertised = true;
     private boolean runtimeInsightsPanelEnabled = true;
@@ -102,6 +106,158 @@ class CiAssessmentRunnerTests {
                         .exitCode())
                 .isZero();
         assertThat(Files.readString(output.resolve("junit.xml"))).contains("<testsuite");
+    }
+
+    @Test
+    void assessesAQuarkusTargetAndRecordsFrameworkIdentity() throws Exception {
+        frameworkName = "Quarkus";
+        startServer();
+        Path policy = writePolicy();
+        Path witness = temp.resolve("quarkus-witness.json");
+        Path output = temp.resolve("quarkus-assessment");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(Files.readString(witness)).contains("\"schemaVersion\": 2", "\"frameworkName\": \"Quarkus\"");
+        assertThat(runner.assess()).isZero();
+
+        String bundle = Files.readString(output.resolve("bundle.json"));
+        assertThat(bundle).contains("\"schemaVersion\": 2", "\"frameworkName\": \"Quarkus\"");
+        assertThat(Files.readString(output.resolve("summary.md"))).contains("Quarkus");
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isZero();
+    }
+
+    @Test
+    void rejectsTheQuarkusApplicationAdvisorBeforeTheWorkload() throws Exception {
+        frameworkName = "Quarkus";
+        startServer();
+        Path policy = writePolicyWithOptionalSpringAdvisor();
+        Path witness = temp.resolve("unsupported-witness.json");
+        Path output = temp.resolve("unsupported-assessment");
+        StringWriter cliOutput = new StringWriter();
+
+        int exitCode = BootUiCli.run(
+                new String[] {
+                    "ci",
+                    "attach",
+                    "--url",
+                    url(),
+                    "--assessment-id",
+                    "test-assessment",
+                    "--policy",
+                    policy.toString(),
+                    "--output",
+                    witness.toString()
+                },
+                Map.of(),
+                false,
+                new PrintWriter(cliOutput, true),
+                new PrintWriter(cliOutput, true));
+
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(cliOutput.toString()).contains("UNSUPPORTED_ADVISOR_FOR_FRAMEWORK");
+        assertThat(Files.readString(witness)).contains("UNSUPPORTED_ADVISOR_FOR_FRAMEWORK");
+        assertThat(overviewRequests).isEqualTo(1);
+        assertThat(detailRequests).isZero();
+
+        assertThat(runner(policy, witness, output).assess()).isEqualTo(1);
+        assertThat(Files.readString(output.resolve("bundle.json"))).contains("UNSUPPORTED_ADVISOR_FOR_FRAMEWORK");
+        assertThat(overviewRequests).isEqualTo(1);
+        assertThat(detailRequests).isZero();
+    }
+
+    @Test
+    void rejectsAQuarkusWitnessWithASpringPolicyBeforeContactingTheTarget() throws Exception {
+        startServer();
+        Path policy = writePolicyWithSpringAdvisor();
+        Path witness = temp.resolve("framework-mismatch-witness.json");
+        Path output = temp.resolve("framework-mismatch-assessment");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        JsonValue attached = JsonValue.parse(Files.readString(witness));
+        Map<String, JsonValue> altered = new LinkedHashMap<>();
+        for (String key : attached.names()) {
+            altered.put(key, "frameworkName".equals(key) ? JsonValue.of("Quarkus") : attached.get(key));
+        }
+        Files.writeString(witness, JsonWriter.pretty(JsonValue.object(altered)));
+        overviewRequests = 0;
+
+        assertThat(runner.assess()).isEqualTo(1);
+        assertThat(overviewRequests).isZero();
+        assertThat(Files.readString(output.resolve("bundle.json"))).contains("WITNESS_MISMATCH");
+    }
+
+    @Test
+    void keepsLegacySpringWitnessesValid() throws Exception {
+        startServer();
+        Path policy = writePolicy();
+        Path witness = temp.resolve("legacy-witness.json");
+        Path output = temp.resolve("legacy-assessment");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        Files.writeString(witness, asLegacyWitness(Files.readString(witness)));
+        assertThat(runner.assess()).isZero();
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"schemaVersion\": 2", "\"frameworkName\": \"Spring Boot\"");
+    }
+
+    @Test
+    void rejectsAQuarkusWitnessDowngradedToLegacySchemaBeforeScanning() throws Exception {
+        frameworkName = "Quarkus";
+        finding = true;
+        startServer();
+        Path policy = writePolicy();
+        Path witness = temp.resolve("legacy-quarkus-witness.json");
+        Path output = temp.resolve("legacy-quarkus-assessment");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        Files.writeString(witness, asLegacyWitness(Files.readString(witness)));
+        overviewRequests = 0;
+
+        assertThat(runner.assess()).isEqualTo(1);
+        assertThat(overviewRequests).isEqualTo(1);
+        assertThat(detailRequests).isZero();
+        assertThat(Files.readString(output.resolve("bundle.json"))).contains("IDENTITY_CHANGED");
+    }
+
+    @Test
+    void rejectsAnUnsupportedFramework() throws Exception {
+        frameworkName = "Micronaut";
+        startServer();
+        Path witness = temp.resolve("unsupported-framework.json");
+
+        assertThat(runner(writePolicy(), witness, temp.resolve("unused")).attach())
+                .isEqualTo(1);
+        assertThat(Files.readString(witness)).contains("UNSUPPORTED_FRAMEWORK");
+    }
+
+    @Test
+    void rejectsFrameworkIdentityChangesBeforeAndAfterCollection() throws Exception {
+        frameworkName = "Quarkus";
+        startServer();
+        Path policy = writePolicy();
+        Path witness = temp.resolve("framework-witness.json");
+        CiAssessmentRunner attached = runner(policy, witness, temp.resolve("before-change"));
+        assertThat(attached.attach()).isZero();
+
+        frameworkName = "Spring Boot";
+        assertThat(attached.assess()).isEqualTo(1);
+        assertThat(Files.readString(temp.resolve("before-change/bundle.json"))).contains("IDENTITY_CHANGED");
+
+        frameworkName = "Quarkus";
+        overviewRequests = 0;
+        Files.delete(witness);
+        CiAssessmentRunner afterCollection = runner(policy, witness, temp.resolve("after-change"));
+        assertThat(afterCollection.attach()).isZero();
+        changeFrameworkBeforeFinalIdentity = true;
+        assertThat(afterCollection.assess()).isEqualTo(1);
+        assertThat(Files.readString(temp.resolve("after-change/bundle.json")))
+                .contains("\"frameworkName\": \"Quarkus\"", "IDENTITY_CHANGED");
     }
 
     @Test
@@ -765,6 +921,25 @@ class CiAssessmentRunnerTests {
         return policy;
     }
 
+    private Path writePolicyWithSpringAdvisor() throws IOException {
+        Path policy = temp.resolve("spring-policy.json");
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{"spring":{"required":true,"failOn":"high"}}}
+                """);
+        return policy;
+    }
+
+    private Path writePolicyWithOptionalSpringAdvisor() throws IOException {
+        Path policy = temp.resolve("optional-spring-policy.json");
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{
+                  "hibernate":{"required":true,"failOn":"high"},
+                  "spring":{"required":false,"failOn":"high"}
+                }}
+                """);
+        return policy;
+    }
+
     private Path writePolicyWithRuntimeInsights() throws IOException {
         Path policy = temp.resolve("policy-with-runtime-insights.json");
         Files.writeString(policy, """
@@ -957,10 +1132,24 @@ class CiAssessmentRunnerTests {
     }
 
     private String overview() {
+        if (changeFrameworkBeforeFinalIdentity && overviewRequests == 3) {
+            frameworkName = "Spring Boot";
+        }
         return """
-                {"bootUiVersion":"2.2.0","frameworkName":"Spring Boot",
+                {"bootUiVersion":"2.2.0","frameworkName":"%s",
                  "run":{"instanceId":"%s","runId":"0123abcd"}}
-                """.formatted(currentInstance);
+                """.formatted(frameworkName, currentInstance);
+    }
+
+    private static String asLegacyWitness(String value) {
+        JsonValue current = JsonValue.parse(value);
+        Map<String, JsonValue> legacy = new LinkedHashMap<>();
+        for (String key : current.names()) {
+            if (!"frameworkName".equals(key)) {
+                legacy.put(key, "schemaVersion".equals(key) ? JsonValue.of(1) : current.get(key));
+            }
+        }
+        return JsonWriter.pretty(JsonValue.object(legacy));
     }
 
     private String report() {

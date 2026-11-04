@@ -1,5 +1,5 @@
 name: BootUI live-target assessment
-description: Attach to and assess one explicitly selected local Spring Boot application.
+description: Attach to and assess one explicitly selected local Spring Boot or Quarkus development application.
 inputs:
   phase:
     description: Run attach before the workload or assess after it.

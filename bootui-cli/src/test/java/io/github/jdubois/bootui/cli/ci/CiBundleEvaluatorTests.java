@@ -109,6 +109,77 @@ class CiBundleEvaluatorTests {
     }
 
     @Test
+    void acceptsQuarkusBundlesAndRequiresARecognizedFramework() throws Exception {
+        JsonValue quarkus = bundleWithFramework("Quarkus");
+        assertThat(check(quarkus, "test-assessment")).isZero();
+
+        JsonValue legacyWithFramework =
+                withMember(bundle("PASS", List.of(), policyHash), "frameworkName", JsonValue.of("Spring Boot"));
+        assertThat(check(legacyWithFramework, "test-assessment")).isEqualTo(1);
+        assertThat(check(withMember(quarkus, "frameworkName", JsonValue.NULL), "test-assessment"))
+                .isEqualTo(1);
+        assertThat(check(withMember(quarkus, "frameworkName", JsonValue.of("Micronaut")), "test-assessment"))
+                .isEqualTo(1);
+        assertThat(check(withoutMember(quarkus, "frameworkName"), "test-assessment"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void rejectsQuarkusBundlesThatSelectThePartialApplicationAdvisor() throws Exception {
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{"spring":{"required":true,"failOn":"high"}}}
+                """);
+        policyHash = CiPolicy.read(policy).sha256();
+        JsonValue springAdvisor = advisor("spring", "ASSESSED", null, List.of(), true, true, 4, 0, 0);
+
+        assertThat(check(bundleWithFramework("Quarkus", springAdvisor), "test-assessment"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void rejectsQuarkusBundlesThatSkipAnOptionalSpringAdvisor() throws Exception {
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{
+                  "architecture":{"required":true,"failOn":"high"},
+                  "spring":{"required":false,"failOn":"high"}
+                }}
+                """);
+        policyHash = CiPolicy.read(policy).sha256();
+        JsonValue architecture = advisor("architecture", "ASSESSED", null, List.of(), true, true, 4, 0, 0);
+        JsonValue skippedSpring = object(
+                "name",
+                "spring",
+                "required",
+                false,
+                "status",
+                "SKIPPED",
+                "reason",
+                "UNAVAILABLE",
+                "findingCount",
+                0,
+                "rulesSkipped",
+                0,
+                "rulesEvaluated",
+                0,
+                "subjectsAnalyzed",
+                0,
+                "usable",
+                false,
+                "coverageComplete",
+                false,
+                "limitations",
+                JsonValue.array(List.of()),
+                "findings",
+                JsonValue.array(List.of()));
+        JsonValue bundle = withMember(
+                bundleWithFramework("Quarkus", architecture),
+                "advisors",
+                JsonValue.array(List.of(architecture, skippedSpring)));
+
+        assertThat(check(bundle, "test-assessment")).isEqualTo(1);
+    }
+
+    @Test
     void validatesRuntimeContextCoverageAndKeepsItReportOnly() throws Exception {
         enableRuntimeInsightsPolicy();
         JsonValue first = runtimeObservation("repeated-selects", "OBSERVED", 0, 5);
@@ -469,8 +540,28 @@ class CiBundleEvaluatorTests {
                 JsonValue.array(List.of()));
     }
 
+    private JsonValue bundleWithFramework(String frameworkName) {
+        return bundleWithFramework(frameworkName, advisor("ASSESSED", null, List.of(), true, true, 4));
+    }
+
+    private JsonValue bundleWithFramework(String frameworkName, JsonValue advisor) {
+        JsonValue legacy = bundle("PASS", policyHash, List.of(advisor));
+        JsonValue current = withMember(legacy, "schemaVersion", JsonValue.of(2));
+        return withMember(current, "frameworkName", JsonValue.of(frameworkName));
+    }
+
     private JsonValue withRuntimeContext(JsonValue bundle, JsonValue context) {
         return withMember(bundle, "runtimeContext", context);
+    }
+
+    private JsonValue withoutMember(JsonValue object, String member) {
+        Map<String, JsonValue> values = new LinkedHashMap<>();
+        for (String name : object.names()) {
+            if (!member.equals(name)) {
+                values.put(name, object.get(name));
+            }
+        }
+        return JsonValue.object(values);
     }
 
     private JsonValue withMember(JsonValue object, String member, JsonValue replacement) {

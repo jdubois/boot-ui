@@ -11,6 +11,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Strict live-target CI assessments** add `bootui ci attach` and `bootui ci assess`, plus a signature-verifying
   composite GitHub Action and caller-owned workflow guide ([CI guide](docs/CI.md); [#1592](https://github.com/jdubois/boot-ui/issues/1592)).
+- Extend strict live-target assessments to external Quarkus `quarkus:dev` processes with framework-aware identity
+  witnesses; incomplete Quarkus advisor evidence remains a failure.
 - **Offline CI bundle validation** adds `bootui ci check` to recompute the policy verdict without contacting the
   application.
 - **Report-only CI runtime context** adds an opt-in bounded, sanitized Runtime Insights projection to CI assessment

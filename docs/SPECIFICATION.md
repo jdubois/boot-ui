@@ -3896,7 +3896,8 @@ Design rules:
 - **Reflection-free.** The command tree is built programmatically and the CLI's only runtime dependency is picocli, so
   a future native-image build stays a build-file change rather than a rewrite.
 - **CI orchestration is a client-side exception.** `bootui ci attach` and `assess` contact only an explicitly selected
-  literal-loopback Spring target and run the strict live assessment. `bootui ci check` reads a bounded, versioned
+  literal-loopback Spring Boot target or external Quarkus `quarkus:dev` process and run the strict live assessment.
+  `bootui ci check` reads a bounded, versioned
   bundle and the exact policy offline, verifies assessment identity and evidence consistency, and recomputes the
   verdict from findings. An opt-in Runtime Insights projection is bounded and report-only; it omits application
   prose and request identifiers, does not prove workload attribution, and cannot change the advisor verdict. It has

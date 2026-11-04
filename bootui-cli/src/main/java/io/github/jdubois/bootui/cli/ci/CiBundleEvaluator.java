@@ -35,10 +35,33 @@ public final class CiBundleEvaluator {
             "policySha256",
             "advisors",
             "errors");
+    private static final Set<String> REQUIRED_ROOT_KEYS_V2 = Set.of(
+            "schemaVersion",
+            "assessmentId",
+            "status",
+            "frameworkName",
+            "bootUiVersion",
+            "instanceId",
+            "runId",
+            "policySha256",
+            "advisors",
+            "errors");
     private static final Set<String> ALLOWED_ROOT_KEYS = Set.of(
             "schemaVersion",
             "assessmentId",
             "status",
+            "bootUiVersion",
+            "instanceId",
+            "runId",
+            "policySha256",
+            "advisors",
+            "errors",
+            "runtimeContext");
+    private static final Set<String> ALLOWED_ROOT_KEYS_V2 = Set.of(
+            "schemaVersion",
+            "assessmentId",
+            "status",
+            "frameworkName",
             "bootUiVersion",
             "instanceId",
             "runId",
@@ -92,9 +115,16 @@ public final class CiBundleEvaluator {
 
     private static Result evaluate(JsonValue bundle, String expectedAssessmentId, CiPolicy policy) {
         requireObject(bundle);
-        requireKeys(bundle, REQUIRED_ROOT_KEYS, ALLOWED_ROOT_KEYS);
-        if (!bundle.get("schemaVersion").isNumber()
-                || !"1".equals(bundle.get("schemaVersion").asDisplayText())
+        int schemaVersion = schemaVersion(bundle.get("schemaVersion"));
+        requireKeys(
+                bundle,
+                schemaVersion == 1 ? REQUIRED_ROOT_KEYS : REQUIRED_ROOT_KEYS_V2,
+                schemaVersion == 1 ? ALLOWED_ROOT_KEYS : ALLOWED_ROOT_KEYS_V2);
+        CiFramework framework = schemaVersion == 1
+                ? CiFramework.SPRING_BOOT
+                : CiFramework.fromName(bundle.get("frameworkName").asString(null));
+        if (framework == null
+                || !framework.supportsPolicy(policy)
                 || !isAssessmentId(expectedAssessmentId)
                 || !expectedAssessmentId.equals(bundle.get("assessmentId").asString(null))) {
             throw invalid();
@@ -154,6 +184,20 @@ public final class CiBundleEvaluator {
             throw invalid();
         }
         return new Result(status, violation ? 3 : 0);
+    }
+
+    private static int schemaVersion(JsonValue value) {
+        if (!value.isNumber()) {
+            throw invalid();
+        }
+        String version = value.asDisplayText();
+        if ("1".equals(version)) {
+            return 1;
+        }
+        if ("2".equals(version)) {
+            return 2;
+        }
+        throw invalid();
     }
 
     private static CiPolicy.Advisor validateAdvisor(JsonValue advisor, CiPolicy policy) {

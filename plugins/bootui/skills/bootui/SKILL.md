@@ -217,16 +217,21 @@ above the threshold, and `1` when the scan cannot be evaluated (never scanned, d
 
 For the strict live-target CI workflow, use `bootui ci attach` immediately before the existing workload and
 `bootui ci assess` afterward only when the CLI build explicitly contains those commands. Select a literal loopback URL
-and pass the exact same URL to attach, the workload, and assessment. This path currently supports one live Spring Boot
-target only: it does not start the app, prove that scenarios exercised it, or support remote targets or Quarkus. The
-repository composite Action wraps these phases, but is available to consumers only from a release containing the
-commands. The application owner must opt in to the BootUI dependency in a CI-only build profile, activate it
-before startup, and point `BOOTUI_OVERRIDES_FILE` at a fresh empty per-assessment path. Never import local dismissals.
-The strict JSON policy runs only its named advisors; incomplete evidence, unknown severity, suppression, truncation,
-paging inconsistencies, and errors fail assessment. Aggregate exits are `0` pass, `1` not assessed/error (takes
-precedence over findings), and `3` proven threshold violation; underlying per-tool exit codes remain unchanged.
-Publish the bounded JSON/Markdown/JUnit outputs before applying that final gate, while recognizing that cancellation
-or a hard runner timeout can prevent publication. The identity witness is not workload attestation. See
+and pass the exact same URL to attach, the workload, and assessment. This path supports a Spring Boot application or
+an external Quarkus `quarkus:dev` process; it does not start the app, prove that scenarios exercised it, or support
+remote targets. Quarkus CI collection from an `@QuarkusTest` process after teardown is not supported, and the Quarkus
+application advisor (`spring` policy key) is rejected because its dev-mode evidence is partial. Keep Quarkus dev-mode
+sources and compiled output untouched between attach and assessment because a reload can change the witnessed run
+identity. The repository composite Action wraps these phases, but is available to consumers only from a release
+containing the commands. The application owner must opt in to the BootUI dependency in a CI-only build profile,
+activate it before startup, and point `BOOTUI_OVERRIDES_FILE` at a fresh empty per-assessment path outside watched
+paths on both frameworks. Quarkus uses this setting to locate advisor dismissals. Never import local dismissals. The
+strict JSON policy runs only its named advisors; incomplete evidence, unknown severity,
+suppression, truncation, paging inconsistencies, and errors fail assessment. Aggregate exits are `0` pass, `1` not
+assessed/error (takes precedence over findings), and `3` proven threshold violation; underlying per-tool exit codes
+remain unchanged. Publish the bounded JSON/Markdown/JUnit outputs before applying that final gate, while recognizing
+that cancellation or a hard runner timeout can prevent publication. The identity witness is not workload attestation.
+See
 [the CI setup and workflow](https://github.com/jdubois/boot-ui/blob/main/docs/CI.md) and
 [the CLI CI contract](https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md#strict-ci-assessments); pin the Action
 to a reviewed commit and use a published, signed CLI release containing these commands. `bootui ci check` can

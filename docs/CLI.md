@@ -551,9 +551,10 @@ For the supported composite Action and a full caller-owned GitHub Actions exampl
 
 `bootui ci attach`, `bootui ci assess`, and `bootui ci check` are client-side orchestration commands, not MCP tools
 and not part of the generated command manifest. `attach` and `assess` are intentionally narrower than ordinary CLI
-use: one explicitly selected literal loopback URL, Spring Boot only, a strict JSON policy, and a pre-workload identity
-witness. They do not start the application, run tests, or prove that tests exercised the witnessed process. Do not use
-a deployed or remote target.
+use: one explicitly selected literal loopback URL, a Spring Boot application or external Quarkus `quarkus:dev`
+process, a strict JSON policy, and a pre-workload identity witness. They do not start the application, run tests, or
+prove that tests exercised the witnessed process. Do not use a deployed or remote target. Collection from an
+`@QuarkusTest` process after test teardown is not supported.
 
 The policy selects only named advisors; every selected advisor is strict, including optional advisors that are
 available. A required advisor must be advertised, enabled, scannable, usable, coverage-complete, and have at least
@@ -564,6 +565,8 @@ The policy allow-list excludes the Memory advisor because its scan may trigger a
 Database advisor's policy key is `database-advisor`. Runtime Insights context is optional and report-only: omit the
 `runtimeContext` object (or set `includeInsights` to `false`) to make no extra request. A policy containing
 `runtimeContext` requires a CLI version that understands that key; older releases reject unknown policy keys.
+
+For Spring, a policy can include REST API checks and the optional runtime snapshot:
 
 ```json
 {
@@ -576,16 +579,36 @@ Database advisor's policy key is `database-advisor`. Runtime Insights context is
 }
 ```
 
+For a Quarkus application with Hibernate and a configured datasource, one possible policy is:
+
+```json
+{
+  "schemaVersion": 1,
+  "advisors": {
+    "architecture": { "required": true, "failOn": "critical" },
+    "hibernate": { "required": true, "failOn": "critical" },
+    "database-advisor": { "required": true, "failOn": "critical" }
+  }
+}
+```
+
+Choose advisors and thresholds for the target; an optional advisor is still assessed when available, and incomplete
+evidence fails rather than becoming a skip.
+
 Attach immediately before the workload, and use the exact same URL for the existing integration scenarios and the
-later assessment. Choose a fresh witness path and output directory for each run:
+later assessment. On failure, attach prints a stable error code to stderr and writes it into a `NOT_ASSESSED`
+witness when possible. Selecting the `spring` advisor for a Quarkus target fails with
+`UNSUPPORTED_ADVISOR_FOR_FRAMEWORK`. Choose a fresh witness path and output directory for each run; assess only after
+a successful attach:
 
 ```bash
+assessment_root="$RUNNER_TEMP/bootui-ci/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 attach_status=0
 bootui ci attach \
   --url http://127.0.0.1:18080 \
   --assessment-id "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:orders" \
   --policy ci/bootui-policy.json \
-  --output "$RUNNER_TEMP/bootui-ci/witness.json" || attach_status=$?
+  --output "$assessment_root/witness.json" || attach_status=$?
 
 workload_status=0
 ./ci/run-integration-tests.sh http://127.0.0.1:18080 || workload_status=$?
@@ -597,8 +620,8 @@ if [ "$attach_status" -eq 0 ]; then
     --url http://127.0.0.1:18080 \
     --assessment-id "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:orders" \
     --policy ci/bootui-policy.json \
-    --witness "$RUNNER_TEMP/bootui-ci/witness.json" \
-    --output-dir "$RUNNER_TEMP/bootui-ci/assessment" || assessment_status=$?
+    --witness "$assessment_root/witness.json" \
+    --output-dir "$assessment_root/assessment" || assessment_status=$?
 else
   echo "BootUI attach failed; refusing to scan with an unverified witness." >&2
 fi
@@ -625,11 +648,13 @@ The aggregate exits are `0` for a valid pass or confirmed optional absence, `1` 
 remain in the bundle. This is separate from the legacy per-tool exit codes above; in particular, a required panel
 refusal cannot become a green assessment.
 
-Validate a saved assessment in a later, offline job with the same policy file and expected assessment ID:
+After downloading the assessment artifact to `$RUNNER_TEMP/bootui-ci/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/assessment`,
+validate it in a later, offline job with the same policy file and expected assessment ID:
 
 ```bash
+assessment_root="$RUNNER_TEMP/bootui-ci/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 bootui ci check \
-  --input "$RUNNER_TEMP/bootui-ci/assessment/bundle.json" \
+  --input "$assessment_root/assessment/bundle.json" \
   --assessment-id "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:orders" \
   --policy ci/bootui-policy.json
 ```
@@ -639,22 +664,26 @@ the policy digest and assessment ID, and recomputes the threshold result from th
 URL or network fallback. The check validates consistency, not authenticity: CI artifacts are self-reported evidence,
 not tamper-proof attestation. Optional `SKIPPED` advisor rows are also self-reported and are not independently
 corroborated offline; mark every advisor needed for the gate as `required: true` in the collection policy. It validates
-the optional runtime projection's bounded structure and its policy opt-in, but never gates on its observations. Legacy
-schema-version-1 bundles without `runtimeContext` remain valid only when the policy does not request Runtime Insights.
+the optional runtime projection's bounded structure and its policy opt-in, but never gates on its observations.
+Schema-version-1 success bundles are treated as Spring Boot for compatibility; a `NOT_ASSESSED` bundle can remain
+schema version 1 if identity was never established. Schema-version-1 bundles may omit `runtimeContext` only when the
+policy did not request Runtime Insights. Schema-version-2 bundles record `frameworkName` when identity is known.
+Both versions require complete advisor evidence.
 Neither the projection nor the identity witness proves workload attribution.
 
-Before application startup, the workflow owner must explicitly activate BootUI and point `BOOTUI_OVERRIDES_FILE` at
-a fresh, empty, absolute per-assessment path; do not copy developer-local dismissals. Keep that dependency in a
-repository-owned CI-only build profile, not the normal production dependency graph. Run cleanup only for the process
-the workflow owns. In GitHub Actions, assessment/publication belongs behind `!cancelled()`, while `always()` is for
-bounded cleanup of that owned process. A cancelled runner or hard timeout can still prevent collection or publishing;
-the witness proves identity continuity, not workload attestation.
+Both frameworks must point `BOOTUI_OVERRIDES_FILE` at a fresh, empty, absolute per-assessment path outside watched and
+build-output directories; this isolates Quarkus's advisor-dismissal store as well as Spring's overrides. Never reuse
+developer-local dismissals. Spring must explicitly activate BootUI and keep its dependency in a repository-owned
+CI-only build profile, not the normal production dependency graph. Quarkus activates BootUI by DEV/TEST launch mode
+instead. Run cleanup only for the process the workflow owns. In GitHub Actions, assessment/publication belongs behind
+`!cancelled()`, while `always()` is for bounded cleanup of that owned process. A cancelled runner or hard timeout can
+still prevent collection or publishing; the witness proves identity continuity, not workload attestation.
 
 The composite Action downloads a pinned stable CLI release and verifies its Maven Central signature against BootUI's
 pinned release signing key. The action and CLI commands become usable by consumers only after a release containing
 them is published. The composite Action still supports live attach/assessment only; offline evaluation is available
 through `bootui ci check`, but is not yet an Action input mode. This increment does not provide framework-managed
-test producers, Quarkus support, comparisons, SARIF, or annotations.
+test producers, comparisons, SARIF, or annotations.
 
 ## Every command
 

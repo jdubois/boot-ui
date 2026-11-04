@@ -4,13 +4,14 @@ BootUI can gate an existing integration workload with fresh runtime diagnostics.
 application and CLI: the live-target workflow accepts only a literal loopback URL and does not cross a container
 network boundary. Keep application startup, test execution, and cleanup in the caller's workflow.
 
-The current composite Action path is a Spring Boot live target. The workflow below requires a published BootUI CLI
-release that contains `bootui ci attach` and `bootui ci assess`; if the policy opts in to Runtime Insights, the CLI
-must also understand `runtimeContext`. Older CLI releases reject unknown policy keys. The CLI can also
+The composite Action supports Spring Boot live targets and external Quarkus development-mode targets. The workflow
+below requires a published BootUI CLI release that contains `bootui ci attach` and `bootui ci assess`; if the policy
+opts in to Runtime Insights, the CLI must also understand `runtimeContext`. Older CLI releases reject unknown policy
+keys. The CLI can also
 revalidate a saved bundle offline with `bootui ci check`, but the Action does not yet accept offline input bundles.
-Quarkus test-lifecycle collection, baselines, SARIF, and annotations are not included.
+Collection from inside the Quarkus test lifecycle, baselines, SARIF, and annotations are not included.
 
-## Add BootUI only to the diagnostic build
+## Spring Boot: add BootUI only to the diagnostic build
 
 An application that does not normally use BootUI can add the Spring starter through an opt-in Maven profile:
 
@@ -34,7 +35,7 @@ Pin `bootui.version` to a published, compatible release. Use the build profile o
 keep the dependency out of the production runtime artifact and verify that exclusion in the production build.
 For Gradle, apply the equivalent opt-in `runtimeOnly` dependency only when a dedicated CI property is set.
 
-Explicitly configure the diagnostic process before startup:
+For Spring, explicitly configure the diagnostic process before startup:
 
 ```yaml
 bootui:
@@ -50,6 +51,65 @@ Also set `BOOTUI_ENABLED=ON` and point `BOOTUI_OVERRIDES_FILE` at a fresh, empty
 copy developer-local dismissal state. Enable only the panels needed by the selected scans; existing panel enable and
 read-only policy still applies.
 
+## Quarkus development-mode target
+
+Quarkus BootUI endpoints are active only in DEV and TEST launch modes. For the Action workflow, run a separate
+`quarkus:dev` application process on the same runner as the CLI; do not try to assess an `@QuarkusTest` application
+after its test lifecycle has torn down. Add the extension only to an opt-in diagnostic Maven profile:
+
+```xml
+<profiles>
+  <profile>
+    <id>bootui-ci</id>
+    <dependencies>
+      <dependency>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-quarkus</artifactId>
+        <version>${bootui.version}</version>
+      </dependency>
+    </dependencies>
+  </profile>
+</profiles>
+```
+
+Pin `bootui.version` to a published, compatible release, activate the profile only for the diagnostic process, and
+leave it out of the production artifact. Quarkus has no `BOOTUI_ENABLED` switch: the extension is wired by launch
+mode, so never use the CI profile for a `NORMAL` production launch. Bind the HTTP listener to `127.0.0.1` (not
+`0.0.0.0`) and use the exact same loopback URL for attach, workload, and assessment. The CLI checks the URL literal;
+it cannot verify which interface the application actually listens on.
+
+For example, the caller-owned startup script can run:
+
+```bash
+BOOTUI_CLI_ENABLED=true \
+BOOTUI_EXPOSE_VALUES=METADATA_ONLY \
+BOOTUI_OVERRIDES_FILE="$RUNNER_TEMP/bootui-ci/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/boot-ui.yml" \
+./mvnw -Pbootui-ci quarkus:dev \
+  -Dquarkus.http.host=127.0.0.1 \
+  -Dquarkus.http.port=18080 \
+  -Dbootui.cli.execution-timeout=60s
+```
+
+Quarkus reads advisor dismissals from `boot-ui.yml` in the directory containing `bootui.overrides-file`, even though
+its Configuration panel is read-only. Point `BOOTUI_OVERRIDES_FILE` at a fresh, empty, absolute path outside the
+watched project tree so checkout-local dismissals cannot suppress findings. Keep the CLI enabled; increase
+`bootui.cli.execution-timeout` for scans that need longer than its 30-second default.
+
+Start the application before attach, allow Quarkus augmentation and readiness to finish, then leave its sources and
+compiled output untouched through assessment. A dev-mode reload can rotate the run identity and causes the assessment
+to fail closed. Keep witnesses, reports, and other CI-generated files outside Quarkus's watched project paths.
+Quarkus Dev Services may start containers; for example, this repository's Quarkus sample uses PostgreSQL Dev
+Services in dev/test and needs Docker or Podman.
+
+Evidence availability is advisor- and application-specific. The Quarkus application advisor still uses policy key
+`spring`, but dev-mode evidence cannot establish effective production configuration, so attach rejects that selection
+with `UNSUPPORTED_ADVISOR_FOR_FRAMEWORK`.
+The REST API and Security advisors can report incomplete observations; the Database advisor is advertised even when no
+datasource exists and then reports `DISABLED`. `required: false` does not turn an available but partial or disabled
+scan into a skip. Architecture, Hibernate, and Database scans can be complete on a suitable application, but the
+strict assessment decides from the actual evidence; incomplete evidence always fails. Select only advisors whose
+observations apply to the target, and do not infer a pass from zero findings.
+
 ## Attach, run, assess, and publish
 
 Store a strict JSON policy in the application repository. Only selected advisors run; every one must produce complete,
@@ -58,6 +118,8 @@ garbage collection. The Database advisor's policy key is `database-advisor`.
 
 To include the optional, report-only Runtime Insights snapshot, set `runtimeContext.includeInsights` to `true`. Omit
 `runtimeContext` or set it to `false` to make no extra request. The snapshot does not gate the assessment.
+
+For Spring, a policy might include REST API checks and the optional runtime snapshot:
 
 ```json
 {
@@ -69,6 +131,22 @@ To include the optional, report-only Runtime Insights snapshot, set `runtimeCont
   "runtimeContext": { "includeInsights": true }
 }
 ```
+
+For a Quarkus application with Hibernate and a configured datasource, one possible policy is:
+
+```json
+{
+  "schemaVersion": 1,
+  "advisors": {
+    "architecture": { "required": true, "failOn": "critical" },
+    "hibernate": { "required": true, "failOn": "critical" },
+    "database-advisor": { "required": true, "failOn": "critical" }
+  }
+}
+```
+
+Choose advisors and thresholds for the target; an optional advisor is still assessed when available, and incomplete
+evidence fails rather than becoming a skip.
 
 Use the composite Action in two phases. Pin the Action to a reviewed immutable commit SHA, pin the CLI to a published
 stable version that includes the `ci` commands, and install Java before invoking it. Replace the sample's
@@ -99,7 +177,7 @@ jobs:
       BOOTUI_CLI_ENABLED: true
       BOOTUI_MCP_ENABLED: false
       BOOTUI_EXPOSE_VALUES: METADATA_ONLY
-      BOOTUI_OVERRIDES_FILE: ${{ runner.temp }}/bootui-ci/boot-ui.yml
+      BOOTUI_OVERRIDES_FILE: ${{ runner.temp }}/bootui-ci/${{ github.run_id }}-${{ github.run_attempt }}/boot-ui.yml
     steps:
       - uses: actions/checkout@<reviewed-commit-sha>
       - uses: actions/setup-java@<reviewed-commit-sha>
@@ -159,15 +237,17 @@ jobs:
         run: ./ci/stop-app.sh
 ```
 
-`start-app.sh` must use the `bootui-ci` build profile, create a fresh empty overrides file and its cleanup path before
-startup, own the process it starts, use the same loopback URL, and wait for BootUI readiness. The workload and
-assessment must use that exact URL. The action's attach
-phase records a run/instance witness without scans; assess checks it before and after collection. This detects a
-restarted or replaced target, but does not prove that the integration scenarios exercised it. The application's
-test harness remains responsible for target/workload correlation.
+Both Spring and Quarkus startup scripts must own the process they start, use the same loopback URL for attach,
+workload, and assessment, and wait for readiness before attach. For Spring, `start-app.sh` must use the `bootui-ci`
+build profile and create a fresh empty overrides file and its cleanup path before startup. For Quarkus, use the
+`quarkus:dev` process and an isolated `BOOTUI_OVERRIDES_FILE` as described above. The action's attach phase records a
+run/instance witness without scans; assess checks it before and after collection. This detects a restarted or replaced
+target, but does not prove that the integration scenarios exercised it. The application's test harness remains
+responsible for target/workload correlation.
 
-The workload runs even if attach fails. Pass the attach action's `exit-code` to assess: anything other than `0`
-prevents scans and produces a minimal failure report without using a possibly stale witness. If CLI setup or report
+The workload runs even if attach fails. The attach step prints its stable failure code to the log. Pass the attach
+action's `exit-code` to assess: anything other than `0` prevents scans and produces a minimal failure report without
+using a possibly stale witness. If CLI setup or report
 creation fails, the action writes a separate fresh `<output-dir>.action-error` directory and exposes its location as
 `report-dir`; it never overwrites existing output. If even that report cannot be written, the required-report step
 fails. Do not reuse witness, output, or fallback paths between attempts.

@@ -57,7 +57,9 @@ public final class CiAssessmentRunner {
     private static final String RUNTIME_INSIGHTS_TOOL = "get_runtime_insights";
     private static final String RUNTIME_INSIGHTS_PANEL = "runtime-insights";
     private static final Set<String> RUNTIME_OBSERVATION_STATUSES = Set.of("OBSERVED", "PARTIAL", "INSUFFICIENT");
-    private static final Set<String> WITNESS_KEYS = Set.of(
+    private static final int LEGACY_SCHEMA_VERSION = 1;
+    private static final int CURRENT_SCHEMA_VERSION = 2;
+    private static final Set<String> LEGACY_WITNESS_KEYS = Set.of(
             "schemaVersion",
             "assessmentId",
             "targetUrl",
@@ -68,12 +70,25 @@ public final class CiAssessmentRunner {
             "runId",
             "attachedAt",
             "advisors");
+    private static final Set<String> WITNESS_KEYS = Set.of(
+            "schemaVersion",
+            "assessmentId",
+            "targetUrl",
+            "apiPath",
+            "policySha256",
+            "bootUiVersion",
+            "frameworkName",
+            "instanceId",
+            "runId",
+            "attachedAt",
+            "advisors");
     private static final Set<String> ATTACH_ERRORS = Set.of(
             "POLICY_READ_FAILED",
             "INVALID_POLICY",
             "INVALID_TARGET",
             "INVALID_CATALOG",
             "UNSUPPORTED_FRAMEWORK",
+            "UNSUPPORTED_ADVISOR_FOR_FRAMEWORK",
             "MISSING_IDENTITY",
             "REQUIRED_ADVISOR_UNAVAILABLE",
             "ASSESSMENT_BUDGET_EXCEEDED",
@@ -88,6 +103,7 @@ public final class CiAssessmentRunner {
     private final Path witnessPath;
     private final Path outputDirectory;
     private final List<AdvisorResult> collected = new ArrayList<>();
+    private String attachFailureCode;
 
     public CiAssessmentRunner(
             String url,
@@ -110,28 +126,28 @@ public final class CiAssessmentRunner {
     }
 
     public int attach() {
+        attachFailureCode = null;
         long deadline = System.nanoTime() + MAX_ASSESSMENT_BUDGET.toNanos();
         CiPolicy policy;
         try {
             policy = CiPolicy.read(policyPath);
         } catch (IOException unreadable) {
-            writeFailureIfPossible(witnessPath, "POLICY_READ_FAILED");
-            return 1;
+            return failAttach("POLICY_READ_FAILED");
         } catch (IllegalArgumentException invalid) {
-            writeFailureIfPossible(witnessPath, "INVALID_POLICY");
-            return 1;
+            return failAttach("INVALID_POLICY");
         }
         try (BootUiClient client = client()) {
             BootUiCatalog catalog = requireCatalog(client, deadline);
             Identity identity = identity(client, deadline);
-            List<JsonValue> advisors = preflight(policy, catalog);
+            List<JsonValue> advisors = preflight(policy, catalog, identity.framework());
             Map<String, JsonValue> witness = new LinkedHashMap<>();
-            witness.put("schemaVersion", JsonValue.of(1));
+            witness.put("schemaVersion", JsonValue.of(CURRENT_SCHEMA_VERSION));
             witness.put("assessmentId", JsonValue.of(assessmentId));
             witness.put("targetUrl", JsonValue.of(url));
             witness.put("apiPath", JsonValue.of(apiPath));
             witness.put("policySha256", JsonValue.of(policy.sha256()));
             witness.put("bootUiVersion", JsonValue.of(identity.bootUiVersion()));
+            witness.put("frameworkName", JsonValue.of(identity.framework().displayName()));
             witness.put("instanceId", JsonValue.of(identity.instanceId()));
             witness.put("runId", JsonValue.of(identity.runId()));
             witness.put("attachedAt", JsonValue.of(Instant.now().toString()));
@@ -139,17 +155,16 @@ public final class CiAssessmentRunner {
             writeNewFile(witnessPath, JsonWriter.pretty(JsonValue.object(witness)));
             return 0;
         } catch (AssessmentFailure failure) {
-            writeFailureIfPossible(witnessPath, failure.code());
-            return 1;
+            return failAttach(failure.code());
         } catch (BootUiClientException requestFailure) {
-            writeFailureIfPossible(
-                    witnessPath,
-                    System.nanoTime() >= deadline ? "ASSESSMENT_BUDGET_EXCEEDED" : "TARGET_REQUEST_FAILED");
-            return 1;
+            return failAttach(System.nanoTime() >= deadline ? "ASSESSMENT_BUDGET_EXCEEDED" : "TARGET_REQUEST_FAILED");
         } catch (IOException witnessFailure) {
-            writeFailureIfPossible(witnessPath, "WITNESS_WRITE_FAILED");
-            return 1;
+            return failAttach("WITNESS_WRITE_FAILED");
         }
+    }
+
+    public String attachFailureCode() {
+        return attachFailureCode;
     }
 
     public int assess() {
@@ -195,8 +210,8 @@ public final class CiAssessmentRunner {
                 BootUiCatalog before = requireCatalog(client, deadline);
                 Identity current = identity(client, deadline);
                 requireSameIdentity(witness, current);
-                preflight(policy, before);
                 state.context(policy, current);
+                preflight(policy, before, current.framework());
                 List<AdvisorResult> results = collect(policy, before, client, deadline);
                 RuntimeContext runtimeContext = collectRuntimeInsights(policy, before, client, deadline);
                 state.runtimeContext(runtimeContext);
@@ -238,8 +253,10 @@ public final class CiAssessmentRunner {
 
     private Identity identity(BootUiClient client, long deadline) {
         JsonValue overview = client.getBounded("/overview", MAX_RESPONSE_BYTES, remaining(deadline));
-        if (!overview.isObject()
-                || !"Spring Boot".equals(overview.get("frameworkName").asString(null))) {
+        CiFramework framework = overview.isObject()
+                ? CiFramework.fromName(overview.get("frameworkName").asString(null))
+                : null;
+        if (framework == null) {
             throw new AssessmentFailure("UNSUPPORTED_FRAMEWORK");
         }
         String version = overview.get("bootUiVersion").asString(null);
@@ -249,10 +266,13 @@ public final class CiAssessmentRunner {
         if (version == null || !SAFE_VERSION.matcher(version).matches() || !isRunId(instanceId) || !isRunId(runId)) {
             throw new AssessmentFailure("MISSING_IDENTITY");
         }
-        return new Identity(version, instanceId, runId);
+        return new Identity(framework, version, instanceId, runId);
     }
 
-    private List<JsonValue> preflight(CiPolicy policy, BootUiCatalog catalog) {
+    private List<JsonValue> preflight(CiPolicy policy, BootUiCatalog catalog, CiFramework framework) {
+        if (!framework.supportsPolicy(policy)) {
+            throw new AssessmentFailure("UNSUPPORTED_ADVISOR_FOR_FRAMEWORK");
+        }
         List<JsonValue> outcomes = new ArrayList<>();
         for (CiPolicy.Advisor advisor : policy.orderedAdvisors()) {
             CiPolicy.Selection selection = policy.advisors().get(advisor);
@@ -854,7 +874,7 @@ public final class CiAssessmentRunner {
                     : null;
             if (!Set.copyOf(witness.names()).equals(Set.of("schemaVersion", "assessmentId", "status", "errors"))
                     || !witness.get("schemaVersion").isNumber()
-                    || !"1".equals(witness.get("schemaVersion").asDisplayText())
+                    || !isSchemaVersion(witness.get("schemaVersion"), LEGACY_SCHEMA_VERSION)
                     || !assessmentId.equals(witness.get("assessmentId").asString(null))
                     || code == null
                     || !ATTACH_ERRORS.contains(code)
@@ -863,8 +883,10 @@ public final class CiAssessmentRunner {
             }
             throw new AssessmentFailure(code);
         }
+        int schemaVersion = witnessSchemaVersion(witness);
+        Set<String> allowedKeys = schemaVersion == LEGACY_SCHEMA_VERSION ? LEGACY_WITNESS_KEYS : WITNESS_KEYS;
         List<String> unknown = new ArrayList<>(witness.names());
-        unknown.removeAll(WITNESS_KEYS);
+        unknown.removeAll(allowedKeys);
         if (!unknown.isEmpty()) {
             throw new AssessmentFailure("INVALID_WITNESS");
         }
@@ -872,13 +894,18 @@ public final class CiAssessmentRunner {
     }
 
     private void validateWitness(JsonValue witness, CiPolicy policy) {
+        int schemaVersion = witnessSchemaVersion(witness);
+        CiFramework framework = schemaVersion == LEGACY_SCHEMA_VERSION
+                ? CiFramework.SPRING_BOOT
+                : CiFramework.fromName(witness.get("frameworkName").asString(null));
         for (String required : WITNESS_KEYS) {
-            if (witness.get(required).isMissing()) {
+            if ((schemaVersion == LEGACY_SCHEMA_VERSION ? LEGACY_WITNESS_KEYS : WITNESS_KEYS).contains(required)
+                    && witness.get(required).isMissing()) {
                 throw new AssessmentFailure("INVALID_WITNESS");
             }
         }
-        if (!witness.get("schemaVersion").isNumber()
-                || !"1".equals(witness.get("schemaVersion").asDisplayText())
+        if (framework == null
+                || !framework.supportsPolicy(policy)
                 || !assessmentId.equals(witness.get("assessmentId").asString(null))
                 || !url.equals(witness.get("targetUrl").asString(null))
                 || !apiPath.equals(witness.get("apiPath").asString(null))
@@ -945,11 +972,36 @@ public final class CiAssessmentRunner {
     }
 
     private void requireSameIdentity(JsonValue witness, Identity identity) {
-        if (!identity.bootUiVersion().equals(witness.get("bootUiVersion").asString(null))
+        CiFramework witnessFramework = witnessSchemaVersion(witness) == LEGACY_SCHEMA_VERSION
+                ? CiFramework.SPRING_BOOT
+                : CiFramework.fromName(witness.get("frameworkName").asString(null));
+        if (identity.framework() != witnessFramework
+                || !identity.bootUiVersion().equals(witness.get("bootUiVersion").asString(null))
                 || !identity.instanceId().equals(witness.get("instanceId").asString(null))
                 || !identity.runId().equals(witness.get("runId").asString(null))) {
             throw new AssessmentFailure("IDENTITY_CHANGED");
         }
+    }
+
+    private static int witnessSchemaVersion(JsonValue witness) {
+        JsonValue version = witness.get("schemaVersion");
+        if (isSchemaVersion(version, LEGACY_SCHEMA_VERSION)) {
+            return LEGACY_SCHEMA_VERSION;
+        }
+        if (isSchemaVersion(version, CURRENT_SCHEMA_VERSION)) {
+            return CURRENT_SCHEMA_VERSION;
+        }
+        throw new AssessmentFailure("INVALID_WITNESS");
+    }
+
+    private static boolean isSchemaVersion(JsonValue value, int expected) {
+        return value.isNumber() && Integer.toString(expected).equals(value.asDisplayText());
+    }
+
+    private int failAttach(String code) {
+        attachFailureCode = code;
+        writeFailureIfPossible(witnessPath, code);
+        return 1;
     }
 
     private void writeFailureIfPossible(Path path, String code) {
@@ -1157,7 +1209,7 @@ public final class CiAssessmentRunner {
         return JsonValue.object(values);
     }
 
-    private record Identity(String bootUiVersion, String instanceId, String runId) {}
+    private record Identity(CiFramework framework, String bootUiVersion, String instanceId, String runId) {}
 
     private record RuleFinding(String ruleId, CiPolicy.Severity severity, long count, long suppressedCount) {}
 
@@ -1400,9 +1452,12 @@ public final class CiAssessmentRunner {
 
         private JsonValue toBundle() {
             Map<String, JsonValue> root = new LinkedHashMap<>();
-            root.put("schemaVersion", JsonValue.of(1));
+            root.put("schemaVersion", JsonValue.of(identity == null ? LEGACY_SCHEMA_VERSION : CURRENT_SCHEMA_VERSION));
             root.put("assessmentId", JsonValue.of(assessmentId));
             root.put("status", JsonValue.of(errors.isEmpty() ? (violation ? "VIOLATION" : "PASS") : "NOT_ASSESSED"));
+            if (identity != null) {
+                root.put("frameworkName", JsonValue.of(identity.framework().displayName()));
+            }
             root.put("bootUiVersion", JsonValue.of(identity == null ? "" : identity.bootUiVersion()));
             root.put("instanceId", JsonValue.of(identity == null ? "" : identity.instanceId()));
             root.put("runId", JsonValue.of(identity == null ? "" : identity.runId()));
@@ -1441,8 +1496,13 @@ public final class CiAssessmentRunner {
                     .append(bundle.get("status").asString("NOT_ASSESSED"))
                     .append("\n\n")
                     .append("Assessment `")
-                    .append(assessmentId)
-                    .append("` — BootUI ")
+                    .append(assessmentId);
+            if (bundle.get("frameworkName").isString()) {
+                output.append("` — ").append(bundle.get("frameworkName").asString(""));
+            } else {
+                output.append("`");
+            }
+            output.append(" — BootUI ")
                     .append(bundle.get("bootUiVersion").asString("unknown"))
                     .append("; instance/run `")
                     .append(bundle.get("instanceId").asString("unknown"))
