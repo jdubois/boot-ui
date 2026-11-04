@@ -1,6 +1,9 @@
 # 04 - Runtime Insights
 
-**Time:** 25 minutes. **Goal:** Reproduce observations and use counterexamples without overstating coverage.
+**Time:** 25 minutes. **Goal:** Test whether the repeated order queries are a reproducible pattern.
+
+One request suggested N+1 database work. Now test that explanation against repeated requests and the control.
+Do not turn an isolated trace or an advisor warning into an application-wide performance claim.
 
 ## Collect comparable samples
 
@@ -23,10 +26,9 @@ PowerShell:
 ```
 
 If a request fails, stop and resolve the displayed error; an incomplete loop is not six samples. Wait briefly for
-journal processing, then open **Runtime Insights** and search for the original route. Open the **Repeated SELECTs**
-group to see that route's observation directly. If several match, choose the route in **Observation**.
-Search also reveals its observations on older releases. The CLI's compact default omits repeated SELECTs, so request
-the kind explicitly:
+journal processing, then open **Runtime Insights**, search for the original route, and open its **Repeated SELECTs**
+observation. Search reveals observations that may be omitted from the default list; the exact list/group
+presentation varies by release. The CLI's compact default also omits repeated SELECTs, so request the kind explicitly:
 
 ```bash
 bootui insights list --query repeated-selects --json
@@ -46,7 +48,14 @@ recommendation alone is not proof: open its request SQL, check coverage, and com
 **SQL Trace** gives request detail; the **Hibernate** advisor explains a mapping/query risk; **Runtime Insights**
 aggregates observed behavior across requests. They are complementary, not three independent proofs of root cause.
 
-## Explain the import and transaction boundary
+![Runtime Insights with Repeated SELECTs expanded for the original order route across six requests](../images/workshop-04-runtime-insights-repeated-selects.webp)
+
+*Illustrative reference: six requests reproduce the same customer SELECT pattern; explain it before accepting a recommendation.*
+
+## Side investigation: what transaction evidence adds
+
+Keep this short and separate from the query fix. These fixtures practice the same habit: compare observed behavior
+with intended behavior instead of treating a label or annotation as the answer.
 
 Find the import observation after Chapter 03's request. Inspect its HTTP success and failure evidence. Follow its
 exemplar rather than guessing from a title.
@@ -61,6 +70,10 @@ curl -fsS -X POST "$BOOTUI_URL/api/insights/orders/3/ship"
 Use `Invoke-RestMethod -Method Post ... -ErrorAction Stop` on PowerShell. The confirm fixture uses an audit `REQUIRES_NEW` transaction;
 the ship control writes its audit in the same transaction. Compare transaction identities/relationships. These
 are demonstration updates to seeded rows, not production operations.
+
+For the audit, inspect the request's journal/activity transaction detail (`REQUIRES_NEW`) and separate connection
+ids. The compact `bootui tx list` can label this child `PARTICIPATING`; this summary limitation is not proof of
+Spring propagation. Do not use that label alone to contradict the journal and source.
 
 If time remains, compare `/api/insights/orders/5/recalculate` with `/5/recalculate-through-bean` using POST.
 Read the self-invocation evidence; an annotation bypass is a proxy-boundary question, not proof a write failed.
@@ -88,7 +101,9 @@ None of the last five is a passing assessment. These observations do not subtrac
 ## Checkpoint and break
 
 Record one observation, its positive route and counterexample, sample size, source limits, and verification task.
-Choose the eager-order query problem for the capstone. Do not approve code changes yet.
+For the eager-order investigation, state whether your original hypothesis survived the control and repeated samples.
+You now have a reproducible problem; after the break you will attribute its work to an executed method and save the
+baseline needed to verify a fix. Do not approve code changes yet.
 
 **Take the scheduled ten-minute break.** If setup is behind, pair with a working participant rather than skipping
 the later verification steps.

@@ -2,6 +2,9 @@
 
 **Time in the session:** 15 minutes for verification, not first-time installation.
 
+**Investigation question:** Are we observing the right application, with tools that can return real evidence?
+This chapter prepares the order-service investigation; it is not a tour of every integration.
+
 Complete this **whole chapter before the event**, including startup, client/skill configuration, and a successful
 diagnostic read. In the live slot, confirm application identity, journal state, absent Java agent, and one real
 transport read. Pair if these checks fail; do not spend the later capstone slot downloading or configuring accounts.
@@ -14,7 +17,7 @@ your coding agent; a GitHub account alone does not establish Copilot access.
 Clone the released sample into a new directory:
 
 ```bash
-git clone --branch v2.1.0 --depth 1 https://github.com/jdubois/boot-ui.git workshop
+git clone --branch v2.2.0 --depth 1 https://github.com/jdubois/boot-ui.git workshop
 cd workshop
 git switch -c workshop-exercises
 ./mvnw -B -ntp -Dmaven.repo.local=.m2 -pl bootui-spring-sample-app -am install -DskipTests
@@ -46,16 +49,16 @@ exercise branch; do not send those changes as fixes to the BootUI project.
 Use the [CLI guide](../CLI.md) to review the installer. Pin it to the workshop release, rather than whatever is newest.
 
 ```bash
-curl -fsSL https://www.julien-dubois.com/boot-ui/install.sh | sh -s -- --version 2.1.0
+curl -fsSL https://www.julien-dubois.com/boot-ui/install.sh | sh -s -- --version 2.2.0
 ```
 
 On Windows PowerShell, after reviewing the script:
 
 ```powershell
-& ([scriptblock]::Create((Invoke-RestMethod https://www.julien-dubois.com/boot-ui/install.ps1))) -Version 2.1.0
+& ([scriptblock]::Create((Invoke-RestMethod https://www.julien-dubois.com/boot-ui/install.ps1))) -Version 2.2.0
 ```
 
-Open a new terminal if PATH changed. Do not mix a released 1.x CLI with the workshop's 2.1.0 sample/agent.
+Open a new terminal if PATH changed. Do not mix a released 1.x CLI with the workshop's 2.2.0 sample/agent.
 
 ### Install the consumer skill
 
@@ -128,6 +131,10 @@ Reuse this terminal/environment in later chapters rather than resetting an alter
 The explicit `server.address` binds the **host application** to loopback. BootUI's own localhost guards cover its
 console/API, not the sample's deliberately unsafe application routes.
 
+![Java Agent panel showing Not attached and unavailable Code Paths and Code Inventory navigation](../images/workshop-01-java-agent-not-attached.webp)
+
+*Illustrative reference: the initial application works without the Java agent. Attach it only in Chapter 05.*
+
 ## Activation and safety
 
 The sample already has the starter. In a different Spring Boot app, the published dependency is:
@@ -136,7 +143,7 @@ The sample already has the starter. In a different Spring Boot app, the publishe
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-spring-boot-starter</artifactId>
-  <version>2.1.0</version>
+  <version>2.2.0</version>
 </dependency>
 ```
 
@@ -197,5 +204,7 @@ Copy the [worksheet](participant-worksheet.md) into a local note outside tracked
 Both application and console work, the CLI or MCP returns real diagnostic data, the journal is active, the Java
 agent is not attached, and you can explain one unavailable panel. If not, use
 [troubleshooting](appendix-b-troubleshooting.md) or pair before continuing.
+
+You now have a trustworthy connection. Next, find the code and configuration that serve the order request.
 
 **Next:** [02 - Configuration and wiring](02-configuration-and-wiring.md).

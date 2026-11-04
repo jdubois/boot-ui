@@ -7,7 +7,7 @@ is incomplete; pairing is preferable to spending an entire chapter reinstalling 
 
 | Symptom | Check | Recovery |
 | --- | --- | --- |
-| Missing commands/features | Release tag/SHA, CLI and Java agent versions | Use the workshop's 2.1.0 components, not a 1.x CLI or moving branch |
+| Missing commands/features | Release tag/SHA, CLI and Java agent versions | Use the workshop's 2.2.0 components, not a 1.x CLI or moving branch |
 | JDK/toolchain failure | `java -version`, `JAVA_HOME`, wrapper output | Use a supported local JDK; early-access JDKs are not required |
 | Maven cannot find BootUI modules | Repository root and isolated `.m2` | Repeat Chapter 01's `-am install` warm build; then run just the sample |
 | First build is slow/offline | Dependency/toolchain download logs | Warm beforehand; use a helper's prepared checkpoint or pair |
@@ -34,6 +34,7 @@ is incomplete; pairing is preferable to spending an entire chapter reinstalling 
 | Windows agent jar path fails | Warm build result, exact jar, comma in path | Stop on missing jar; rebuild or use a supported path, never an empty agent argument |
 | Quarkus Dev Services cannot start | Docker/Podman and PostgreSQL prerequisite | Prepare Appendix C's container runtime or local PostgreSQL separately |
 | Missing time breakdown | Five warm requests and capture coverage | Warm/collect; unknown time is not proof of slow business code |
+| Audit child labeled `PARTICIPATING` by compact transaction list | Journal/activity transaction detail and separate connection ids | Known summary limitation; do not infer Spring propagation from the compact label alone |
 | Java Agent `NOT_ATTACHED` | Correct agent launcher or startup `-javaagent` | Full-stop and attach only at the Chapter 05 boundary |
 | `ARMED` but sensor unavailable | Installed state and self-tests, packages, release/protocol | Read reason; attachment alone does not prove capture |
 | No Code Path | Instrumented application bean/method, same run, row/depth limits | Exercise the route; explain excluded or assembly-only work |
@@ -43,12 +44,18 @@ is incomplete; pairing is preferable to spending an entire chapter reinstalling 
 
 ## Change and comparison
 
+![Runtime Insights Coverage and limits with source-level request linkage, outside-request events, and dropped counts](../images/workshop-appendix-b-coverage-and-journal.webp)
+
+*Illustrative reference: inspect source coverage, but do not equate outside-request events with missing events.
+Even 100% linkage of retained events does not rule out missed startup events; read the comparison's reason separately.*
+
 | Symptom | Check | Recovery |
 | --- | --- | --- |
 | Source saved but unchanged method inventory | Running clone/classpath, compiler output, DevTools run id | Compile the sample; observe actual same-JVM restart |
 | Compiled but no restart | Chapter 05 trigger-file launch and marker timestamp | After compile/test finishes, touch `.workshop-reload` in sample `target/classes` |
 | Changed but not exercised | Original route traffic in the new run | Send agreed samples and refresh; this state is not a passed fix |
 | Comparison unavailable | Prior exercised run, same application/JVM, retained baseline | Re-establish a baseline; label a lost comparison incomplete |
+| Comparison PARTIAL with no behavior rows despite six samples | Displayed source-coverage reason, including missed startup SQL events | Keep comparison incomplete; report observed SQL from retained request profiles and execution from Code Inventory separately; more traffic cannot restore missed events |
 | Comparison points at an idle intermediate run | Multiple compile/reload events and run ids | Restore the reference query in your disposable clone, exercise, then redo one edit/reload |
 | Side effects not comparable | Sensor switching, partial capture, configuration drift | Keep settings stable; report not compared rather than no effects |
 | Acceptance test initially fails with 17 statements | Failure is query-budget assertion only | Expected red; apply the approved edit, rerun |

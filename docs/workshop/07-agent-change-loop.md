@@ -2,6 +2,10 @@
 
 **Time:** 35 minutes. **Goal:** Prove one approved change preserved behavior and reduced the original route's SQL.
 
+This is the resolution of your investigation, not a new feature tour. Your hypothesis is that explicitly fetching
+the customer data needed by each summary removes the secondary SELECTs. Prove it at two boundaries: a regression
+test must protect the response/query budget, and the live application must execute the changed method with less SQL.
+
 ## 1. Capture the before state (5 minutes)
 
 Keep the Java-agent JVM from Chapter 05 running. Record its run id, method execution flag, and six original/control
@@ -81,6 +85,8 @@ Manual fallback: make exactly that edit after a partner reviews the scope. The r
 `workshop/answers/eager-orders.patch` is a reference solution, not evidence of a live completed exercise.
 
 Do not change the controller, DTO, transaction annotation, entity mapping, or control query.
+The fix changes how this response's data is fetched, not what the endpoint returns or the fetch defaults for
+unrelated requests.
 
 ## 4. Test, compile, and observe reload (8 minutes)
 
@@ -146,6 +152,14 @@ if ($before -ne $after) { throw "Order response changed" }
 Refresh Code Inventory and prove the changed method executed in this live run. Open its Code Path/profile and
 count the new SELECTs. The original endpoint should now look like the joined control, normally one SELECT.
 
+![Code Inventory after reload showing the target service method marked Changed and Executed in Run 2](../images/workshop-07a-code-inventory-changed-executed.webp)
+
+*Illustrative reference: a changed method must also execute in the new live run; saving source is not enough.*
+
+![Original order route after the fix showing one SQL statement with the required customer data joined](../images/workshop-07b-request-profile-after-fix.webp)
+
+*Illustrative reference: compare this original-route profile with the 17-SELECT baseline. These fixture timings are not a latency benchmark.*
+
 In **Runtime Insights -> Compared with the previous run**, inspect **code changes first**, then side effects and
 route behavior. The CLI equivalent:
 
@@ -155,6 +169,12 @@ bootui insights compare --json
 
 Several behavior comparisons need at least three route samples in both runs. The CLI comparison intentionally omits
 latency. Keep profiles, datasource, and sensors stable; empty/partial/not-compared evidence is not “no effects.”
+
+If the comparison is **PARTIAL** with no route-behavior rows, read its coverage reason. Missing source events,
+including SQL events missed during startup, can prevent comparison even after six successful samples.
+More traffic cannot restore those missing events. Keep the comparison labeled incomplete; use the saved
+original-route request profiles for the observed SQL counts and Code Inventory for changed-method execution.
+Those are separate sources of evidence, not a successful automated run comparison. Do not clear recording to force a pass.
 
 Confirm the intended query-count reduction, unchanged response, executed changed method, valid comparison source,
 and no observed new effect within recorded coverage. The original method name still contains “SecondarySelects”;
@@ -181,6 +201,8 @@ Complete the before/after worksheet and show a partner:
 
 An agent's “fixed” message without these four items is incomplete. If you lost the baseline, record that limit and
 repeat the exercise in a disposable clone rather than fabricate a comparison.
+You can now close the original report with evidence: explain the 1 + N, show what changed, and state whether the
+same response required fewer queries in the running application. Keep any incomplete comparison explicit.
 
 **Previous:** [06 - Assessment and impact](06-assessment-and-impact.md).
 **Next:** [08 - Going further](08-going-further.md).
