@@ -1,5 +1,8 @@
 import {expect, test} from '../tests/fixtures.js'
 import {registerSampleLabTests} from '../scenarios/sample-lab.js'
+import {registerBrowserIconTests} from '../scenarios/browser-icons.js'
+
+registerBrowserIconTests(test, expect)
 
 registerSampleLabTests(test, expect, {
   groups: ['Requests', 'Runtime', 'Threads', 'Data', 'Integrations & AI'],
