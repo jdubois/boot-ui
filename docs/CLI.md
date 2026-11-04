@@ -631,10 +631,13 @@ exit "$assessment_status"
 ```
 
 The assessment writes a bounded `bundle.json`, `summary.md`, and `junit.xml`; report prose and raw finding text are
-not copied into these outputs. With `runtimeContext.includeInsights: true`, one bounded read-only Runtime Insights
-call adds aggregate coverage and at most 20 default-listed, sanitized observation summaries to the bundle and Markdown
-summary, never to JUnit. The projection omits routes, request IDs, observation prose, and follow-up suggestions; its
-HTTP exchange count cannot prove the CI workload exercised the witnessed process. `CAPTURED`, `PARTIAL` (low-footprint mode),
+not copied into these outputs. The Markdown summary lists up to 50 retained rule IDs, severities, counts, and whether
+they meet their advisor's threshold. Threshold-meeting findings appear first; any omitted rule summaries remain in
+`bundle.json`. Stable assessment error codes also appear in the summary. With `runtimeContext.includeInsights: true`,
+one bounded read-only Runtime Insights call adds aggregate coverage and at most 20 default-listed, sanitized observation
+summaries to the bundle and Markdown summary, never to JUnit. The projection omits routes, request IDs, observation
+prose, and follow-up suggestions; its HTTP exchange count cannot prove the CI workload exercised the witnessed process.
+`CAPTURED`, `PARTIAL` (low-footprint mode),
 `UNAVAILABLE`, and `ERROR` describe the optional context only and never affect the advisor verdict or exit code;
 `NOT_REQUESTED` means the policy omitted or disabled the request, while `NOT_COLLECTED` means assessment stopped
 before it could be made.
@@ -644,8 +647,8 @@ If the remaining budget is no greater than that reserve, no Runtime Insights req
 is `ERROR`. The summary shows captured counts only for `CAPTURED` or `PARTIAL`; other statuses do not imply zero
 activity. Publish the summary and files before making the recorded result the final job gate.
 The aggregate exits are `0` for a valid pass or confirmed optional absence, `1` for an unevaluable/error result, and
-`3` for a proven threshold violation. An error takes precedence over findings, while already collected findings
-remain in the bundle. This is separate from the legacy per-tool exit codes above; in particular, a required panel
+`3` for a proven threshold violation. An error takes precedence over findings, while already collected findings remain
+in the bundle and summary. This is separate from the legacy per-tool exit codes above; in particular, a required panel
 refusal cannot become a green assessment.
 
 After downloading the assessment artifact to `$RUNNER_TEMP/bootui-ci/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/assessment`,

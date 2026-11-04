@@ -264,9 +264,11 @@ limit, and limits of 20,000 retained details and 1,000 detail pages. The applica
 
 The assessment writes bounded `bundle.json`, `summary.md`, and `junit.xml`. The Action adds the sanitized summary to
 the GitHub step summary and returns a failing action result for either an unevaluable assessment or a threshold
-violation. The caller uploads reports before the final job result is applied. Test failures remain failures. Use
-`!cancelled()` for assessment and publication; `always()` is reserved for cleanup of the process owned by the job.
-A cancelled runner or hard timeout can still prevent collection and upload.
+violation. The summary shows at most 50 retained rule summaries, with threshold-meeting findings first, their severity
+and count, and an omission count when more are in the bundle. It also names stable assessment error codes; it never
+includes free-form finding text. The caller uploads reports before the final job result is applied. Test failures remain
+failures. Use `!cancelled()` for assessment and publication; `always()` is reserved for cleanup of the process owned
+by the job. A cancelled runner or hard timeout can still prevent collection and upload.
 
 When requested, Runtime Insights makes one read-only call bounded to 10 seconds and reserves time for the final target
 identity check. If the remaining budget is no greater than the configured `--timeout` plus one second, the call is

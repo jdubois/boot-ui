@@ -262,6 +262,21 @@ npm install
 npm test
 ```
 
+### CI consumer acceptance
+
+The Java 17 baseline also builds standalone Spring MVC and WebFlux consumers, verifies that their production jars
+exclude BootUI and their opt-in CI jars contain the current candidate, and exercises the CLI and Action invocation
+scripts against both. To reproduce it with an isolated Maven repository:
+
+```bash
+export MAVEN_OPTS="${MAVEN_OPTS:-} -Dmaven.repo.local=$PWD/.m2"
+./mvnw -B -ntp -pl bootui-spring-boot-starter,bootui-cli -am -DskipTests install
+python3 -B -m unittest discover -s .github/scripts -p 'test_ci_consumer_acceptance.py'
+python3 -B .github/scripts/ci-consumer-acceptance.py --maven-repository "$PWD/.m2"
+```
+
+The harness does not exercise the Action's release-signature download or the GitHub-hosted runner.
+
 ### Coverage
 
 Run the same instrumented Maven/Vitest coverage build as CI with:

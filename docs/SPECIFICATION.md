@@ -3903,6 +3903,9 @@ Design rules:
   prose and request identifiers, does not prove workload attribution, and cannot change the advisor verdict. It has
   no application URL or network fallback. Bundles remain self-reported evidence, not cryptographic attestation;
   aggregate exits are `0` pass, `1` invalid/incomplete, and `3` threshold violation, with errors taking precedence.
+  The Markdown summary shows at most 50 sanitized rule summaries, prioritizes threshold-meeting findings, names stable
+  assessment error codes, and states when additional summaries remain in the complete bundle; raw finding text is never
+  included.
 
 ## 7. UX specification
 

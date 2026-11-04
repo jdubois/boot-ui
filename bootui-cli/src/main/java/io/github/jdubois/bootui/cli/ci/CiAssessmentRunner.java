@@ -22,6 +22,7 @@ import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -41,6 +42,7 @@ public final class CiAssessmentRunner {
     static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
     static final int MAX_BUNDLE_BYTES = 2 * 1024 * 1024;
     static final int MAX_SUMMARY_BYTES = 256 * 1024;
+    static final int MAX_SUMMARY_FINDINGS = 50;
     static final int MAX_DETAIL_PAGE_SIZE = 200;
     static final int MAX_TOTAL_DETAILS = 20_000;
     static final int MAX_TOTAL_PAGES = 1_000;
@@ -1523,6 +1525,7 @@ public final class CiAssessmentRunner {
                         .append(advisor.get("rulesSkipped").asLong(0))
                         .append(" |\n");
             }
+            appendFindings(output);
             JsonValue context = bundle.get("runtimeContext");
             String contextStatus = context.get("status").asString("ERROR");
             if (policy != null && !"NOT_REQUESTED".equals(contextStatus)) {
@@ -1588,9 +1591,9 @@ public final class CiAssessmentRunner {
                 }
             }
             if (!errors.isEmpty()) {
-                output.append("\nAssessment errors: ")
-                        .append(errors.size())
-                        .append(" (see the sanitized bundle for error codes).\n");
+                output.append("\nAssessment errors: `")
+                        .append(String.join("`, `", errors))
+                        .append("`.\n");
             }
             String text = output.toString();
             if (text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_SUMMARY_BYTES) {
@@ -1598,6 +1601,61 @@ public final class CiAssessmentRunner {
             }
             return text;
         }
+
+        private void appendFindings(StringBuilder output) {
+            List<SummaryFinding> findings = new ArrayList<>();
+            for (AdvisorResult result : results) {
+                CiPolicy.Selection selection = policy.advisors().get(result.advisor);
+                for (JsonValue finding : result.findings) {
+                    CiPolicy.Severity severity =
+                            CiPolicy.Severity.valueOf(finding.get("severity").asString(null));
+                    findings.add(new SummaryFinding(
+                            result.advisor.policyName(),
+                            finding.get("ruleId").asString(null),
+                            severity,
+                            finding.get("count").asLong(0),
+                            severity.meets(selection.failOn())));
+                }
+            }
+            if (findings.isEmpty()) {
+                return;
+            }
+            findings.sort(Comparator.comparing(SummaryFinding::meetsThreshold)
+                    .reversed()
+                    .thenComparing(SummaryFinding::severity)
+                    .thenComparing(SummaryFinding::advisor)
+                    .thenComparing(SummaryFinding::ruleId));
+            output.append("\n### Retained finding summaries\n\n")
+                    .append("| Advisor | Rule | Severity | Count | Meets threshold |\n")
+                    .append("|---|---|---|---:|---|\n");
+            int displayed = Math.min(findings.size(), MAX_SUMMARY_FINDINGS);
+            for (int index = 0; index < displayed; index++) {
+                SummaryFinding finding = findings.get(index);
+                output.append("| ")
+                        .append(finding.advisor())
+                        .append(" | ")
+                        .append(finding.ruleId())
+                        .append(" | ")
+                        .append(finding.severity())
+                        .append(" | ")
+                        .append(finding.count())
+                        .append(" | ")
+                        .append(finding.meetsThreshold() ? "yes" : "no")
+                        .append(" |\n");
+            }
+            if (displayed < findings.size()) {
+                output.append("\nShowing ")
+                        .append(displayed)
+                        .append(" of ")
+                        .append(findings.size())
+                        .append(" rule summaries (")
+                        .append(findings.size() - displayed)
+                        .append(" omitted); see `bundle.json` for the complete sanitized list.\n");
+            }
+        }
+
+        private record SummaryFinding(
+                String advisor, String ruleId, CiPolicy.Severity severity, long count, boolean meetsThreshold) {}
 
         private String junit(JsonValue bundle) {
             String status = bundle.get("status").asString("NOT_ASSESSED");

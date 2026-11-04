@@ -34,6 +34,9 @@ class CiAssessmentRunnerTests {
     private boolean finding;
     private int findingRuleCount = 1;
     private boolean springFails = true;
+    private boolean springFindingsMedium;
+    private boolean architectureFindingsMedium;
+    private boolean reverseFindingOrder;
     private int findingCount = 1;
     private int rulesEvaluated = 5;
     private String databaseDiagnosticLevel = "INFO";
@@ -127,6 +130,23 @@ class CiAssessmentRunnerTests {
         assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
                         .exitCode())
                 .isZero();
+    }
+
+    @Test
+    void showsQuarkusThresholdFindingsInTheSummary() throws Exception {
+        frameworkName = "Quarkus";
+        finding = true;
+        startServer();
+        Path policy = writePolicy();
+        Path witness = temp.resolve("quarkus-witness.json");
+        Path output = temp.resolve("quarkus-assessment");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(3);
+        assertThat(Files.readString(output.resolve("summary.md")))
+                .contains("Quarkus", "| architecture | ARCH-001 | HIGH | 1 | yes |")
+                .doesNotContain("private-finding-payload");
     }
 
     @Test
@@ -277,6 +297,153 @@ class CiAssessmentRunnerTests {
             assertThat(Files.readString(report)).doesNotContain("private-finding-payload");
         }
         assertThat(Files.readString(output.resolve("bundle.json"))).contains("\"status\": \"VIOLATION\"");
+        assertThat(Files.readString(output.resolve("summary.md")))
+                .contains("| architecture | ARCH-001 | HIGH | 1 | yes |");
+    }
+
+    @Test
+    void showsThresholdFindingsBeforeNonThresholdFindings() throws Exception {
+        finding = true;
+        springFails = false;
+        startServer();
+        Path policy = temp.resolve("policy.json");
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{
+                  "architecture":{"required":true,"failOn":"critical"},
+                  "spring":{"required":true,"failOn":"high"}
+                }}
+                """);
+        Path witness = temp.resolve("witness.json");
+        Path output = temp.resolve("assessment");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(3);
+        String summary = Files.readString(output.resolve("summary.md"));
+        String threshold = "| spring | ARCH-001 | HIGH | 1 | yes |";
+        String nonThreshold = "| architecture | ARCH-001 | HIGH | 1 | no |";
+        assertThat(summary).contains(threshold, nonThreshold);
+        assertThat(summary.indexOf(threshold)).isLessThan(summary.indexOf(nonThreshold));
+    }
+
+    @Test
+    void boundsSummaryFindingRowsWithoutTruncatingTheBundle() throws Exception {
+        finding = true;
+        findingRuleCount = 55;
+        findingCount = 55;
+        rulesEvaluated = 55;
+        startServer();
+        Path policy = writePolicy();
+        Path witness = temp.resolve("witness.json");
+        Path output = temp.resolve("assessment");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(3);
+        String summary = Files.readString(output.resolve("summary.md"));
+        assertThat(summary)
+                .contains("| architecture | ARCH-001 | HIGH | 1 | yes |")
+                .contains("| architecture | ARCH-050 | HIGH | 1 | yes |")
+                .contains(
+                        "Showing 50 of 55 rule summaries (5 omitted); see `bundle.json` for the complete sanitized list.")
+                .doesNotContain("ARCH-051")
+                .doesNotContain("private-finding-payload");
+        assertThat(summary.getBytes(StandardCharsets.UTF_8).length)
+                .isLessThanOrEqualTo(CiAssessmentRunner.MAX_SUMMARY_BYTES);
+        JsonValue bundle = JsonValue.parse(Files.readString(output.resolve("bundle.json")));
+        assertThat(bundle.get("advisors").get(0).get("findings").size()).isEqualTo(55);
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isEqualTo(3);
+    }
+
+    @Test
+    void prioritizesThresholdFindingsBeforeApplyingTheSummaryLimit() throws Exception {
+        finding = true;
+        findingRuleCount = 51;
+        findingCount = 51;
+        rulesEvaluated = 51;
+        springFails = false;
+        springFindingsMedium = true;
+        startServer();
+        Path policy = temp.resolve("policy.json");
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{
+                  "architecture":{"required":true,"failOn":"critical"},
+                  "spring":{"required":true,"failOn":"medium"}
+                }}
+                """);
+        Path witness = temp.resolve("witness.json");
+        Path output = temp.resolve("assessment");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(3);
+        String summary = Files.readString(output.resolve("summary.md"));
+        List<String> rows =
+                summary.lines().filter(line -> line.contains("| ARCH-")).toList();
+        List<String> expected = java.util.stream.IntStream.rangeClosed(1, 50)
+                .mapToObj(index -> "| spring | ARCH-%03d | MEDIUM | 1 | yes |".formatted(index))
+                .toList();
+        assertThat(rows).containsExactlyElementsOf(expected);
+        assertThat(summary).contains("Showing 50 of 102 rule summaries (52 omitted)");
+        JsonValue advisors =
+                JsonValue.parse(Files.readString(output.resolve("bundle.json"))).get("advisors");
+        assertThat(advisors.get(0).get("findings").size()).isEqualTo(51);
+        assertThat(advisors.get(1).get("findings").size()).isEqualTo(51);
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isEqualTo(3);
+    }
+
+    @Test
+    void sortsThresholdFindingsBySeverityAdvisorAndRuleId() throws Exception {
+        finding = true;
+        findingRuleCount = 2;
+        findingCount = 2;
+        rulesEvaluated = 2;
+        springFails = false;
+        architectureFindingsMedium = true;
+        reverseFindingOrder = true;
+        startServer();
+        Path policy = temp.resolve("policy.json");
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{
+                  "architecture":{"required":true,"failOn":"medium"},
+                  "spring":{"required":true,"failOn":"medium"}
+                }}
+                """);
+        Path witness = temp.resolve("witness.json");
+        Path output = temp.resolve("severity-order");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(3);
+        assertThat(Files.readString(output.resolve("summary.md"))
+                        .lines()
+                        .filter(line -> line.contains("| ARCH-"))
+                        .toList())
+                .containsExactly(
+                        "| spring | ARCH-001 | HIGH | 1 | yes |",
+                        "| spring | ARCH-002 | HIGH | 1 | yes |",
+                        "| architecture | ARCH-001 | MEDIUM | 1 | yes |",
+                        "| architecture | ARCH-002 | MEDIUM | 1 | yes |");
+
+        architectureFindingsMedium = false;
+        Path equalSeverityOutput = temp.resolve("advisor-order");
+        CiAssessmentRunner equalSeverityRunner =
+                runner(policy, temp.resolve("advisor-witness.json"), equalSeverityOutput);
+        assertThat(equalSeverityRunner.attach()).isZero();
+        assertThat(equalSeverityRunner.assess()).isEqualTo(3);
+        assertThat(Files.readString(equalSeverityOutput.resolve("summary.md"))
+                        .lines()
+                        .filter(line -> line.contains("| ARCH-"))
+                        .toList())
+                .containsExactly(
+                        "| architecture | ARCH-001 | HIGH | 1 | yes |",
+                        "| architecture | ARCH-002 | HIGH | 1 | yes |",
+                        "| spring | ARCH-001 | HIGH | 1 | yes |",
+                        "| spring | ARCH-002 | HIGH | 1 | yes |");
     }
 
     @Test
@@ -333,6 +500,7 @@ class CiAssessmentRunnerTests {
         assertThat(runner.assess()).isEqualTo(1);
         assertThat(Files.readString(output.resolve("bundle.json"))).contains("\"status\": \"NOT_ASSESSED\"");
         assertThat(Files.readString(output.resolve("bundle.json"))).contains("IDENTITY_CHANGED");
+        assertThat(Files.readString(output.resolve("summary.md"))).contains("Assessment errors: `IDENTITY_CHANGED`.");
     }
 
     @Test
@@ -399,6 +567,8 @@ class CiAssessmentRunnerTests {
         assertThat(bundle).contains("\"status\": \"NOT_ASSESSED\"");
         assertThat(bundle).contains("\"findingCount\": 1");
         assertThat(bundle).contains("\"code\": \"SCAN_FAILED\"");
+        assertThat(Files.readString(output.resolve("summary.md")))
+                .contains("| architecture | ARCH-001 | HIGH | 1 | yes |", "Assessment errors: `SCAN_FAILED`.");
         String junit = Files.readString(output.resolve("junit.xml"));
         assertThat(junit).contains("<failure", "<error");
     }
@@ -994,6 +1164,8 @@ class CiAssessmentRunnerTests {
             int subjects = database ? 1 : 3;
             int violations = !database && finding ? findingRuleCount : 0;
             int occurrences = !database && finding ? findingCount : 0;
+            boolean medium = path.endsWith("/tools/spring_scan") && springFindingsMedium
+                    || path.endsWith("/tools/architecture_scan") && architectureFindingsMedium;
             body = """
                     {"reportTool":"get_architecture_report",
                      "scan":{"status":"SCANNED","rulesEvaluated":%d,"%s":%d,"violationsFound":%d},
@@ -1006,11 +1178,11 @@ class CiAssessmentRunnerTests {
                             subjects,
                             violations,
                             mismatchScanSummary ? violations + 1 : violations,
-                            severityCounts(occurrences, 0));
+                            severityCounts(medium ? 0 : occurrences, medium ? occurrences : 0));
         } else if (path.endsWith("/tools/get_architecture_report")) {
-            body = report();
+            body = report(architectureFindingsMedium);
         } else if (path.endsWith("/tools/get_spring_report")) {
-            body = report().replace("\"classesAnalyzed\":3", "\"componentsAnalyzed\":3");
+            body = report(springFindingsMedium).replace("\"classesAnalyzed\":3", "\"componentsAnalyzed\":3");
         } else if (path.endsWith("/tools/get_database_advisor_report")) {
             body = """
                     {"tablesAnalyzed":1,"rulesEvaluated":5,"violationsFound":0,"rulesSkipped":%d,"rulesErrored":%d,
@@ -1034,7 +1206,7 @@ class CiAssessmentRunnerTests {
                     JsonValue.parse(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             int offset = (int) arguments.get("offset").asLong(0);
             int limit = (int) arguments.get("limit").asLong(200);
-            body = detailPage(offset, limit);
+            body = detailPage(arguments.get("id").asString(null), offset, limit);
         } else {
             body = "{}";
         }
@@ -1152,13 +1324,16 @@ class CiAssessmentRunnerTests {
         return JsonWriter.pretty(JsonValue.object(legacy));
     }
 
-    private String report() {
+    private String report(boolean medium) {
         String results = finding
                 ? java.util.stream.IntStream.range(0, findingRuleCount)
                         .mapToObj(index -> """
-                                {"id":"ARCH-%03d","severity":"HIGH","status":"VIOLATION","violationCount":%d,
+                                {"id":"ARCH-%03d","severity":"%s","status":"VIOLATION","violationCount":%d,
                                  "dismissed":false,"suppressedCount":0}
-                                """.formatted(index + 1, findingCount / findingRuleCount))
+                                """.formatted(
+                                        reverseFindingOrder ? findingRuleCount - index : index + 1,
+                                        medium ? "MEDIUM" : "HIGH",
+                                        findingCount / findingRuleCount))
                         .collect(java.util.stream.Collectors.joining(",", "[", "]"))
                 : "[]";
         return """
@@ -1173,7 +1348,9 @@ class CiAssessmentRunnerTests {
                 rulesEvaluated,
                 finding ? findingRuleCount : 0,
                 results,
-                reportSeverityCounts != null ? reportSeverityCounts : severityCounts(finding ? findingCount : 0, 0),
+                reportSeverityCounts != null
+                        ? reportSeverityCounts
+                        : severityCounts(finding && !medium ? findingCount : 0, finding && medium ? findingCount : 0),
                 finding ? findingCount : 0,
                 finding ? findingCount : 0);
     }
@@ -1185,16 +1362,18 @@ class CiAssessmentRunnerTests {
                 """.formatted(high, medium);
     }
 
-    private String detailPage(int offset, int limit) {
+    private String detailPage(String ruleId, int offset, int limit) {
         detailRequests++;
-        int returned = Math.min(limit, findingCount - offset);
-        int reportedTotal = mismatchSecondPage && offset > 0 ? findingCount + 1 : findingCount;
+        int perRule = findingCount / findingRuleCount;
+        int returned = Math.min(limit, perRule - offset);
+        int reportedTotal = mismatchSecondPage && offset > 0 ? perRule + 1 : perRule;
         return """
-                {"scanId":"scan-12345678","ruleId":"ARCH-001","violationCount":%d,"retainedCount":%d,
+                {"scanId":"scan-12345678","ruleId":"%s","violationCount":%d,"retainedCount":%d,
                  "truncated":false,"violations":[%s],
                  "page":{"total":%d,"matched":%d,"offset":%d,"limit":%d,"returned":%d,"hasMore":%s},
                  "identities":[],"suppressed":[],"suppressedCount":0}
                 """.formatted(
+                        ruleId,
                         reportedTotal,
                         reportedTotal,
                         java.util.Collections.nCopies(returned, "\"private-finding-payload\"").stream()

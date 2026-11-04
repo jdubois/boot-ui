@@ -17,6 +17,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   application.
 - **Report-only CI runtime context** adds an opt-in bounded, sanitized Runtime Insights projection to CI assessment
   bundles and summaries without changing advisor verdicts.
+- **CI summaries** show bounded rule IDs, severities, counts, threshold matches, and assessment error codes.
 
 ### Changed
 
