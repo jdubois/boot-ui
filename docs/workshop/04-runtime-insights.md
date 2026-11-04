@@ -1,6 +1,9 @@
 # 04 - Runtime Insights
 
-**Time:** 25 minutes. **Goal:** Reproduce observations and use counterexamples without overstating coverage.
+**Time:** 25 minutes. **Goal:** Test whether the repeated order queries are a reproducible pattern.
+
+One request suggested N+1 database work. Now test that explanation against repeated requests and the control.
+Do not turn an isolated trace or an advisor warning into an application-wide performance claim.
 
 ## Collect comparable samples
 
@@ -23,10 +26,9 @@ PowerShell:
 ```
 
 If a request fails, stop and resolve the displayed error; an incomplete loop is not six samples. Wait briefly for
-journal processing, then open **Runtime Insights** and search for the original route. Open the **Repeated SELECTs**
-group to see that route's observation directly. If several match, choose the route in **Observation**.
-Search also reveals its observations on older releases. The CLI's compact default omits repeated SELECTs, so request
-the kind explicitly:
+journal processing, then open **Runtime Insights**, search for the original route, expand the **Repeated SELECTs**
+group, and select the route in **Observation**. Search reveals observations that may be omitted from the default
+list. The CLI's compact default also omits repeated SELECTs, so request the kind explicitly:
 
 ```bash
 bootui insights list --query repeated-selects --json
@@ -46,7 +48,14 @@ recommendation alone is not proof: open its request SQL, check coverage, and com
 **SQL Trace** gives request detail; the **Hibernate** advisor explains a mapping/query risk; **Runtime Insights**
 aggregates observed behavior across requests. They are complementary, not three independent proofs of root cause.
 
-## Explain the import and transaction boundary
+![Runtime Insights with Repeated SELECTs expanded for the original order route across six requests](../images/workshop-04-runtime-insights-repeated-selects.webp)
+
+*Illustrative reference: six requests reproduce the same customer SELECT pattern; explain it before accepting a recommendation.*
+
+## Side investigation: what transaction evidence adds
+
+Keep this short and separate from the query fix. These fixtures practice the same habit: compare observed behavior
+with intended behavior instead of treating a label or annotation as the answer.
 
 Find the import observation after Chapter 03's request. Inspect its HTTP success and failure evidence. Follow its
 exemplar rather than guessing from a title.
@@ -62,14 +71,16 @@ Use `Invoke-RestMethod -Method Post ... -ErrorAction Stop` on PowerShell. The co
 the ship control writes its audit in the same transaction. Compare transaction identities/relationships. These
 are demonstration updates to seeded rows, not production operations.
 
-The workshop's pinned 2.3.0 can label confirm's independent audit child `PARTICIPATING` in `bootui tx list --json`.
-Use the journal's `REQUIRES_NEW` boundary and the two-connection confirm versus one-connection ship evidence. The
-mismatch is a diagnostic bug, not incorrect Spring behavior; do not change the sample to hide it.
+For the audit, inspect the request's journal/activity transaction detail (`REQUIRES_NEW`) and separate connection
+ids. The workshop's pinned 2.3.0 compact `bootui tx list` can label this child `PARTICIPATING`; released
+servers through 2.3.0 have this diagnostic bug. Do not use the compact label alone to contradict the journal and
+source or change the sample to hide the mismatch; this summary limitation is not evidence that Spring executed the
+transactions incorrectly.
 
 ::: details Boundary labels in corrected builds
-Released servers through 2.3.0 have this compact-label bug. Builds containing the correction use `REQUIRES_NEW` for
-confirm's audit child. `NEW` means a physical begin without a known parent, not a declared annotation. The journal
-keeps its historical root `REQUIRED` label. Savepoints are `NESTED`, not independent commits.
+Builds containing the correction use `REQUIRES_NEW` for confirm's audit child. `NEW` means a physical begin without a
+known parent, not a declared annotation. The journal keeps its historical root `REQUIRED` label. Savepoints are
+`NESTED`, not independent commits.
 :::
 
 If time remains, compare `/api/insights/orders/5/recalculate` with `/5/recalculate-through-bean` using POST.
@@ -98,7 +109,9 @@ None of the last five is a passing assessment. These observations do not subtrac
 ## Checkpoint and break
 
 Record one observation, its positive route and counterexample, sample size, source limits, and verification task.
-Choose the eager-order query problem for the capstone. Do not approve code changes yet.
+For the eager-order investigation, state whether your original hypothesis survived the control and repeated samples.
+You now have a reproducible problem; after the break you will attribute its work to an executed method and save the
+baseline needed to verify a fix. Do not approve code changes yet.
 
 **Take the scheduled ten-minute break.** If setup is behind, pair with a working participant rather than skipping
 the later verification steps.

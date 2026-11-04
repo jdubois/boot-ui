@@ -31,6 +31,10 @@ Open **Runtime Insights -> JFR profile** and review a labeled facilitator captur
 using the panel's available settings. Send only a small agreed workload while it records, then stop and inspect.
 Do not capture heap dumps or export raw recordings by default.
 
+![Runtime Insights JFR profile tab idle with a Profile resources button and bounded recording instructions](../images/workshop-appendix-d-jfr-profile-ready.webp)
+
+*Illustrative reference: opening the JFR tab does not start recording. Agree on the workload and approve a bounded recording first.*
+
 Compare JFR sampling with Code Paths' method timing. They answer different questions: sampled CPU/allocation is not
 total/self instrumented duration, and lack of a sample does not prove a method never ran.
 

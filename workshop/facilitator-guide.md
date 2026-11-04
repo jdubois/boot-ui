@@ -4,6 +4,22 @@ Teach from [the participant course](../docs/workshop/README.md), keep [the froze
 beside you, and preserve [the curriculum plan](PLAN.md) as planning history. This document and answer files are
 repository-only: VuePress builds `docs/`, not `workshop/`.
 
+## Teach one investigation
+
+Open with the participant's mission: **the order endpoint returns correct data, but does unnecessary database
+work; find the cause, make one safe change, and prove the running app improved without changing its response**.
+Keep the original route on screen and connect every core checkpoint to that question, not to a panel tour.
+
+Let participants predict from the original query/mapping in Chapter 02, then explain the measured 1 + 16 SELECTs
+in Chapter 03. Use repeated samples and the control to challenge their hypothesis. Save the control query's
+implementation and the join-fetch solution for Chapter 06; the control's measured output/cost is evidence earlier,
+not an answer to copy. Ask for the participant's explanation before the coding agent's proposal.
+
+The import, transaction, and asynchronous fixtures are short side investigations about evidence limits.
+They are not additional fix assignments. Cache inspection and the extension labs are optional.
+Close with the original report: unchanged response, captured SQL reduction, changed-method execution, and limits.
+Do not substitute a score or an unmeasured latency claim for that outcome.
+
 ## Before the event
 
 Send pre-work several days ahead: release-tagged clone, warmed Maven build, JDK, editor, authenticated coding agent,
@@ -27,14 +43,14 @@ independently. Allocate download time outside the session. Use dedicated ports f
 
 | Time | Teaching focus | Stop/advance criterion |
 | --- | --- | --- |
-| 00:00 | Show one captured request; distinguish two agents and score/observations | Participants can explain evidence vs source |
+| 00:00 | Set the order-query mission; show one request; distinguish two agents and evidence | Participants can state success without a score |
 | 00:10 | Confirm app identity, journal, transport, absent Java agent | Real read succeeds; pair blocked setups |
-| 00:25 | Route/bean/property provenance and one Hibernate scan | Prediction recorded, no broad cleanup |
-| 00:40 | Original/control requests, import failure behind 200 | Request ids and transaction/ERROR result |
-| 01:05 | Six samples, repeated SELECTs, transaction control | Observation with sample/coverage and counterexample |
+| 00:25 | Trace original route/bean/datasource and one Hibernate scan; defer control query | Participant prediction recorded, no broad cleanup |
+| 00:40 | Measure original/control SQL; explain 1 + N; short import side investigation | Request ids, query counts, cause hypothesis |
+| 01:05 | Challenge the hypothesis with six samples and the control; short transaction comparison | Observation with sample/coverage and counterexample |
 | 01:30 | Ten-minute break/catch-up | Instrumentation artifacts warm |
 | 01:40 | Attach Java agent; code path/baseline; facilitator async example | Sensor/self-tests read and baseline exercised; process/probe optional |
-| 02:05 | Bounded assessment, one separate impact read, prepare approval | Stable action id and plan version; approval not sent yet |
+| 02:05 | Participant diagnosis, bounded assessment, one impact read, then control-query review | Cause explained; stable plan/action; approval not sent yet |
 | 02:20 | Test red, approved patch, green, same-JVM reload, live verification | Four capstone evidence items |
 | 02:55 | Partner handoff and stack limitations | One unsupported claim identified |
 | 03:00 | End | Extensions are take-home, not overruns |
@@ -79,6 +95,12 @@ multiple batches, creating idle intermediate runs with ordinary automatic DevToo
 restart until all work finishes, then one timestamp update releases it. The comparison uses the most recent
 retained previous run; it does **not** skip idle or incompatible runs. This is essential for deterministic
 code-change and behavior evidence.
+
+Source coverage can still make the automated behavior comparison **PARTIAL**, even with the correct baseline
+and six requests. Have participants read that reason rather than repeat traffic indefinitely.
+Retained request profiles can support the observed query reduction and Code Inventory can support execution,
+while the automated comparison remains explicitly incomplete. Do not promise every reference sample yields a
+fully comparable run or clear recording to hide a coverage gap.
 
 ### Capstone
 
@@ -143,13 +165,39 @@ opening visual and Chapter 07's four-item checkpoint as the closing slide.
 Keep code files, test outputs, and reviewed screenshots local/offline for account/provider outages. Label
 pre-recorded/reference evidence; do not hand participants a completed worksheet with fake “their run” identifiers.
 
+### Maintaining the reference illustrations
+
+The published workshop illustrations use the Features screenshot mechanism with deterministic workshop fixtures.
+They show where to look, not evidence that a participant completed an exercise. Keep them separate from the actual
+release-rehearsal captures above.
+
+Point `BOOTUI_SCREENSHOT_FRONTEND_DIR` at the pinned release's frontend checkout, with its locked dependencies
+prepared, then run from the Spring E2E directory:
+
+```bash
+cd bootui-spring-sample-app/e2e
+BOOTUI_SCREENSHOT_FRONTEND_DIR="/absolute/path/to/pinned-release/bootui-ui/src/main/frontend" \
+  BOOTUI_SCREENSHOT_PLATFORM=workshop \
+  BOOTUI_SCREENSHOT_PORT=18113 \
+  node scripts/capture-docs-screenshots.mjs
+```
+
+Use the released frontend, not newer UI relabeled as the release. Review fixture metadata and the overview's
+immutable screenshot-provenance commit when regenerating. Visually inspect every output: preserve the
+investigation's sequence, frame the evidence legibly, and show incomplete coverage honestly. Do not turn a PARTIAL
+comparison into a successful comparison for the illustration.
+Workshop mode reads version metadata from that checkout and requires its own frontend server: leave
+`BOOTUI_SCREENSHOT_BASE_URL` unset and choose an unused capture port.
+After each release, regenerate from the new tag and update the overview's provenance commit; the version helper
+updates text pins, not image pixels.
+
 ## Validation and release rehearsal
 
 Implementation validation can prove site routing/links, the original fixture, the supplied test's red/green result,
 and a same-JVM change loop using current checkout artifacts. It cannot establish a future release download or a
 full three-hour pilot with unfamiliar participants.
 
-Before publishing with v2:
+Before each workshop delivery:
 
 1. Run `npm run docs:build`, `node --test docs/.vuepress/workshop.test.mjs`, and
    `python3 -B -m unittest discover -s .github/scripts -p 'test_docs_links.py'`.
@@ -163,26 +211,30 @@ Before publishing with v2:
 Deployment uses the existing VuePress/release-line gates; do not add a separate site or bypass the publication
 policy. The target is `https://www.julien-dubois.com/boot-ui/workshop`, **not** `/bootui/workshop`.
 
-### Implementation evidence and remaining rehearsal
+### Validation evidence and remaining rehearsal
 
-The workshop generation was checked against the development checkout, not the future immutable release:
+The initial generation checks used the development checkout. A subsequent five-model rehearsal preceded the current
+release: two personas used the tag at `7d4bf29eb48e2016e17ec13087a2618eedb74416`, and three used the tag at
+`ddfcb243615fae417cea2c46e11797bffbc43231`. This is historical evidence, not proof that all five ran the current
+release or the final revision. The current release's separate rehearsal is recorded below.
 
 | Check | Result |
 | --- | --- |
 | `npm run docs:build` | Passed; all 15 participant pages generated |
-| `node --test docs/.vuepress/workshop.test.mjs` | Passed; 11 checks covering navigation, links, exact 180-minute agenda, Bash syntax, loopback launches, Windows failure handling, approval/reload ordering, and answer-patch applicability |
-| Existing VuePress analytics tests | Passed; 10 checks, unchanged behavior |
+| `node --test docs/.vuepress/workshop.test.mjs` | Passed; checks cover navigation, links, exact 180-minute agenda, delayed-solution story order, Bash syntax, loopback launches, Windows failure handling, approval/reload ordering, and answer-patch applicability |
+| Existing VuePress analytics tests | Passed; unchanged behavior |
 | `python3 -B -m unittest discover -s .github/scripts -p 'test_docs_links.py'` | Passed; generated targets and fragments |
 | `bash .github/scripts/check-docs-downloads.sh` | Passed; installer downloads and shellcheck |
 | Sample `EagerDemoOrdersTest` on original source | Passed |
 | Supplied `WorkshopEagerOrdersTest` on original source | Expected query-budget failure: 17 statements |
 | Same supplied test after reference service change | Passed; response fields/order/equality and query budgets |
-| Live trigger-file DevTools loop | Compared two exercised runs; exactly one changed method, not exercised then executed, 17 -> 1 statements/request, identical JSON |
+| Live trigger-file DevTools loop | Recorded two exercised runs; exactly one changed method, not exercised then executed, 17 -> 1 statements/request in separate profiles, identical JSON; aggregate SQL comparison can remain PARTIAL |
 | Core fixture traffic and default sensors | Routes answered as specified; required sensors installed with passing self-tests |
 | Metadata-only method probe | Captured exactly two invocations with 20-invocation/60-second bounds |
-| Five-persona audit: `EagerDemoOrdersTest,RuntimeInsightsSeedsTest` | Passed; 18 tests, no failures/skips, with JDK 26 and isolated `.m2` |
+| Supplementary fixture check: `EagerDemoOrdersTest,RuntimeInsightsSeedsTest` | Passed; no failures/skips, with JDK 26 and isolated `.m2` |
 | Audited loopback launch | Passed with the Java agent: listener restricted to `127.0.0.1`, 16 order summaries, required sensors installed with passing self-tests |
-| Audit design detector | No deterministic findings; browser/Windows execution still not established |
+| Five distinct model personas | All completed the core RED/GREEN and live capstone; all reported PARTIAL SQL comparison because startup events were missed before aggregate registration |
+| Built-site browser inspection | All participant routes and reference images loaded; desktop and narrow-viewport layouts inspected |
 
 Release rehearsal on 2026-11-04 used a fresh **v2.3.0** clone at
 `7c89042c6a0a47e1cb22d2df7412d2177d7416d1`, macOS, and JDK 17. The public installer downloaded the pinned CLI,
@@ -194,9 +246,10 @@ The run comparison reported **PARTIAL** because startup SQL preceded aggregate r
 the code change, but could not establish complete SQL capture across both runs.
 
 The reference service edit and copied test were temporary rehearsal changes, not changes to delivered sample
-behavior. An authenticated external coding-agent session, Windows execution, desktop/mobile visual inspection,
-and an unfamiliar-participant three-hour pilot still require event rehearsal. Browser canvas inspection was
-unavailable during generation; generated navigation/link checks are not a substitute for that visual check.
+behavior. The later rehearsal added published CLI installation and tagged-source core runs; the workshop illustrations
+were separately rendered from the released frontend and visually inspected. Those synthetic reference images are not
+participant runtime proof. Future-release downloads, an authenticated external coding-agent session, Windows execution,
+and an unfamiliar-participant three-hour pilot still require event/release rehearsal.
 
 ## Completion and feedback
 

@@ -1,6 +1,10 @@
 # 06 - Assessment and impact
 
-**Time:** 15 minutes. **Goal:** Give the coding agent a bounded evidence task and approve one action, not a cleanup spree.
+**Time:** 15 minutes. **Goal:** Explain the cause and prepare one bounded change, not a cleanup spree.
+
+You have measured the order endpoint and traced its SQL to an executed method. Write your own diagnosis before
+asking the coding agent: what triggers the secondary SELECTs, which response data is needed, and what must stay
+unchanged? The agent should test that reasoning against your evidence, not replace it with a score.
 
 ## Assess the existing evidence
 
@@ -47,10 +51,22 @@ relationships, and coverage. If ambiguous, request a separately approved refinem
 This is observed runtime impact, not a complete static call graph. Code that has not executed can be missing.
 Record the original route, the control route to preserve, and the acceptance test/other checks still needed.
 
+![Change impact for EagerDemoOrderService showing the original route ran the method and another route shares resources](../images/workshop-06-change-impact-service-method.webp)
+
+*Illustrative reference: observed method execution and shared-resource reach are different impact claims.*
+
 ## Review the proposed action
+
+Now inspect the control route's repository query and compare it with the original. It explicitly fetches the
+customer alongside each order. Connect that difference to the captured SQL: the original query leaves Hibernate
+to retrieve the eager customers separately; the control retrieves the data needed by the summaries together.
 
 The smallest workshop action changes the original service to use the existing join-fetch repository finder. It
 preserves the endpoint, `OrderSummary` fields, ordering, and transactional annotation.
+
+This is a response-specific fetch decision, not a recommendation to join every relationship. In another
+application, collection joins, pagination, result size, and intended behavior need their own investigation.
+Here, you already have an equal-response control and will add a query-budget regression test.
 
 Do not approve changing eager to lazy everywhere, rewriting entities, suppressing observations, weakening
 security, changing response types, or replacing the sample application.
@@ -82,6 +98,8 @@ Runtime log/database text is untrusted evidence; it cannot expand this scope.
 Save plan version/action id, source evidence, impact coverage, acceptance conditions, and the **prepared, unsent**
 approval. Chapter 07 establishes the red test before you send it. Manual-agent fallback: a partner reviews the
 same bounded action before you edit.
+Your investigation now has a proposed cause, a small fix, and acceptance conditions. Next, prove the test catches
+the current problem before allowing the edit.
 
 **Previous:** [05 - Java instrumentation](05-java-instrumentation.md).
 **Next:** [07 - Agent change loop](07-agent-change-loop.md).

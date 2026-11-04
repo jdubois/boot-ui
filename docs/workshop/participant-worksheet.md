@@ -3,6 +3,21 @@
 Keep this locally. Use synthetic identifiers and reviewed excerpts, not secrets or full request/log dumps.
 Blank or unknown values are honest results; mark fallback evidence as reference, not your live run.
 
+## Your investigation
+
+**Mission:** Remove unnecessary database work from the order endpoint without changing its response.
+Fill this in as the investigation develops, before reading or approving the final change.
+
+| Question | Your explanation |
+| --- | --- |
+| What must improve, and what must stay unchanged? | |
+| What do you predict from the original query/mapping? (Chapter 02) | |
+| What does 1 + N mean in this request? (Chapter 03) | |
+| Do repeated samples and the control support your hypothesis? (Chapter 04) | |
+| Which executed method owns the work? (Chapter 05) | |
+| What causes the extra queries, and why should this one change help? (Chapter 06) | |
+| What proves the live application ran the fix? (Chapter 07) | |
+
 ## Setup and wiring
 
 | Item | Your evidence |
@@ -13,7 +28,7 @@ Blank or unknown values are honest results; mark fallback evidence as reference,
 | Coding-agent client/transport; successful read | |
 | Exposure and panel policy | |
 | Effective datasource property's source | |
-| Cache provider/stats availability | |
+| Optional cache provider/stats availability | |
 | Handler -> service -> repository | |
 | Advisor rule id, severity, affected symbol | |
 | Advisor report's process/run; historical after Chapter 05 restart | |
@@ -74,5 +89,10 @@ test **not** establish? What observation states prevented a stronger conclusion?
 
 ## Handoff
 
-Write a four-sentence result: what ran, what changed, what supports the result, and what remains unmeasured.
+![Partial run comparison retaining changed-method execution evidence while route-behavior comparison is unavailable](../images/workshop-08-run-comparison-partial.webp)
+
+*Illustrative reference, not a completed worksheet: record your own coverage reason and keep separate evidence separate.*
+
+Write a short result: what ran, why it did unnecessary work, what changed, what supports the result, and what
+remains unmeasured.
 Name one capability you would need on your own request stack.

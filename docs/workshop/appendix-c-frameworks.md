@@ -11,6 +11,11 @@ capstone. BootUI does not supply your application's authentication or database p
 
 See [Spring setup](../SETUP.md) and [activation](../setup/activation.md).
 
+![Java Agent panel showing Armed status, matching agent and BootUI versions, and the dev claim mode](../images/workshop-appendix-c-platform-availability.webp)
+
+*Illustrative reference: this is the MVC sample. The claim's dev mode is not framework availability; check the
+overview, panel availability, and individual sensors before transferring the exercise.*
+
 ## Spring WebFlux
 
 In a separate terminal/port and disposable release clone:

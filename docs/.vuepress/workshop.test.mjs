@@ -6,9 +6,14 @@ import {fileURLToPath} from 'node:url'
 import test from 'node:test'
 import {createDocsSidebar} from './sidebar.js'
 import {toDocLink} from './doc-links.js'
+import {
+  createWorkshopFixtures,
+  selectScreenshotServer
+} from '../../bootui-spring-sample-app/e2e/scripts/workshop-screenshots.mjs'
 
 const docsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const workshopRoot = path.join(docsRoot, 'workshop')
+const workshopVersion = JSON.parse(fs.readFileSync(path.join(docsRoot, '../package.json'), 'utf8')).version
 const pages = [
   'README.md',
   '00-runtime-understanding.md',
@@ -94,12 +99,175 @@ test('workshop agenda is contiguous and totals exactly 180 minutes including its
   assert.match(content, /\| 01:30-01:40 \| 10 \| Break \|/)
 })
 
+test('every participant page has an illustrated workshop checkpoint with descriptive alt text', () => {
+  for (const page of pages) {
+    const content = fs.readFileSync(path.join(workshopRoot, page), 'utf8')
+    const screenshots = [...content.matchAll(/!\[([^\]]+)\]\((\.\.\/images\/workshop-[^)]+\.webp)\)/g)]
+    assert.ok(screenshots.length > 0, `${page}: missing workshop screenshot`)
+    assert.match(content, /Illustrative reference/, `${page}: label reference imagery, not live proof`)
+    for (const [, alt, href] of screenshots) {
+      assert.ok(alt.length >= 40, `${page}: describe the evidence in ${href}`)
+      const image = fs.readFileSync(path.resolve(workshopRoot, href))
+      assert.equal(image.toString('ascii', 0, 4), 'RIFF', `${page}: ${href}`)
+      assert.equal(image.toString('ascii', 8, 12), 'WEBP', `${page}: ${href}`)
+    }
+  }
+})
+
+test('workshop reference fixtures use the selected release and published Maven coordinates', () => {
+  const fixtures = createWorkshopFixtures({
+    nowMillis: 0,
+    bootUiVersion: '7.8.9',
+    springBootVersion: '4.1.1',
+    panelManifest: {panels: []},
+    cliManifest: {},
+    pagedReport: () => assert.fail('Unexpected pagination')
+  })
+  const agent = fixtures.resolveEndpoint('agent-baseline', 'java-agent', new URL('http://localhost'))
+  assert.equal(agent.agentVersion, '7.8.9')
+  assert.equal(agent.bootUiVersion, '7.8.9')
+  assert.equal(agent.claim.mode, 'dev')
+  assert.match(agent.jarPath, /\/com\/julien-dubois\/bootui\/bootui-agent\/7\.8\.9\/bootui-agent-7\.8\.9\.jar$/)
+  assert.match(
+    agent.setup.snippets.find((snippet) => snippet.id === 'maven-download').text,
+    /-Dartifact=com\.julien-dubois\.bootui:bootui-agent:7\.8\.9/
+  )
+  assert.match(
+    agent.setup.snippets.find((snippet) => snippet.id === 'curl-download').text,
+    /maven2\/com\/julien-dubois\/bootui\/bootui-agent\/7\.8\.9\//
+  )
+})
+
+test('pinned frontend captures cannot silently reuse another server', () => {
+  assert.throws(() => selectScreenshotServer({workshop: true}), /require BOOTUI_SCREENSHOT_FRONTEND_DIR/)
+  for (const pinned of [
+    {workshop: true, frontendOverride: '/released/frontend'},
+    {frontendOverride: '/released/frontend'}
+  ]) {
+    assert.equal(selectScreenshotServer(pinned), 'start')
+    assert.throws(() => selectScreenshotServer({...pinned, serverReady: true}), /start their own frontend/)
+    assert.throws(
+      () => selectScreenshotServer({...pinned, baseUrlOverride: 'http://localhost:5173'}),
+      /start their own frontend/
+    )
+  }
+  assert.equal(selectScreenshotServer({}), 'start')
+  assert.equal(selectScreenshotServer({serverReady: true}), 'reuse')
+  assert.equal(selectScreenshotServer({baseUrlOverride: 'http://localhost:5173'}), 'external')
+})
+
+test('workshop reference evidence uses real call sites and complete route-tree fields', () => {
+  const fixtures = createWorkshopFixtures({
+    nowMillis: 0,
+    bootUiVersion: workshopVersion,
+    springBootVersion: '4.1.1',
+    panelManifest: {panels: []},
+    cliManifest: {tools: []},
+    pagedReport: () => assert.fail('Unexpected pagination')
+  })
+  const resolve = (endpoint) => fixtures.resolveEndpoint('agent-baseline', endpoint, new URL('http://localhost'))
+  const tree = resolve('code-paths/route')
+  assert.equal(tree.found, true)
+  assert.equal(tree.assemblyOnly, false)
+  assert.equal(tree.ownMillis, 18)
+  assert.equal(tree.handlerMillis, 17.6)
+  assert.ok(tree.exemplarRequestIds.length > 0)
+  assert.deepEqual(
+    Object.keys(tree).sort(),
+    [
+      'available',
+      'unavailableReason',
+      'route',
+      'found',
+      'assemblyOnly',
+      'warmRequests',
+      'firstRequestMillis',
+      'firstRequestId',
+      'ownMillis',
+      'handlerMillis',
+      'shareOf',
+      'depth',
+      'nodes',
+      'methods',
+      'exemplarRequestIds',
+      'page',
+      'limitations'
+    ].sort()
+  )
+  assert.ok(resolve('runtime-insights/impact').observed.every((route) => route.check === null))
+  const detail = resolve('runtime-insights/insights/obs-repeated-selects-eager-orders')
+  assert.deepEqual(detail.columns, ['Request', 'Executions', 'Time (ms)', 'Call site', 'Phase', 'In transaction'])
+  assert.equal(
+    detail.rows.reduce((total, row) => total + Number(row.cells[1]), 0),
+    96
+  )
+  assert.equal(Math.round(detail.rows.reduce((total, row) => total + Number(row.cells[2]), 0) * 10), 744)
+  const evidence = JSON.stringify([
+    detail,
+    resolve('activity/request/req-eager-01'),
+    resolve('activity/request/req-eager-01/journal')
+  ])
+  const callSites = [...evidence.matchAll(/((?:[\w$]+\.)+[\w$]+)\.(\w+)\((\w+)\.java:(\d+)\)/g)]
+  assert.ok(callSites.length > 0)
+  for (const [, className, method, file, line] of callSites) {
+    const sourcePath = path.join(
+      docsRoot,
+      '../bootui-spring-sample-app/src/main/java',
+      `${className.replaceAll('.', '/')}.java`
+    )
+    const source = fs.readFileSync(sourcePath, 'utf8').split('\n')
+    assert.ok(source[Number(line) - 1]?.trim(), `${file}:${line}`)
+    if (file === 'EagerDemoOrderService' && method === 'listWithSecondarySelects') {
+      assert.match(source[Number(line) - 1], /findWithSecondarySelects/)
+    }
+  }
+})
+
+test('release captures read panel and tool manifests from the selected checkout', () => {
+  const capture = fs.readFileSync(
+    path.join(docsRoot, '../bootui-spring-sample-app/e2e/scripts/capture-docs-screenshots.mjs'),
+    'utf8'
+  )
+  assert.match(capture, /const panelManifest[\s\S]*?metadataRoot,\s*'bootui-conformance/)
+  assert.match(capture, /const cliManifestPath = path\.join\(metadataRoot, 'bootui-cli'/)
+})
+
+test('documentation CI covers screenshot-only changes and main-branch workshop checks', () => {
+  const v2Workflow = fs.readFileSync(path.join(docsRoot, '../.github/workflows/docs-v2.yml'), 'utf8')
+  assert.match(v2Workflow, /- 'bootui-spring-sample-app\/e2e\/scripts\/\*\*'/)
+  for (const workflow of ['docs-v2.yml', 'pages.yml']) {
+    assert.match(
+      fs.readFileSync(path.join(docsRoot, '../.github/workflows', workflow), 'utf8'),
+      /run: node --test docs\/\.vuepress\/workshop\.test\.mjs/
+    )
+  }
+})
+
+test('the order investigation measures N+1 before revealing the response-preserving fix', () => {
+  const solution = /join[- ]fetch|fetch[- ]join|(?:find|list)WithCustomerJoin/i
+  for (const page of pages.filter((page) => /^0[0-5]-/.test(page))) {
+    const content = fs.readFileSync(path.join(workshopRoot, page), 'utf8')
+    assert.doesNotMatch(content, solution, page)
+  }
+  const journal = fs.readFileSync(path.join(workshopRoot, '03-runtime-journal.md'), 'utf8')
+  assert.match(journal, /1 \+ 16 = 17 SELECTs/)
+  const assessment = fs.readFileSync(path.join(workshopRoot, '06-assessment-and-impact.md'), 'utf8')
+  assert.match(assessment, /Write your own diagnosis[\s\S]*## Assess the existing evidence/)
+  assert.match(assessment, /## Review the proposed action[\s\S]*join-fetch/)
+  assert.doesNotMatch(assessment.split('## Review the proposed action')[0], solution)
+  const worksheet = fs.readFileSync(path.join(workshopRoot, 'participant-worksheet.md'), 'utf8')
+  assert.match(worksheet, /## Your investigation/)
+  assert.match(worksheet, /What proves the live application ran the fix\?/)
+})
+
 test('setup uses the requested workshop directory and introduction has no v2 comparison section', () => {
   for (const file of ['workshop/01-setup-and-tooling.md', '../workshop/PLAN.md']) {
     const content = fs.readFileSync(path.join(docsRoot, file), 'utf8')
-    assert.match(
-      content,
-      /git clone --branch v2\.3\.0 --depth 1 https:\/\/github\.com\/jdubois\/boot-ui\.git workshop\ncd workshop/
+    assert.ok(
+      content.includes(
+        `git clone --branch v${workshopVersion} --depth 1 https://github.com/jdubois/boot-ui.git workshop\ncd workshop`
+      ),
+      `${file}: workshop clone must match the project release`
     )
     assert.doesNotMatch(content, /bootui-v2-workshop/)
   }
@@ -176,6 +344,14 @@ test('instrumentation optional labs and lost historical evidence are explicit', 
   assert.match(instrumentation, /loses cached advisor reports/)
   assert.match(assessment, /historical worksheet note/)
   assert.match(frameworks, /PostgreSQL Dev Services and requires a\nrunning Docker/)
+})
+
+test('comparison and transaction summary limits do not invalidate separate live evidence', () => {
+  const capstone = fs.readFileSync(path.join(workshopRoot, '07-agent-change-loop.md'), 'utf8')
+  const insights = fs.readFileSync(path.join(workshopRoot, '04-runtime-insights.md'), 'utf8')
+  assert.match(capstone, /PARTIAL[\s\S]*More traffic cannot restore those missing events/)
+  assert.match(capstone, /separate sources of evidence, not a successful automated run comparison/)
+  assert.match(insights, /bootui tx list[\s\S]*PARTICIPATING[\s\S]*summary limitation/)
 })
 
 test('reference answer is applicable without editing the sample fixture', () => {
