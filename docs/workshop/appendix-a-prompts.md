@@ -29,6 +29,10 @@ Approve the server according to that client's trust dialog, then verify a real `
 If MCP is unavailable, explicitly authorize read-only `bootui` CLI diagnostics against the same loopback app.
 CLI transport does not require MCP enabled. Neither transport installs the consumer skill or Java agent.
 
+![MCP Server panel showing an enabled local endpoint, connection details, and the application assessment prompt](../images/workshop-appendix-a-mcp-and-agent-setup.webp)
+
+*Illustrative reference: use your application's port, not the capture port shown here. Connection is not permission to scan or mutate.*
+
 ## Assess existing evidence
 
 ```text

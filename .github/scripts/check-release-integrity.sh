@@ -151,6 +151,8 @@ require_literal 'fs.writeFileSync(path, JSON.stringify(plugin, null, 2) + "\n");
 require_literal 'fs.readFileSync("plugins/bootui/plugin.json", "utf8")' \
   'portable plugin immutable version read'
 require_literal 'if (plugin.version !== process.argv[1]) {' 'portable plugin release version verification'
+require_literal 'python3 .github/scripts/workshop-version.py update "$VERSION"' 'workshop release version update'
+require_literal 'python3 .github/scripts/workshop-version.py check "$VERSION"' 'workshop immutable release version check'
 require_literal 'python3 .github/scripts/assemble_central_bundle.py "$LOCAL_REPO" "$VERSION" target/central-bundle.zip' \
   'Central bundle assembled from the installed release'
 require_literal 'python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip' \
@@ -548,6 +550,14 @@ require_order '- name: Checkout immutable release' 'if (plugin.version !== proce
   'the portable plugin version must be read from the immutable release checkout'
 require_order 'if (plugin.version !== process.argv[1]) {' '- name: Publish to Maven Central' \
   'the portable plugin version must be verified before publication'
+require_order './mvnw -B -ntp versions:set' 'python3 .github/scripts/workshop-version.py update "$VERSION"' \
+  'the workshop version must be updated after release version validation'
+require_order 'python3 .github/scripts/workshop-version.py update "$VERSION"' './mvnw -B -ntp -Prelease clean verify' \
+  'the workshop version must be updated before release verification and sealing'
+require_order '- name: Checkout immutable release' 'python3 .github/scripts/workshop-version.py check "$VERSION"' \
+  'the workshop version must be checked from the immutable release checkout'
+require_order 'python3 .github/scripts/workshop-version.py check "$VERSION"' '- name: Publish to Maven Central' \
+  'the workshop version must be checked before publication'
 require_order 'REMOTE_SOURCE_SHA=' 'git tag -s "$TAG"' \
   'the source branch advancement guard must run before tag creation'
 require_order 'git commit -m "Release $TAG"' 'git tag -s "$TAG"' \

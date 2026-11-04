@@ -1,21 +1,32 @@
 # BootUI workshop
 
-Understand a running application, find a problem from runtime evidence, and verify a focused fix with an AI coding
-agent. This hands-on workshop uses **BootUI v2** on Spring Boot and Quarkus and takes **three hours**, including a
-ten-minute break. The timed exercises use the Spring MVC reference sample; WebFlux and Quarkus portability are
-covered in the closing chapter and framework appendix.
+Your order endpoint returns correct data, but performs unnecessary database work. Find out why, make one safe
+change with an AI coding agent, and prove that the running application does less work without changing its response.
+
+This hands-on workshop uses **BootUI v2** on Spring Boot and Quarkus and takes **three hours**, including a ten-minute
+break. The timed investigation uses the Spring MVC reference sample; WebFlux and Quarkus portability are covered
+in the closing chapter and framework appendix.
 
 **[Start the workshop](00-runtime-understanding.md)**, or complete the
 [setup pre-work](01-setup-and-tooling.md#before-the-session) first.
 
 ## What you will investigate
 
-You inherit a small order service. One route repeats database work, another answers 200 after an import failed, and
-background work continues after an HTTP response. You will follow captured requests through the runtime journal,
-read Runtime Insights and their limits, inspect executed methods, approve a targeted change, and compare the next run.
+You inherit a small order service with two endpoints that return the same summaries. One is your investigation
+target; the other is a control. You will trace a request to its code, count its SQL, explain the repeated work,
+and choose a narrowly scoped fix. You do not need to know BootUI or the answer in advance.
 
-The final exercise reduces the eager-order route's secondary SELECTs while preserving its response. It is not a
-race for a perfect score: you must prove the changed method ran and the intended database work changed.
+![Request profile showing 17 SQL statements: one order query and 16 repeated customer queries](../images/workshop-00-request-profile-n-plus-one.webp)
+
+*Illustrative reference: start with the correct response and its unnecessary SQL, not a proposed fix.*
+
+By the end, your evidence should answer four questions: **What was unnecessary? Why did it happen? What changed?
+How do you know the live application ran the fix?** A passing regression test and unchanged response protect
+correctness; before/after request profiles establish the SQL reduction. Query count is the primary measure here,
+not a promised latency improvement or a perfect Scorecard.
+
+Two short side investigations show why HTTP 200 does not prove a business operation succeeded and why work can
+continue after a response. They support the same evidence discipline; fixing those fixtures is not your mission.
 
 ## Prerequisites
 
@@ -35,22 +46,26 @@ Use the exact release the facilitator specifies; this edition pins **2.3.0**. Do
 
 | Elapsed time | Minutes | Chapter | Checkpoint |
 | --- | --- | --- | --- |
-| 00:00-00:10 | 10 | [00 - Runtime understanding](00-runtime-understanding.md) | Separate observations, advisors, and the two agents |
+| 00:00-00:10 | 10 | [00 - Runtime understanding](00-runtime-understanding.md) | Define the mission and what would prove a fix |
 | 00:10-00:25 | 15 | [01 - Setup and tooling](01-setup-and-tooling.md) | Correct app, safe exposure, working diagnostic read |
-| 00:25-00:40 | 15 | [02 - Configuration and wiring](02-configuration-and-wiring.md) | Route, bean, and effective property source |
-| 00:40-01:05 | 25 | [03 - Runtime journal](03-runtime-journal.md) | Request identity and a failure behind HTTP 200 |
-| 01:05-01:30 | 25 | [04 - Runtime Insights](04-runtime-insights.md) | Observation, counterexample, and coverage |
+| 00:25-00:40 | 15 | [02 - Configuration and wiring](02-configuration-and-wiring.md) | Find the owning code and predict its database work |
+| 00:40-01:05 | 25 | [03 - Runtime journal](03-runtime-journal.md) | Measure the original/control requests and explain 1 + N |
+| 01:05-01:30 | 25 | [04 - Runtime Insights](04-runtime-insights.md) | Reproduce the pattern and challenge the hypothesis |
 | 01:30-01:40 | 10 | Break | Catch up or pair with a working participant |
-| 01:40-02:05 | 25 | [05 - Java instrumentation](05-java-instrumentation.md) | Instrumented baseline, code path, and async demonstration |
-| 02:05-02:20 | 15 | [06 - Assessment and impact](06-assessment-and-impact.md) | One scoped action and prepared approval with affected routes |
-| 02:20-02:55 | 35 | [07 - Agent change loop](07-agent-change-loop.md) | Tested fix, executed method, comparable SQL reduction |
-| 02:55-03:00 | 5 | [08 - Going further](08-going-further.md) | Explain the evidence and your stack's limits |
+| 01:40-02:05 | 25 | [05 - Java instrumentation](05-java-instrumentation.md) | Attribute the SQL to an executed method and save a new baseline |
+| 02:05-02:20 | 15 | [06 - Assessment and impact](06-assessment-and-impact.md) | Explain the cause and prepare one bounded change |
+| 02:20-02:55 | 35 | [07 - Agent change loop](07-agent-change-loop.md) | Prove the live fix reduces SQL without changing the response |
+| 02:55-03:00 | 5 | [08 - Going further](08-going-further.md) | Hand off the result and explain what remains unmeasured |
 
 Optional challenges are done only with spare time; process/probe exercises can be facilitator demonstrations or
 take-home work. The [extension labs](appendix-d-extensions.md) are for later, not extra requirements squeezed into
 three hours. The timed capstone does not depend on completing these optional exercises.
 
 ## How to work
+
+Screenshots use the released frontend at commit `7c89042c6a0a47e1cb22d2df7412d2177d7416d1` with deterministic,
+synthetic workshop data, captured through the same browser tooling as the Features screenshots. They are visual
+references, not participant-run evidence or latency benchmarks. Record your own counts, identities, and coverage.
 
 Keep a local copy of the [participant worksheet](participant-worksheet.md). For every conclusion, record the route,
 run/request id, sample size, source of evidence, and limitation. Work through the chapters in order.

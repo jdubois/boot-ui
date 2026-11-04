@@ -2,6 +2,10 @@
 
 **Time:** 25 minutes. **Goal:** Inspect executed code and establish an instrumented baseline.
 
+You have reproduced the unnecessary SQL. Before editing, answer two stronger questions: which application method
+produced it, and how will you prove that the live process executed a changed version of that method?
+The Java agent supplies this additional evidence; it does not choose or apply your fix.
+
 Budget ten minutes for attachment/identity/self-tests, ten for code paths and the eager-order baseline, and five
 for a facilitator-led async example. Process and probe exercises below are optional demonstrations or take-home
 work, not extra prerequisites for completing the capstone.
@@ -53,6 +57,7 @@ Check that the overview's application/port matches the browser, then note the ne
 Check individual sensors, installed hooks, self-test outcomes, and limits. `ARMED` alone is insufficient.
 For this chapter you need `executors`, `inventory`, `code-paths`, and the relevant side-effect sensors.
 The default set includes processes/network/files/blocking/resources too; leave switches unchanged for run comparison.
+For CLI hook/step details, use `bootui agent status --query executors --json`, substituting the sensor you are checking.
 
 A rejected sensor or failed hook is a checkpoint failure, not permission to claim it recorded nothing.
 Use the documented [Java agent setup](../setup/java-agent.md) and [troubleshooting](appendix-b-troubleshooting.md).
@@ -61,6 +66,7 @@ Use the documented [Java agent setup](../setup/java-agent.md) and [troubleshooti
 
 Repeat Chapter 04's six sequential calls to both eager-order routes. In **Code Paths**, select the original route.
 Find `EagerDemoOrderService#listWithSecondarySelects` and SQL attributed under it.
+Allow about two seconds for request trees to settle before refreshing; an immediately empty tree is not zero execution.
 
 Compare total time and self time. Instrumented method durations are not sampled CPU time. Trees have depth/row
 limits, and public/protected application-bean coverage is not all JVM code. Excluded/unobservable methods are not zero.
@@ -68,7 +74,14 @@ limits, and public/protected application-bean coverage is not all JVM code. Excl
 In **Code Inventory**, find the service and mark that the target method executed in this run. Find one unexecuted
 method and distinguish “not exercised” from “unnecessary code.”
 
-## Follow work after the response (facilitator-led)
+![Code Paths for the original order route linking its controller and service method to 17 SQL calls per request](../images/workshop-05-code-paths-route-tree.webp)
+
+*Illustrative reference: attribute the SQL to the executed service method. Method timing is not sampled CPU time.*
+
+## Side investigation: work after the response (facilitator-led)
+
+This five-minute demonstration explains a coverage limit, not another problem to fix. Return to the order
+baseline afterward; your capstone does not depend on changing either asynchronous fixture.
 
 ```bash
 curl -fsS "$BOOTUI_URL/api/insights/orders/after-response"
@@ -118,6 +131,8 @@ executed in the current run. Record the facilitator's async example as demonstra
 For optional process/probe work, record results or **not performed**, including bounds and coverage limits.
 Preserve this JVM and its instrumented baseline for Chapters 06-07.
 Do not clear recording, switch sensors, or full-stop it now.
+You now have the measured route, its executed code path, and a baseline. Next, turn your diagnosis into one
+reviewable proposal.
 
 **Previous:** [04 - Runtime Insights](04-runtime-insights.md).
 **Next:** [06 - Assessment and impact](06-assessment-and-impact.md).
