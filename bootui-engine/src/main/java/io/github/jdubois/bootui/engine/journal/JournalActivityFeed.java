@@ -657,7 +657,7 @@ public final class JournalActivityFeed {
                     id,
                     TYPE_TRANSACTION,
                     event,
-                    transaction.rolledBack() ? SEVERITY_WARN : SEVERITY_OK,
+                    !transaction.begun() ? SEVERITY_ERROR : transaction.rolledBack() ? SEVERITY_WARN : SEVERITY_OK,
                     transaction.method() == null ? "Transaction" : transaction.method(),
                     transactionDetail(transaction),
                     durationMs,
@@ -903,7 +903,8 @@ public final class JournalActivityFeed {
      * REQUIRES_NEW · REPEATABLE_READ · UnexpectedRollbackException}.
      */
     static String transactionDetail(TransactionPayload transaction) {
-        StringBuilder detail = new StringBuilder(transaction.rolledBack() ? "rolled back" : "committed");
+        StringBuilder detail = new StringBuilder(
+                !transaction.begun() ? "begin failed" : transaction.rolledBack() ? "rolled back" : "committed");
         if (transaction.rollbackOnly()) {
             detail.append(" (rollback-only)");
         }

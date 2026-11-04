@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Compact transaction labels distinguish physical children and savepoints** instead of calling them `PARTICIPATING`;
+  failed or unverified boundaries report `UNKNOWN` ([#1595](https://github.com/jdubois/boot-ui/issues/1595)).
+
 ## [2.3.0] - 2026-11-04
 
 This release adds bounded thread investigations and six application-improvement playbooks, and makes Runtime Insights

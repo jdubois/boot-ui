@@ -107,6 +107,7 @@ public final class AfterCommitWrites implements Observation {
             ProjectedRequest request, RuntimeEvent statement, long completed, long from, long to) {
         for (RuntimeEvent event : request.children(JournalSource.TRANSACTION)) {
             if (event.payload() instanceof TransactionPayload transaction
+                    && transaction.begun()
                     && transaction.startNanos() >= from
                     && transaction.startNanos() <= to
                     && completed >= transaction.startNanos()

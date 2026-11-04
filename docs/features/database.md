@@ -449,14 +449,29 @@ Boot's transaction-manager customization. It composes with your own listeners; m
 configurable listener SPI stay unobserved. On WebFlux this covers blocking managers used on a Reactor `boundedElastic`
 worker and a `ReactiveTransactionManager` such as R2DBC's, recorded without a thread-bound parent or isolation
 ([WebFlux support](../WEBFLUX-SUPPORT.md)). SQL and connection counts describe JDBC work on the begin thread, so zero
-counts do not prove that no database work occurred.
+counts do not prove that no database work occurred. JTA retains isolation bound at begin, but has no inferred parent.
 
-Each transaction records the boundary name (typically `ClassName.methodName`), a best-effort `propagation`
-(`NEW` or `PARTICIPATING`), the isolation level, the outcome (`COMMITTED`, `ROLLED_BACK`, or `UNKNOWN`), timestamps and
+Each transaction records the boundary name (typically `ClassName.methodName`), an observed `propagation`,
+the isolation level, the outcome (`COMMITTED`, `ROLLED_BACK`, or `UNKNOWN`), timestamps and
 duration, the enclosing transaction id, the thread, and the trace id. Each entry is correlated by thread and time window
 to SQL Trace executions, showing how many statements and connections it touched.
 
+| `propagation` | Observed boundary, not the declared annotation |
+| --- | --- |
+| `NEW` | Physical transaction without a known enclosing recorded boundary |
+| `REQUIRES_NEW` | Child physical transaction, independent of the enclosing transaction's commit or rollback |
+| `NESTED` | Savepoint inside the enclosing physical transaction, not an independent commit |
+| `UNKNOWN` | Begin failed, or physical-versus-savepoint ownership could not be established |
+
+A method joining an existing transaction creates no extra boundary. Parent ids describe logical nesting, not shared
+physical ownership. The journal's historical root label `REQUIRED` means the same observed boundary as compact `NEW`;
+neither proves what propagation was declared. Reactive and JTA capture do not infer a thread-bound parent hierarchy. Native nested work without a verified savepoint
+has `UNKNOWN` ownership rather than being presented as an independent commit or a savepoint.
+Released servers through 2.3.0 can still return the former `PARTICIPATING` label incorrectly for an independent
+physical child. This correction is not included in those releases.
+
 When the opt-in MCP Server is enabled on Spring MVC or WebFlux, `get_transactions` exposes the same bounded report.
+The CLI's `bootui tx list --json` preserves these values as returned by the server.
 
 :::
 

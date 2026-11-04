@@ -4,11 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.TransactionEntryDto;
 import io.github.jdubois.bootui.core.dto.TransactionReport;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.TransactionPayload;
 import io.github.jdubois.bootui.engine.mcp.McpControlAcks;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
 import io.github.jdubois.bootui.engine.transactions.TransactionRecorder.Status;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -86,11 +89,97 @@ class TransactionRecorderTests {
                 entries.stream().filter(e -> e.id() == childId).findFirst().orElseThrow();
         TransactionEntryDto parent =
                 entries.stream().filter(e -> e.id() == parentId).findFirst().orElseThrow();
-        assertThat(child.propagation()).isEqualTo(TransactionRecorder.PROPAGATION_PARTICIPATING);
+        assertThat(child.propagation()).isEqualTo("REQUIRES_NEW");
         assertThat(child.parentId()).isEqualTo(parentId);
         assertThat(parent.propagation()).isEqualTo(TransactionRecorder.PROPAGATION_NEW);
         assertThat(parent.parentId()).isNull();
         assertThat(recorder.stats().nestedCount()).isEqualTo(1);
+    }
+
+    @Test
+    void distinguishesPhysicalChildrenSavepointsAndFailedBeginsInBothReports() {
+        TransactionRecorder recorder = recorder(true, 10, 100, 100);
+        List<RuntimeEvent> events = new ArrayList<>();
+        recorder.setRuntimeEventSink(events::add);
+        long parent = recorder.beginTransaction("Outer.run", false, null, "main", null);
+        long child = recorder.beginTransaction("Audit.write", false, null, "main", null);
+        recorder.completeTransaction(child, Status.COMMITTED, null);
+        long savepoint = recorder.beginTransaction("Stock.reserve", false, null, "main", null, true);
+        recorder.completeTransaction(savepoint, Status.ROLLED_BACK, null);
+        long failed = recorder.beginFailedTransaction("Failed.begin", false, "main", null, true);
+        recorder.completeTransaction(failed, Status.UNKNOWN, "begin failed", false, "BeginException");
+        recorder.completeTransaction(parent, Status.ROLLED_BACK, null, true, null);
+
+        assertThat(recorder.recent())
+                .extracting(TransactionEntryDto::propagation)
+                .containsExactly("NEW", "UNKNOWN", "NESTED", "REQUIRES_NEW");
+        assertThat(recorder.recent())
+                .filteredOn(entry -> entry.id() != parent)
+                .allSatisfy(entry -> assertThat(entry.parentId()).isEqualTo(parent));
+        assertThat(events)
+                .extracting(event -> (TransactionPayload) event.payload())
+                .extracting(TransactionPayload::propagation)
+                .containsExactly("REQUIRES_NEW", "NESTED", "UNKNOWN", "REQUIRED");
+        assertThat(events)
+                .extracting(event -> (TransactionPayload) event.payload())
+                .extracting(TransactionPayload::independent)
+                .containsExactly(true, false, false, true);
+        assertThat(((TransactionPayload) events.get(3).payload()).rollbackOnly())
+                .isTrue();
+        long next = recorder.beginTransaction("Next.root", false, null, "main", null);
+        recorder.completeTransaction(next, Status.COMMITTED, null);
+        assertThat(recorder.recent().get(0).parentId()).isNull();
+    }
+
+    @Test
+    void completionOutcomeDoesNotChangeTheObservedPhysicalBoundary() {
+        for (Status status : Status.values()) {
+            TransactionRecorder recorder = recorder(true, 10, 100, 100);
+            long outer = recorder.beginTransaction("Outer", false, null, "main", null);
+            long child = recorder.beginTransaction("Child", false, null, "main", null);
+            recorder.completeTransaction(child, status, "completion", true, "CompletionException");
+            recorder.completeTransaction(outer, status, null);
+            assertThat(recorder.recent().get(1).propagation()).isEqualTo("REQUIRES_NEW");
+            assertThat(recorder.recent().get(1).status()).isEqualTo(status.name());
+        }
+    }
+
+    @Test
+    void aFailedBeginDoesNotClaimSqlOrConnectionsFromItsCaller() {
+        SqlTraceRecorder sql = new SqlTraceRecorder(true, true, false, false, 50, 100, 2000, 200, 5);
+        TransactionRecorder recorder = new TransactionRecorder(true, true, 10, 100, 100, sql);
+        long failed = recorder.beginFailedTransaction("Failed.begin", false, "main", null, true);
+        sql.record(
+                StatementType.STATEMENT,
+                Category.SELECT,
+                "select 1",
+                List.of(),
+                1,
+                true,
+                null,
+                null,
+                0,
+                "caller-connection",
+                "main");
+        recorder.completeTransaction(failed, Status.UNKNOWN, "begin failed");
+        assertThat(recorder.recent()).singleElement().satisfies(entry -> {
+            assertThat(entry.propagation()).isEqualTo("UNKNOWN");
+            assertThat(entry.sqlStatementCount()).isZero();
+            assertThat(entry.connectionCount()).isZero();
+        });
+    }
+
+    @Test
+    void aBoundaryCompletedElsewhereDoesNotBecomeAParentOnItsBeginThread() throws Exception {
+        TransactionRecorder recorder = recorder(true, 10, 100, 100);
+        long first = recorder.beginTransaction("First", false, null, "main", null);
+        Thread other = new Thread(() -> recorder.completeTransaction(first, Status.COMMITTED, null));
+        other.start();
+        other.join();
+        long next = recorder.beginTransaction("Next", false, null, "main", null);
+        recorder.completeTransaction(next, Status.COMMITTED, null);
+        assertThat(recorder.recent().get(0).parentId()).isNull();
+        assertThat(recorder.recent().get(0).propagation()).isEqualTo("NEW");
     }
 
     @Test

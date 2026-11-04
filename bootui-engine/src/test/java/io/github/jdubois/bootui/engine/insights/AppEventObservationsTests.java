@@ -89,6 +89,23 @@ class AppEventObservationsTests {
                 new Child(JournalSource.SQL, MS, sql("insert into audit values (?)", start + 18 * MS)),
                 new Child(
                         JournalSource.TRANSACTION,
+                        4 * MS,
+                        new TransactionPayload(
+                                "AuditService.failedBegin",
+                                false,
+                                false,
+                                false,
+                                start + 15 * MS,
+                                false,
+                                null,
+                                false,
+                                "BeginException",
+                                -1,
+                                -1,
+                                -1,
+                                false)),
+                new Child(
+                        JournalSource.TRANSACTION,
                         3 * MS,
                         new TransactionPayload("AuditService.record", false, false, false, start + 20 * MS)),
                 new Child(JournalSource.SQL, MS, sql("update audit set done = 1", start + 22 * MS)),

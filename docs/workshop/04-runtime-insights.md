@@ -72,8 +72,16 @@ the ship control writes its audit in the same transaction. Compare transaction i
 are demonstration updates to seeded rows, not production operations.
 
 For the audit, inspect the request's journal/activity transaction detail (`REQUIRES_NEW`) and separate connection
-ids. The compact `bootui tx list` can label this child `PARTICIPATING`; this summary limitation is not proof of
-Spring propagation. Do not use that label alone to contradict the journal and source.
+ids. The workshop's pinned 2.3.0 compact `bootui tx list` can label this child `PARTICIPATING`; released
+servers through 2.3.0 have this diagnostic bug. Do not use the compact label alone to contradict the journal and
+source or change the sample to hide the mismatch; this summary limitation is not evidence that Spring executed the
+transactions incorrectly.
+
+::: details Boundary labels in corrected builds
+Builds containing the correction use `REQUIRES_NEW` for confirm's audit child. `NEW` means a physical begin without a
+known parent, not a declared annotation. The journal keeps its historical root `REQUIRED` label. Savepoints are
+`NESTED`, not independent commits.
+:::
 
 If time remains, compare `/api/insights/orders/5/recalculate` with `/5/recalculate-through-bean` using POST.
 Read the self-invocation evidence; an annotation bypass is a proxy-boundary question, not proof a write failed.

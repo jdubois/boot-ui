@@ -126,6 +126,19 @@ class BootUiCliTests {
         assertThat(result.out.strip()).isEqualTo(responseBody);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"NEW", "REQUIRES_NEW", "NESTED", "UNKNOWN", "PARTICIPATING"})
+    void transactionJsonPreservesObservedAndLegacyBoundaryLabels(String propagation) {
+        responseBody =
+                "{\"available\":true,\"entries\":[{\"id\":2,\"parentId\":1,\"propagation\":\"" + propagation + "\"}]}";
+        Result result = run("tx", "list", "--json");
+        assertThat(result.exitCode).isZero();
+        assertThat(result.out.strip()).isEqualTo(responseBody);
+        assertThat(requests)
+                .singleElement()
+                .satisfies(request -> assertThat(request.path).isEqualTo("/bootui/api/cli/tools/get_transactions"));
+    }
+
     @Test
     void pausedJsonStaysByteIdenticalAndRefusedResumesExitOne() {
         responseBody = "{\"entries\":[],\"lowFootprint\":{\"active\":true,\"paused\":true},\"unknown\":1.50}";

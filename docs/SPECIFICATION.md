@@ -2636,7 +2636,7 @@ Data sources:
 Features:
 
 - Capture begin, commit, rollback, and failure outcomes for observed transaction boundaries, including the declared
-  boundary name, best-effort `NEW` or `PARTICIPATING` propagation classification, active JDBC isolation, read-only flag,
+  boundary name, observed `NEW`, `REQUIRES_NEW`, `NESTED`, or `UNKNOWN` boundary classification, active JDBC isolation, read-only flag,
   start/end timestamps, duration, thread, trace id, and error details.
 - Retain completed transactions most-recent-first in a configurable bounded ring buffer and render parent/child links
   as a nested transaction tree.
@@ -2680,6 +2680,13 @@ Acceptance criteria:
 - R2DBC-only WebFlux applications can capture boundaries from a configurable reactive transaction manager, but SQL
   and connection counts remain JDBC-only and do not prove that no database work occurred. Without a configurable
   manager the panel is unavailable. Quarkus reports the panel not applicable and does not advertise `get_transactions`.
+
+The compact `propagation` string describes observed boundaries, not declared annotations: `NEW` is a physical begin
+without a known enclosing recorded boundary, `REQUIRES_NEW` a child physical begin, `NESTED` a savepoint, and `UNKNOWN`
+a failed begin or unverified physical-versus-savepoint ownership. A method joining a transaction creates no boundary. A logical `parentId` does not imply shared physical
+ownership. This expands the former `NEW`/`PARTICIPATING` value set without changing the report's fields; released servers
+through 2.3.0 still emit `PARTICIPATING` incorrectly for independent children. The journal retains its historical root label
+`REQUIRED` as the equivalent of compact `NEW`, not proof of a declared REQUIRED annotation.
 
 ### 5.17.6 SQL Trace Rankings and Request Attribution
 
