@@ -56,7 +56,7 @@ function transactionReport(overrides = {}) {
       {
         id: 1,
         methodName: 'InventoryService.reserveStock',
-        propagation: 'PARTICIPATING',
+        propagation: 'REQUIRES_NEW',
         isolation: 'READ_COMMITTED',
         status: 'ROLLED_BACK',
         startTimestamp: 1700000000010,
@@ -166,7 +166,24 @@ describe('Transactions', () => {
 
     expect(wrapper.find('tr.tx-row-nested').exists()).toBe(true)
     expect(wrapper.get('tr.tx-row-nested').text()).toContain('InventoryService.reserveStock')
+    expect(wrapper.get('tr.tx-row-nested').text()).toContain('REQUIRES_NEW')
   })
+
+  it.each(['REQUIRES_NEW', 'NESTED', 'UNKNOWN', 'PARTICIPATING'])(
+    'renders and filters the boundary label %s without reinterpreting older reports',
+    async (propagation) => {
+      const report = transactionReport()
+      report.entries[1].propagation = propagation
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report)))
+      wrapper = mount(Transactions, {props: {panel: {id: 'transactions'}}})
+      await flushPromises()
+      await wrapper.get('input.trace-filter').setValue(propagation)
+      expect(wrapper.get('table.tx-table').text()).toContain(propagation)
+      expect(wrapper.get('table.tx-table').text()).not.toContain('OrderService.placeOrder')
+      await wrapper.get('tr.tx-row').trigger('click')
+      expect(wrapper.text()).toContain('trace-abc')
+    }
+  )
 
   it('reveals thread and trace id when a row is expanded', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(transactionReport())))

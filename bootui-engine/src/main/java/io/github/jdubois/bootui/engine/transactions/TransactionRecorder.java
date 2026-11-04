@@ -39,8 +39,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>A transaction is recorded in two steps: {@link #beginTransaction} when the boundary starts
  * (from an {@code afterBegin} callback) and {@link #completeTransaction} when it finishes (from an
  * {@code afterCommit}/{@code afterRollback} callback). Nesting is tracked with a per-thread stack of
- * in-flight transaction ids so a participating transaction records the id of the transaction already
- * active on the same thread as its {@code parentId}.</p>
+ * in-flight transaction ids. A child physical transaction or savepoint records the enclosing boundary's
+ * {@code parentId}; that logical relationship does not mean participation in the same physical transaction.</p>
  *
  * <p>When a {@link SqlTraceRecorder} is supplied, each completed transaction is correlated to the SQL
  * it likely ran by reusing that recorder's already-captured executions: statements on the same thread
@@ -61,6 +61,8 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
     /** Best-effort propagation classification; see {@link TransactionEntryDto#propagation()}. */
     public static final String PROPAGATION_NEW = "NEW";
 
+    /** Legacy value retained for source compatibility; physical children are not participants. */
+    @Deprecated
     public static final String PROPAGATION_PARTICIPATING = "PARTICIPATING";
 
     public static final String ISOLATION_UNKNOWN = "UNKNOWN";
@@ -200,6 +202,51 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
             boolean savepoint,
             boolean threadBound,
             boolean ormEvidence) {
+        return beginTransaction(
+                methodName, readOnly, isolation, thread, traceId, savepoint, threadBound, ormEvidence, true, true);
+    }
+
+    /** A boundary whose physical-versus-savepoint ownership may be unknown, as with native nested JTA work. */
+    public long beginTransaction(
+            String methodName,
+            boolean readOnly,
+            String isolation,
+            String thread,
+            String traceId,
+            boolean savepoint,
+            boolean threadBound,
+            boolean ormEvidence,
+            boolean boundaryKnown) {
+        return beginTransaction(
+                methodName,
+                readOnly,
+                isolation,
+                thread,
+                traceId,
+                savepoint,
+                threadBound,
+                ormEvidence,
+                true,
+                boundaryKnown);
+    }
+
+    /** Records a failed begin without asserting that a physical transaction or savepoint actually started. */
+    public long beginFailedTransaction(
+            String methodName, boolean readOnly, String thread, String traceId, boolean threadBound) {
+        return beginTransaction(methodName, readOnly, null, thread, traceId, false, threadBound, false, false, false);
+    }
+
+    private long beginTransaction(
+            String methodName,
+            boolean readOnly,
+            String isolation,
+            String thread,
+            String traceId,
+            boolean savepoint,
+            boolean threadBound,
+            boolean ormEvidence,
+            boolean begun,
+            boolean boundaryKnown) {
         if (!enabled) {
             return -1;
         }
@@ -214,11 +261,15 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
         }
         long id = sequence.incrementAndGet();
         Deque<Long> stack = threadBound ? threadStack.get() : null;
+        if (stack != null) {
+            stack.removeIf(previous -> !active.containsKey(previous));
+        }
         Long parentId = stack == null ? null : stack.peekLast();
         ActiveTransaction transaction = new ActiveTransaction(
                 id,
                 methodName == null ? "unknown" : methodName,
-                parentId == null ? PROPAGATION_NEW : PROPAGATION_PARTICIPATING,
+                TransactionBoundary.observed(begun && boundaryKnown, parentId != null, savepoint)
+                        .name(),
                 isolation == null || isolation.isBlank() ? ISOLATION_UNKNOWN : isolation,
                 readOnly,
                 parentId,
@@ -227,6 +278,8 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
                 System.currentTimeMillis(),
                 System.nanoTime(),
                 savepoint,
+                begun,
+                boundaryKnown,
                 correlation.current(),
                 panel,
                 threadBound && ormEvidence && journal.records(JournalSource.ORM) ? OrmThreadActivity.mark() : null);
@@ -282,7 +335,7 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
         long end = System.currentTimeMillis();
         long duration = Math.max(0, end - transaction.startTimestamp);
         if (transaction.panel()) {
-            Correlation correlation = correlate(transaction, end);
+            Correlation correlation = transaction.begun() ? correlate(transaction, end) : Correlation.EMPTY;
             TransactionEntryDto entry = new TransactionEntryDto(
                     transaction.id,
                     transaction.methodName,
@@ -333,7 +386,9 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
                             failureClass,
                             orm == null ? -1 : orm.statements(),
                             orm == null ? -1 : orm.flushes(),
-                            orm == null ? -1 : orm.dirtyEntities())));
+                            orm == null ? -1 : orm.dirtyEntities(),
+                            transaction.begun(),
+                            transaction.boundaryKnown())));
         } catch (RuntimeException ex) {
             // Publishing never disturbs the transaction it observes.
         }
@@ -537,9 +592,10 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
     private List<String> warnings() {
         List<String> warnings = new ArrayList<>();
         if (reactiveSeen) {
-            warnings.add("Reactive capture records physical begin/commit/rollback callbacks, not a complete parent"
-                    + " or savepoint hierarchy. SQL and connection counts cover JDBC work on the begin thread only;"
-                    + " R2DBC statements and work moved to another thread are not counted.");
+            warnings.add(
+                    "Reactive or JTA capture records physical begin/commit/rollback callbacks, not a complete parent"
+                            + " or savepoint hierarchy. SQL and connection counts cover JDBC work on the begin thread only;"
+                            + " R2DBC statements and work moved to another thread are not counted.");
         }
         if (!isRecording()) {
             warnings.add("Recording is paused. Resume it to capture new transactions.");
@@ -565,6 +621,8 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
             long startTimestamp,
             long startNanos,
             boolean savepoint,
+            boolean begun,
+            boolean boundaryKnown,
             CorrelationContext context,
             boolean panel,
             OrmThreadActivity.Mark ormAtBegin) {}

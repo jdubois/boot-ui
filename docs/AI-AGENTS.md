@@ -1013,6 +1013,10 @@ browser, the MCP tools, and the CLI alike:
 
 Exceptions and Traces keep no lifetime count, so their acknowledgement's `totalCaptured` is `null`.
 
+`get_transactions` returns observed boundary labels (`NEW`, `REQUIRES_NEW`, `NESTED`, or `UNKNOWN`), not declared
+annotation values. A logical parent does not imply shared physical ownership, and a joining method adds no boundary.
+See [Transactions](features/database.md#transactions) for the journal's legacy root label and older-server caveats.
+
 Every tool response, report tools included, obeys `bootui.mcp.max-response-bytes` (4 MiB by default). A response that
 does not fit is refused with a bounded JSON-RPC `-32003` (legacy) or `-31003` (modern) rather than truncated, so the agent never mistakes a cut report for a
 complete one. If even that fallback with the original correlation id cannot fit, BootUI refuses before dispatch with

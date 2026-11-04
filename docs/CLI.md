@@ -163,6 +163,10 @@ answer with a one-line acknowledgement — `action`, `available`, `unavailableRe
 matching read command (`sql traces`, `tx list`, ...) prints the rows. See
 [Compact answers from scans and capture controls](AI-AGENTS.md#compact-answers-from-scans-and-capture-controls).
 
+`bootui tx list --json` preserves the server's observed boundary labels: `NEW`, `REQUIRES_NEW`, `NESTED`, or
+`UNKNOWN`, not declared annotation values. A parent id does not imply participation in the same physical transaction.
+See [Transactions](features/database.md#transactions) for semantics and the legacy `PARTICIPATING` caveat.
+
 Search commands such as `bootui config --query` share a `page` envelope instead, where `total` counts everything
 the panel can see *before* the query is applied and `matched` counts what the query kept. A large `total` beside
 `matched: 0` therefore means the query found nothing, not that the data is missing — retry with a shorter query.
