@@ -233,16 +233,17 @@ final class TransformStats {
         static void enter() {}
     }
 
+    /** Match ignored classes by name before parsing bytes, which can load classes another agent is also loading. */
     final class BootstrapFallbackPoolStrategy implements AgentBuilder.PoolStrategy {
 
         @Override
         public TypePool typePool(ClassFileLocator locator, ClassLoader classLoader) {
-            return new BootstrapFallbackPool(locator);
+            return new TypePool.LazyFacade(new BootstrapFallbackPool(locator));
         }
 
         @Override
         public TypePool typePool(ClassFileLocator locator, ClassLoader classLoader, String name) {
-            return new BootstrapFallbackPool(locator);
+            return typePool(locator, classLoader);
         }
     }
 

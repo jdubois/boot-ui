@@ -29,7 +29,7 @@ Require Chapter 01's complete pre-work, including a successful actual transport 
 `127.0.0.1`; BootUI's console guards do not secure its intentionally unsafe application fixtures.
 Docker/Podman is an additional requirement only for the optional Quarkus sample's PostgreSQL Dev Services.
 
-Freeze the actual **2.2.0** tag SHA/artifact checksums when published. Verify the immutable release includes these
+Record the actual **2.3.0** tag SHA/artifact checksums. Verify the immutable release includes these
 materials and all used v2 surfaces. Do not claim published artifacts were checked from a development checkout.
 Rehearse from a fresh clone, not the helper's prebuilt workspace.
 
@@ -71,8 +71,8 @@ Both methods remain read-only transactional.
 The import throws/rolls back, is caught, logs ERROR, and responds accepted/200. Query/log/transaction evidence is
 stronger than HTTP status alone. Rich exception detail can expire before the structural journal row.
 
-The repeated-SELECT observation may be omitted from the default list: search for the route, or run
-`bootui insights list --query repeated-selects --json`. One
+Open the **Repeated SELECTs** group and select the route in **Observation**, or search for it. The CLI's compact
+default still omits this kind: use `bootui insights list --query repeated-selects --json`. One
 request does not meet the observation threshold. The joined control's lack of a recommendation is not sufficient
 without its query evidence and coverage.
 
@@ -203,7 +203,7 @@ Before each workshop delivery:
    `python3 -B -m unittest discover -s .github/scripts -p 'test_docs_links.py'`.
 2. Inspect Workshop after Features in desktop/mobile navbar, its ordered sidebar after Get started, the homepage
    row, and all clean `/boot-ui/workshop/...` routes.
-3. From **v2.2.0**, run warm build/launch, baseline fixture test, supplied test red/green, live reload and comparison.
+3. From **v2.3.0**, run warm build/launch, baseline fixture test, supplied test red/green, live reload and comparison.
 4. Verify the pinned published CLI/agent/consumer skill, real MCP client, default sensors/self-tests, and optional
    unavailable states.
 5. Pilot the exact 180-minute agenda including questions, break, pairing, Windows, provider latency, and recovery.
@@ -213,9 +213,10 @@ policy. The target is `https://www.julien-dubois.com/boot-ui/workshop`, **not** 
 
 ### Validation evidence and remaining rehearsal
 
-The initial generation checks used the development checkout. A subsequent five-model rehearsal used two published
-source tags: two personas on the original edition and three on the refreshed edition. This is historical evidence,
-not proof that all five ran the final revision or that a later release has been rehearsed.
+The initial generation checks used the development checkout. A subsequent five-model rehearsal preceded the current
+release: two personas used the tag at `7d4bf29eb48e2016e17ec13087a2618eedb74416`, and three used the tag at
+`ddfcb243615fae417cea2c46e11797bffbc43231`. This is historical evidence, not proof that all five ran the current
+release or the final revision. The current release's separate rehearsal is recorded below.
 
 | Check | Result |
 | --- | --- |
@@ -234,6 +235,15 @@ not proof that all five ran the final revision or that a later release has been 
 | Audited loopback launch | Passed with the Java agent: listener restricted to `127.0.0.1`, 16 order summaries, required sensors installed with passing self-tests |
 | Five distinct model personas | All completed the core RED/GREEN and live capstone; all reported PARTIAL SQL comparison because startup events were missed before aggregate registration |
 | Built-site browser inspection | All participant routes and reference images loaded; desktop and narrow-viewport layouts inspected |
+
+Release rehearsal on 2026-11-04 used a fresh **v2.3.0** clone at
+`7c89042c6a0a47e1cb22d2df7412d2177d7416d1`, macOS, and JDK 17. The public installer downloaded the pinned CLI,
+verified its published checksum, and returned `bootui 2.3.0`. The tagged warm build, loopback agent launch,
+overview/agent/Insights CLI reads, and original fixture test passed. The acceptance test failed at 17 statements
+before the reference patch and passed afterward. One trigger-file reload marked exactly one method changed,
+first unexecuted and then executed; the live fixed request captured one SQL statement and returned unchanged JSON.
+The run comparison reported **PARTIAL** because startup SQL preceded aggregate registration; it could compare
+the code change, but could not establish complete SQL capture across both runs.
 
 The reference service edit and copied test were temporary rehearsal changes, not changes to delivered sample
 behavior. The later rehearsal added published CLI installation and tagged-source core runs; the workshop illustrations

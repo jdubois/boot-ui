@@ -1,4 +1,4 @@
-import {chromium} from '@playwright/test'
+import {chromium, expect} from '@playwright/test'
 import {spawn} from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -1287,11 +1287,26 @@ const threads = {
   unavailableReason: null,
   capturedAt: nowMillis - 1500,
   total: 6,
-  daemonThreads: 4,
+  daemonThreads: 3,
   peakThreads: 42,
   deadlockDetected: false,
   deadlockedThreadIds: [],
-  virtualThreadsSupported: true,
+  virtualThreadsSupported: false,
+  hiddenBootUiThreads: 0,
+  quality: {
+    provider: 'ThreadMXBean',
+    threadKinds: ['PLATFORM'],
+    enumeratedThreads: 6,
+    capturedThreads: 6,
+    vanishedThreads: 0,
+    omittedThreads: 0,
+    maxStackDepth: 128,
+    populationComplete: true,
+    stacksComplete: true,
+    monitorsRead: true,
+    synchronizersRead: false,
+    limitations: []
+  },
   stateCounts: [
     {state: 'RUNNABLE', count: 2},
     {state: 'WAITING', count: 2},
@@ -1311,20 +1326,29 @@ const threads = {
       'java.base/java.lang.Thread.sleep(Native Method)',
       'io.github.jdubois.bootui.sample.AiUsageRollup.aggregateMinute(AiUsageRollup.java:47)'
     ]),
-    thread(
-      55,
-      'VirtualThread[#55]/runnable@ForkJoinPool-1-worker-1',
-      'RUNNABLE',
-      true,
-      17,
-      ['io.github.jdubois.bootui.sample.ChatController.chat(ChatController.java:61)'],
-      true
-    ),
+    thread(55, 'order-processor-1', 'RUNNABLE', true, 17, [
+      'io.github.jdubois.bootui.sample.ChatController.chat(ChatController.java:61)'
+    ]),
     thread(14, 'DestroyJavaVM', 'WAITING', false, null, []),
     thread(16, 'HikariPool-1 housekeeper', 'BLOCKED', true, 8, [
       'com.zaxxer.hikari.pool.HikariPool.getConnection(HikariPool.java:192)'
     ])
   ]
+}
+
+const threadCaptures = {
+  available: true,
+  lowFootprint: false,
+  retainedBytes: 0,
+  captureLimit: 6,
+  retainedByteLimit: 16 * 1024 * 1024,
+  observationSamples: 3,
+  maxObservationSamples: 3,
+  observationIntervalMillis: 5000,
+  captureDeadlineMillis: 2000,
+  observationId: null,
+  captures: [],
+  page: {total: 0, matched: 0, offset: 0, limit: 25, returned: 0, hasMore: false}
 }
 
 const dataDetail = {
@@ -6106,7 +6130,22 @@ const screenshots = [
       await page.getByText('java.lang.String').first().waitFor()
     }
   ],
-  ['threads', 'Threads', 'bootui-threads.webp', waitForText('http-nio-8080-exec-1')],
+  [
+    'threads',
+    'Threads',
+    'bootui-threads.webp',
+    async (page) => {
+      await expect(page.getByRole('button', {name: 'Observe threads', exact: true})).toBeEnabled()
+      await expect(page.getByRole('button', {name: 'Capture snapshot', exact: true})).toBeEnabled()
+      await expect(page.getByLabel('Thread source', {exact: true})).toHaveValue('')
+      for (const name of ['Threads', 'Contention', 'Observe & compare']) {
+        await expect(page.getByRole('tab', {name, exact: true})).toBeVisible()
+      }
+      await expect(page.getByRole('switch', {name: 'Show BootUI threads', exact: true})).not.toBeChecked()
+      await expect(page.locator('main').getByText('http-nio-8080-exec-1', {exact: true})).toBeVisible()
+      await expect(page.getByRole('alert')).toHaveCount(0)
+    }
+  ],
   ['startup', 'Startup Timeline', 'bootui-startup-timeline.webp', waitForText('spring.context.refresh')],
   ['graalvm', 'GraalVM', 'bootui-graalvm.webp', waitForText('Reflective API usage may need reflection metadata')],
   ['crac', 'CRaC', 'bootui-crac.webp', waitForText('Open resources held in fields must be released at checkpoint')],
@@ -6963,6 +7002,7 @@ async function handleApiRoute(route) {
   if (endpoint === 'profile-diff') return fulfillJson(route, profileDiff)
   if (endpoint === 'loggers') return fulfillJson(route, loggers)
   if (endpoint === 'threads') return fulfillJson(route, pagedReport('threads', threads.threads, url, threads))
+  if (endpoint === 'threads/captures') return fulfillJson(route, threadCaptures)
   if (endpoint === 'threads/download') return fulfillJson(route, {status: 'OK'})
   if (endpoint === 'traces') return fulfillJson(route, traceReport)
   if (endpoint === `traces/${traceId}`) return fulfillJson(route, traceDetail)

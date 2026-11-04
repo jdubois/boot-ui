@@ -32,6 +32,7 @@ easier to explore with grouped observations.
 
 ### Fixed
 
+- **Agent compatibility with OpenTelemetry** fixes a classloading hang when BootUI starts recording.
 - **BootUI CPU attribution stays separate** when application thread families fill the resource track, and the sampler's
   own thread stays within the bounded sweep ([#1568](https://github.com/jdubois/boot-ui/pull/1568), [#1569](https://github.com/jdubois/boot-ui/pull/1569)).
 - **Browser icons load correctly** in the sample apps and console, including Apple touch icons

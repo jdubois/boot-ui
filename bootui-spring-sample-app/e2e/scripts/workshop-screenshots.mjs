@@ -4,19 +4,19 @@
  *
  * IMPORTANT: These screenshots are rendered by the real BootUI Vue frontend against
  * deterministic synthetic HTTP API fixtures for the `EagerDemoOrderController` / `EagerDemoOrderService` /
- * `EagerDemoOrderRepository` workshop story at `bootUiVersion: "2.2.0"`.
+ * `EagerDemoOrderRepository` workshop story, using the selected release's version metadata.
  *
  * They are illustrative reference screenshots for the workshop narrative, NOT captured
  * live participant execution proof.
  *
  * Scenario states modeled:
- * - `pre-agent`: Chapters 00–04. BootUI 2.2.0 running on `bootui-spring-sample-app` without
+ * - `pre-agent`: Chapters 00–04. The released BootUI running on `bootui-spring-sample-app` without
  *   `-javaagent`. `GET /api/insights/eager-orders` returns 200 OK for 16 orders while issuing
  *   17 SQL statements (`1` order query + `16` secondary `insight_eager_customers` SELECTs,
  *   flagged `Potential N+1`), compared with `GET /api/insights/eager-orders/joined` (1 SQL
  *   statement for the same 16 records, without spoiling the `join fetch` query text before
  *   Chapter 06). Over 6 requests, Runtime Insights promotes `Repeated SELECTs`.
- * - `agent-baseline`: Chapters 05–06 & Appendices A/C. Same JVM with `bootui-agent-2.2.0.jar`
+ * - `agent-baseline`: Chapters 05–06 & Appendices A/C. Same JVM with the matching released Java agent
  *   attached (`ARMED`, Run 1) and 6 requests recorded on `GET /api/insights/eager-orders`
  *   (1 first + 5 warm requests) plus 1 request on `GET /api/insights/eager-orders/joined`.
  *   Code Paths attributes the 17 SQL statements to `EagerDemoOrderService.listWithSecondarySelects`,
