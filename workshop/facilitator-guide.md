@@ -245,6 +245,14 @@ first unexecuted and then executed; the live fixed request captured one SQL stat
 The run comparison reported **PARTIAL** because startup SQL preceded aggregate registration; it could compare
 the code change, but could not establish complete SQL capture across both runs.
 
+A subsequent development-checkout regression for #1594 fixes aggregate registration before Spring exposes the
+journal. The supplied acceptance test again failed at 17 statements and passed after the exact finder change.
+An agent-attached, same-JVM test with one DevTools reload returned identical JSON, marked the one changed method
+unexecuted then executed, and reported `COMPARED` with 17 -> 1 statements/request and the secondary customer SELECT
+removed through REST and MCP. The checksum-verified published 2.0.0 CLI and the browser's **Changes** tab also
+displayed those SQL rows against the fixed checkout using the saved original-run baseline. This is development
+evidence, not a correction to the immutable v2.3.0 rehearsal above.
+
 The reference service edit and copied test were temporary rehearsal changes, not changes to delivered sample
 behavior. The later rehearsal added published CLI installation and tagged-source core runs; the workshop illustrations
 were separately rendered from the released frontend and visually inspected. Those synthetic reference images are not

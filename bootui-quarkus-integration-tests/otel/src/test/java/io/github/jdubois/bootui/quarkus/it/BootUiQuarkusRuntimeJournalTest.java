@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
+import io.github.jdubois.bootui.engine.journal.JournalCompleteness;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RequestTiming;
@@ -36,6 +37,15 @@ import org.junit.jupiter.api.Test;
  */
 @QuarkusTest
 class BootUiQuarkusRuntimeJournalTest {
+
+    @Test
+    void recordedSqlHasNoPreRegistrationGap() throws Exception {
+        assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+        var snapshot = aggregates.snapshot();
+        assertThat(JournalCompleteness.missed(snapshot, JournalSource.SQL)).isZero();
+        assertThat(JournalCompleteness.windowComplete(snapshot, JournalSource.SQL))
+                .isTrue();
+    }
 
     @Test
     void theResourceSamplerSweepsAtTheConfiguredIntervalWithABalancedLedger() throws Exception {

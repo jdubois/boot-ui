@@ -246,17 +246,19 @@ public class BootUiEngineConfiguration {
         RuntimeJournal journal =
                 new RuntimeJournal(properties.getRuntimeJournal().toSettings(), run);
         journal.setThreadKindClassifier(threadKinds.getIfUnique());
-        journal.startGcSource();
         return journal;
     }
 
     /**
-     * Installs the runtime journal on every recorder as it is created ({@code docs/PLAN-v2.md} §5.2). Static, as a
-     * {@code BeanPostProcessor} must be, and it resolves the journal only when a recorder appears.
+     * Binds aggregates before exposing the journal to recorders ({@code docs/PLAN-v2.md} §5.2), including application
+     * overrides of either bean. Static, as a {@code BeanPostProcessor} must be; its dependencies resolve lazily.
      */
     @Bean
-    static RuntimeEventPublisherInstaller bootUiRuntimeEventPublisherInstaller(ObjectProvider<RuntimeJournal> journal) {
-        return new RuntimeEventPublisherInstaller(journal);
+    static RuntimeEventPublisherInstaller bootUiRuntimeEventPublisherInstaller(
+            ObjectProvider<RuntimeJournal> journal,
+            ObjectProvider<JournalAggregates> aggregates,
+            ObjectProvider<BootUiProperties> properties) {
+        return new RuntimeEventPublisherInstaller(journal, aggregates, properties);
     }
 
     /**
@@ -267,7 +269,6 @@ public class BootUiEngineConfiguration {
     @Bean
     @ConditionalOnMissingBean
     JournalAggregates bootUiJournalAggregates(
-            RuntimeJournal journal,
             RunIdentity run,
             ObjectProvider<MappingProvider> mappingProvider,
             BootUiProperties properties,
@@ -282,8 +283,6 @@ public class BootUiEngineConfiguration {
                         properties.getRuntimeJournal().getBaselineFile(),
                         environment.getProperty("spring.application.name", "application")),
                 RunApplicationKey.of(environment, context));
-        journal.addListener(aggregates);
-        journal.startResourceSampler(properties.getResources().toSettings(), aggregates.resourceTrack());
         return aggregates;
     }
 

@@ -66,6 +66,28 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void registeringTheSameAggregateAgainNeitherCountsTwiceNorRepairsMissingCoverage() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        journal.offer(sql(1, false));
+        journal.dispatchPending();
+        JournalAggregates aggregates = new JournalAggregates();
+        journal.addListener(aggregates);
+        journal.offer(sql(2, false));
+        journal.dispatchPending();
+
+        journal.addListener(aggregates);
+        journal.offer(sql(3, false));
+        journal.dispatchPending();
+
+        assertThat(journal.status().accepted()).containsEntry(JournalSource.SQL, 3L);
+        assertThat(aggregates.snapshot().run().events()).containsEntry(JournalSource.SQL, 2L);
+        assertThat(JournalCompleteness.missed(aggregates.snapshot(), JournalSource.SQL))
+                .isEqualTo(1);
+        assertThat(JournalCompleteness.wholeRunComplete(aggregates.snapshot(), JournalSource.SQL))
+                .isFalse();
+    }
+
+    @Test
     void aSubscriberIsToldOfEachRecordedBatchUntilItUnsubscribes() {
         RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
         AtomicInteger changes = new AtomicInteger();

@@ -98,10 +98,12 @@ OVERHEAD_EVIDENCE = [
 INTEGRATION_ONLY = [
     ENGINE + "insights/ChangeImpactService.java",
     ENGINE + "mcp/McpAgentViews.java",
+    "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/journal/RuntimeEventPublisherInstaller.java",
     "bootui-ui/src/main/frontend/src/views/JavaAgent.vue",
     "bootui-quarkus/src/main/java/io/github/jdubois/bootui/quarkus/BootUiEngineProducer.java",
     "bootui-spring-sample-app/e2e/tests-agent/work-after-response.spec.js",
     "bootui-spring-sample-app/src/test/java/io/github/jdubois/bootui/sample/SpringAgentScenarioIT.java",
+    "bootui-spring-sample-app/src/test/java/io/github/jdubois/bootui/sample/SpringStartupSqlComparisonIT.java",
     "bootui-quarkus-deployment/src/test/java/io/github/jdubois/bootui/quarkus/deployment/devmode/BootUiAgentLiveReloadLeakIT.java",
 ]
 

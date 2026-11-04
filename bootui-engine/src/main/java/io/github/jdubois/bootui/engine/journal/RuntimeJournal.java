@@ -551,7 +551,10 @@ public final class RuntimeJournal
         return settings.records(source);
     }
 
-    /** Registers a listener for every batch accepted from now on; a closed journal rejects registration. */
+    /**
+     * Registers a listener for every batch accepted from now on; a closed journal rejects registration.
+     * Registering the same aggregate listener again is a no-op, preserving its counts and completeness.
+     */
     public void addListener(JournalListener listener) {
         Objects.requireNonNull(listener, "listener must not be null");
         if (closed.get()) {
@@ -559,6 +562,9 @@ public final class RuntimeJournal
         }
         if (listener instanceof JournalAggregates aggregates) {
             synchronized (processing) {
+                if (listeners.contains(aggregates)) {
+                    return;
+                }
                 aggregates.bind(this, processedSourceCounts());
                 try {
                     registerListener(listener);
