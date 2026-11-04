@@ -17,6 +17,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import net.bytebuddy.agent.ByteBuddyAgent;
 import net.bytebuddy.description.type.TypeDescription;
+import net.bytebuddy.dynamic.ClassFileLocator;
+import net.bytebuddy.pool.TypePool;
 import org.junit.jupiter.api.Test;
 
 /** Actual subclass transformation and automatic reset, without modifying the test JVM's java.lang.Thread. */
@@ -117,6 +119,16 @@ class ThreadSensorResetTests {
         matcher.beginReset();
         assertThat(matcher.matches(new TypeDescription.ForLoadedType(OLD))).isTrue();
         assertThat(matcher.matches(new TypeDescription.ForLoadedType(NEW))).isTrue();
+    }
+
+    @Test
+    void rejectsUnclaimedClassesWithoutResolvingTheirMetadata() {
+        ThreadSensor.SubclassMatcher matcher = new ThreadSensor.SubclassMatcher(List.of(OLD.getPackageName()));
+        TypeDescription unrelated = new TypePool.LazyFacade(TypePool.Default.of(ClassFileLocator.NoOp.INSTANCE))
+                .describe("unrelated.Unparsed")
+                .resolve();
+
+        assertThat(matcher.matches(unrelated)).isFalse();
     }
 
     private static Thread worker(ThreadSensor sensor) throws Exception {

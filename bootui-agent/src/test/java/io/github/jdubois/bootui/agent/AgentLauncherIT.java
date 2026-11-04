@@ -77,6 +77,30 @@ class AgentLauncherIT {
         }
     }
 
+    @Test
+    void thePackagedImplementationWarmsThroughItsParentDefinedClassLoader() throws Exception {
+        try (URLClassLoader parent = new URLClassLoader(
+                        new URL[] {ChildJvm.AGENT.toUri().toURL()}, ClassLoader.getPlatformClassLoader());
+                JarFile jar = new JarFile(ChildJvm.AGENT.toFile())) {
+            Class<?> loaderType = parent.loadClass("io.github.jdubois.bootui.agent.AgentClassLoader");
+            ClassLoader isolated = (ClassLoader) loaderType
+                    .getConstructor(JarFile.class, String.class, ClassLoader.class)
+                    .newInstance(jar, ChildJvm.AGENT.toString(), parent);
+            Class<?> stats = isolated.loadClass("io.github.jdubois.bootui.agent.TransformStats");
+            assertThat(stats.getClassLoader()).isSameAs(isolated);
+            assertThat(loaderType.getClassLoader()).isSameAs(parent);
+            Method warm = stats.getDeclaredMethod("warmTransformation");
+            warm.setAccessible(true);
+            warm.invoke(null);
+
+            Method warmed = stats.getDeclaredMethod("transformationWarmedUp");
+            warmed.setAccessible(true);
+            assertThat(warmed.invoke(null))
+                    .as("the isolated implementation can call the parent-defined loader and complete its dry run")
+                    .isEqualTo(true);
+        }
+    }
+
     /** A class file's CONSTANT_Utf8 entry for an ASCII string: its two-byte length, then its bytes. */
     private static String utf8Constant(String ascii) {
         return "" + (char) (ascii.length() >> 8) + (char) (ascii.length() & 0xFF) + ascii;

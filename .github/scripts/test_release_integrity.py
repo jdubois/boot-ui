@@ -146,6 +146,26 @@ class ReleaseIntegrityTests(unittest.TestCase):
             with self.subTest(old=old):
                 self.assert_rejected(self.mutate(old, new), message)
 
+    def test_workshop_version_update_and_verification_are_required(self):
+        for mode, message in (
+            ("update", "workshop release version update"),
+            ("check", "workshop immutable release version check"),
+        ):
+            command = f'python3 .github/scripts/workshop-version.py {mode} "$VERSION"'
+            with self.subTest(mode=mode):
+                self.assert_rejected(self.mutate(command, "echo skipped"), message)
+
+    def test_workshop_version_commands_are_ordered_around_sealing(self):
+        for mode, anchor, message in (
+            ("update", '          RELEASE_SHA="$(git rev-parse HEAD)"', "updated before release verification"),
+            ("check", "      - name: Wait for Maven Central availability", "checked before publication"),
+        ):
+            command = f'python3 .github/scripts/workshop-version.py {mode} "$VERSION"'
+            content = self.mutate(command, "echo moved")
+            content = content.replace(anchor, "          " + command + "\n" + anchor, 1)
+            with self.subTest(mode=mode):
+                self.assert_rejected(content, message)
+
     def plugin_version_command(self, marker):
         content = WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(content.count(marker), 1, f"fixture drifted: {marker!r}")

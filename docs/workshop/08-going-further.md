@@ -2,19 +2,29 @@
 
 **Time:** 5 minutes. **Goal:** Explain your result and transfer the method without assuming framework parity.
 
+Return to the mission: an order endpoint returned correct data but did unnecessary database work. Your handoff
+must explain the cause and the measured result, not list the panels you opened or repeat the agent's conclusion.
+
 ## Give a one-minute handoff
 
 Use your worksheet to say:
 
 ```text
 On GET /api/insights/eager-orders, run <before> observed <sample count> requests
-with <SQL count> SELECTs per request. Action <id>, plan <version>, changed only <method>.
+with <SQL count> SELECTs per request. The extra queries came from <cause supported by SQL and source>.
+Action <id>, plan <version>, changed only <method>.
 The acceptance test passed and the live changed method executed in run <after>.
 The response stayed equal and <sample count> requests now showed <SQL count> SELECTs.
 Comparison coverage was <coverage>; we cannot conclude <unmeasured claim>.
 ```
 
 Have a partner identify one unsupported claim. A good answer can include “not measured.”
+If your test passed but live execution or the before/after comparison was missing, report that part as incomplete.
+Do not turn a query-count improvement into an unmeasured latency or whole-application health claim.
+
+![Runtime Insights run comparison showing valid changed-method execution but PARTIAL coverage and missing behavior comparison](../images/workshop-08-run-comparison-partial.webp)
+
+*Illustrative reference: report the comparison's limitation even when separate request profiles and execution evidence support the fix.*
 
 ## Take the workflow to your application
 

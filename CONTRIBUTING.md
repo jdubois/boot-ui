@@ -769,8 +769,13 @@ major does. [Releasing 2.0](docs/V2-RELEASE.md) is the runbook for the `v2` merg
 its rehearsal, and the `1.x` maintenance branch.
 
 The workflow updates all Maven module versions and refreshes the documentation
-dependency examples in the working tree and optionally verifies with the `release`
-Maven profile. Before any
+dependency examples in the working tree, including the workshop's matched sample tag, CLI installers,
+Maven dependency, and Java agent paths in `docs/workshop/` and `workshop/`. It checks those pins again
+from the immutable tagged checkout before publication. Keep the explicit workshop pin: independently
+installing the latest CLI could otherwise mix releases during an event.
+After a release, regenerate workshop illustrations from its tagged frontend, update the overview's immutable
+provenance commit, and visually inspect the results; version synchronization does not rewrite image pixels.
+The workflow optionally verifies with the `release` Maven profile. Before any
 Maven Central upload, it commits those exact contents, creates a GPG-signed
 annotated version tag, and atomically pushes the source branch plus tag. If the
 source branch advanced during preparation, the workflow aborts; it never rebases
