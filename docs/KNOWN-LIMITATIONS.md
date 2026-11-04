@@ -9,12 +9,13 @@ Items marked **deferred** are not implemented in the current code. They are not 
 
 ## Runtime Insights
 
-- **Several kinds are not listed by default.** `route-time-breakdown`, `exception-hotspots`,
-  `connections-per-request`, and `ai-usage-by-route` are reached from the panels that show the same evidence;
+- **Agent defaults omit several kinds; the browser shows every retained observation.** The compact MCP/CLI default
+  leaves out `route-time-breakdown`, `exception-hotspots`, `connections-per-request`, `ai-usage-by-route`,
   `repeated-selects`, `lazy-sql-after-handler`, `split-transaction-writes`, `unbatched-write-loop`,
   `readonly-candidate-transaction`, `framework-warnings-by-route`, `anonymous-data-reach`, `connection-reacquisition`,
-  `paged-without-order`, and `slow-flush` only with **Show all routes**, a search, or an agent query
-  naming them. Every row stays reachable, and any row is a fact to verify against the code before acting on it.
+  `paged-without-order`, and `slow-flush`. Use an agent query naming a kind or route, or `all`, to include them.
+  Browser search and Topic only narrow the complete list. Every row is a fact to verify against the code before acting
+  on it, not a confirmed defect.
 - **`slow-flush` measures the time in Hibernate's flush callbacks against a fixed 100 ms.** It excludes the statements the journal recorded a flush executing but includes a wait for a pooled connection or a statement preparation inside it, and a persistence context that is slow to flush only on a cold or loaded host, such as a garbage-collection pause inside the flush, counts too. A Hibernate session that executed no statement and flushed nothing is not recorded, so auto-flush checks alone in such a session are not counted. It needs three such requests of a route, so a route with fewer is silent. A flush time that is mostly auto-flushes may also be reported by `orm-auto-flush`, which counts only auto-flushes that wrote, and the flush timeline keeps only a session's first 16 flushes while the totals include all.
 - **`connection-reacquisition` counts Hibernate's acquisition callbacks**, not the pool's borrow count or how long a
   connection was held. JTA and `DELAYED_ACQUISITION_AND_RELEASE_AFTER_STATEMENT` connection handling legitimately

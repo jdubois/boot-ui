@@ -11,11 +11,9 @@ import {
   emptyState,
   groupObservations,
   isMachineColumn,
-  isListed,
   textParts,
   themeFilters,
-  themeOf,
-  unlistedSummary
+  themeOf
 } from './runtimeInsights.js'
 
 const report = {
@@ -63,11 +61,12 @@ const report = {
 }
 
 describe('runtimeInsights helpers', () => {
-  it('groups observations by check in report order, observed and most affected first', () => {
+  it('puts specific review patterns before timing summaries, observed and most affected first within a group', () => {
     const groups = groupObservations(report)
 
-    expect(groups.map((group) => group.title)).toEqual(['Route time breakdown', 'Repeated SELECTs'])
-    expect(groups[1].observations.map((observation) => observation.id)).toEqual(['b', 'a'])
+    expect(groups.map((group) => group.title)).toEqual(['Repeated SELECTs', 'Route time breakdown'])
+    expect(groups[0].observations.map((observation) => observation.id)).toEqual(['b', 'a'])
+    expect(groups[0].summary).toBe('The same SELECT repeated after another statement.')
   })
 
   it('filters by route, sentence text, and theme', () => {
@@ -81,7 +80,7 @@ describe('runtimeInsights helpers', () => {
     expect(themeOf('ai-usage-by-route')).toBe('ai')
   })
 
-  it('finds the rows of a check by its title or kind by its title or kind, as the reason of a left-out row says', () => {
+  it('finds the rows of a check by its title or kind', () => {
     const ids = (query) =>
       groupObservations(report, {query})
         .flatMap((group) => group.observations)
@@ -90,7 +89,7 @@ describe('runtimeInsights helpers', () => {
     expect(ids('route-time-breakdown')).toEqual(['c'])
   })
 
-  it('shows only the rows listed by default unless every row or a search is asked for, listed rows first', () => {
+  it('shows every retained row without consulting agent default-list metadata', () => {
     const withUnlisted = {
       ...report,
       observations: [
@@ -112,18 +111,50 @@ describe('runtimeInsights helpers', () => {
         .flatMap((group) => group.observations)
         .map((observation) => observation.id)
 
-    expect(ids()).toEqual(['c', 'b', 'a'])
-    // Listed first, even past a more affected unlisted row.
-    expect(ids({all: true})).toEqual(['c', 'd', 'b', 'a'])
+    expect(ids()).toEqual(['b', 'a', 'd', 'c'])
+    expect(ids({all: true})).toEqual(ids())
     expect(ids({query: '/api/fast'})).toEqual(['d'])
-    expect(unlistedSummary(withUnlisted)).toEqual({
-      total: 1,
-      groups: [{kind: 'route-time-breakdown', title: 'Route time breakdown', count: 1}]
-    })
-    expect(unlistedSummary(withUnlisted, {all: true}).total).toBe(0)
-    expect(unlistedSummary(withUnlisted, {theme: 'queries'}).total).toBe(0)
-    expect(isListed({})).toBe(true)
+    expect(ids({theme: 'time'})).toEqual(['d', 'c'])
     expect(themeOf('gc-inflated-latency')).toBe('memory')
+  })
+
+  it('does not confuse review order with evidence status, affected volume, or agent selection', () => {
+    const groups = groupObservations({
+      ...report,
+      observations: [
+        {...report.observations[2], affected: 5000, listed: true},
+        {...report.observations[0], id: 'errors', kind: 'errors-behind-2xx', status: 'PARTIAL', listed: false}
+      ]
+    })
+    expect(groups.map((group) => group.kind)).toEqual(['errors-behind-2xx', 'route-time-breakdown'])
+    expect(groups[0].observations[0].status).toBe('PARTIAL')
+  })
+
+  it('gives every known kind a summary and keeps unfamiliar kinds without fabricating a description', () => {
+    const kinds = THEMES.flatMap((theme) => theme.kinds)
+    const observations = [...kinds, 'new-check', 'constructor'].map((kind) => ({
+      ...report.observations[0],
+      id: kind,
+      kind
+    }))
+    const groups = groupObservations({...report, observations})
+    expect(groups).toHaveLength(kinds.length + 2)
+    expect(groups.flatMap((group) => group.observations)).toHaveLength(observations.length)
+    expect(groups.filter((group) => kinds.includes(group.kind)).every((group) => group.summary.length > 0)).toBe(true)
+    expect(groups.find((group) => group.kind === 'new-check')).toMatchObject({title: 'new-check', summary: ''})
+    expect(groups.find((group) => group.kind === 'constructor').summary).toBe('')
+  })
+
+  it('searches evidence limitations without changing the selected topic', () => {
+    const limited = {
+      ...report,
+      observations: report.observations.map((observation) => ({
+        ...observation,
+        limitations: observation.id === 'a' ? ['SQL capture was incomplete.'] : []
+      }))
+    }
+    expect(groupObservations(limited, {query: 'incomplete', theme: 'queries'})[0].observations[0].id).toBe('a')
+    expect(groupObservations(limited, {query: 'incomplete', theme: 'time'})).toEqual([])
   })
 
   it('offers only the themes whose checks the report carries', () => {
@@ -250,7 +281,7 @@ describe('theme coverage', () => {
   })
 })
 
-describe('verdict and theme filters', () => {
+describe('topic filters', () => {
   const checks = [
     {kind: 'errors-behind-2xx', title: 'Errors behind 2xx responses'},
     {kind: 'safe-method-dml', title: 'Writes in GET requests'},
@@ -263,14 +294,15 @@ describe('verdict and theme filters', () => {
   ]
   const run = {checks, observations}
 
-  it('counts the listed rows of each theme, leaving out a theme with none unless it is selected', () => {
+  it('includes every recorded topic, independently of search and agent default listing', () => {
     expect(themeFilters(run).map(({id, count}) => [id, count])).toEqual([
-      ['', 2],
+      ['', 3],
+      ['time', 1],
       ['queries', 1],
       ['errors', 1]
     ])
-    expect(themeFilters(run, {theme: 'time'}).map(({id, count}) => [id, count])).toContainEqual(['time', 0])
-    expect(themeFilters(run, {all: true}).map(({id, count}) => [id, count])).toContainEqual(['time', 1])
-    expect(themeFilters(run, {query: 'orders'})[0].count).toBe(1)
+    expect(themeFilters(run, {theme: 'memory'}).map(({id, count}) => [id, count])).toContainEqual(['memory', 0])
+    expect(themeFilters(run, {query: 'orders'})).toEqual(themeFilters(run))
+    expect(themeFilters({observations})).toEqual(themeFilters(run))
   })
 })

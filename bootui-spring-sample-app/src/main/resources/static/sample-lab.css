@@ -396,40 +396,8 @@ code {
   color: var(--bootui-text);
 }
 
-.insight-listing {
-  display: grid;
-  gap: 4px;
-}
-
-.insight-tag {
-  justify-self: start;
-  padding: 0.1rem 0.55rem;
-  border-radius: var(--bootui-radius-pill);
-  font-size: 0.75rem;
-  font-weight: 650;
-}
-
-.insight-tag.listed {
-  background: var(--bootui-nav-hover-bg);
-  color: var(--bootui-green-dark);
-}
-
-.insight-tag.unlisted {
-  background: var(--bootui-highlight-bg);
-  color: var(--bootui-warning-text-strong);
-}
-
 .test-action .insight-requirement {
   color: var(--bootui-warning-text-strong);
-}
-
-.insight-listing details {
-  color: var(--bootui-text-subtle);
-  font-size: 0.875rem;
-}
-
-.insight-listing summary {
-  cursor: pointer;
 }
 
 .insight-result {

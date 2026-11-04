@@ -21,9 +21,9 @@ import java.util.List;
  * @param exemplarRequestIds at most three request ids to open in Live Activity
  * @param evidenceRows the evidence rows its detail lists, at most 20
  * @param limitations what it cannot see
- * @param listed whether the default list shows it ({@code docs/PLAN-v2.md} M4-19); a row left out stays reachable
- *     through <b>Show all routes</b>, a search, its id, and an agent query naming its kind or route, or {@code all}
- * @param unlistedReason why the default list leaves it out, or {@code null} when it is listed
+ * @param listed whether the agents' default selection shows it; an agent query naming its kind, route, or {@code all}
+ *     can reach a row left out. The browser shows every retained observation independently of this flag.
+ * @param unlistedReason why default agent selection leaves it out, or {@code null} when it is listed
  */
 public record RuntimeObservationDto(
         String id,

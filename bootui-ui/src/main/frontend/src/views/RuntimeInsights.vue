@@ -13,10 +13,8 @@ import {
   emptyState,
   evidenceShares,
   groupObservations,
-  isListed,
   numericColumns,
-  themeFilters,
-  unlistedSummary
+  themeFilters
 } from '../utils/runtimeInsights.js'
 import {insightMarkdown} from '../utils/markdownExport.js'
 import {codeChanges, comparisonSummary} from '../utils/runComparison.js'
@@ -34,7 +32,7 @@ import RunComparison from './components/RunComparison.vue'
 
 // Runtime Insights (docs/PLAN-v2.md §5.5): the runtime journal's retained events projected into observations. Every
 // read is a GET of what the journal already recorded; opening the panel starts no capture, scan, or network call.
-// The panel leads with a verdict on the run, then one list of findings that open in place; the run's changes, change
+// The panel leads with a verdict on the run, then compact observation groups that open in place; the run's changes, change
 // impact, the resource profiler, and its coverage and limits each have a tab of their own.
 const props = defineProps(panelProps)
 const {manifestAvailable, manifestUnavailableReason, readOnly, readOnlyReason} = usePanelState(props)
@@ -48,12 +46,10 @@ const route = useRoute()
 const query = ref(typeof route?.query?.q === 'string' ? route.query.q : '')
 const theme = ref(typeof route?.query?.theme === 'string' ? route.query.theme : '')
 const selectedId = ref(typeof route?.query?.insight === 'string' ? route.query.insight : null)
-// Show all routes (docs/PLAN-v2.md M4-19): the default list leaves out short routes and other noise; ?all=1, as the
-// Memory panel links, or a deep link to a row the default leaves out shows every row.
-const showAll = ref(route?.query?.all === '1' || route?.query?.all === 'true')
+const searchInput = ref(null)
 let deepLinkChecked = false
 const initialImpact = typeof route?.query?.impact === 'string' ? route.query.impact : ''
-// The panels that show some checks' findings in place of this list, as the engine's default listing says per check.
+// Related panels also expose evidence from the same run.
 const ELSEWHERE = [
   {path: '/activity', title: 'Live Activity', detail: 'why a route is slow'},
   {path: '/exceptions', title: 'Exceptions'},
@@ -103,7 +99,6 @@ async function fetchReport() {
       deepLinkChecked = true
       const linked = report.value?.observations?.find((observation) => observation.id === selectedId.value)
       if (linked) {
-        if (!isListed(linked)) showAll.value = true
         await nextTick()
         document.getElementById(rowId(linked.id))?.scrollIntoView?.({block: 'center'})
       }
@@ -120,38 +115,21 @@ const {autoRefresh, loading, initialLoading, load} = useAutoRefresh(fetchReport,
 
 const filters = computed(() => ({
   query: query.value,
-  theme: theme.value,
-  all: showAll.value,
-  selectedId: selectedId.value
+  theme: theme.value
 }))
 const groups = computed(() => groupObservations(report.value, filters.value))
-// One list in the report's check order, each row carrying its check's title.
-const rows = computed(() =>
-  groups.value.flatMap((group) => group.observations.map((observation) => ({observation, title: group.title})))
-)
-const visibleObservations = computed(() => rows.value.map((row) => row.observation))
-const themes = computed(() => themeFilters(report.value, filters.value))
+const filteredObservations = computed(() => groups.value.flatMap((group) => group.observations))
+const themes = computed(() => themeFilters(report.value, {theme: theme.value}))
+const filtersActive = computed(() => query.value.trim() !== '' || theme.value !== '')
 // The verdict speaks for the run, whatever the list is filtered to.
-const listed = computed(() =>
-  groupObservations(report.value, {all: showAll.value, selectedId: selectedId.value}).flatMap(
-    (group) => group.observations
-  )
-)
-const counts = computed(() => ({total: listed.value.length}))
-const unlisted = computed(() => unlistedSummary(report.value, filters.value))
-const anyUnlisted = computed(() => (report.value?.observations ?? []).some((observation) => !isListed(observation)))
-// The rows the default list leaves out, counted from the same source as the verdict: an open row it leaves out is
-// already shown, so it is counted once, as listed.
-const hiddenByDefault = computed(() =>
-  showAll.value
-    ? 0
-    : (report.value?.observations ?? []).filter(
-        (observation) => !isListed(observation) && observation.id !== selectedId.value
-      ).length
-)
-const unlistedText = computed(() =>
-  unlisted.value.groups.map((group) => `${formatNumber(group.count)} ${group.title}`).join(', ')
-)
+const counts = computed(() => ({total: report.value?.observations?.length ?? 0}))
+
+async function clearFilters() {
+  query.value = ''
+  theme.value = ''
+  await nextTick()
+  searchInput.value?.focus()
+}
 const coverage = computed(() => coverageSummary(report.value))
 const linkedShare = computed(() => coverage.value.segments.find((segment) => segment.id === 'request')?.share ?? 0)
 const sources = computed(() => coverageSources(report.value))
@@ -164,11 +142,47 @@ const evaluated = computed(() =>
 const notExercisedCount = computed(
   () => (report.value?.notExercised?.length ?? 0) + (report.value?.notExercisedOmitted ?? 0)
 )
-const selected = computed(() => visibleObservations.value.find((observation) => observation.id === selectedId.value))
+const selected = computed(() => filteredObservations.value.find((observation) => observation.id === selectedId.value))
 watch(selectedId, () => (aiExport.value = null))
+function groupExpanded(kind) {
+  return selected.value?.kind === kind
+}
+
+function groupId(kind) {
+  return `insight-group-${kind}`
+}
+
+function toggleGroup(group) {
+  if (groupExpanded(group.kind)) {
+    document.getElementById(groupId(group.kind))?.focus({preventScroll: true})
+    selectedId.value = null
+  } else {
+    selectedId.value = group.observations[0].id
+  }
+}
+
+function observationIndex(group) {
+  return group.observations.findIndex((observation) => observation.id === selectedId.value)
+}
+
+async function stepObservation(group, direction) {
+  const observation = group.observations[observationIndex(group) + direction]
+  if (!observation) return
+  selectedId.value = observation.id
+  await nextTick()
+  document.getElementById(`${groupId(group.kind)}-observation`)?.focus()
+}
+
+function observationLabel(observation) {
+  const limit =
+    observation.status === 'OBSERVED'
+      ? ''
+      : ` - Evidence limit: ${observation.status === 'PARTIAL' ? 'Some source events were dropped' : statusLabel(observation.status)}`
+  return (observation.subject ?? 'No subject recorded') + limit
+}
 
 const tabs = computed(() => [
-  {id: 'findings', label: 'Findings', icon: 'bi-search', count: listed.value.length},
+  {id: 'findings', label: 'Observations', icon: 'bi-search', count: counts.value.total},
   {id: 'changes', label: 'Changes', icon: 'bi-arrow-left-right', count: null},
   {id: 'impact', label: 'Change impact', icon: 'bi-diagram-3', count: null},
   {id: 'profile', label: 'JFR profile', icon: 'bi-cpu', count: null},
@@ -186,9 +200,9 @@ function openAiExport() {
 const shares = computed(() => evidenceShares(detail.value))
 const numeric = computed(() => numericColumns(detail.value))
 
-// A row stays open while it is still listed, so a refresh never loses the developer's place; one the filters leave out
+// A row stays open while it is still retained, so a refresh never loses the developer's place; one the filters leave out
 // closes. Nothing opens on its own: the verdict and the list come first.
-watch(visibleObservations, (observations) => {
+watch(filteredObservations, (observations) => {
   if (!report.value || selectedId.value === null) return
   if (!observations.some((observation) => observation.id === selectedId.value)) selectedId.value = null
 })
@@ -261,10 +275,6 @@ async function showTab(id, targetId) {
 async function showImpact({symbol, name}) {
   await showTab('impact')
   impactTool.value?.check(symbol, name)
-}
-
-function toggle(id) {
-  selectedId.value = selectedId.value === id ? null : id
 }
 
 function rowId(id) {
@@ -387,16 +397,12 @@ provide(
             <h2 id="insight-verdict-title" class="insight-verdict-title">
               <template v-if="empty === 'no-requests'">No HTTP requests recorded in this run yet</template>
               <template v-else-if="empty === 'nothing-observed'">Nothing to report {{ scope }}</template>
-              <template v-else-if="counts.total === 0">Nothing listed by default {{ scope }}</template>
               <template v-else>
-                {{ formatNumber(counts.total) }} {{ counts.total === 1 ? 'thing' : 'things' }} to check {{ scope }}
+                {{ formatNumber(counts.total) }} {{ counts.total === 1 ? 'observation' : 'observations' }} recorded
+                {{ scope }}
               </template>
             </h2>
             <ul class="insight-verdict-facts">
-              <li v-if="hiddenByDefault > 0">
-                <i class="bi bi-eye-slash" aria-hidden="true"></i>
-                {{ formatNumber(hiddenByDefault) }} more not listed by default
-              </li>
               <li v-if="empty === 'nothing-observed'">
                 <i class="bi bi-check2-all" aria-hidden="true"></i>
                 {{ evaluated.length }} of {{ report.checks.length }} checks ran
@@ -470,7 +476,7 @@ provide(
           </div>
 
           <p v-if="empty === 'no-requests' || empty === 'nothing-observed'" class="small text-muted insight-elsewhere">
-            Some checks show their findings in other panels:
+            Related evidence is also available in other panels:
             <template v-for="(panel, index) in ELSEWHERE" :key="panel.path"
               >{{ index === 0 ? '' : index === ELSEWHERE.length - 1 ? ', and ' : ', '
               }}<router-link :to="panel.path" class="btn btn-outline-secondary btn-sm">{{ panel.title }}</router-link
@@ -479,100 +485,160 @@ provide(
           </p>
 
           <template v-else>
-            <div class="d-flex flex-wrap gap-2 align-items-center mb-3 insight-toolbar">
-              <input
-                v-model="query"
-                type="search"
-                class="form-control form-control-sm insight-search"
-                aria-label="Search observations by check, route, table, or logger"
-                placeholder="Search checks, routes, tables, loggers…"
-              />
-              <div class="d-flex flex-wrap gap-1" role="group" aria-label="Filter observations by theme">
-                <button
-                  v-for="chip in themes"
-                  :key="chip.id || 'all'"
-                  type="button"
-                  class="btn btn-sm insight-theme"
-                  :class="theme === chip.id ? 'btn-primary' : 'btn-outline-secondary'"
-                  :aria-pressed="theme === chip.id"
-                  @click="theme = chip.id"
+            <div class="d-flex flex-wrap gap-3 align-items-end mb-2 insight-toolbar">
+              <div class="insight-search-field">
+                <label for="insight-search" class="form-label small mb-1">Search observations</label>
+                <input
+                  id="insight-search"
+                  ref="searchInput"
+                  v-model="query"
+                  type="search"
+                  class="form-control form-control-sm insight-search"
+                  placeholder="Search checks, routes, tables, loggers…"
+                  aria-describedby="insight-result-count"
+                />
+              </div>
+              <div class="insight-topic-field">
+                <label for="insight-topic" class="form-label small mb-1">Topic</label>
+                <select
+                  id="insight-topic"
+                  v-model="theme"
+                  class="form-select form-select-sm insight-topic"
+                  aria-describedby="insight-result-count"
                 >
-                  {{ chip.label }} <span class="insight-theme-count">{{ formatNumber(chip.count) }}</span>
-                </button>
+                  <option v-for="topic in themes" :key="topic.id" :value="topic.id">{{ topic.label }}</option>
+                </select>
               </div>
               <button
-                v-if="anyUnlisted"
+                v-if="filtersActive"
                 type="button"
-                class="btn btn-sm insight-show-all"
-                :class="showAll ? 'btn-primary' : 'btn-outline-secondary'"
-                :aria-pressed="showAll"
-                title="Also list short routes and the other rows the default list leaves out"
-                @click="showAll = !showAll"
+                class="btn btn-outline-secondary btn-sm insight-clear-filters"
+                @click="clearFilters"
               >
-                Show all routes<template v-if="hiddenByDefault > 0">
-                  · {{ formatNumber(hiddenByDefault) }} more</template
-                >
+                Clear filters
               </button>
             </div>
-
-            <p v-if="rows.length === 0" class="text-muted small mb-3 insight-none-listed">
-              <template v-if="unlisted.total > 0">
-                Nothing is listed by default here. {{ formatNumber(unlisted.total) }} not listed: {{ unlistedText }}.
-                <button type="button" class="btn btn-outline-secondary btn-sm align-baseline" @click="showAll = true">
-                  Show all routes
-                </button>
+            <p id="insight-result-count" class="text-muted small mb-1" role="status">
+              <template v-if="filtersActive">
+                {{ formatNumber(filteredObservations.length) }} of {{ formatNumber(counts.total) }} observations match
+                your filters, in {{ formatNumber(groups.length) }} {{ groups.length === 1 ? 'group' : 'groups' }}.
               </template>
-              <template v-else>No observation matches this search.</template>
+              <template v-else>
+                All {{ formatNumber(counts.total) }} {{ counts.total === 1 ? 'observation' : 'observations' }}, in
+                {{ formatNumber(groups.length) }} {{ groups.length === 1 ? 'group' : 'groups' }}. Nothing excluded.
+              </template>
+            </p>
+            <p class="text-muted small mb-3 insight-review-order">
+              Specific review candidates first, not a severity score. Observations describe recorded behavior, not
+              confirmed defects.
             </p>
 
-            <ul v-else class="list-unstyled mb-0 insight-list" aria-label="Observations">
+            <p v-if="groups.length === 0" class="text-muted small mb-3 insight-no-matches">
+              No observations match your filters. Change the search or topic, or clear filters.
+            </p>
+
+            <ul v-else class="list-unstyled mb-0 insight-list" aria-label="Observation groups">
               <li
-                v-for="{observation, title} in rows"
-                :id="rowId(observation.id)"
-                :key="observation.id"
-                class="insight-row"
-                :class="{open: observation.id === selectedId}"
+                v-for="group in groups"
+                :key="group.kind"
+                class="insight-group"
+                :class="{open: groupExpanded(group.kind)}"
               >
-                <button
-                  type="button"
-                  class="insight-row-toggle insight-item bootui-keyboard-target"
-                  :aria-expanded="observation.id === selectedId ? 'true' : 'false'"
-                  :aria-controls="`${rowId(observation.id)}-detail`"
-                  @click="toggle(observation.id)"
-                >
-                  <span class="insight-row-main">
-                    <span class="insight-row-kind">{{ title }}</span>
-                    <code class="bootui-break-anywhere">{{ observation.subject }}</code>
-                  </span>
-                  <span class="insight-row-meta">
-                    <span v-if="observation.eligible > 0" class="insight-row-count">
-                      {{ formatNumber(observation.affected) }} of {{ formatNumber(observation.eligible) }} requests
+                <h3 class="m-0">
+                  <button
+                    :id="groupId(group.kind)"
+                    type="button"
+                    class="insight-group-toggle bootui-keyboard-target"
+                    :aria-expanded="groupExpanded(group.kind) ? 'true' : 'false'"
+                    :aria-controls="`${groupId(group.kind)}-detail`"
+                    :aria-labelledby="`${groupId(group.kind)}-title ${groupId(group.kind)}-count`"
+                    :aria-describedby="group.summary ? `${groupId(group.kind)}-summary` : undefined"
+                    @click="toggleGroup(group)"
+                  >
+                    <span class="insight-group-main">
+                      <span :id="`${groupId(group.kind)}-title`" class="insight-group-title">{{ group.title }}</span>
+                      <span v-if="group.summary" :id="`${groupId(group.kind)}-summary`" class="insight-group-summary">
+                        {{ group.summary }}
+                      </span>
                     </span>
-                    <span v-if="observation.status !== 'OBSERVED'" class="insight-row-status">
-                      {{ statusLabel(observation.status) }}
+                    <span :id="`${groupId(group.kind)}-count`" class="insight-group-count">
+                      {{ formatNumber(group.observations.length) }}
+                      {{ group.observations.length === 1 ? 'observation' : 'observations' }}
                     </span>
-                    <span v-if="!isListed(observation)" class="insight-unlisted-label">Not listed by default</span>
-                  </span>
-                  <i class="bi bi-chevron-down insight-row-chevron" aria-hidden="true"></i>
-                </button>
-                <section
-                  v-if="observation.id === selectedId && selected"
-                  :id="`${rowId(observation.id)}-detail`"
-                  class="insight-detail"
-                  aria-live="polite"
-                  aria-labelledby="insight-sentence"
+                    <i class="bi bi-chevron-right insight-group-chevron" aria-hidden="true"></i>
+                  </button>
+                </h3>
+                <div
+                  v-show="groupExpanded(group.kind)"
+                  :id="`${groupId(group.kind)}-detail`"
+                  class="insight-group-content"
                 >
-                  <InsightDetail />
-                </section>
+                  <section
+                    v-if="groupExpanded(group.kind) && selected"
+                    :id="rowId(selected.id)"
+                    class="insight-row open insight-detail"
+                    aria-live="polite"
+                    aria-labelledby="insight-sentence"
+                  >
+                    <div v-if="group.observations.length > 1" class="insight-observation-navigation mb-3">
+                      <div class="insight-observation-field">
+                        <div class="d-flex justify-content-between gap-2 mb-1">
+                          <label :for="`${groupId(group.kind)}-observation`" class="small">Observation</label>
+                          <span :id="`${groupId(group.kind)}-position`" class="small text-muted insight-position">
+                            {{ formatNumber(observationIndex(group) + 1) }} of
+                            {{ formatNumber(group.observations.length) }}
+                          </span>
+                        </div>
+                        <select
+                          :id="`${groupId(group.kind)}-observation`"
+                          v-model="selectedId"
+                          class="form-select form-select-sm insight-observation-select"
+                          :aria-describedby="`${groupId(group.kind)}-position`"
+                        >
+                          <option
+                            v-for="observation in group.observations"
+                            :key="observation.id"
+                            :value="observation.id"
+                          >
+                            {{ observationLabel(observation) }}
+                          </option>
+                        </select>
+                      </div>
+                      <div class="d-flex gap-2 insight-observation-paging">
+                        <button
+                          type="button"
+                          class="btn btn-sm btn-outline-secondary"
+                          aria-label="Previous observation"
+                          :disabled="observationIndex(group) <= 0"
+                          @click="stepObservation(group, -1)"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-sm btn-outline-secondary"
+                          aria-label="Next observation"
+                          :disabled="observationIndex(group) >= group.observations.length - 1"
+                          @click="stepObservation(group, 1)"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                    <p v-else class="insight-observation-subject mb-3">
+                      <code class="bootui-break-anywhere">{{ selected.subject }}</code>
+                    </p>
+                    <p v-if="selected.status !== 'OBSERVED'" class="insight-row-limit mb-3">
+                      Evidence limit:
+                      {{
+                        selected.status === 'PARTIAL' ? 'Some source events were dropped' : statusLabel(selected.status)
+                      }}
+                    </p>
+                    <InsightDetail />
+                  </section>
+                </div>
               </li>
             </ul>
-
-            <p v-if="rows.length > 0 && unlisted.total > 0" class="small text-muted mt-2 mb-0 insight-unlisted">
-              {{ formatNumber(unlisted.total) }} more not listed by default: {{ unlistedText }}.
-              <button type="button" class="btn btn-outline-secondary btn-sm align-baseline" @click="showAll = true">
-                Show all routes
-              </button>
-            </p>
           </template>
         </div>
 
@@ -692,102 +758,181 @@ provide(
   margin-right: 0.25rem;
 }
 
-.insight-search {
-  max-width: 100%;
-  width: 18rem;
+.insight-search-field {
+  flex: 1 1 18rem;
+  min-width: 0;
+  max-width: 32rem;
 }
 
-.insight-theme-count {
-  font-variant-numeric: tabular-nums;
+.insight-topic-field {
+  flex: 0 1 12rem;
+  min-width: 0;
+}
+
+.insight-row-limit {
+  color: var(--bootui-text-muted);
+  font-size: 0.875rem;
 }
 
 .insight-list {
+  display: flow-root;
+}
+
+.insight-group {
   background: var(--bootui-surface-solid);
-  border: 1px solid var(--bootui-border);
-  border-radius: var(--bootui-radius-lg);
-  box-shadow: var(--bootui-shadow-sm);
+  border-inline: 1px solid var(--bootui-border);
   overflow: hidden;
 }
 
-.insight-row + .insight-row {
+.insight-group:first-child {
+  border-top: 1px solid var(--bootui-border);
+  border-top-left-radius: var(--bootui-radius-lg);
+  border-top-right-radius: var(--bootui-radius-lg);
+}
+
+.insight-group:last-child,
+.insight-group:has(+ .insight-group.open) {
+  border-bottom: 1px solid var(--bootui-border);
+  border-bottom-left-radius: var(--bootui-radius-lg);
+  border-bottom-right-radius: var(--bootui-radius-lg);
+}
+
+.insight-group.open + .insight-group {
+  border-top-left-radius: var(--bootui-radius-lg);
+  border-top-right-radius: var(--bootui-radius-lg);
+}
+
+.insight-group + .insight-group,
+.insight-group-content {
   border-top: 1px solid var(--bootui-border);
 }
 
-.insight-row-toggle {
+.insight-group.open {
+  margin-block: 1rem;
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-lg);
+  box-shadow: var(--bootui-shadow-sm);
+}
+
+.insight-group-toggle {
   align-items: center;
   background: transparent;
   border: 0;
   color: var(--bootui-text);
   display: grid;
+  font-size: 1rem;
+  font-weight: 400;
   gap: 0.35rem 1rem;
   grid-template-columns: minmax(0, 1fr) auto auto;
-  padding: 0.75rem 1rem;
+  padding: 0.85rem 1rem;
   text-align: start;
   transition: background-color 150ms ease;
   width: 100%;
 }
 
-.insight-row-toggle:focus-visible {
+.insight-group-toggle:focus-visible {
   outline-offset: -2px;
 }
 
-.insight-row-toggle:hover,
-.insight-row.open .insight-row-toggle {
+.insight-group-toggle:hover,
+.insight-group.open > h3 .insight-group-toggle {
   background: var(--bootui-nav-hover-bg);
 }
 
-.insight-row-main {
+.insight-group-main {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
   min-width: 0;
 }
 
-.insight-row-kind {
+.insight-group-title {
   font-weight: 600;
 }
 
-.insight-row-meta {
-  align-items: center;
+.insight-group-summary,
+.insight-group-count {
   color: var(--bootui-text-muted);
-  display: flex;
-  flex-wrap: wrap;
   font-size: 0.875rem;
-  gap: 0.25rem 0.9rem;
-  justify-content: flex-end;
 }
 
-.insight-row-count {
+.insight-group-count {
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.insight-unlisted-label {
-  font-style: italic;
-}
-
-.insight-row-chevron {
+.insight-group-chevron {
   color: var(--bootui-text-muted);
   transition: transform 150ms ease;
 }
 
-.insight-row.open .insight-row-chevron {
-  transform: rotate(180deg);
+.insight-group.open > h3 .insight-group-chevron {
+  transform: rotate(90deg);
+}
+
+.insight-observation-navigation {
+  align-items: center;
+  display: grid;
+  gap: 0.75rem 1rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.insight-observation-field {
+  min-width: 0;
+}
+
+.insight-observation-select {
+  font-family: var(--bs-font-monospace);
+}
+
+.insight-observation-paging {
+  align-self: end;
+}
+
+.insight-position {
+  font-variant-numeric: tabular-nums;
 }
 
 .insight-detail {
-  border-top: 1px solid var(--bootui-border);
   padding: 1rem 1.25rem 1.25rem;
 }
 
 @media (max-width: 575.98px) {
-  .insight-row-toggle {
-    grid-template-columns: minmax(0, 1fr) auto;
+  .insight-group-toggle {
+    column-gap: 0.5rem;
+    padding-inline: 0.75rem;
   }
 
-  .insight-row-meta {
-    grid-column: 1 / -1;
+  .insight-group-main {
+    display: contents;
+  }
+
+  .insight-group-title {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .insight-group-summary {
+    grid-column: 1 / 3;
     grid-row: 2;
-    justify-content: flex-start;
+  }
+
+  .insight-group-count {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .insight-group-chevron {
+    grid-column: 3;
+    grid-row: 1 / 3;
+  }
+
+  .insight-observation-navigation {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .insight-observation-paging {
+    justify-content: flex-end;
   }
 
   .insight-detail {
@@ -796,8 +941,8 @@ provide(
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .insight-row-toggle,
-  .insight-row-chevron {
+  .insight-group-toggle,
+  .insight-group-chevron {
     transition: none;
   }
 }

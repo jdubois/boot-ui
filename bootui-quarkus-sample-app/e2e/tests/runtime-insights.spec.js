@@ -1,10 +1,18 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {
+  openInsightObservation,
+  verifyInsightGroups
+} from '../../../bootui-spring-sample-app/e2e/scenarios/runtime-insights.js'
+
+test('opens group evidence in one click with accessible selection and fetch-free filters', async ({page, openView}) => {
+  await verifyInsightGroups(page, expect, openView)
+})
 
 /**
  * Runtime Insights (docs/PLAN-v2.md §5.5): the runtime journal's retained requests projected into observations.
  * Seven calls to one route give it the five warm requests `route-time-breakdown` needs, so the panel always has one
- * observation to open, whatever ran before; a short route is reached with **Show all routes** (M4-19).
+ * observation to open, whatever ran before; short routes are visible without changing filters.
  */
 test.describe('Runtime Insights view', () => {
   test('lists a route time breakdown with its window, coverage, checks, and evidence', async ({
@@ -17,20 +25,20 @@ test.describe('Runtime Insights view', () => {
       expect(search.ok()).toBeTruthy()
     }
 
-    // ?all=1 is Show all routes (M4-19): a short route's breakdown is reachable but not listed by default.
-    await openView('runtime-insights?all=1', 'Runtime Insights')
+    await openView('runtime-insights', 'Runtime Insights')
 
     await expect(page.getByText('What this run did that no single panel shows.')).toBeVisible()
     await expect(page.locator('#insight-verdict-title')).toContainText('across')
 
-    await expect(page.locator('.insight-show-all')).toHaveAttribute('aria-pressed', 'true')
-    const item = page
-      .locator('.insight-item', {hasText: 'Route time breakdown'})
-      .filter({hasText: '/api/sample/product-search'})
-      .first()
-    await expect(item).toBeVisible({timeout: 15_000})
-    await item.click()
-    await expect(item).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.locator('.insight-show-all')).toHaveCount(0)
+    await expect(page.getByRole('combobox', {name: 'Topic', exact: true})).toHaveValue('')
+    const timing = page.locator('.insight-group').filter({has: page.getByText('Route time breakdown', {exact: true})})
+    const toggle = timing.locator('.insight-group-toggle')
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await toggle.focus()
+    await page.keyboard.press('Enter')
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await openInsightObservation(page, expect, 'Route time breakdown', 'GET /api/sample/product-search')
 
     const detail = page.locator('.insight-detail')
     await expect(detail.locator('#insight-sentence')).toContainText('warm median')
@@ -56,7 +64,7 @@ test.describe('Runtime Insights view', () => {
     await expect(page.getByRole('tab', {name: 'JFR profile'})).toBeFocused()
     await expect(page.locator('.insight-profile-running')).toHaveCount(0)
     await expect(page.locator('.insight-profile').getByRole('button', {name: /Profile resources/})).toBeVisible()
-    await page.getByRole('tab', {name: /^Findings/}).click()
+    await page.getByRole('tab', {name: /^Observations/}).click()
     if (agentAttached) {
       await codePathsLink.click()
       await expect(page).toHaveURL(/#\/code-paths\?route=GET\+\/api\/sample\/product-search$/)
@@ -95,9 +103,9 @@ test.describe('Runtime Insights view', () => {
     await expect(impact.locator('.insight-impact-node')).toContainText('GET /api/sample/product-search')
     await expect(impact.locator('[data-list="observed"]')).toContainText('GET /api/sample/product-search')
 
-    await page.getByRole('tab', {name: /^Findings/}).click()
+    await page.getByRole('tab', {name: /^Observations/}).click()
     await page.locator('.insight-search').fill('no-such-route-xyz')
-    await expect(page.getByText('No observation matches this search.')).toBeVisible()
+    await expect(page.locator('.insight-no-matches')).toContainText('No observations match your filters.')
   })
 
   test('profiles resources only when asked, and splits the samples by route', async ({openView, page}) => {

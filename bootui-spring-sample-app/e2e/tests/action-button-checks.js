@@ -231,7 +231,7 @@ export function registerActionButtonTests(test, expect) {
           await page.keyboard.press('Space')
           await expect(page.getByRole('tab', {name: 'JFR profile'})).toBeFocused()
           await expect(page.getByRole('button', {name: 'Profile resources', exact: true})).toBeDisabled()
-          await page.getByRole('tab', {name: /^Findings/}).click()
+          await page.getByRole('tab', {name: /^Observations/}).click()
         }
         expect(writes).toEqual([])
         expect(errors).toEqual([])

@@ -527,12 +527,14 @@ describe('insightMarkdown', () => {
     expect(markdown).not.toContain('Not listed by default')
   })
 
-  it('says why a row the default list leaves out is left out, so an AI does not over-weight it', () => {
+  it('keeps observation qualifications without claiming a visible row is hidden', () => {
     const {markdown} = insightMarkdown({
       ...detail,
       observation: {...detail.observation, listed: false, unlistedReason: 'Its warm median is under 20 ms.'}
     })
-    expect(markdown).toContain('- **Not listed by default:** Its warm median is under 20 ms.')
+    expect(markdown).not.toContain('Not listed by default')
+    expect(markdown).toContain('not a verdict')
+    expect(markdown).toContain(detail.observation.limitations[0])
   })
 
   it('says why an observation is unavailable instead of exporting nothing', () => {

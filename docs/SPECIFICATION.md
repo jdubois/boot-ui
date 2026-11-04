@@ -1968,8 +1968,8 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   not just its request count: a heap-growth check that examined collections is evaluated even with zero requests,
   whether it observed growth or a stable heap.
   Each kind's external validation (recorded once in the engine's `ExternalValidation`)
-  decides whether its rows are listed by default, and is never exposed: no check, row, limitation, MCP or CLI text
-  names it or a plan identifier, which `UserFacingPlanJargonTests` and the UI's `userFacingText.test.js` enforce.
+  decides whether its rows enter the agents' default selection, and is never exposed: no check, row, limitation, MCP
+  or CLI text names it or a plan identifier, which `UserFacingPlanJargonTests` and the UI's `userFacingText.test.js` enforce.
   `PASSED` (`errors-behind-2xx`, `changed-code-not-executed`) and `NOT_VALIDATED` (kinds silent or never exercised on
   the validation applications) are listed by default; `FAILED` (`route-time-breakdown`, `exception-hotspots`,
   `connections-per-request`, `ai-usage-by-route`, each folded into the panel showing the same evidence, which links to
@@ -1978,7 +1978,7 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   `anonymous-data-reach`), `NOT_LISTED`
   (`gc-inflated-latency`, `heap-growth-after-gc`,
   reached from the Memory panel), and `NOT_JUDGED` (`slow-flush`, `connection-reacquisition`, the M5 panel-row kinds, and any kind the registry does not name) are not.
-  Every observation carries `listed`, whether the panel's and the agents' default list shows it, and, when it does
+  Every observation carries `listed`, whether the agents' default selection shows it, and, when it does
   not, `unlistedReason`: for a kind that is not listed, where its evidence is shown (the panel it is
   folded into, the Memory panel, its own panel, or the full list, a search, or a query naming it), or else the kind's own rule. Within the kinds, a `route-time-breakdown` is prominent with a warm median of 20 ms or more, authorization
   taking 20 % of the warm time, or a median of 50 authorization decisions a request; `exception-hotspots` collapses the
@@ -1987,8 +1987,21 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   to `lazy-sql-after-handler` a statement that kind reports on the same route when every affected request repeated it
   after the handler returned and the lazy row names each of its call sites, its check's reason counting them, and names the render-time call site of statements run after the handler; and
   `framework-warnings-by-route` leaves out a `WARN` without a specific check and a 4xx-only `Resolved [...]`, and counts
-  in one row the framework `ERROR` events that carried no request id. The panel's **Show all routes**, a search, or a
-  deep link lists the rest.
+  in one row the framework `ERROR` events that carried no request id.
+  The browser's **Observations** tab keeps every retained observation available regardless of `listed`; this metadata
+  does not hide or prioritize browser rows. Compact groups name the check, summarize it, and count its observations,
+  initially collapsed in suggested review order: specific review candidates before broad timing and usage summaries,
+  not a severity score. Only search and the **Topic** selector narrow the report, independently of each other,
+  without opening details or loading evidence. Opening a group selects its first matching observation and loads only
+  its evidence. Multi-observation groups have a labeled **Observation** selector, position count, and **Previous / Next**
+  controls; single-observation groups show their subject without navigation. One group's detail is open at a time.
+  Selected observations stay open across refreshes while retained and matching; closing the group restores trigger focus.
+  Deep links open the named observation and its group. The run-level observation total and tab count do not change
+  with filtering or collapse; a separate result count reports matching observations and groups.
+  **Clear filters** restores all groups and focuses Search. `PARTIAL` rows visibly identify dropped
+  source events and `INSUFFICIENT` rows identify insufficient evidence beside the affected observation, with full
+  limitations in its inline detail. Observations are recorded behavior, not confirmed defects. Existing `?theme=`,
+  `?q=`, and `?insight=` deep links retain their meaning; `?all=1` is accepted but no longer needed.
 - `GET /bootui/api/runtime-insights/insights/{id}` returns one observation's evidence: at most 20 rows and the count left
   out. Ids are `kind:hash`, stable across refreshes and restarts.
 - `GET /bootui/api/runtime-insights/impact?symbol=<symbol>` resolves a route, a bean, a class's simple name, a

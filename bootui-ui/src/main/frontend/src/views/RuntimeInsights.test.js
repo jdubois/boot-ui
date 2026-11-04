@@ -96,12 +96,23 @@ function shown(element) {
   return !(element.attributes('style') ?? '').includes('display: none')
 }
 
-// Nothing opens on its own: a row's evidence is loaded once the developer opens it.
 async function openRow(wrapper, text = '') {
-  const row = wrapper.findAll('.insight-item').find((candidate) => candidate.text().includes(text))
-  await row.trigger('click')
-  await flushPromises()
-  return row
+  for (const group of wrapper.findAll('.insight-group-toggle')) {
+    if (group.attributes('aria-expanded') !== 'true') {
+      await group.trigger('click')
+      await flushPromises()
+    }
+    const select = wrapper.find('.insight-observation-select')
+    if (select.exists()) {
+      const option = select.findAll('option').find((candidate) => candidate.text().includes(text))
+      if (!option) continue
+      await select.setValue(option.element.value)
+      await flushPromises()
+      return group
+    }
+    if (wrapper.get('.insight-observation-subject').text().includes(text)) return group
+  }
+  throw new Error(`No observation matches ${text}`)
 }
 
 describe('Runtime Insights panel', () => {
@@ -304,7 +315,7 @@ describe('Runtime Insights panel', () => {
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mountPanel()
     await flushPromises()
-    expect(wrapper.get('#insight-verdict-title').text()).toBe('1 thing to check across 9 requests')
+    expect(wrapper.get('#insight-verdict-title').text()).toBe('1 observation recorded across 9 requests')
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/insights/'))).toBe(false)
     expect(wrapper.find('.insight-detail').exists()).toBe(false)
     await openRow(wrapper)
@@ -312,7 +323,7 @@ describe('Runtime Insights panel', () => {
     const text = wrapper.text()
     expect(text).toContain('9 requests')
     expect(text).toContain('request id 100 %')
-    expect(wrapper.find('.insight-item[aria-expanded="true"]').text()).toContain('GET /api/owners/{id}')
+    expect(wrapper.find('.insight-row.open').text()).toContain('GET /api/owners/{id}')
     expect(wrapper.find('#insight-sentence').text()).toContain('repeated')
     expect(wrapper.find('#insight-sentence').text()).not.toContain('`')
     expect(wrapper.find('#insight-sentence code').text()).toBe('GET /api/owners/{id}')
@@ -334,7 +345,7 @@ describe('Runtime Insights panel', () => {
     await flushPromises()
     await openRow(wrapper)
 
-    expect(wrapper.find('.insight-row-kind').text()).toBe('Repeated SELECTs')
+    expect(wrapper.find('.insight-group-title').text()).toBe('Repeated SELECTs')
     expect(wrapper.text()).not.toMatch(/validat/i)
   })
 
@@ -386,7 +397,7 @@ describe('Runtime Insights panel', () => {
     expect(wrapper.get('.insight-empty').text()).toContain('1 of 2 checks ran')
     const elsewhere = wrapper.get('.insight-elsewhere')
     expect(elsewhere.text().replace(/\s+/g, ' ')).toBe(
-      'Some checks show their findings in other panels: Live Activity (why a route is slow), Exceptions, ' +
+      'Related evidence is also available in other panels: Live Activity (why a route is slow), Exceptions, ' +
         'Database Connection Pools, AI Framework, and Memory (garbage collection and heap).'
     )
     expect(elsewhere.findAll('a')).toHaveLength(5)
@@ -526,8 +537,9 @@ describe('Runtime Insights panel', () => {
     )
     wrapper = mountPanel()
     await flushPromises()
+    await openRow(wrapper)
     expect(wrapper.text()).toContain('@Scheduled OrderJob.run')
-    expect(wrapper.find('.insight-item').exists()).toBe(true)
+    expect(wrapper.find('.insight-row.open').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('No HTTP requests recorded in this run yet')
   })
 
@@ -572,8 +584,9 @@ describe('Runtime Insights panel', () => {
     wrapper = mountPanel()
     await flushPromises()
 
-    expect(wrapper.get('.insight-item').text()).toContain('Heap')
-    expect(wrapper.get('#insight-verdict-title').text()).toBe('1 thing to check across 4 retained events')
+    await openRow(wrapper)
+    expect(wrapper.get('.insight-row.open').text()).toContain('Heap')
+    expect(wrapper.get('#insight-verdict-title').text()).toBe('1 observation recorded across 4 retained events')
     await openRow(wrapper)
     expect(wrapper.text()).toContain('Old-generation occupancy rose after garbage collection.')
     expect(wrapper.text()).not.toContain('No HTTP requests recorded in this run yet')
@@ -588,10 +601,10 @@ describe('Runtime Insights panel', () => {
     await flushPromises()
 
     await wrapper.find('.insight-search').setValue('no-such-route')
-    expect(wrapper.text()).toContain('No observation matches this search.')
+    expect(wrapper.text()).toContain('No observations match your filters.')
   })
 
-  it('leaves short routes out by default, counts them, and lists them with Show all routes', async () => {
+  it('shows short routes alongside other observations without a widening control or hidden-row labels', async () => {
     const fast = {
       ...report.observations[0],
       id: 'route-time-breakdown:fast',
@@ -615,23 +628,13 @@ describe('Runtime Insights panel', () => {
     wrapper = mountPanel()
     await flushPromises()
 
-    expect(wrapper.findAll('.insight-item')).toHaveLength(1)
-    expect(wrapper.get('.insight-unlisted').text()).toContain('1 more not listed by default: 1 Route time breakdown.')
-    const toggle = wrapper.get('.insight-show-all')
-    expect(toggle.attributes('aria-pressed')).toBe('false')
-    expect(toggle.text()).toBe('Show all routes · 1 more')
-
-    await toggle.trigger('click')
-    expect(toggle.attributes('aria-pressed')).toBe('true')
-    expect(wrapper.findAll('.insight-item')).toHaveLength(2)
-    expect(wrapper.find('.insight-unlisted').exists()).toBe(false)
-    const item = wrapper.findAll('.insight-item').find((candidate) => candidate.text().includes('GET /api/fast'))
-    expect(item.text()).toContain('Not listed by default')
-    await item.trigger('click')
-    await flushPromises()
-    expect(wrapper.get('.insight-unlisted-reason').text()).toBe(
-      'Not listed by default: Its warm median is under 20 ms.'
-    )
+    expect(wrapper.findAll('.insight-group-toggle')).toHaveLength(2)
+    expect(wrapper.findAll('.insight-row.open')).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('Show all routes')
+    expect(wrapper.text()).not.toContain('Not listed by default')
+    expect(wrapper.get('#insight-result-count').text()).toBe('All 2 observations, in 2 groups. Nothing excluded.')
+    await openRow(wrapper, 'GET /api/fast')
+    expect(wrapper.get('.insight-detail').text()).not.toContain('Not listed by default')
   })
 
   it('keeps the open observation when a refresh leaves it out of the default list', async () => {
@@ -657,20 +660,18 @@ describe('Runtime Insights panel', () => {
     )
     wrapper = mountPanel()
     await flushPromises()
-    const item = wrapper.findAll('.insight-item').find((candidate) => candidate.text().includes('GET /api/slow'))
-    await item.trigger('click')
-    await flushPromises()
+    await openRow(wrapper, 'GET /api/slow')
 
     current = refreshed
     await wrapper.findComponent({name: 'PanelHeader'}).vm.$emit('refresh')
     await flushPromises()
 
-    expect(wrapper.get('.insight-item[aria-expanded="true"]').text()).toContain('GET /api/slow')
-    expect(wrapper.get('.insight-item[aria-expanded="true"]').text()).toContain('Not listed by default')
+    expect(wrapper.get('.insight-row.open').text()).toContain('GET /api/slow')
+    expect(wrapper.get('.insight-row.open').text()).not.toContain('Not listed by default')
     expect(wrapper.find('.insight-unlisted').exists()).toBe(false)
   })
 
-  it('shows every row when a deep link names one the default list leaves out', async () => {
+  it('keeps every group available when a deep link names an observation the default list leaves out', async () => {
     const fast = {
       ...report.observations[0],
       id: 'route-time-breakdown:fast',
@@ -695,11 +696,12 @@ describe('Runtime Insights panel', () => {
     wrapper = mountPanel()
     await flushPromises()
 
-    expect(wrapper.get('.insight-show-all').attributes('aria-pressed')).toBe('true')
-    expect(wrapper.get('.insight-item[aria-expanded="true"]').text()).toContain('GET /api/fast')
+    expect(wrapper.findAll('.insight-group-toggle')).toHaveLength(2)
+    expect(wrapper.findAll('.insight-row.open')).toHaveLength(1)
+    expect(wrapper.get('.insight-row.open').text()).toContain('GET /api/fast')
   })
 
-  it('explains an empty default list instead of reading as no match', async () => {
+  it('shows a report made entirely of rows excluded from agent defaults, including legacy all links', async () => {
     const fast = {...report.observations[0], listed: false, unlistedReason: 'Its warm median is under 20 ms.'}
     vi.stubGlobal(
       'fetch',
@@ -707,13 +709,14 @@ describe('Runtime Insights panel', () => {
         Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : {...report, observations: [fast]}))
       )
     )
+    routeState.query = {all: '1'}
     wrapper = mountPanel()
     await flushPromises()
 
-    expect(wrapper.get('.insight-none-listed').text()).toContain('Nothing is listed by default here. 1 not listed')
-    expect(wrapper.text()).not.toContain('No observation matches this search.')
-    await wrapper.get('.insight-none-listed button').trigger('click')
-    expect(wrapper.findAll('.insight-item')).toHaveLength(1)
+    expect(wrapper.findAll('.insight-group-toggle')).toHaveLength(1)
+    expect(wrapper.findAll('.insight-row.open')).toHaveLength(0)
+    expect(wrapper.get('#insight-verdict-title').text()).toBe('1 observation recorded across 9 requests')
+    expect(wrapper.find('.insight-no-matches').exists()).toBe(false)
   })
 
   it('lists the declared routes this run never reached', async () => {
@@ -750,7 +753,7 @@ describe('Runtime Insights panel', () => {
     await flushPromises()
 
     expect(wrapper.get('.insight-search').element.value).toBe('/api/pets')
-    expect(wrapper.get('.insight-item[aria-expanded="true"]').text()).toContain('GET /api/pets')
+    expect(wrapper.get('.insight-row.open').text()).toContain('GET /api/pets')
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain(
       'api/runtime-insights/insights/repeated-selects%3A9999999999'
     )
@@ -782,11 +785,10 @@ describe('Runtime Insights panel', () => {
     wrapper = mountPanel()
     await flushPromises()
 
-    expect(wrapper.findAll('.insight-item')).toHaveLength(1)
-    const memory = wrapper.findAll('.insight-theme').find((chip) => chip.text().startsWith('Memory'))
-    expect(memory.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findAll('.insight-row.open')).toHaveLength(0)
+    expect(wrapper.get('.insight-topic').element.value).toBe('memory')
     await openRow(wrapper, 'Heap')
-    expect(wrapper.get('.insight-item[aria-expanded="true"]').text()).toContain('Heap')
+    expect(wrapper.get('.insight-row.open').text()).toContain('Heap')
     expect(wrapper.get('.insight-detail').text()).not.toContain('of 0 requests')
   })
 
@@ -1087,7 +1089,7 @@ describe('Runtime Insights panel', () => {
     expect(wrapper.get('#insights-panel-impact input').element.value).toBe('OrderService#total')
   })
 
-  it('counts each theme filter and closes an open row the filter leaves out', async () => {
+  it('offers one topic selector and closes an open row the filter leaves out', async () => {
     const heap = {...report.observations[0], id: 'heap:1', kind: 'heap-growth-after-gc', subject: 'Heap'}
     const both = {
       ...report,
@@ -1101,23 +1103,24 @@ describe('Runtime Insights panel', () => {
     wrapper = mountPanel()
     await flushPromises()
 
-    const chips = () => wrapper.findAll('.insight-theme').map((chip) => chip.text())
-    expect(chips()).toEqual(['All 2', 'Memory 1', 'Queries 1'])
+    expect(wrapper.findAll('.insight-topic option').map((option) => option.text())).toEqual([
+      'Any topic',
+      'Memory',
+      'Queries'
+    ])
     expect(wrapper.get('#insights-tab-findings').text()).toContain('2')
     await openRow(wrapper, 'GET /api/owners/{id}')
     expect(wrapper.find('.insight-detail').exists()).toBe(true)
 
-    await wrapper
-      .findAll('.insight-theme')
-      .find((chip) => chip.text().startsWith('Memory'))
-      .trigger('click')
+    await wrapper.get('.insight-topic').setValue('memory')
     await flushPromises()
-    expect(wrapper.findAll('.insight-item')).toHaveLength(1)
+    expect(wrapper.findAll('.insight-row.open')).toHaveLength(0)
     expect(wrapper.find('.insight-detail').exists()).toBe(false)
-    expect(wrapper.get('#insight-verdict-title').text()).toBe('2 things to check across 9 requests')
+    expect(wrapper.get('#insight-verdict-title').text()).toBe('2 observations recorded across 9 requests')
+    expect(wrapper.get('#insight-result-count').text()).toBe('1 of 2 observations match your filters, in 1 group.')
   })
 
-  it('counts an open row the default list leaves out once, as listed, after a search is cleared', async () => {
+  it('keeps the run total independent of search and an open row', async () => {
     const fast = {
       ...report.observations[0],
       id: 'route-time-breakdown:fast',
@@ -1140,18 +1143,304 @@ describe('Runtime Insights panel', () => {
     )
     wrapper = mountPanel()
     await flushPromises()
-    expect(wrapper.get('#insight-verdict-title').text()).toBe('1 thing to check across 9 requests')
-    expect(wrapper.get('.insight-verdict-facts').text()).toContain('2 more not listed by default')
+    expect(wrapper.get('#insight-verdict-title').text()).toBe('3 observations recorded across 9 requests')
 
     await wrapper.get('.insight-search').setValue('/api/fast')
+    expect(wrapper.get('#insight-result-count').text()).toBe('1 of 3 observations match your filters, in 1 group.')
+    expect(wrapper.get('#insights-tab-findings').text()).toContain('Observations')
+    expect(wrapper.get('#insights-tab-findings .bootui-tabs__count').text()).toBe('3')
     await openRow(wrapper, 'GET /api/fast')
     await wrapper.get('.insight-search').setValue('')
     await flushPromises()
 
-    expect(wrapper.get('#insight-verdict-title').text()).toBe('2 things to check across 9 requests')
-    expect(wrapper.get('.insight-verdict-facts').text()).toContain('1 more not listed by default')
-    expect(wrapper.get('.insight-show-all').text()).toBe('Show all routes · 1 more')
-    expect(wrapper.get('.insight-unlisted').text()).toContain('1 more not listed by default: 1 Route time breakdown.')
+    expect(wrapper.get('#insight-verdict-title').text()).toBe('3 observations recorded across 9 requests')
+    expect(wrapper.get('#insight-result-count').text()).toBe('All 3 observations, in 2 groups. Nothing excluded.')
+    expect(wrapper.findAll('.insight-row.open')).toHaveLength(1)
+    expect(wrapper.get('.insight-observation-select').findAll('option')).toHaveLength(2)
+    expect(wrapper.get('.insight-row.open').text()).toContain('GET /api/fast')
+  })
+
+  it('keeps search and topic independent and restores every row with an accessible clear action', async () => {
+    const heap = {
+      ...report.observations[0],
+      id: 'heap:1',
+      kind: 'heap-growth-after-gc',
+      subject: 'Heap',
+      sentence: 'Old-generation occupancy remained stable.'
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(jsonResponse({...report, observations: [...report.observations, heap]})))
+    )
+    wrapper = mount(RuntimeInsights, {
+      attachTo: document.body,
+      global: {stubs: {'router-link': {template: '<a><slot /></a>'}}}
+    })
+    await flushPromises()
+
+    await wrapper.get('.insight-search').setValue('owners')
+    await wrapper.get('.insight-topic').setValue('memory')
+    expect(wrapper.get('.insight-search').element.value).toBe('owners')
+    expect(wrapper.get('#insight-result-count').text()).toBe('0 of 2 observations match your filters, in 0 groups.')
+    expect(wrapper.get('.insight-no-matches').text()).toContain('Change the search or topic')
+    expect(wrapper.findAll('.insight-topic option').map((option) => option.text())).toContain('Queries')
+
+    await wrapper.get('.insight-clear-filters').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.insight-search').element.value).toBe('')
+    expect(wrapper.get('.insight-topic').element.value).toBe('')
+    expect(wrapper.findAll('.insight-group-toggle')).toHaveLength(2)
+    expect(wrapper.findAll('.insight-row.open')).toHaveLength(0)
+    expect(document.activeElement).toBe(wrapper.get('.insight-search').element)
+    expect(wrapper.find('.insight-clear-filters').exists()).toBe(false)
+  })
+
+  it('qualifies partial and insufficient evidence beside the affected row, not with a global filter', async () => {
+    const partial = {...report.observations[0], id: 'partial:1', status: 'PARTIAL', listed: false}
+    const insufficient = {...partial, id: 'insufficient:1', status: 'INSUFFICIENT'}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        Promise.resolve(
+          jsonResponse(
+            String(url).includes('/insights/')
+              ? detail
+              : {...report, observations: [...report.observations, partial, insufficient]}
+          )
+        )
+      )
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    await openRow(wrapper)
+    const select = wrapper.get('.insight-observation-select')
+    expect(select.findAll('option')).toHaveLength(3)
+    expect(select.findAll('option').map((option) => option.text())).toEqual([
+      'GET /api/owners/{id}',
+      'GET /api/owners/{id} - Evidence limit: Some source events were dropped',
+      'GET /api/owners/{id} - Evidence limit: Not enough evidence'
+    ])
+    await select.setValue(partial.id)
+    expect(wrapper.get('.insight-row-limit').text()).toBe('Evidence limit: Some source events were dropped')
+    await select.setValue(insufficient.id)
+    expect(wrapper.get('.insight-row-limit').text()).toBe('Evidence limit: Not enough evidence')
+    expect(wrapper.findAll('.insight-topic option').map((option) => option.text())).toEqual(['Any topic', 'Queries'])
+  })
+
+  it('opens one observation directly and preserves its selection across report refreshes', async () => {
+    let current = report
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : current))
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPanel()
+    await flushPromises()
+
+    const group = wrapper.get('.insight-group-toggle')
+    expect(group.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.get('.insight-group-count').text()).toBe('1 observation')
+    expect(wrapper.find('.insight-row.open').exists()).toBe(false)
+    expect(wrapper.get(`#${group.attributes('aria-controls')}`).isVisible()).toBe(false)
+    await group.trigger('click')
+    await flushPromises()
+    expect(group.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.findAll('.insight-row.open')).toHaveLength(1)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/insights/'))).toHaveLength(1)
+    expect(wrapper.get('.insight-detail').text()).toContain('Evidence')
+    expect(wrapper.find('.insight-observation-select').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="Next observation"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="Previous observation"]').exists()).toBe(false)
+
+    current = {...report, observations: [...report.observations, {...report.observations[0], id: 'second'}]}
+    await wrapper.findComponent({name: 'PanelHeader'}).vm.$emit('refresh')
+    await flushPromises()
+    expect(group.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('.insight-group-count').text()).toBe('2 observations')
+    expect(wrapper.findAll('.insight-row.open')).toHaveLength(1)
+    expect(wrapper.get('.insight-observation-select').element.value).toBe(report.observations[0].id)
+    await group.trigger('click')
+    await wrapper.findComponent({name: 'PanelHeader'}).vm.$emit('refresh')
+    await flushPromises()
+    expect(group.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('.insight-row.open').exists()).toBe(false)
+
+    current = {...current, window: {...current.window, runId: 'run-2'}}
+    await group.trigger('click')
+    await wrapper.findComponent({name: 'PanelHeader'}).vm.$emit('refresh')
+    await flushPromises()
+    expect(group.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('.insight-observation-select').element.value).toBe(report.observations[0].id)
+  })
+
+  it('filters groups without selecting an observation or fetching evidence', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(report)))
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.insight-search').setValue('owners')
+    const group = wrapper.get('.insight-group-toggle')
+    expect(group.attributes('aria-expanded')).toBe('false')
+    await wrapper.findComponent({name: 'PanelHeader'}).vm.$emit('refresh')
+    await flushPromises()
+    expect(group.attributes('aria-expanded')).toBe('false')
+    await wrapper.get('.insight-search').setValue('/api/owners')
+    expect(group.attributes('aria-expanded')).toBe('false')
+    await wrapper.get('.insight-clear-filters').trigger('click')
+    expect(group.attributes('aria-expanded')).toBe('false')
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/insights/'))).toBe(false)
+  })
+
+  it('selects and pages through matching observations with boundary controls and retains the selection on refresh', async () => {
+    const second = {...report.observations[0], id: 'repeated-selects:second', subject: 'GET /api/pets'}
+    const both = {...report, observations: [...report.observations, second]}
+    const fetchMock = vi.fn((url) => {
+      const observation = both.observations.find(
+        (item) => String(url) === `api/runtime-insights/insights/${encodeURIComponent(item.id)}`
+      )
+      return Promise.resolve(jsonResponse(observation ? {...detail, observation} : structuredClone(both)))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(RuntimeInsights, {
+      attachTo: document.body,
+      global: {stubs: {'router-link': {template: '<a><slot /></a>'}}}
+    })
+    await flushPromises()
+    await wrapper.get('.insight-group-toggle').trigger('click')
+    await flushPromises()
+
+    const select = wrapper.get('.insight-observation-select')
+    const previous = wrapper.get('[aria-label="Previous observation"]')
+    const next = wrapper.get('[aria-label="Next observation"]')
+    expect(wrapper.get(`label[for="${select.attributes('id')}"]`).text()).toBe('Observation')
+    expect(wrapper.get(`#${select.attributes('aria-describedby')}`).text()).toBe('1 of 2')
+    expect(select.element.value).toBe(report.observations[0].id)
+    expect(previous.element.disabled).toBe(true)
+    expect(next.element.disabled).toBe(false)
+    await next.trigger('click')
+    await flushPromises()
+    expect(select.element.value).toBe(second.id)
+    expect(wrapper.get('.insight-position').text()).toBe('2 of 2')
+    expect(previous.element.disabled).toBe(false)
+    expect(next.element.disabled).toBe(true)
+    expect(document.activeElement).toBe(select.element)
+    expect(wrapper.get('.insight-evidence').text()).toContain('r-1')
+    expect(wrapper.findAll('.insight-detail')).toHaveLength(1)
+
+    await wrapper.findComponent({name: 'PanelHeader'}).vm.$emit('refresh')
+    await flushPromises()
+    expect(select.element.value).toBe(second.id)
+    await previous.trigger('click')
+    await flushPromises()
+    expect(select.element.value).toBe(report.observations[0].id)
+    expect(document.activeElement).toBe(select.element)
+    await select.setValue(second.id)
+    await flushPromises()
+    expect(wrapper.get('.insight-position').text()).toBe('2 of 2')
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/insights/'))).toHaveLength(5)
+
+    await wrapper.get('.insight-search').setValue(second.subject)
+    await flushPromises()
+    expect(wrapper.find('.insight-observation-select').exists()).toBe(false)
+    expect(wrapper.get('.insight-observation-subject').text()).toBe(second.subject)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/insights/'))).toHaveLength(5)
+  })
+
+  it('opens an unfiltered deep link on its exact non-first observation without loading the first', async () => {
+    const second = {...report.observations[0], id: 'repeated-selects:second', subject: 'GET /api/pets'}
+    routeState.query = {insight: second.id}
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(
+        jsonResponse(
+          String(url).includes('/insights/')
+            ? {...detail, observation: second}
+            : {...report, observations: [...report.observations, second]}
+        )
+      )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.get('.insight-observation-select').element.value).toBe(second.id)
+    expect(wrapper.get('.insight-position').text()).toBe('2 of 2')
+    expect(wrapper.get('.insight-row.open').attributes('id')).toBe(`insight-row-${second.id}`)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/insights/')).map(([url]) => url)).toEqual([
+      `api/runtime-insights/insights/${encodeURIComponent(second.id)}`
+    ])
+  })
+
+  it('closes a pending observation with its group, restores focus, and ignores the late evidence response', async () => {
+    let resolveDetail
+    const fetchMock = vi.fn((url) =>
+      String(url).includes('/insights/')
+        ? new Promise((resolve) => (resolveDetail = resolve))
+        : Promise.resolve(jsonResponse(report))
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(RuntimeInsights, {
+      attachTo: document.body,
+      global: {stubs: {'router-link': {template: '<a><slot /></a>'}}}
+    })
+    await flushPromises()
+    await wrapper.get('.insight-group-toggle').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.insight-detail').exists()).toBe(true)
+    await wrapper.get('.insight-group-toggle').trigger('click')
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('.insight-group-toggle').element)
+    expect(wrapper.find('.insight-detail').exists()).toBe(false)
+    resolveDetail(jsonResponse(detail))
+    await flushPromises()
+    await wrapper.get('.insight-group-toggle').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.insight-detail').exists()).toBe(true)
+    expect(wrapper.get('.insight-group-toggle').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('.insight-detail').text()).toContain('Loading evidence')
+    expect(wrapper.find('.insight-evidence').exists()).toBe(false)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/insights/'))).toHaveLength(2)
+  })
+
+  it('switches directly to another group without allowing late evidence from the previous group to replace it', async () => {
+    const second = {
+      ...report.observations[0],
+      id: 'route-time-breakdown:second',
+      kind: 'route-time-breakdown',
+      subject: 'GET /api/second'
+    }
+    let resolvePrevious
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        if (String(url).endsWith(`/insights/${encodeURIComponent(report.observations[0].id)}`)) {
+          return new Promise((resolve) => (resolvePrevious = resolve))
+        }
+        return Promise.resolve(
+          jsonResponse(
+            String(url).includes('/insights/')
+              ? {...detail, observation: second, rows: [{cells: ['new-evidence', '1']}]}
+              : {...report, observations: [...report.observations, second]}
+          )
+        )
+      })
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+    const groups = wrapper.findAll('.insight-group-toggle')
+    await groups[0].trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.insight-detail').text()).toContain('Loading evidence')
+    await groups[1].trigger('click')
+    await flushPromises()
+    expect(groups[0].attributes('aria-expanded')).toBe('false')
+    expect(groups[1].attributes('aria-expanded')).toBe('true')
+    expect(wrapper.findAll('.insight-detail')).toHaveLength(1)
+    expect(wrapper.get('.insight-observation-subject').text()).toBe(second.subject)
+    expect(wrapper.get('.insight-evidence').text()).toContain('new-evidence')
+    resolvePrevious(jsonResponse(detail))
+    await flushPromises()
+    expect(wrapper.get('.insight-evidence').text()).toContain('new-evidence')
+    expect(wrapper.get('.insight-evidence').text()).not.toContain('r-1')
   })
 
   it('moves focus to what a verdict link names when it opens a tab', async () => {
