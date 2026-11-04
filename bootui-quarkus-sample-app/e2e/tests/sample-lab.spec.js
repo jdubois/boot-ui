@@ -1,5 +1,8 @@
 import {expect, test} from './fixtures.js'
 import {registerSampleLabTests} from '../../../bootui-spring-sample-app/e2e/scenarios/sample-lab.js'
+import {registerBrowserIconTests} from '../../../bootui-spring-sample-app/e2e/scenarios/browser-icons.js'
+
+registerBrowserIconTests(test, expect)
 
 registerSampleLabTests(test, expect, {
   groups: ['Requests', 'Runtime', 'Threads', 'Data', 'Security', 'Integrations & AI'],

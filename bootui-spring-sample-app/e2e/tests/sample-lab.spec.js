@@ -1,6 +1,9 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
 import {NAVIGATION_GROUPS} from '../../../bootui-ui/src/main/frontend/src/utils/panelNavigation.js'
+import {registerBrowserIconTests} from '../scenarios/browser-icons.js'
+
+registerBrowserIconTests(test, expect)
 
 const groups = [
   ['Requests', 'Call public API'],
