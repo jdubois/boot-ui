@@ -307,6 +307,11 @@ public final class CiAssessmentRunner {
                     "ASSESSED",
                     evaluated.totalFindings(),
                     evaluated.rulesSkipped(),
+                    evaluated.rulesEvaluated(),
+                    evaluated.subjectsAnalyzed(),
+                    true,
+                    true,
+                    List.of(),
                     pages.findings(),
                     null,
                     evaluated.findings().stream()
@@ -467,6 +472,8 @@ public final class CiAssessmentRunner {
                 List.copyOf(findings),
                 activeTotal,
                 advisor == CiPolicy.Advisor.DATABASE ? integer(skipped) : 0,
+                rulesEvaluated,
+                integer(report.get(advisor.subjectField())),
                 Map.copyOf(counts));
     }
 
@@ -962,6 +969,8 @@ public final class CiAssessmentRunner {
             List<RuleFinding> findings,
             long totalFindings,
             long rulesSkipped,
+            long rulesEvaluated,
+            long subjectsAnalyzed,
             Map<CiPolicy.Severity, Long> severityCounts) {}
 
     private record PagedFindings(List<JsonValue> findings, int detailCount, int pageCount) {}
@@ -988,6 +997,11 @@ public final class CiAssessmentRunner {
         private final String status;
         private final long total;
         private final long rulesSkipped;
+        private final long rulesEvaluated;
+        private final long subjectsAnalyzed;
+        private final boolean usable;
+        private final boolean coverageComplete;
+        private final List<JsonValue> limitations;
         private final List<JsonValue> findings;
         private final String reason;
         private final boolean violation;
@@ -998,6 +1012,11 @@ public final class CiAssessmentRunner {
                 String status,
                 long total,
                 long rulesSkipped,
+                long rulesEvaluated,
+                long subjectsAnalyzed,
+                boolean usable,
+                boolean coverageComplete,
+                List<JsonValue> limitations,
                 List<JsonValue> findings,
                 String reason,
                 boolean violation) {
@@ -1006,13 +1025,19 @@ public final class CiAssessmentRunner {
             this.status = status;
             this.total = total;
             this.rulesSkipped = rulesSkipped;
+            this.rulesEvaluated = rulesEvaluated;
+            this.subjectsAnalyzed = subjectsAnalyzed;
+            this.usable = usable;
+            this.coverageComplete = coverageComplete;
+            this.limitations = limitations;
             this.findings = findings;
             this.reason = reason;
             this.violation = violation;
         }
 
         static AdvisorResult skipped(CiPolicy.Advisor advisor, boolean required, String reason) {
-            return new AdvisorResult(advisor, required, "SKIPPED", 0, 0, List.of(), reason, false);
+            return new AdvisorResult(
+                    advisor, required, "SKIPPED", 0, 0, 0, 0, false, false, List.of(), List.of(), reason, false);
         }
     }
 
@@ -1107,6 +1132,11 @@ public final class CiAssessmentRunner {
                                 row.put("reason", JsonValue.of(result.reason));
                                 row.put("findingCount", JsonValue.of(result.total));
                                 row.put("rulesSkipped", JsonValue.of(result.rulesSkipped));
+                                row.put("rulesEvaluated", JsonValue.of(result.rulesEvaluated));
+                                row.put("subjectsAnalyzed", JsonValue.of(result.subjectsAnalyzed));
+                                row.put("usable", JsonValue.of(result.usable));
+                                row.put("coverageComplete", JsonValue.of(result.coverageComplete));
+                                row.put("limitations", JsonValue.array(result.limitations));
                                 row.put("findings", JsonValue.array(result.findings));
                                 return JsonValue.object(row);
                             })

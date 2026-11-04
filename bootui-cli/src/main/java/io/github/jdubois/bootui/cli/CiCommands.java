@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.cli;
 
 import io.github.jdubois.bootui.cli.ci.CiAssessmentRunner;
+import io.github.jdubois.bootui.cli.ci.CiBundleEvaluator;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
@@ -14,9 +16,11 @@ final class CiCommands {
     private CiCommands() {}
 
     static void add(CliContext context, CommandSpec root) {
-        CommandSpec ci = newGroup("ci", "Attach to and assess one explicitly selected live local Spring application.");
+        CommandSpec ci =
+                newGroup("ci", "Assess one explicitly selected live local Spring application or saved bundle.");
         ci.addSubcommand("attach", new CommandLine(attach(context)));
         ci.addSubcommand("assess", new CommandLine(assess(context)));
+        ci.addSubcommand("check", new CommandLine(check(context)));
         root.addSubcommand("ci", new CommandLine(ci));
     }
 
@@ -47,6 +51,32 @@ final class CiCommands {
                 "New witness file outside cleanable build output.",
                 true,
                 value -> command.output = value));
+        return spec;
+    }
+
+    private static CommandSpec check(CliContext context) {
+        Check command = new Check(context);
+        CommandSpec spec = CommandSpec.wrapWithoutInspection(command).name("check");
+        spec.usageMessage()
+                .description(
+                        "Revalidate a saved assessment bundle against its exact policy without contacting the application.")
+                .footer(
+                        "",
+                        "Exit codes: 0 pass, 1 invalid or not assessed, 3 proven threshold violation. Errors take precedence.");
+        configure(spec);
+        spec.addOption(pathOption("--input", "<file>", "Saved CI bundle JSON.", true, value -> command.input = value));
+        spec.addOption(stringOption(
+                "--assessment-id",
+                "<id>",
+                "Expected assessment identifier.",
+                true,
+                value -> command.assessmentId = value));
+        spec.addOption(pathOption(
+                "--policy",
+                "<file>",
+                "The strict JSON policy used for collection.",
+                true,
+                value -> command.policy = value));
         return spec;
     }
 
@@ -244,6 +274,37 @@ final class CiCommands {
                 context.err().println("BootUI assessment could not be completed; no valid reports were written.");
             }
             return result;
+        }
+    }
+
+    private static final class Check implements Callable<Integer> {
+
+        private final CliContext context;
+        private Path input;
+        private String assessmentId;
+        private Path policy;
+
+        Check(CliContext context) {
+            this.context = context;
+        }
+
+        @Override
+        public Integer call() {
+            CiBundleEvaluator.Result result;
+            try {
+                result = CiBundleEvaluator.evaluate(input, assessmentId, policy);
+            } catch (IOException failure) {
+                context.err().println("BootUI offline bundle could not be read or verified.");
+                return ExitCodes.ERROR;
+            }
+            if (result.exitCode() == ExitCodes.SUCCESS) {
+                context.out().println("BootUI offline assessment passed.");
+            } else if (result.exitCode() == ExitCodes.THRESHOLD) {
+                context.err().println("BootUI offline assessment found a policy-threshold violation.");
+            } else {
+                context.err().println("BootUI offline bundle is invalid or the assessment was not completed.");
+            }
+            return result.exitCode();
         }
     }
 

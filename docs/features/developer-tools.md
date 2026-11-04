@@ -186,6 +186,11 @@ to type, such as `bootui architecture scan`, its arguments, the MCP tool it maps
 panel is disabled or read-only. That last column explains an exit code of `2`: BootUI declining to run a tool is a
 statement about how the target is configured, not a failed request.
 
+The CLI also has a separate `bootui ci` orchestration namespace, outside the generated tool manifest. `ci attach` and
+`ci assess` work with one explicit local Spring target; `ci check` revalidates a saved assessment bundle against its
+policy and expected assessment ID without contacting an application. These commands do not add diagnostic tools or
+change the MCP contract.
+
 ::: details Where the command list comes from
 
 The spellings come from the running application through `GET /bootui/api/cli`, not from the CLI's own build, so the

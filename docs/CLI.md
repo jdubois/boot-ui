@@ -545,14 +545,15 @@ gated by the same per-panel policy and the same `bootui.expose-values` rule. `bo
 prints log messages with secret-like assignments and authorization credentials masked by default, and without
 messages under `METADATA_ONLY`.
 
-### Strict live-target assessments
+### Strict CI assessments
 
 For the supported composite Action and a full caller-owned GitHub Actions example, see [BootUI in CI](CI.md).
 
-`bootui ci attach` and `bootui ci assess` are client-side orchestration commands, not MCP tools and not part of the
-generated command manifest. They are intentionally narrower than ordinary CLI use: one explicitly selected literal
-loopback URL, Spring Boot only, a strict JSON policy, and a pre-workload identity witness. They do not start the
-application, run tests, or prove that tests exercised the witnessed process. Do not use a deployed or remote target.
+`bootui ci attach`, `bootui ci assess`, and `bootui ci check` are client-side orchestration commands, not MCP tools
+and not part of the generated command manifest. `attach` and `assess` are intentionally narrower than ordinary CLI
+use: one explicitly selected literal loopback URL, Spring Boot only, a strict JSON policy, and a pre-workload identity
+witness. They do not start the application, run tests, or prove that tests exercised the witnessed process. Do not use
+a deployed or remote target.
 
 The policy selects only named advisors; every selected advisor is strict, including optional advisors that are
 available. A required advisor must be advertised, enabled, scannable, usable, coverage-complete, and have at least
@@ -610,6 +611,21 @@ The aggregate exits are `0` for a valid pass or confirmed optional absence, `1` 
 remain in the bundle. This is separate from the legacy per-tool exit codes above; in particular, a required panel
 refusal cannot become a green assessment.
 
+Validate a saved assessment in a later, offline job with the same policy file and expected assessment ID:
+
+```bash
+bootui ci check \
+  --input "$RUNNER_TEMP/bootui-ci/assessment/bundle.json" \
+  --assessment-id "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:orders" \
+  --policy ci/bootui-policy.json
+```
+
+`ci check` reads a bounded strict-JSON bundle, rejects duplicate or unknown fields and incomplete evidence, verifies
+the policy digest and assessment ID, and recomputes the threshold result from the retained findings. It has no target
+URL or network fallback. The check validates consistency, not authenticity: CI artifacts are self-reported evidence,
+not tamper-proof attestation. Optional `SKIPPED` advisor rows are also self-reported and are not independently
+corroborated offline; mark every advisor needed for the gate as `required: true` in the collection policy.
+
 Before application startup, the workflow owner must explicitly activate BootUI and point `BOOTUI_OVERRIDES_FILE` at
 a fresh, empty, absolute per-assessment path; do not copy developer-local dismissals. Keep that dependency in a
 repository-owned CI-only build profile, not the normal production dependency graph. Run cleanup only for the process
@@ -619,8 +635,9 @@ the witness proves identity continuity, not workload attestation.
 
 The composite Action downloads a pinned stable CLI release and verifies its Maven Central signature against BootUI's
 pinned release signing key. The action and CLI commands become usable by consumers only after a release containing
-them is published. This increment does not provide framework-managed test producers, offline bundle evaluation,
-Quarkus support, comparisons, SARIF, or annotations.
+them is published. The composite Action still supports live attach/assessment only; offline evaluation is available
+through `bootui ci check`, but is not yet an Action input mode. This increment does not provide framework-managed
+test producers, Quarkus support, comparisons, SARIF, or annotations.
 
 ## Every command
 

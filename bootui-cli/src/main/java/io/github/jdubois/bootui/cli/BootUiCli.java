@@ -85,6 +85,8 @@ public final class BootUiCli {
     }
 
     static boolean updateCheckTerminal(String[] args, boolean terminal) {
-        return terminal && !Arrays.asList(args).contains("ci");
+        return terminal
+                && !Arrays.asList(args).contains("ci")
+                && Arrays.stream(args).noneMatch(argument -> argument.startsWith("@"));
     }
 }

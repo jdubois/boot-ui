@@ -83,6 +83,13 @@ class CommandTreeTests {
     }
 
     @Test
+    void ciCheckIsOfflineAndAcceptsOnlySavedBundleInputs() {
+        String checkHelp = help("ci", "check");
+        assertThat(checkHelp).contains("--input", "--assessment-id", "--policy").doesNotContain("--url");
+        assertThat(paths).isEmpty();
+    }
+
+    @Test
     void everyCommandAcceptsExactlyTheArgumentsItsSchemaDeclares() {
         Map<String, String> failures = new LinkedHashMap<>();
 

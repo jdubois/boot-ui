@@ -34,7 +34,7 @@ final class CommandTree {
                                 + "(default http://localhost:8080) and it answers over its local-only HTTP endpoint.",
                         "Output is JSON when piped or with --json, and readable otherwise.",
                         "",
-                        "'ci attach' and 'ci assess' are client-side orchestration exceptions, not MCP tools.")
+                        "'ci attach', 'ci assess', and 'ci check' are client-side orchestration exceptions, not MCP tools.")
                 .footer(
                         "",
                         "Exit codes: 0 answered, 1 usage or transport error, 2 refused by BootUI's panel policy, "

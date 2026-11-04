@@ -228,8 +228,10 @@ precedence over findings), and `3` proven threshold violation; underlying per-to
 Publish the bounded JSON/Markdown/JUnit outputs before applying that final gate, while recognizing that cancellation
 or a hard runner timeout can prevent publication. The identity witness is not workload attestation. See
 [the CI setup and workflow](https://github.com/jdubois/boot-ui/blob/main/docs/CI.md) and
-[the CLI live-target contract](https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md#strict-live-target-assessments);
-pin the Action to a reviewed commit and use a published, signed CLI release containing these commands.
+[the CLI CI contract](https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md#strict-ci-assessments); pin the Action
+to a reviewed commit and use a published, signed CLI release containing these commands. `bootui ci check` can
+revalidate a saved bundle offline against its expected assessment ID and exact policy file; it checks consistency,
+not authenticity. Optional skipped-advisor rows remain self-reported, so make every gating advisor required.
 
 The full command table is at `https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md`; each command maps to the MCP
 tool of the same behavior. `bootui agent status` maps to `get_agent_status` and is read-only on Spring MVC, WebFlux, and

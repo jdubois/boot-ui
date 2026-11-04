@@ -4,9 +4,10 @@ BootUI can gate an existing integration workload with fresh runtime diagnostics.
 application and CLI: the live-target workflow accepts only a literal loopback URL and does not cross a container
 network boundary. Keep application startup, test execution, and cleanup in the caller's workflow.
 
-The current consumer path is a Spring Boot live target. The workflow below requires a published BootUI CLI release
-that contains `bootui ci attach` and `bootui ci assess`; do not use an older CLI release. Quarkus test-lifecycle
-collection, offline bundle evaluation, baselines, SARIF, and annotations are not included.
+The current composite Action path is a Spring Boot live target. The workflow below requires a published BootUI CLI
+release that contains `bootui ci attach` and `bootui ci assess`; do not use an older CLI release. The CLI can also
+revalidate a saved bundle offline with `bootui ci check`, but the Action does not yet accept offline input bundles.
+Quarkus test-lifecycle collection, baselines, SARIF, and annotations are not included.
 
 ## Add BootUI only to the diagnostic build
 

@@ -87,6 +87,9 @@ class CiAssessmentRunnerTests {
                         output.toString()))
                 .isZero();
         assertThat(Files.readString(output.resolve("bundle.json"))).contains("\"status\": \"PASS\"");
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isZero();
         assertThat(Files.readString(output.resolve("junit.xml"))).contains("<testsuite");
     }
 
@@ -123,6 +126,9 @@ class CiAssessmentRunnerTests {
         assertThat(runner.assess()).isEqualTo(3);
         assertThat(Files.readString(output.resolve("bundle.json")))
                 .contains("\"findingCount\": 2", "\"status\": \"VIOLATION\"");
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isEqualTo(3);
     }
 
     @Test
@@ -137,6 +143,9 @@ class CiAssessmentRunnerTests {
         assertThat(first.assess()).isEqualTo(3);
         assertThat(detailRequests).isEqualTo(2);
         assertThat(Files.readString(temp.resolve("first/bundle.json"))).contains("\"findingCount\": 203");
+        assertThat(CiBundleEvaluator.evaluate(temp.resolve("first/bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isEqualTo(3);
 
         mismatchSecondPage = true;
         CiAssessmentRunner second = runner(policy, witness, temp.resolve("second"));
@@ -209,6 +218,9 @@ class CiAssessmentRunnerTests {
         assertThat(passing.attach()).isZero();
         assertThat(passing.assess()).isZero();
         assertThat(Files.readString(temp.resolve("passing/bundle.json"))).contains("\"rulesSkipped\": 4");
+        assertThat(CiBundleEvaluator.evaluate(temp.resolve("passing/bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isZero();
         assertThat(Files.readString(temp.resolve("passing/summary.md"))).contains("Rules skipped", "| 4 |");
 
         databaseDiagnosticLevel = "WARNING";
