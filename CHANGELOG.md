@@ -13,6 +13,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   composite GitHub Action and caller-owned workflow guide ([CI guide](docs/CI.md); [#1592](https://github.com/jdubois/boot-ui/issues/1592)).
 - **Offline CI bundle validation** adds `bootui ci check` to recompute the policy verdict without contacting the
   application.
+- **Report-only CI runtime context** adds an opt-in bounded, sanitized Runtime Insights projection to CI assessment
+  bundles and summaries without changing advisor verdicts.
 
 ### Changed
 

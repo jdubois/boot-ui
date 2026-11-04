@@ -188,8 +188,9 @@ statement about how the target is configured, not a failed request.
 
 The CLI also has a separate `bootui ci` orchestration namespace, outside the generated tool manifest. `ci attach` and
 `ci assess` work with one explicit local Spring target; `ci check` revalidates a saved assessment bundle against its
-policy and expected assessment ID without contacting an application. These commands do not add diagnostic tools or
-change the MCP contract.
+policy and expected assessment ID without contacting an application. The policy can opt into a bounded, sanitized,
+report-only Runtime Insights projection; it never gates on observations or proves workload attribution. These
+commands do not add diagnostic tools or change the MCP contract.
 
 ::: details Where the command list comes from
 

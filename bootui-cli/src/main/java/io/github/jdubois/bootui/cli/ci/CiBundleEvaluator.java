@@ -22,9 +22,10 @@ public final class CiBundleEvaluator {
     private static final Pattern ASSESSMENT_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
     private static final Pattern VERSION = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._+-]{0,63}");
     private static final Pattern RULE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,79}");
+    private static final Pattern RUNTIME_KIND = Pattern.compile("[a-z][a-z0-9-]{0,63}");
     private static final Pattern ERROR_CODE = Pattern.compile("[A-Z][A-Z0-9_]{0,63}");
     private static final Pattern INTEGER = Pattern.compile("-?(0|[1-9][0-9]*)");
-    private static final Set<String> ROOT_KEYS = Set.of(
+    private static final Set<String> REQUIRED_ROOT_KEYS = Set.of(
             "schemaVersion",
             "assessmentId",
             "status",
@@ -34,6 +35,32 @@ public final class CiBundleEvaluator {
             "policySha256",
             "advisors",
             "errors");
+    private static final Set<String> ALLOWED_ROOT_KEYS = Set.of(
+            "schemaVersion",
+            "assessmentId",
+            "status",
+            "bootUiVersion",
+            "instanceId",
+            "runId",
+            "policySha256",
+            "advisors",
+            "errors",
+            "runtimeContext");
+    private static final Set<String> RUNTIME_CONTEXT_KEYS = Set.of(
+            "status",
+            "workloadAttribution",
+            "lowFootprintActive",
+            "capturePaused",
+            "httpExchangesRead",
+            "coverage",
+            "observations",
+            "omittedObservations",
+            "checksNotRunCount",
+            "notExercisedRouteCount",
+            "limitationsCount");
+    private static final Set<String> RUNTIME_COVERAGE_KEYS = Set.of(
+            "sources", "retainedEvents", "byRequestId", "byExecutionId", "byTraceId", "unlinked", "droppedEvents");
+    private static final Set<String> RUNTIME_OBSERVATION_KEYS = Set.of("kind", "status", "eligible", "affected");
     private static final Set<String> ADVISOR_KEYS = Set.of(
             "name",
             "required",
@@ -65,7 +92,7 @@ public final class CiBundleEvaluator {
 
     private static Result evaluate(JsonValue bundle, String expectedAssessmentId, CiPolicy policy) {
         requireObject(bundle);
-        requireKeys(bundle, ROOT_KEYS);
+        requireKeys(bundle, REQUIRED_ROOT_KEYS, ALLOWED_ROOT_KEYS);
         if (!bundle.get("schemaVersion").isNumber()
                 || !"1".equals(bundle.get("schemaVersion").asDisplayText())
                 || !isAssessmentId(expectedAssessmentId)
@@ -93,6 +120,7 @@ public final class CiBundleEvaluator {
                 || !isRunId(bundle.get("runId").asString(null))) {
             throw invalid();
         }
+        validateRuntimeContext(bundle.get("runtimeContext"), policy);
 
         JsonValue advisors = bundle.get("advisors");
         if (!advisors.isArray() || advisors.size() != policy.advisors().size()) {
@@ -222,6 +250,101 @@ public final class CiBundleEvaluator {
         return violation;
     }
 
+    private static void validateRuntimeContext(JsonValue context, CiPolicy policy) {
+        if (context.isMissing()) {
+            if (policy.includeInsights()) {
+                throw invalid();
+            }
+            return;
+        }
+        requireObject(context);
+        requireKeys(context, RUNTIME_CONTEXT_KEYS);
+        String status = context.get("status").asString(null);
+        if (status == null
+                || !"UNVERIFIED".equals(context.get("workloadAttribution").asString(null))
+                || !context.get("lowFootprintActive").isBoolean()
+                || !context.get("capturePaused").isBoolean()
+                || !policy.includeInsights() && !"NOT_REQUESTED".equals(status)
+                || policy.includeInsights()
+                        && !Set.of("CAPTURED", "PARTIAL", "UNAVAILABLE", "ERROR")
+                                .contains(status)) {
+            throw invalid();
+        }
+        boolean lowFootprintActive = context.get("lowFootprintActive").asBoolean(false);
+        boolean capturePaused = context.get("capturePaused").asBoolean(false);
+        if (capturePaused && !lowFootprintActive || "PARTIAL".equals(status) != lowFootprintActive) {
+            throw invalid();
+        }
+
+        JsonValue coverage = context.get("coverage");
+        requireObject(coverage);
+        requireKeys(coverage, RUNTIME_COVERAGE_KEYS);
+        long sources = nonnegative(integer(coverage.get("sources")));
+        long retainedEvents = nonnegative(integer(coverage.get("retainedEvents")));
+        long byRequestId = nonnegative(integer(coverage.get("byRequestId")));
+        long byExecutionId = nonnegative(integer(coverage.get("byExecutionId")));
+        long byTraceId = nonnegative(integer(coverage.get("byTraceId")));
+        long unlinked = nonnegative(integer(coverage.get("unlinked")));
+        long droppedEvents = nonnegative(integer(coverage.get("droppedEvents")));
+        if (sources > 64
+                || sources == 0 && (retainedEvents != 0 || droppedEvents != 0)
+                || retainedEvents
+                        != Math.addExact(
+                                Math.addExact(byRequestId, byExecutionId), Math.addExact(byTraceId, unlinked))) {
+            throw invalid();
+        }
+
+        long httpExchangesRead = nonnegative(integer(context.get("httpExchangesRead")));
+        long omittedObservations = nonnegative(integer(context.get("omittedObservations")));
+        long checksNotRunCount = nonnegative(integer(context.get("checksNotRunCount")));
+        long notExercisedRouteCount = nonnegative(integer(context.get("notExercisedRouteCount")));
+        long limitationsCount = nonnegative(integer(context.get("limitationsCount")));
+        JsonValue observations = context.get("observations");
+        if (!observations.isArray() || observations.size() > CiAssessmentRunner.MAX_RUNTIME_OBSERVATIONS) {
+            throw invalid();
+        }
+        for (JsonValue observation : observations.values()) {
+            requireObject(observation);
+            requireKeys(observation, RUNTIME_OBSERVATION_KEYS);
+            String kind = observation.get("kind").asString(null);
+            String observationStatus = observation.get("status").asString(null);
+            if (kind == null
+                    || !RUNTIME_KIND.matcher(kind).matches()
+                    || observationStatus == null
+                    || !Set.of("OBSERVED", "PARTIAL", "INSUFFICIENT").contains(observationStatus)) {
+                throw invalid();
+            }
+            nonnegative(integer(observation.get("eligible")));
+            nonnegative(integer(observation.get("affected")));
+        }
+
+        if (!Set.of("CAPTURED", "PARTIAL").contains(status)
+                && (lowFootprintActive
+                        || capturePaused
+                        || httpExchangesRead != 0
+                        || sources != 0
+                        || retainedEvents != 0
+                        || byRequestId != 0
+                        || byExecutionId != 0
+                        || byTraceId != 0
+                        || unlinked != 0
+                        || droppedEvents != 0
+                        || observations.size() != 0
+                        || omittedObservations != 0
+                        || checksNotRunCount != 0
+                        || notExercisedRouteCount != 0
+                        || limitationsCount != 0)) {
+            throw invalid();
+        }
+    }
+
+    private static long nonnegative(long value) {
+        if (value < 0) {
+            throw invalid();
+        }
+        return value;
+    }
+
     private static void validateErrors(JsonValue errors) {
         if (!errors.isArray() || errors.size() > 64) {
             throw invalid();
@@ -285,6 +408,12 @@ public final class CiBundleEvaluator {
 
     private static void requireKeys(JsonValue value, Set<String> keys) {
         if (!value.names().containsAll(keys) || !keys.containsAll(value.names())) {
+            throw invalid();
+        }
+    }
+
+    private static void requireKeys(JsonValue value, Set<String> required, Set<String> allowed) {
+        if (!value.names().containsAll(required) || !allowed.containsAll(value.names())) {
             throw invalid();
         }
     }

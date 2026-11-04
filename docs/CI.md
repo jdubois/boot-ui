@@ -5,7 +5,8 @@ application and CLI: the live-target workflow accepts only a literal loopback UR
 network boundary. Keep application startup, test execution, and cleanup in the caller's workflow.
 
 The current composite Action path is a Spring Boot live target. The workflow below requires a published BootUI CLI
-release that contains `bootui ci attach` and `bootui ci assess`; do not use an older CLI release. The CLI can also
+release that contains `bootui ci attach` and `bootui ci assess`; if the policy opts in to Runtime Insights, the CLI
+must also understand `runtimeContext`. Older CLI releases reject unknown policy keys. The CLI can also
 revalidate a saved bundle offline with `bootui ci check`, but the Action does not yet accept offline input bundles.
 Quarkus test-lifecycle collection, baselines, SARIF, and annotations are not included.
 
@@ -55,13 +56,17 @@ Store a strict JSON policy in the application repository. Only selected advisors
 usable evidence. `memory` is deliberately not in the live-target CI allow-list because its scan may trigger a full
 garbage collection. The Database advisor's policy key is `database-advisor`.
 
+To include the optional, report-only Runtime Insights snapshot, set `runtimeContext.includeInsights` to `true`. Omit
+`runtimeContext` or set it to `false` to make no extra request. The snapshot does not gate the assessment.
+
 ```json
 {
   "schemaVersion": 1,
   "advisors": {
     "architecture": { "required": true, "failOn": "high" },
     "rest-api": { "required": true, "failOn": "high" }
-  }
+  },
+  "runtimeContext": { "includeInsights": true }
 }
 ```
 
@@ -183,5 +188,16 @@ violation. The caller uploads reports before the final job result is applied. Te
 `!cancelled()` for assessment and publication; `always()` is reserved for cleanup of the process owned by the job.
 A cancelled runner or hard timeout can still prevent collection and upload.
 
-The bundle omits free-form finding prose and raw runtime data by default, but artifact access, retention, and report
-review remain the workflow owner's responsibility. Do not treat GitHub log masking as report redaction.
+When requested, Runtime Insights makes one read-only call bounded to 10 seconds and reserves time for the final target
+identity check. If the remaining budget is no greater than the configured `--timeout` plus one second, the call is
+skipped and its report-only status is `ERROR` so the final identity check retains its full timeout. The bundle and step
+summary include aggregate journal coverage and at most 20 default-listed observation summaries (kind, status, and counts),
+but no routes, request IDs, application prose, or follow-up suggestions. `PARTIAL` marks
+low-footprint mode; `UNAVAILABLE`, `ERROR`, and `NOT_COLLECTED` remain report-only and do not change the advisor
+verdict or exit code. The summary shows captured counts only for `CAPTURED` or `PARTIAL`; other statuses do not imply
+zero activity. Omitted or false `includeInsights` is recorded as `NOT_REQUESTED`. This bounded projection is incomplete:
+its HTTP exchange count does not prove that the CI workload exercised the witnessed process.
+`junit.xml` remains advisor-only.
+
+The bundle omits free-form finding prose and raw runtime data. Artifact access, retention, and report review remain the
+workflow owner's responsibility; do not treat GitHub log masking as report redaction.

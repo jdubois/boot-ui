@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -83,6 +84,107 @@ class CiBundleEvaluatorTests {
 
         JsonValue incomplete = advisor("ASSESSED", null, List.of(), false, true, 4);
         assertThat(check(bundle("PASS", List.of(), policyHash, incomplete), "test-assessment"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void acceptsLegacyBundlesOnlyWhenRuntimeInsightsWereNotRequested() throws Exception {
+        JsonValue legacy = bundle("PASS", List.of(), policyHash);
+        assertThat(check(legacy, "test-assessment")).isZero();
+
+        enableRuntimeInsightsPolicy();
+        JsonValue optedInBundle = bundle("PASS", List.of(), policyHash);
+        assertThat(check(optedInBundle, "test-assessment")).isEqualTo(1);
+        assertThat(check(withRuntimeContext(optedInBundle, runtimeContext("NOT_REQUESTED")), "test-assessment"))
+                .isEqualTo(1);
+
+        assertThat(check(withRuntimeContext(optedInBundle, runtimeContext("CAPTURED")), "test-assessment"))
+                .isZero();
+        disableRuntimeInsightsPolicy();
+        JsonValue optedOutBundle = bundle("PASS", List.of(), policyHash);
+        assertThat(check(withRuntimeContext(optedOutBundle, runtimeContext("CAPTURED")), "test-assessment"))
+                .isEqualTo(1);
+        assertThat(check(withRuntimeContext(optedOutBundle, runtimeContext("NOT_REQUESTED")), "test-assessment"))
+                .isZero();
+    }
+
+    @Test
+    void validatesRuntimeContextCoverageAndKeepsItReportOnly() throws Exception {
+        enableRuntimeInsightsPolicy();
+        JsonValue first = runtimeObservation("repeated-selects", "OBSERVED", 0, 5);
+        JsonValue duplicateKind = runtimeObservation("repeated-selects", "OBSERVED", 2, 4);
+        JsonValue captured =
+                runtimeContext("CAPTURED", false, false, 3, 1, 4, 1, 1, 1, 1, 2, List.of(first, duplicateKind));
+        JsonValue valid = withRuntimeContext(bundle("PASS", List.of(), policyHash), captured);
+        assertThat(check(valid, "test-assessment")).isZero();
+
+        JsonValue reportOnlyError = withRuntimeContext(bundle("PASS", List.of(), policyHash), runtimeContext("ERROR"));
+        assertThat(check(reportOnlyError, "test-assessment")).isZero();
+
+        JsonValue inconsistentCoverage = runtimeContext("CAPTURED", false, false, 3, 1, 5, 1, 1, 1, 1, 2, List.of());
+        assertThat(check(
+                        withRuntimeContext(bundle("PASS", List.of(), policyHash), inconsistentCoverage),
+                        "test-assessment"))
+                .isEqualTo(1);
+
+        JsonValue eventsWithoutSources = runtimeContext("CAPTURED", false, false, 3, 0, 1, 1, 0, 0, 0, 2, List.of());
+        assertThat(check(
+                        withRuntimeContext(bundle("PASS", List.of(), policyHash), eventsWithoutSources),
+                        "test-assessment"))
+                .isEqualTo(1);
+
+        JsonValue overflowingCoverage =
+                runtimeContext("CAPTURED", false, false, 3, 1, 0, Long.MAX_VALUE, 1, 0, 0, 0, List.of());
+        assertThat(check(
+                        withRuntimeContext(bundle("PASS", List.of(), policyHash), overflowingCoverage),
+                        "test-assessment"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void rejectsMalformedRuntimeContextAndTooManyObservations() throws Exception {
+        enableRuntimeInsightsPolicy();
+        JsonValue base = bundle("PASS", List.of(), policyHash);
+        JsonValue nullContextStatus = withMember(runtimeContext("CAPTURED"), "status", JsonValue.NULL);
+        assertThat(check(withRuntimeContext(base, nullContextStatus), "test-assessment"))
+                .isEqualTo(1);
+
+        JsonValue invalidKind = runtimeObservation("Private route", "OBSERVED", 1, 1);
+        assertThat(check(
+                        withRuntimeContext(
+                                base,
+                                runtimeContext("CAPTURED", false, false, 1, 0, 0, 0, 0, 0, 0, 0, List.of(invalidKind))),
+                        "test-assessment"))
+                .isEqualTo(1);
+
+        JsonValue nullObservationStatus =
+                withMember(runtimeObservation("repeated-selects", "OBSERVED", 1, 1), "status", JsonValue.NULL);
+        assertThat(check(
+                        withRuntimeContext(
+                                base,
+                                runtimeContext(
+                                        "CAPTURED",
+                                        false,
+                                        false,
+                                        1,
+                                        0,
+                                        0,
+                                        0,
+                                        0,
+                                        0,
+                                        0,
+                                        0,
+                                        List.of(nullObservationStatus))),
+                        "test-assessment"))
+                .isEqualTo(1);
+
+        List<JsonValue> tooMany = java.util.stream.IntStream.range(0, CiAssessmentRunner.MAX_RUNTIME_OBSERVATIONS + 1)
+                .mapToObj(index -> runtimeObservation("repeated-selects", "OBSERVED", index, index))
+                .toList();
+        assertThat(check(
+                        withRuntimeContext(
+                                base, runtimeContext("CAPTURED", false, false, 1, 0, 0, 0, 0, 0, 0, 0, tooMany)),
+                        "test-assessment"))
                 .isEqualTo(1);
     }
 
@@ -365,6 +467,96 @@ class CiBundleEvaluatorTests {
                 JsonValue.array(advisors),
                 "errors",
                 JsonValue.array(List.of()));
+    }
+
+    private JsonValue withRuntimeContext(JsonValue bundle, JsonValue context) {
+        return withMember(bundle, "runtimeContext", context);
+    }
+
+    private JsonValue withMember(JsonValue object, String member, JsonValue replacement) {
+        Map<String, JsonValue> values = new LinkedHashMap<>();
+        for (String name : object.names()) {
+            values.put(name, object.get(name));
+        }
+        values.put(member, replacement);
+        return JsonValue.object(values);
+    }
+
+    private JsonValue runtimeContext(String status) {
+        return runtimeContext(status, false, false, 0, 0, 0, 0, 0, 0, 0, 0, List.of());
+    }
+
+    private JsonValue runtimeContext(
+            String status,
+            boolean lowFootprintActive,
+            boolean capturePaused,
+            long httpExchanges,
+            long sources,
+            long retainedEvents,
+            long byRequestId,
+            long byExecutionId,
+            long byTraceId,
+            long unlinked,
+            long droppedEvents,
+            List<JsonValue> observations) {
+        boolean hasData = Set.of("CAPTURED", "PARTIAL").contains(status);
+        return object(
+                "status",
+                status,
+                "workloadAttribution",
+                "UNVERIFIED",
+                "lowFootprintActive",
+                lowFootprintActive,
+                "capturePaused",
+                capturePaused,
+                "httpExchangesRead",
+                httpExchanges,
+                "coverage",
+                object(
+                        "sources",
+                        sources,
+                        "retainedEvents",
+                        retainedEvents,
+                        "byRequestId",
+                        byRequestId,
+                        "byExecutionId",
+                        byExecutionId,
+                        "byTraceId",
+                        byTraceId,
+                        "unlinked",
+                        unlinked,
+                        "droppedEvents",
+                        droppedEvents),
+                "observations",
+                JsonValue.array(observations),
+                "omittedObservations",
+                hasData ? 2 : 0,
+                "checksNotRunCount",
+                hasData ? 1 : 0,
+                "notExercisedRouteCount",
+                hasData ? 3 : 0,
+                "limitationsCount",
+                hasData ? 1 : 0);
+    }
+
+    private JsonValue runtimeObservation(String kind, String status, long eligible, long affected) {
+        return object("kind", kind, "status", status, "eligible", eligible, "affected", affected);
+    }
+
+    private void enableRuntimeInsightsPolicy() throws Exception {
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"high"}},
+                 "runtimeContext":{"includeInsights":true}}
+                """);
+        policyHash = CiPolicy.read(policy).sha256();
+    }
+
+    private void disableRuntimeInsightsPolicy() throws Exception {
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"high"}},
+                 "runtimeContext":{"includeInsights":false}}
+                """);
+        policyHash = CiPolicy.read(policy).sha256();
     }
 
     private JsonValue advisor(

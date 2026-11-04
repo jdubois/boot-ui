@@ -85,7 +85,7 @@ final class CiCommands {
         CommandSpec spec = CommandSpec.wrapWithoutInspection(command).name("assess");
         spec.usageMessage()
                 .description(
-                        "Verify the pre-workload witness, run only selected advisor scans, page retained findings, and write bounded JSON, Markdown, and JUnit.")
+                        "Verify the pre-workload witness, run selected advisor scans and optional report-only Runtime Insights, page retained findings, and write bounded JSON, Markdown, and JUnit.")
                 .footer(
                         "",
                         "Exit codes: 0 pass, 1 not assessed/error, 3 proven threshold violation. Errors take precedence.");

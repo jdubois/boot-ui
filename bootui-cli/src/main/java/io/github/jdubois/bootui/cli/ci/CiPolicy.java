@@ -17,10 +17,11 @@ import java.util.Map;
 import java.util.Set;
 
 /** Strict, bounded policy input for the live-target CI assessment. */
-public record CiPolicy(Map<Advisor, Selection> advisors, String sha256) {
+public record CiPolicy(Map<Advisor, Selection> advisors, boolean includeInsights, String sha256) {
 
     public static final int MAX_POLICY_BYTES = 64 * 1024;
-    private static final Set<String> ROOT_KEYS = Set.of("schemaVersion", "advisors");
+    private static final Set<String> REQUIRED_ROOT_KEYS = Set.of("schemaVersion", "advisors");
+    private static final Set<String> ALLOWED_ROOT_KEYS = Set.of("schemaVersion", "advisors", "runtimeContext");
     private static final int MAX_POLICY_BYTES_PLUS_ONE = MAX_POLICY_BYTES + 1;
 
     public CiPolicy {
@@ -50,10 +51,22 @@ public record CiPolicy(Map<Advisor, Selection> advisors, String sha256) {
             throw new IllegalArgumentException("Policy is not strict JSON: " + invalid.getMessage(), invalid);
         }
         requireObject(root, "Policy");
-        rejectUnknown(root, ROOT_KEYS, "policy");
+        rejectUnknownOnly(root, ALLOWED_ROOT_KEYS, "policy");
+        requireKeys(root, REQUIRED_ROOT_KEYS, "policy");
         JsonValue schemaVersion = root.get("schemaVersion");
         if (!schemaVersion.isNumber() || !"1".equals(schemaVersion.asDisplayText())) {
             throw new IllegalArgumentException("Policy schemaVersion must be 1");
+        }
+        JsonValue runtimeContext = root.get("runtimeContext");
+        boolean includeInsights = false;
+        if (!runtimeContext.isMissing()) {
+            requireObject(runtimeContext, "runtimeContext");
+            rejectUnknown(runtimeContext, Set.of("includeInsights"), "runtimeContext");
+            JsonValue include = runtimeContext.get("includeInsights");
+            if (!include.isBoolean()) {
+                throw new IllegalArgumentException("runtimeContext.includeInsights must be a boolean");
+            }
+            includeInsights = include.asBoolean(false);
         }
         JsonValue entries = root.get("advisors");
         requireObject(entries, "advisors");
@@ -79,7 +92,7 @@ public record CiPolicy(Map<Advisor, Selection> advisors, String sha256) {
         if (selected.values().stream().noneMatch(Selection::required)) {
             throw new IllegalArgumentException("Policy must include at least one required advisor");
         }
-        return new CiPolicy(selected, sha256);
+        return new CiPolicy(selected, includeInsights, sha256);
     }
 
     public List<Advisor> orderedAdvisors() {
@@ -101,14 +114,26 @@ public record CiPolicy(Map<Advisor, Selection> advisors, String sha256) {
     }
 
     private static void rejectUnknown(JsonValue value, Set<String> allowed, String label) {
+        rejectUnknownOnly(value, allowed, label);
+        for (String required : allowed) {
+            if (value.get(required).isMissing()) {
+                throw new IllegalArgumentException("Missing " + label + " key: " + required);
+            }
+        }
+    }
+
+    private static void rejectUnknownOnly(JsonValue value, Set<String> allowed, String label) {
         List<String> unknown = new ArrayList<>(value.names());
         unknown.removeAll(allowed);
         if (!unknown.isEmpty()) {
             throw new IllegalArgumentException("Unknown " + label + " key: " + unknown.get(0));
         }
-        for (String required : allowed) {
-            if (value.get(required).isMissing()) {
-                throw new IllegalArgumentException("Missing " + label + " key: " + required);
+    }
+
+    private static void requireKeys(JsonValue value, Set<String> required, String label) {
+        for (String key : required) {
+            if (value.get(key).isMissing()) {
+                throw new IllegalArgumentException("Missing " + label + " key: " + key);
             }
         }
     }

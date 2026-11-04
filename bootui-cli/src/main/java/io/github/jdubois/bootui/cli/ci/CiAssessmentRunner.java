@@ -45,10 +45,18 @@ public final class CiAssessmentRunner {
     static final int MAX_TOTAL_DETAILS = 20_000;
     static final int MAX_TOTAL_PAGES = 1_000;
     static final Duration MAX_ASSESSMENT_BUDGET = Duration.ofMinutes(3);
+    static final int MAX_RUNTIME_OBSERVATIONS = 20;
 
     private static final Pattern ASSESSMENT_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
     private static final Pattern SAFE_VERSION = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._+-]{0,63}");
     private static final Pattern SAFE_RULE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,79}");
+    private static final Pattern SAFE_RUNTIME_KIND = Pattern.compile("[a-z][a-z0-9-]{0,63}");
+    private static final Pattern SAFE_RUNTIME_SOURCE = Pattern.compile("[a-z][a-z0-9.-]{0,63}");
+    private static final Duration MAX_RUNTIME_CONTEXT_BUDGET = Duration.ofSeconds(10);
+    private static final Duration FINAL_IDENTITY_MARGIN = Duration.ofSeconds(1);
+    private static final String RUNTIME_INSIGHTS_TOOL = "get_runtime_insights";
+    private static final String RUNTIME_INSIGHTS_PANEL = "runtime-insights";
+    private static final Set<String> RUNTIME_OBSERVATION_STATUSES = Set.of("OBSERVED", "PARTIAL", "INSUFFICIENT");
     private static final Set<String> WITNESS_KEYS = Set.of(
             "schemaVersion",
             "assessmentId",
@@ -161,8 +169,27 @@ public final class CiAssessmentRunner {
 
         Assessment state = new Assessment(assessmentId, outputDirectory);
         try {
+            CiPolicy policy = null;
+            IOException policyReadFailure = null;
+            IllegalArgumentException invalidPolicy = null;
+            try {
+                policy = CiPolicy.read(policyPath);
+                state.policy(policy);
+            } catch (IOException unreadable) {
+                policyReadFailure = unreadable;
+            } catch (IllegalArgumentException invalid) {
+                invalidPolicy = invalid;
+            }
             JsonValue witness = readWitness();
-            CiPolicy policy = CiPolicy.read(policyPath);
+            if (policy == null) {
+                if (policyReadFailure != null) {
+                    throw policyReadFailure;
+                }
+                if (invalidPolicy != null) {
+                    throw invalidPolicy;
+                }
+                throw new IllegalStateException("Policy was not loaded");
+            }
             validateWitness(witness, policy);
             try (BootUiClient client = client()) {
                 BootUiCatalog before = requireCatalog(client, deadline);
@@ -171,6 +198,8 @@ public final class CiAssessmentRunner {
                 preflight(policy, before);
                 state.context(policy, current);
                 List<AdvisorResult> results = collect(policy, before, client, deadline);
+                RuntimeContext runtimeContext = collectRuntimeInsights(policy, before, client, deadline);
+                state.runtimeContext(runtimeContext);
                 Identity after = identity(client, deadline);
                 requireSameIdentity(witness, after);
                 if (!policy.sha256().equals(CiPolicy.read(policyPath).sha256())) {
@@ -320,6 +349,174 @@ public final class CiAssessmentRunner {
             collected.add(completed);
         }
         return List.copyOf(output);
+    }
+
+    private RuntimeContext collectRuntimeInsights(
+            CiPolicy policy, BootUiCatalog catalog, BootUiClient client, long deadline) {
+        if (!policy.includeInsights()) {
+            return RuntimeContext.empty("NOT_REQUESTED");
+        }
+        BootUiCatalog.CatalogTool tool = catalog.tool(RUNTIME_INSIGHTS_TOOL);
+        if (tool == null || !tool.panelEnabled()) {
+            return RuntimeContext.empty("UNAVAILABLE");
+        }
+        if (tool.action()
+                || !RUNTIME_INSIGHTS_PANEL.equals(tool.panel())
+                || !"QUERY_LIMIT".equals(tool.schema())
+                || !tool.arguments().containsAll(List.of("query", "limit"))) {
+            return RuntimeContext.empty("ERROR");
+        }
+
+        long remainingNanos = deadline - System.nanoTime();
+        long reservedNanos = timeout.plus(FINAL_IDENTITY_MARGIN).toNanos();
+        if (remainingNanos <= reservedNanos) {
+            return RuntimeContext.empty("ERROR");
+        }
+        Duration contextBudget =
+                Duration.ofNanos(Math.min(MAX_RUNTIME_CONTEXT_BUDGET.toNanos(), remainingNanos - reservedNanos));
+        int observationLimit = Math.min(MAX_RUNTIME_OBSERVATIONS, Math.max(1, catalog.maxResults()));
+        Map<String, JsonValue> arguments = Map.of("query", JsonValue.of(""), "limit", JsonValue.of(observationLimit));
+        try {
+            ToolResult result =
+                    client.invokeBounded(RUNTIME_INSIGHTS_TOOL, arguments, MAX_RESPONSE_BYTES, contextBudget);
+            if (!result.successful()) {
+                return RuntimeContext.empty(result.status() == 403 || result.status() == 404 ? "UNAVAILABLE" : "ERROR");
+            }
+            return projectRuntimeInsights(result.payload(), observationLimit);
+        } catch (BootUiClientException requestFailure) {
+            if (System.nanoTime() >= deadline) {
+                throw new AssessmentFailure("ASSESSMENT_BUDGET_EXCEEDED");
+            }
+            return RuntimeContext.empty("ERROR");
+        } catch (AssessmentFailure invalidContext) {
+            if ("ASSESSMENT_BUDGET_EXCEEDED".equals(invalidContext.code())) {
+                throw invalidContext;
+            }
+            return RuntimeContext.empty("ERROR");
+        } catch (ArithmeticException invalidCount) {
+            return RuntimeContext.empty("ERROR");
+        } catch (RuntimeException unexpectedContextFailure) {
+            return RuntimeContext.empty("ERROR");
+        }
+    }
+
+    private RuntimeContext projectRuntimeInsights(JsonValue report, int observationLimit) {
+        if (!report.isObject() || !report.get("available").isBoolean()) {
+            throw new AssessmentFailure("INVALID_RUNTIME_CONTEXT");
+        }
+        if (!report.get("available").asBoolean(false)) {
+            return RuntimeContext.empty("UNAVAILABLE");
+        }
+
+        JsonValue lowFootprint = report.get("lowFootprint");
+        boolean lowFootprintActive = false;
+        boolean capturePaused = false;
+        if (!lowFootprint.isMissing()) {
+            if (!lowFootprint.isObject()
+                    || !lowFootprint.get("active").isBoolean()
+                    || !lowFootprint.get("paused").isBoolean()) {
+                throw new AssessmentFailure("INVALID_RUNTIME_CONTEXT");
+            }
+            lowFootprintActive = lowFootprint.get("active").asBoolean(false);
+            capturePaused = lowFootprint.get("paused").asBoolean(false);
+            if (capturePaused && !lowFootprintActive) {
+                throw new AssessmentFailure("INVALID_RUNTIME_CONTEXT");
+            }
+        }
+
+        long sources = 0;
+        long retainedEvents = 0;
+        long byRequestId = 0;
+        long byExecutionId = 0;
+        long byTraceId = 0;
+        long unlinked = 0;
+        long droppedEvents = 0;
+        JsonValue coverage = report.get("coverage");
+        if (!coverage.isArray() || coverage.size() > 64) {
+            throw new AssessmentFailure("INVALID_RUNTIME_CONTEXT");
+        }
+        Set<String> seenSources = new HashSet<>();
+        for (JsonValue source : coverage.values()) {
+            String name = source.get("source").asString(null);
+            long events = nonnegative(source.get("events"));
+            long requestLinked = nonnegative(source.get("byRequestId"));
+            long executionLinked = nonnegative(source.get("byExecutionId"));
+            long traceLinked = nonnegative(source.get("byTraceId"));
+            long sourceUnlinked = nonnegative(source.get("unlinked"));
+            long dropped = nonnegative(source.get("dropped"));
+            long linked = Math.addExact(
+                    Math.addExact(requestLinked, executionLinked), Math.addExact(traceLinked, sourceUnlinked));
+            if (name == null
+                    || !SAFE_RUNTIME_SOURCE.matcher(name).matches()
+                    || !seenSources.add(name)
+                    || events != linked) {
+                throw new AssessmentFailure("INVALID_RUNTIME_CONTEXT");
+            }
+            sources++;
+            retainedEvents = Math.addExact(retainedEvents, events);
+            byRequestId = Math.addExact(byRequestId, requestLinked);
+            byExecutionId = Math.addExact(byExecutionId, executionLinked);
+            byTraceId = Math.addExact(byTraceId, traceLinked);
+            unlinked = Math.addExact(unlinked, sourceUnlinked);
+            droppedEvents = Math.addExact(droppedEvents, dropped);
+        }
+
+        long httpExchangesRead = nonnegative(report.get("requests"));
+        long omittedObservations = nonnegative(report.get("omitted"));
+        long checksNotRun = stringArraySize(report.get("checksNotRun"));
+        long notExercisedRoutes = Math.addExact(
+                stringArraySize(report.get("notExercised")), nonnegative(report.get("notExercisedOmitted")));
+        long limitations = stringArraySize(report.get("limitations"));
+        JsonValue listed = report.get("observations");
+        if (!listed.isArray() || listed.size() > observationLimit) {
+            throw new AssessmentFailure("INVALID_RUNTIME_CONTEXT");
+        }
+        List<RuntimeObservation> observations = new ArrayList<>();
+        for (JsonValue observation : listed.values()) {
+            String kind = observation.get("kind").asString(null);
+            String status = observation.get("status").asString(null);
+            long eligible = nonnegative(observation.get("eligible"));
+            long affected = nonnegative(observation.get("affected"));
+            if (kind == null
+                    || !SAFE_RUNTIME_KIND.matcher(kind).matches()
+                    || status == null
+                    || !RUNTIME_OBSERVATION_STATUSES.contains(status)) {
+                throw new AssessmentFailure("INVALID_RUNTIME_CONTEXT");
+            }
+            observations.add(new RuntimeObservation(kind, status, eligible, affected));
+        }
+        return new RuntimeContext(
+                lowFootprintActive || capturePaused ? "PARTIAL" : "CAPTURED",
+                lowFootprintActive,
+                capturePaused,
+                httpExchangesRead,
+                sources,
+                retainedEvents,
+                byRequestId,
+                byExecutionId,
+                byTraceId,
+                unlinked,
+                droppedEvents,
+                observations,
+                omittedObservations,
+                checksNotRun,
+                notExercisedRoutes,
+                limitations);
+    }
+
+    private static long nonnegative(JsonValue value) {
+        long number = integer(value);
+        if (number < 0) {
+            throw new AssessmentFailure("INVALID_RUNTIME_CONTEXT");
+        }
+        return number;
+    }
+
+    private static long stringArraySize(JsonValue value) {
+        if (!value.isArray() || value.values().stream().anyMatch(item -> !item.isString())) {
+            throw new AssessmentFailure("INVALID_RUNTIME_CONTEXT");
+        }
+        return value.size();
     }
 
     private EvaluatedReport evaluateReport(CiPolicy.Advisor advisor, CiPolicy.Selection selection, JsonValue report) {
@@ -975,6 +1172,85 @@ public final class CiAssessmentRunner {
 
     private record PagedFindings(List<JsonValue> findings, int detailCount, int pageCount) {}
 
+    private record RuntimeObservation(String kind, String status, long eligible, long affected) {}
+
+    private record RuntimeContext(
+            String status,
+            boolean lowFootprintActive,
+            boolean capturePaused,
+            long httpExchangesRead,
+            long coverageSources,
+            long retainedEvents,
+            long byRequestId,
+            long byExecutionId,
+            long byTraceId,
+            long unlinked,
+            long droppedEvents,
+            List<RuntimeObservation> observations,
+            long omittedObservations,
+            long checksNotRunCount,
+            long notExercisedRouteCount,
+            long limitationsCount) {
+
+        private RuntimeContext {
+            observations = List.copyOf(observations);
+        }
+
+        static RuntimeContext empty(String status) {
+            return new RuntimeContext(status, false, false, 0, 0, 0, 0, 0, 0, 0, 0, List.of(), 0, 0, 0, 0);
+        }
+
+        JsonValue toJson() {
+            return object(
+                    "status",
+                    status,
+                    "workloadAttribution",
+                    "UNVERIFIED",
+                    "lowFootprintActive",
+                    lowFootprintActive,
+                    "capturePaused",
+                    capturePaused,
+                    "httpExchangesRead",
+                    httpExchangesRead,
+                    "coverage",
+                    object(
+                            "sources",
+                            coverageSources,
+                            "retainedEvents",
+                            retainedEvents,
+                            "byRequestId",
+                            byRequestId,
+                            "byExecutionId",
+                            byExecutionId,
+                            "byTraceId",
+                            byTraceId,
+                            "unlinked",
+                            unlinked,
+                            "droppedEvents",
+                            droppedEvents),
+                    "observations",
+                    JsonValue.array(observations.stream()
+                            .map(observation -> object(
+                                    "kind",
+                                    observation.kind(),
+                                    "status",
+                                    observation.status(),
+                                    "eligible",
+                                    observation.eligible(),
+                                    "affected",
+                                    observation.affected()))
+                            .toList()),
+                    "omittedObservations",
+                    omittedObservations,
+                    "checksNotRunCount",
+                    checksNotRunCount,
+                    "notExercisedRouteCount",
+                    notExercisedRouteCount,
+                    "limitationsCount",
+                    limitationsCount);
+        }
+    }
+
     private static final class AssessmentFailure extends RuntimeException {
 
         private static final long serialVersionUID = 1L;
@@ -1050,6 +1326,7 @@ public final class CiAssessmentRunner {
         private List<AdvisorResult> results = List.of();
         private List<String> errors = List.of();
         private boolean violation;
+        private RuntimeContext runtimeContext = RuntimeContext.empty("NOT_COLLECTED");
 
         Assessment(String assessmentId, Path outputDirectory) {
             this.assessmentId = assessmentId;
@@ -1059,6 +1336,15 @@ public final class CiAssessmentRunner {
         void context(CiPolicy policy, Identity identity) {
             this.policy = policy;
             this.identity = identity;
+        }
+
+        void policy(CiPolicy policy) {
+            this.policy = policy;
+            runtimeContext = RuntimeContext.empty(policy.includeInsights() ? "NOT_COLLECTED" : "NOT_REQUESTED");
+        }
+
+        void runtimeContext(RuntimeContext runtimeContext) {
+            this.runtimeContext = runtimeContext;
         }
 
         void finish(CiPolicy policy, Identity identity, List<AdvisorResult> results, List<String> errors) {
@@ -1121,6 +1407,7 @@ public final class CiAssessmentRunner {
             root.put("instanceId", JsonValue.of(identity == null ? "" : identity.instanceId()));
             root.put("runId", JsonValue.of(identity == null ? "" : identity.runId()));
             root.put("policySha256", JsonValue.of(policy == null ? "" : policy.sha256()));
+            root.put("runtimeContext", runtimeContext.toJson());
             root.put(
                     "advisors",
                     JsonValue.array(results.stream()
@@ -1175,6 +1462,70 @@ public final class CiAssessmentRunner {
                         .append(" | ")
                         .append(advisor.get("rulesSkipped").asLong(0))
                         .append(" |\n");
+            }
+            JsonValue context = bundle.get("runtimeContext");
+            String contextStatus = context.get("status").asString("ERROR");
+            if (policy != null && !"NOT_REQUESTED".equals(contextStatus)) {
+                output.append("\n### Runtime Insights context\n\n")
+                        .append("Status: `")
+                        .append(contextStatus)
+                        .append("`. ");
+                if ("CAPTURED".equals(contextStatus) || "PARTIAL".equals(contextStatus)) {
+                    output.append("Workload attribution: `UNVERIFIED`. This bounded projection is incomplete and ")
+                            .append("does not prove that the CI workload exercised this process. Runtime observations ")
+                            .append("do not affect the advisor verdict.\n\n")
+                            .append("HTTP exchanges read: ")
+                            .append(context.get("httpExchangesRead").asLong(0))
+                            .append("; observations listed: ")
+                            .append(context.get("observations").size())
+                            .append("; observations omitted: ")
+                            .append(context.get("omittedObservations").asLong(0))
+                            .append("; not-exercised routes counted: ")
+                            .append(context.get("notExercisedRouteCount").asLong(0))
+                            .append(".\n\n");
+                    JsonValue coverage = context.get("coverage");
+                    output.append("Retained events: ")
+                            .append(coverage.get("retainedEvents").asLong(0))
+                            .append(" across ")
+                            .append(coverage.get("sources").asLong(0))
+                            .append(" sources (request-linked: ")
+                            .append(coverage.get("byRequestId").asLong(0))
+                            .append(", execution-linked: ")
+                            .append(coverage.get("byExecutionId").asLong(0))
+                            .append(", trace-linked: ")
+                            .append(coverage.get("byTraceId").asLong(0))
+                            .append(", unlinked: ")
+                            .append(coverage.get("unlinked").asLong(0))
+                            .append("); dropped events: ")
+                            .append(coverage.get("droppedEvents").asLong(0))
+                            .append("; checks not run: ")
+                            .append(context.get("checksNotRunCount").asLong(0))
+                            .append("; limitations: ")
+                            .append(context.get("limitationsCount").asLong(0))
+                            .append(".\n");
+                    if (context.get("lowFootprintActive").asBoolean(false)) {
+                        output.append("Low-footprint mode was active; capture paused: ")
+                                .append(context.get("capturePaused").asBoolean(false))
+                                .append(".\n");
+                    }
+                    if (context.get("observations").size() > 0) {
+                        output.append("\n| Kind | Status | Eligible | Affected |\n|---|---|---:|---:|\n");
+                        for (JsonValue observation : context.get("observations").values()) {
+                            output.append("| ")
+                                    .append(observation.get("kind").asString(""))
+                                    .append(" | ")
+                                    .append(observation.get("status").asString(""))
+                                    .append(" | ")
+                                    .append(observation.get("eligible").asLong(0))
+                                    .append(" | ")
+                                    .append(observation.get("affected").asLong(0))
+                                    .append(" |\n");
+                        }
+                    }
+                } else {
+                    output.append("No Runtime Insights data was captured; this is not evidence that the application ")
+                            .append("was idle or healthy. Runtime observations do not affect the advisor verdict.\n");
+                }
             }
             if (!errors.isEmpty()) {
                 output.append("\nAssessment errors: ")

@@ -3898,9 +3898,10 @@ Design rules:
 - **CI orchestration is a client-side exception.** `bootui ci attach` and `assess` contact only an explicitly selected
   literal-loopback Spring target and run the strict live assessment. `bootui ci check` reads a bounded, versioned
   bundle and the exact policy offline, verifies assessment identity and evidence consistency, and recomputes the
-  verdict from findings. It has no application URL or network fallback. Bundles remain self-reported evidence, not
-  cryptographic attestation; aggregate exits are `0` pass, `1` invalid/incomplete, and `3` threshold violation, with
-  errors taking precedence.
+  verdict from findings. An opt-in Runtime Insights projection is bounded and report-only; it omits application
+  prose and request identifiers, does not prove workload attribution, and cannot change the advisor verdict. It has
+  no application URL or network fallback. Bundles remain self-reported evidence, not cryptographic attestation;
+  aggregate exits are `0` pass, `1` invalid/incomplete, and `3` threshold violation, with errors taking precedence.
 
 ## 7. UX specification
 

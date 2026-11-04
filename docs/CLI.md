@@ -561,7 +561,9 @@ one subject. Incomplete evidence, scan/report disagreement, suppressed or dismis
 truncation, paging inconsistencies, and collection errors are not passes. An optional advisor may be skipped only
 when the catalog confirms that it is unavailable or disabled; a transport or assessment error is still an error.
 The policy allow-list excludes the Memory advisor because its scan may trigger a full garbage collection; the
-Database advisor's policy key is `database-advisor`.
+Database advisor's policy key is `database-advisor`. Runtime Insights context is optional and report-only: omit the
+`runtimeContext` object (or set `includeInsights` to `false`) to make no extra request. A policy containing
+`runtimeContext` requires a CLI version that understands that key; older releases reject unknown policy keys.
 
 ```json
 {
@@ -569,7 +571,8 @@ Database advisor's policy key is `database-advisor`.
   "advisors": {
     "architecture": { "required": true, "failOn": "high" },
     "rest-api": { "required": true, "failOn": "high" }
-  }
+  },
+  "runtimeContext": { "includeInsights": true }
 }
 ```
 
@@ -605,7 +608,18 @@ exit "$assessment_status"
 ```
 
 The assessment writes a bounded `bundle.json`, `summary.md`, and `junit.xml`; report prose and raw finding text are
-not copied into these outputs. Publish the summary and files before making the recorded result the final job gate.
+not copied into these outputs. With `runtimeContext.includeInsights: true`, one bounded read-only Runtime Insights
+call adds aggregate coverage and at most 20 default-listed, sanitized observation summaries to the bundle and Markdown
+summary, never to JUnit. The projection omits routes, request IDs, observation prose, and follow-up suggestions; its
+HTTP exchange count cannot prove the CI workload exercised the witnessed process. `CAPTURED`, `PARTIAL` (low-footprint mode),
+`UNAVAILABLE`, and `ERROR` describe the optional context only and never affect the advisor verdict or exit code;
+`NOT_REQUESTED` means the policy omitted or disabled the request, while `NOT_COLLECTED` means assessment stopped
+before it could be made.
+
+The call is capped at 10 seconds and reserves the configured `--timeout` plus one second for the final identity check.
+If the remaining budget is no greater than that reserve, no Runtime Insights request is made and its report-only status
+is `ERROR`. The summary shows captured counts only for `CAPTURED` or `PARTIAL`; other statuses do not imply zero
+activity. Publish the summary and files before making the recorded result the final job gate.
 The aggregate exits are `0` for a valid pass or confirmed optional absence, `1` for an unevaluable/error result, and
 `3` for a proven threshold violation. An error takes precedence over findings, while already collected findings
 remain in the bundle. This is separate from the legacy per-tool exit codes above; in particular, a required panel
@@ -624,7 +638,10 @@ bootui ci check \
 the policy digest and assessment ID, and recomputes the threshold result from the retained findings. It has no target
 URL or network fallback. The check validates consistency, not authenticity: CI artifacts are self-reported evidence,
 not tamper-proof attestation. Optional `SKIPPED` advisor rows are also self-reported and are not independently
-corroborated offline; mark every advisor needed for the gate as `required: true` in the collection policy.
+corroborated offline; mark every advisor needed for the gate as `required: true` in the collection policy. It validates
+the optional runtime projection's bounded structure and its policy opt-in, but never gates on its observations. Legacy
+schema-version-1 bundles without `runtimeContext` remain valid only when the policy does not request Runtime Insights.
+Neither the projection nor the identity witness proves workload attribution.
 
 Before application startup, the workflow owner must explicitly activate BootUI and point `BOOTUI_OVERRIDES_FILE` at
 a fresh, empty, absolute per-assessment path; do not copy developer-local dismissals. Keep that dependency in a

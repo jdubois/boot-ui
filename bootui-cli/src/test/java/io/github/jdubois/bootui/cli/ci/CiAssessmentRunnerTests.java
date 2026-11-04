@@ -44,6 +44,15 @@ class CiAssessmentRunnerTests {
     private Path obstructOutput;
     private int overviewRequests;
     private String currentInstance = "a1b2c3d4";
+    private boolean runtimeInsightsAdvertised = true;
+    private boolean runtimeInsightsPanelEnabled = true;
+    private boolean changeIdentityAfterRuntimeInsights;
+    private int runtimeInsightsRequests;
+    private int runtimeInsightsStatus = 200;
+    private long runtimeInsightsDelayMillis;
+    private String runtimeInsightsQuery;
+    private int runtimeInsightsLimit;
+    private String runtimeInsightsBody = runtimeInsightsReport(false, false);
 
     @AfterEach
     void stopServer() {
@@ -87,6 +96,8 @@ class CiAssessmentRunnerTests {
                         output.toString()))
                 .isZero();
         assertThat(Files.readString(output.resolve("bundle.json"))).contains("\"status\": \"PASS\"");
+        assertThat(runtimeInsightsRequests).isZero();
+        assertThat(Files.readString(output.resolve("summary.md"))).doesNotContain("Runtime Insights context");
         assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
                         .exitCode())
                 .isZero();
@@ -166,6 +177,36 @@ class CiAssessmentRunnerTests {
         assertThat(runner.assess()).isEqualTo(1);
         assertThat(Files.readString(output.resolve("bundle.json"))).contains("\"status\": \"NOT_ASSESSED\"");
         assertThat(Files.readString(output.resolve("bundle.json"))).contains("IDENTITY_CHANGED");
+    }
+
+    @Test
+    void marksRequestedRuntimeContextNotCollectedWhenTheWitnessCannotBeRead() throws Exception {
+        startServer();
+        Path policy = writePolicyWithRuntimeInsights();
+        Path witness = temp.resolve("missing-witness.json");
+        Path output = temp.resolve("assessment");
+
+        assertThat(runner(policy, witness, output).assess()).isEqualTo(1);
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"code\": \"ASSESSMENT_IO_FAILED\"", "\"status\": \"NOT_COLLECTED\"");
+        assertThat(Files.readString(output.resolve("summary.md")))
+                .contains("Status: `NOT_COLLECTED`")
+                .doesNotContain("Retained events");
+    }
+
+    @Test
+    void omitsRuntimeContextSummaryWhenThePolicyCouldNotBeRead() throws Exception {
+        startServer();
+        Path policy = writePolicyWithRuntimeInsights();
+        Path witness = temp.resolve("witness.json");
+        assertThat(runner(policy, witness, temp.resolve("attached")).attach()).isZero();
+        Files.delete(policy);
+        Path output = temp.resolve("missing-policy");
+
+        assertThat(runner(policy, witness, output).assess()).isEqualTo(1);
+        assertThat(Files.readString(output.resolve("summary.md")))
+                .doesNotContain("Runtime Insights context")
+                .doesNotContain("Retained events");
     }
 
     @Test
@@ -359,6 +400,308 @@ class CiAssessmentRunnerTests {
         assertThat(CiPolicy.parse("""
                         {"schemaVersion":1,"advisors":{"database-advisor":{"required":true,"failOn":"high"}}}
                         """, "0".repeat(64)).advisors()).containsKey(CiPolicy.Advisor.DATABASE);
+        assertThat(CiPolicy.parse("""
+                        {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"high"}}}
+                        """, "0".repeat(64)).includeInsights()).isFalse();
+        assertThat(CiPolicy.parse("""
+                        {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"high"}},
+                         "runtimeContext":{"includeInsights":true}}
+                        """, "0".repeat(64)).includeInsights()).isTrue();
+        assertThatThrownBy(() -> CiPolicy.parse("""
+                        {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"high"}},
+                         "runtimeContext":{}}
+                        """, "0".repeat(64)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Missing runtimeContext key");
+        assertThatThrownBy(() -> CiPolicy.parse("""
+                        {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"high"}},
+                         "runtimeContext":{"includeInsights":"yes"}}
+                        """, "0".repeat(64)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must be a boolean");
+        assertThatThrownBy(() -> CiPolicy.parse("""
+                        {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"high"}},
+                         "runtimeContext":{"includeInsights":true,"other":true}}
+                        """, "0".repeat(64)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unknown runtimeContext key");
+    }
+
+    @Test
+    void capturesOnlyBoundedSanitizedRuntimeContextAndKeepsItOutOfJUnit() throws Exception {
+        startServer();
+        runtimeInsightsBody = runtimeInsightsReport(false, false);
+        Path policy = writePolicyWithRuntimeInsights();
+        Path witness = temp.resolve("witness.json");
+        Path output = temp.resolve("assessment");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isZero();
+
+        String bundle = Files.readString(output.resolve("bundle.json"));
+        String summary = Files.readString(output.resolve("summary.md"));
+        String junit = Files.readString(output.resolve("junit.xml"));
+        assertThat(runtimeInsightsRequests).isEqualTo(1);
+        assertThat(runtimeInsightsQuery).isEmpty();
+        assertThat(runtimeInsightsLimit).isEqualTo(20);
+        assertThat(bundle)
+                .contains("\"status\": \"PASS\"")
+                .contains("\"status\": \"CAPTURED\"")
+                .contains("\"workloadAttribution\": \"UNVERIFIED\"")
+                .contains("\"byRequestId\": 1")
+                .contains("\"byExecutionId\": 1")
+                .contains("\"byTraceId\": 1")
+                .contains("\"unlinked\": 1")
+                .contains("\"droppedEvents\": 2")
+                .contains("\"affected\": 5");
+        assertThat(summary)
+                .contains("Runtime Insights context")
+                .contains("does not prove that the CI workload exercised this process")
+                .contains("repeated-selects");
+        for (String privateValue : List.of(
+                "private-id",
+                "private-route",
+                "private sentence",
+                "private-request",
+                "private-verify",
+                "private-next")) {
+            assertThat(bundle).doesNotContain(privateValue);
+            assertThat(summary).doesNotContain(privateValue);
+        }
+        assertThat(junit).contains("tests=\"1\"").doesNotContain("Runtime Insights");
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isZero();
+    }
+
+    @Test
+    void unavailableRuntimeInsightsDoesNotChangeTheAdvisorVerdict() throws Exception {
+        runtimeInsightsAdvertised = false;
+        startServer();
+        Path policy = writePolicyWithRuntimeInsights();
+        Path witness = temp.resolve("witness.json");
+        Path output = temp.resolve("assessment");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isZero();
+        assertThat(runtimeInsightsRequests).isZero();
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"status\": \"PASS\"")
+                .contains("\"status\": \"UNAVAILABLE\"");
+        assertThat(Files.readString(output.resolve("summary.md"))).doesNotContain("Retained events");
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isZero();
+
+        runtimeInsightsAdvertised = true;
+        runtimeInsightsPanelEnabled = false;
+        Path disabledOutput = temp.resolve("disabled-context");
+        CiAssessmentRunner disabled = runner(policy, witness, disabledOutput);
+        assertThat(disabled.assess()).isZero();
+        assertThat(runtimeInsightsRequests).isZero();
+        assertThat(Files.readString(disabledOutput.resolve("bundle.json")))
+                .contains("\"status\": \"PASS\"", "\"status\": \"UNAVAILABLE\"");
+        assertThat(Files.readString(disabledOutput.resolve("summary.md"))).doesNotContain("Retained events");
+    }
+
+    @Test
+    void runtimeContextRequestFailureDoesNotChangeTheAdvisorVerdict() throws Exception {
+        runtimeInsightsStatus = 503;
+        startServer();
+        Path policy = writePolicyWithRuntimeInsights();
+        Path witness = temp.resolve("witness.json");
+        Path output = temp.resolve("failed-context");
+        CiAssessmentRunner failedContext = runner(policy, witness, output);
+
+        assertThat(failedContext.attach()).isZero();
+        assertThat(failedContext.assess()).isZero();
+        assertThat(runtimeInsightsRequests).isEqualTo(1);
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"status\": \"PASS\"")
+                .contains("\"status\": \"ERROR\"");
+        assertThat(Files.readString(output.resolve("summary.md"))).doesNotContain("Retained events");
+        assertThat(overviewRequests).isEqualTo(3);
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {403, 404})
+    void runtimeInsightsRefusalOrMissingToolIsUnavailableAndReportOnly(int status) throws Exception {
+        runtimeInsightsStatus = status;
+        startServer();
+        Path policy = writePolicyWithRuntimeInsights();
+        Path witness = temp.resolve("witness.json");
+        Path output = temp.resolve("unavailable-context");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isZero();
+        assertThat(runtimeInsightsRequests).isEqualTo(1);
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"status\": \"PASS\"", "\"status\": \"UNAVAILABLE\"");
+        assertThat(Files.readString(output.resolve("summary.md")))
+                .contains("No Runtime Insights data was captured")
+                .doesNotContain("Retained events");
+    }
+
+    @Test
+    void unavailableInsightsReportDoesNotExposeItsReasonOrChangeTheVerdict() throws Exception {
+        runtimeInsightsBody = """
+                {"available":false,"unavailableReason":"private unavailable reason"}
+                """;
+        startServer();
+        Path policy = writePolicyWithRuntimeInsights();
+        Path witness = temp.resolve("witness.json");
+        Path output = temp.resolve("unavailable-report");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isZero();
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"status\": \"PASS\"", "\"status\": \"UNAVAILABLE\"")
+                .doesNotContain("private unavailable reason");
+        assertThat(Files.readString(output.resolve("summary.md")))
+                .contains("No Runtime Insights data was captured")
+                .doesNotContain("private unavailable reason", "Retained events");
+    }
+
+    @Test
+    void runtimeInsightsNeverChangesAdvisorThresholdOrJUnit() throws Exception {
+        finding = true;
+        startServer();
+        Path policy = writePolicyWithRuntimeInsights();
+        Path witness = temp.resolve("witness.json");
+        CiAssessmentRunner captured = runner(policy, witness, temp.resolve("captured-violation"));
+
+        assertThat(captured.attach()).isZero();
+        assertThat(captured.assess()).isEqualTo(3);
+        assertThat(Files.readString(temp.resolve("captured-violation/bundle.json")))
+                .contains("\"status\": \"VIOLATION\"", "\"status\": \"CAPTURED\"");
+        assertThat(Files.readString(temp.resolve("captured-violation/junit.xml")))
+                .contains("<failure");
+
+        runtimeInsightsStatus = 503;
+        CiAssessmentRunner unavailable = runner(policy, witness, temp.resolve("error-violation"));
+        assertThat(unavailable.assess()).isEqualTo(3);
+        assertThat(Files.readString(temp.resolve("error-violation/bundle.json")))
+                .contains("\"status\": \"VIOLATION\"", "\"status\": \"ERROR\"");
+        assertThat(Files.readString(temp.resolve("error-violation/junit.xml")))
+                .contains("<failure")
+                .doesNotContain("<error");
+    }
+
+    @Test
+    void invalidRuntimeKindIsDroppedAndDoesNotChangeTheAdvisorVerdict() throws Exception {
+        runtimeInsightsBody = runtimeInsightsReport(false, false)
+                .replace("\"kind\":\"repeated-selects\"", "\"kind\":\"GET /private-route\"");
+        startServer();
+        Path policy = writePolicyWithRuntimeInsights();
+        Path witness = temp.resolve("witness.json");
+        Path output = temp.resolve("invalid-kind");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isZero();
+        assertThat(overviewRequests).isEqualTo(3);
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"status\": \"PASS\"", "\"status\": \"ERROR\"")
+                .doesNotContain("GET /private-route");
+        assertThat(Files.readString(output.resolve("summary.md")))
+                .contains("No Runtime Insights data was captured")
+                .doesNotContain("GET /private-route", "Retained events");
+    }
+
+    @Test
+    void insufficientRemainingBudgetSkipsOptionalInsightsAndPreservesIdentityCheck() throws Exception {
+        startServer();
+        Path policy = writePolicyWithRuntimeInsights();
+        Path witness = temp.resolve("witness.json");
+        Path output = temp.resolve("high-timeout");
+        CiAssessmentRunner runner =
+                new CiAssessmentRunner(url(), "/bootui/api", 180, "test-assessment", policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isZero();
+        assertThat(runtimeInsightsRequests).isZero();
+        assertThat(overviewRequests).isEqualTo(3);
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"status\": \"PASS\"", "\"status\": \"ERROR\"");
+        assertThat(Files.readString(output.resolve("junit.xml"))).doesNotContain("<error");
+    }
+
+    @Test
+    void malformedRuntimeObservationStatusDoesNotChangeTheAdvisorVerdictOrSkipIdentityCheck() throws Exception {
+        runtimeInsightsBody = runtimeInsightsReport(false, false).replace("\"status\":\"OBSERVED\"", "\"status\":null");
+        startServer();
+        Path policy = writePolicyWithRuntimeInsights();
+        Path witness = temp.resolve("witness.json");
+        Path output = temp.resolve("malformed-context");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isZero();
+        assertThat(runtimeInsightsRequests).isEqualTo(1);
+        assertThat(overviewRequests).isEqualTo(3);
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"status\": \"PASS\"", "\"status\": \"ERROR\"");
+        assertThat(Files.readString(output.resolve("junit.xml")))
+                .contains("tests=\"1\"")
+                .doesNotContain("<error");
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isZero();
+    }
+
+    @Test
+    void slowRuntimeContextRequestDoesNotPreventTheFinalIdentityCheck() throws Exception {
+        runtimeInsightsDelayMillis = 1_200;
+        startServer();
+        Path policy = writePolicyWithRuntimeInsights();
+        Path witness = temp.resolve("witness.json");
+        Path output = temp.resolve("slow-context");
+        CiAssessmentRunner runner =
+                new CiAssessmentRunner(url(), "/bootui/api", 1, "test-assessment", policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isZero();
+        assertThat(runtimeInsightsRequests).isEqualTo(1);
+        assertThat(overviewRequests).isEqualTo(3);
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"status\": \"PASS\"")
+                .contains("\"status\": \"ERROR\"");
+    }
+
+    @Test
+    void lowFootprintContextIsMarkedPartialAndIdentityIsRecheckedAfterCollection() throws Exception {
+        runtimeInsightsBody = runtimeInsightsReport(true, true);
+        startServer();
+        Path policy = writePolicyWithRuntimeInsights();
+        Path witness = temp.resolve("witness.json");
+        Path output = temp.resolve("assessment");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isZero();
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"status\": \"PARTIAL\"")
+                .contains("\"lowFootprintActive\": true")
+                .contains("\"capturePaused\": true");
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isZero();
+
+        changeIdentityAfterRuntimeInsights = true;
+        currentInstance = "a1b2c3d4";
+        Path changedOutput = temp.resolve("changed-identity");
+        CiAssessmentRunner changed = runner(policy, witness, changedOutput);
+        assertThat(changed.assess()).isEqualTo(1);
+        assertThat(Files.readString(changedOutput.resolve("bundle.json")))
+                .contains("\"status\": \"NOT_ASSESSED\"")
+                .contains("IDENTITY_CHANGED");
     }
 
     @Test
@@ -422,6 +765,15 @@ class CiAssessmentRunnerTests {
         return policy;
     }
 
+    private Path writePolicyWithRuntimeInsights() throws IOException {
+        Path policy = temp.resolve("policy-with-runtime-insights.json");
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"high"}},
+                 "runtimeContext":{"includeInsights":true}}
+                """);
+        return policy;
+    }
+
     private void startServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", this::handle);
@@ -434,10 +786,29 @@ class CiAssessmentRunnerTests {
         if (path.endsWith("/cli")) {
             body = catalog();
         } else if (path.endsWith("/overview")) {
-            if (obstructOutput != null && ++overviewRequests == 2) {
+            overviewRequests++;
+            if (obstructOutput != null && overviewRequests == 2) {
                 Files.createDirectory(obstructOutput.resolve("junit.xml"));
             }
             body = overview();
+        } else if (path.endsWith("/tools/get_runtime_insights")) {
+            runtimeInsightsRequests++;
+            JsonValue arguments =
+                    JsonValue.parse(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            runtimeInsightsQuery = arguments.get("query").asString(null);
+            runtimeInsightsLimit = arguments.get("limit").asInt(0);
+            if (runtimeInsightsDelayMillis > 0) {
+                try {
+                    Thread.sleep(runtimeInsightsDelayMillis);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Interrupted while simulating Runtime Insights", interrupted);
+                }
+            }
+            body = runtimeInsightsBody;
+            if (changeIdentityAfterRuntimeInsights) {
+                currentInstance = "b1b2c3d4";
+            }
         } else if (path.endsWith("/tools/architecture_scan")
                 || path.endsWith("/tools/database_advisor_scan")
                 || path.endsWith("/tools/spring_scan") && !springFails) {
@@ -494,7 +865,8 @@ class CiAssessmentRunnerTests {
         }
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.sendResponseHeaders(200, bytes.length);
+        exchange.sendResponseHeaders(
+                path.endsWith("/tools/get_runtime_insights") ? runtimeInsightsStatus : 200, bytes.length);
         exchange.getResponseBody().write(bytes);
         exchange.close();
     }
@@ -519,6 +891,16 @@ class CiAssessmentRunnerTests {
                 false,
                 "RULE_VIOLATIONS",
                 List.of("id", "scanId", "offset", "limit")));
+        if (runtimeInsightsAdvertised) {
+            tools.add(tool(
+                    "get_runtime_insights",
+                    false,
+                    "QUERY_LIMIT",
+                    List.of("query", "limit"),
+                    "runtime-insights",
+                    runtimeInsightsPanelEnabled,
+                    true));
+        }
         return """
                 {"serverName":"bootui","serverVersion":"dev","enabled":true,"maxResults":200,"tools":[%s]}
                 """.formatted(String.join(",", tools));
@@ -526,9 +908,20 @@ class CiAssessmentRunnerTests {
 
     private static String tool(String name, boolean action, String schema, List<String> arguments) {
         String panel = name.startsWith("spring_") || name.startsWith("get_spring_") ? "spring" : "architecture";
+        return tool(name, action, schema, arguments, panel, true, false);
+    }
+
+    private static String tool(
+            String name,
+            boolean action,
+            String schema,
+            List<String> arguments,
+            String panel,
+            boolean enabled,
+            boolean readOnly) {
         return """
                 {"name":"%s","description":"test","panel":"%s","action":%s,
-                 "schema":"%s","arguments":[%s],"panelEnabled":true,"panelReadOnly":false}
+                 "schema":"%s","arguments":[%s],"panelEnabled":%s,"panelReadOnly":%s}
                 """.formatted(
                         name,
                         panel,
@@ -537,7 +930,30 @@ class CiAssessmentRunnerTests {
                         arguments.stream()
                                 .map(value -> "\"" + value + "\"")
                                 .reduce((a, b) -> a + "," + b)
-                                .orElse(""));
+                                .orElse(""),
+                        enabled,
+                        readOnly);
+    }
+
+    private static String runtimeInsightsReport(boolean lowFootprintActive, boolean capturePaused) {
+        String lowFootprint = lowFootprintActive ? """
+                  ,"lowFootprint":{"active":true,"paused":%s,"hint":"private hint","components":["private component"]}
+                  """.formatted(capturePaused) : "";
+        return """
+                {"available":true,"unavailableReason":null,"query":"","requests":3,
+                 "coverage":[{"source":"agent.executors","events":4,"byRequestId":1,"byExecutionId":1,
+                              "byTraceId":1,"unlinked":1,"dropped":2}],
+                 "checksNotRun":["private check reason"],
+                 "observations":[
+                   {"id":"private-id","kind":"repeated-selects","status":"OBSERVED","subject":"private-route",
+                    "sentence":"private sentence","eligible":0,"affected":5,"tier":"REQUEST_ID",
+                    "exemplarRequestId":"private-request","verify":"private-verify","listed":true},
+                   {"id":"another-private-id","kind":"repeated-selects","status":"OBSERVED","subject":"other-route",
+                    "sentence":"private sentence","eligible":2,"affected":4,"tier":"REQUEST_ID",
+                    "exemplarRequestId":"private-request","verify":"private-verify","listed":true}],
+                 "omitted":2,"notExercised":["private-route"],"notExercisedOmitted":1,
+                 "limitations":["private limitation"],"next":[{"tool":"private-next"}]%s}
+                 """.formatted(lowFootprint);
     }
 
     private String overview() {

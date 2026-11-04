@@ -232,6 +232,10 @@ or a hard runner timeout can prevent publication. The identity witness is not wo
 to a reviewed commit and use a published, signed CLI release containing these commands. `bootui ci check` can
 revalidate a saved bundle offline against its expected assessment ID and exact policy file; it checks consistency,
 not authenticity. Optional skipped-advisor rows remain self-reported, so make every gating advisor required.
+The policy may opt into one bounded Runtime Insights summary with `runtimeContext.includeInsights: true`; it includes
+default-listed observations, is sanitized and report-only, and does not prove the workload exercised the witnessed
+process or affect the advisor verdict. If the remaining budget cannot preserve the configured request timeout plus one
+second for the final identity check, the optional call is skipped and reported as `ERROR`.
 
 The full command table is at `https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md`; each command maps to the MCP
 tool of the same behavior. `bootui agent status` maps to `get_agent_status` and is read-only on Spring MVC, WebFlux, and
