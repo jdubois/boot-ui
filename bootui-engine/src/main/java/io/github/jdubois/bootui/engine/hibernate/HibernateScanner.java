@@ -701,7 +701,7 @@ public final class HibernateScanner {
         try {
             EntityDiscovery discovery = entityDiscoverySupplier.get();
             return discovery == null
-                    ? EntityDiscovery.empty("No EntityManagerFactory beans are available.")
+                    ? EntityDiscovery.absent("No EntityManagerFactory beans are available.")
                     : discovery;
         } catch (RuntimeException | LinkageError ex) {
             return EntityDiscovery.empty(ex.getMessage());

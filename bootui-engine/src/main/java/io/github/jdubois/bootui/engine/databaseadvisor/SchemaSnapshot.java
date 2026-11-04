@@ -111,6 +111,7 @@ record SchemaSnapshot(
     boolean complete() {
         return available()
                 && !truncated
+                && (dialect != Dialect.POSTGRESQL || relationInventoryComplete)
                 && tables.stream().allMatch(table -> table.metadata().complete())
                 && vendorFindings.failures().isEmpty()
                 && diagnostics.stream()

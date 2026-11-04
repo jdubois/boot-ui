@@ -547,6 +547,8 @@ messages under `METADATA_ONLY`.
 
 ### Strict live-target assessments
 
+For the supported composite Action and a full caller-owned GitHub Actions example, see [BootUI in CI](CI.md).
+
 `bootui ci attach` and `bootui ci assess` are client-side orchestration commands, not MCP tools and not part of the
 generated command manifest. They are intentionally narrower than ordinary CLI use: one explicitly selected literal
 loopback URL, Spring Boot only, a strict JSON policy, and a pre-workload identity witness. They do not start the
@@ -557,6 +559,8 @@ available. A required advisor must be advertised, enabled, scannable, usable, co
 one subject. Incomplete evidence, scan/report disagreement, suppressed or dismissed findings, unknown severities,
 truncation, paging inconsistencies, and collection errors are not passes. An optional advisor may be skipped only
 when the catalog confirms that it is unavailable or disabled; a transport or assessment error is still an error.
+The policy allow-list excludes the Memory advisor because its scan may trigger a full garbage collection; the
+Database advisor's policy key is `database-advisor`.
 
 ```json
 {
@@ -572,20 +576,31 @@ Attach immediately before the workload, and use the exact same URL for the exist
 later assessment. Choose a fresh witness path and output directory for each run:
 
 ```bash
+attach_status=0
 bootui ci attach \
   --url http://127.0.0.1:18080 \
   --assessment-id "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:orders" \
   --policy ci/bootui-policy.json \
-  --output "$RUNNER_TEMP/bootui-ci/witness.json"
+  --output "$RUNNER_TEMP/bootui-ci/witness.json" || attach_status=$?
 
-./ci/run-integration-tests.sh http://127.0.0.1:18080
+workload_status=0
+./ci/run-integration-tests.sh http://127.0.0.1:18080 || workload_status=$?
 
-bootui ci assess \
-  --url http://127.0.0.1:18080 \
-  --assessment-id "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:orders" \
-  --policy ci/bootui-policy.json \
-  --witness "$RUNNER_TEMP/bootui-ci/witness.json" \
-  --output-dir "$RUNNER_TEMP/bootui-ci/assessment"
+assessment_status=1
+if [ "$attach_status" -eq 0 ]; then
+  assessment_status=0
+  bootui ci assess \
+    --url http://127.0.0.1:18080 \
+    --assessment-id "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:orders" \
+    --policy ci/bootui-policy.json \
+    --witness "$RUNNER_TEMP/bootui-ci/witness.json" \
+    --output-dir "$RUNNER_TEMP/bootui-ci/assessment" || assessment_status=$?
+else
+  echo "BootUI attach failed; refusing to scan with an unverified witness." >&2
+fi
+# Publish any reports before applying these results as the final job gate.
+if [ "$workload_status" -ne 0 ]; then exit "$workload_status"; fi
+exit "$assessment_status"
 ```
 
 The assessment writes a bounded `bundle.json`, `summary.md`, and `junit.xml`; report prose and raw finding text are
@@ -602,10 +617,10 @@ the workflow owns. In GitHub Actions, assessment/publication belongs behind `!ca
 bounded cleanup of that owned process. A cancelled runner or hard timeout can still prevent collection or publishing;
 the witness proves identity continuity, not workload attestation.
 
-This source increment does not yet include a sample application's CI-only dependency profile, a GitHub workflow or
-Action, or a trusted digest mapping for a published CLI artifact. It also does not provide framework-managed test
-producers, offline bundle evaluation, Quarkus support, comparisons, SARIF, or annotations. Use a CLI build that
-contains the `ci` commands; do not assume an already-published CLI release has them until that release is verified.
+The composite Action downloads a pinned stable CLI release and verifies its Maven Central signature against BootUI's
+pinned release signing key. The action and CLI commands become usable by consumers only after a release containing
+them is published. This increment does not provide framework-managed test producers, offline bundle evaluation,
+Quarkus support, comparisons, SARIF, or annotations.
 
 ## Every command
 

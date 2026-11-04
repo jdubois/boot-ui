@@ -825,7 +825,7 @@ public class BootUiEngineConfiguration {
                 () -> {
                     EntityDiscoverySource source = entityDiscoverySource.getIfAvailable();
                     return source == null
-                            ? EntityDiscovery.empty("Hibernate/JPA metamodel not detected on the classpath.")
+                            ? EntityDiscovery.absent("Hibernate/JPA metamodel not detected on the classpath.")
                             : source.discover();
                 },
                 // Statement evidence for the runtime-SQL checks, read from the SQL Trace buffer that is

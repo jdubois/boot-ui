@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.client;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.ConnectException;
 import java.net.Proxy;
 import java.net.ProxySelector;
@@ -22,6 +22,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Flow;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Talks to one application's BootUI command-line endpoint.
@@ -262,7 +268,7 @@ public final class BootUiClient implements AutoCloseable {
 
     private HttpRequest.Builder request(String url, Duration timeout) {
         HttpRequest.Builder request = HttpRequest.newBuilder(uri(url))
-                .timeout(timeout)
+                .timeout(timeout.compareTo(options.timeout()) < 0 ? timeout : options.timeout())
                 .header("Accept", "application/json")
                 .header("User-Agent", USER_AGENT);
         if (options.token() != null) {
@@ -305,44 +311,112 @@ public final class BootUiClient implements AutoCloseable {
         if (maxResponseBytes < 1 || maxResponseBytes == Integer.MAX_VALUE) {
             throw new IllegalArgumentException("maxResponseBytes must be positive");
         }
+        CompletableFuture<HttpResponse<byte[]>> pending =
+                http.sendAsync(request, ignored -> boundedBodySubscriber(maxResponseBytes));
         try {
-            HttpResponse<InputStream> response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
-            try (InputStream body = response.body()) {
-                byte[] bytes = body.readNBytes(maxResponseBytes + 1);
-                if (bytes.length > maxResponseBytes) {
-                    throw new BootUiClientException("Response exceeded the " + maxResponseBytes + " byte limit");
-                }
-                String text;
-                try {
-                    text = StandardCharsets.UTF_8
-                            .newDecoder()
-                            .onMalformedInput(CodingErrorAction.REPORT)
-                            .onUnmappableCharacter(CodingErrorAction.REPORT)
-                            .decode(ByteBuffer.wrap(bytes))
-                            .toString();
-                } catch (CharacterCodingException invalidUtf8) {
-                    throw new BootUiClientException("Response is not valid UTF-8", invalidUtf8);
-                }
-                return new BoundedResponse(response.statusCode(), text);
+            Duration timeout = request.timeout().orElse(options.timeout());
+            long nanos;
+            try {
+                nanos = timeout.toNanos();
+            } catch (ArithmeticException tooLarge) {
+                nanos = Long.MAX_VALUE;
             }
-        } catch (HttpConnectTimeoutException | ConnectException unreachable) {
+            HttpResponse<byte[]> response = pending.get(nanos, TimeUnit.NANOSECONDS);
+            String text;
+            try {
+                text = StandardCharsets.UTF_8
+                        .newDecoder()
+                        .onMalformedInput(CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(CodingErrorAction.REPORT)
+                        .decode(ByteBuffer.wrap(response.body()))
+                        .toString();
+            } catch (CharacterCodingException invalidUtf8) {
+                throw new BootUiClientException("Response is not valid UTF-8", invalidUtf8);
+            }
+            return new BoundedResponse(response.statusCode(), text);
+        } catch (TimeoutException timeout) {
+            pending.cancel(true);
             throw new BootUiClientException(
-                    "Cannot reach BootUI at " + options.baseUrl()
-                            + ". Is the application running, and is that the right --url?",
-                    unreachable);
-        } catch (HttpTimeoutException timeout) {
-            throw new BootUiClientException(
-                    "No response from " + options.baseUrl() + " within "
-                            + options.timeout().toSeconds() + "s. Raise --timeout if the tool is expected to be slow.",
-                    timeout);
-        } catch (IOException failure) {
-            throw new BootUiClientException(
-                    "Request to " + options.baseUrl() + " failed: " + failure.getMessage(), failure);
+                    "Request to " + options.baseUrl() + " exceeded its response deadline.", timeout);
+        } catch (ExecutionException failure) {
+            if (hasCause(failure, ResponseTooLargeException.class)) {
+                throw new BootUiClientException("Response exceeded the " + maxResponseBytes + " byte limit", failure);
+            }
+            if (hasCause(failure, HttpConnectTimeoutException.class) || hasCause(failure, ConnectException.class)) {
+                throw new BootUiClientException(
+                        "Cannot reach BootUI at " + options.baseUrl()
+                                + ". Is the application running, and is that the right --url?",
+                        failure);
+            }
+            if (hasCause(failure, HttpTimeoutException.class)) {
+                throw new BootUiClientException(
+                        "Request to " + options.baseUrl() + " exceeded its response deadline.", failure);
+            }
+            throw new BootUiClientException("Request to " + options.baseUrl() + " failed", failure);
         } catch (InterruptedException interrupted) {
+            pending.cancel(true);
             Thread.currentThread().interrupt();
             throw new BootUiClientException("Request to " + options.baseUrl() + " was interrupted", interrupted);
         }
     }
+
+    private static HttpResponse.BodySubscriber<byte[]> boundedBodySubscriber(int maxResponseBytes) {
+        return new HttpResponse.BodySubscriber<>() {
+            private final CompletableFuture<byte[]> body = new CompletableFuture<>();
+            private final ByteArrayOutputStream bytes = new ByteArrayOutputStream(Math.min(maxResponseBytes, 8192));
+            private Flow.Subscription subscription;
+
+            @Override
+            public CompletionStage<byte[]> getBody() {
+                return body;
+            }
+
+            @Override
+            public void onSubscribe(Flow.Subscription subscription) {
+                this.subscription = subscription;
+                subscription.request(1);
+            }
+
+            @Override
+            public void onNext(List<ByteBuffer> buffers) {
+                if (body.isDone()) {
+                    return;
+                }
+                for (ByteBuffer buffer : buffers) {
+                    if (buffer.remaining() > maxResponseBytes - bytes.size()) {
+                        subscription.cancel();
+                        body.completeExceptionally(new ResponseTooLargeException());
+                        return;
+                    }
+                    byte[] chunk = new byte[buffer.remaining()];
+                    buffer.get(chunk);
+                    bytes.writeBytes(chunk);
+                }
+                subscription.request(1);
+            }
+
+            @Override
+            public void onError(Throwable failure) {
+                body.completeExceptionally(failure);
+            }
+
+            @Override
+            public void onComplete() {
+                body.complete(bytes.toByteArray());
+            }
+        };
+    }
+
+    private static boolean hasCause(Throwable failure, Class<? extends Throwable> type) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (type.isInstance(cause)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static final class ResponseTooLargeException extends IOException {}
 
     private record BoundedResponse(int statusCode, String body) {}
 

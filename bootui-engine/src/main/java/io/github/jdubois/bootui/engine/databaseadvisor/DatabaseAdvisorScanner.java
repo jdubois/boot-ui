@@ -258,6 +258,13 @@ public final class DatabaseAdvisorScanner {
             collector.markScopeObserved(AdvisorFindingIdentity.encode("ds=" + schema.dataSourceName()));
             // Only a dialect with partitioned tables can lose relations when the inventory falls back to plain tables.
             boolean partialInventory = schema.dialect() == Dialect.POSTGRESQL && !schema.relationInventoryComplete();
+            if (schema.available() && partialInventory) {
+                evidenceDiagnostic(
+                        diagnostics,
+                        schema.dataSourceName(),
+                        SchemaDiagnostic.WARNING,
+                        "The PostgreSQL relation inventory is incomplete; some relations may be missing.");
+            }
             if (!schema.available() || schema.truncated() || partialInventory) {
                 collector.markScopeUnverified(
                         AdvisorFindingIdentity.encode("ds=" + schema.dataSourceName()),
@@ -690,7 +697,7 @@ public final class DatabaseAdvisorScanner {
                 evidenceDiagnostic(
                         diagnostics,
                         "Hibernate metadata",
-                        discovery.entities().isEmpty() ? SchemaDiagnostic.INFO : SchemaDiagnostic.WARNING,
+                        discovery.knownAbsent() ? SchemaDiagnostic.INFO : SchemaDiagnostic.WARNING,
                         error);
             }
             return discovery;

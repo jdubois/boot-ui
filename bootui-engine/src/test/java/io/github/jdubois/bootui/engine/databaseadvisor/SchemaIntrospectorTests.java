@@ -543,6 +543,82 @@ class SchemaIntrospectorTests {
         assertThat(snapshot.relationInventoryComplete()).isFalse();
     }
 
+    @Test
+    void completeEmptyRelationInventoryDoesNotMakeAnOtherwiseCompleteDatasourcePartial() throws Exception {
+        Connection connection = connection();
+        when(connection.getMetaData().getTables(any(), any(), any(), any())).thenReturn(rows());
+
+        SchemaSnapshot snapshot = SchemaIntrospector.introspect("ds", () -> connection, budget(), limits());
+
+        assertThat(snapshot.tables()).isEmpty();
+        assertThat(snapshot.relationInventoryComplete()).isTrue();
+        assertThat(snapshot.complete()).isTrue();
+    }
+
+    @Test
+    void incompletePostgresRelationInventoryIsNotCompleteEvidence() {
+        SchemaSnapshot snapshot = new SchemaSnapshot(
+                "ds",
+                Dialect.POSTGRESQL,
+                "PostgreSQL",
+                DatabaseVersion.UNKNOWN,
+                null,
+                List.of(),
+                VendorFindings.EMPTY,
+                List.of(),
+                false,
+                null,
+                false);
+        assertThat(snapshot.complete()).isFalse();
+    }
+
+    @Test
+    void missingDriverMetadataIsReportedAsIncompleteEvidence() throws Exception {
+        Connection connection = connection();
+        when(connection.getMetaData().getDriverVersion()).thenThrow(new SQLException("unsupported"));
+        when(connection.getMetaData().getURL()).thenReturn(null);
+
+        SchemaSnapshot snapshot = SchemaIntrospector.introspect("ds", () -> connection, budget(), limits());
+
+        assertThat(snapshot.complete()).isFalse();
+        assertThat(snapshot.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.level()).isEqualTo("WARNING");
+            assertThat(diagnostic.message()).contains("driver version");
+        });
+        assertThat(snapshot.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.level()).isEqualTo("WARNING");
+            assertThat(diagnostic.message()).contains("no JDBC URL");
+        });
+    }
+
+    @Test
+    void nullDriverNameIsReportedAsIncompleteEvidence() throws Exception {
+        Connection connection = connection();
+        when(connection.getMetaData().getDriverName()).thenReturn(null);
+
+        SchemaSnapshot snapshot = SchemaIntrospector.introspect("ds", () -> connection, budget(), limits());
+
+        assertThat(snapshot.complete()).isFalse();
+        assertThat(snapshot.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.level()).isEqualTo("WARNING");
+            assertThat(diagnostic.message()).contains("driver name");
+        });
+    }
+
+    @Test
+    void nullDriverVersionIsReportedAsIncompleteEvidence() throws Exception {
+        Connection connection = connection();
+        when(connection.getMetaData().getDriverVersion()).thenReturn(null);
+
+        SchemaSnapshot snapshot = SchemaIntrospector.introspect("ds", () -> connection, budget(), limits());
+
+        assertThat(snapshot.complete()).isFalse();
+        assertThat(snapshot.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.level()).isEqualTo("WARNING");
+            assertThat(diagnostic.message()).contains("driver version");
+        });
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"VIEW", "MATERIALIZED VIEW"})
     void introspectionPreservesViewTypesAndNullableColumns(String type) throws Exception {
@@ -594,6 +670,9 @@ class SchemaIntrospectorTests {
         DatabaseMetaData metadata = mock(DatabaseMetaData.class);
         when(connection.getMetaData()).thenReturn(metadata);
         when(connection.getCatalog()).thenReturn("app");
+        when(metadata.getDriverName()).thenReturn("Test JDBC Driver");
+        when(metadata.getDriverVersion()).thenReturn("1.0");
+        when(metadata.getURL()).thenReturn("jdbc:h2:mem:test");
         when(metadata.getDatabaseProductName()).thenReturn("generic");
         when(metadata.getTableTypes()).thenReturn(rows(Map.of("TABLE_TYPE", "TABLE"), Map.of("TABLE_TYPE", "VIEW")));
         when(metadata.getTables(any(), any(), any(), any())).thenReturn(rows(tableRow("t")));

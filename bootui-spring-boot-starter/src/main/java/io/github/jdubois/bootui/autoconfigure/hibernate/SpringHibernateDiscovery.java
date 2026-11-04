@@ -32,7 +32,12 @@ public final class SpringHibernateDiscovery {
         EntityDiscovery entityDiscovery = discoverEntities(entityManagerFactories);
         List<String> errors = new ArrayList<>(entityDiscovery.errors());
         List<HibernateRepositoryModel> repositories = discoverRepositories(beanFactories, errors);
-        return new EntityDiscovery(entityDiscovery.entities(), repositories, errors);
+        return new EntityDiscovery(
+                entityDiscovery.entities(),
+                repositories,
+                errors,
+                entityDiscovery.knownAbsent()
+                        && errors.size() == entityDiscovery.errors().size());
     }
 
     private static EntityDiscovery discoverEntities(ObjectProvider<EntityManagerFactory> entityManagerFactories) {

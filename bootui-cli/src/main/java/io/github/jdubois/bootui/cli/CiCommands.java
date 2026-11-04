@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.cli;
 
 import io.github.jdubois.bootui.cli.ci.CiAssessmentRunner;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
 import picocli.CommandLine;
@@ -201,12 +202,13 @@ final class CiCommands {
 
         @Override
         public Integer call() {
-            int result = run(new CiAssessmentRunner(
-                    url[0], apiPath[0], timeoutSeconds[0], assessmentId, policy, output, null)::attach);
+            int result = new CiAssessmentRunner(
+                            url[0], apiPath[0], timeoutSeconds[0], assessmentId, policy, output, null)
+                    .attach();
             if (result == 0) {
                 context.out().println("BootUI target attached; no scans were run.");
             } else {
-                context.err().println("BootUI attach failed; the witness is not usable.");
+                context.err().println("BootUI attach failed; do not assess with this witness unless attach succeeds.");
             }
             return result;
         }
@@ -229,24 +231,19 @@ final class CiCommands {
 
         @Override
         public Integer call() {
-            int result = run(new CiAssessmentRunner(
-                    url[0], apiPath[0], timeoutSeconds[0], assessmentId, policy, witness, outputDirectory)::assess);
+            int result = new CiAssessmentRunner(
+                            url[0], apiPath[0], timeoutSeconds[0], assessmentId, policy, witness, outputDirectory)
+                    .assess();
             if (result == 0) {
                 context.out().println("BootUI assessment passed; bounded reports are ready.");
             } else if (result == 3) {
                 context.err().println("BootUI assessment found a policy-threshold violation; reports are ready.");
-            } else {
+            } else if (outputDirectory != null && Files.isRegularFile(outputDirectory.resolve("bundle.json"))) {
                 context.err().println("BootUI assessment could not be completed; inspect the bounded reports.");
+            } else {
+                context.err().println("BootUI assessment could not be completed; no valid reports were written.");
             }
             return result;
-        }
-    }
-
-    private static int run(java.util.function.IntSupplier operation) {
-        try {
-            return operation.getAsInt();
-        } catch (RuntimeException invalid) {
-            return ExitCodes.ERROR;
         }
     }
 

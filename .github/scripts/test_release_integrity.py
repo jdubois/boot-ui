@@ -26,6 +26,7 @@ _BUNDLE_CHECK_SPEC.loader.exec_module(_bundle_check)
 PUBLISHED = _bundle_check.PUBLISHED
 
 SIGNATURE_CHECK = ROOT / ".github/scripts/verify-release-signatures.sh"
+CI_ACTION_SIGNATURE_CHECK = ROOT / ".github/actions/bootui/prepare-cli.sh"
 BUNDLE_SIGNATURE_LINE = '          bash .github/scripts/verify-release-signatures.sh bundle "$BUNDLE_DIR"\n'
 BUILD_SIGNATURE_LINE = "            bash .github/scripts/verify-release-signatures.sh build\n"
 PINNED_RELEASE_KEY = "      RELEASE_KEY_FINGERPRINT: 7B7C0BD038603E5A9F1476D0498BA5AC9BABBAF9\n"
@@ -127,6 +128,10 @@ class ReleaseIntegrityTests(unittest.TestCase):
     def test_release_workflow_passes(self):
         result = self.check(WORKFLOW.read_text(encoding="utf-8"))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_ci_action_uses_the_pinned_release_signing_key(self):
+        action = CI_ACTION_SIGNATURE_CHECK.read_text(encoding="utf-8")
+        self.assertIn(f'RELEASE_KEY_FINGERPRINT="{PINNED_RELEASE_KEY.split()[-1]}"', action)
 
     def test_plugin_version_update_and_verification_are_required(self):
         for old, new, message in (

@@ -73,7 +73,7 @@ class MariaDbDatabaseAdvisorLiveTests {
     private static DatabaseAdvisorReport scan() {
         return DatabaseAdvisorScanner.using(
                         () -> List.of(new NamedDataSource("primary", dataSource)),
-                        () -> EntityDiscovery.empty(null),
+                        () -> EntityDiscovery.absent(null),
                         Clock.systemUTC())
                 .scan();
     }

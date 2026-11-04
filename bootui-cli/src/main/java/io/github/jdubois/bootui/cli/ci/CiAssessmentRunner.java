@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.cli.ci;
 
 import io.github.jdubois.bootui.client.BootUiCatalog;
 import io.github.jdubois.bootui.client.BootUiClient;
+import io.github.jdubois.bootui.client.BootUiClientException;
 import io.github.jdubois.bootui.client.BootUiClientOptions;
 import io.github.jdubois.bootui.client.JsonParseException;
 import io.github.jdubois.bootui.client.JsonValue;
@@ -21,6 +22,8 @@ import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +60,17 @@ public final class CiAssessmentRunner {
             "runId",
             "attachedAt",
             "advisors");
+    private static final Set<String> ATTACH_ERRORS = Set.of(
+            "POLICY_READ_FAILED",
+            "INVALID_POLICY",
+            "INVALID_TARGET",
+            "INVALID_CATALOG",
+            "UNSUPPORTED_FRAMEWORK",
+            "MISSING_IDENTITY",
+            "REQUIRED_ADVISOR_UNAVAILABLE",
+            "ASSESSMENT_BUDGET_EXCEEDED",
+            "TARGET_REQUEST_FAILED",
+            "WITNESS_WRITE_FAILED");
 
     private final String url;
     private final String apiPath;
@@ -89,31 +103,43 @@ public final class CiAssessmentRunner {
 
     public int attach() {
         long deadline = System.nanoTime() + MAX_ASSESSMENT_BUDGET.toNanos();
+        CiPolicy policy;
         try {
-            CiPolicy policy = CiPolicy.read(policyPath);
-            try (BootUiClient client = client()) {
-                BootUiCatalog catalog = requireCatalog(client, deadline);
-                Identity identity = identity(client, deadline);
-                if (!catalog.serverVersion().equals(identity.bootUiVersion())) {
-                    throw new AssessmentFailure("IDENTITY_MISMATCH");
-                }
-                List<JsonValue> advisors = preflight(policy, catalog);
-                Map<String, JsonValue> witness = new LinkedHashMap<>();
-                witness.put("schemaVersion", JsonValue.of(1));
-                witness.put("assessmentId", JsonValue.of(assessmentId));
-                witness.put("targetUrl", JsonValue.of(url));
-                witness.put("apiPath", JsonValue.of(apiPath));
-                witness.put("policySha256", JsonValue.of(policy.sha256()));
-                witness.put("bootUiVersion", JsonValue.of(identity.bootUiVersion()));
-                witness.put("instanceId", JsonValue.of(identity.instanceId()));
-                witness.put("runId", JsonValue.of(identity.runId()));
-                witness.put("attachedAt", JsonValue.of(Instant.now().toString()));
-                witness.put("advisors", JsonValue.array(advisors));
-                writeNewFile(witnessPath, JsonWriter.pretty(JsonValue.object(witness)));
-                return 0;
-            }
-        } catch (Exception failure) {
-            writeFailureIfPossible(witnessPath, "ATTACH_FAILED");
+            policy = CiPolicy.read(policyPath);
+        } catch (IOException unreadable) {
+            writeFailureIfPossible(witnessPath, "POLICY_READ_FAILED");
+            return 1;
+        } catch (IllegalArgumentException invalid) {
+            writeFailureIfPossible(witnessPath, "INVALID_POLICY");
+            return 1;
+        }
+        try (BootUiClient client = client()) {
+            BootUiCatalog catalog = requireCatalog(client, deadline);
+            Identity identity = identity(client, deadline);
+            List<JsonValue> advisors = preflight(policy, catalog);
+            Map<String, JsonValue> witness = new LinkedHashMap<>();
+            witness.put("schemaVersion", JsonValue.of(1));
+            witness.put("assessmentId", JsonValue.of(assessmentId));
+            witness.put("targetUrl", JsonValue.of(url));
+            witness.put("apiPath", JsonValue.of(apiPath));
+            witness.put("policySha256", JsonValue.of(policy.sha256()));
+            witness.put("bootUiVersion", JsonValue.of(identity.bootUiVersion()));
+            witness.put("instanceId", JsonValue.of(identity.instanceId()));
+            witness.put("runId", JsonValue.of(identity.runId()));
+            witness.put("attachedAt", JsonValue.of(Instant.now().toString()));
+            witness.put("advisors", JsonValue.array(advisors));
+            writeNewFile(witnessPath, JsonWriter.pretty(JsonValue.object(witness)));
+            return 0;
+        } catch (AssessmentFailure failure) {
+            writeFailureIfPossible(witnessPath, failure.code());
+            return 1;
+        } catch (BootUiClientException requestFailure) {
+            writeFailureIfPossible(
+                    witnessPath,
+                    System.nanoTime() >= deadline ? "ASSESSMENT_BUDGET_EXCEEDED" : "TARGET_REQUEST_FAILED");
+            return 1;
+        } catch (IOException witnessFailure) {
+            writeFailureIfPossible(witnessPath, "WITNESS_WRITE_FAILED");
             return 1;
         }
     }
@@ -122,23 +148,26 @@ public final class CiAssessmentRunner {
         collected.clear();
         long deadline = System.nanoTime() + MAX_ASSESSMENT_BUDGET.toNanos();
         try {
-            Files.createDirectory(outputDirectory);
+            Path absoluteOutput = outputDirectory.toAbsolutePath().normalize();
+            Path parent = absoluteOutput.getParent();
+            if (parent == null) {
+                throw new IOException("Output directory has no parent");
+            }
+            Files.createDirectories(parent);
+            Files.createDirectory(absoluteOutput);
         } catch (IOException | RuntimeException failure) {
-            return 1;
+            throw new BootUiClientException("Cannot create a fresh assessment output directory", failure);
         }
 
         Assessment state = new Assessment(assessmentId, outputDirectory);
         try {
-            CiPolicy policy = CiPolicy.read(policyPath);
             JsonValue witness = readWitness();
+            CiPolicy policy = CiPolicy.read(policyPath);
             validateWitness(witness, policy);
             try (BootUiClient client = client()) {
                 BootUiCatalog before = requireCatalog(client, deadline);
                 Identity current = identity(client, deadline);
                 requireSameIdentity(witness, current);
-                if (!before.serverVersion().equals(current.bootUiVersion())) {
-                    throw new AssessmentFailure("IDENTITY_MISMATCH");
-                }
                 preflight(policy, before);
                 state.context(policy, current);
                 List<AdvisorResult> results = collect(policy, before, client, deadline);
@@ -151,11 +180,16 @@ public final class CiAssessmentRunner {
             }
         } catch (AssessmentFailure failure) {
             state.finishError(failure.code(), collected);
-        } catch (IOException | RuntimeException failure) {
+        } catch (BootUiClientException requestFailure) {
+            state.finishError(
+                    System.nanoTime() >= deadline ? "ASSESSMENT_BUDGET_EXCEEDED" : "TARGET_REQUEST_FAILED", collected);
+        } catch (IOException ioFailure) {
+            state.finishError("ASSESSMENT_IO_FAILED", collected);
+        } catch (RuntimeException failure) {
             state.finishError("ASSESSMENT_ERROR", collected);
         }
-        int writeCode = state.writeOutputs();
-        return writeCode != 0 ? 1 : state.exitCode();
+        state.writeOutputs();
+        return state.exitCode();
     }
 
     private BootUiClient client() {
@@ -244,6 +278,25 @@ public final class CiAssessmentRunner {
                     .equals(scan.payload().get("violationDetails").get("scanId").asString(null))) {
                 throw new AssessmentFailure("SCAN_REPORT_MISMATCH");
             }
+            JsonValue scanSummary = scan.payload();
+            JsonValue scanStatus = scanSummary.get("scan");
+            JsonValue scanEvidence = scanSummary.get("evidence");
+            if (!"SCANNED".equals(scanStatus.get("status").asString(null))
+                    || integer(scanStatus.get("rulesEvaluated")) != integer(report.get("rulesEvaluated"))
+                    || integer(scanStatus.get(advisor.subjectField())) != integer(report.get(advisor.subjectField()))
+                    || integer(scanStatus.get("violationsFound"))
+                            != evaluated.findings().size()
+                    || integer(scanSummary.get("findingsFound"))
+                            != evaluated.findings().size()
+                    || !scanEvidence.get("usable").isBoolean()
+                    || !scanEvidence.get("usable").asBoolean(false)
+                    || !scanEvidence.get("coverageComplete").isBoolean()
+                    || !scanEvidence.get("coverageComplete").asBoolean(false)
+                    || !scanEvidence.get("limitations").isArray()
+                    || scanEvidence.get("limitations").size() != 0
+                    || !severityCounts(scanSummary.get("severityCounts")).equals(evaluated.severityCounts())) {
+                throw new AssessmentFailure("SCAN_REPORT_MISMATCH");
+            }
             PagedFindings pages =
                     pageFindings(advisor, evaluated, catalog, client, remainingDetails, remainingPages, deadline);
             remainingDetails -= pages.detailCount();
@@ -253,6 +306,7 @@ public final class CiAssessmentRunner {
                     selection.required(),
                     "ASSESSED",
                     evaluated.totalFindings(),
+                    evaluated.rulesSkipped(),
                     pages.findings(),
                     null,
                     evaluated.findings().stream()
@@ -279,15 +333,36 @@ public final class CiAssessmentRunner {
         if (!"SCANNED".equals(scan.get("status").asString(null))) {
             throw new AssessmentFailure("SCAN_INCOMPLETE");
         }
+        long rulesEvaluated = integer(report.get("rulesEvaluated"));
+        if (rulesEvaluated <= 0 || integer(scan.get("rulesEvaluated")) != rulesEvaluated) {
+            throw new AssessmentFailure("INVALID_REPORT");
+        }
         for (String errorField : List.of("analysisErrors", "diagnostics")) {
             JsonValue errors = report.get(errorField);
-            if (!errors.isMissing() && (!errors.isArray() || errors.size() != 0)) {
+            boolean neutralDatabaseDiagnostics = advisor == CiPolicy.Advisor.DATABASE
+                    && errorField.equals("diagnostics")
+                    && errors.isArray()
+                    && errors.values().stream()
+                            .allMatch(item -> "INFO".equals(item.get("level").asString(null)));
+            if (!errors.isMissing() && (!errors.isArray() || errors.size() != 0 && !neutralDatabaseDiagnostics)) {
                 throw new AssessmentFailure("ADVISOR_ERRORS");
             }
         }
         JsonValue limitations = evidence.get("limitations");
-        if (!isEmptyArray(limitations)
-                || nonzeroIfPresent(report.get("rulesSkipped"))
+        JsonValue skipped = report.get("rulesSkipped");
+        if (advisor == CiPolicy.Advisor.DATABASE
+                && (skipped.isMissing()
+                        || report.get("rulesErrored").isMissing()
+                        || !report.get("diagnostics").isArray()
+                        || !report.get("truncated").isBoolean())) {
+            throw new AssessmentFailure("INVALID_REPORT");
+        }
+        boolean invalidSkipped = advisor == CiPolicy.Advisor.DATABASE
+                ? !skipped.isMissing() && integer(skipped) < 0
+                : nonzeroIfPresent(skipped);
+        if (!limitations.isArray()
+                || limitations.size() != 0
+                || invalidSkipped
                 || nonzeroIfPresent(report.get("rulesErrored"))
                 || !report.get("truncated").isMissing()
                         && (!report.get("truncated").isBoolean()
@@ -325,6 +400,7 @@ public final class CiAssessmentRunner {
         }
 
         List<RuleFinding> findings = new ArrayList<>();
+        Set<String> seenRules = new HashSet<>();
         long activeTotal = 0;
         for (JsonValue rule : results.values()) {
             String id = rule.get("id").asString(null);
@@ -333,13 +409,21 @@ public final class CiAssessmentRunner {
             JsonValue dismissedValue = rule.get("dismissed");
             boolean dismissed = dismissedValue.asBoolean(false);
             String severityText = rule.get("severity").asString(null);
+            String status = rule.get("status").asString(null);
             if (!isSafeRuleId(id)
+                    || !seenRules.add(id)
                     || count < 0
                     || suppressed < 0
                     || !dismissedValue.isBoolean()
                     || dismissed
                     || isNonblank(rule.get("coverageNote").asString(null))) {
                 throw new AssessmentFailure(dismissed ? "SUPPRESSION_PRESENT" : "INVALID_REPORT");
+            }
+            if (status == null
+                    || !Set.of("PASS", "VIOLATION", "SKIPPED").contains(status)
+                    || "VIOLATION".equals(status) != (count > 0)
+                    || advisor != CiPolicy.Advisor.DATABASE && "SKIPPED".equals(status)) {
+                throw new AssessmentFailure("INVALID_REPORT");
             }
             if (count > 0) {
                 CiPolicy.Severity severity = parseSeverity(severityText);
@@ -353,10 +437,52 @@ public final class CiAssessmentRunner {
             }
         }
         long reportTotal = integer(report.get("violationsFound"));
-        if (reportTotal < 0 || reportTotal != activeTotal) {
+        long databaseSkipped = advisor == CiPolicy.Advisor.DATABASE ? integer(skipped) : 0;
+        long databaseErrored = advisor == CiPolicy.Advisor.DATABASE ? integer(report.get("rulesErrored")) : 0;
+        Map<CiPolicy.Severity, Long> counts = new EnumMap<>(CiPolicy.Severity.class);
+        for (CiPolicy.Severity severity : CiPolicy.Severity.values()) {
+            counts.put(severity, 0L);
+        }
+        for (RuleFinding finding : findings) {
+            counts.put(finding.severity(), Math.addExact(counts.get(finding.severity()), finding.count()));
+        }
+        if (reportTotal < 0
+                || reportTotal != findings.size()
+                || integer(scan.get("violationsFound")) != reportTotal
+                || integer(scan.get(advisor.subjectField())) != integer(report.get(advisor.subjectField()))
+                || totalDetails != activeTotal
+                || !severityCounts(report.get("severityCounts")).equals(counts)
+                || reportTotal > rulesEvaluated
+                || advisor == CiPolicy.Advisor.DATABASE
+                        && (databaseSkipped < 0
+                                || databaseErrored < 0
+                                || databaseSkipped > rulesEvaluated
+                                || databaseErrored > rulesEvaluated - databaseSkipped
+                                || reportTotal > rulesEvaluated - databaseSkipped - databaseErrored
+                                || databaseSkipped + databaseErrored >= rulesEvaluated)) {
             throw new AssessmentFailure("COUNTS_INCONSISTENT");
         }
-        return new EvaluatedReport(scanId, List.copyOf(findings), activeTotal);
+        return new EvaluatedReport(
+                scanId,
+                List.copyOf(findings),
+                activeTotal,
+                advisor == CiPolicy.Advisor.DATABASE ? integer(skipped) : 0,
+                Map.copyOf(counts));
+    }
+
+    private static Map<CiPolicy.Severity, Long> severityCounts(JsonValue value) {
+        if (!value.isArray() || value.size() != CiPolicy.Severity.values().length) {
+            throw new AssessmentFailure("COUNTS_INCONSISTENT");
+        }
+        Map<CiPolicy.Severity, Long> counts = new EnumMap<>(CiPolicy.Severity.class);
+        for (JsonValue item : value.values()) {
+            CiPolicy.Severity severity = parseSeverity(item.get("severity").asString(null));
+            long count = integer(item.get("count"));
+            if (count < 0 || counts.putIfAbsent(severity, count) != null) {
+                throw new AssessmentFailure("COUNTS_INCONSISTENT");
+            }
+        }
+        return counts;
     }
 
     private PagedFindings pageFindings(
@@ -516,6 +642,22 @@ public final class CiAssessmentRunner {
         }
         if (!witness.isObject()) {
             throw new AssessmentFailure("INVALID_WITNESS");
+        }
+        if ("NOT_ASSESSED".equals(witness.get("status").asString(null))) {
+            JsonValue errors = witness.get("errors");
+            String code = errors.isArray() && errors.size() == 1
+                    ? errors.values().get(0).get("code").asString(null)
+                    : null;
+            if (!Set.copyOf(witness.names()).equals(Set.of("schemaVersion", "assessmentId", "status", "errors"))
+                    || !witness.get("schemaVersion").isNumber()
+                    || !"1".equals(witness.get("schemaVersion").asDisplayText())
+                    || !assessmentId.equals(witness.get("assessmentId").asString(null))
+                    || code == null
+                    || !ATTACH_ERRORS.contains(code)
+                    || !Set.copyOf(errors.values().get(0).names()).equals(Set.of("code"))) {
+                throw new AssessmentFailure("INVALID_WITNESS");
+            }
+            throw new AssessmentFailure(code);
         }
         List<String> unknown = new ArrayList<>(witness.names());
         unknown.removeAll(WITNESS_KEYS);
@@ -815,7 +957,12 @@ public final class CiAssessmentRunner {
 
     private record RuleFinding(String ruleId, CiPolicy.Severity severity, long count, long suppressedCount) {}
 
-    private record EvaluatedReport(String scanId, List<RuleFinding> findings, long totalFindings) {}
+    private record EvaluatedReport(
+            String scanId,
+            List<RuleFinding> findings,
+            long totalFindings,
+            long rulesSkipped,
+            Map<CiPolicy.Severity, Long> severityCounts) {}
 
     private record PagedFindings(List<JsonValue> findings, int detailCount, int pageCount) {}
 
@@ -840,6 +987,7 @@ public final class CiAssessmentRunner {
         private final boolean required;
         private final String status;
         private final long total;
+        private final long rulesSkipped;
         private final List<JsonValue> findings;
         private final String reason;
         private final boolean violation;
@@ -849,6 +997,7 @@ public final class CiAssessmentRunner {
                 boolean required,
                 String status,
                 long total,
+                long rulesSkipped,
                 List<JsonValue> findings,
                 String reason,
                 boolean violation) {
@@ -856,13 +1005,14 @@ public final class CiAssessmentRunner {
             this.required = required;
             this.status = status;
             this.total = total;
+            this.rulesSkipped = rulesSkipped;
             this.findings = findings;
             this.reason = reason;
             this.violation = violation;
         }
 
         static AdvisorResult skipped(CiPolicy.Advisor advisor, boolean required, String reason) {
-            return new AdvisorResult(advisor, required, "SKIPPED", 0, List.of(), reason, false);
+            return new AdvisorResult(advisor, required, "SKIPPED", 0, 0, List.of(), reason, false);
         }
     }
 
@@ -907,19 +1057,33 @@ public final class CiAssessmentRunner {
             return violation ? 3 : 0;
         }
 
-        int writeOutputs() {
+        void writeOutputs() {
+            List<Path> written = new ArrayList<>();
             try {
                 JsonValue bundle = toBundle();
                 String json = JsonWriter.pretty(bundle) + "\n";
-                if (json.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_BUNDLE_BYTES) {
+                if (json.getBytes(StandardCharsets.UTF_8).length > MAX_BUNDLE_BYTES) {
                     throw new IOException("Bundle exceeded its byte limit");
                 }
-                writeNewFile(outputDirectory.resolve("bundle.json"), json);
-                writeNewFile(outputDirectory.resolve("summary.md"), markdown(bundle));
-                writeNewFile(outputDirectory.resolve("junit.xml"), junit(bundle));
-                return 0;
-            } catch (Exception failure) {
-                return 1;
+                String summary = markdown(bundle);
+                String xml = junit(bundle);
+                for (Map.Entry<String, String> report : List.of(
+                        Map.entry("junit.xml", xml),
+                        Map.entry("bundle.json", json),
+                        Map.entry("summary.md", summary))) {
+                    Path path = outputDirectory.resolve(report.getKey());
+                    writeNewFile(path, report.getValue());
+                    written.add(path);
+                }
+            } catch (IOException | RuntimeException failure) {
+                for (Path path : written) {
+                    try {
+                        Files.deleteIfExists(path);
+                    } catch (IOException cleanupFailure) {
+                        failure.addSuppressed(cleanupFailure);
+                    }
+                }
+                throw new BootUiClientException("Could not write complete BootUI assessment reports", failure);
             }
         }
 
@@ -942,6 +1106,7 @@ public final class CiAssessmentRunner {
                                 row.put("status", JsonValue.of(result.status));
                                 row.put("reason", JsonValue.of(result.reason));
                                 row.put("findingCount", JsonValue.of(result.total));
+                                row.put("rulesSkipped", JsonValue.of(result.rulesSkipped));
                                 row.put("findings", JsonValue.array(result.findings));
                                 return JsonValue.object(row);
                             })
@@ -967,7 +1132,7 @@ public final class CiAssessmentRunner {
                     .append("/")
                     .append(bundle.get("runId").asString("unknown"))
                     .append("`.\n\n")
-                    .append("| Advisor | Required | Status | Findings |\n|---|---:|---|---:|\n");
+                    .append("| Advisor | Required | Status | Findings | Rules skipped |\n|---|---:|---|---:|---:|\n");
             for (JsonValue advisor : bundle.get("advisors").values()) {
                 output.append("| ")
                         .append(advisor.get("name").asString(""))
@@ -977,6 +1142,8 @@ public final class CiAssessmentRunner {
                         .append(advisor.get("status").asString(""))
                         .append(" | ")
                         .append(advisor.get("findingCount").asLong(0))
+                        .append(" | ")
+                        .append(advisor.get("rulesSkipped").asLong(0))
                         .append(" |\n");
             }
             if (!errors.isEmpty()) {
@@ -993,7 +1160,7 @@ public final class CiAssessmentRunner {
 
         private String junit(JsonValue bundle) {
             String status = bundle.get("status").asString("NOT_ASSESSED");
-            int failures = violation ? 1 : 0;
+            long failures = results.stream().filter(result -> result.violation).count();
             int errorsCount = "NOT_ASSESSED".equals(status) ? Math.max(1, errors.size()) : 0;
             int skipped = (int) bundle.get("advisors").values().stream()
                     .filter(advisor -> "SKIPPED".equals(advisor.get("status").asString(null)))

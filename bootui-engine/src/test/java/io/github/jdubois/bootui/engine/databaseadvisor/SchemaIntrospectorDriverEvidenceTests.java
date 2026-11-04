@@ -114,12 +114,13 @@ class SchemaIntrospectorDriverEvidenceTests {
     }
 
     @Test
-    void aNullUrlIsAnInformationalDiagnosticNotAFailure() {
+    void aNullUrlIsAWarningAndMakesEvidenceIncomplete() {
         SchemaSnapshot snapshot = introspect(Map.of("getURL", () -> null), Map.of());
 
         assertThat(snapshot.driver().urlSettingsKnown()).isFalse();
+        assertThat(snapshot.complete()).isFalse();
         assertThat(snapshot.diagnostics()).anySatisfy(diagnostic -> {
-            assertThat(diagnostic.level()).isEqualTo(SchemaDiagnostic.INFO);
+            assertThat(diagnostic.level()).isEqualTo(SchemaDiagnostic.WARNING);
             assertThat(diagnostic.message()).contains("no JDBC URL");
         });
     }

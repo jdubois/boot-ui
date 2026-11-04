@@ -165,7 +165,6 @@ public record CiPolicy(Map<Advisor, Selection> advisors, String sha256) {
                 "get_rest_api_rule_violations",
                 "handlersAnalyzed",
                 "results"),
-        MEMORY("memory", "memory_scan", "get_memory_report", "get_memory_rule_violations", "rulesEvaluated", "results"),
         SECURITY(
                 "security",
                 "security_scan",
@@ -174,7 +173,7 @@ public record CiPolicy(Map<Advisor, Selection> advisors, String sha256) {
                 "filterChainsAnalyzed",
                 "results"),
         DATABASE(
-                "database",
+                "database-advisor",
                 "database_advisor_scan",
                 "get_database_advisor_report",
                 "get_database_advisor_rule_violations",

@@ -7,8 +7,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Strict live-target CI assessments** add `bootui ci attach` and `bootui ci assess`, plus a signature-verifying
+  composite GitHub Action and caller-owned workflow guide ([CI guide](docs/CI.md); [#1592](https://github.com/jdubois/boot-ui/issues/1592)).
+
 ### Changed
 
+- Treat missing JDBC driver metadata and incomplete Hibernate or PostgreSQL discovery as incomplete Database advisor
+  evidence instead of clean coverage.
 - Upgrade the shared Quarkus platform to 3.40.1.1, the newest micro release of the latest Quarkus LTS stream.
 
 ### Fixed

@@ -70,14 +70,14 @@ class DatabaseAdvisorScannerTests {
     }
 
     private DatabaseAdvisorScanner scannerFor(List<NamedDataSource> dataSources) {
-        return DatabaseAdvisorScanner.using(() -> dataSources, () -> EntityDiscovery.empty(null), FIXED_CLOCK);
+        return DatabaseAdvisorScanner.using(() -> dataSources, () -> EntityDiscovery.absent(null), FIXED_CLOCK);
     }
 
     private DatabaseAdvisorScanner scannerWith(DatabaseAdvisorEvidenceProvider evidence) {
         return DatabaseAdvisorScanner.usingDiscovery(
                 () -> new DatabaseAdvisorDataSourceDiscovery(
                         List.of(new NamedDataSource("primary", dataSource)), List.of()),
-                () -> EntityDiscovery.empty(null),
+                () -> EntityDiscovery.absent(null),
                 List::of,
                 evidence,
                 FIXED_CLOCK);
@@ -410,7 +410,7 @@ class DatabaseAdvisorScannerTests {
         java.util.concurrent.atomic.AtomicReference<List<NamedDataSource>> sources =
                 new java.util.concurrent.atomic.AtomicReference<>(List.of(new NamedDataSource("primary", dataSource)));
         DatabaseAdvisorScanner scanner =
-                DatabaseAdvisorScanner.using(sources::get, () -> EntityDiscovery.empty(null), FIXED_CLOCK);
+                DatabaseAdvisorScanner.using(sources::get, () -> EntityDiscovery.absent(null), FIXED_CLOCK);
         scanner.scan();
 
         sources.set(List.of(new NamedDataSource("primary", new FailingDataSource("connection refused"))));
@@ -438,7 +438,7 @@ class DatabaseAdvisorScannerTests {
                 new java.util.concurrent.atomic.AtomicReference<>(
                         List.of(new NamedDataSource("primary", dataSource), new NamedDataSource("second", second)));
         DatabaseAdvisorScanner scanner =
-                DatabaseAdvisorScanner.using(sources::get, () -> EntityDiscovery.empty(null), FIXED_CLOCK);
+                DatabaseAdvisorScanner.using(sources::get, () -> EntityDiscovery.absent(null), FIXED_CLOCK);
         scanner.scan();
 
         sources.set(List.of(
@@ -458,7 +458,7 @@ class DatabaseAdvisorScannerTests {
 
         sources.set(List.of(new NamedDataSource("primary", dataSource), new NamedDataSource("second", second)));
         DatabaseAdvisorScanner fresh =
-                DatabaseAdvisorScanner.using(sources::get, () -> EntityDiscovery.empty(null), FIXED_CLOCK);
+                DatabaseAdvisorScanner.using(sources::get, () -> EntityDiscovery.absent(null), FIXED_CLOCK);
         fresh.scan();
         sources.set(List.of(new NamedDataSource("primary", dataSource)));
         var absent = fresh.scan().violationDetails().changes();
@@ -491,7 +491,7 @@ class DatabaseAdvisorScannerTests {
                     discoveries.incrementAndGet();
                     return List.of(new NamedDataSource("primary", dataSource));
                 },
-                () -> EntityDiscovery.empty(null),
+                () -> EntityDiscovery.absent(null),
                 FIXED_CLOCK);
         try (var introspector = mockStatic(SchemaIntrospector.class)) {
             introspector
@@ -799,7 +799,7 @@ class DatabaseAdvisorScannerTests {
                 new DatabaseAdvisorLimits(1, 300, 100, 500, Duration.ofSeconds(20), Duration.ofSeconds(5));
         DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.using(
                 () -> List.of(new NamedDataSource("primary", dataSource)),
-                () -> EntityDiscovery.empty(null),
+                () -> EntityDiscovery.absent(null),
                 FIXED_CLOCK,
                 tightLimits);
 
@@ -870,7 +870,7 @@ class DatabaseAdvisorScannerTests {
                 () -> {
                     throw new IllegalStateException("bean factory unavailable");
                 },
-                () -> EntityDiscovery.empty(null),
+                () -> EntityDiscovery.absent(null),
                 FIXED_CLOCK);
         DatabaseAdvisorReport report = scanner.scan();
         assertThat(report.scan().status()).isEqualTo("ERROR");
@@ -881,7 +881,7 @@ class DatabaseAdvisorScannerTests {
     @Test
     void nullDiscoveryIsNotASuccessfullyEmptyInventory() {
         DatabaseAdvisorReport report = DatabaseAdvisorScanner.using(
-                        () -> null, () -> EntityDiscovery.empty(null), FIXED_CLOCK)
+                        () -> null, () -> EntityDiscovery.absent(null), FIXED_CLOCK)
                 .scan();
         assertThat(report.scan().status()).isEqualTo("ERROR");
     }
@@ -893,7 +893,7 @@ class DatabaseAdvisorScannerTests {
                                 List.of(new NamedDataSource("primary", dataSource)),
                                 List.of(new DatabaseAdvisorDataSourceDiscovery.Failure(
                                         "secondary", "Bean initialization failed"))),
-                        () -> EntityDiscovery.empty(null),
+                        () -> EntityDiscovery.absent(null),
                         List::of,
                         FIXED_CLOCK)
                 .scan();
@@ -927,6 +927,28 @@ class DatabaseAdvisorScannerTests {
         });
         assertThat(report.diagnostics()).anySatisfy(diagnostic -> {
             assertThat(diagnostic.source()).isEqualTo("SQL Trace");
+            assertThat(diagnostic.level()).isEqualTo("WARNING");
+        });
+    }
+
+    @Test
+    void distinguishesAbsentJpaFromAZeroEntityDiscoveryFailure() {
+        DatabaseAdvisorReport absent =
+                scannerFor(List.of(new NamedDataSource("primary", dataSource))).scan();
+        assertThat(absent.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.source()).isEqualTo("Hibernate metadata");
+            assertThat(diagnostic.level()).isEqualTo("INFO");
+        });
+
+        DatabaseAdvisorReport failed = DatabaseAdvisorScanner.using(
+                        () -> List.of(new NamedDataSource("primary", dataSource)),
+                        () -> EntityDiscovery.empty("metamodel unavailable"),
+                        FIXED_CLOCK)
+                .scan();
+        assertThat(failed.scan().status()).isEqualTo("PARTIAL");
+        assertThat(failed.evidence().coverageComplete()).isFalse();
+        assertThat(failed.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.source()).isEqualTo("Hibernate metadata");
             assertThat(diagnostic.level()).isEqualTo("WARNING");
         });
     }

@@ -15,7 +15,7 @@ public final class JpaMetamodelReader {
 
     public static EntityDiscovery readEntities(List<EntityManagerFactory> factories) {
         if (factories.isEmpty()) {
-            return EntityDiscovery.empty("No EntityManagerFactory beans are available.");
+            return EntityDiscovery.absent("No EntityManagerFactory beans are available.");
         }
         List<HibernateEntityModel> entities = new ArrayList<>();
         List<String> errors = new ArrayList<>();

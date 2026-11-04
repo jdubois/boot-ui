@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.engine.hibernate.HibernateRepositoryModel;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.JpaMetamodelReader;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Id;
 import jakarta.persistence.QueryHint;
 import java.lang.annotation.ElementType;
@@ -50,6 +51,24 @@ import org.springframework.data.repository.core.support.RepositoryFactoryInforma
 import org.springframework.data.repository.query.Param;
 
 class SpringHibernateRepositoryDiscoveryTests {
+    @Test
+    void discoveryDistinguishesMissingFactoriesFromMetamodelFailure() {
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        var absent = SpringHibernateDiscovery.discover(
+                beans.getBeanProvider(EntityManagerFactory.class),
+                beans.getBeanProvider(org.springframework.beans.factory.ListableBeanFactory.class));
+        assertThat(absent.knownAbsent()).isTrue();
+
+        EntityManagerFactory factory = mock(EntityManagerFactory.class);
+        when(factory.getMetamodel()).thenThrow(new IllegalStateException("metamodel unavailable"));
+        beans.registerSingleton("entityManagerFactory", factory);
+        var failed = SpringHibernateDiscovery.discover(
+                beans.getBeanProvider(EntityManagerFactory.class),
+                beans.getBeanProvider(org.springframework.beans.factory.ListableBeanFactory.class));
+        assertThat(failed.knownAbsent()).isFalse();
+        assertThat(failed.errors()).contains("metamodel unavailable");
+    }
+
     @Test
     void limitDoesNotShiftCollectionBindingsOrMatchAnUnrelatedPredicate() throws Exception {
         for (String name : List.of("limited", "unrelated")) {

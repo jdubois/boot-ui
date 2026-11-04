@@ -218,17 +218,18 @@ above the threshold, and `1` when the scan cannot be evaluated (never scanned, d
 For the strict live-target CI workflow, use `bootui ci attach` immediately before the existing workload and
 `bootui ci assess` afterward only when the CLI build explicitly contains those commands. Select a literal loopback URL
 and pass the exact same URL to attach, the workload, and assessment. This path currently supports one live Spring Boot
-target only: it does not start the app, prove that scenarios exercised it, support remote targets or Quarkus, or
-provide an Action. The application owner must opt in to the BootUI dependency in a CI-only build profile, activate it
+target only: it does not start the app, prove that scenarios exercised it, or support remote targets or Quarkus. The
+repository composite Action wraps these phases, but is available to consumers only from a release containing the
+commands. The application owner must opt in to the BootUI dependency in a CI-only build profile, activate it
 before startup, and point `BOOTUI_OVERRIDES_FILE` at a fresh empty per-assessment path. Never import local dismissals.
 The strict JSON policy runs only its named advisors; incomplete evidence, unknown severity, suppression, truncation,
 paging inconsistencies, and errors fail assessment. Aggregate exits are `0` pass, `1` not assessed/error (takes
 precedence over findings), and `3` proven threshold violation; underlying per-tool exit codes remain unchanged.
 Publish the bounded JSON/Markdown/JUnit outputs before applying that final gate, while recognizing that cancellation
-or a hard runner timeout can prevent publication. The identity witness is not workload attestation. The repository
-does not yet ship a consumer CI profile, workflow/Action, or trusted digest mapping for a published CLI artifact, so
-do not present this source-only implementation as a released consumer integration. See
-[the CLI live-target contract](../../docs/CLI.md#strict-live-target-assessments) before adding a workflow.
+or a hard runner timeout can prevent publication. The identity witness is not workload attestation. See
+[the CI setup and workflow](https://github.com/jdubois/boot-ui/blob/main/docs/CI.md) and
+[the CLI live-target contract](https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md#strict-live-target-assessments);
+pin the Action to a reviewed commit and use a published, signed CLI release containing these commands.
 
 The full command table is at `https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md`; each command maps to the MCP
 tool of the same behavior. `bootui agent status` maps to `get_agent_status` and is read-only on Spring MVC, WebFlux, and

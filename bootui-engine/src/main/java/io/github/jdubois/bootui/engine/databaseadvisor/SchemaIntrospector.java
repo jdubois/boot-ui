@@ -252,19 +252,19 @@ final class SchemaIntrospector {
             List<SchemaDiagnostic> diagnostics) {
         MetaDataRead name = metaDataRead(metaData::getDriverName, budget);
         MetaDataRead version = metaDataRead(metaData::getDriverVersion, budget);
-        if (name.failed()) {
+        if (name.failed() || name.value() == null || name.value().isBlank()) {
             diagnostics.add(SchemaDiagnostic.warning(
-                    dataSourceName, "The JDBC driver name could not be read; driver settings are not evaluated."));
+                    dataSourceName, "The JDBC driver name was unavailable; driver settings are not evaluated."));
         }
-        if (version.failed()) {
-            diagnostics.add(SchemaDiagnostic.info(dataSourceName, "The JDBC driver version could not be read."));
+        if (version.failed() || version.value() == null || version.value().isBlank()) {
+            diagnostics.add(SchemaDiagnostic.warning(dataSourceName, "The JDBC driver version was unavailable."));
         }
         if (urlFailed) {
             diagnostics.add(SchemaDiagnostic.warning(
                     dataSourceName,
                     "The JDBC URL could not be read; driver settings configured in it are not evaluated."));
         } else if (url == null || url.isBlank()) {
-            diagnostics.add(SchemaDiagnostic.info(
+            diagnostics.add(SchemaDiagnostic.warning(
                     dataSourceName,
                     "The driver reported no JDBC URL; driver settings configured in it are not evaluated."));
         }
@@ -470,8 +470,7 @@ final class SchemaIntrospector {
                 diagnostics.add(SchemaDiagnostic.warning(dataSourceName + "/" + table.qualifiedName(), issue));
             }
         }
-        return new TableReadResult(
-                tables, truncated, types.complete() && result.complete() && !inventoryTruncated && !tables.isEmpty());
+        return new TableReadResult(tables, truncated, types.complete() && result.complete() && !inventoryTruncated);
     }
 
     private record TableRef(String catalog, String schema, String name, String type) {}

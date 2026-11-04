@@ -26,6 +26,16 @@ import org.junit.jupiter.api.io.TempDir;
  */
 class UpdateCheckTests {
 
+    @Test
+    void ciCommandsNeverEnableTheUpdateCheckEvenOnATerminal() {
+        assertThat(BootUiCli.updateCheckTerminal(new String[] {"ci", "attach"}, true))
+                .isFalse();
+        assertThat(BootUiCli.updateCheckTerminal(new String[] {"--verbose", "ci", "assess"}, true))
+                .isFalse();
+        assertThat(BootUiCli.updateCheckTerminal(new String[] {"overview"}, true))
+                .isTrue();
+    }
+
     private static final String METADATA = """
             <?xml version="1.0" encoding="UTF-8"?>
             <metadata>

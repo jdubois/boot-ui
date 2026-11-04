@@ -218,6 +218,18 @@ class BootUiClientTests {
                 .isInstanceOf(BootUiClientException.class);
     }
 
+    @Test
+    @Timeout(value = 2, unit = java.util.concurrent.TimeUnit.SECONDS)
+    void boundedResponseBodyReadAlsoHonorsTheConfiguredRequestTimeout() {
+        responseBody = "{\"value\":true}";
+        responseDelayMillis = 1_500;
+        BootUiClient direct =
+                BootUiClient.direct(new BootUiClientOptions(baseUrl(), "/bootui/api", null, Duration.ofMillis(100)));
+
+        assertThatThrownBy(() -> direct.getBounded("/slow", 1024, Duration.ofSeconds(5)))
+                .isInstanceOf(BootUiClientException.class);
+    }
+
     private static void restoreProperty(String key, String value) {
         if (value == null) {
             System.clearProperty(key);

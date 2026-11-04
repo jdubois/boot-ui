@@ -1389,7 +1389,7 @@ public class BootUiEngineProducer {
                 new QuarkusDatabaseAdvisorDataSourceProvider(dataSources, beanManager);
         Supplier<EntityDiscovery> discovery;
         if (entityDiscoverySources.isUnsatisfied()) {
-            discovery = () -> EntityDiscovery.empty("Hibernate ORM is not configured on this Quarkus application.");
+            discovery = () -> EntityDiscovery.absent("Hibernate ORM is not configured on this Quarkus application.");
         } else {
             EntityDiscoverySource source = entityDiscoverySources.get();
             discovery = source::discover;
