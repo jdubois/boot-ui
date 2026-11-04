@@ -7,14 +7,35 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-11-04
+
+This release adds bounded thread investigations and six application-improvement playbooks, and makes Runtime Insights
+easier to explore with grouped observations.
+
+### Added
+
+- **Thread investigations** retain platform-thread snapshots, expose contention and lock owners, and compare finite
+  observations in the console, MCP, and CLI ([Threads](docs/features/runtime.md#threads); [#1583](https://github.com/jdubois/boot-ui/pull/1583)).
+- **Six application-improvement playbooks** guide agents from runtime evidence to scoped fixes and verification
+  ([AI agents](docs/AI-AGENTS.md#application-improvement-playbooks); [#1584](https://github.com/jdubois/boot-ui/pull/1584)).
+
 ### Changed
 
-- Upgrade the shared Quarkus platform to 3.40.1.1, the newest micro release of the latest Quarkus LTS stream.
+- **Runtime Insights groups every retained observation in the browser**, with search and one-click evidence instead of
+  hiding rows by default ([Runtime Insights](docs/features/runtime-insights.md); [#1585](https://github.com/jdubois/boot-ui/pull/1585)).
+- **Thread reads are bounded by default** to 2,048 threads and 128 stack frames; full synchronizer inventories are now
+  opt-in ([Threads specification](docs/SPECIFICATION.md#520-threads-panel); [#1583](https://github.com/jdubois/boot-ui/pull/1583)).
+- **Threads hides BootUI threads by default** in thread lists, with a toggle to show them; contention evidence still
+  includes them ([Threads](docs/features/runtime.md#threads); [#1583](https://github.com/jdubois/boot-ui/pull/1583)).
+- **Updated framework baselines** use Spring Boot 4.1.2 and Quarkus LTS 3.40.1.1
+  ([#1572](https://github.com/jdubois/boot-ui/pull/1572), [#1568](https://github.com/jdubois/boot-ui/pull/1568)).
 
 ### Fixed
 
-- Keep the resource sampler's own thread inside the bounded thread sweep so a busy JVM cannot hide BootUI's CPU
-  family behind the thread-read cap.
+- **BootUI CPU attribution stays separate** when application thread families fill the resource track, and the sampler's
+  own thread stays within the bounded sweep ([#1568](https://github.com/jdubois/boot-ui/pull/1568), [#1569](https://github.com/jdubois/boot-ui/pull/1569)).
+- **Browser icons load correctly** in the sample apps and console, including Apple touch icons
+  ([#1587](https://github.com/jdubois/boot-ui/pull/1587)).
 
 ## [2.2.0] - 2026-10-23
 
