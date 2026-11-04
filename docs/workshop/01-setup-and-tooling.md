@@ -2,6 +2,9 @@
 
 **Time in the session:** 15 minutes for verification, not first-time installation.
 
+**Investigation question:** Are we observing the right application, with tools that can return real evidence?
+This chapter prepares the order-service investigation; it is not a tour of every integration.
+
 Complete this **whole chapter before the event**, including startup, client/skill configuration, and a successful
 diagnostic read. In the live slot, confirm application identity, journal state, absent Java agent, and one real
 transport read. Pair if these checks fail; do not spend the later capstone slot downloading or configuring accounts.
@@ -128,6 +131,10 @@ Reuse this terminal/environment in later chapters rather than resetting an alter
 The explicit `server.address` binds the **host application** to loopback. BootUI's own localhost guards cover its
 console/API, not the sample's deliberately unsafe application routes.
 
+![Java Agent panel showing Not attached and unavailable Code Paths and Code Inventory navigation](../images/workshop-01-java-agent-not-attached.webp)
+
+*Illustrative reference: the initial application works without the Java agent. Attach it only in Chapter 05.*
+
 ## Activation and safety
 
 The sample already has the starter. In a different Spring Boot app, the published dependency is:
@@ -197,5 +204,7 @@ Copy the [worksheet](participant-worksheet.md) into a local note outside tracked
 Both application and console work, the CLI or MCP returns real diagnostic data, the journal is active, the Java
 agent is not attached, and you can explain one unavailable panel. If not, use
 [troubleshooting](appendix-b-troubleshooting.md) or pair before continuing.
+
+You now have a trustworthy connection. Next, find the code and configuration that serve the order request.
 
 **Next:** [02 - Configuration and wiring](02-configuration-and-wiring.md).

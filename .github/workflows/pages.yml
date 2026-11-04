@@ -63,6 +63,9 @@ jobs:
             exit 1
           fi
 
+      - name: Check workshop navigation and exercise instructions
+        run: node --test docs/.vuepress/workshop.test.mjs
+
       - name: Check analytics consent handling
         run: npm run test:analytics
 

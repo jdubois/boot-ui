@@ -9,6 +9,7 @@ on:
     paths:
       - 'docs/**'
       - 'workshop/**'
+      - 'bootui-spring-sample-app/e2e/scripts/**'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/docs-v2.yml'

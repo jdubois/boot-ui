@@ -5,16 +5,27 @@ import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import sharp from 'sharp'
 import {mysqlReport} from '../scenarios/mysql-fixture.js'
+import {createWorkshopFixtures, selectScreenshotServer} from './workshop-screenshots.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const e2eDir = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(e2eDir, '..', '..')
-const frontendDir = path.join(repoRoot, 'bootui-ui', 'src', 'main', 'frontend')
+const frontendDir = process.env.BOOTUI_SCREENSHOT_FRONTEND_DIR
+  ? path.resolve(process.env.BOOTUI_SCREENSHOT_FRONTEND_DIR)
+  : path.join(repoRoot, 'bootui-ui', 'src', 'main', 'frontend')
 const imagesDir = path.join(repoRoot, 'docs', 'images')
-const e2ePackage = JSON.parse(await fs.readFile(path.join(e2eDir, 'package.json'), 'utf8'))
-const rootPomPath = path.join(repoRoot, 'pom.xml')
+const isWorkshopPlatform = process.env.BOOTUI_SCREENSHOT_PLATFORM === 'workshop'
+selectScreenshotServer({
+  workshop: isWorkshopPlatform,
+  frontendOverride: process.env.BOOTUI_SCREENSHOT_FRONTEND_DIR,
+  baseUrlOverride: process.env.BOOTUI_SCREENSHOT_BASE_URL
+})
+const metadataRoot = isWorkshopPlatform ? path.resolve(frontendDir, '../../../..') : repoRoot
+const e2ePackagePath = path.join(metadataRoot, 'bootui-spring-sample-app', 'e2e', 'package.json')
+const e2ePackage = JSON.parse(await fs.readFile(e2ePackagePath, 'utf8'))
+const rootPomPath = path.join(metadataRoot, 'pom.xml')
 const rootPom = await fs.readFile(rootPomPath, 'utf8')
-const bootUiVersion = requiredValue(e2ePackage.version, 'version', path.join(e2eDir, 'package.json'))
+const bootUiVersion = requiredValue(e2ePackage.version, 'version', e2ePackagePath)
 const springBootVersion = requiredMatch(
   rootPom,
   /<spring-boot\.version>([^<]+)<\/spring-boot\.version>/,
@@ -28,7 +39,7 @@ const quarkusVersion = requiredMatch(
   rootPomPath
 )
 
-const port = Number(process.env.BOOTUI_SCREENSHOT_PORT || 5173)
+const port = Number(process.env.BOOTUI_SCREENSHOT_PORT || (isWorkshopPlatform ? 18113 : 5173))
 const baseUrl = process.env.BOOTUI_SCREENSHOT_BASE_URL || `http://127.0.0.1:${port}`
 const viewport = {width: 1600, height: 900}
 const nowMillis = Date.now()
@@ -40,6 +51,8 @@ const aiSpanId = '1111111111111111'
 // /api/panels manifest to platform:'quarkus' (so the shared UI relabels the advisor menu
 // item / header to "Quarkus" and shows the Quarkus-flavoured copy), swaps the advisor and
 // security reports for their Quarkus rulesets, and captures only the two Quarkus docs images.
+// Optional Workshop capture mode: BOOTUI_SCREENSHOT_PLATFORM=workshop captures only the
+// story-specific workshop reference screenshots (docs/images/workshop-*.webp) on port 18113.
 // The default (spring-boot) path is byte-identical to before.
 const isQuarkusPlatform = process.env.BOOTUI_SCREENSHOT_PLATFORM === 'quarkus'
 // Panels with no Quarkus equivalent (rendered in the sidebar "Disabled / unavailable" group).
@@ -59,7 +72,7 @@ const quarkusUnavailablePanels = new Set([
 const panelManifest = JSON.parse(
   await fs.readFile(
     path.join(
-      repoRoot,
+      metadataRoot,
       'bootui-conformance/src/main/resources/io/github/jdubois/bootui/conformance/expected-panels-spring.json'
     ),
     'utf8'
@@ -926,7 +939,7 @@ const mcpTool = (name, description, panel, action) => ({
   panelReadOnly: panels.find((candidate) => candidate.id === panel)?.readOnly === true
 })
 
-const cliManifestPath = path.join(repoRoot, 'bootui-cli', 'src', 'main', 'resources', 'bootui-tools.json')
+const cliManifestPath = path.join(metadataRoot, 'bootui-cli', 'src', 'main', 'resources', 'bootui-tools.json')
 const cliManifest = JSON.parse(await fs.readFile(cliManifestPath, 'utf8'))
 const catalogStack = isQuarkusPlatform ? 'QUARKUS' : 'SPRING_MVC'
 const mcpServerTools = cliManifest.tools
@@ -6509,7 +6522,23 @@ const quarkusScreenshots = [
   ['security', 'Security', 'bootui-quarkus-security.webp', waitForText('QS-CORS-002')]
 ]
 
-const baseScreenshots = isQuarkusPlatform ? quarkusScreenshots : screenshots
+const workshopFixtures = isWorkshopPlatform
+  ? createWorkshopFixtures({
+      nowMillis,
+      bootUiVersion,
+      springBootVersion,
+      panelManifest,
+      cliManifest,
+      pagedReport
+    })
+  : null
+let currentWorkshopScenario = 'pre-agent'
+
+const baseScreenshots = isWorkshopPlatform
+  ? workshopFixtures.workshopScreenshots
+  : isQuarkusPlatform
+    ? quarkusScreenshots
+    : screenshots
 
 const screenshotFilter = (process.env.BOOTUI_SCREENSHOT_ONLY || '')
   .split(',')
@@ -6763,9 +6792,15 @@ let browser
 
 try {
   await fs.mkdir(imagesDir, {recursive: true})
-  if (process.env.BOOTUI_SCREENSHOT_BASE_URL) {
+  const serverMode = selectScreenshotServer({
+    workshop: isWorkshopPlatform,
+    frontendOverride: process.env.BOOTUI_SCREENSHOT_FRONTEND_DIR,
+    baseUrlOverride: process.env.BOOTUI_SCREENSHOT_BASE_URL,
+    serverReady: !process.env.BOOTUI_SCREENSHOT_BASE_URL && (await isServerReady(`${baseUrl}/bootui/`))
+  })
+  if (serverMode === 'external') {
     await waitForServer(`${baseUrl}/bootui/`)
-  } else if (await isServerReady(`${baseUrl}/bootui/`)) {
+  } else if (serverMode === 'reuse') {
     console.log(`Reusing existing dev server at ${baseUrl}/bootui/`)
   } else {
     viteProcess = startVite()
@@ -6842,16 +6877,36 @@ try {
 
   await page.route('**/bootui/api/**', handleApiRoute)
 
-  for (const [route, title, fileName, prepare] of selectedScreenshots) {
+  for (const [route, title, fileName, prepare, scenarioId] of selectedScreenshots) {
+    if (isWorkshopPlatform && scenarioId) {
+      currentWorkshopScenario = scenarioId
+      // Force App.vue to re-fetch /api/panels and /api/overview when switching workshop scenarios
+      await page.goto('about:blank')
+    }
     await page.goto(`${baseUrl}/bootui/#/${route}`)
     await page.locator('main .page-panel h2').first().waitFor()
-    await prepare(page)
     await page.evaluate(() => {
       window.scrollTo(0, 0)
       document.querySelector('.bootui-workspace')?.scrollTo(0, 0)
+      window.__bootuiKeepWorkspaceScroll = false
+    })
+    await prepare(page)
+    await page.evaluate(() => {
+      window.scrollTo(0, 0)
+      if (!window.__bootuiKeepWorkspaceScroll) {
+        document.querySelector('.bootui-workspace')?.scrollTo(0, 0)
+      }
     })
     await showActiveMenuItem(page, title)
     await page.waitForTimeout(250)
+    if (isWorkshopPlatform) {
+      const unresolved = (await page.locator('main').innerText()).match(
+        /.{0,60}(?:\bundefined\b|\bNaN\b|mean\s+—\s*ms\b).{0,80}/
+      )
+      if (unresolved) {
+        throw new Error(`Workshop screenshot ${fileName} contains an unresolved fixture value: ${unresolved[0]}`)
+      }
+    }
     if (route === 'mysql') {
       const firstRow = await page.getByRole('tabpanel').locator('tbody tr').first().boundingBox()
       if (!firstRow || firstRow.y + firstRow.height > viewport.height) {
@@ -6912,6 +6967,13 @@ async function handleApiRoute(route) {
   const request = route.request()
   const url = new URL(request.url())
   const endpoint = decodeURIComponent(url.pathname.replace(/^\/bootui\/api\/?/, ''))
+
+  if (isWorkshopPlatform) {
+    const workshopBody = workshopFixtures.resolveEndpoint(currentWorkshopScenario, endpoint, url)
+    if (workshopBody !== undefined) {
+      return fulfillJson(route, workshopBody)
+    }
+  }
 
   if (endpoint === 'overview') return fulfillJson(route, isQuarkusPlatform ? quarkusOverview : overview)
   if (/^activity\/request\/[^/]+\/journal$/.test(endpoint)) return fulfillJson(route, activityJournalProfile)

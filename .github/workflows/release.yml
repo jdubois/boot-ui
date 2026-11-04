@@ -156,6 +156,7 @@ jobs:
           # The download snippet pins the jar through a shell variable rather than a coordinate, so the
           # substitution above does not reach it.
           perl -0pi -e 's{^VERSION=[0-9][0-9A-Za-z.\-]*$}{VERSION=$ENV{VERSION}}mg' docs/CLI.md
+          python3 .github/scripts/workshop-version.py update "$VERSION"
 
           if ! grep -q "<version>$VERSION</version>" docs/SETUP.md; then
             echo "::error::Failed to update the bootui-spring-boot-starter version in docs/SETUP.md to $VERSION"
@@ -427,6 +428,8 @@ jobs:
            exit 1
          fi
          echo "$RELEASE_TAG is on origin/$RELEASE_BRANCH."
+
+         python3 .github/scripts/workshop-version.py check "$VERSION"
 
          for npm_dir in . bootui-ui/src/main/frontend bootui-spring-sample-app/e2e bootui-quarkus-sample-app/e2e; do
             node -e '
