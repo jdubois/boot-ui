@@ -21,8 +21,9 @@ public class CiConsumerApplication {
 
     public static void main(String[] args) {
         ConfigurableApplicationContext context = SpringApplication.run(CiConsumerApplication.class, args);
-        int port = ((WebServerApplicationContext) context).getWebServer().getPort();
-        System.out.println("BOOTUI_CI_CONSUMER_PORT=" + port);
+        var server = ((WebServerApplicationContext) context).getWebServer();
+        System.out.println("BOOTUI_CI_CONSUMER_SERVER=" + server.getClass().getName());
+        System.out.println("BOOTUI_CI_CONSUMER_PORT=" + server.getPort());
     }
 
     @GetMapping("/orders")

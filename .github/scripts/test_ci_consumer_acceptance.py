@@ -66,6 +66,9 @@ class ConsumerAcceptanceTests(unittest.TestCase):
         cli = self.root / "bootui-cli/target"
         cli.mkdir(parents=True)
         (cli / "bootui-cli-1.0-all.jar").write_bytes(b"cli")
+        installed_cli = repository / "com/julien-dubois/bootui/bootui-cli/1.0"
+        installed_cli.mkdir(parents=True)
+        (installed_cli / "bootui-cli-1.0-all.jar").write_bytes(b"cli")
         with patch.object(acceptance, "ROOT", self.root):
             artifacts, _ = acceptance.candidate_artifacts("1.0", repository)
             self.assertEqual(len(artifacts), 3)
@@ -78,6 +81,26 @@ class ConsumerAcceptanceTests(unittest.TestCase):
             stale_pom.write_bytes(b"published pom")
             with self.assertRaisesRegex(AssertionError, "not the checkout's flattened POM"):
                 acceptance.candidate_artifacts("1.0", repository)
+            stale_pom.write_bytes(b"candidate pom")
+            (installed_cli / "bootui-cli-1.0-all.jar").write_bytes(b"published cli")
+            with self.assertRaisesRegex(AssertionError, "not the checkout's built CLI"):
+                acceptance.candidate_artifacts("1.0", repository)
+
+    def test_running_server_must_match_the_selected_stack(self):
+        mvc = "BOOTUI_CI_CONSUMER_SERVER=org.springframework.boot.tomcat.TomcatWebServer\n"
+        webflux = "BOOTUI_CI_CONSUMER_SERVER=org.springframework.boot.reactor.netty.NettyWebServer\n"
+        acceptance.verify_server(mvc, "mvc")
+        acceptance.verify_server(webflux, "webflux")
+        with self.assertRaisesRegex(AssertionError, "unexpected web server"):
+            acceptance.verify_server(mvc, "webflux")
+        with self.assertRaisesRegex(AssertionError, "did not report its web server"):
+            acceptance.verify_server("", "mvc")
+
+    def test_witness_and_command_output_reject_both_sentinels(self):
+        acceptance.require_no_sentinel("safe output", "synthetic-secret", "test output")
+        for secret in ("synthetic-secret", acceptance.FINDING_SENTINEL):
+            with self.subTest(secret=secret), self.assertRaisesRegex(AssertionError, "leaked into test output"):
+                acceptance.require_no_sentinel(f"output {secret}", "synthetic-secret", "test output")
 
     def test_duplicate_action_outputs_are_rejected(self):
         output = self.root / "outputs"

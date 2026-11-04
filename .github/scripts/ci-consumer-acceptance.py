@@ -32,6 +32,10 @@ API_PATH = "/diagnostics/api"
 REPORT_FILES = {"bundle.json", "summary.md", "junit.xml"}
 FINDING_SENTINEL = "bootui-ci-private-finding-payload"
 HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+SERVERS = {
+    "mvc": "org.springframework.boot.tomcat.TomcatWebServer",
+    "webflux": "org.springframework.boot.reactor.netty.NettyWebServer",
+}
 
 
 def require(condition, message):
@@ -108,7 +112,17 @@ def candidate_artifacts(version, repository):
         artifacts[f"BOOT-INF/lib/{jar.name}"] = digest(jar)
     cli = ROOT / "bootui-cli/target" / f"bootui-cli-{version}-all.jar"
     require(cli.is_file(), f"Missing checkout CLI: {cli}; install the current reactor first")
+    installed_cli = repository / "com/julien-dubois/bootui/bootui-cli" / version / cli.name
+    require(installed_cli.is_file(), f"Missing installed CLI: {installed_cli}; install the current reactor first")
+    require(digest(cli) == digest(installed_cli), f"{installed_cli} is not the checkout's built CLI")
     return artifacts, cli
+
+
+def verify_server(output, stack):
+    require(stack in SERVERS, f"Unknown consumer stack: {stack}")
+    match = re.search(r"^BOOTUI_CI_CONSUMER_SERVER=(\S+)$", output, re.MULTILINE)
+    require(match is not None, "Consumer did not report its web server")
+    require(match.group(1) == SERVERS[stack], f"{stack} consumer started unexpected web server {match.group(1)}")
 
 
 def verify_application_jar(path, expected_artifacts, stack):
@@ -178,7 +192,7 @@ def build_consumer(project, work, repository, version, stack, diagnostic, artifa
 
 
 @contextmanager
-def application(jar, work, *, diagnostic, port=0, disable_rest=False):
+def application(jar, work, *, stack, diagnostic, port=0, disable_rest=False):
     work.mkdir(parents=True)
     log_path = work / "application.log"
     instance = uuid.uuid4().hex
@@ -227,6 +241,7 @@ def application(jar, work, *, diagnostic, port=0, disable_rest=False):
                     raise RuntimeError(f"Consumer exited before readiness:\n{output[-12000:]}")
                 time.sleep(0.25)
             require(actual_port is not None and actual_port > 0, f"Consumer did not become ready:\n{output[-12000:]}")
+            verify_server(output, stack)
             require(process.poll() is None, "Consumer exited immediately after reporting readiness")
             if port:
                 require(actual_port == port, f"Restart bound port {actual_port}, expected {port}")
@@ -286,7 +301,7 @@ def action_outputs(path):
     return outputs
 
 
-def invoke(case, cli, url, phase, label, *, attach_exit="0", reports=None):
+def invoke(case, cli, url, phase, label, *, sentinel, attach_exit="0", reports=None):
     output = case["dir"] / f"{label}.outputs"
     environment = os.environ.copy()
     environment.update(
@@ -303,6 +318,10 @@ def invoke(case, cli, url, phase, label, *, attach_exit="0", reports=None):
         BOOTUI_TIMEOUT="60",
     )
     result = run(["bash", str(ACTION / "invoke.sh")], env=environment, timeout=240)
+    require_no_sentinel(result.stdout + result.stderr, sentinel, "Action output")
+    require_no_sentinel(output.read_text(encoding="utf-8"), sentinel, "Action outputs file")
+    if case["witness"].is_file():
+        require_no_sentinel(case["witness"].read_text(encoding="utf-8"), sentinel, "Witness")
     return action_outputs(output), result
 
 
@@ -318,10 +337,10 @@ def require_action_exit(outputs, result, expected, label, reports=None):
     )
 
 
-def check_bundle(case, cli, reports, expected_exit):
+def check_bundle(case, cli, reports, expected_exit, sentinel):
     environment = os.environ.copy()
     environment["BOOTUI_NO_UPDATE_CHECK"] = "1"
-    run(
+    result = run(
         [
             "java",
             "-jar",
@@ -338,14 +357,18 @@ def check_bundle(case, cli, reports, expected_exit):
         env=environment,
         expected=expected_exit,
     )
+    require_no_sentinel(result.stdout + result.stderr, sentinel, "Offline check output")
+
+
+def require_no_sentinel(data, sentinel, source):
+    for secret in (sentinel, FINDING_SENTINEL):
+        require(secret not in data, f"Synthetic secret or finding detail leaked into {source}")
 
 
 def verify_reports(reports, status, sentinel):
     require({path.name for path in reports.iterdir()} == REPORT_FILES, f"Incomplete reports in {reports}")
     for name in REPORT_FILES:
-        data = (reports / name).read_bytes()
-        for secret in (sentinel, FINDING_SENTINEL):
-            require(secret.encode() not in data, f"Synthetic secret or finding detail leaked into {name}")
+        require_no_sentinel((reports / name).read_text(encoding="utf-8"), sentinel, name)
     require((reports / "bundle.json").stat().st_size <= 2 * 1024 * 1024, "Bundle exceeded its byte limit")
     require((reports / "summary.md").stat().st_size <= 256 * 1024, "Summary exceeded its byte limit")
     bundle = json.loads((reports / "bundle.json").read_text(encoding="utf-8"))
@@ -375,7 +398,7 @@ def verify_reports(reports, status, sentinel):
 
 
 def failure_report(case, cli, url, sentinel):
-    refused, result = invoke(case, cli, url, "assess", "refused-assess", attach_exit="1")
+    refused, result = invoke(case, cli, url, "assess", "refused-assess", sentinel=sentinel, attach_exit="1")
     require_action_exit(refused, result, "1", "Assessment after failed attach")
     require("summary-fresh" not in refused, "A failed attach advertised a fresh summary")
     require(not case["reports"].exists(), "A failed attach unexpectedly wrote an assessment report")
@@ -388,7 +411,9 @@ def failure_report(case, cli, url, sentinel):
         BOOTUI_ATTACH_EXIT_CODE="1",
         BOOTUI_PREPARE_OUTCOME="skipped",
     )
-    run(["bash", str(ACTION / "report-error.sh")], env=environment)
+    result = run(["bash", str(ACTION / "report-error.sh")], env=environment)
+    require_no_sentinel(result.stdout + result.stderr, sentinel, "Fallback output")
+    require_no_sentinel(output.read_text(encoding="utf-8"), sentinel, "Fallback outputs file")
     outputs = action_outputs(output)
     reports = Path(outputs["report-dir"])
     require(outputs["exit-code"] == "1", "An attach failure must remain a failing result")
@@ -407,7 +432,7 @@ def failure_report(case, cli, url, sentinel):
 
 
 def assess_case(case, cli, url, sentinel, instance, process, expected_status, expected_exit, rule, severity):
-    outputs, result = invoke(case, cli, url, "attach", "attach")
+    outputs, result = invoke(case, cli, url, "attach", "attach", sentinel=sentinel)
     require_action_exit(outputs, result, "0", f"{case['id']} attach")
     witness = json.loads(case["witness"].read_text(encoding="utf-8"))
     require(
@@ -419,7 +444,7 @@ def assess_case(case, cli, url, sentinel, instance, process, expected_status, ex
         "Witness did not bind the framework, identity, and custom API path",
     )
     workload(url, sentinel, instance, process)
-    outputs, result = invoke(case, cli, url, "assess", "assess")
+    outputs, result = invoke(case, cli, url, "assess", "assess", sentinel=sentinel)
     require_action_exit(outputs, result, expected_exit, f"{case['id']} assessment", case["reports"])
     require(outputs.get("summary-fresh") == "true", "Action did not advertise complete fresh reports")
     require(outputs.get("report-dir") == str(case["reports"]), "Action advertised the wrong report directory")
@@ -460,7 +485,7 @@ def assess_case(case, cli, url, sentinel, instance, process, expected_status, ex
             detail = response.read(64 * 1024 + 1)
         require(len(detail) <= 64 * 1024, "Finding detail exceeded its test limit")
         require(FINDING_SENTINEL.encode() in detail, "The raw finding detail did not include its sentinel")
-    check_bundle(case, cli, case["reports"], int(expected_exit))
+    check_bundle(case, cli, case["reports"], int(expected_exit), sentinel)
     require(process.poll() is None, "The owned application exited before assessment completed")
 
 
@@ -468,8 +493,13 @@ def exercise_stack(stack, production, diagnostic, violation_jar, cli, work, sent
     cases = work / f"{stack}-cases"
     cases.mkdir()
     missing = make_case(cases, f"{stack}-missing", "critical")
-    with application(production, work / f"{stack}-production-app", diagnostic=False) as (url, _, instance, process):
-        outputs, result = invoke(missing, cli, url, "attach", "attach")
+    with application(production, work / f"{stack}-production-app", stack=stack, diagnostic=False) as (
+        url,
+        _,
+        instance,
+        process,
+    ):
+        outputs, result = invoke(missing, cli, url, "attach", "attach", sentinel=sentinel)
         require_action_exit(outputs, result, "1", "A BootUI-free application")
         witness = json.loads(missing["witness"].read_text(encoding="utf-8"))
         require(
@@ -481,13 +511,13 @@ def exercise_stack(stack, production, diagnostic, violation_jar, cli, work, sent
         require(process.poll() is None, "The owned application exited during failure reporting")
 
     disabled = make_case(cases, f"{stack}-disabled", "critical")
-    with application(diagnostic, work / f"{stack}-disabled-app", diagnostic=True, disable_rest=True) as (
+    with application(diagnostic, work / f"{stack}-disabled-app", stack=stack, diagnostic=True, disable_rest=True) as (
         url,
         _,
         instance,
         process,
     ):
-        outputs, result = invoke(disabled, cli, url, "attach", "attach")
+        outputs, result = invoke(disabled, cli, url, "attach", "attach", sentinel=sentinel)
         require_action_exit(outputs, result, "1", "A disabled required advisor")
         witness = json.loads(disabled["witness"].read_text(encoding="utf-8"))
         require(
@@ -500,18 +530,25 @@ def exercise_stack(stack, production, diagnostic, violation_jar, cli, work, sent
 
     positive = make_case(cases, f"{stack}-pass", "high")
     violation = make_case(cases, f"{stack}-violation", "high")
-    with application(diagnostic, work / f"{stack}-diagnostic-app", diagnostic=True) as (url, port, instance, process):
+    with application(diagnostic, work / f"{stack}-diagnostic-app", stack=stack, diagnostic=True) as (
+        url,
+        port,
+        instance,
+        process,
+    ):
         assess_case(positive, cli, url, sentinel, instance, process, "PASS", "0", "RAPI-PAGE-001", "LOW")
 
     stale_reports = positive["dir"] / "after-restart"
-    with application(diagnostic, work / f"{stack}-restarted-app", diagnostic=True, port=port) as (
+    with application(diagnostic, work / f"{stack}-restarted-app", stack=stack, diagnostic=True, port=port) as (
         url,
         _,
         instance,
         process,
     ):
         workload(url, sentinel, instance, process)
-        outputs, result = invoke(positive, cli, url, "assess", "after-restart", reports=stale_reports)
+        outputs, result = invoke(
+            positive, cli, url, "assess", "after-restart", sentinel=sentinel, reports=stale_reports
+        )
         require_action_exit(outputs, result, "1", "A previous process witness after restart")
         require(outputs.get("summary-fresh") == "true", "Restart failure did not produce fresh reports")
         require(outputs.get("report-dir") == str(stale_reports), "Restart failure advertised the wrong reports")
@@ -521,10 +558,10 @@ def exercise_stack(stack, production, diagnostic, violation_jar, cli, work, sent
             "Assessment errors: `IDENTITY_CHANGED`." in (stale_reports / "summary.md").read_text(encoding="utf-8"),
             "Restart failure was not explained in the summary",
         )
-        check_bundle(positive, cli, stale_reports, 1)
+        check_bundle(positive, cli, stale_reports, 1, sentinel)
         require(process.poll() is None, "The restarted application exited before assessment completed")
 
-    with application(violation_jar, work / f"{stack}-violation-app", diagnostic=True) as (
+    with application(violation_jar, work / f"{stack}-violation-app", stack=stack, diagnostic=True) as (
         url,
         _,
         instance,
