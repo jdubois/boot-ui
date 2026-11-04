@@ -5059,7 +5059,7 @@ const transactions = {
     {
       id: 401,
       methodName: 'SampleCatalog.updateInventory',
-      propagation: 'PARTICIPATING',
+      propagation: 'REQUIRES_NEW',
       isolation: 'READ_COMMITTED',
       status: 'COMMITTED',
       startTimestamp: nowMillis - 44_980,

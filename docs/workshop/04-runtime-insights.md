@@ -62,6 +62,16 @@ Use `Invoke-RestMethod -Method Post ... -ErrorAction Stop` on PowerShell. The co
 the ship control writes its audit in the same transaction. Compare transaction identities/relationships. These
 are demonstration updates to seeded rows, not production operations.
 
+The workshop's pinned 2.3.0 can label confirm's independent audit child `PARTICIPATING` in `bootui tx list --json`.
+Use the journal's `REQUIRES_NEW` boundary and the two-connection confirm versus one-connection ship evidence. The
+mismatch is a diagnostic bug, not incorrect Spring behavior; do not change the sample to hide it.
+
+::: details Boundary labels in corrected builds
+Released servers through 2.3.0 have this compact-label bug. Builds containing the correction use `REQUIRES_NEW` for
+confirm's audit child. `NEW` means a physical begin without a known parent, not a declared annotation. The journal
+keeps its historical root `REQUIRED` label. Savepoints are `NESTED`, not independent commits.
+:::
+
 If time remains, compare `/api/insights/orders/5/recalculate` with `/5/recalculate-through-bean` using POST.
 Read the self-invocation evidence; an annotation bypass is a proxy-boundary question, not proof a write failed.
 

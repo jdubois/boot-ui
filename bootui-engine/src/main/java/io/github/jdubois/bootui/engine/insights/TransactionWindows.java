@@ -36,7 +36,7 @@ final class TransactionWindows {
     TransactionWindows(ProjectedRequest request) {
         boolean placed = true;
         for (RuntimeEvent event : request.children(JournalSource.TRANSACTION)) {
-            if (event.payload() instanceof TransactionPayload transaction) {
+            if (event.payload() instanceof TransactionPayload transaction && transaction.begun()) {
                 if (transaction.startNanos() < 0 || event.durationNanos() < 0) {
                     placed = false;
                     continue;

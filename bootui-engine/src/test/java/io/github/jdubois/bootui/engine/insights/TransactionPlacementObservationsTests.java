@@ -40,6 +40,41 @@ class TransactionPlacementObservationsTests {
     }
 
     @Test
+    void aFailedBeginDoesNotEstablishATransactionWindow() {
+        TransactionPayload failed = new TransactionPayload(
+                "Failed.begin", false, false, false, 100, false, null, false, "BeginException", -1, -1, -1, false);
+        RuntimeEvent event = RuntimeEvent.of(
+                JournalSource.TRANSACTION,
+                1_000,
+                100,
+                CorrelationContext.forRequest("failed"),
+                "main",
+                null,
+                true,
+                failed);
+        ProjectedRequest request = new ProjectedRequest(
+                "failed",
+                "POST /failed",
+                "POST",
+                "/failed",
+                200,
+                1_000,
+                200,
+                List.of(event),
+                null,
+                null,
+                null,
+                "main",
+                ProjectedRequest.Kind.HTTP,
+                false);
+        TransactionWindows windows = new TransactionWindows(request);
+        assertThat(windows.windows()).isEmpty();
+        assertThat(windows.first("main")).isNull();
+        assertThat(windows.of(event)).isNull();
+        assertThat(windows.complete()).isTrue();
+    }
+
+    @Test
     void writesCommittedByTwoIndependentUnitsAreReportedAndJoinedOrRolledBackOnesAreNot() {
         // A transaction, then an autocommit write after it.
         request(

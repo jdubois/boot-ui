@@ -384,6 +384,10 @@ parent or JDBC isolation, so it is recorded as a new transaction with an `UNKNOW
 configurable transaction manager reports "No configurable transaction manager bean is available" rather than
 silently showing an empty table. The sample's `GET /api/sample/transaction-samples` runs a commit, a slow commit, and a
 rollback, which `WebFluxTransactionsIntegrationTest` and `tests-webflux/transactions.spec.js` check.
+Compact `propagation` labels are observed boundaries, not annotation values: `NEW`, `REQUIRES_NEW`, `NESTED`, and
+`UNKNOWN` (begin failed or ownership unverified). A reactive physical begin is `NEW` without claiming it was logically outermost; neither
+reactive nor JTA capture infers parentage from the current thread. JTA retains isolation bound at begin. Blocking, thread-bound JDBC boundaries
+retain their physical-child/savepoint distinction.
 Reactive support covers physical transaction begin/commit/rollback callbacks, not a complete reactive transaction
 hierarchy: parent relationships and nested/savepoint boundaries are not inferred. SQL and connection counts remain
 JDBC-only, matched by the begin thread and time window; they do not capture R2DBC statements or JDBC work moved to

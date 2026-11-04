@@ -21,6 +21,7 @@ import org.slf4j.MDC;
 import org.springframework.transaction.ReactiveTransaction;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionExecution;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.reactive.AbstractReactiveTransactionManager;
 import org.springframework.transaction.reactive.GenericReactiveTransaction;
@@ -73,6 +74,8 @@ class BootUiTransactionExecutionListenerTests {
     @Test
     void recordsUnknownStatusWhenBeginFails() {
         TransactionRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
         BootUiTransactionExecutionListener listener = new BootUiTransactionExecutionListener(recorder);
 
         TransactionExecution execution = execution("Service.method", false);
@@ -80,7 +83,14 @@ class BootUiTransactionExecutionListenerTests {
 
         TransactionEntryDto entry = recorder.recent().get(0);
         assertThat(entry.status()).isEqualTo("UNKNOWN");
+        assertThat(entry.propagation()).isEqualTo("UNKNOWN");
         assertThat(entry.errorMessage()).isEqualTo("could not open connection");
+        assertThat(published).singleElement().satisfies(event -> {
+            TransactionPayload payload = (TransactionPayload) event.payload();
+            assertThat(payload.propagation()).isEqualTo("UNKNOWN");
+            assertThat(payload.independent()).isFalse();
+            assertThat(payload.failureClass()).isEqualTo(IllegalStateException.class.getName());
+        });
     }
 
     @Test
@@ -95,6 +105,37 @@ class BootUiTransactionExecutionListenerTests {
         TransactionEntryDto entry = recorder.recent().get(0);
         assertThat(entry.status()).isEqualTo("UNKNOWN");
         assertThat(entry.errorMessage()).isEqualTo("commit failed");
+        assertThat(entry.propagation()).isEqualTo("NEW");
+    }
+
+    @Test
+    void rollbackFailureRetainsThePhysicalChildAndClearsItsPendingBoundary() {
+        TransactionRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+        BootUiTransactionExecutionListener listener = new BootUiTransactionExecutionListener(recorder);
+        TransactionExecution root = execution("Root", false);
+        TransactionExecution child = execution("Child", false);
+        listener.afterBegin(root, null);
+        listener.afterBegin(child, null);
+        when(child.isRollbackOnly()).thenReturn(true);
+        listener.beforeRollback(child);
+        listener.afterRollback(child, new IllegalStateException("rollback failed"));
+        listener.afterRollback(child, null);
+        listener.afterCommit(root, null);
+        assertThat(recorder.recent()).hasSize(2);
+        assertThat(recorder.recent().get(1)).satisfies(entry -> {
+            assertThat(entry.propagation()).isEqualTo("REQUIRES_NEW");
+            assertThat(entry.errorMessage()).isEqualTo("rollback failed");
+        });
+        assertThat((TransactionPayload) published.get(0).payload()).satisfies(payload -> {
+            assertThat(payload.rollbackOnly()).isTrue();
+            assertThat(payload.failureClass()).isEqualTo(IllegalStateException.class.getName());
+        });
+        TransactionExecution next = execution("Next", false);
+        listener.afterBegin(next, null);
+        listener.afterCommit(next, null);
+        assertThat(recorder.recent().get(0).parentId()).isNull();
     }
 
     @Test
@@ -119,6 +160,7 @@ class BootUiTransactionExecutionListenerTests {
                 .findFirst()
                 .orElseThrow();
         assertThat(innerEntry.parentId()).isEqualTo(outerEntry.id());
+        assertThat(innerEntry.propagation()).isEqualTo("REQUIRES_NEW");
     }
 
     @Test
@@ -130,8 +172,10 @@ class BootUiTransactionExecutionListenerTests {
 
         TransactionExecution outer = execution("Outer.method", false);
         TransactionExecution requiresNew = execution("Audit.log", false);
-        TransactionExecution savepoint = execution("Stock.reserve", false);
+        TransactionStatus savepoint = mock(TransactionStatus.class);
+        when(savepoint.getTransactionName()).thenReturn("Stock.reserve");
         when(savepoint.isNested()).thenReturn(true);
+        when(savepoint.hasSavepoint()).thenReturn(true);
         listener.afterBegin(outer, null);
         listener.afterBegin(requiresNew, null);
         listener.afterCommit(requiresNew, null);
@@ -146,6 +190,9 @@ class BootUiTransactionExecutionListenerTests {
                         tuple("Audit.log", true, false),
                         tuple("Stock.reserve", true, true),
                         tuple("Outer.method", false, false));
+        assertThat(recorder.recent())
+                .extracting(TransactionEntryDto::propagation)
+                .containsExactly("NEW", "NESTED", "REQUIRES_NEW");
     }
 
     @Test
@@ -219,6 +266,8 @@ class BootUiTransactionExecutionListenerTests {
                         org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.anyBoolean(),
+                        org.mockito.ArgumentMatchers.anyBoolean(),
                         org.mockito.ArgumentMatchers.anyBoolean(),
                         org.mockito.ArgumentMatchers.anyBoolean()))
                 .thenThrow(new IllegalStateException("boom"));
@@ -350,6 +399,7 @@ class BootUiTransactionExecutionListenerTests {
         listener.afterCommit(local, null);
         DefaultTransactionStatus jta = mock(DefaultTransactionStatus.class);
         when(jta.getTransactionName()).thenReturn("Tags.jta");
+        when(jta.isNewTransaction()).thenReturn(true);
         when(jta.getTransaction()).thenReturn(new JtaTransactionObject());
         listener.afterBegin(jta, null);
         listener.afterCommit(jta, null);
@@ -373,6 +423,7 @@ class BootUiTransactionExecutionListenerTests {
     private static TransactionExecution reactive(String name) {
         ReactiveTransaction execution = mock(ReactiveTransaction.class);
         when(execution.getTransactionName()).thenReturn(name);
+        when(execution.isNewTransaction()).thenReturn(true);
         return execution;
     }
 
@@ -380,6 +431,98 @@ class BootUiTransactionExecutionListenerTests {
         TransactionExecution execution = mock(TransactionExecution.class);
         when(execution.getTransactionName()).thenReturn(name);
         when(execution.isReadOnly()).thenReturn(readOnly);
+        when(execution.isNewTransaction()).thenReturn(true);
         return execution;
+    }
+
+    @Test
+    void aRequiredParticipantDoesNotCreateAnotherBoundaryEvenIfReportedToTheListener() {
+        TransactionRecorder recorder = recorder();
+        BootUiTransactionExecutionListener listener = new BootUiTransactionExecutionListener(recorder);
+        TransactionExecution root = execution("Root", false);
+        TransactionExecution participant = execution("Participant", false);
+        when(participant.isNewTransaction()).thenReturn(false);
+        listener.afterBegin(root, null);
+        listener.afterBegin(participant, null);
+        listener.afterCommit(participant, null);
+        listener.afterCommit(root, null);
+        assertThat(recorder.recent())
+                .extracting(TransactionEntryDto::methodName)
+                .containsExactly("Root");
+    }
+
+    @Test
+    void jtaRetainsBeginThreadIsolationWithoutInferringParentage() {
+        TransactionRecorder recorder = recorder();
+        BootUiTransactionExecutionListener listener = new BootUiTransactionExecutionListener(recorder);
+        TransactionSynchronizationManager.setCurrentTransactionIsolationLevel(Connection.TRANSACTION_SERIALIZABLE);
+        DefaultTransactionStatus jta = mock(DefaultTransactionStatus.class);
+        when(jta.getTransactionName()).thenReturn("Jta.isolated");
+        when(jta.isNewTransaction()).thenReturn(true);
+        when(jta.getTransaction()).thenReturn(new JtaTransactionObject());
+
+        listener.afterBegin(jta, null);
+        listener.afterCommit(jta, null);
+
+        assertThat(recorder.recent()).singleElement().satisfies(entry -> {
+            assertThat(entry.isolation()).isEqualTo("SERIALIZABLE");
+            assertThat(entry.propagation()).isEqualTo("NEW");
+            assertThat(entry.parentId()).isNull();
+        });
+    }
+
+    @Test
+    void jtaDoesNotInferParentageOrLeaveAParentOnItsBeginThread() throws Exception {
+        TransactionRecorder recorder = recorder();
+        BootUiTransactionExecutionListener listener = new BootUiTransactionExecutionListener(recorder);
+        TransactionExecution outer = execution("Local.outer", false);
+        listener.afterBegin(outer, null);
+        DefaultTransactionStatus jta = mock(DefaultTransactionStatus.class);
+        when(jta.getTransactionName()).thenReturn("Jta.child");
+        when(jta.isNewTransaction()).thenReturn(true);
+        when(jta.getTransaction()).thenReturn(new JtaTransactionObject());
+        listener.afterBegin(jta, null);
+        Thread other = new Thread(() -> listener.afterCommit(jta, null));
+        other.start();
+        other.join();
+        listener.afterCommit(outer, null);
+        TransactionExecution next = execution("Next", false);
+        listener.afterBegin(next, null);
+        listener.afterCommit(next, null);
+        assertThat(recorder.recent()).allSatisfy(entry -> {
+            assertThat(entry.parentId()).isNull();
+            assertThat(entry.propagation()).isEqualTo("NEW");
+        });
+    }
+
+    @Test
+    void nativeNestedWorkWithoutAVerifiedSavepointHasUnknownOwnership() {
+        TransactionRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+        BootUiTransactionExecutionListener listener = new BootUiTransactionExecutionListener(recorder);
+        DefaultTransactionStatus nativeNested = mock(DefaultTransactionStatus.class);
+        when(nativeNested.getTransactionName()).thenReturn("Jta.nativeNested");
+        when(nativeNested.getTransaction()).thenReturn(new JtaTransactionObject());
+        when(nativeNested.isNewTransaction()).thenReturn(true);
+        when(nativeNested.isNested()).thenReturn(true);
+        listener.afterBegin(nativeNested, null);
+        listener.afterCommit(nativeNested, null);
+        assertThat(recorder.recent()).singleElement().satisfies(entry -> {
+            assertThat(entry.propagation()).isEqualTo("UNKNOWN");
+            assertThat(entry.status()).isEqualTo("COMMITTED");
+            assertThat(entry.parentId()).isNull();
+        });
+        assertThat((TransactionPayload) published.get(0).payload()).satisfies(payload -> {
+            assertThat(payload.begun()).isTrue();
+            assertThat(payload.boundaryKnown()).isFalse();
+            assertThat(payload.savepoint()).isFalse();
+            assertThat(payload.independent()).isFalse();
+            assertThat(payload.propagation()).isEqualTo("UNKNOWN");
+            assertThat(((TransactionPayload) payload.interned(
+                                    new io.github.jdubois.bootui.engine.journal.JournalDictionary(100, 10_000)))
+                            .boundaryKnown())
+                    .isFalse();
+        });
     }
 }

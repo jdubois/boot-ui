@@ -601,7 +601,9 @@ public final class RequestJournalProfiles {
                         transaction.method() == null
                                 ? null
                                 : transaction.method()
-                                        + (transaction.rolledBack() ? " (rolled back)" : " (committed)"));
+                                        + (!transaction.begun()
+                                                ? " (begin failed)"
+                                                : transaction.rolledBack() ? " (rolled back)" : " (committed)"));
             } else if (payload instanceof CachePayload cache) {
                 add(caches, cache.cacheName() == null ? null : cache.cacheName() + " (" + cache.operation() + ")");
             } else if (payload instanceof MessagingPayload message && message.sent()) {

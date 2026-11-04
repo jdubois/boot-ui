@@ -212,6 +212,7 @@ naming what is missing, and a source that dropped events marks its findings **pa
 
 ::: details Limits: unrecordable sources, drops, and eviction
 
+- Failed transaction begins remain diagnostic events, not active transaction windows. They do not own SQL or connections, or suppress after-commit writes as if a transaction had started.
 - Eligibility follows the evidence's unit: `heap-growth-after-gc` examines collections, so it can run with zero requests; a stable heap names the collections examined without inventing a request count or a finding.
 - What the journal cannot record at all comes first among the report's limitations: R2DBC statements, which BootUI does not record (it records JDBC), and Kafka Streams processing when Kafka Streams is on the classpath, since the records a topology consumes and produces are neither executions nor messages here.
 - An observation that reads SQL is **unavailable** when this application's SQL cannot be recorded: BootUI records JDBC statements through a traced `DataSource` (and, on Quarkus, Hibernate ORM's statements), never R2DBC or a reactive SQL client, so an R2DBC application's SQL checks say so instead of finding nothing. An observation that only optionally reads SQL, such as `route-time-breakdown`, runs and names what it could not count.

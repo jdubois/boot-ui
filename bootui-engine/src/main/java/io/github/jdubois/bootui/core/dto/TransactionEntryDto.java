@@ -4,17 +4,17 @@ package io.github.jdubois.bootui.core.dto;
  * A single captured transaction boundary (begin through commit/rollback).
  *
  * <p>Populated by BootUI's hand-written transaction listener wiring (no third-party
- * transaction-observability library). Nesting is expressed through {@code parentId}: a
- * participating (non-new) transaction records the id of the transaction that was active on the
- * same thread when it began, letting the panel render a call tree.</p>
+ * transaction-observability library). Nesting is expressed through {@code parentId}: a child physical
+ * transaction or savepoint records the enclosing boundary on the same thread, letting the panel render a
+ * call tree without implying shared physical ownership.</p>
  *
  * @param id sequence number, increasing in begin order
  * @param methodName the transactional boundary's declared name, typically {@code
  *     ClassName.methodName} for {@code @Transactional} methods
- * @param propagation best-effort propagation classification: {@code NEW} for a transaction the
- *     manager actually started, or {@code PARTICIPATING} when it joined an already-active
- *     transaction on the same thread; Spring's transaction-execution listener does not expose the
- *     declared {@code Propagation} enum value itself
+ * @param propagation observed boundary classification: {@code NEW} for a physical transaction without a known
+ *     enclosing boundary, {@code REQUIRES_NEW} for a child physical transaction, {@code NESTED} for a savepoint,
+ *     or {@code UNKNOWN} for a failed begin or unverified physical-versus-savepoint ownership. These do not prove declared annotation values. A joining method
+ *     creates no boundary. Older servers may emit the misleading legacy {@code PARTICIPATING} value.
  * @param isolation the JDBC isolation level active when the transaction began (e.g. {@code
  *     READ_COMMITTED}), or {@code UNKNOWN} when it could not be determined
  * @param status {@code COMMITTED}, {@code ROLLED_BACK}, or {@code UNKNOWN} (begin failed, or the

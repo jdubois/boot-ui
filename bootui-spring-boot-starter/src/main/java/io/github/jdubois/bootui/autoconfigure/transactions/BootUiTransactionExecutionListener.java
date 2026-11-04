@@ -9,6 +9,7 @@ import java.util.WeakHashMap;
 import org.springframework.transaction.ReactiveTransaction;
 import org.springframework.transaction.TransactionExecution;
 import org.springframework.transaction.TransactionExecutionListener;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.DefaultTransactionStatus;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -27,6 +28,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * matching {@code afterCommit}/{@code afterRollback} completes the right entry wherever it runs. A
  * reactive transaction ({@code AbstractReactiveTransactionManager}, such as R2DBC's) begins and completes
  * on whichever threads its pipeline runs, so it is recorded without a thread-bound parent or isolation.
+ * JTA also has no inferred thread-bound parent, but retains isolation bound at its begin callback.
  * The executions are held weakly: a boundary that never completes leaves nothing behind here.</p>
  *
  * <p>Every callback is fully guarded: a recorder failure must never fail, roll back, or otherwise
@@ -49,21 +51,33 @@ public final class BootUiTransactionExecutionListener implements TransactionExec
             boolean readOnly = transactionExecution.isReadOnly();
             String thread = Thread.currentThread().getName();
             String traceId = mdcTraceId();
+            boolean synchronizationBound = !(transactionExecution instanceof ReactiveTransaction);
+            boolean threadBound = synchronizationBound && !suspendsAcrossThreads(transactionExecution);
             if (beginFailure != null) {
-                long id = recorder.beginTransaction(name, readOnly, null, thread, traceId);
-                recorder.completeTransaction(id, Status.UNKNOWN, message(beginFailure));
+                long id = recorder.beginFailedTransaction(name, readOnly, thread, traceId, threadBound);
+                recorder.completeTransaction(
+                        id,
+                        Status.UNKNOWN,
+                        message(beginFailure),
+                        false,
+                        beginFailure.getClass().getName());
                 return;
             }
-            boolean threadBound = !(transactionExecution instanceof ReactiveTransaction);
+            if (!transactionExecution.isNewTransaction() && !transactionExecution.isNested()) {
+                return;
+            }
+            boolean savepoint = transactionExecution instanceof TransactionStatus status && status.hasSavepoint();
+            boolean boundaryKnown = !transactionExecution.isNested() || savepoint;
             long id = recorder.beginTransaction(
                     name,
                     readOnly,
-                    threadBound ? currentIsolation() : null,
+                    synchronizationBound ? currentIsolation() : null,
                     thread,
                     traceId,
-                    transactionExecution.isNested(),
+                    savepoint,
                     threadBound,
-                    threadBound && !suspendsAcrossThreads(transactionExecution));
+                    threadBound,
+                    boundaryKnown);
             if (id >= 0) {
                 pending.put(transactionExecution, new Pending(id));
             }

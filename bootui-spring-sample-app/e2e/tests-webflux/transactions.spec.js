@@ -19,15 +19,19 @@ test.describe('Transactions view on Spring WebFlux', () => {
       expect.arrayContaining([
         expect.objectContaining({
           methodName: expect.stringMatching(/SampleTransactionScenarios\.commit$/),
-          status: 'COMMITTED'
+          status: 'COMMITTED',
+          propagation: 'NEW',
+          parentId: null
         }),
         expect.objectContaining({
           methodName: expect.stringMatching(/SampleTransactionScenarios\.slowCommit$/),
+          propagation: 'NEW',
           status: 'COMMITTED',
           slow: true
         }),
         expect.objectContaining({
           methodName: expect.stringMatching(/SampleTransactionScenarios\.rollBack$/),
+          propagation: 'NEW',
           status: 'ROLLED_BACK'
         })
       ])
@@ -39,5 +43,7 @@ test.describe('Transactions view on Spring WebFlux', () => {
     await expect(executions).toContainText('SampleTransactionScenarios.slowCommit')
     await expect(executions).toContainText('SampleTransactionScenarios.rollBack')
     await expect(executions).toContainText('ROLLED_BACK')
+    await expect(executions).toContainText('NEW')
+    await expect(executions).not.toContainText('PARTICIPATING')
   })
 })

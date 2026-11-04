@@ -224,6 +224,32 @@ class JournalActivityFeedTests {
     }
 
     @Test
+    void failedBeginsRemainVisibleWhenFilteringTransactionErrors() {
+        TransactionPayload failed = new TransactionPayload(
+                "OrderService.place",
+                false,
+                false,
+                false,
+                -1,
+                false,
+                null,
+                false,
+                "java.lang.IllegalStateException",
+                -1,
+                -1,
+                -1,
+                false);
+        add(event(null, null, JournalSource.TRANSACTION, 0, "http-1", failed), 1_000);
+        List<ActivityEntryDto> rendered = feed.render(
+                        entries, EVENT_ID, "run", new Filter("transaction", "error", 0, null, null, null, false), 0)
+                .entries();
+        assertThat(rendered).singleElement().satisfies(entry -> {
+            assertThat(entry.severity()).isEqualTo("ERROR");
+            assertThat(entry.detail()).isEqualTo("begin failed · UNKNOWN · IllegalStateException");
+        });
+    }
+
+    @Test
     void emailsAndFaultToleranceOutcomesAreRowsCarryingOnlyMetadata() {
         add(event("r1", null, JournalSource.MAIL, -1, null, new MailPayload(2, 0, false)), 1_000);
         add(
@@ -649,5 +675,24 @@ class JournalActivityFeedTests {
                         + " · UnexpectedRollbackException");
         assertThat(JournalActivityFeed.transactionDetail(new TransactionPayload("OrderService.place", false)))
                 .isEqualTo("committed");
+        TransactionPayload failed = new TransactionPayload(
+                "OrderService.place",
+                false,
+                true,
+                false,
+                -1,
+                false,
+                null,
+                false,
+                "java.lang.IllegalStateException",
+                -1,
+                -1,
+                -1,
+                false);
+        assertThat(JournalActivityFeed.transactionDetail(failed))
+                .isEqualTo("begin failed · UNKNOWN · IllegalStateException");
+        assertThat(failed.independent()).isFalse();
+        assertThat(((TransactionPayload) failed.interned(new JournalDictionary(100, 10_000))).begun())
+                .isFalse();
     }
 }
