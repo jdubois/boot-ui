@@ -17,6 +17,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -33,6 +34,7 @@ class BootUiClientTests {
     private int status = 200;
     private String responseBody = "{}";
     private String contentType = "application/json";
+    private long responseDelayMillis;
 
     @BeforeEach
     void startServer() throws IOException {
@@ -59,6 +61,14 @@ class BootUiClientTests {
         byte[] payload = responseBody.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", contentType);
         exchange.sendResponseHeaders(status, status == 204 || payload.length == 0 ? -1 : payload.length);
+        if (responseDelayMillis > 0) {
+            try {
+                Thread.sleep(responseDelayMillis);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IOException(interrupted);
+            }
+        }
         exchange.getResponseBody().write(payload);
         exchange.close();
     }
@@ -156,6 +166,64 @@ class BootUiClientTests {
 
         assertThat(catalog.enabled()).isTrue();
         assertThat(catalog.tool("future_tool").schema()).isEqualTo("FUTURE_SCHEMA");
+    }
+
+    @Test
+    void boundedReadsRejectDuplicateKeysAndOversizedBodies() {
+        responseBody = "{\"enabled\":true,\"enabled\":false,\"serverName\":\"bootui\",\"tools\":[]}";
+        BootUiClient direct =
+                BootUiClient.direct(new BootUiClientOptions(baseUrl(), "/bootui/api", null, Duration.ofSeconds(5)));
+
+        assertThatThrownBy(() -> direct.catalogBounded(1024))
+                .isInstanceOf(BootUiClientException.class)
+                .hasMessageContaining("strict JSON");
+
+        responseBody = "{\"value\":\"01234567890123456789\"}";
+        assertThatThrownBy(() -> direct.getBounded("/large", 10))
+                .isInstanceOf(BootUiClientException.class)
+                .hasMessageContaining("byte limit");
+    }
+
+    @Test
+    void directClientBypassesConfiguredHttpProxy() {
+        String oldHost = System.getProperty("http.proxyHost");
+        String oldPort = System.getProperty("http.proxyPort");
+        try {
+            System.setProperty("http.proxyHost", "127.0.0.1");
+            System.setProperty("http.proxyPort", "1");
+            responseBody = "{\"value\":true}";
+            BootUiClient direct =
+                    BootUiClient.direct(new BootUiClientOptions(baseUrl(), "/bootui/api", null, Duration.ofSeconds(5)));
+
+            assertThat(direct.getBounded("/probe", 1024).get("value").asBoolean(false))
+                    .isTrue();
+            assertThat(requests)
+                    .singleElement()
+                    .satisfies(request -> assertThat(request.path).isEqualTo("/bootui/api/probe"));
+        } finally {
+            restoreProperty("http.proxyHost", oldHost);
+            restoreProperty("http.proxyPort", oldPort);
+        }
+    }
+
+    @Test
+    @Timeout(value = 2, unit = java.util.concurrent.TimeUnit.SECONDS)
+    void boundedResponseBodyReadHonorsTheRemainingRequestTimeout() {
+        responseBody = "{\"value\":true}";
+        responseDelayMillis = 1_500;
+        BootUiClient direct =
+                BootUiClient.direct(new BootUiClientOptions(baseUrl(), "/bootui/api", null, Duration.ofSeconds(5)));
+
+        assertThatThrownBy(() -> direct.getBounded("/slow", 1024, Duration.ofMillis(100)))
+                .isInstanceOf(BootUiClientException.class);
+    }
+
+    private static void restoreProperty(String key, String value) {
+        if (value == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, value);
+        }
     }
 
     @Test

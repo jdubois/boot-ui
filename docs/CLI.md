@@ -545,6 +545,68 @@ gated by the same per-panel policy and the same `bootui.expose-values` rule. `bo
 prints log messages with secret-like assignments and authorization credentials masked by default, and without
 messages under `METADATA_ONLY`.
 
+### Strict live-target assessments
+
+`bootui ci attach` and `bootui ci assess` are client-side orchestration commands, not MCP tools and not part of the
+generated command manifest. They are intentionally narrower than ordinary CLI use: one explicitly selected literal
+loopback URL, Spring Boot only, a strict JSON policy, and a pre-workload identity witness. They do not start the
+application, run tests, or prove that tests exercised the witnessed process. Do not use a deployed or remote target.
+
+The policy selects only named advisors; every selected advisor is strict, including optional advisors that are
+available. A required advisor must be advertised, enabled, scannable, usable, coverage-complete, and have at least
+one subject. Incomplete evidence, scan/report disagreement, suppressed or dismissed findings, unknown severities,
+truncation, paging inconsistencies, and collection errors are not passes. An optional advisor may be skipped only
+when the catalog confirms that it is unavailable or disabled; a transport or assessment error is still an error.
+
+```json
+{
+  "schemaVersion": 1,
+  "advisors": {
+    "architecture": { "required": true, "failOn": "high" },
+    "rest-api": { "required": true, "failOn": "high" }
+  }
+}
+```
+
+Attach immediately before the workload, and use the exact same URL for the existing integration scenarios and the
+later assessment. Choose a fresh witness path and output directory for each run:
+
+```bash
+bootui ci attach \
+  --url http://127.0.0.1:18080 \
+  --assessment-id "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:orders" \
+  --policy ci/bootui-policy.json \
+  --output "$RUNNER_TEMP/bootui-ci/witness.json"
+
+./ci/run-integration-tests.sh http://127.0.0.1:18080
+
+bootui ci assess \
+  --url http://127.0.0.1:18080 \
+  --assessment-id "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:orders" \
+  --policy ci/bootui-policy.json \
+  --witness "$RUNNER_TEMP/bootui-ci/witness.json" \
+  --output-dir "$RUNNER_TEMP/bootui-ci/assessment"
+```
+
+The assessment writes a bounded `bundle.json`, `summary.md`, and `junit.xml`; report prose and raw finding text are
+not copied into these outputs. Publish the summary and files before making the recorded result the final job gate.
+The aggregate exits are `0` for a valid pass or confirmed optional absence, `1` for an unevaluable/error result, and
+`3` for a proven threshold violation. An error takes precedence over findings, while already collected findings
+remain in the bundle. This is separate from the legacy per-tool exit codes above; in particular, a required panel
+refusal cannot become a green assessment.
+
+Before application startup, the workflow owner must explicitly activate BootUI and point `BOOTUI_OVERRIDES_FILE` at
+a fresh, empty, absolute per-assessment path; do not copy developer-local dismissals. Keep that dependency in a
+repository-owned CI-only build profile, not the normal production dependency graph. Run cleanup only for the process
+the workflow owns. In GitHub Actions, assessment/publication belongs behind `!cancelled()`, while `always()` is for
+bounded cleanup of that owned process. A cancelled runner or hard timeout can still prevent collection or publishing;
+the witness proves identity continuity, not workload attestation.
+
+This source increment does not yet include a sample application's CI-only dependency profile, a GitHub workflow or
+Action, or a trusted digest mapping for a published CLI artifact. It also does not provide framework-managed test
+producers, offline bundle evaluation, Quarkus support, comparisons, SARIF, or annotations. Use a CLI build that
+contains the `ci` commands; do not assume an already-published CLI release has them until that release is verified.
+
 ## Every command
 
 `bootui insights compare` respects source-panel policy and names disabled or unavailable evidence in `limitations`.

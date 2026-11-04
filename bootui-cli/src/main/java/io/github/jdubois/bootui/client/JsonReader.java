@@ -18,17 +18,19 @@ final class JsonReader {
     private static final int MAX_DEPTH = 200;
 
     private final String source;
+    private final boolean rejectDuplicateKeys;
     private int position;
 
-    private JsonReader(String source) {
+    private JsonReader(String source, boolean rejectDuplicateKeys) {
         this.source = source;
+        this.rejectDuplicateKeys = rejectDuplicateKeys;
     }
 
-    static JsonValue read(String json) {
+    static JsonValue read(String json, boolean rejectDuplicateKeys) {
         if (json == null) {
             throw new JsonParseException("No content to parse", 0);
         }
-        JsonReader reader = new JsonReader(json);
+        JsonReader reader = new JsonReader(json, rejectDuplicateKeys);
         reader.skipWhitespace();
         JsonValue value = reader.readValue(0);
         reader.skipWhitespace();
@@ -78,6 +80,9 @@ final class JsonReader {
                 throw new JsonParseException("Expected a member name", position);
             }
             String name = readString();
+            if (rejectDuplicateKeys && members.containsKey(name)) {
+                throw new JsonParseException("Duplicate object member '" + name + "'", position);
+            }
             skipWhitespace();
             if (peek() != ':') {
                 throw new JsonParseException("Expected ':' after a member name", position);

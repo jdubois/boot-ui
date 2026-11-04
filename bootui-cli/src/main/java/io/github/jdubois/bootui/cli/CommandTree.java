@@ -30,14 +30,17 @@ final class CommandTree {
                 .description(
                         "Ask a running Spring Boot or Quarkus application a question.",
                         "",
-                        "Every command is one BootUI MCP tool. Point --url at the application "
+                        "Diagnostic commands are one-to-one projections of BootUI MCP tools. Point --url at the application "
                                 + "(default http://localhost:8080) and it answers over its local-only HTTP endpoint.",
-                        "Output is JSON when piped or with --json, and readable otherwise.")
+                        "Output is JSON when piped or with --json, and readable otherwise.",
+                        "",
+                        "'ci attach' and 'ci assess' are client-side orchestration exceptions, not MCP tools.")
                 .footer(
                         "",
                         "Exit codes: 0 answered, 1 usage or transport error, 2 refused by BootUI's panel policy, "
                                 + "3 --fail-on threshold met.",
-                        "Run 'bootui tools' to see what a specific application actually exposes.");
+                        "Run 'bootui tools' to see what a specific application actually exposes.",
+                        "CI aggregate exits: 0 pass, 1 not assessed/error, 3 policy violation.");
 
         List<CommandSpec> toolGroups = new ArrayList<>();
         for (ToolManifest.Tool tool : context.manifest().tools()) {
@@ -68,6 +71,7 @@ final class CommandTree {
 
         root.addSubcommand("tools", new CommandLine(toolsCommand(context)));
         root.addSubcommand("mcp", new CommandLine(mcpCommand(context)));
+        CiCommands.add(context, root);
         listCommands(root, context.manifest().tools(), true);
         return root;
     }

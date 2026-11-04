@@ -123,6 +123,16 @@ class JsonValueTests {
     }
 
     @Test
+    void strictParsingRejectsDuplicateMembersWithoutChangingOrdinaryParsing() {
+        String duplicate = "{\"schemaVersion\":1,\"schemaVersion\":2}";
+
+        assertThat(JsonValue.parse(duplicate).get("schemaVersion").asInt(0)).isEqualTo(2);
+        assertThatThrownBy(() -> JsonValue.parseStrict(duplicate))
+                .isInstanceOf(JsonParseException.class)
+                .hasMessageContaining("Duplicate");
+    }
+
+    @Test
     void refusesDocumentsNestedDeeplyEnoughToExhaustTheStack() {
         String deep = "[".repeat(5000) + "]".repeat(5000);
 

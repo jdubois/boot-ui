@@ -1,0 +1,1032 @@
+package io.github.jdubois.bootui.cli.ci;
+
+import io.github.jdubois.bootui.client.BootUiCatalog;
+import io.github.jdubois.bootui.client.BootUiClient;
+import io.github.jdubois.bootui.client.BootUiClientOptions;
+import io.github.jdubois.bootui.client.JsonParseException;
+import io.github.jdubois.bootui.client.JsonValue;
+import io.github.jdubois.bootui.client.JsonWriter;
+import io.github.jdubois.bootui.client.ToolResult;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
+
+/**
+ * Bounded live-target CI attach and assessment orchestration.
+ *
+ * <p>This is a client-side workflow exception, not a diagnostic tool or MCP command. It invokes only the selected
+ * existing advisor tools, uses the current overview/catalog projections, and never starts or owns the application.
+ */
+public final class CiAssessmentRunner {
+
+    static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+    static final int MAX_BUNDLE_BYTES = 2 * 1024 * 1024;
+    static final int MAX_SUMMARY_BYTES = 256 * 1024;
+    static final int MAX_DETAIL_PAGE_SIZE = 200;
+    static final int MAX_TOTAL_DETAILS = 20_000;
+    static final int MAX_TOTAL_PAGES = 1_000;
+    static final Duration MAX_ASSESSMENT_BUDGET = Duration.ofMinutes(3);
+
+    private static final Pattern ASSESSMENT_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
+    private static final Pattern SAFE_VERSION = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._+-]{0,63}");
+    private static final Pattern SAFE_RULE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,79}");
+    private static final Set<String> WITNESS_KEYS = Set.of(
+            "schemaVersion",
+            "assessmentId",
+            "targetUrl",
+            "apiPath",
+            "policySha256",
+            "bootUiVersion",
+            "instanceId",
+            "runId",
+            "attachedAt",
+            "advisors");
+
+    private final String url;
+    private final String apiPath;
+    private final Duration timeout;
+    private final String assessmentId;
+    private final Path policyPath;
+    private final Path witnessPath;
+    private final Path outputDirectory;
+    private final List<AdvisorResult> collected = new ArrayList<>();
+
+    public CiAssessmentRunner(
+            String url,
+            String apiPath,
+            int timeoutSeconds,
+            String assessmentId,
+            Path policyPath,
+            Path witnessPath,
+            Path outputDirectory) {
+        this.url = validateTarget(url);
+        if (timeoutSeconds < 1 || timeoutSeconds > 180) {
+            throw new IllegalArgumentException("--timeout must be between 1 and 180 seconds");
+        }
+        this.timeout = Duration.ofSeconds(timeoutSeconds);
+        this.apiPath = validateApiPath(new BootUiClientOptions(this.url, apiPath, null, timeout).apiPath());
+        this.assessmentId = validateAssessmentId(assessmentId);
+        this.policyPath = policyPath;
+        this.witnessPath = witnessPath;
+        this.outputDirectory = outputDirectory;
+    }
+
+    public int attach() {
+        long deadline = System.nanoTime() + MAX_ASSESSMENT_BUDGET.toNanos();
+        try {
+            CiPolicy policy = CiPolicy.read(policyPath);
+            try (BootUiClient client = client()) {
+                BootUiCatalog catalog = requireCatalog(client, deadline);
+                Identity identity = identity(client, deadline);
+                if (!catalog.serverVersion().equals(identity.bootUiVersion())) {
+                    throw new AssessmentFailure("IDENTITY_MISMATCH");
+                }
+                List<JsonValue> advisors = preflight(policy, catalog);
+                Map<String, JsonValue> witness = new LinkedHashMap<>();
+                witness.put("schemaVersion", JsonValue.of(1));
+                witness.put("assessmentId", JsonValue.of(assessmentId));
+                witness.put("targetUrl", JsonValue.of(url));
+                witness.put("apiPath", JsonValue.of(apiPath));
+                witness.put("policySha256", JsonValue.of(policy.sha256()));
+                witness.put("bootUiVersion", JsonValue.of(identity.bootUiVersion()));
+                witness.put("instanceId", JsonValue.of(identity.instanceId()));
+                witness.put("runId", JsonValue.of(identity.runId()));
+                witness.put("attachedAt", JsonValue.of(Instant.now().toString()));
+                witness.put("advisors", JsonValue.array(advisors));
+                writeNewFile(witnessPath, JsonWriter.pretty(JsonValue.object(witness)));
+                return 0;
+            }
+        } catch (Exception failure) {
+            writeFailureIfPossible(witnessPath, "ATTACH_FAILED");
+            return 1;
+        }
+    }
+
+    public int assess() {
+        collected.clear();
+        long deadline = System.nanoTime() + MAX_ASSESSMENT_BUDGET.toNanos();
+        try {
+            Files.createDirectory(outputDirectory);
+        } catch (IOException | RuntimeException failure) {
+            return 1;
+        }
+
+        Assessment state = new Assessment(assessmentId, outputDirectory);
+        try {
+            CiPolicy policy = CiPolicy.read(policyPath);
+            JsonValue witness = readWitness();
+            validateWitness(witness, policy);
+            try (BootUiClient client = client()) {
+                BootUiCatalog before = requireCatalog(client, deadline);
+                Identity current = identity(client, deadline);
+                requireSameIdentity(witness, current);
+                if (!before.serverVersion().equals(current.bootUiVersion())) {
+                    throw new AssessmentFailure("IDENTITY_MISMATCH");
+                }
+                preflight(policy, before);
+                state.context(policy, current);
+                List<AdvisorResult> results = collect(policy, before, client, deadline);
+                Identity after = identity(client, deadline);
+                requireSameIdentity(witness, after);
+                if (!policy.sha256().equals(CiPolicy.read(policyPath).sha256())) {
+                    throw new AssessmentFailure("POLICY_CHANGED");
+                }
+                state.finish(policy, current, results, List.of());
+            }
+        } catch (AssessmentFailure failure) {
+            state.finishError(failure.code(), collected);
+        } catch (IOException | RuntimeException failure) {
+            state.finishError("ASSESSMENT_ERROR", collected);
+        }
+        int writeCode = state.writeOutputs();
+        return writeCode != 0 ? 1 : state.exitCode();
+    }
+
+    private BootUiClient client() {
+        return BootUiClient.direct(new BootUiClientOptions(url, apiPath, null, timeout));
+    }
+
+    private BootUiCatalog requireCatalog(BootUiClient client, long deadline) {
+        BootUiCatalog catalog = client.catalogBounded(MAX_RESPONSE_BYTES, remaining(deadline));
+        if (!catalog.enabled()
+                || catalog.serverVersion() == null
+                || catalog.serverVersion().isBlank()
+                || catalog.maxResults() < 1) {
+            throw new AssessmentFailure("INVALID_TARGET");
+        }
+        return catalog;
+    }
+
+    private Identity identity(BootUiClient client, long deadline) {
+        JsonValue overview = client.getBounded("/overview", MAX_RESPONSE_BYTES, remaining(deadline));
+        if (!overview.isObject()
+                || !"Spring Boot".equals(overview.get("frameworkName").asString(null))) {
+            throw new AssessmentFailure("UNSUPPORTED_FRAMEWORK");
+        }
+        String version = overview.get("bootUiVersion").asString(null);
+        JsonValue run = overview.get("run");
+        String instanceId = run.get("instanceId").asString(null);
+        String runId = run.get("runId").asString(null);
+        if (version == null || !SAFE_VERSION.matcher(version).matches() || !isRunId(instanceId) || !isRunId(runId)) {
+            throw new AssessmentFailure("MISSING_IDENTITY");
+        }
+        return new Identity(version, instanceId, runId);
+    }
+
+    private List<JsonValue> preflight(CiPolicy policy, BootUiCatalog catalog) {
+        List<JsonValue> outcomes = new ArrayList<>();
+        for (CiPolicy.Advisor advisor : policy.orderedAdvisors()) {
+            CiPolicy.Selection selection = policy.advisors().get(advisor);
+            String unavailable = unavailability(advisor, catalog);
+            if (unavailable != null && selection.required()) {
+                throw new AssessmentFailure("REQUIRED_ADVISOR_UNAVAILABLE");
+            }
+            outcomes.add(object(
+                    "advisor",
+                    advisor.policyName(),
+                    "required",
+                    selection.required(),
+                    "preflight",
+                    unavailable == null ? "READY" : unavailable));
+        }
+        return outcomes;
+    }
+
+    private List<AdvisorResult> collect(CiPolicy policy, BootUiCatalog catalog, BootUiClient client, long deadline) {
+        List<AdvisorResult> output = new ArrayList<>();
+        int remainingDetails = MAX_TOTAL_DETAILS;
+        int remainingPages = MAX_TOTAL_PAGES;
+        for (CiPolicy.Advisor advisor : policy.orderedAdvisors()) {
+            if (System.nanoTime() >= deadline) {
+                throw new AssessmentFailure("ASSESSMENT_BUDGET_EXCEEDED");
+            }
+            CiPolicy.Selection selection = policy.advisors().get(advisor);
+            String unavailable = unavailability(advisor, catalog);
+            if (unavailable != null) {
+                if (selection.required()) {
+                    throw new AssessmentFailure("REQUIRED_ADVISOR_UNAVAILABLE");
+                }
+                AdvisorResult skipped = AdvisorResult.skipped(advisor, selection.required(), unavailable);
+                output.add(skipped);
+                collected.add(skipped);
+                continue;
+            }
+            ToolResult scan =
+                    client.invokeBounded(advisor.scanTool(), Map.of(), MAX_RESPONSE_BYTES, remaining(deadline));
+            if (!scan.successful()) {
+                throw new AssessmentFailure("SCAN_FAILED");
+            }
+            ToolResult reportResult =
+                    client.invokeBounded(advisor.reportTool(), Map.of(), MAX_RESPONSE_BYTES, remaining(deadline));
+            if (!reportResult.successful()) {
+                throw new AssessmentFailure("REPORT_FAILED");
+            }
+            JsonValue report = reportResult.payload();
+            EvaluatedReport evaluated = evaluateReport(advisor, selection, report);
+            if (!evaluated
+                    .scanId()
+                    .equals(scan.payload().get("violationDetails").get("scanId").asString(null))) {
+                throw new AssessmentFailure("SCAN_REPORT_MISMATCH");
+            }
+            PagedFindings pages =
+                    pageFindings(advisor, evaluated, catalog, client, remainingDetails, remainingPages, deadline);
+            remainingDetails -= pages.detailCount();
+            remainingPages -= pages.pageCount();
+            AdvisorResult completed = new AdvisorResult(
+                    advisor,
+                    selection.required(),
+                    "ASSESSED",
+                    evaluated.totalFindings(),
+                    pages.findings(),
+                    null,
+                    evaluated.findings().stream()
+                            .anyMatch(finding -> finding.severity().meets(selection.failOn())));
+            output.add(completed);
+            collected.add(completed);
+        }
+        return List.copyOf(output);
+    }
+
+    private EvaluatedReport evaluateReport(CiPolicy.Advisor advisor, CiPolicy.Selection selection, JsonValue report) {
+        JsonValue evidence = report.get("evidence");
+        if (!evidence.isObject()
+                || !evidence.get("usable").isBoolean()
+                || !evidence.get("usable").asBoolean(false)
+                || !evidence.get("coverageComplete").isBoolean()
+                || !evidence.get("coverageComplete").asBoolean(false)) {
+            throw new AssessmentFailure("EVIDENCE_UNEVALUABLE");
+        }
+        if (integer(report.get(advisor.subjectField())) <= 0) {
+            throw new AssessmentFailure("ZERO_SUBJECTS");
+        }
+        JsonValue scan = report.get("scan");
+        if (!"SCANNED".equals(scan.get("status").asString(null))) {
+            throw new AssessmentFailure("SCAN_INCOMPLETE");
+        }
+        for (String errorField : List.of("analysisErrors", "diagnostics")) {
+            JsonValue errors = report.get(errorField);
+            if (!errors.isMissing() && (!errors.isArray() || errors.size() != 0)) {
+                throw new AssessmentFailure("ADVISOR_ERRORS");
+            }
+        }
+        JsonValue limitations = evidence.get("limitations");
+        if (!isEmptyArray(limitations)
+                || nonzeroIfPresent(report.get("rulesSkipped"))
+                || nonzeroIfPresent(report.get("rulesErrored"))
+                || !report.get("truncated").isMissing()
+                        && (!report.get("truncated").isBoolean()
+                                || report.get("truncated").asBoolean(false))) {
+            throw new AssessmentFailure("ADVISOR_ERRORS");
+        }
+
+        JsonValue details = report.get("violationDetails");
+        String scanId = details.get("scanId").asString(null);
+        long totalDetails = integer(details.get("total"));
+        long retainedDetails = integer(details.get("retained"));
+        if (!isNonblank(scanId)
+                || totalDetails < 0
+                || retainedDetails < 0
+                || totalDetails != retainedDetails
+                || details.get("truncated").asBoolean(true)) {
+            throw new AssessmentFailure("DETAILS_INCOMPLETE");
+        }
+        JsonValue results = report.get(advisor.resultsField());
+        if (!results.isArray()) {
+            throw new AssessmentFailure("INVALID_REPORT");
+        }
+        JsonValue suppression = report.get("suppression");
+        if (!suppression.isMissing()) {
+            long suppressedFindings = integer(suppression.get("suppressedFindings"));
+            long omitted = integer(suppression.get("omitted"));
+            if (suppressedFindings < 0
+                    || omitted < 0
+                    || suppressedFindings != 0
+                    || omitted != 0
+                    || !isEmptyArray(suppression.get("incompleteRules"))
+                    || !isEmptyArray(suppression.get("findings"))) {
+                throw new AssessmentFailure("SUPPRESSION_PRESENT");
+            }
+        }
+
+        List<RuleFinding> findings = new ArrayList<>();
+        long activeTotal = 0;
+        for (JsonValue rule : results.values()) {
+            String id = rule.get("id").asString(null);
+            long count = integer(rule.get("violationCount"));
+            long suppressed = rule.get("suppressedCount").isMissing() ? 0 : integer(rule.get("suppressedCount"));
+            JsonValue dismissedValue = rule.get("dismissed");
+            boolean dismissed = dismissedValue.asBoolean(false);
+            String severityText = rule.get("severity").asString(null);
+            if (!isSafeRuleId(id)
+                    || count < 0
+                    || suppressed < 0
+                    || !dismissedValue.isBoolean()
+                    || dismissed
+                    || isNonblank(rule.get("coverageNote").asString(null))) {
+                throw new AssessmentFailure(dismissed ? "SUPPRESSION_PRESENT" : "INVALID_REPORT");
+            }
+            if (count > 0) {
+                CiPolicy.Severity severity = parseSeverity(severityText);
+                activeTotal = Math.addExact(activeTotal, count);
+                findings.add(new RuleFinding(id, severity, count, suppressed));
+                if (severity.meets(selection.failOn())) {
+                    // Recorded as a finding; errors discovered later still take aggregate precedence.
+                }
+            } else if (suppressed > 0) {
+                throw new AssessmentFailure("SUPPRESSION_PRESENT");
+            }
+        }
+        long reportTotal = integer(report.get("violationsFound"));
+        if (reportTotal < 0 || reportTotal != activeTotal) {
+            throw new AssessmentFailure("COUNTS_INCONSISTENT");
+        }
+        return new EvaluatedReport(scanId, List.copyOf(findings), activeTotal);
+    }
+
+    private PagedFindings pageFindings(
+            CiPolicy.Advisor advisor,
+            EvaluatedReport evaluated,
+            BootUiCatalog catalog,
+            BootUiClient client,
+            int remainingDetails,
+            int remainingPages,
+            long deadline) {
+        List<JsonValue> findings = new ArrayList<>();
+        int pages = 0;
+        int details = 0;
+        int limit = Math.max(1, Math.min(MAX_DETAIL_PAGE_SIZE, catalog.maxResults()));
+        for (RuleFinding finding : evaluated.findings()) {
+            long offset = 0;
+            long expectedTotal = -1;
+            long expectedRetained = -1;
+            long expectedSuppressed = -1;
+            boolean more;
+            do {
+                if (System.nanoTime() >= deadline) {
+                    throw new AssessmentFailure("ASSESSMENT_BUDGET_EXCEEDED");
+                }
+                if (++pages > remainingPages || details >= remainingDetails) {
+                    throw new AssessmentFailure("DETAIL_BUDGET_EXCEEDED");
+                }
+                Map<String, JsonValue> args = new LinkedHashMap<>();
+                args.put("id", JsonValue.of(finding.ruleId()));
+                args.put("scanId", JsonValue.of(evaluated.scanId()));
+                args.put("offset", JsonValue.of(offset));
+                args.put("limit", JsonValue.of(limit));
+                ToolResult pageResult =
+                        client.invokeBounded(advisor.detailsTool(), args, MAX_RESPONSE_BYTES, remaining(deadline));
+                if (!pageResult.successful()) {
+                    throw new AssessmentFailure("DETAIL_PAGE_FAILED");
+                }
+                JsonValue page = pageResult.payload();
+                JsonValue violations = page.get("violations");
+                JsonValue metadata = page.get("page");
+                if (!page.get("scanId").isString()
+                        || !evaluated.scanId().equals(page.get("scanId").asString(null))
+                        || !finding.ruleId().equals(page.get("ruleId").asString(null))
+                        || !violations.isArray()
+                        || !metadata.isObject()) {
+                    throw new AssessmentFailure("DETAIL_PAGE_INCONSISTENT");
+                }
+                long returned = integer(metadata.get("returned"));
+                long total = integer(page.get("violationCount"));
+                long retained = integer(page.get("retainedCount"));
+                long suppressed = integer(page.get("suppressedCount"));
+                long pageOffset = integer(metadata.get("offset"));
+                long pageLimit = integer(metadata.get("limit"));
+                long pageTotal = integer(metadata.get("total"));
+                long pageMatched = integer(metadata.get("matched"));
+                boolean truncated = page.get("truncated").asBoolean(true);
+                if (!metadata.get("hasMore").isBoolean()) {
+                    throw new AssessmentFailure("DETAIL_PAGE_INCONSISTENT");
+                }
+                more = metadata.get("hasMore").asBoolean(false);
+                if (returned < 0
+                        || returned != violations.size()
+                        || pageOffset != offset
+                        || pageLimit < 1
+                        || pageLimit > limit
+                        || returned > pageLimit
+                        || total < 0
+                        || retained < 0
+                        || suppressed < 0
+                        || pageTotal != retained
+                        || pageMatched != retained
+                        || truncated
+                        || (returned == 0 && more)
+                        || more != offset + returned < pageMatched
+                        || (expectedTotal >= 0 && expectedTotal != total)
+                        || (expectedRetained >= 0 && expectedRetained != retained)
+                        || (expectedSuppressed >= 0 && expectedSuppressed != suppressed)) {
+                    throw new AssessmentFailure("DETAIL_PAGE_INCONSISTENT");
+                }
+                expectedTotal = total;
+                expectedRetained = retained;
+                expectedSuppressed = suppressed;
+                if (suppressed != 0 || hasTrue(page.get("suppressed"))) {
+                    throw new AssessmentFailure("SUPPRESSION_PRESENT");
+                }
+                requireAlignedOrEmpty(page.get("identities"), violations.size());
+                requireAlignedOrEmpty(page.get("suppressed"), violations.size());
+                if (retained != total || retained != finding.count() + finding.suppressedCount()) {
+                    throw new AssessmentFailure("DETAILS_INCOMPLETE");
+                }
+                if (returned > remainingDetails - details) {
+                    throw new AssessmentFailure("DETAIL_BUDGET_EXCEEDED");
+                }
+                details += Math.toIntExact(returned);
+                offset = Math.addExact(offset, returned);
+                if (more && returned == 0) {
+                    throw new AssessmentFailure("DETAIL_PAGE_NO_PROGRESS");
+                }
+            } while (more);
+            if (offset != finding.count() + finding.suppressedCount()) {
+                throw new AssessmentFailure("DETAILS_INCOMPLETE");
+            }
+            findings.add(object(
+                    "ruleId", finding.ruleId(), "severity", finding.severity().name(), "count", finding.count()));
+        }
+        return new PagedFindings(List.copyOf(findings), details, pages);
+    }
+
+    private String unavailability(CiPolicy.Advisor advisor, BootUiCatalog catalog) {
+        BootUiCatalog.CatalogTool scan = catalog.tool(advisor.scanTool());
+        BootUiCatalog.CatalogTool report = catalog.tool(advisor.reportTool());
+        BootUiCatalog.CatalogTool details = catalog.tool(advisor.detailsTool());
+        if (scan == null || report == null || details == null) {
+            return "UNAVAILABLE";
+        }
+        if (!scan.panel().equals(report.panel())
+                || !scan.panel().equals(details.panel())
+                || !scan.action()
+                || report.action()
+                || details.action()
+                || !details.arguments().containsAll(List.of("id", "scanId", "offset", "limit"))) {
+            throw new AssessmentFailure("INVALID_CATALOG");
+        }
+        if (!scan.panelEnabled() || !report.panelEnabled() || !details.panelEnabled()) {
+            return "PANEL_DISABLED";
+        }
+        if (scan.panelReadOnly()) {
+            return "PANEL_READ_ONLY";
+        }
+        return null;
+    }
+
+    private JsonValue readWitness() throws IOException {
+        byte[] bytes;
+        try (InputStream input = Files.newInputStream(witnessPath)) {
+            bytes = input.readNBytes(16 * 1024 + 1);
+        }
+        if (bytes.length > 16 * 1024) {
+            throw new AssessmentFailure("INVALID_WITNESS");
+        }
+        String text;
+        try {
+            text = StandardCharsets.UTF_8
+                    .newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString();
+        } catch (CharacterCodingException invalidUtf8) {
+            throw new AssessmentFailure("INVALID_WITNESS");
+        }
+        JsonValue witness;
+        try {
+            witness = JsonValue.parseStrict(text);
+        } catch (JsonParseException invalid) {
+            throw new AssessmentFailure("INVALID_WITNESS");
+        }
+        if (!witness.isObject()) {
+            throw new AssessmentFailure("INVALID_WITNESS");
+        }
+        List<String> unknown = new ArrayList<>(witness.names());
+        unknown.removeAll(WITNESS_KEYS);
+        if (!unknown.isEmpty()) {
+            throw new AssessmentFailure("INVALID_WITNESS");
+        }
+        return witness;
+    }
+
+    private void validateWitness(JsonValue witness, CiPolicy policy) {
+        for (String required : WITNESS_KEYS) {
+            if (witness.get(required).isMissing()) {
+                throw new AssessmentFailure("INVALID_WITNESS");
+            }
+        }
+        if (!witness.get("schemaVersion").isNumber()
+                || !"1".equals(witness.get("schemaVersion").asDisplayText())
+                || !assessmentId.equals(witness.get("assessmentId").asString(null))
+                || !url.equals(witness.get("targetUrl").asString(null))
+                || !apiPath.equals(witness.get("apiPath").asString(null))
+                || !policy.sha256().equals(witness.get("policySha256").asString(null))
+                || !isRunId(witness.get("instanceId").asString(null))
+                || !isRunId(witness.get("runId").asString(null))
+                || !SAFE_VERSION
+                        .matcher(witness.get("bootUiVersion").asString(""))
+                        .matches()
+                || !isValidTimestamp(witness.get("attachedAt").asString(null))
+                || !witnessAdvisorsMatch(witness.get("advisors"), policy)) {
+            throw new AssessmentFailure("WITNESS_MISMATCH");
+        }
+    }
+
+    private static boolean witnessAdvisorsMatch(JsonValue advisors, CiPolicy policy) {
+        if (!advisors.isArray() || advisors.size() != policy.advisors().size()) {
+            return false;
+        }
+        Map<String, Boolean> recorded = new LinkedHashMap<>();
+        for (JsonValue advisor : advisors.values()) {
+            if (!advisor.isObject()
+                    || !Set.of("advisor", "required", "preflight").containsAll(advisor.names())
+                    || advisor.names().size() != 3
+                    || !advisor.get("advisor").isString()
+                    || !advisor.get("required").isBoolean()
+                    || !advisor.get("preflight").isString()) {
+                return false;
+            }
+            String name = advisor.get("advisor").asString(null);
+            if (name == null
+                    || recorded.putIfAbsent(name, advisor.get("required").asBoolean(false)) != null) {
+                return false;
+            }
+            String preflight = advisor.get("preflight").asString(null);
+            if (!Set.of("READY", "UNAVAILABLE", "PANEL_DISABLED", "PANEL_READ_ONLY")
+                    .contains(preflight)) {
+                return false;
+            }
+        }
+        if (recorded.size() != policy.advisors().size()) {
+            return false;
+        }
+        for (CiPolicy.Advisor advisor : policy.orderedAdvisors()) {
+            CiPolicy.Selection selection = policy.advisors().get(advisor);
+            Boolean required = recorded.get(advisor.policyName());
+            if (required == null || required != selection.required()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isValidTimestamp(String value) {
+        if (!isNonblank(value)) {
+            return false;
+        }
+        try {
+            Instant.parse(value);
+            return true;
+        } catch (RuntimeException invalid) {
+            return false;
+        }
+    }
+
+    private void requireSameIdentity(JsonValue witness, Identity identity) {
+        if (!identity.bootUiVersion().equals(witness.get("bootUiVersion").asString(null))
+                || !identity.instanceId().equals(witness.get("instanceId").asString(null))
+                || !identity.runId().equals(witness.get("runId").asString(null))) {
+            throw new AssessmentFailure("IDENTITY_CHANGED");
+        }
+    }
+
+    private void writeFailureIfPossible(Path path, String code) {
+        try {
+            Map<String, JsonValue> failure = new LinkedHashMap<>();
+            failure.put("schemaVersion", JsonValue.of(1));
+            failure.put("assessmentId", JsonValue.of(assessmentId));
+            failure.put("status", JsonValue.of("NOT_ASSESSED"));
+            failure.put("errors", JsonValue.array(List.of(object("code", code))));
+            writeNewFile(path, JsonWriter.pretty(JsonValue.object(failure)));
+        } catch (Exception ignored) {
+            // A missing/unwritable path is reported by the caller; never replace an existing witness.
+        }
+    }
+
+    private static void writeNewFile(Path path, String value) throws IOException {
+        Path absolute = path.toAbsolutePath().normalize();
+        Path parent = absolute.getParent();
+        if (parent == null) {
+            throw new IOException("Output path has no parent");
+        }
+        Files.createDirectories(parent);
+        Path temporary = Files.createTempFile(parent, ".bootui-ci-", ".tmp");
+        try {
+            Files.writeString(
+                    temporary, value, java.nio.charset.StandardCharsets.UTF_8, StandardOpenOption.TRUNCATE_EXISTING);
+            try {
+                Files.createLink(absolute, temporary);
+                Files.delete(temporary);
+            } catch (UnsupportedOperationException unsupported) {
+                Files.move(temporary, absolute);
+            } catch (IOException linkFailure) {
+                if (Files.exists(absolute)) {
+                    throw linkFailure;
+                }
+                Files.move(temporary, absolute);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    private static String validateTarget(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalArgumentException("A literal loopback --url is required");
+        }
+        URI uri;
+        try {
+            uri = new URI(raw);
+        } catch (URISyntaxException invalid) {
+            throw new IllegalArgumentException("--url is not a valid URI");
+        }
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+        if (scheme == null
+                || !(scheme.equals("http") || scheme.equals("https"))
+                || host == null
+                || uri.getRawUserInfo() != null
+                || uri.getRawQuery() != null
+                || uri.getRawFragment() != null
+                || uri.getPort() < 1
+                || uri.getPort() > 65535
+                || !isLiteralLoopback(host)) {
+            throw new IllegalArgumentException("--url must use an explicit port and a literal loopback address");
+        }
+        if (uri.getRawPath() != null && uri.getRawPath().contains("\\")) {
+            throw new IllegalArgumentException("--url path is invalid");
+        }
+        return raw.endsWith("/") ? raw.substring(0, raw.length() - 1) : raw;
+    }
+
+    private static String validateApiPath(String path) {
+        try {
+            URI uri = new URI(path);
+            if (uri.isAbsolute()
+                    || uri.getRawAuthority() != null
+                    || uri.getRawQuery() != null
+                    || uri.getRawFragment() != null
+                    || uri.getRawPath() == null
+                    || !uri.getRawPath().startsWith("/")
+                    || uri.getRawPath().contains("\\")) {
+                throw new IllegalArgumentException(
+                        "--api-path must be a local absolute path without query or fragment");
+            }
+            return uri.getRawPath();
+        } catch (URISyntaxException invalid) {
+            throw new IllegalArgumentException("--api-path is not a valid path");
+        }
+    }
+
+    private static boolean isLiteralLoopback(String host) {
+        String literal = host.startsWith("[") && host.endsWith("]") ? host.substring(1, host.length() - 1) : host;
+        if (literal.equals("::1")) {
+            return true;
+        }
+        String[] parts = literal.split("\\.", -1);
+        if (parts.length != 4) return false;
+        int[] octets = new int[4];
+        for (int i = 0; i < parts.length; i++) {
+            if (!parts[i].matches("0|[1-9][0-9]{0,2}")) return false;
+            try {
+                octets[i] = Integer.parseInt(parts[i]);
+            } catch (NumberFormatException invalid) {
+                return false;
+            }
+            if (octets[i] > 255) return false;
+        }
+        return octets[0] == 127;
+    }
+
+    private static String validateAssessmentId(String id) {
+        if (id == null || !ASSESSMENT_ID.matcher(id).matches()) {
+            throw new IllegalArgumentException("assessment-id must match [A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
+        }
+        return id;
+    }
+
+    private static boolean isRunId(String value) {
+        return value != null && value.matches("[0-9a-f]{8}");
+    }
+
+    private static boolean isSafeRuleId(String value) {
+        return value != null && SAFE_RULE_ID.matcher(value).matches();
+    }
+
+    private static boolean isNonblank(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private Duration remaining(long deadline) {
+        long nanos = deadline - System.nanoTime();
+        if (nanos <= 0) {
+            throw new AssessmentFailure("ASSESSMENT_BUDGET_EXCEEDED");
+        }
+        return Duration.ofNanos(nanos);
+    }
+
+    private static CiPolicy.Severity parseSeverity(String value) {
+        try {
+            return CiPolicy.Severity.valueOf(value);
+        } catch (Exception invalid) {
+            throw new AssessmentFailure("UNKNOWN_SEVERITY");
+        }
+    }
+
+    private static boolean isEmptyArray(JsonValue value) {
+        return value.isMissing() || value.isArray() && value.size() == 0;
+    }
+
+    private static boolean nonzeroIfPresent(JsonValue value) {
+        if (value.isMissing()) return false;
+        long count = integer(value);
+        return count < 0 || count != 0;
+    }
+
+    private static long integer(JsonValue value) {
+        if (!value.isNumber() || !value.asDisplayText().matches("-?(0|[1-9][0-9]*)")) {
+            return -1;
+        }
+        try {
+            return Long.parseLong(value.asDisplayText());
+        } catch (NumberFormatException invalid) {
+            return -1;
+        }
+    }
+
+    private static void requireAlignedOrEmpty(JsonValue values, int expectedSize) {
+        if (!values.isMissing() && (!values.isArray() || values.size() != 0 && values.size() != expectedSize)) {
+            throw new AssessmentFailure("DETAIL_PAGE_INCONSISTENT");
+        }
+    }
+
+    private static boolean hasTrue(JsonValue value) {
+        if (!value.isMissing() && !value.isArray()) {
+            throw new AssessmentFailure("DETAIL_PAGE_INCONSISTENT");
+        }
+        return value.isArray()
+                && value.values().stream().anyMatch(element -> {
+                    if (!element.isBoolean()) {
+                        throw new AssessmentFailure("DETAIL_PAGE_INCONSISTENT");
+                    }
+                    return element.asBoolean(false);
+                });
+    }
+
+    private static JsonValue object(Object... members) {
+        Map<String, JsonValue> values = new LinkedHashMap<>();
+        for (int i = 0; i < members.length; i += 2) {
+            String key = (String) members[i];
+            Object value = members[i + 1];
+            if (value instanceof String text) {
+                values.put(key, JsonValue.of(text));
+            } else if (value instanceof Boolean bool) {
+                values.put(key, JsonValue.of(bool));
+            } else if (value instanceof Integer number) {
+                values.put(key, JsonValue.of(number.longValue()));
+            } else if (value instanceof Long number) {
+                values.put(key, JsonValue.of(number));
+            } else if (value instanceof JsonValue json) {
+                values.put(key, json);
+            } else {
+                throw new IllegalArgumentException("Unsupported JSON field value");
+            }
+        }
+        return JsonValue.object(values);
+    }
+
+    private record Identity(String bootUiVersion, String instanceId, String runId) {}
+
+    private record RuleFinding(String ruleId, CiPolicy.Severity severity, long count, long suppressedCount) {}
+
+    private record EvaluatedReport(String scanId, List<RuleFinding> findings, long totalFindings) {}
+
+    private record PagedFindings(List<JsonValue> findings, int detailCount, int pageCount) {}
+
+    private static final class AssessmentFailure extends RuntimeException {
+
+        private static final long serialVersionUID = 1L;
+        private final String code;
+
+        AssessmentFailure(String code) {
+            super(code);
+            this.code = code;
+        }
+
+        String code() {
+            return code;
+        }
+    }
+
+    private static final class AdvisorResult {
+
+        private final CiPolicy.Advisor advisor;
+        private final boolean required;
+        private final String status;
+        private final long total;
+        private final List<JsonValue> findings;
+        private final String reason;
+        private final boolean violation;
+
+        AdvisorResult(
+                CiPolicy.Advisor advisor,
+                boolean required,
+                String status,
+                long total,
+                List<JsonValue> findings,
+                String reason,
+                boolean violation) {
+            this.advisor = advisor;
+            this.required = required;
+            this.status = status;
+            this.total = total;
+            this.findings = findings;
+            this.reason = reason;
+            this.violation = violation;
+        }
+
+        static AdvisorResult skipped(CiPolicy.Advisor advisor, boolean required, String reason) {
+            return new AdvisorResult(advisor, required, "SKIPPED", 0, List.of(), reason, false);
+        }
+    }
+
+    private static final class Assessment {
+
+        private final String assessmentId;
+        private final Path outputDirectory;
+        private CiPolicy policy;
+        private Identity identity;
+        private List<AdvisorResult> results = List.of();
+        private List<String> errors = List.of();
+        private boolean violation;
+
+        Assessment(String assessmentId, Path outputDirectory) {
+            this.assessmentId = assessmentId;
+            this.outputDirectory = outputDirectory;
+        }
+
+        void context(CiPolicy policy, Identity identity) {
+            this.policy = policy;
+            this.identity = identity;
+        }
+
+        void finish(CiPolicy policy, Identity identity, List<AdvisorResult> results, List<String> errors) {
+            this.policy = policy;
+            this.identity = identity;
+            this.results = results;
+            this.errors = errors;
+            this.violation = results.stream().anyMatch(result -> result.violation);
+        }
+
+        void finishError(String code, List<AdvisorResult> partialResults) {
+            errors = List.of(code);
+            results = List.copyOf(partialResults);
+            violation = results.stream().anyMatch(result -> result.violation);
+        }
+
+        int exitCode() {
+            if (!errors.isEmpty()) {
+                return 1;
+            }
+            return violation ? 3 : 0;
+        }
+
+        int writeOutputs() {
+            try {
+                JsonValue bundle = toBundle();
+                String json = JsonWriter.pretty(bundle) + "\n";
+                if (json.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_BUNDLE_BYTES) {
+                    throw new IOException("Bundle exceeded its byte limit");
+                }
+                writeNewFile(outputDirectory.resolve("bundle.json"), json);
+                writeNewFile(outputDirectory.resolve("summary.md"), markdown(bundle));
+                writeNewFile(outputDirectory.resolve("junit.xml"), junit(bundle));
+                return 0;
+            } catch (Exception failure) {
+                return 1;
+            }
+        }
+
+        private JsonValue toBundle() {
+            Map<String, JsonValue> root = new LinkedHashMap<>();
+            root.put("schemaVersion", JsonValue.of(1));
+            root.put("assessmentId", JsonValue.of(assessmentId));
+            root.put("status", JsonValue.of(errors.isEmpty() ? (violation ? "VIOLATION" : "PASS") : "NOT_ASSESSED"));
+            root.put("bootUiVersion", JsonValue.of(identity == null ? "" : identity.bootUiVersion()));
+            root.put("instanceId", JsonValue.of(identity == null ? "" : identity.instanceId()));
+            root.put("runId", JsonValue.of(identity == null ? "" : identity.runId()));
+            root.put("policySha256", JsonValue.of(policy == null ? "" : policy.sha256()));
+            root.put(
+                    "advisors",
+                    JsonValue.array(results.stream()
+                            .map(result -> {
+                                Map<String, JsonValue> row = new LinkedHashMap<>();
+                                row.put("name", JsonValue.of(result.advisor.policyName()));
+                                row.put("required", JsonValue.of(result.required));
+                                row.put("status", JsonValue.of(result.status));
+                                row.put("reason", JsonValue.of(result.reason));
+                                row.put("findingCount", JsonValue.of(result.total));
+                                row.put("findings", JsonValue.array(result.findings));
+                                return JsonValue.object(row);
+                            })
+                            .toList()));
+            root.put(
+                    "errors",
+                    JsonValue.array(
+                            errors.stream().map(error -> object("code", error)).toList()));
+            return JsonValue.object(root);
+        }
+
+        private String markdown(JsonValue bundle) {
+            StringBuilder output = new StringBuilder();
+            output.append("# BootUI assessment: ")
+                    .append(bundle.get("status").asString("NOT_ASSESSED"))
+                    .append("\n\n")
+                    .append("Assessment `")
+                    .append(assessmentId)
+                    .append("` — BootUI ")
+                    .append(bundle.get("bootUiVersion").asString("unknown"))
+                    .append("; instance/run `")
+                    .append(bundle.get("instanceId").asString("unknown"))
+                    .append("/")
+                    .append(bundle.get("runId").asString("unknown"))
+                    .append("`.\n\n")
+                    .append("| Advisor | Required | Status | Findings |\n|---|---:|---|---:|\n");
+            for (JsonValue advisor : bundle.get("advisors").values()) {
+                output.append("| ")
+                        .append(advisor.get("name").asString(""))
+                        .append(" | ")
+                        .append(advisor.get("required").asBoolean(false))
+                        .append(" | ")
+                        .append(advisor.get("status").asString(""))
+                        .append(" | ")
+                        .append(advisor.get("findingCount").asLong(0))
+                        .append(" |\n");
+            }
+            if (!errors.isEmpty()) {
+                output.append("\nAssessment errors: ")
+                        .append(errors.size())
+                        .append(" (see the sanitized bundle for error codes).\n");
+            }
+            String text = output.toString();
+            if (text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_SUMMARY_BYTES) {
+                throw new IllegalStateException("Summary exceeded its byte limit");
+            }
+            return text;
+        }
+
+        private String junit(JsonValue bundle) {
+            String status = bundle.get("status").asString("NOT_ASSESSED");
+            int failures = violation ? 1 : 0;
+            int errorsCount = "NOT_ASSESSED".equals(status) ? Math.max(1, errors.size()) : 0;
+            int skipped = (int) bundle.get("advisors").values().stream()
+                    .filter(advisor -> "SKIPPED".equals(advisor.get("status").asString(null)))
+                    .count();
+            StringBuilder xml = new StringBuilder();
+            int tests = results.size() + errorsCount;
+            xml.append("<testsuite name=\"bootui-ci\" tests=\"")
+                    .append(tests)
+                    .append("\" failures=\"")
+                    .append(failures)
+                    .append("\" errors=\"")
+                    .append(errorsCount)
+                    .append("\" skipped=\"")
+                    .append(skipped)
+                    .append("\">\n");
+            for (AdvisorResult result : results) {
+                xml.append("  <testcase classname=\"bootui.ci\" name=\"")
+                        .append(result.advisor.policyName())
+                        .append("\">");
+                if (result.status.equals("SKIPPED")) {
+                    xml.append("<skipped message=\"Optional advisor is unavailable or disabled\"/>");
+                } else if (result.violation) {
+                    xml.append("<failure message=\"Advisor met the configured severity threshold\"/>");
+                }
+                xml.append("</testcase>\n");
+            }
+            if (errorsCount > 0) {
+                xml.append("  <testcase classname=\"bootui.ci\" name=\"assessment\">")
+                        .append("<error message=\"BootUI assessment could not be completed\"/>")
+                        .append("</testcase>\n");
+            }
+            xml.append("</testsuite>\n");
+            return xml.toString();
+        }
+    }
+}

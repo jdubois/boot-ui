@@ -75,6 +75,14 @@ class CommandTreeTests {
     }
 
     @Test
+    void ciOrchestrationIsSeparateFromTheGeneratedToolManifest() {
+        assertThat(ToolManifest.bundled().tools())
+                .noneMatch(tool -> tool.command().equals("ci") || tool.command().startsWith("ci "));
+        assertThat(run(List.of("ci", "attach", "--help"))).isEqualTo(ExitCodes.SUCCESS);
+        assertThat(paths).isEmpty();
+    }
+
+    @Test
     void everyCommandAcceptsExactlyTheArgumentsItsSchemaDeclares() {
         Map<String, String> failures = new LinkedHashMap<>();
 
