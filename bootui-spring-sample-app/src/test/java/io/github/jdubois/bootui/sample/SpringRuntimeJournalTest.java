@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
+import io.github.jdubois.bootui.engine.journal.JournalCompleteness;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RunStart;
@@ -45,6 +46,18 @@ import org.springframework.boot.test.web.server.LocalServerPort;
             "bootui.resources.sample-interval=200ms"
         })
 class SpringRuntimeJournalTest {
+
+    @Test
+    void startupSqlReachesAggregatesBeforeAnyRequestOpensBootUi() throws Exception {
+        assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+        long accepted = journal.status().accepted().getOrDefault(JournalSource.SQL, 0L);
+        var snapshot = aggregates.snapshot();
+        assertThat(accepted).isPositive();
+        assertThat(snapshot.run().events().getOrDefault(JournalSource.SQL, 0L)).isEqualTo(accepted);
+        assertThat(JournalCompleteness.missed(snapshot, JournalSource.SQL)).isZero();
+        assertThat(JournalCompleteness.wholeRunComplete(snapshot, JournalSource.SQL))
+                .isTrue();
+    }
 
     @LocalServerPort
     int port;

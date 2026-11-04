@@ -43,6 +43,91 @@ import org.junit.jupiter.api.Test;
 class JournalCompletenessTests {
 
     @Test
+    void startupSqlQueuedBeforeBindingStillAllowsTheSeventeenToOneComparison() {
+        try (Capture before = new Capture(index -> false);
+                Capture after = new Capture(index -> false)) {
+            for (Capture capture : List.of(before, after)) {
+                capture.journal.removeListener(capture.aggregates);
+                capture.offer(
+                        JournalSource.SQL,
+                        1000,
+                        CorrelationContext.NONE,
+                        new SqlPayload("create table customers (id bigint)", null, "db", false));
+                capture.journal.addListener(capture.aggregates);
+                SynchronousJournals.dispatch(capture.journal);
+                assertThat(JournalCompleteness.wholeRunComplete(capture.aggregates.snapshot(), JournalSource.SQL))
+                        .isTrue();
+            }
+            eagerOrdersWorkload(before, after);
+
+            var result = compare(before, after);
+            assertThat(result.status()).isEqualTo("COMPARED");
+            assertThat(result.behavior()).anySatisfy(row -> {
+                assertThat(row.kind()).isEqualTo("statements-per-request");
+                assertThat(row.before()).isEqualTo(17);
+                assertThat(row.after()).isEqualTo(1);
+            });
+            assertThat(result.behavior()).anySatisfy(row -> {
+                assertThat(row.kind()).isEqualTo("gone-statement");
+                assertThat(row.detail()).contains("customers");
+            });
+            assertThat(result.limitations()).isEmpty();
+        }
+    }
+
+    @Test
+    void startupSqlDispatchedBeforeBindingCannotBeRecoveredByMoreTrafficOrRebinding() {
+        for (boolean missedBefore : List.of(false, true)) {
+            try (Capture before = new Capture(index -> false);
+                    Capture after = new Capture(index -> false)) {
+                Capture incomplete = missedBefore ? before : after;
+                incomplete.journal.removeListener(incomplete.aggregates);
+                incomplete.offer(
+                        JournalSource.SQL,
+                        1000,
+                        CorrelationContext.NONE,
+                        new SqlPayload("create table customers (id bigint)", null, "db", false));
+                SynchronousJournals.dispatch(incomplete.journal);
+                incomplete.journal.addListener(incomplete.aggregates);
+                eagerOrdersWorkload(before, after);
+                for (int i = 0; i < 3; i++) {
+                    incomplete.journal.removeListener(incomplete.aggregates);
+                    incomplete.journal.addListener(incomplete.aggregates);
+                }
+
+                var snapshot = incomplete.aggregates.snapshot();
+                assertThat(JournalCompleteness.missed(snapshot, JournalSource.SQL))
+                        .isEqualTo(1);
+                assertThat(JournalCompleteness.windowComplete(snapshot, JournalSource.SQL))
+                        .isFalse();
+                assertThat(incomplete.journal.status().dropped()).isEmpty();
+                var result = compare(before, after);
+                assertThat(result.status()).isEqualTo("PARTIAL");
+                assertThat(result.behavior())
+                        .extracting(RuntimeRunChangeDto::kind)
+                        .doesNotContain("statements-per-request", "gone-statement", "new-statement");
+                assertThat(result.limitations())
+                        .anyMatch(limit -> limit.contains("sql source missed 1 events before aggregate registration"));
+            }
+        }
+    }
+
+    private static void eagerOrdersWorkload(Capture before, Capture after) {
+        for (int i = 0; i < 6; i++) {
+            CorrelationContext owner = CorrelationContext.forRequest("orders" + i);
+            for (int customer = 0; customer < 16; customer++) {
+                before.offer(
+                        JournalSource.SQL,
+                        1000,
+                        owner,
+                        new SqlPayload("select * from customers where id = ?", null, "db", false));
+            }
+            before.request("orders" + i, "/orders", 1000, true);
+            after.request("orders" + i, "/orders", 1000, true);
+        }
+    }
+
+    @Test
     void droppedSqlOnEitherSideCannotInventStatementChanges() {
         try (Capture complete = new Capture(index -> false);
                 Capture lossy = new Capture(index -> index % 2 == 0)) {

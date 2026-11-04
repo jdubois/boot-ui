@@ -156,6 +156,18 @@ bootui insights compare --json
 Several behavior comparisons need at least three route samples in both runs. The CLI comparison intentionally omits
 latency. Keep profiles, datasource, and sensors stable; empty/partial/not-compared evidence is not “no effects.”
 
+::: details Startup SQL limitation in the pinned release
+
+The v2.3.0 rehearsal reported `PARTIAL`: startup SQL ran before aggregate registration. More requests cannot repair
+that lifetime gap. The response/query-budget test and individual 17-to-1 SQL profiles still establish the local
+fix, but do not claim a verified run-level statement removal from a partial comparison.
+
+The development checkout fixes Spring's startup ordering and verifies the 17-to-1 comparison and removal of the
+secondary customer SELECT across one DevTools reload. That correction is not in the workshop's pinned release.
+Real drops, unqualified SQL capture, or insufficient samples still limit comparison.
+
+:::
+
 Confirm the intended query-count reduction, unchanged response, executed changed method, valid comparison source,
 and no observed new effect within recorded coverage. The original method name still contains “SecondarySelects”;
 that is acceptable for this focused exercise and preserves its identifiable comparison target.
