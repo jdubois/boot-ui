@@ -91,7 +91,7 @@ class BootUiExecutorDecorationTests {
                     }
                     assertThat(twice.await(5, TimeUnit.SECONDS)).isTrue();
                     periodic.cancel(false);
-                    assertThat(runs.subList(0, 2))
+                    assertThat(java.util.List.copyOf(runs).subList(0, 2))
                             .as("a periodic task belongs to its request on its first run only")
                             .containsExactly("r4", "null");
 
@@ -113,7 +113,7 @@ class BootUiExecutorDecorationTests {
                     }
                     assertThat(thrice.await(5, TimeUnit.SECONDS)).isTrue();
                     cron.cancel(false);
-                    assertThat(triggered.subList(0, 3))
+                    assertThat(java.util.List.copyOf(triggered).subList(0, 3))
                             .as("a trigger's second and third runs are not the request's")
                             .containsExactly("r5", "null", "null");
                 });
