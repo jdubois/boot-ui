@@ -1,5 +1,5 @@
 <script setup>
-import {computed} from 'vue'
+import {computed, useId} from 'vue'
 import {scoreBandTone} from '../../utils/scannerScore.js'
 import SpinnerButton from './SpinnerButton.vue'
 
@@ -23,10 +23,12 @@ const props = defineProps({
   runLabel: {type: String, default: 'Run scan'},
   rerunLabel: {type: String, default: 'Re-run scan'},
   runDisabled: {type: Boolean, default: false},
+  runDisabledReason: {type: String, default: null},
   idleHint: {type: String, default: 'Run this scanner to inspect findings and assessment coverage.'}
 })
 
 const emit = defineEmits(['run'])
+const actionReasonId = `scanner-action-reason-${useId()}`
 
 const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO', 'UNKNOWN', 'NONE']
 const SEVERITY_TONES = {
@@ -51,6 +53,7 @@ function severityTone(severity) {
 }
 
 function onRun() {
+  if (props.runDisabled || props.state === 'running') return
   emit('run')
 }
 </script>
@@ -114,13 +117,17 @@ function onRun() {
         </div>
       </div>
 
+      <p v-if="runDisabledReason" :id="actionReasonId" class="small text-muted mt-2 mb-0 scanner-action-reason">
+        {{ runDisabledReason }}
+      </p>
       <div class="d-flex gap-2 mt-3">
-        <slot name="actions">
+        <slot name="actions" :reason-id="runDisabledReason ? actionReasonId : undefined">
           <SpinnerButton
             :loading="state === 'running'"
             class="btn btn-sm btn-primary"
             type="button"
             :disabled="runDisabled || state === 'running'"
+            :aria-describedby="runDisabledReason ? actionReasonId : undefined"
             @click="onRun"
           >
             {{ state === 'idle' ? runLabel : rerunLabel }}

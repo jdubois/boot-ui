@@ -18,7 +18,7 @@ describe('diagnostic action refusal details', () => {
     })
 
     expect(diagnosticActionError(error, 'Could not toggle')).toBe(
-      "Panel 'mcp-server' is read-only (bootui.panels.mcp-server.read-only=true)"
+      "Could not toggle: Panel 'mcp-server' is read-only (bootui.panels.mcp-server.read-only=true) (HTTP 403)"
     )
   })
 

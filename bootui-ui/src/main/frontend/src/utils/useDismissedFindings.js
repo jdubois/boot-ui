@@ -1,4 +1,4 @@
-import {ApiError, apiFetch, getJson} from '../api.js'
+import {ApiError, apiFetch, getJson, isPanelAccessError} from '../api.js'
 import {ref} from 'vue'
 
 const ENDPOINT = 'api/dismissed-findings'
@@ -62,6 +62,6 @@ async function refusal(res) {
     body = null
   }
   const error = new ApiError(res.status, body)
-  if (typeof body?.error === 'string' && body.error) error.message = body.error
+  if (!isPanelAccessError(error) && typeof body?.error === 'string' && body.error) error.message = body.error
   return error
 }

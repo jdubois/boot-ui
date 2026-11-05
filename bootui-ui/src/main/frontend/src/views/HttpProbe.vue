@@ -1,5 +1,6 @@
 <script setup>
-import {apiFetch} from '../api.js'
+import {ApiError, apiFetch, isPanelAccessError} from '../api.js'
+import {diagnosticActionError} from '../utils/diagnosticAcknowledgement.js'
 import {computed, inject, ref} from 'vue'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {formatLoadError} from '../utils/loadError.js'
@@ -88,7 +89,7 @@ async function sendProbe() {
     } finally {
       confirming.value = false
     }
-    if (!confirmed) return
+    if (!confirmed || readOnly.value) return
   }
   loading.value = true
   try {
@@ -99,6 +100,7 @@ async function sendProbe() {
     })
     const payload = await res.json().catch(() => null)
     if (!res.ok) {
+      const error = new ApiError(res.status, payload)
       // BootUI bounds probe input (body, path, headers): an over-limit request is rejected with a
       // canonical {"error": ...} body before anything is sent to the application.
       response.value = {
@@ -107,7 +109,9 @@ async function sendProbe() {
         headers: {},
         body: null,
         durationMs: 0,
-        error: payload?.error || `Probe request rejected (HTTP ${res.status})`
+        error: isPanelAccessError(error)
+          ? diagnosticActionError(error, 'Probe request rejected')
+          : payload?.error || `Probe request rejected (HTTP ${res.status})`
       }
     } else {
       response.value = payload

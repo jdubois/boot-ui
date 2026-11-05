@@ -1,3 +1,5 @@
+import {isPanelAccessError} from '../api.js'
+
 const SERVER_UNREACHABLE_TITLE = 'Server unreachable'
 const SERVER_UNREACHABLE_MESSAGE =
   'BootUI could not reach the application. The server may have been stopped. Start it again, then retry or refresh this page.'
@@ -41,7 +43,7 @@ export function isServerUnreachableError(error) {
 
 export function describeLoadError(error, context = null) {
   const message = toErrorMessage(error)
-  const serverUnreachable = isServerUnreachableError(message)
+  const serverUnreachable = !isPanelAccessError(error) && isServerUnreachableError(message)
 
   if (serverUnreachable) {
     return {

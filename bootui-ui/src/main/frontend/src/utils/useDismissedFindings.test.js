@@ -26,6 +26,22 @@ const json = (body, status = 200) =>
   new Response(JSON.stringify(body), {status, headers: {'content-type': 'application/json'}})
 
 describe('useDismissedFindings', () => {
+  it('does not replace a canonical policy explanation with the generic error discriminator', async () => {
+    apiFetch.mockResolvedValue(
+      json(
+        {
+          error: 'BootUI panel access denied',
+          panel: 'dismissed-findings',
+          reason: 'BootUI is read-only.'
+        },
+        403
+      )
+    )
+    const reload = vi.fn()
+    await expect(harness(reload).dismissFinding('ARCH-1', 'v1:a=b')).rejects.toThrow('BootUI is read-only. (HTTP 403)')
+    expect(reload).not.toHaveBeenCalled()
+  })
+
   beforeEach(() => {
     apiFetch.mockReset()
     getJson.mockReset()

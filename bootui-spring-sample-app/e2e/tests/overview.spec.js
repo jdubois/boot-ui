@@ -1,8 +1,10 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
 import {registerAdvisorScoringTests, stubUnscannedAdvisorReports} from '../scenarios/advisor-scoring.js'
+import {registerActionPolicyTests} from '../scenarios/action-policy.js'
 
 registerAdvisorScoringTests(test, expect)
+registerActionPolicyTests(test, expect)
 
 test.describe('Scorecard view', () => {
   test.beforeEach(async ({page}) => stubUnscannedAdvisorReports(page))

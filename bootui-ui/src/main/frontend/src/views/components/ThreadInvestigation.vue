@@ -1,6 +1,6 @@
 <script setup>
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
-import {apiFetch} from '../../api.js'
+import {apiError, apiFetch, isPanelAccessError} from '../../api.js'
 import {formatBytes, formatClockTime, formatNumber} from '../../utils/format.js'
 import {formatLoadError, isAbortError} from '../../utils/loadError.js'
 import {useAutoRefresh} from '../../utils/useAutoRefresh.js'
@@ -92,12 +92,9 @@ let observationSettingsInitialized = false
 async function request(path, options = {}) {
   const response = await apiFetch(`api/threads/${path}`, {...options, signal: controller.signal})
   if (!response.ok) {
-    let reason = `HTTP ${response.status}`
-    if (response.headers.get('content-type')?.includes('application/json')) {
-      const body = await response.json()
-      reason = body.error || body.message || reason
-    }
-    throw new Error(reason)
+    const error = await apiError(response)
+    if (!isPanelAccessError(error)) error.message = error.body?.error || error.body?.message || error.message
+    throw error
   }
   return response
 }

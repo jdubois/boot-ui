@@ -1,10 +1,10 @@
 <script setup>
 import {computed, inject, onBeforeUnmount, onMounted, ref, useId, watch} from 'vue'
-import {getJson} from '../../api.js'
 import {formatBytes, formatNumber} from '../../utils/format.js'
 import {describeLoadError} from '../../utils/loadError.js'
 import {useConfirm} from '../../utils/useConfirm.js'
 import {useLowFootprint} from '../../utils/useLowFootprint.js'
+import {panelActionReason} from '../../utils/panelState.js'
 
 // Shared "Low-footprint mode" header toggle for every panel that analyzes JVM memory. BootUI's
 // own capture buffers (runtime journal, traces, exchanges, events…) live in the same heap the panel
@@ -45,12 +45,11 @@ const ownerPanel = computed(() => (panels.value?.panels ?? []).find((panel) => p
 const visible = computed(
   () => ownerPanel.value !== null && ownerPanel.value.enabled !== false && ownerPanel.value.available !== false
 )
-const readOnly = computed(() => ownerPanel.value?.readOnly === true)
-const readOnlyReason = computed(() => ownerPanel.value?.readOnlyReason || 'BootUI actions are read-only.')
+const actionReason = computed(() => panelActionReason(ownerPanel.value))
 const failedStores = computed(() => (report.value?.stores ?? []).filter((store) => !store.cleared))
 const clearedStores = computed(() => (report.value?.stores ?? []).filter((store) => store.cleared))
 const buttonTitle = computed(() => {
-  if (readOnly.value) return readOnlyReason.value
+  if (actionReason.value) return actionReason.value
   return active.value
     ? 'Resume BootUI recording and background services'
     : "Drop BootUI's buffered diagnostics, request a garbage collection, and pause BootUI's background recording"
@@ -94,7 +93,7 @@ onBeforeUnmount(() => {
 })
 
 async function toggleMode() {
-  if (busy.value || readOnly.value) return
+  if (busy.value || actionReason.value) return
   if (active.value) {
     await apply(false)
     return
@@ -119,6 +118,7 @@ async function toggleMode() {
 }
 
 async function apply(enabled) {
+  if (busy.value || actionReason.value) return
   busy.value = true
   failure.value = null
   try {
@@ -129,7 +129,7 @@ async function apply(enabled) {
     if (enabled) emit('offloaded', next.offload)
   } catch (e) {
     report.value = null
-    failure.value = e?.body?.reason || describeLoadError(e, 'Unable to change low-footprint mode').message
+    failure.value = describeLoadError(e, 'Unable to change low-footprint mode').message
     open.value = true
   } finally {
     busy.value = false
@@ -144,7 +144,7 @@ async function apply(enabled) {
         :aria-busy="busy || undefined"
         :aria-pressed="active ? 'true' : 'false'"
         :class="active ? 'btn-secondary active' : 'btn-outline-secondary'"
-        :disabled="busy || readOnly"
+        :disabled="busy || !!actionReason"
         :title="buttonTitle"
         class="btn"
         data-testid="memory-offload"
@@ -253,8 +253,8 @@ async function apply(enabled) {
           The cleared data cannot be recovered. A garbage collection request is only a hint: the JVM may defer it, and
           ignores it entirely under <code>-XX:+DisableExplicitGC</code>.
         </p>
-        <p v-if="readOnly" class="mt-2 mb-0 memory-offload__warning">
-          <i aria-hidden="true" class="bi bi-lock me-1"></i>{{ readOnlyReason }}
+        <p v-if="actionReason" class="mt-2 mb-0 memory-offload__warning">
+          <i aria-hidden="true" class="bi bi-lock me-1"></i>{{ actionReason }}
         </p>
       </div>
     </div>

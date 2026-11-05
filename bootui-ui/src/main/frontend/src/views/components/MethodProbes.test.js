@@ -72,7 +72,12 @@ function report(probes, overrides = {}) {
 }
 
 function json(body, status = 200) {
-  return {ok: status < 400, status, json: () => Promise.resolve(body)}
+  return {
+    ok: status < 400,
+    status,
+    headers: new Headers({'Content-Type': 'application/json'}),
+    json: () => Promise.resolve(body)
+  }
 }
 
 describe('Method probes', () => {

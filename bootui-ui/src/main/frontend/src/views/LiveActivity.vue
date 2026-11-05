@@ -341,7 +341,7 @@ async function useExistingDatasource() {
     confirmLabel: 'Use the existing datasource',
     danger: true
   })
-  if (!confirmed) return
+  if (!confirmed || readOnly.value || switchingToDatabase.value) return
 
   switchingToDatabase.value = true
   clearBanner()

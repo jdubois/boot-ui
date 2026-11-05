@@ -21,6 +21,22 @@ function harness(reload) {
 }
 
 describe('useDismissedRules', () => {
+  it('retains the canonical policy reason and status without reloading', async () => {
+    apiFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: 'BootUI panel access denied',
+          panel: 'dismissed-rules',
+          reason: 'BootUI is read-only.'
+        }),
+        {status: 403, headers: {'Content-Type': 'application/json'}}
+      )
+    )
+    const reload = vi.fn()
+    await expect(harness(reload).dismiss('ARCH-1')).rejects.toThrow('BootUI is read-only. (HTTP 403)')
+    expect(reload).not.toHaveBeenCalled()
+  })
+
   beforeEach(() => {
     apiFetch.mockReset()
   })

@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import {actionBusyMessage, apiFetch, getJson, isActionBusyError} from './api.js'
+import {actionBusyMessage, apiError, ApiError, apiFetch, getJson, isActionBusyError} from './api.js'
 
 function clearXsrfCookie() {
   document.cookie = 'XSRF-TOKEN=; Max-Age=0; path=/'
@@ -90,6 +90,39 @@ describe('apiFetch', () => {
 })
 
 describe('getJson', () => {
+  it('keeps canonical panel denial details and HTTP status in the error message', async () => {
+    const body = {error: 'BootUI panel access denied', panel: 'memory', reason: 'Memory is read-only.'}
+    const error = await apiError(
+      new Response(JSON.stringify(body), {
+        status: 403,
+        headers: {'Content-Type': 'application/json'}
+      })
+    )
+    expect(error.message).toBe('Memory is read-only. (HTTP 403)')
+    expect(error.body).toEqual(body)
+    expect(error.status).toBe(403)
+  })
+
+  it.each([
+    null,
+    {},
+    {reason: 'Do not expose an arbitrary reason'},
+    {error: 'Other error', reason: 'Do not expose this either'},
+    {error: 'BootUI panel access denied', reason: {}},
+    {error: 'BootUI panel access denied', reason: ' '},
+    {error: 'BootUI panel access denied', reason: ['not a string']}
+  ])('does not expose unrecognized or invalid response details: %j', (body) => {
+    expect(new ApiError(403, body).message).toBe('HTTP 403')
+  })
+
+  it.each([
+    ['text/html', '<html>Private server error</html>'],
+    ['application/json', '{not valid JSON']
+  ])('uses the HTTP fallback for %s responses', async (contentType, body) => {
+    const error = await apiError(new Response(body, {status: 403, headers: {'Content-Type': contentType}}))
+    expect(error.message).toBe('HTTP 403')
+  })
+
   beforeEach(() => {
     clearXsrfCookie()
   })
