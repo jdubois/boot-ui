@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.security;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.web.AdvisorViolationsEndpoint;
 import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
@@ -27,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @ConditionalOnClass(FilterChainProxy.class)
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/security")
-public class SecurityController implements AdvisorViolationsEndpoint {
+public class SecurityController implements SecurityAdvisorOperations {
 
     private final SecurityScanner scanner;
 
@@ -40,7 +39,14 @@ public class SecurityController implements AdvisorViolationsEndpoint {
             Environment environment,
             DismissedRulesStore dismissedRules,
             BootUiProperties properties) {
-        this(new SecurityScanner(filterChainProxies, beanFactories, environment, Clock.systemUTC()), dismissedRules);
+        this(
+                new SecurityScanner(
+                        filterChainProxies,
+                        beanFactories,
+                        environment,
+                        Clock.systemUTC(),
+                        () -> java.nio.file.Path.of(System.getProperty("user.dir", "."))),
+                dismissedRules);
         scanner.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
     }
 

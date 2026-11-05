@@ -6,6 +6,9 @@ import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
 import io.github.jdubois.bootui.engine.advisor.AdvisorRuleRefusals;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -14,6 +17,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Pure unit tests for the framework-neutral reactive Spring Security advisor: {@link
@@ -26,6 +30,98 @@ class ReactiveSecurityScannerTests {
 
     private static final int RULE_COUNT = ReactiveSecurityRuleRegistry.RULE_COUNT;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
+
+    @TempDir
+    Path projectRoot;
+
+    @Test
+    void staticOnlyFindingIsVisibleWithoutClaimingRuntimeSecurityEvidence() throws IOException {
+        Files.writeString(projectRoot.resolve("pom.xml"), "<project><modelVersion>4.0.0</modelVersion></project>");
+        ReactiveSecurityObservation empty = new ReactiveSecurityObservation(
+                List.of(),
+                List.of(),
+                false,
+                List.of(),
+                List.of(),
+                List.of(),
+                ReactiveSecurityEnvironmentSnapshot.empty(),
+                List.of());
+        ReactiveSecurityScanner scanner = ReactiveSecurityScanner.using(() -> empty, CLOCK, () -> projectRoot);
+
+        SecurityReport report = scanner.scan();
+
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.scan().analyzer()).isEqualTo("BootUI Static Security Advisor");
+        assertThat(report.disclaimer()).contains("local analyzer configuration only");
+        assertThat(report.rulesEvaluated()).isEqualTo(1);
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.results()).singleElement().satisfies(result -> {
+            assertThat(result.id()).isEqualTo("SEC-STATIC-001");
+            assertThat(result.severity()).isEqualTo("INFO");
+        });
+        assertThat(scanner.ruleViolations(
+                                "SEC-STATIC-001", report.violationDetails().scanId(), 0, null)
+                        .violationCount())
+                .isOne();
+    }
+
+    @Test
+    void staticInfoDoesNotChangeUsabilityOfObservedReactiveSecurityRules() throws IOException {
+        Files.writeString(projectRoot.resolve("pom.xml"), "<project><modelVersion>4.0.0</modelVersion></project>");
+        ReactiveSecurityObservation observation = minimalObservation();
+        SecurityReport baseline =
+                ReactiveSecurityScanner.using(() -> observation, CLOCK).scan();
+        SecurityReport withStaticCheck = ReactiveSecurityScanner.using(() -> observation, CLOCK, () -> projectRoot)
+                .scan();
+
+        assertThat(withStaticCheck.evidence()).isEqualTo(baseline.evidence());
+        assertThat(withStaticCheck.rulesEvaluated()).isEqualTo(baseline.rulesEvaluated() + 1);
+        assertThat(withStaticCheck.results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-STATIC-001");
+    }
+
+    @Test
+    void keepsReactiveCollectionErrorsWhenThereAreNoChainsAndStaticChecksRun() throws IOException {
+        Files.writeString(projectRoot.resolve("pom.xml"), "<project><modelVersion>4.0.0</modelVersion></project>");
+        ReactiveSecurityObservation failed = new ReactiveSecurityObservation(
+                List.of(),
+                List.of(),
+                false,
+                List.of(),
+                List.of(),
+                List.of(),
+                ReactiveSecurityEnvironmentSnapshot.empty(),
+                List.of("Reactive observation failed."));
+
+        SecurityReport report = ReactiveSecurityScanner.using(() -> failed, CLOCK, () -> projectRoot)
+                .scan();
+
+        assertThat(report.scan().message()).contains("Reactive observation failed.", "No local static analyzer");
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-STATIC-001");
+        assertThat(report.evidence().usable()).isFalse();
+    }
+
+    @Test
+    void preservesStaticAssessmentLimitationsWithoutRuntimeChains() throws IOException {
+        Files.writeString(projectRoot.resolve("pom.xml"), "<project");
+        ReactiveSecurityObservation empty = new ReactiveSecurityObservation(
+                List.of(),
+                List.of(),
+                false,
+                List.of(),
+                List.of(),
+                List.of(),
+                ReactiveSecurityEnvironmentSnapshot.empty(),
+                List.of());
+
+        SecurityReport report = ReactiveSecurityScanner.using(() -> empty, CLOCK, () -> projectRoot)
+                .scan();
+
+        assertThat(report.scan().analyzer()).isEqualTo("BootUI Static Security Advisor");
+        assertThat(report.evidence().limitations())
+                .contains("Static analyzer configuration could not be assessed from bounded local files.");
+    }
 
     @Test
     void allCorsViolationsRemainAvailableWithoutChangingSamplesOrRefreshingObservations() {

@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.autoconfigure.security.SpringReactiveSecurityObs
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityAdvisorService;
 import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityScanner;
+import java.nio.file.Path;
 import java.time.Clock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -81,7 +82,9 @@ public class BootUiReactiveSpringSecurityAutoConfiguration {
         SpringReactiveSecurityObservationCollector collector =
                 new SpringReactiveSecurityObservationCollector(filterChains, beanFactories, environment);
         ReactiveSecurityAdvisorService advisor = new ReactiveSecurityAdvisorService(
-                ReactiveSecurityScanner.using(collector::collect, Clock.systemUTC()), dismissedRules);
+                ReactiveSecurityScanner.using(
+                        collector::collect, Clock.systemUTC(), () -> Path.of(System.getProperty("user.dir", "."))),
+                dismissedRules);
         advisor.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
         return advisor;
     }

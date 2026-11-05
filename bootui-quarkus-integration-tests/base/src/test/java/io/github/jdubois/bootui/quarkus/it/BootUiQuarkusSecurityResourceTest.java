@@ -43,11 +43,14 @@ class BootUiQuarkusSecurityResourceTest {
         assertThat(scan.status()).isEqualTo(200);
         JsonNode scanned = scan.json();
         assertThat(scanned.path("scan").path("status").asText()).isEqualTo("PARTIAL");
-        assertThat(scanned.path("rulesEvaluated").asInt()).isEqualTo(45);
+        assertThat(scanned.path("rulesEvaluated").asInt()).isEqualTo(46);
         assertThat(scanned.path("analysisErrors")).isEmpty();
         assertThat(ruleIds(scanned))
                 .as("a no-auth Quarkus app must flag QS-AUTH-001")
                 .contains("QS-AUTH-001");
+        assertThat(ruleIds(scanned))
+                .as("the repository CodeQL workflow must suppress SEC-STATIC-001")
+                .doesNotContain("SEC-STATIC-001");
 
         Response cached = probe().get("/bootui/api/security");
         assertThat(cached.json().path("scan").path("status").asText()).isEqualTo("PARTIAL");

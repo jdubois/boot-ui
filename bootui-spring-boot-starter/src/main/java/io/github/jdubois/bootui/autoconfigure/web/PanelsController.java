@@ -653,26 +653,15 @@ public class PanelsController {
 
     private boolean securityAvailable() {
         if (isReactive()) {
-            return classPresent("org.springframework.security.web.server.SecurityWebFilterChain")
-                    && beanPresentExcluding(
-                            "org.springframework.security.web.server.SecurityWebFilterChain",
-                            "bootUiReactiveSecurityWebFilterChain");
+            return beanPresent("io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityController");
         }
-        return classPresent("org.springframework.security.web.FilterChainProxy")
-                && beanPresent("org.springframework.security.web.FilterChainProxy");
+        return beanPresent("io.github.jdubois.bootui.autoconfigure.security.StaticSecurityController")
+                || (classPresent("org.springframework.security.web.FilterChainProxy")
+                        && beanPresent("io.github.jdubois.bootui.autoconfigure.security.SecurityController"));
     }
 
     private String securityUnavailableReason() {
-        if (isReactive()) {
-            if (!classPresent("org.springframework.security.web.server.SecurityWebFilterChain")) {
-                return "Spring Security is not on the classpath";
-            }
-            return "No application SecurityWebFilterChain beans are available";
-        }
-        if (!classPresent("org.springframework.security.web.FilterChainProxy")) {
-            return "Spring Security not on the classpath";
-        }
-        return "No Spring Security filter chains are available";
+        return "Security Advisor controller is unavailable";
     }
 
     private boolean architectureAvailable() {

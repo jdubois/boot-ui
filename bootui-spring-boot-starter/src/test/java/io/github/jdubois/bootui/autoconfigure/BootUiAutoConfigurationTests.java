@@ -18,6 +18,7 @@ import io.github.jdubois.bootui.autoconfigure.javaagent.CodePathsController;
 import io.github.jdubois.bootui.autoconfigure.javaagent.JavaAgentController;
 import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
+import io.github.jdubois.bootui.autoconfigure.mcp.BootUiMcpTools;
 import io.github.jdubois.bootui.autoconfigure.mcp.McpServerController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.pentesting.*;
@@ -27,7 +28,9 @@ import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceInt
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.SecurityHeadersFilter;
+import io.github.jdubois.bootui.autoconfigure.security.SecurityAdvisorOperations;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
+import io.github.jdubois.bootui.autoconfigure.security.StaticSecurityController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
@@ -1247,6 +1250,22 @@ class BootUiAutoConfigurationTests {
         runner.withPropertyValues("bootui.enabled=ON")
                 .withClassLoader(new FilteredClassLoader("org.springframework.security.web.FilterChainProxy"))
                 .run(context -> assertThat(context).doesNotHaveBean(SpringSecurityController.class));
+    }
+
+    @Test
+    void exposesStaticSecurityAdvisorWhenSpringSecurityIsMissing() {
+        runner.withPropertyValues("bootui.enabled=ON")
+                .withClassLoader(new FilteredClassLoader("org.springframework.security.web.FilterChainProxy"))
+                .run(context -> {
+                    assertThat(context)
+                            .hasNotFailed()
+                            .hasSingleBean(StaticSecurityController.class)
+                            .hasSingleBean(SecurityAdvisorOperations.class)
+                            .doesNotHaveBean(SecurityController.class);
+                    assertThat(context.getBean(BootUiMcpTools.class).tools())
+                            .extracting("name")
+                            .contains("security_scan", "get_security_report", "get_security_rule_violations");
+                });
     }
 
     private static void assertLazyBean(ConfigurableListableBeanFactory beanFactory, Class<?> beanType) {

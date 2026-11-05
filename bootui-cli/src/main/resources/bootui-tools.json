@@ -1281,7 +1281,7 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Return the last completed Security advisor report without starting a new configuration scan.",
-      "description": "Return the last completed Security advisor report without starting a new configuration scan. Use this cached evidence before deciding whether an active security_scan is necessary. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_security_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
+      "description": "Return the last completed Security advisor report without starting a new configuration scan. Use this cached evidence before deciding whether an active security_scan is necessary. A static-only report checks local analyzer declarations and does not assess runtime security. sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId with get_security_rule_violations to page cached retained details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. Verify each finding before changing code.",
       "example": "bootui security report"
     },
     {
@@ -1295,8 +1295,8 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Actively review application security configuration and return prioritized findings.",
-      "description": "Actively review application security configuration and return prioritized findings. Treat results as review evidence and verify exploitability before proposing a fix. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence and violationDetails.scanId. Read the cached report with get_security_report and page a rule's retained violations with get_security_rule_violations, without scanning again.",
+      "summary": "On explicit request, review application security configuration and bounded local declarations for SpotBugs/FindSecBugs, Semgrep, SonarQube, or CodeQL.",
+      "description": "On explicit request, review application security configuration and bounded local declarations for SpotBugs/FindSecBugs, Semgrep, SonarQube, or CodeQL. BootUI never runs these tools; a static-only result does not assess runtime security. Treat results as review evidence and verify exploitability before proposing a fix. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence and violationDetails.scanId. Read the cached report with get_security_report and page a rule's retained violations with get_security_rule_violations, without scanning again.",
       "example": "bootui security scan"
     },
     {

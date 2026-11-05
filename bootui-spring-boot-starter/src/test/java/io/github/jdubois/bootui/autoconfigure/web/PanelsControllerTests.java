@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityController;
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
@@ -848,6 +849,10 @@ class PanelsControllerTests {
                     "applicationSecurityWebFilterChain",
                     org.springframework.security.web.server.SecurityWebFilterChain.class,
                     supplier);
+            org.springframework.beans.factory.support.RootBeanDefinition advisorController =
+                    new org.springframework.beans.factory.support.RootBeanDefinition(ReactiveSecurityController.class);
+            advisorController.setLazyInit(true);
+            context.registerBeanDefinition("reactiveSecurityAdvisorController", advisorController);
             context.refresh();
             PanelsController controller =
                     new PanelsController(context, context.getEnvironment(), new BootUiProperties());
@@ -861,8 +866,7 @@ class PanelsControllerTests {
     }
 
     @Test
-    void securityAdvisorStaysUnavailableOnWebFluxWithoutSpringSecurityConfigured() throws Exception {
-        // Without a WebFilterChainProxy bean, the security panel must stay unavailable with a WebFlux reason.
+    void securityAdvisorStaysUnavailableWhenNoReactiveAdvisorControllerIsRegistered() throws Exception {
         try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
             context.refresh();
             PanelsController controller =
@@ -874,7 +878,7 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.SECURITY) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.SECURITY) + ".unavailableReason")
-                            .value("No application SecurityWebFilterChain beans are available"));
+                            .value("Security Advisor controller is unavailable"));
         }
     }
 }

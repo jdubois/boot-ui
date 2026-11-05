@@ -331,6 +331,9 @@ user; BootUI's own panel and read-only gates still apply.
   advisor (QA-* rules); they keep their Spring names, shared with Spring Boot, so published CLI binaries and agent
   configurations keep working. A rule appears once per scan: in `results` when it found something, with any coverage
   gap stated on the finding and in `evidence.limitations`, or in `analysisErrors` when it could not be evaluated.
+  `security_scan` also checks local project configuration for declared SpotBugs/FindSecBugs, Semgrep, SonarQube, and
+  CodeQL setup. It never runs those tools; the static-only result does not assess runtime security. The check runs only
+  on explicit scans and stays silent when no build file exists.
 - **Cached advisor reports:** `get_architecture_report`, `get_spring_report`, `get_hibernate_report`,
   `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`,
   `get_rest_api_report`, `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report` return the last

@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityAdvisorS
 import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
 import org.springframework.boot.webflux.autoconfigure.HttpHandlerAutoConfiguration;
 import org.springframework.boot.webflux.autoconfigure.WebFluxAutoConfiguration;
@@ -77,6 +78,55 @@ class BootUiReactiveSpringSecurityAutoConfigurationTests {
                             .isEqualTo(false)
                             .jsonPath("$.chains")
                             .isEmpty();
+                });
+    }
+
+    @Test
+    void exposesStaticSecurityAdvisorWhenSpringSecurityIsMissing() {
+        new ReactiveWebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(
+                        HttpHandlerAutoConfiguration.class,
+                        WebFluxAutoConfiguration.class,
+                        BootUiReactiveAutoConfiguration.class,
+                        BootUiReactiveSpringSecurityAutoConfiguration.class,
+                        BootUiReactiveStaticSecurityAutoConfiguration.class))
+                .withUserConfiguration(TestController.class)
+                .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
+                .withClassLoader(new FilteredClassLoader("org.springframework.security"))
+                .run(context -> {
+                    assertThat(context)
+                            .hasNotFailed()
+                            .hasSingleBean(ReactiveSecurityController.class)
+                            .hasSingleBean(ReactiveSecurityAdvisorService.class);
+                    assertThat(context.getBean(ReactiveBootUiMcpTools.class).tools())
+                            .extracting("name")
+                            .contains("security_scan", "get_security_report", "get_security_rule_violations");
+                    client(context.getSourceApplicationContext())
+                            .get()
+                            .uri("/bootui/api/security")
+                            .exchange()
+                            .expectStatus()
+                            .isOk()
+                            .expectBody()
+                            .jsonPath("$.scan.status")
+                            .isEqualTo("NOT_SCANNED")
+                            .jsonPath("$.scan.analyzer")
+                            .isEqualTo("BootUI Static Security Advisor")
+                            .jsonPath("$.evidence.usable")
+                            .isEqualTo(false);
+                    client(context.getSourceApplicationContext())
+                            .post()
+                            .uri("/bootui/api/security/scan")
+                            .exchange()
+                            .expectStatus()
+                            .isOk()
+                            .expectBody()
+                            .jsonPath("$.scan.status")
+                            .isEqualTo("PARTIAL")
+                            .jsonPath("$.scan.analyzer")
+                            .isEqualTo("BootUI Static Security Advisor")
+                            .jsonPath("$.evidence.usable")
+                            .isEqualTo(false);
                 });
     }
 
@@ -171,7 +221,7 @@ class BootUiReactiveSpringSecurityAutoConfigurationTests {
                     .jsonPath("$.filterChainsAnalyzed")
                     .isEqualTo(1)
                     .jsonPath("$.rulesEvaluated")
-                    .isEqualTo(26)
+                    .isEqualTo(27)
                     .jsonPath("$.analysisErrors")
                     .isEmpty();
         });

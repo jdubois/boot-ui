@@ -3241,6 +3241,13 @@ The browser UI should not depend directly on raw Actuator response shapes. BootU
 DTOs. High-cardinality list endpoints should support bounded server-side `q` / filter / `offset` / `limit` access and
 return page metadata so the SPA can avoid fetching every row before filtering.
 
+The Security advisor (`security`, distinct from the raw `spring-security` panel) remains available on Spring MVC and
+WebFlux without Spring Security. Explicit scans also inspect bounded local configuration for declared
+SpotBugs/FindSecBugs, Semgrep, SonarQube, or CodeQL setup across all three adapters. BootUI never runs analyzers or
+resolves remote configuration; missing build files and indeterminate inspections produce no absence finding.
+`SEC-STATIC-001` is INFO advice only and does not establish runtime security evidence or a score. Cached report GETs
+do not inspect project files.
+
 #### Advisor violation pages
 
 The seven compact rule advisors (`architecture`, `hibernate`, `spring`, `rest-api`, `memory`, `security`,
@@ -3434,8 +3441,8 @@ Initial endpoints:
 | `/bootui/api/spring-security/endpoints`      | GET    | Best-effort per-endpoint authorization report                                          |
 | `/bootui/api/security-logs`                  | GET    | Recent Spring Boot audit/security events                                               |
 | `/bootui/api/security-logs/stream`           | GET    | Security Logs change notifications over Server-Sent Events (re-fetch trigger)          |
-| `/bootui/api/security`               | GET    | Latest Spring Security Advisor report                                                  |
-| `/bootui/api/security/scan`          | POST   | Run explicit Spring Security hardening checks                                          |
+| `/bootui/api/security`               | GET    | Latest cached Security Advisor report                                                  |
+| `/bootui/api/security/scan`          | POST   | Run explicit runtime security and local static-analyzer declaration checks              |
 | `/bootui/api/pentesting`                        | GET    | Latest local OWASP hygiene report                                                      |
 | `/bootui/api/pentesting/scan`                   | POST   | Run explicit bounded loopback OWASP hygiene checks                                    |
 | `/bootui/api/dismissed-rules`                   | GET    | Advisor rules and findings dismissed in `.bootui/boot-ui.yml`                          |
