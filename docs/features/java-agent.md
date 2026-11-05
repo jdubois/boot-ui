@@ -635,6 +635,12 @@ application code catches and which of them are thrown again. It records events i
 [**Caught in application code**](diagnostics.md#caught-in-application-code) section reads what became of each one. There is
 no runtime switch for it. It stays off by default because its overhead does not yet fit the default sensors' budget.
 
+With complete evidence, **Not seen rethrown or logged at WARN or above** means BootUI saw none of the other outcomes:
+the exception was not rethrown, replaced, reported, logged at `WARN` or above, handed on, re-interrupted, or retried.
+It is not proof of a bug. An intentional fallback can produce this outcome—for example, a `NumberFormatException` while
+parsing an unset optional environment setting during a request. BootUI cannot infer programmer intent from an
+exception's type, so review the handler and surrounding code before treating the row as a swallowed error.
+
 ::: details Hooks and bounds
 
 It records the caught exception's class, the handler's site (class, method, line, and declared types), its owner, and its
