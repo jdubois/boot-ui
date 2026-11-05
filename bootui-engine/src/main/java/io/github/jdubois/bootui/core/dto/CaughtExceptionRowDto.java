@@ -17,9 +17,11 @@ import java.util.List;
  * {@code pending}, its request has not settled yet. {@code counted} occurrences were only counted, past the agent's
  * per-thread bound, and are resolved under no outcome.</p>
  *
- * <p>{@code finding} is set when occurrences not rethrown or logged were seen in at least three requests, or in one for
- * an SQL, I/O, or data-access exception. It states a fact, never a verdict: the exception was not seen rethrown or
- * logged at {@code WARN} or above. No row carries an exception's message, stack trace, or identity.</p>
+ * <p>{@code status} is {@code FINDING} when the existing request threshold is met, {@code INSUFFICIENT} when one or
+ * two complete, not-rethrown-or-logged requests are below the threshold, {@code PARTIAL} when some outcomes were
+ * unknown, pending, or only counted, and {@code OBSERVED} otherwise. A finding states a fact, never a verdict: the
+ * exception was not seen rethrown or logged at {@code WARN} or above. No row carries an exception's message, stack
+ * trace, or identity.</p>
  *
  * @param id a stable key of the row's grouping
  * @param route the route template of the requests that caught it, or {@code null} when not caught under a request or
@@ -31,8 +33,12 @@ import java.util.List;
  * @param declaredTypes the types the handler declares
  * @param exceptionClass the caught exception's class
  * @param family {@code sql}, {@code io}, {@code data-access}, or {@code null}
+ * @param notRethrownOrLoggedRequests distinct requests with a complete occurrence not seen rethrown or logged
+ * @param minimumRequests requests required to make a finding: one for SQL, I/O, and data-access exceptions, three
+ *     otherwise
  * @param shapes what the handler's own code shows: {@code discards}, {@code prints-stack-trace}, {@code reinterrupts},
  *     {@code passes-as-value}, {@code throws-new}
+ * @param status {@code FINDING}, {@code INSUFFICIENT}, {@code PARTIAL}, or {@code OBSERVED}
  * @param exemplarRequestId one request that caught it, or {@code null} when HTTP Exchanges is hidden
  * @param firstSeen the first occurrence, in epoch milliseconds
  * @param lastSeen the last occurrence, in epoch milliseconds
@@ -63,6 +69,9 @@ public record CaughtExceptionRowDto(
         String unknownReason,
         List<String> shapes,
         boolean finding,
+        String status,
+        int notRethrownOrLoggedRequests,
+        int minimumRequests,
         String exemplarRequestId,
         long firstSeen,
         long lastSeen) {

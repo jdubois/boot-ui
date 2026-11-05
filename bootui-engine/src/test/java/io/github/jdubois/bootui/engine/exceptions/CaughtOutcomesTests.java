@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.CaughtExceptionRowDto;
 import io.github.jdubois.bootui.core.dto.CaughtExceptionsReport;
+import io.github.jdubois.bootui.core.dto.CaughtExceptionsSummaryDto;
 import io.github.jdubois.bootui.engine.journal.CaughtExceptionPayload;
 import io.github.jdubois.bootui.engine.journal.ExceptionPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
@@ -38,11 +39,20 @@ class CaughtOutcomesTests {
         request("r1", START, 100);
         caught("r1", START + 10, "swallow", EXIT, 11, "java.lang.IllegalStateException", null);
 
-        CaughtExceptionRowDto row = single(resolve(complete()));
+        CaughtExceptionsReport report = resolve(complete());
+        CaughtExceptionRowDto row = single(report);
 
         assertThat(row.notRethrownOrLogged()).isEqualTo(1);
+        assertThat(row.notRethrownOrLoggedRequests()).isEqualTo(1);
+        assertThat(row.minimumRequests()).isEqualTo(3);
+        assertThat(row.status()).isEqualTo("INSUFFICIENT");
         assertThat(row.unknown()).isZero();
         assertThat(row.finding()).as("one request of a family-less exception").isFalse();
+        assertThat(report.insufficient()).isEqualTo(1);
+        assertThat(report.partial()).isZero();
+        CaughtExceptionsSummaryDto summary = CaughtExceptionsSummaryDto.of(report);
+        assertThat(summary.insufficient()).isEqualTo(1);
+        assertThat(summary.partial()).isZero();
         assertThat(row.route()).isEqualTo("/api/caught");
         assertThat(row.exemplarRequestId()).isEqualTo("r1");
     }
@@ -60,6 +70,31 @@ class CaughtOutcomesTests {
 
         assertThat(report.findings()).isEqualTo(2);
         assertThat(report.rows()).allSatisfy(row -> assertThat(row.finding()).isTrue());
+        assertThat(report.rows()).allSatisfy(row -> assertThat(row.status()).isEqualTo("FINDING"));
+        assertThat(report.rows().stream()
+                        .filter(row -> "io".equals(row.method()))
+                        .findFirst()
+                        .orElseThrow())
+                .extracting(CaughtExceptionRowDto::minimumRequests)
+                .isEqualTo(1);
+        assertThat(report.insufficient()).isZero();
+        assertThat(report.partial()).isZero();
+    }
+
+    @Test
+    void twoCompleteCandidateRequestsNameTheRemainingEvidenceThreshold() {
+        for (String id : List.of("r1", "r2")) {
+            request(id, START, 100);
+            caught(id, START + 10, "swallow", EXIT, id.hashCode(), "java.lang.IllegalStateException", null);
+        }
+
+        CaughtExceptionsReport report = resolve(complete());
+        CaughtExceptionRowDto row = single(report);
+
+        assertThat(row.status()).isEqualTo("INSUFFICIENT");
+        assertThat(row.notRethrownOrLoggedRequests()).isEqualTo(2);
+        assertThat(row.minimumRequests()).isEqualTo(3);
+        assertThat(report.insufficient()).isEqualTo(1);
     }
 
     @Test
@@ -384,12 +419,63 @@ class CaughtOutcomesTests {
                         null,
                         0));
 
-        CaughtExceptionRowDto row = single(resolve(complete()));
+        CaughtExceptionsReport report = resolve(complete());
+        CaughtExceptionRowDto row = single(report);
 
         assertThat(row.counted()).isEqualTo(40);
         assertThat(row.occurrences()).isEqualTo(1);
+        assertThat(row.status()).isEqualTo("PARTIAL");
+        assertThat(report.partial()).isEqualTo(1);
+        assertThat(CaughtExceptionsSummaryDto.of(report).partial()).isEqualTo(1);
         // Its request's later occurrences were only counted: a final rethrow or log among them would go unseen.
         assertThat(row.unknownReason()).isEqualTo(CaughtOutcomes.REASON_COUNTED);
+    }
+
+    @Test
+    void countedDiscardedEventsStayPartialWhenTheirSiteHasMultipleExceptionRows() {
+        request("r1", START, 100);
+        caught("r1", START + 10, "loop", EXIT, 1, "x.A", null);
+        caught("r1", START + 20, "loop", EXIT, 2, "x.B", null);
+        add(
+                JournalSource.AGENT_CAUGHT_EXCEPTIONS,
+                START + 200,
+                "r1",
+                "t1",
+                new CaughtExceptionPayload(
+                        CaughtExceptionPayload.UNTRACKED,
+                        "com.example.Shop",
+                        "loop()V",
+                        12,
+                        List.of("x/E"),
+                        CaughtOutcomes.SHAPE_DISCARDS,
+                        null,
+                        null,
+                        40,
+                        null,
+                        null,
+                        0));
+
+        CaughtExceptionsReport report = resolve(complete());
+
+        assertThat(report.rows()).hasSize(3);
+        assertThat(report.rows())
+                .filteredOn(row -> "x.A".equals(row.exceptionClass()) || "x.B".equals(row.exceptionClass()))
+                .allSatisfy(row -> assertThat(row.counted()).isZero());
+        CaughtExceptionRowDto countedOnly = report.rows().stream()
+                .filter(row -> row.exceptionClass() == null)
+                .findFirst()
+                .orElseThrow();
+        assertThat(countedOnly.route()).isNull();
+        assertThat(countedOnly.counted()).isEqualTo(40);
+        assertThat(countedOnly.occurrences()).isZero();
+        assertThat(countedOnly.notRethrownOrLoggedRequests()).isZero();
+        assertThat(countedOnly.family()).isNull();
+        assertThat(countedOnly.minimumRequests()).isEqualTo(3);
+        assertThat(countedOnly.status()).isEqualTo("PARTIAL");
+        assertThat(countedOnly.finding()).isFalse();
+        assertThat(countedOnly.shapes()).containsExactly("discards");
+        assertThat(report.findings()).isZero();
+        assertThat(report.partial()).isEqualTo(3);
     }
 
     // ---- helpers ---------------------------------------------------------------------------------------------------
@@ -404,6 +490,7 @@ class CaughtOutcomesTests {
         assertThat(row.unknown()).as(reason).isEqualTo(3);
         assertThat(row.unknownReason()).isEqualTo(reason);
         assertThat(row.finding()).isFalse();
+        assertThat(row.status()).isEqualTo("PARTIAL");
     }
 
     private CaughtOutcomes.Context complete() {

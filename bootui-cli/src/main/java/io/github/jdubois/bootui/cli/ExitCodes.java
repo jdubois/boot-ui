@@ -18,7 +18,7 @@ public final class ExitCodes {
     /** BootUI declined to run the tool: the panel is disabled, or read-only and this is an action. */
     public static final int REFUSED = 2;
 
-    /** An advisor answered, and a retained finding is at or above the {@code --fail-on} severity. */
+    /** A {@code --fail-on} gate found a retained finding or insufficient evidence. */
     public static final int THRESHOLD = 3;
 
     private ExitCodes() {}

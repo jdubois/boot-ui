@@ -2502,6 +2502,8 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(failures).isEmpty();
         assertThat(body.path("available").asBoolean()).isFalse();
         assertThat(body.path("unavailableReason").asText()).contains("caught-exceptions sensor");
+        assertThat(body.path("insufficient").asInt()).isZero();
+        assertThat(body.path("partial").asInt()).isZero();
         assertThat(body.path("rows")).isEmpty();
     }
 

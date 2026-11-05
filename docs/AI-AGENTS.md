@@ -364,7 +364,9 @@ user; BootUI's own panel and read-only gates still apply.
   group's full stack trace, causes, and individual occurrences. With the BootUI agent's opt-in `caught-exceptions`
   sensor, `get_exceptions` also returns `caughtInCode`: counts and the top findings of the exceptions application code
   caught. A finding was not seen rethrown or logged at `WARN` or above while the evidence was complete; `unknown`
-  counts incomplete evidence, never a swallowed exception
+  counts incomplete evidence, never a swallowed exception. The summary distinguishes rows below the finding threshold
+  (`insufficient`) from rows with unknown, pending, or counted-only outcomes (`partial`); both counts can gate CI with
+  `bootui exceptions list --fail-on insufficient`
   ([Caught in application code](features/diagnostics.md#caught-in-application-code)). `get_http_exchanges`, `get_sql_traces`, and `get_rest_client_traces` read bounded buffers
   that keep recent failed and slow records longer than routine ones; each includes a `retention` object with the
   capacity and the retained, reserved, and evicted counts, so an agent can tell a partial window from "it never
@@ -473,8 +475,8 @@ read tools return short, stable facts rather than a dashboard:
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | The completed HTTP exchanges in `requests`, coverage, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, a `verify` line, and `listed`. Past the limit listed rows come first and every kind is listed once before any kind twice, and a limitation names what was left out. Then at most 8 `notExercised` routes. `query` is empty (the compact agent default, unlike the browser's complete list: it leaves several kinds out, for example time breakdowns, exception hotspots, repeated SELECTs, and garbage collection and heap rows; a limitation names each kind it left out with its count), `all` (every observation, still bounded by `limit`), `latency`, `repeated-selects`, `new`, `security`, `diff`, an observation kind such as `proxy-bypass`, or a route, table, bean, or class. Every query but the empty one also matches rows the default list leaves out |
-| `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile`. A row the default list leaves out says where its evidence is shown first among its limitations |
+| `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | The completed HTTP exchanges in `requests`, coverage, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, a `verify` line, and `listed`. The `insufficient` and `partial` counts cover every observation matching `query`, including rows omitted by `limit`, and can gate CI with `--fail-on insufficient`. For this CLI gate, omitting `--query` requests `all`; an explicit query remains scoped. Past the limit listed rows come first and every kind is listed once before any kind twice, and a limitation names what was left out. Then at most 8 `notExercised` routes. `query` is empty (the compact agent default, unlike the browser's complete list: it leaves several kinds out, for example time breakdowns, exception hotspots, repeated SELECTs, and garbage collection and heap rows; a limitation names each kind it left out with its count), `all` (every observation, still bounded by `limit`), `latency`, `repeated-selects`, `new`, `security`, `diff`, an observation kind such as `proxy-bypass`, or a route, table, bean, or class. Every query but the empty one also matches rows the default list leaves out |
+| `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile`. Its explicit `INSUFFICIENT` or `PARTIAL` status fails `--fail-on insufficient`. A row the default list leaves out says where its evidence is shown first among its limitations |
 | `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, method (`Class#method`, with parameter types such as `Class#method(String)` for one overload), repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each with their totals and a limitation naming the rest, or `AMBIGUOUS` with candidates. A bare method name, such as `applyDiscount`, resolves through Code Inventory, `AMBIGUOUS` when several classes declare it; parameters that match no overload return `NOT_FOUND` with the real overloads as `candidates`. With the BootUI agent, a method's `observed` routes are those whose requests' own call trees ran it (`observedFrom: ROUTE_TREES`, each with `executedRequests`), and `notObserved` routes ran without showing it, which proves nothing |
 | `get_runtime_run_comparison` | `bootui insights compare [<id>]` | Omitted `id` or `previous` selects this application's newest kept run, including listener-only or idle runs; another application sharing the JVM is never compared. A run id from `runs` selects another. Comparability first, then `codeChanges` (with the BootUI agent: at most 8 changed or added methods, not run yet first, each with its status and the routes that ran it), then `sideEffects` (with the agent: hosts, file patterns, processes, and variable names new, gone, or whose owner was not exercised, per sensor `COMPARED`, `PARTIAL`, or `NOT_COMPARED` with the reason; at most 8), then at most 8 route/execution behavior rows and edges; latency is left out |
 
@@ -862,8 +864,10 @@ Every tool that takes an `id` follows one convention, on Spring MVC, WebFlux, an
 
 A panel that is disabled refuses its tools before they run (CLI exit `2`); a tool this application does not advertise
 answers with why its panel is unavailable. For a CI gate, the CLI's advisor scan and report commands take
-`--fail-on <severity>` and exit `3` when a retained finding is at or above it; that option is CLI-only and is never an
-MCP argument (see [Gate on severity](CLI.md#gate-on-severity)).
+`--fail-on <severity>` and exit `3` when a retained finding is at or above it. Runtime Insights and caught-exception
+commands take `--fail-on insufficient` and exit `3` on insufficient or partial observation rows; Runtime Insights
+defaults that gate to `query=all` when `--query` is omitted. Check-level statuses are informational. Both gates are
+CLI-only and never MCP arguments (see [CLI gates](CLI.md#gate-on-insufficient-evidence)).
 
 ### Agent-sized defaults
 

@@ -25,6 +25,19 @@ class McpToolDescriptionsTests {
     }
 
     @Test
+    void runtimeAndCaughtExceptionDescriptionsNameIncompleteEvidenceStates() {
+        for (Function<String, String> descriptions :
+                List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+            assertThat(descriptions.apply("get_runtime_insights"))
+                    .contains("insufficient and partial counts", "including rows omitted by the limit");
+            assertThat(descriptions.apply("get_runtime_insight"))
+                    .contains("observation status is explicit", "partial source coverage");
+            assertThat(descriptions.apply("get_exceptions"))
+                    .contains("below the finding threshold (insufficient)", "counted only (partial)");
+        }
+    }
+
+    @Test
     void agentStatusWarnsAboutSharedTasksAfterExecutorOverflowOnEveryStack() {
         for (Function<String, String> provider :
                 List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {

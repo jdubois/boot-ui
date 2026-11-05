@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.cli;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -63,6 +64,11 @@ class FailOnTests {
 
     private static String count(String severity, long count) {
         return "{\"severity\":\"" + severity + "\",\"count\":" + count + "}";
+    }
+
+    private static String runtimeInsights(boolean available, long insufficient, long partial, long omitted) {
+        return "{\"available\":" + available + ",\"query\":\"all\",\"requests\":1,\"insufficient\":" + insufficient
+                + ",\"partial\":" + partial + ",\"observations\":[],\"omitted\":" + omitted + "}";
     }
 
     @Test
@@ -326,6 +332,159 @@ class FailOnTests {
 
         assertThat(result.exitCode).isEqualTo(ExitCodes.ERROR);
         assertThat(result.out).isEqualTo(responseBody + System.lineSeparator());
+    }
+
+    @Test
+    void runtimeInsightsGateUsesAggregateCountsEvenWhenRowsAreOmitted() {
+        responseBody = runtimeInsights(true, 1, 0, 7);
+
+        Result result = run("insights", "list", "--fail-on", "insufficient");
+
+        assertThat(result.exitCode).isEqualTo(ExitCodes.THRESHOLD);
+        assertThat(result.err).contains("1 insufficient and 0 partial");
+        assertThat(result.out).isEqualTo(responseBody + System.lineSeparator());
+    }
+
+    @Test
+    void runtimeInsightsGateFailsOnPartialEvidenceAndFailsClosedOnUnavailableOrMalformedReports() {
+        responseBody = runtimeInsights(true, 0, 2, 2);
+        assertThat(run("insights", "list", "--fail-on", "insufficient").exitCode)
+                .isEqualTo(ExitCodes.THRESHOLD);
+
+        responseBody = runtimeInsights(false, 0, 0, 0);
+        Result unavailable = run("insights", "list", "--fail-on", "insufficient");
+        assertThat(unavailable.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(unavailable.err).contains("cannot evaluate --fail-on").contains("unavailable");
+
+        responseBody = "{\"available\":true,\"insufficient\":0,\"partial\":0,\"observations\":[],\"omitted\":1.5}";
+        assertThat(run("insights", "list", "--fail-on", "insufficient").exitCode)
+                .isEqualTo(ExitCodes.ERROR);
+
+        responseBody = "{\"available\":true,\"query\":\"all\",\"requests\":1,\"insufficient\":0,\"partial\":0,"
+                + "\"observations\":[{\"status\":\"INSUFFICIENT\"}],\"omitted\":0}";
+        Result inconsistentCounts = run("insights", "list", "--fail-on", "insufficient");
+        assertThat(inconsistentCounts.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(inconsistentCounts.err).contains("aggregate counts do not match");
+
+        responseBody = "{\"available\":true,\"query\":\"all\",\"requests\":1,\"insufficient\":1,\"partial\":0,"
+                + "\"observations\":[{\"status\":\"OBSERVED\"}],\"omitted\":0}";
+        Result inflatedCounts = run("insights", "list", "--fail-on", "insufficient");
+        assertThat(inflatedCounts.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(inflatedCounts.err).contains("aggregate counts do not match");
+    }
+
+    @Test
+    void runtimeInsightsGateDefaultsToAllAndAllowsCleanEmptyResultsOnlyWithActivity() {
+        responseBody = runtimeInsights(true, 0, 0, 0);
+        Result clean = run("insights", "list", "--fail-on", "insufficient");
+        assertThat(clean.exitCode).isZero();
+        assertThat(bodies).containsExactly("{\"query\":\"all\"}");
+
+        responseBody = "{\"available\":true,\"query\":\"all\",\"requests\":0,\"insufficient\":0,\"partial\":0,"
+                + "\"observations\":[],\"omitted\":0}";
+        Result noActivity = run("insights", "list", "--fail-on", "insufficient");
+        assertThat(noActivity.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(noActivity.err).contains("empty result requires query=all and request activity");
+    }
+
+    @Test
+    void runtimeInsightsGatePreservesAnExplicitQuery() {
+        responseBody = "{\"available\":true,\"query\":\"my-filter\",\"requests\":1,\"insufficient\":0,\"partial\":0,"
+                + "\"observations\":[],\"omitted\":0}";
+
+        Result result = run("insights", "list", "--query", "my-filter", "--fail-on", "insufficient");
+
+        assertThat(result.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(result.err).contains("empty result requires query=all and request activity");
+        assertThat(bodies).containsExactly("{\"query\":\"my-filter\"}");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", " "})
+    void runtimeInsightsGatePreservesAnExplicitBlankQuery(String query) {
+        responseBody = "{\"available\":true,\"query\":\"\",\"requests\":1,\"insufficient\":0,\"partial\":0,"
+                + "\"observations\":[],\"omitted\":0}";
+
+        Result result = run("insights", "list", "--query", query, "--fail-on", "insufficient");
+
+        assertThat(result.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(result.err).contains("empty result requires query=all and request activity");
+        assertThat(bodies).containsExactly("{\"query\":\"" + query + "\"}");
+    }
+
+    @Test
+    void runtimeInsightsGateRecognizesCaseInsensitiveAllQuery() {
+        responseBody = "{\"available\":true,\"query\":\"ALL\",\"requests\":1,\"insufficient\":0,\"partial\":0,"
+                + "\"observations\":[],\"omitted\":0}";
+
+        Result result = run("insights", "list", "--query", "ALL", "--fail-on", "insufficient");
+
+        assertThat(result.exitCode).isZero();
+        assertThat(bodies).containsExactly("{\"query\":\"ALL\"}");
+    }
+
+    @Test
+    void oneRuntimeObservationUsesItsExplicitStatus() {
+        responseBody = "{\"available\":true,\"observation\":{\"status\":\"PARTIAL\"}}";
+        Result partial = run("insights", "show", "observation-1", "--fail-on", "insufficient");
+        assertThat(partial.exitCode).isEqualTo(ExitCodes.THRESHOLD);
+        assertThat(partial.err).contains("status is PARTIAL");
+
+        responseBody = "{\"available\":true,\"observation\":{\"status\":\"OBSERVED\"}}";
+        assertThat(run("insights", "show", "observation-1", "--fail-on", "insufficient").exitCode)
+                .isZero();
+
+        responseBody = "{\"available\":true,\"observation\":{\"status\":\"FUTURE\"}}";
+        Result unknown = run("insights", "show", "observation-1", "--fail-on", "insufficient");
+        assertThat(unknown.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(unknown.err).contains("status is not recognised");
+
+        responseBody = "{\"available\":true,\"observation\":{\"status\":\"UNAVAILABLE\"}}";
+        Result unavailable = run("insights", "show", "observation-1", "--fail-on", "insufficient");
+        assertThat(unavailable.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(unavailable.err).contains("status is UNAVAILABLE");
+    }
+
+    @Test
+    void caughtExceptionGateFailsOnInsufficientOrPartialRowsAndOnUnavailableEvidence() {
+        responseBody = "{\"available\":true,\"caughtInCode\":{\"available\":true,\"insufficient\":1,\"partial\":0}}";
+        Result insufficient = run("exceptions", "list", "--fail-on", "insufficient");
+        assertThat(insufficient.exitCode).isEqualTo(ExitCodes.THRESHOLD);
+
+        responseBody = "{\"available\":true,\"caughtInCode\":{\"available\":true,\"insufficient\":0,\"partial\":0}}";
+        assertThat(run("exceptions", "list", "--fail-on", "insufficient").exitCode)
+                .isZero();
+
+        responseBody = "{\"available\":true,\"caughtInCode\":{\"available\":true,\"insufficient\":0,\"partial\":1}}";
+        assertThat(run("exceptions", "list", "--fail-on", "insufficient").exitCode)
+                .isEqualTo(ExitCodes.THRESHOLD);
+
+        responseBody = "{\"available\":true,\"caughtInCode\":{\"available\":false,\"insufficient\":0,\"partial\":0}}";
+        Result unavailable = run("exceptions", "list", "--fail-on", "insufficient");
+        assertThat(unavailable.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(unavailable.err).contains("caught-exception evidence is unavailable");
+
+        responseBody = "{\"available\":true,\"caughtInCode\":null}";
+        Result noSensor = run("exceptions", "list", "--fail-on", "insufficient");
+        assertThat(noSensor.exitCode).isEqualTo(ExitCodes.ERROR);
+        assertThat(noSensor.err).contains("caught-exception evidence is unavailable");
+    }
+
+    @Test
+    void insufficientCriterionIsAcceptedOnlyForEvidenceTools() {
+        assertThat(FailOnTools.INSUFFICIENT_TOOLS)
+                .containsExactlyInAnyOrder("get_exceptions", "get_runtime_insight", "get_runtime_insights");
+        for (ToolManifest.Tool tool : ToolManifest.bundled().tools()) {
+            if (FailOnTools.supportsInsufficient(tool.name())) {
+                assertThat(FailOn.parse(tool.name(), "insufficient"))
+                        .as(tool.name())
+                        .isEqualTo(FailOn.Criterion.INSUFFICIENT);
+            } else {
+                assertThatThrownBy(() -> FailOn.parse(tool.name(), "insufficient"))
+                        .as(tool.name())
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
+        }
     }
 
     @Test
