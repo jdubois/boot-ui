@@ -156,6 +156,38 @@ class RuntimeInsightsServiceTests {
     }
 
     @Test
+    void repeatedSelectsUseMonotonicStartWhenCompletionEpochsTie() {
+        Child parent = executedSql("select * from orders", -999_900, 1_000_000);
+        Child repeated = executedSql("select * from lines where order_id = ?", -999_800, 1_000_000);
+        for (int i = 0; i < 3; i++) {
+            request("GET", "/api/orders/{id}", repeated, parent, repeated, repeated, repeated, repeated, repeated);
+        }
+
+        RuntimeObservationDto observation =
+                observations(service().report(), RepeatedSelects.KIND).get("GET /api/orders/{id}");
+
+        assertThat(observation).isNotNull();
+        assertThat(observation.sentence())
+                .contains("ran `select * from lines where order_id = ?` 5 or more times")
+                .contains("up to 6 times in one");
+    }
+
+    @Test
+    void delayedParentQueryIsOrderedByExecutionRatherThanJournalPublication() {
+        for (int request = 0; request < 3; request++) {
+            Child[] children = new Child[6];
+            for (int repeat = 0; repeat < 5; repeat++) {
+                long start = 200L + repeat * 100L;
+                children[repeat] = executedSql("select * from lines where order_id = ?", start, 10L);
+            }
+            children[5] = executedSql("select * from orders", 100L, 10L);
+            request("GET", "/api/orders/{id}", children);
+        }
+
+        assertThat(observations(service().report(), RepeatedSelects.KIND)).containsKey("GET /api/orders/{id}");
+    }
+
+    @Test
     void anObservationsIdIsStableAcrossRefreshesAndItsDetailListsItsEvidence() {
         for (int i = 0; i < 3; i++) {
             request(
@@ -1212,6 +1244,24 @@ class RuntimeInsightsServiceTests {
 
     private static Child[] failedWrite(String sql) {
         return new Child[] {new Child(JournalSource.SQL, 1_000_000, new SqlPayload(sql, null, "db", true))};
+    }
+
+    private static Child executedSql(String sql, long startNanos, long durationNanos) {
+        return new Child(
+                JournalSource.SQL,
+                durationNanos,
+                new SqlPayload(
+                        sql,
+                        null,
+                        "db",
+                        false,
+                        null,
+                        null,
+                        startNanos + durationNanos,
+                        0,
+                        SqlPayload.Provenance.EXECUTION,
+                        1,
+                        null));
     }
 
     private static Child connection(String dataSource, long checkoutNanos, long heldNanos) {

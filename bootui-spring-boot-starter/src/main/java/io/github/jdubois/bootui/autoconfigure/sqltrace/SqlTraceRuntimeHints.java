@@ -8,9 +8,9 @@ import org.springframework.aot.hint.RuntimeHintsRegistrar;
  * Registers the JDK dynamic proxies created by {@link SqlTracingProxies} as GraalVM native-image
  * proxy metadata.
  *
- * <p>SQL tracing wraps the application's {@code DataSource}, its {@code Connection}s, and the
- * {@code Statement}/{@code PreparedStatement}/{@code CallableStatement} objects they create with
- * {@link java.lang.reflect.Proxy} instances. The native-image build can only materialize a JDK proxy
+ * <p>SQL tracing wraps the application's {@code DataSource}, its {@code Connection}s, the
+ * {@code Statement}/{@code PreparedStatement}/{@code CallableStatement} objects they create, and their
+ * {@code ResultSet}s with {@link java.lang.reflect.Proxy} instances. The native-image build can only materialize a JDK proxy
  * class if the exact, ordered interface set is known at build time, so each proxy that BootUI creates
  * is declared here using the same fixed interface arrays the runtime uses. Keeping these registrations
  * driven by the {@code SqlTracingProxies.*_INTERFACES} constants guarantees they cannot drift apart.</p>
@@ -29,5 +29,6 @@ public class SqlTraceRuntimeHints implements RuntimeHintsRegistrar {
         hints.proxies().registerJdkProxy(SqlTracingProxies.statementInterfaces());
         hints.proxies().registerJdkProxy(SqlTracingProxies.preparedStatementInterfaces());
         hints.proxies().registerJdkProxy(SqlTracingProxies.callableStatementInterfaces());
+        hints.proxies().registerJdkProxy(SqlTracingProxies.resultSetInterfaces());
     }
 }

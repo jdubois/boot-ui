@@ -60,7 +60,7 @@ class SqlProvenanceTests {
             assertThat(interned.toString()).contains("provenance=" + provenance);
             assertThat(interned.executed()).isEqualTo(provenance == Provenance.EXECUTION);
             assertThat(original.estimatedBytes())
-                    .isEqualTo(56
+                    .isEqualTo(64
                             + JournalDictionary.retained(null, "select ?")
                             + JournalDictionary.retained(null, "Repo.find:1")
                             + JournalDictionary.retained(null, "db"));

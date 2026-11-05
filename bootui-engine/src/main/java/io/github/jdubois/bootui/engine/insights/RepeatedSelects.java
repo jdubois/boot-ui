@@ -75,7 +75,7 @@ public final class RepeatedSelects implements Observation {
             + " fewer than " + MIN_REPEATS + " times before.";
 
     static final String RESULT_SIZE_UNRECORDED =
-            "Whether the repeat count tracks a parent result size is not" + " recorded: statements carry no row count.";
+            "JDBC row counts, when known, do not establish how many entities or response items a query produced.";
 
     private volatile IntFunction<String> methodKeys;
     private volatile BiFunction<String, Integer, IssuingMethod> issuingMethods;
@@ -148,7 +148,10 @@ public final class RepeatedSelects implements Observation {
         TransactionWindows windows = transactionsPlaceable ? new TransactionWindows(request) : null;
         Map<String, Repeat> counts = new LinkedHashMap<>();
         String firstFingerprint = null;
-        for (RuntimeEvent event : request.children(JournalSource.SQL)) {
+        List<RuntimeEvent> sqlEvents = new ArrayList<>(request.children(JournalSource.SQL));
+        sqlEvents.sort(
+                Comparator.comparingLong(RepeatedSelects::startNanos).thenComparingLong(RuntimeEvent::epochMillis));
+        for (RuntimeEvent event : sqlEvents) {
             if (!(event.payload() instanceof SqlPayload sql) || !sql.executed()) {
                 continue;
             }
@@ -170,6 +173,17 @@ public final class RepeatedSelects implements Observation {
         return counts.values().stream()
                 .filter(repeat -> repeat.executions() >= MIN_REPEATS)
                 .toList();
+    }
+
+    private static long startNanos(RuntimeEvent event) {
+        if (!(event.payload() instanceof SqlPayload sql) || sql.completedNanos() < 0 || event.durationNanos() < 0) {
+            return Long.MAX_VALUE;
+        }
+        try {
+            return Math.subtractExact(sql.completedNanos(), event.durationNanos());
+        } catch (ArithmeticException ex) {
+            return Long.MAX_VALUE;
+        }
     }
 
     private Finding finding(

@@ -24,6 +24,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
@@ -137,14 +138,17 @@ class SqlTracingProxiesTests {
         DataSource ds = mock(DataSource.class);
         Connection connection = mock(Connection.class);
         PreparedStatement statement = mock(PreparedStatement.class);
+        ResultSet rs = mock(ResultSet.class);
         when(ds.getConnection()).thenReturn(connection);
         when(connection.prepareStatement("select 1")).thenReturn(statement);
-        when(statement.executeQuery()).thenReturn(mock(ResultSet.class));
+        when(statement.executeQuery()).thenReturn(rs);
+        when(rs.getType()).thenReturn(ResultSet.TYPE_FORWARD_ONLY);
 
-        SqlTracingProxies.wrapNamed(ds, recorder, "ordersDataSource")
+        ResultSet result = SqlTracingProxies.wrapNamed(ds, recorder, "ordersDataSource")
                 .getConnection()
                 .prepareStatement("select 1")
                 .executeQuery();
+        assertThat(result.next()).isFalse();
 
         assertThat(published).singleElement().satisfies(event -> {
             assertThat(event.source()).isEqualTo(JournalSource.SQL);
@@ -198,6 +202,319 @@ class SqlTracingProxiesTests {
         assertThat(entry.category()).isEqualTo(Category.UPDATE);
         assertThat(entry.affectedRows()).isEqualTo(3L);
         assertThat(entry.parameters()).containsExactly("'alice'");
+    }
+
+    @Test
+    void publishesExactUpdateAndBatchCountsButLeavesSentinelsAndDdlUnknown() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(sqlSink(published));
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        PreparedStatement update = mock(PreparedStatement.class);
+        PreparedStatement batch = mock(PreparedStatement.class);
+        Statement ddl = mock(Statement.class);
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.prepareStatement("update account set active = ?")).thenReturn(update);
+        when(conn.prepareStatement("insert into account values (?)")).thenReturn(batch);
+        when(conn.createStatement()).thenReturn(ddl);
+        when(update.executeUpdate()).thenReturn(0);
+        when(batch.executeBatch()).thenReturn(new int[] {2, 3});
+        when(batch.executeLargeBatch()).thenReturn(new long[] {Long.MAX_VALUE, 1});
+        when(ddl.executeUpdate("create table audit_log (id bigint)")).thenReturn(0);
+
+        Connection connection = SqlTracingProxies.wrap(ds, recorder).getConnection();
+        connection.prepareStatement("update account set active = ?").executeUpdate();
+        connection.prepareStatement("insert into account values (?)").executeBatch();
+        connection.prepareStatement("insert into account values (?)").executeLargeBatch();
+        connection.createStatement().executeUpdate("create table audit_log (id bigint)");
+
+        assertThat(published)
+                .extracting(event -> ((SqlPayload) event.payload()).rowCount())
+                .containsExactly(0L, 5L, null, null);
+    }
+
+    @Test
+    void executeKeepsSentinelAndUnsupportedLargeCountsUnknownWithoutFailing() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(sqlSink(published));
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        Statement sentinel = mock(Statement.class);
+        Statement fallback = mock(Statement.class);
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.createStatement()).thenReturn(sentinel, fallback);
+        when(sentinel.execute("update account set active = false")).thenReturn(false);
+        when(sentinel.getLargeUpdateCount()).thenReturn(-1L);
+        when(fallback.execute("update account set active = true")).thenReturn(false);
+        when(fallback.getLargeUpdateCount()).thenThrow(new UnsupportedOperationException());
+        when(fallback.getUpdateCount()).thenReturn(4);
+
+        Connection connection = SqlTracingProxies.wrap(ds, recorder).getConnection();
+        assertThat(connection.createStatement().execute("update account set active = false"))
+                .isFalse();
+        assertThat(connection.createStatement().execute("update account set active = true"))
+                .isFalse();
+
+        assertThat(sqlPayloads(published)).extracting(SqlPayload::rowCount).containsExactly(null, 4L);
+        assertThat(sqlPayloads(published)).extracting(SqlPayload::failed).containsExactly(false, false);
+    }
+
+    @Test
+    void ddlAndScrollableResultSetsNeverPublishExactRowCounts() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(sqlSink(published));
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        Statement ddl = mock(Statement.class);
+        PreparedStatement scrollable = mock(PreparedStatement.class);
+        PreparedStatement unsupported = mock(PreparedStatement.class);
+        ResultSet ddlResult = mock(ResultSet.class);
+        ResultSet scrollableResult = mock(ResultSet.class);
+        ResultSet unsupportedResult = mock(ResultSet.class);
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.createStatement()).thenReturn(ddl);
+        when(conn.prepareStatement(
+                        "select id from account", ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY))
+                .thenReturn(scrollable);
+        when(conn.prepareStatement("select id from unsupported")).thenReturn(unsupported);
+        when(ddl.execute("create table audit_log (id bigint)")).thenReturn(true);
+        when(ddl.getResultSet()).thenReturn(ddlResult);
+        when(ddlResult.next()).thenReturn(false);
+        when(scrollable.executeQuery()).thenReturn(scrollableResult);
+        when(scrollableResult.getType()).thenReturn(ResultSet.TYPE_SCROLL_INSENSITIVE);
+        when(scrollableResult.next()).thenReturn(true, false);
+        when(unsupported.executeQuery()).thenReturn(unsupportedResult);
+        when(unsupportedResult.getType()).thenThrow(new SQLFeatureNotSupportedException());
+        when(unsupportedResult.next()).thenReturn(false);
+
+        Connection connection = SqlTracingProxies.wrap(ds, recorder).getConnection();
+        Statement ddlStatement = connection.createStatement();
+        assertThat(ddlStatement.execute("create table audit_log (id bigint)")).isTrue();
+        while (ddlStatement.getResultSet().next()) {
+            // Exhaustion does not make a DDL result's row count meaningful.
+        }
+        ddlStatement.close();
+        ResultSet cursor = connection
+                .prepareStatement(
+                        "select id from account", ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY)
+                .executeQuery();
+        while (cursor.next()) {
+            // Scrollable results can be repositioned, so traversal cannot prove an exact total.
+        }
+        cursor.close();
+        connection.prepareStatement("select id from unsupported").executeQuery().close();
+
+        assertThat(sqlPayloads(published)).extracting(SqlPayload::rowCount).containsExactly(null, null, null);
+    }
+
+    @Test
+    void plainStatementBatchWithDdlBeyondThePreviewRemainsUnknown() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(sqlSink(published));
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        Statement statement = mock(Statement.class);
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.createStatement()).thenReturn(statement);
+        when(statement.executeBatch()).thenReturn(new int[] {1, 0}, new int[] {1, 1, 1, 1, 1, 0, 1});
+
+        Statement batch = SqlTracingProxies.wrap(ds, recorder).getConnection().createStatement();
+        batch.addBatch("insert into account values (1)");
+        batch.addBatch("create table audit_log (id bigint)");
+        batch.executeBatch();
+        for (int i = 0; i < 6; i++) {
+            batch.addBatch("insert into account values (" + i + ")");
+        }
+        batch.addBatch("create table audit_log (id bigint)");
+        batch.executeBatch();
+
+        assertThat(sqlPayloads(published)).extracting(SqlPayload::rowCount).containsExactly(null, null);
+    }
+
+    @Test
+    void publishesQueryCountOnlyAfterForwardTraversalIsExhausted() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(sqlSink(published));
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        PreparedStatement ps = mock(PreparedStatement.class);
+        ResultSet rs = mock(ResultSet.class);
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.prepareStatement("select id from account")).thenReturn(ps);
+        when(ps.executeQuery()).thenReturn(rs);
+        when(rs.getType()).thenReturn(ResultSet.TYPE_FORWARD_ONLY);
+        when(rs.next()).thenReturn(true, true, false);
+
+        PreparedStatement statement =
+                SqlTracingProxies.wrap(ds, recorder).getConnection().prepareStatement("select id from account");
+        ResultSet result = statement.executeQuery();
+
+        assertThat(result).isNotSameAs(rs);
+        assertThat(result.getStatement()).isSameAs(statement);
+        assertThat(sqlPayloads(published)).isEmpty();
+        int rows = 0;
+        while (result.next()) {
+            rows++;
+        }
+
+        assertThat(rows).isEqualTo(2);
+        assertThat(sqlPayloads(published))
+                .singleElement()
+                .extracting(SqlPayload::rowCount)
+                .isEqualTo(2L);
+    }
+
+    @Test
+    void publishesUnknownForAnEarlyCloseOrUnsupportedCursorMovement() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(sqlSink(published));
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        PreparedStatement earlyStatement = mock(PreparedStatement.class);
+        PreparedStatement movedStatement = mock(PreparedStatement.class);
+        ResultSet earlyResult = mock(ResultSet.class);
+        ResultSet movedResult = mock(ResultSet.class);
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.prepareStatement("select id from early")).thenReturn(earlyStatement);
+        when(conn.prepareStatement("select id from moved")).thenReturn(movedStatement);
+        when(earlyStatement.executeQuery()).thenReturn(earlyResult);
+        when(movedStatement.executeQuery()).thenReturn(movedResult);
+        when(earlyResult.getType()).thenReturn(ResultSet.TYPE_FORWARD_ONLY);
+        when(movedResult.getType()).thenReturn(ResultSet.TYPE_FORWARD_ONLY);
+        when(earlyResult.next()).thenReturn(true);
+        when(movedResult.next()).thenReturn(true, false);
+
+        Connection connection = SqlTracingProxies.wrap(ds, recorder).getConnection();
+        connection.prepareStatement("select id from early").executeQuery().close();
+        ResultSet moved = connection.prepareStatement("select id from moved").executeQuery();
+        moved.beforeFirst();
+        while (moved.next()) {
+            // Exhausting after a cursor repositioning cannot establish an exact forward-traversal count.
+        }
+
+        assertThat(sqlPayloads(published)).extracting(SqlPayload::rowCount).containsExactly(null, null);
+    }
+
+    @Test
+    void connectionCommitEndsAnIncompleteResultSetWithUnknownCount() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(sqlSink(published));
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        PreparedStatement ps = mock(PreparedStatement.class);
+        ResultSet rs = mock(ResultSet.class);
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.prepareStatement("select id from account")).thenReturn(ps);
+        when(ps.executeQuery()).thenReturn(rs);
+        when(rs.getType()).thenReturn(ResultSet.TYPE_FORWARD_ONLY);
+        when(rs.next()).thenReturn(true);
+
+        Connection connection = SqlTracingProxies.wrap(ds, recorder).getConnection();
+        ResultSet result = connection.prepareStatement("select id from account").executeQuery();
+        assertThat(result.next()).isTrue();
+        connection.commit();
+
+        assertThat(sqlPayloads(published))
+                .singleElement()
+                .extracting(SqlPayload::rowCount)
+                .isNull();
+    }
+
+    @Test
+    void executeResultSetPublishesAfterStatementCloseAndKeepsItsCount() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(sqlSink(published));
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        Statement target = mock(Statement.class);
+        ResultSet rs = mock(ResultSet.class);
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.createStatement()).thenReturn(target);
+        when(target.execute("select id from account")).thenReturn(true);
+        when(target.getResultSet()).thenReturn(rs);
+        when(rs.getType()).thenReturn(ResultSet.TYPE_FORWARD_ONLY);
+        when(rs.next()).thenReturn(false);
+
+        Statement statement =
+                SqlTracingProxies.wrap(ds, recorder).getConnection().createStatement();
+        assertThat(statement.execute("select id from account")).isTrue();
+        ResultSet result = statement.getResultSet();
+        assertThat(result.next()).isFalse();
+        assertThat(sqlPayloads(published)).isEmpty();
+        statement.close();
+
+        assertThat(sqlPayloads(published))
+                .singleElement()
+                .extracting(SqlPayload::rowCount)
+                .isEqualTo(0L);
+    }
+
+    @Test
+    void reexecutionKeepsAnExhaustedExecuteResultCount() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(sqlSink(published));
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        Statement target = mock(Statement.class);
+        ResultSet first = mock(ResultSet.class);
+        ResultSet second = mock(ResultSet.class);
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.createStatement()).thenReturn(target);
+        when(target.execute("select id from account")).thenReturn(true);
+        when(target.getResultSet()).thenReturn(first, second);
+        when(first.getType()).thenReturn(ResultSet.TYPE_FORWARD_ONLY);
+        when(second.getType()).thenReturn(ResultSet.TYPE_FORWARD_ONLY);
+        when(first.next()).thenReturn(true, true, false);
+        when(second.next()).thenReturn(false);
+
+        Statement statement =
+                SqlTracingProxies.wrap(ds, recorder).getConnection().createStatement();
+        assertThat(statement.execute("select id from account")).isTrue();
+        ResultSet firstResult = statement.getResultSet();
+        while (firstResult.next()) {
+            // The first result is fully traversed before the statement is reused.
+        }
+        assertThat(statement.execute("select id from account")).isTrue();
+        ResultSet secondResult = statement.getResultSet();
+        assertThat(secondResult.next()).isFalse();
+        statement.close();
+
+        assertThat(sqlPayloads(published)).extracting(SqlPayload::rowCount).containsExactly(2L, 0L);
+    }
+
+    @Test
+    void deferredQueryIsNotPublishedIntoAReplacementSink() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        List<RuntimeEvent> original = new ArrayList<>();
+        List<RuntimeEvent> replacement = new ArrayList<>();
+        recorder.setRuntimeEventSink(sqlSink(original));
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        PreparedStatement ps = mock(PreparedStatement.class);
+        ResultSet rs = mock(ResultSet.class);
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.prepareStatement("select id from account")).thenReturn(ps);
+        when(ps.executeQuery()).thenReturn(rs);
+        when(rs.next()).thenReturn(false);
+
+        ResultSet result = SqlTracingProxies.wrap(ds, recorder)
+                .getConnection()
+                .prepareStatement("select id from account")
+                .executeQuery();
+        recorder.setRuntimeEventSink(sqlSink(replacement));
+        assertThat(result.next()).isFalse();
+
+        assertThat(sqlPayloads(original)).isEmpty();
+        assertThat(sqlPayloads(replacement)).isEmpty();
     }
 
     @Test
@@ -441,15 +758,18 @@ class SqlTracingProxiesTests {
     @Test
     void usesFixedRegistrableInterfaceSetsForEveryProxy() throws Exception {
         SqlTraceRecorder recorder = recorder();
+        recorder.setRuntimeEventSink(sqlSink(new ArrayList<>()));
         DataSource ds = mock(DataSource.class);
         Connection conn = mock(Connection.class);
         PreparedStatement ps = mock(PreparedStatement.class);
         CallableStatement cs = mock(CallableStatement.class);
         Statement stmt = mock(Statement.class);
+        ResultSet rs = mock(ResultSet.class);
         when(ds.getConnection()).thenReturn(conn);
         when(conn.prepareStatement("select 1")).thenReturn(ps);
         when(conn.prepareCall("{call p()}")).thenReturn(cs);
         when(conn.createStatement()).thenReturn(stmt);
+        when(ps.executeQuery()).thenReturn(rs);
 
         DataSource traced = SqlTracingProxies.wrap(ds, recorder);
         Connection c = traced.getConnection();
@@ -464,6 +784,32 @@ class SqlTracingProxiesTests {
                 .containsExactly(SqlTracingProxies.CALLABLE_STATEMENT_INTERFACES);
         assertThat(c.createStatement().getClass().getInterfaces())
                 .containsExactly(SqlTracingProxies.STATEMENT_INTERFACES);
+        ResultSet result = c.prepareStatement("select 1").executeQuery();
+        assertThat(result.getClass().getInterfaces()).containsExactly(SqlTracingProxies.resultSetInterfaces());
+    }
+
+    private static RuntimeEventSink sqlSink(List<RuntimeEvent> published) {
+        return new RuntimeEventSink() {
+            @Override
+            public boolean offer(RuntimeEvent event) {
+                if (event.source() == JournalSource.SQL) {
+                    published.add(event);
+                }
+                return true;
+            }
+
+            @Override
+            public boolean records(JournalSource source) {
+                return source == JournalSource.SQL;
+            }
+        };
+    }
+
+    private static List<SqlPayload> sqlPayloads(List<RuntimeEvent> events) {
+        return events.stream()
+                .filter(event -> event.source() == JournalSource.SQL)
+                .map(event -> (SqlPayload) event.payload())
+                .toList();
     }
 
     @Test

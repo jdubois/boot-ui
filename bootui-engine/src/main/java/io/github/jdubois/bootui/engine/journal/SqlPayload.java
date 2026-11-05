@@ -22,6 +22,7 @@ import java.util.Objects;
  *     for a JDBC batch of {@code N} (a batch of one is indistinguishable from an ordinary execution), and {@code 0} when
  *     unknown, which is always so for a preparation or a publisher that does not know; unknown is never read as
  *     unbatched ({@code unbatched-write-loop})
+ * @param rowCount the exact JDBC-reported rows updated, or fully traversed rows returned, or {@code null} when unknown
  */
 public record SqlPayload(
         String sql,
@@ -33,7 +34,8 @@ public record SqlPayload(
         long completedNanos,
         long codePathStamp,
         Provenance provenance,
-        int batchSize)
+        int batchSize,
+        Long rowCount)
         implements RuntimeEventPayload {
 
     public enum Provenance {
@@ -46,6 +48,10 @@ public record SqlPayload(
         provenance = provenance == null ? Provenance.UNKNOWN : provenance;
         // Only an observed execution knows its batch size.
         batchSize = provenance == Provenance.EXECUTION ? Math.max(0, batchSize) : 0;
+        // Only a successful execution can have an observed row count.
+        if (provenance != Provenance.EXECUTION || failed || (rowCount != null && rowCount < 0)) {
+            rowCount = null;
+        }
     }
 
     /** Whether the feeder observed a JDBC execution, including one timed as zero nanoseconds. */
@@ -73,7 +79,8 @@ public record SqlPayload(
                         && Objects.equals(frames, that.frames)
                         && phase == that.phase
                         && provenance == that.provenance
-                        && batchSize == that.batchSize;
+                        && batchSize == that.batchSize
+                        && Objects.equals(rowCount, that.rowCount);
     }
 
     @Override
@@ -88,7 +95,8 @@ public record SqlPayload(
                 completedNanos,
                 codePathStamp,
                 provenance,
-                batchSize);
+                batchSize,
+                rowCount);
     }
 
     @Override
@@ -96,7 +104,50 @@ public record SqlPayload(
         return "SqlPayload[sql=" + sql + ", callSite=" + callSite() + ", dataSource=" + dataSource + ", failed="
                 + failed
                 + ", frames=" + frames + ", phase=" + phase + ", completedNanos=" + completedNanos + ", codePathStamp="
-                + codePathStamp + ", provenance=" + provenance + ", batchSize=" + batchSize + "]";
+                + codePathStamp + ", provenance=" + provenance + ", batchSize=" + batchSize + ", rowCount=" + rowCount
+                + "]";
+    }
+
+    /** A statement with an exact observed row count, or {@code null} when the JDBC result was not exact. */
+    public SqlPayload withRowCount(Long observedRowCount) {
+        return new SqlPayload(
+                sql,
+                callSite,
+                dataSource,
+                failed,
+                frames,
+                phase,
+                completedNanos,
+                codePathStamp,
+                provenance,
+                batchSize,
+                observedRowCount);
+    }
+
+    /** Retains the constructor contract from before row counts were recorded. */
+    public SqlPayload(
+            String sql,
+            String callSite,
+            String dataSource,
+            boolean failed,
+            ApplicationFrames frames,
+            RequestPhase phase,
+            long completedNanos,
+            long codePathStamp,
+            Provenance provenance,
+            int batchSize) {
+        this(
+                sql,
+                callSite,
+                dataSource,
+                failed,
+                frames,
+                phase,
+                completedNanos,
+                codePathStamp,
+                provenance,
+                batchSize,
+                null);
     }
 
     /**
@@ -123,7 +174,8 @@ public record SqlPayload(
                 completedNanos,
                 codePathStamp,
                 provenance,
-                provenance == Provenance.EXECUTION ? 1 : 0);
+                provenance == Provenance.EXECUTION ? 1 : 0,
+                null);
     }
 
     /** A JDBC execution, preserving the original constructor's contract. */
@@ -180,7 +232,8 @@ public record SqlPayload(
                 completedNanos,
                 codePathStamp,
                 provenance,
-                batchSize);
+                batchSize,
+                rowCount);
     }
 
     /** Its fixed part and its strings, each counted as the payload's own. */
@@ -192,7 +245,8 @@ public record SqlPayload(
     /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
     @Override
     public int estimatedBytes(JournalDictionary dictionary) {
-        return 56
+        return 64
+                + (rowCount == null ? 0 : 16)
                 + JournalDictionary.retained(dictionary, sql)
                 + JournalDictionary.retained(dictionary, callSite())
                 + JournalDictionary.retained(dictionary, dataSource)

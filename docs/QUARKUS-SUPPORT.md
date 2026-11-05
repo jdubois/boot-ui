@@ -462,7 +462,9 @@ leaves out unverified preparations and names the limitation; timed JDBC executio
 The SQL feeders carry explicit provenance: the inspector records preparation, while the JDBC proxy records execution,
 even when its measured duration is zero. Preparation rows remain in SQL Trace and journal timelines with execution
 explicitly unverified, but do not count toward execution statistics, rankings, N+1 badges, observed table access, or confirmed
-`event-loop-blocking`. A mixed ORM and manual-JDBC application retains both sources without a global ORM/Quarkus flag.
+`event-loop-blocking`. JDBC row counts are exact only for reported update/batch counts or result sets traversed forward to
+exhaustion; partial or repositioned cursors and Hibernate preparations remain unknown. A mixed ORM and manual-JDBC
+application retains both sources without a global ORM/Quarkus flag.
 
 ::: details The optional durable JDBC persistence backend
 
