@@ -214,6 +214,19 @@ body {
   align-self: center;
 }
 
+/* Search is teleported outside the page shell; its surfaces must not inherit
+   the transparent page backgrounds, including result headings and suggestions. */
+.vp-search-modal-wrapper {
+  --vp-c-bg: var(--bootui-surface-solid);
+  --vp-c-bg-alt: var(--bootui-surface-alt);
+}
+
+.vp-search-mask {
+  background: rgba(15, 23, 42, 0.48);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 .vp-navbar .vp-navbar-item > .auto-link,
 .vp-navbar .auto-link.external-link,
 .vp-toggle-color-mode-button {
