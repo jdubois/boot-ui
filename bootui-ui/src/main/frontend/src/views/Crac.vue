@@ -1,7 +1,7 @@
 <script setup>
 import 'bootstrap/js/dist/collapse'
 import {computed, onMounted, ref} from 'vue'
-import {actionBusyMessage, apiFetch, getJson, isActionBusyError} from '../api.js'
+import {actionBusyMessage, getJson, isActionBusyError} from '../api.js'
 import {formatClockTime} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {resolveBootUiApiUrl} from '../utils/bootUiPath.js'
@@ -226,16 +226,15 @@ async function installDockerfile() {
     confirmLabel: 'Write file',
     danger: true
   })
-  if (!ok) return
+  if (!ok || readOnly.value) return
   installingDockerfile.value = true
   try {
-    const res = await apiFetch('api/crac/dockerfile/install', {method: 'POST'})
-    dockerInstallResult.value = await res.json()
+    dockerInstallResult.value = await getJson('api/crac/dockerfile/install', {method: 'POST'})
   } catch (e) {
     dockerInstallResult.value = {
       installed: false,
       status: 'ERROR',
-      message: describeLoadError(e, 'Unable to write Dockerfile-crac'),
+      message: describeLoadError(e, 'Unable to write Dockerfile-crac').message,
       path: null
     }
   } finally {
@@ -255,16 +254,15 @@ async function installEntrypoint() {
     confirmLabel: 'Write file',
     danger: true
   })
-  if (!ok) return
+  if (!ok || readOnly.value) return
   installingEntrypoint.value = true
   try {
-    const res = await apiFetch('api/crac/entrypoint/install', {method: 'POST'})
-    entrypointInstallResult.value = await res.json()
+    entrypointInstallResult.value = await getJson('api/crac/entrypoint/install', {method: 'POST'})
   } catch (e) {
     entrypointInstallResult.value = {
       installed: false,
       status: 'ERROR',
-      message: describeLoadError(e, 'Unable to write checkpoint-and-run.sh'),
+      message: describeLoadError(e, 'Unable to write checkpoint-and-run.sh').message,
       path: null
     }
   } finally {
@@ -284,16 +282,15 @@ async function installBoth() {
     confirmLabel: 'Write files',
     danger: true
   })
-  if (!ok) return
+  if (!ok || readOnly.value) return
   installingBoth.value = true
   try {
-    const res = await apiFetch('api/crac/install/all', {method: 'POST'})
-    bothInstallResult.value = await res.json()
+    bothInstallResult.value = await getJson('api/crac/install/all', {method: 'POST'})
   } catch (e) {
     bothInstallResult.value = {
       installed: false,
       status: 'ERROR',
-      message: describeLoadError(e, 'Unable to write the CRaC container assets'),
+      message: describeLoadError(e, 'Unable to write the CRaC container assets').message,
       dockerfile: null,
       entrypoint: null
     }

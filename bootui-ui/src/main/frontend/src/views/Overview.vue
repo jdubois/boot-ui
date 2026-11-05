@@ -1,8 +1,9 @@
 <script setup>
 import {actionBusyMessage, getJson, isActionBusyError} from '../api.js'
 import {getBootUiApplicationPath} from '../utils/bootUiPath.js'
-import {computed, inject, onActivated, onDeactivated, onMounted, reactive, ref, watch} from 'vue'
+import {computed, inject, onActivated, onDeactivated, onMounted, reactive, ref, useId, watch} from 'vue'
 import {createPanelLookup} from '../utils/panelNavigation.js'
+import {panelActionReason} from '../utils/panelState.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {scanStatusBadgeClass, scanStatusLabel} from '../utils/scanStatus.js'
 import {
@@ -19,11 +20,16 @@ import SpinnerButton from './components/SpinnerButton.vue'
 
 const injectedPanels = inject('panels', null)
 const applicationPath = getBootUiApplicationPath()
+const runAllReasonId = `scorecard-run-all-reason-${useId()}`
 
 // Standalone mounts fetch availability; the application shell owns its injected manifest.
 const localPanels = ref(null)
 const panelsError = ref(null)
 const panelLookup = computed(() => createPanelLookup(injectedPanels?.value ?? localPanels.value))
+
+function actionReason(id) {
+  return panelActionReason(panelLookup.value.get(id))
+}
 
 function panelAvailable(id) {
   const panel = panelLookup.value.get(id)
@@ -180,6 +186,7 @@ const visibleScanners = computed(() => scannerDefs.filter((def) => panelAvailabl
 
 async function runScanner(def) {
   const state = scanners[def.id]
+  if (actionReason(def.id) || state.state === 'running') return
   const token = nextToken(def.id)
   const previousState = state.state
   state.state = 'running'
@@ -274,6 +281,7 @@ const overallBand = computed(() => {
 })
 
 async function connectGithub() {
+  if (actionReason('github') || github.state === 'running') return
   github.state = 'running'
   github.error = null
   try {
@@ -301,6 +309,17 @@ const failedCount = computed(() => visibleScanners.value.filter((def) => scanner
 const unscannedCount = computed(() => visibleScanners.value.filter((def) => scanners[def.id].state === 'idle').length)
 const incompleteCount = computed(() => visibleScanners.value.filter((def) => scanners[def.id].incomplete).length)
 const hasActions = computed(() => visibleScanners.value.length > 0 || githubVisible.value)
+const runnableScanners = computed(() => visibleScanners.value.filter((def) => !actionReason(def.id)))
+const githubRunnable = computed(() => githubVisible.value && !actionReason('github'))
+const runAllDisabledReason = computed(() => {
+  if (runnableScanners.value.length || githubRunnable.value) return null
+  if (!injectedPanels?.value && !localPanels.value)
+    return panelsError.value
+      ? 'Action permissions could not be loaded. Retry loading panel availability.'
+      : 'Waiting for panel action permissions.'
+  if (!hasActions.value) return 'No technology scanners are available for this application.'
+  return 'No scanners can run. See each card for its action restriction. Cached reports and panels remain available.'
+})
 
 const anyRunning = computed(
   () => github.state === 'running' || visibleScanners.value.some((def) => scanners[def.id].state === 'running')
@@ -326,11 +345,12 @@ const mcpServerVisible = computed(() => panelAvailable('mcp-server'))
 const showMcpTip = ref(false)
 
 async function runAll() {
+  if (runAllDisabledReason.value || anyRunning.value) return
   if (mcpServerVisible.value) showMcpTip.value = true
-  const tasks = visibleScanners.value
+  const tasks = runnableScanners.value
     .filter((def) => scanners[def.id].state !== 'running')
     .map((def) => runScanner(def))
-  if (githubVisible.value && github.state !== 'running') tasks.push(connectGithub())
+  if (githubRunnable.value && github.state !== 'running') tasks.push(connectGithub())
   await Promise.allSettled(tasks)
 }
 
@@ -457,7 +477,8 @@ watch(
               </div>
               <SpinnerButton
                 :loading="anyRunning"
-                :disabled="anyRunning || !hasActions"
+                :disabled="anyRunning || !!runAllDisabledReason"
+                :aria-describedby="runAllDisabledReason ? runAllReasonId : undefined"
                 class="btn btn-primary flex-shrink-0 align-self-start align-self-xl-center ms-xl-auto"
                 type="button"
                 :label="assessedCount > 0 ? 'Re-run all scanners' : 'Run all scanners'"
@@ -465,6 +486,9 @@ watch(
                 @click="runAll"
               />
             </div>
+            <p v-if="runAllDisabledReason" :id="runAllReasonId" class="small text-muted mt-2 mb-0">
+              {{ runAllDisabledReason }}
+            </p>
             <div class="overall-assessment d-flex flex-wrap align-items-center gap-2 mt-3 small">
               <span>
                 <strong>{{ assessedCount }} of {{ visibleScanners.length }} advisors assessed</strong>
@@ -516,6 +540,7 @@ watch(
           :status-label="github.statusLabel"
           :status-tone="github.statusTone"
           :error-message="github.error"
+          :run-disabled-reason="actionReason('github')"
         >
           <template #score>
             <template v-if="github.state === 'running'">
@@ -578,13 +603,14 @@ watch(
             </template>
           </template>
 
-          <template #actions>
+          <template #actions="{reasonId}">
             <SpinnerButton
               :loading="github.state === 'running'"
               class="btn btn-sm btn-primary"
               type="button"
               icon="bi-github"
-              :disabled="github.state === 'running'"
+              :disabled="github.state === 'running' || !!actionReason('github')"
+              :aria-describedby="reasonId"
               @click="connectGithub"
             >
               {{ github.connected && github.authenticated ? 'Refresh' : 'Connect to GitHub' }}
@@ -612,6 +638,8 @@ watch(
           :status-tone="scanners[def.id].statusTone"
           :error-message="scanners[def.id].error"
           :warning-message="scanners[def.id].warning"
+          :run-disabled="!!actionReason(def.id)"
+          :run-disabled-reason="actionReason(def.id)"
           @run="runScanner(def)"
         />
       </div>

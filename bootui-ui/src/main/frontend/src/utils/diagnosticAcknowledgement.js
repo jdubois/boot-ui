@@ -1,4 +1,4 @@
-import {ApiError, getJson} from '../api.js'
+import {ApiError, getJson, isPanelAccessError} from '../api.js'
 import {formatLoadError} from './loadError.js'
 
 const UNKNOWN_OUTCOME =
@@ -194,6 +194,7 @@ export async function getDiagnosticAcknowledgement(input, init, accepts) {
 }
 
 export function diagnosticActionError(error, context) {
+  if (isPanelAccessError(error)) return formatLoadError(error, context)
   if (error instanceof ApiError) {
     const detail = [error.body?.reason, error.body?.message, error.body?.error].find(isNonemptyString)
     return detail || error.message

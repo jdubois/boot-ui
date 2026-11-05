@@ -1,7 +1,7 @@
 import {ref} from 'vue'
 import {describe, expect, it} from 'vitest'
 
-import {useDataState, usePanelState} from './panelState.js'
+import {panelActionReason, useDataState, usePanelState} from './panelState.js'
 
 function dataState(overrides = {}) {
   const values = {
@@ -20,6 +20,18 @@ function dataState(overrides = {}) {
 }
 
 describe('panelState', () => {
+  it.each([null, {}, {id: 'memory'}, {readOnly: 'false'}])('fails closed for unresolved action policy %j', (panel) => {
+    expect(panelActionReason(panel)).toContain('Action permissions are unavailable')
+  })
+
+  it('distinguishes known writable, disabled, unavailable and read-only action targets', () => {
+    expect(panelActionReason({id: 'memory', readOnly: false})).toBeNull()
+    expect(panelActionReason({id: 'memory', enabled: false, readOnly: false})).toContain('enabled=false')
+    expect(panelActionReason({available: false, unavailableReason: 'No support'})).toBe('No support')
+    expect(panelActionReason({readOnly: true, readOnlyReason: 'Global policy'})).toBe('Global policy')
+    expect(panelActionReason({readOnly: true})).toBe('This panel is read-only.')
+  })
+
   it('derives manifest availability and read-only reasons', () => {
     const state = usePanelState({
       panel: {

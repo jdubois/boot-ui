@@ -5,6 +5,7 @@ import net from 'node:net'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {expect, test} from './fixtures.js'
+import {assertScorecardReadOnly} from '../../../bootui-spring-sample-app/e2e/scenarios/action-policy.js'
 
 /**
  * The Quarkus analogue of `bootui-spring-sample-app/e2e/tests/read-only.spec.js`, proving
@@ -87,6 +88,7 @@ test.describe('Read-only properties (Quarkus)', () => {
       await assertHttpProbeReadOnly(page, app.baseUrl, 'BootUI is read-only via bootui.read-only=true')
       await assertHeapDumpReadOnly(page, app.baseUrl, 'BootUI is read-only via bootui.read-only=true')
       await assertRestClientReadOnly(page, app.baseUrl, 'BootUI is read-only via bootui.read-only=true')
+      await assertScorecardReadOnly(page, expect, app.baseUrl, 'BootUI is read-only via bootui.read-only=true')
     } finally {
       await app.stop()
     }

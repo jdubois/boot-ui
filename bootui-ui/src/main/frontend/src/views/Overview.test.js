@@ -85,12 +85,16 @@ function mountKeptAlive(panels) {
 
 const allPanels = {
   panels: [
-    {id: 'vulnerabilities', available: true},
-    {id: 'pentesting', available: true},
-    {id: 'architecture', available: true},
-    {id: 'hibernate', available: true},
-    {id: 'database-advisor', available: true},
-    {id: 'github', available: true}
+    {id: 'memory', available: true, readOnly: false},
+    {id: 'rest-api', available: true, readOnly: false},
+    {id: 'spring', available: true, readOnly: false},
+    {id: 'security', available: true, readOnly: false},
+    {id: 'vulnerabilities', available: true, readOnly: false},
+    {id: 'pentesting', available: true, readOnly: false},
+    {id: 'architecture', available: true, readOnly: false},
+    {id: 'hibernate', available: true, readOnly: false},
+    {id: 'database-advisor', available: true, readOnly: false},
+    {id: 'github', available: true, readOnly: false}
   ]
 }
 
@@ -107,7 +111,7 @@ function onlyPanels(...available) {
       'pentesting',
       'vulnerabilities',
       'github'
-    ].map((id) => ({id, available: available.includes(id)}))
+    ].map((id) => ({id, available: available.includes(id), readOnly: false}))
   }
 }
 
@@ -122,6 +126,174 @@ function deductionRows(wrapper) {
 }
 
 describe('Overview', () => {
+  const reason = 'BootUI is read-only via bootui.read-only=true'
+  const posts = () => fetch.mock.calls.filter(([, init]) => init?.method === 'POST').map(([url]) => url)
+  const runAllButton = (wrapper) =>
+    wrapper
+      .get('.overall-card')
+      .findAll('button')
+      .find((button) => /all scanners/.test(button.text()))
+
+  it('guards duplicate events while a scan or GitHub refresh is pending', async () => {
+    document.cookie = 'XSRF-TOKEN=test-token; path=/'
+    const finish = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url, init) =>
+        init?.method === 'POST'
+          ? new Promise((resolve) => finish.push(() => resolve(new Response(JSON.stringify(severityReport([]))))))
+          : Promise.resolve(new Response(JSON.stringify(severityReport([], 'NOT_SCANNED'))))
+      )
+    )
+    const wrapper = mountOverview(onlyPanels('architecture', 'github'))
+    await flushPromises()
+    const state = wrapper.vm.$.setupState
+    const card = scannerCard(wrapper, 'Architecture')
+    card.vm.$emit('run')
+    card.vm.$emit('run')
+    const githubAction = state.connectGithub()
+    await state.connectGithub()
+    await state.runAll()
+    expect(posts().sort()).toEqual(['api/architecture/scan', 'api/github/refresh'])
+    finish.forEach((resolve) => resolve())
+    await githubAction
+    await flushPromises()
+    wrapper.unmount()
+  })
+
+  it.each([{enabled: false}, {available: false}])('guards disabled/unavailable target handlers: %j', async (policy) => {
+    stubFetch({})
+    const manifest = onlyPanels('architecture')
+    Object.assign(
+      manifest.panels.find(({id}) => id === 'architecture'),
+      policy
+    )
+    const wrapper = mountOverview(manifest)
+    await flushPromises()
+    await wrapper.vm.$.setupState.runScanner({id: 'architecture', endpoint: 'api/architecture/scan'})
+    await wrapper.vm.$.setupState.runAll()
+    expect(posts()).toEqual([])
+  })
+
+  it('keeps all read-only cards, cached scores and links without allowing any action', async () => {
+    stubFetch({'api/architecture': severityReport([{severity: 'HIGH', count: 1}])})
+    const manifest = onlyPanels(...onlyPanels().panels.map(({id}) => id))
+    manifest.panels.forEach((panel) => Object.assign(panel, {readOnly: true, readOnlyReason: reason}))
+    manifest.panels.push({id: 'overview', readOnly: false})
+    const wrapper = mountOverview(manifest)
+    await flushPromises()
+
+    expect(architectureScore(wrapper)).toBe('90')
+    expect(wrapper.findAllComponents(ScannerScoreCard)).toHaveLength(10)
+    const runAll = runAllButton(wrapper)
+    expect(runAll.element.disabled).toBe(true)
+    expect(wrapper.get(`[id="${runAll.attributes('aria-describedby')}"]`).text()).toContain('No scanners can run')
+    for (const card of wrapper.findAllComponents(ScannerScoreCard)) {
+      expect(card.get('button').element.disabled).toBe(true)
+      expect(card.get(`[id="${card.get('button').attributes('aria-describedby')}"]`).text()).toBe(reason)
+      expect(card.get('a').exists()).toBe(true)
+      card.vm.$emit('run')
+    }
+    wrapper.getComponent(Overview).vm.$.setupState.runAll()
+    wrapper.getComponent(Overview).vm.$.setupState.connectGithub()
+    await flushPromises()
+    expect(posts()).toEqual([])
+    expect(wrapper.text()).not.toContain('No technology scanners were detected')
+    expect(wrapper.find('.mcp-tip').exists()).toBe(false)
+  })
+
+  it.each([true, false])('run-all skips read-only targets when GitHub is read-only=%s', async (githubReadOnly) => {
+    stubFetch({'api/github/refresh': githubReport()})
+    const manifest = onlyPanels('architecture', 'memory', 'github')
+    manifest.panels.find(({id}) => id === 'architecture').readOnly = true
+    manifest.panels.find(({id}) => id === 'github').readOnly = githubReadOnly
+    const wrapper = mountOverview(manifest)
+    await flushPromises()
+    await runAllButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(posts().sort()).toEqual(['api/memory/scan', ...(githubReadOnly ? [] : ['api/github/refresh'])].sort())
+    expect(scannerCard(wrapper, 'Architecture').get('button').element.disabled).toBe(true)
+  })
+
+  it.each([true, false])('gates run-all for a GitHub-only manifest with read-only=%s', async (readOnly) => {
+    stubFetch({'api/github/refresh': githubReport()})
+    const manifest = onlyPanels('github')
+    Object.assign(
+      manifest.panels.find(({id}) => id === 'github'),
+      {readOnly, readOnlyReason: reason}
+    )
+    const wrapper = mountOverview(manifest)
+    await flushPromises()
+    expect(runAllButton(wrapper).element.disabled).toBe(readOnly)
+    await wrapper.vm.$.setupState.runAll()
+    await flushPromises()
+    expect(posts()).toEqual(readOnly ? [] : ['api/github/refresh'])
+  })
+
+  it('fails closed until the target policy is known and reacts to later policy changes without losing reports', async () => {
+    stubFetch({'api/architecture': severityReport([{severity: 'HIGH', count: 1}])})
+    const panels = ref(null)
+    const wrapper = mountOverview(panels)
+    await flushPromises()
+    await wrapper.vm.$.setupState.runAll()
+    scannerCard(wrapper, 'Architecture').vm.$emit('run')
+    expect(posts()).toEqual([])
+    expect(runAllButton(wrapper).element.disabled).toBe(true)
+    panels.value = {panels: [{id: 'architecture', available: true}]}
+    await flushPromises()
+    expect(scannerCard(wrapper, 'Architecture').get('button').element.disabled).toBe(true)
+    panels.value = onlyPanels('architecture', 'github')
+    await flushPromises()
+    expect(scannerCard(wrapper, 'Architecture').get('button').element.disabled).toBe(false)
+    await scannerCard(wrapper, 'GitHub').get('button').trigger('click')
+    await flushPromises()
+    const postCount = posts().length
+    panels.value.panels.forEach((panel) => Object.assign(panel, {readOnly: true, readOnlyReason: reason}))
+    await flushPromises()
+    scannerCard(wrapper, 'Architecture').vm.$emit('run')
+    await wrapper.vm.$.setupState.connectGithub()
+    await wrapper.vm.$.setupState.runAll()
+    await flushPromises()
+    expect(posts()).toHaveLength(postCount)
+    expect(architectureScore(wrapper)).toBe('90')
+    expect(scannerCard(wrapper, 'GitHub').props('state')).toBe('done')
+    panels.value = {panels: []}
+    await flushPromises()
+    scannerCard(wrapper, 'Architecture').vm.$emit('run')
+    await wrapper.vm.$.setupState.runAll()
+    expect(posts()).toHaveLength(postCount)
+  })
+
+  it('renders a late canonical denial as text with its HTTP status and retains the cached score', async () => {
+    document.cookie = 'XSRF-TOKEN=test-token; path=/'
+    const denial = `${reason} <img src=x onerror=alert(1)>`
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url, init) =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify(
+              init?.method === 'POST'
+                ? {error: 'BootUI panel access denied', panel: 'architecture', reason: denial}
+                : severityReport([{severity: 'HIGH', count: 1}])
+            ),
+            {
+              status: init?.method === 'POST' ? 403 : 200,
+              headers: {'Content-Type': 'application/json'}
+            }
+          )
+        )
+      )
+    )
+    const wrapper = mountOverview(onlyPanels('architecture'))
+    await flushPromises()
+    await scannerCard(wrapper, 'Architecture').get('button').trigger('click')
+    await flushPromises()
+    expect(scannerCard(wrapper, 'Architecture').text()).toContain(`Unable to run Architecture: ${denial} (HTTP 403)`)
+    expect(scannerCard(wrapper, 'Architecture').find('img').exists()).toBe(false)
+    expect(architectureScore(wrapper)).toBe('90')
+  })
+
   it('names the advisors that cost points and collapses the clean ones into one line', async () => {
     stubFetch({
       'api/architecture': severityReport([{severity: 'LOW', count: 1}]),
@@ -464,12 +636,19 @@ describe('Overview', () => {
     await flushPromises()
     expect(fetch.mock.calls.map(([url]) => url)).toEqual(['api/panels'])
     expect(wrapper.get('[role="alert"]').text()).toContain('Unable to load panel availability')
+    expect(runAllButton(wrapper).element.disabled).toBe(true)
+    expect(wrapper.text()).toContain('Action permissions could not be loaded.')
+    await wrapper.vm.$.setupState.runAll()
+    await wrapper.vm.$.setupState.connectGithub()
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(['api/panels'])
+    expect(wrapper.find('.mcp-tip').exists()).toBe(false)
     stubFetch({'api/panels': onlyPanels('hibernate'), 'api/hibernate': severityReport([])})
     await wrapper.get('[role="alert"] button').trigger('click')
     await flushPromises()
     expect(fetch.mock.calls.map(([url]) => url)).toEqual(['api/panels', 'api/hibernate'])
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
     expect(scannerCard(wrapper, 'Hibernate').find('.scanner-score').text()).toBe('100')
+    expect(runAllButton(wrapper).element.disabled).toBe(false)
   })
 
   it('surfaces an initial cached report failure without claiming to have a previous report', async () => {
@@ -700,7 +879,7 @@ describe('Overview', () => {
     })
     const wrapper = mountOverview({
       panels: [
-        {id: 'architecture', available: true},
+        {id: 'architecture', available: true, readOnly: false},
         {id: 'mcp-server', available: true}
       ]
     })
@@ -727,7 +906,7 @@ describe('Overview', () => {
     })
     const wrapper = mountOverview({
       panels: [
-        {id: 'architecture', available: true},
+        {id: 'architecture', available: true, readOnly: false},
         {id: 'mcp-server', available: false}
       ]
     })

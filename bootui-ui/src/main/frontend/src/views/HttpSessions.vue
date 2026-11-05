@@ -158,6 +158,7 @@ async function destroySession(session) {
 }
 
 async function mutateSession(session, action, label) {
+  if (actionsDisabled.value) return
   busy.value = `${session.sessionKey}:${action}`
   clear()
   try {

@@ -317,6 +317,10 @@ Acceptance criteria:
 - Shows a useful overview without requiring any configuration beyond adding the starter.
 - Clearly marks missing optional data as unavailable, not as an error.
 - Does not expose environment secrets.
+- Scorecard scan/connect/refresh actions use each target advisor's enabled, available, and read-only policy, not the
+  aggregate `overview` policy. Unknown target permissions fail closed. Read-only cards retain cached results,
+  navigation, and an accessible action explanation. Run-all skips prohibited targets and is disabled if none can run.
+- A late canonical panel denial displays its reason and HTTP status as text and preserves the last accepted report.
 
 ### 5.1.1 GitHub
 
@@ -342,6 +346,7 @@ Acceptance criteria:
 
 - Initial page load and `/bootui/api/panels` do not spawn subprocesses or call GitHub.
 - Outbound GitHub calls happen only through `POST /bootui/api/github/refresh` and are blocked by read-only settings.
+- Scorecard's GitHub controls, including GitHub-only run-all, honor that same target policy without hiding cached data.
 - The quotas/rate-limits drawer is hidden by default and highlights resources at quota or with 10% or less remaining.
 - Private repositories, missing credentials, rate limits, denied quota endpoints, and unsupported GitHub Enterprise
   endpoints produce stable unavailable states instead of raw errors.

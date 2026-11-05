@@ -110,7 +110,7 @@ async function clearRecording() {
     danger: true,
     irreversible: true
   })
-  if (!confirmed) return
+  if (!confirmed || props.readOnly || clearing.value) return
 
   clearing.value = true
   try {

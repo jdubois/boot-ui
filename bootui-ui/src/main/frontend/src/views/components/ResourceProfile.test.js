@@ -381,6 +381,17 @@ describe('ResourceProfile', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('disables and guards stopping an existing session when the panel becomes read-only', async () => {
+    const fetchMock = respond(running)
+    wrapper = mount(ResourceProfile)
+    await flushPromises()
+    await wrapper.setProps({readOnly: true, readOnlyReason: 'Profiling is read-only.'})
+    expect(wrapper.get('.insight-profile-stop').element.disabled).toBe(true)
+    expect(wrapper.text()).toContain('Profiling is read-only.')
+    await wrapper.vm.$.setupState.stop()
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+  })
+
   it.each(['IDLE', 'RUNNING', 'COMPLETED', 'UNAVAILABLE', 'FAILED'])('accepts a native %s report', async (state) => {
     respond({...idle, state, reason: state === 'UNAVAILABLE' || state === 'FAILED' ? 'JFR is unavailable.' : null})
     wrapper = mount(ResourceProfile)

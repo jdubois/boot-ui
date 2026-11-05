@@ -5,11 +5,24 @@ const ACTION_BUSY_ERROR = 'BootUI action already in progress'
 
 export class ApiError extends Error {
   constructor(status, body = null) {
-    super(`HTTP ${status}`)
+    super(isPanelAccessDenied(status, body) ? `${body.reason.trim()} (HTTP ${status})` : `HTTP ${status}`)
     this.name = 'ApiError'
     this.status = status
     this.body = body
   }
+}
+
+function isPanelAccessDenied(status, body) {
+  return (
+    status === 403 &&
+    body?.error === 'BootUI panel access denied' &&
+    typeof body.reason === 'string' &&
+    body.reason.trim().length > 0
+  )
+}
+
+export function isPanelAccessError(error) {
+  return error instanceof ApiError && isPanelAccessDenied(error.status, error.body)
 }
 
 /**

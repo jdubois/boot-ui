@@ -46,6 +46,27 @@ function mountButton({panels = manifest(livePanel()), props = {}} = {}) {
 }
 
 describe('MemoryOffloadButton', () => {
+  it('rechecks the owning panel after confirmation and refuses synthetic actions without a manifest', async () => {
+    let approve
+    confirm.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          approve = resolve
+        })
+    )
+    const panels = manifest(livePanel())
+    const wrapper = mountButton({panels})
+    await flushPromises()
+    const action = wrapper.vm.$.setupState.toggleMode()
+    await flushPromises()
+    panels.value = null
+    approve(true)
+    await action
+    await wrapper.vm.$.setupState.toggleMode()
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+    wrapper.unmount()
+  })
+
   let fetchMock
 
   beforeEach(() => {

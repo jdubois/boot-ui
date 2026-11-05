@@ -6,7 +6,7 @@ import HttpProbe from './HttpProbe.vue'
 
 const {apiFetch, confirm} = vi.hoisted(() => ({apiFetch: vi.fn(), confirm: vi.fn()}))
 
-vi.mock('../api.js', () => ({apiFetch}))
+vi.mock('../api.js', async (importOriginal) => ({...(await importOriginal()), apiFetch}))
 vi.mock('../utils/useConfirm.js', () => ({useConfirm: () => ({confirm})}))
 
 function deferred() {
@@ -50,6 +50,37 @@ describe('HttpProbe', () => {
     apiFetch.mockReset()
     confirm.mockReset()
     confirm.mockResolvedValue(true)
+  })
+
+  it('rechecks policy after the unsafe-probe confirmation', async () => {
+    const confirmation = deferred()
+    confirm.mockReturnValueOnce(confirmation.promise)
+    const wrapper = mount(HttpProbe, {props: {panel: {readOnly: false}}})
+    await wrapper.get('select').setValue('POST')
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(confirm).toHaveBeenCalledOnce()
+    await wrapper.setProps({panel: {readOnly: true}})
+    confirmation.resolve(true)
+    await flushPromises()
+    expect(apiFetch).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('preserves canonical denial text and status rather than treating it as a probe result', async () => {
+    apiFetch.mockResolvedValue(
+      rejected(403, {
+        error: 'BootUI panel access denied',
+        panel: 'http-probe',
+        reason: 'HTTP probes are read-only.'
+      })
+    )
+    const wrapper = mount(HttpProbe)
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('HTTP probes are read-only.')
+    expect(wrapper.text()).toContain('HTTP 403')
+    wrapper.unmount()
   })
 
   it('describes the Spring Boot app in the subtitle by default', () => {

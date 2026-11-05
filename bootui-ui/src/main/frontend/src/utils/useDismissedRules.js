@@ -1,4 +1,4 @@
-import {ApiError, apiFetch} from '../api.js'
+import {apiError, apiFetch} from '../api.js'
 import {ref} from 'vue'
 
 /**
@@ -20,7 +20,7 @@ export function useDismissedRules(reload) {
     dismissLoading.value = true
     try {
       const res = await apiFetch(`api/dismissed-rules/${encodeURIComponent(ruleId)}`, {method})
-      if (!res.ok) throw new ApiError(res.status)
+      if (!res.ok) throw await apiError(res)
       if (typeof reload === 'function') {
         await reload()
       }

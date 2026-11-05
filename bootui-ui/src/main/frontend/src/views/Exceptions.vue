@@ -1,5 +1,5 @@
 <script setup>
-import {ApiError, apiFetch, getJson} from '../api.js'
+import {ApiError, apiError, apiFetch, getJson} from '../api.js'
 import {computed, inject, nextTick, onBeforeUnmount, ref, watch} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatClockTime, formatRelative, formatNumber, shortName} from '../utils/format.js'
@@ -155,10 +155,11 @@ async function clearAll() {
     }))
   )
     return
+  if (readOnly.value || busy.value) return
   busy.value = true
   try {
     const res = await apiFetch('api/exceptions', {method: 'DELETE'})
-    if (!res.ok && res.status !== 204) throw new Error(`HTTP ${res.status}`)
+    if (!res.ok && res.status !== 204) throw await apiError(res)
     reportVersion++
     if (report.value) report.value = {...report.value, groups: [], totalExceptions: 0}
     closeDrawer()
@@ -214,7 +215,7 @@ async function changeStatus(group, status) {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({status})
     })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    if (!res.ok) throw await apiError(res)
     const updated = await res.json()
     reportVersion++
     applyUpdatedGroup(updated)

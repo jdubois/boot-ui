@@ -126,7 +126,7 @@ async function load({preserveError = false} = {}) {
 }
 
 async function act(path, message) {
-  if (disposed || busy.value || (path === PATH && props.readOnly)) return
+  if (disposed || busy.value || props.readOnly) return
   const action = ++actionEpoch
   ++readEpoch
   cancelSchedule()
@@ -186,7 +186,8 @@ onBeforeUnmount(() => {
           v-if="running"
           type="button"
           class="btn btn-sm btn-outline-secondary insight-profile-stop"
-          :disabled="busy"
+          :disabled="busy || props.readOnly"
+          :title="props.readOnly ? props.readOnlyReason : null"
           @click="stop"
         >
           Stop now
@@ -205,7 +206,7 @@ onBeforeUnmount(() => {
 
       <div aria-live="polite">
         <div v-if="error" class="alert alert-warning small mt-3 mb-0" role="alert">{{ error }}</div>
-        <p v-if="props.readOnly && !running" class="small text-muted mt-2 mb-0">{{ props.readOnlyReason }}</p>
+        <p v-if="props.readOnly" class="small text-muted mt-2 mb-0">{{ props.readOnlyReason }}</p>
         <p v-if="state === 'UNAVAILABLE'" class="small text-muted mt-3 mb-0 insight-profile-reason">
           {{ profile.reason }}
         </p>

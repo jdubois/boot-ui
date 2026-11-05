@@ -1,5 +1,6 @@
 <script setup>
 import {computed, inject, ref, useId} from 'vue'
+import {panelActionReason} from '../../utils/panelState.js'
 import {
   diagnosticActionError,
   getDiagnosticAcknowledgement,
@@ -44,9 +45,9 @@ const ownerPanel = computed(() => (panels.value?.panels ?? []).find((panel) => p
 const visible = computed(
   () => ownerPanel.value !== null && ownerPanel.value.enabled !== false && ownerPanel.value.available !== false
 )
-const readOnly = computed(() => ownerPanel.value?.readOnly === true)
 const blockedReason = computed(() => {
-  if (readOnly.value) return ownerPanel.value?.readOnlyReason || 'The Java Agent panel is read-only.'
+  const reason = panelActionReason(ownerPanel.value)
+  if (reason) return reason
   if (!props.toggle.available) return props.toggle.unavailableReason || 'This sensor cannot be switched now.'
   return null
 })
@@ -67,7 +68,7 @@ async function flip(event) {
   const target = event.target.checked
   // The switch follows the server's answer, not the click.
   event.target.checked = props.toggle.enabled
-  if (busy.value || blockedReason.value) return
+  if (!visible.value || busy.value || blockedReason.value) return
   busy.value = true
   failure.value = null
   try {

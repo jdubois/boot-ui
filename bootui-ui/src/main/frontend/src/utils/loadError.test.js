@@ -1,4 +1,5 @@
 import {describe, expect, it} from 'vitest'
+import {ApiError} from '../api.js'
 
 import {
   describeLoadError,
@@ -9,6 +10,29 @@ import {
 } from './loadError.js'
 
 describe('loadError', () => {
+  it('includes the canonical policy reason, status and request context', () => {
+    const error = new ApiError(403, {
+      error: 'BootUI panel access denied',
+      panel: 'memory',
+      reason: 'BootUI is read-only via bootui.read-only=true'
+    })
+
+    expect(formatLoadError(error, 'Unable to run Memory')).toBe(
+      'Unable to run Memory: BootUI is read-only via bootui.read-only=true (HTTP 403)'
+    )
+    expect(describeLoadError(error).serverUnreachable).toBe(false)
+  })
+
+  it('does not misclassify policy text containing a network-error phrase', () => {
+    const error = new ApiError(403, {
+      error: 'BootUI panel access denied',
+      panel: 'memory',
+      reason: 'Load failed because Memory is read-only.'
+    })
+    expect(formatLoadError(error)).toBe('Load failed because Memory is read-only. (HTTP 403)')
+    expect(describeLoadError(error).serverUnreachable).toBe(false)
+  })
+
   it('detects browser fetch failures as server unreachable', () => {
     expect(isServerUnreachableError(new TypeError('Load failed'))).toBe(true)
     expect(isServerUnreachableError('Could not load beans: Failed to fetch')).toBe(true)

@@ -146,6 +146,7 @@ async function applyAction(action, options) {
   const wasCapturing = report.value?.capturing
   try {
     if (options.confirm && !(await confirm(options.confirm))) return
+    if (readOnly.value) return
     clearBanner()
     const result = await getDiagnosticAcknowledgement(options.url, options.init, isCaptureReport)
     reportVersion++

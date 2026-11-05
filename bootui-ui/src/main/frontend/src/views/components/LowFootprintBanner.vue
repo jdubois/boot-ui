@@ -2,6 +2,7 @@
 import {computed, inject, nextTick, ref, watch} from 'vue'
 import {describeLoadError} from '../../utils/loadError.js'
 import {useLowFootprint} from '../../utils/useLowFootprint.js'
+import {panelActionReason} from '../../utils/panelState.js'
 
 // Shown on panels fed by data that low-footprint mode stops recording, so an empty or frozen panel
 // is never mistaken for a quiet application.
@@ -14,11 +15,10 @@ const success = ref(null)
 const failureNotice = ref(null)
 const successNotice = ref(null)
 const owner = computed(() => (panels.value?.panels ?? []).find((panel) => panel.id === 'live-memory') ?? null)
-const readOnly = computed(() => owner.value?.readOnly === true)
-const readOnlyReason = computed(() => owner.value?.readOnlyReason || 'BootUI actions are read-only.')
+const actionReason = computed(() => panelActionReason(owner.value))
 
 async function turnOff() {
-  if (busy.value || readOnly.value) return
+  if (busy.value || actionReason.value) return
   busy.value = true
   failure.value = null
   success.value = null
@@ -34,7 +34,7 @@ async function turnOff() {
       successNotice.value?.focus()
     }
   } catch (e) {
-    failure.value = e?.body?.reason || describeLoadError(e, 'Unable to turn off low-footprint mode').message
+    failure.value = describeLoadError(e, 'Unable to turn off low-footprint mode').message
     await nextTick()
     failureNotice.value?.focus()
   } finally {
@@ -59,8 +59,8 @@ watch(
       <strong>Paused by low-footprint mode.</strong>
       BootUI has paused capture for this data. New captured entries will appear after you resume.
       <button
-        :disabled="busy || readOnly"
-        :title="readOnly ? readOnlyReason : undefined"
+        :disabled="busy || !!actionReason"
+        :title="actionReason || undefined"
         class="btn btn-sm btn-outline-primary ms-2"
         data-testid="low-footprint-banner-off"
         type="button"
@@ -68,7 +68,7 @@ watch(
       >
         Turn off low-footprint mode
       </button>
-      <span v-if="readOnly" class="ms-2 small text-muted">{{ readOnlyReason }}</span>
+      <span v-if="actionReason" class="ms-2 small text-muted">{{ actionReason }}</span>
     </div>
     <div
       v-if="failure"

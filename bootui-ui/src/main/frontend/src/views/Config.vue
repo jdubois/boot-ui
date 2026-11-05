@@ -240,7 +240,7 @@ async function postOverride(name, value, action, onSuccess) {
   } finally {
     confirmingMutation.value = false
   }
-  if (!confirmed) return
+  if (!confirmed || readOnly.value) return
   saving.value = true
   try {
     const result = await getJson('api/config/overrides', {
@@ -278,7 +278,7 @@ async function removeOverride(name) {
   } finally {
     confirmingMutation.value = false
   }
-  if (!confirmed) return
+  if (!confirmed || readOnly.value) return
   saving.value = true
   try {
     const result = await getDiagnosticAcknowledgement(

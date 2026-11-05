@@ -106,6 +106,20 @@ describe('ThreadInvestigation', () => {
     vi.unstubAllGlobals()
   })
 
+  it('keeps canonical policy text and HTTP status when collection is denied', async () => {
+    const {wrapper} = await setup({
+      handler: (_url, init) =>
+        init?.method === 'POST'
+          ? response({error: 'BootUI panel access denied', panel: 'threads', reason: 'Threads are read-only.'}, 403)
+          : undefined
+    })
+    await wrapper.vm.$.setupState.captureSnapshot()
+    await flushPromises()
+    expect(wrapper.text()).toContain('Threads are read-only.')
+    expect(wrapper.text()).toContain('HTTP 403')
+    expect(wrapper.vm.$.setupState.inventory.available).toBe(true)
+  })
+
   it('only reads retained metadata on opening and never starts work on tab selection', async () => {
     const {wrapper, fetch} = await setup()
     await wrapper.find('#thread-investigation-tab-compare').trigger('click')

@@ -1,6 +1,6 @@
 <script setup>
 import LowFootprintBanner from './components/LowFootprintBanner.vue'
-import {apiFetch, getJson} from '../api.js'
+import {apiError, apiFetch, getJson} from '../api.js'
 import {computed, inject, ref} from 'vue'
 import {formatDuration, formatTime} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
@@ -88,10 +88,11 @@ async function clearAll() {
     }))
   )
     return
+  if (readOnly.value || busy.value) return
   busy.value = true
   try {
     const res = await apiFetch('api/traces', {method: 'DELETE'})
-    if (!res.ok && res.status !== 204) throw new Error(`HTTP ${res.status}`)
+    if (!res.ok && res.status !== 204) throw await apiError(res)
     reportVersion++
     closeDrawer()
     await loadAfterCurrent()

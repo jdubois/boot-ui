@@ -1,4 +1,14 @@
 import {computed, toValue} from 'vue'
+import {panelDisabledReason} from './panelNavigation.js'
+
+export function panelActionReason(panel) {
+  if (!panel) return 'Action permissions are unavailable. Wait for panel availability or retry loading it.'
+  if (panel.enabled === false) return panelDisabledReason(panel)
+  if (panel.available === false) return panel.unavailableReason || 'This panel is not available.'
+  if (panel.readOnly === true) return panel.readOnlyReason || 'This panel is read-only.'
+  if (panel.readOnly !== false) return 'Action permissions are unavailable for this panel.'
+  return null
+}
 
 export const panelProps = {
   panel: {
