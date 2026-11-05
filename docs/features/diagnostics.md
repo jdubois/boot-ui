@@ -169,7 +169,8 @@ counts each occurrence under one outcome, from **Rethrown** and **Logged** to **
 :::
 
 A row is a finding when occurrences not seen rethrown or logged came from at least three requests, or from one for an
-SQL, I/O, or data-access exception. Rows with one or two complete candidate requests below that threshold are
+SQL, I/O, or data-access exception (Hibernate's `JDBCException` subclasses, such as `GenericJDBCException`, count as
+SQL). Rows with one or two complete candidate requests below that threshold are
 **insufficient**; rows with unknown, pending, or counted-only outcomes are **partial**. These states are separate from
 findings and are included in the aggregate counts. `bootui exceptions list --fail-on insufficient` exits `3` when
 either state exists and exits `1` if the sensor or evidence is unavailable. A finding states a fact, never a verdict:
