@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import importlib.util
 import os
@@ -56,13 +57,31 @@ class ConsumerAcceptanceTests(unittest.TestCase):
         for module in ("bootui-engine", "bootui-ui", "bootui-spring-boot-starter"):
             source = self.root / module
             target = source / "target"
-            target.mkdir(parents=True)
+            target.mkdir(parents=True, exist_ok=True)
             (target / f"{module}-1.0.jar").write_bytes(b"candidate")
             (source / ".flattened-pom.xml").write_bytes(b"candidate pom")
             installed = repository / "com/julien-dubois/bootui" / module / "1.0"
-            installed.mkdir(parents=True)
+            installed.mkdir(parents=True, exist_ok=True)
             (installed / f"{module}-1.0.jar").write_bytes(b"candidate")
             (installed / f"{module}-1.0.pom").write_bytes(b"candidate pom")
+        for module in ("bootui-engine", "bootui-ui", "bootui-quarkus", "bootui-quarkus-deployment"):
+            source = self.root / module
+            target = source / "target"
+            target.mkdir(parents=True, exist_ok=True)
+            (target / f"{module}-1.0.jar").write_bytes(b"candidate")
+            (source / ".flattened-pom.xml").write_bytes(b"candidate pom")
+            installed = repository / "com/julien-dubois/bootui" / module / "1.0"
+            installed.mkdir(parents=True, exist_ok=True)
+            (installed / f"{module}-1.0.jar").write_bytes(b"candidate")
+            (installed / f"{module}-1.0.pom").write_bytes(b"candidate pom")
+        extension = self.root / "bootui-quarkus/target/bootui-quarkus-1.0.jar"
+        with zipfile.ZipFile(extension, "w") as archive:
+            archive.writestr(
+                "META-INF/quarkus-extension.properties",
+                "deployment-artifact=com.julien-dubois.bootui\\:bootui-quarkus-deployment\\:1.0\n",
+            )
+        installed_extension = repository / "com/julien-dubois/bootui/bootui-quarkus/1.0/bootui-quarkus-1.0.jar"
+        installed_extension.write_bytes(extension.read_bytes())
         cli = self.root / "bootui-cli/target"
         cli.mkdir(parents=True)
         (cli / "bootui-cli-1.0-all.jar").write_bytes(b"cli")
@@ -70,8 +89,25 @@ class ConsumerAcceptanceTests(unittest.TestCase):
         installed_cli.mkdir(parents=True)
         (installed_cli / "bootui-cli-1.0-all.jar").write_bytes(b"cli")
         with patch.object(acceptance, "ROOT", self.root):
-            artifacts, _ = acceptance.candidate_artifacts("1.0", repository)
-            self.assertEqual(len(artifacts), 3)
+            spring_artifacts, quarkus_artifacts, _ = acceptance.candidate_artifacts("1.0", repository)
+            self.assertEqual(len(spring_artifacts), 3)
+            self.assertEqual(len(quarkus_artifacts), 3)
+            extension = self.root / "bootui-quarkus/target/bootui-quarkus-1.0.jar"
+            with zipfile.ZipFile(extension, "w") as archive:
+                archive.writestr(
+                    "META-INF/quarkus-extension.properties",
+                    "deployment-artifact=com.julien-dubois.bootui:bootui-quarkus-deployment:published\n",
+                )
+            installed_extension = repository / "com/julien-dubois/bootui/bootui-quarkus/1.0/bootui-quarkus-1.0.jar"
+            installed_extension.write_bytes(extension.read_bytes())
+            with self.assertRaisesRegex(AssertionError, "does not reference the current deployment artifact"):
+                acceptance.candidate_artifacts("1.0", repository)
+            with zipfile.ZipFile(extension, "w") as archive:
+                archive.writestr(
+                    "META-INF/quarkus-extension.properties",
+                    "deployment-artifact=com.julien-dubois.bootui\\:bootui-quarkus-deployment\\:1.0\n",
+                )
+            installed_extension.write_bytes(extension.read_bytes())
             stale_jar = repository / "com/julien-dubois/bootui/bootui-engine/1.0/bootui-engine-1.0.jar"
             stale_jar.write_bytes(b"published")
             with self.assertRaisesRegex(AssertionError, "not the checkout's built artifact"):
@@ -82,9 +118,73 @@ class ConsumerAcceptanceTests(unittest.TestCase):
             with self.assertRaisesRegex(AssertionError, "not the checkout's flattened POM"):
                 acceptance.candidate_artifacts("1.0", repository)
             stale_pom.write_bytes(b"candidate pom")
+            stale_quarkus = installed_extension
+            stale_quarkus.write_bytes(b"published")
+            with self.assertRaisesRegex(AssertionError, "not the checkout's built artifact"):
+                acceptance.candidate_artifacts("1.0", repository)
+            stale_quarkus.write_bytes(extension.read_bytes())
+            stale_deployment = (
+                repository
+                / "com/julien-dubois/bootui/bootui-quarkus-deployment/1.0/bootui-quarkus-deployment-1.0.jar"
+            )
+            stale_deployment.write_bytes(b"published")
+            with self.assertRaisesRegex(AssertionError, "not the checkout's built artifact"):
+                acceptance.candidate_artifacts("1.0", repository)
+            stale_deployment.write_bytes(b"candidate")
             (installed_cli / "bootui-cli-1.0-all.jar").write_bytes(b"published cli")
             with self.assertRaisesRegex(AssertionError, "not the checkout's built CLI"):
                 acceptance.candidate_artifacts("1.0", repository)
+
+    def test_quarkus_fast_jar_checks_opt_in_artifacts_and_rejects_stale_jars(self):
+        project = self.root / "consumer"
+        libraries = project / "target/quarkus-app/lib/main"
+        libraries.mkdir(parents=True)
+        run_jar = project / "target/quarkus-app/quarkus-run.jar"
+        with zipfile.ZipFile(run_jar, "w"):
+            pass
+        jar = libraries / "com.julien-dubois.bootui.bootui-quarkus-1.0.jar"
+        jar.write_bytes(b"candidate")
+        for extension in ("quarkus-security", "quarkus-elytron-security-properties-file"):
+            (libraries / f"io.quarkus.{extension}-3.40.1.1.jar").write_bytes(b"diagnostic")
+        expected = {jar.name: hashlib.sha256(b"candidate").digest()}
+        acceptance.verify_quarkus_application(project, expected, diagnostic=True)
+        embedded_store = libraries / "io.quarkus.quarkus-elytron-security-properties-file-3.40.1.1.jar"
+        embedded_store.unlink()
+        with self.assertRaisesRegex(AssertionError, "unexpected quarkus-elytron-security-properties-file dependency"):
+            acceptance.verify_quarkus_application(project, expected, diagnostic=True)
+        embedded_store.write_bytes(b"diagnostic")
+        other = project / "target/quarkus-app/lib/boot/com.julien-dubois.bootui.bootui-quarkus-deployment-1.0.jar"
+        other.parent.mkdir(parents=True)
+        other.write_bytes(b"unexpected")
+        with self.assertRaisesRegex(AssertionError, "unexpected BootUI artifacts"):
+            acceptance.verify_quarkus_application(project, expected, diagnostic=True)
+        other.unlink()
+        with self.assertRaisesRegex(AssertionError, "unexpected BootUI artifacts"):
+            acceptance.verify_quarkus_application(project, {}, diagnostic=True)
+        jar.write_bytes(b"published")
+        with self.assertRaisesRegex(AssertionError, "stale"):
+            acceptance.verify_quarkus_application(project, expected, diagnostic=True)
+
+    def test_quarkus_production_fast_jar_rejects_embedded_bootui_classes(self):
+        project = self.root / "production"
+        libraries = project / "target/quarkus-app/lib/main"
+        libraries.mkdir(parents=True)
+        with zipfile.ZipFile(project / "target/quarkus-app/quarkus-run.jar", "w"):
+            pass
+        app_jar = project / "target/quarkus-app/app/consumer.jar"
+        app_jar.parent.mkdir(parents=True)
+        with zipfile.ZipFile(app_jar, "w"):
+            pass
+        store = libraries / "io.quarkus.quarkus-elytron-security-properties-file-3.40.1.1.jar"
+        store.write_bytes(b"diagnostic-only")
+        with self.assertRaisesRegex(AssertionError, "unexpected quarkus-elytron-security-properties-file dependency"):
+            acceptance.verify_quarkus_application(project, {}, diagnostic=False)
+        store.unlink()
+        acceptance.verify_quarkus_application(project, {}, diagnostic=False)
+        with zipfile.ZipFile(app_jar, "w") as archive:
+            archive.writestr("io/github/jdubois/bootui/quarkus/Leaked.class", b"leaked")
+        with self.assertRaisesRegex(AssertionError, "embeds BootUI classes"):
+            acceptance.verify_quarkus_application(project, {}, diagnostic=False)
 
     def test_running_server_must_match_the_selected_stack(self):
         mvc = "BOOTUI_CI_CONSUMER_SERVER=org.springframework.boot.tomcat.TomcatWebServer\n"
@@ -96,11 +196,19 @@ class ConsumerAcceptanceTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "did not report its web server"):
             acceptance.verify_server("", "mvc")
 
-    def test_witness_and_command_output_reject_both_sentinels(self):
+    def test_witness_and_command_output_reject_secrets_and_encoded_credentials(self):
         acceptance.require_no_sentinel("safe output", "synthetic-secret", "test output")
-        for secret in ("synthetic-secret", acceptance.FINDING_SENTINEL):
+        credential = "synthetic-secret"
+        leaked_forms = (
+            credential,
+            f"ci:{credential}",
+            base64.b64encode(credential.encode()).decode("ascii"),
+            base64.b64encode(f"ci:{credential}".encode()).decode("ascii"),
+            acceptance.FINDING_SENTINEL,
+        )
+        for secret in leaked_forms:
             with self.subTest(secret=secret), self.assertRaisesRegex(AssertionError, "leaked into test output"):
-                acceptance.require_no_sentinel(f"output {secret}", "synthetic-secret", "test output")
+                acceptance.require_no_sentinel(f"output {secret}", credential, "test output")
 
     def test_duplicate_action_outputs_are_rejected(self):
         output = self.root / "outputs"
