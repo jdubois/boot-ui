@@ -144,6 +144,9 @@ class SpringAgentScenarioIT {
         }
         JsonNode swallowed = stockRow(report, "stockOrDefault");
         assertThat(swallowed.path("finding").asBoolean()).as(report.toString()).isTrue();
+        assertThat(swallowed.path("status").asText()).isEqualTo("FINDING");
+        assertThat(swallowed.path("notRethrownOrLoggedRequests").asInt()).isPositive();
+        assertThat(swallowed.path("minimumRequests").asInt()).isEqualTo(1);
         assertThat(swallowed.path("notRethrownOrLogged").asLong()).isPositive();
         assertThat(swallowed.path("family").asText()).isEqualTo("io");
         assertThat(swallowed.path("route").asText()).isEqualTo("/api/caught/swallowed");
@@ -168,6 +171,10 @@ class SpringAgentScenarioIT {
         }
         JsonNode summary = probe.get("/bootui/api/exceptions").json().path("caughtInCode");
         assertThat(summary.path("findings").asInt()).as(summary.toString()).isPositive();
+        assertThat(summary.path("insufficient").asInt())
+                .isEqualTo(report.path("insufficient").asInt());
+        assertThat(summary.path("partial").asInt())
+                .isEqualTo(report.path("partial").asInt());
         // Never a message, a stack trace, or an identity.
         assertThat(report.toString()).doesNotContain("unavailable for console").doesNotContain("identity");
     }

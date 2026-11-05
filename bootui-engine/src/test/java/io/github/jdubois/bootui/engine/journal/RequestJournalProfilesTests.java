@@ -95,6 +95,45 @@ class RequestJournalProfilesTests {
     }
 
     @Test
+    void delayedSqlTimelineTiesUseExecutionStartRatherThanPublicationSequence() {
+        offer(child(
+                "r1",
+                JournalSource.SQL,
+                1_001,
+                5_000_000,
+                new SqlPayload("select * from lines", null, "db", false, null, null, 20_000_000, 0)));
+        offer(child(
+                "r1",
+                JournalSource.SQL,
+                1_001,
+                1_000_000,
+                new SqlPayload("select * from orders", null, "db", false, null, null, 15_000_000, 0)));
+        offer(http("r1", 1_000, 30_000_000, null));
+        journal.dispatchPending();
+
+        assertThat(profiles(null).profile("r1").timeline())
+                .extracting(RequestTimelineItemDto::label)
+                .containsExactly("select * from orders", "select * from lines");
+    }
+
+    @Test
+    void sqlMonotonicTieBreakDoesNotMoveItAheadOfNonSqlItems() {
+        offer(child("r1", JournalSource.CONNECTION, 1_001, 5_000_000, new ConnectionPayload("orders", 1_000_000, 1)));
+        offer(child(
+                "r1",
+                JournalSource.SQL,
+                1_001,
+                1_000_000,
+                new SqlPayload("select * from orders", null, "db", false, null, null, 20_000_000, 0)));
+        offer(http("r1", 1_000, 30_000_000, null));
+        journal.dispatchPending();
+
+        assertThat(profiles(null).profile("r1").timeline())
+                .extracting(RequestTimelineItemDto::label)
+                .containsExactly("Connection held from orders", "select * from orders");
+    }
+
+    @Test
     void aRequestsWorkIsPlacedAtItsStartOnOneTimelineWithItsResourcesPausesAndTouchedResources() {
         offer(gc("G1 Young Generation", 8, 1_010, 3));
         offer(child("r1", JournalSource.CONNECTION, 1_002, 20_000_000, new ConnectionPayload("orders", 500_000, 2)));

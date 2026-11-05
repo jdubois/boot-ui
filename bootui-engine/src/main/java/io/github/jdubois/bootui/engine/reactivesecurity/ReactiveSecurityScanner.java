@@ -10,8 +10,13 @@ import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
+import io.github.jdubois.bootui.engine.staticsecurity.StaticSecurityAdvisorService;
+import io.github.jdubois.bootui.engine.staticsecurity.StaticSecurityAnalysisDetector;
+import io.github.jdubois.bootui.engine.staticsecurity.StaticSecurityAnalysisRule;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
+import java.nio.file.Path;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -49,17 +54,20 @@ public final class ReactiveSecurityScanner {
             .thenComparing(SecurityRuleResultDto::id);
 
     private final Supplier<ReactiveSecurityObservation> observationSupplier;
+    private final Supplier<Path> projectRootSupplier;
+    private final StaticSecurityAnalysisDetector staticSecurityDetector = new StaticSecurityAnalysisDetector();
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
-    private final AdvisorScanState<SecurityReport> state = new AdvisorScanState<>(
-            SecurityReport::withViolationDetails,
-            () -> AdvisorScanState.ruleIds(
-                    ReactiveSecurityRuleRegistry.activeRules(),
-                    rule -> rule.definition().id()));
+    private final AdvisorScanState<SecurityReport> state =
+            new AdvisorScanState<>(SecurityReport::withViolationDetails, ReactiveSecurityScanner::ruleCatalog);
 
-    private ReactiveSecurityScanner(Supplier<ReactiveSecurityObservation> observationSupplier, Clock clock) {
+    private ReactiveSecurityScanner(
+            Supplier<ReactiveSecurityObservation> observationSupplier,
+            Clock clock,
+            Supplier<Path> projectRootSupplier) {
         this.observationSupplier = observationSupplier;
         this.clock = clock;
+        this.projectRootSupplier = projectRootSupplier;
     }
 
     /**
@@ -69,7 +77,15 @@ public final class ReactiveSecurityScanner {
      */
     public static ReactiveSecurityScanner using(
             Supplier<ReactiveSecurityObservation> observationSupplier, Clock clock) {
-        return new ReactiveSecurityScanner(observationSupplier, clock);
+        return new ReactiveSecurityScanner(observationSupplier, clock, () -> null);
+    }
+
+    /** Builds a scanner that also checks a bounded local project root after runtime rule evaluation. */
+    public static ReactiveSecurityScanner using(
+            Supplier<ReactiveSecurityObservation> observationSupplier,
+            Clock clock,
+            Supplier<Path> projectRootSupplier) {
+        return new ReactiveSecurityScanner(observationSupplier, clock, projectRootSupplier);
     }
 
     /** Returns a placeholder report before the first scan has been triggered. */
@@ -108,21 +124,74 @@ public final class ReactiveSecurityScanner {
         ReactiveSecurityObservation observation = safeObservation();
         ReactiveSecurityContext context = ReactiveSecurityContext.from(observation, collector);
         if (context.chains().isEmpty()) {
+            StaticSecurityAnalysisDetector.Inspection inspection = inspectStaticSecurity();
+            boolean staticOnly = observation.errors().isEmpty();
+            String analyzer = staticOnly ? StaticSecurityAdvisorService.ANALYZER : ANALYZER;
+            String disclaimer = staticOnly ? StaticSecurityAdvisorService.DISCLAIMER : DISCLAIMER;
             String message = observation.errors().isEmpty()
                     ? "No Spring Security SecurityWebFilterChain beans were found to inspect."
                     : "Spring Security reactive configuration could not be read: "
                             + String.join("; ", observation.errors());
-            return report("DISABLED", message, clock.millis(), 0, 0, List.of());
+            if (inspection.state() == StaticSecurityAnalysisDetector.State.NOT_APPLICABLE) {
+                return report(
+                        analyzer,
+                        disclaimer,
+                        "DISABLED",
+                        message,
+                        clock.millis(),
+                        0,
+                        0,
+                        List.of(),
+                        AdvisorEvidenceDto.unknown(),
+                        List.of());
+            }
+            List<SecurityRuleResultDto> staticFindings =
+                    inspection.state() == StaticSecurityAnalysisDetector.State.NOT_CONFIGURED
+                            ? List.of(StaticSecurityAnalysisRule.finding(collector))
+                            : List.of();
+            String staticMessage;
+            if (inspection.state() == StaticSecurityAnalysisDetector.State.CONFIGURED) {
+                staticMessage = "A recognized static analyzer is declared locally, but no Spring Security web filter "
+                        + "chain was found to inspect. BootUI does not verify analyzer execution.";
+            } else if (inspection.state() == StaticSecurityAnalysisDetector.State.NOT_CONFIGURED) {
+                staticMessage = "No Spring Security web filter chain was found to inspect. No local static analyzer "
+                        + "declaration was found.";
+            } else {
+                staticMessage = "No Spring Security web filter chain was found to inspect, and local static analyzer "
+                        + "declarations could not be assessed.";
+            }
+            message = observation.errors().isEmpty() ? staticMessage : message + " " + staticMessage;
+            AdvisorEvidenceDto evidence = AdvisorEvidenceDto.unknown();
+            if (inspection.state() == StaticSecurityAnalysisDetector.State.INDETERMINATE) {
+                evidence = StaticSecurityAnalysisRule.addAssessmentLimitation(evidence);
+            }
+            return report(
+                    analyzer,
+                    disclaimer,
+                    "PARTIAL",
+                    message,
+                    clock.millis(),
+                    0,
+                    inspection.evaluated() ? 1 : 0,
+                    staticFindings,
+                    evidence,
+                    List.of());
         }
 
-        List<SecurityRuleResultDto> results = ReactiveSecurityRuleRegistry.activeRules().stream()
+        List<SecurityRuleResultDto> results = new ArrayList<>(ReactiveSecurityRuleRegistry.activeRules().stream()
                 .map(rule -> rule.evaluate(context))
-                .toList();
+                .toList());
         int chains = context.chains().size();
         long inconclusive = results.stream()
                 .filter(result -> "SKIPPED".equals(result.status()))
                 .count();
         AdvisorEvidenceDto evidence = evidence(observation, context);
+        StaticSecurityAnalysisDetector.Inspection inspection = inspectStaticSecurity();
+        if (inspection.state() == StaticSecurityAnalysisDetector.State.NOT_CONFIGURED) {
+            results.add(StaticSecurityAnalysisRule.finding(collector));
+        } else if (inspection.state() == StaticSecurityAnalysisDetector.State.INDETERMINATE) {
+            evidence = StaticSecurityAnalysisRule.addAssessmentLimitation(evidence);
+        }
         String status = evidence.coverageComplete() ? "SCANNED" : "PARTIAL";
         String message = "Security Advisor completed against " + chains + " security web filter chain"
                 + (chains == 1 ? "." : "s.");
@@ -135,8 +204,28 @@ public final class ReactiveSecurityScanner {
         if (!analysisErrors(results).isEmpty()) {
             message += " Some checks failed; see analysis errors.";
         }
+        if (inspection.state() == StaticSecurityAnalysisDetector.State.INDETERMINATE) {
+            message += " Static analyzer configuration could not be assessed.";
+        }
+        int rulesEvaluated = ReactiveSecurityRuleRegistry.activeRules().size() + (inspection.evaluated() ? 1 : 0);
         return report(
-                status, message, clock.millis(), chains, results.size(), results, evidence, chainDescriptions(context));
+                status, message, clock.millis(), chains, rulesEvaluated, results, evidence, chainDescriptions(context));
+    }
+
+    private StaticSecurityAnalysisDetector.Inspection inspectStaticSecurity() {
+        try {
+            return staticSecurityDetector.inspect(projectRootSupplier == null ? null : projectRootSupplier.get());
+        } catch (RuntimeException | LinkageError ex) {
+            return new StaticSecurityAnalysisDetector.Inspection(StaticSecurityAnalysisDetector.State.INDETERMINATE);
+        }
+    }
+
+    private static List<String> ruleCatalog() {
+        List<String> ids = new ArrayList<>(AdvisorScanState.ruleIds(
+                ReactiveSecurityRuleRegistry.activeRules(),
+                rule -> rule.definition().id()));
+        ids.add(StaticSecurityAnalysisDetector.RULE_ID);
+        return List.copyOf(ids);
     }
 
     private static AdvisorEvidenceDto evidence(
@@ -240,13 +329,37 @@ public final class ReactiveSecurityScanner {
             List<SecurityRuleResultDto> results,
             AdvisorEvidenceDto evidence,
             List<String> filterChains) {
+        return report(
+                ANALYZER,
+                DISCLAIMER,
+                status,
+                message,
+                scannedAt,
+                filterChainsAnalyzed,
+                rulesEvaluated,
+                results,
+                evidence,
+                filterChains);
+    }
+
+    private SecurityReport report(
+            String analyzer,
+            String disclaimer,
+            String status,
+            String message,
+            Long scannedAt,
+            int filterChainsAnalyzed,
+            int rulesEvaluated,
+            List<SecurityRuleResultDto> results,
+            AdvisorEvidenceDto evidence,
+            List<String> filterChains) {
         List<SecurityRuleResultDto> violations = violationResults(results);
         int violationsFound = violations.size();
         SecurityScanStatusDto scan = new SecurityScanStatusDto(
-                ANALYZER, status, message, scannedAt, rulesEvaluated, filterChainsAnalyzed, violationsFound);
+                analyzer, status, message, scannedAt, rulesEvaluated, filterChainsAnalyzed, violationsFound);
         return new SecurityReport(
                 true,
-                DISCLAIMER,
+                disclaimer,
                 filterChains,
                 filterChainsAnalyzed,
                 rulesEvaluated,

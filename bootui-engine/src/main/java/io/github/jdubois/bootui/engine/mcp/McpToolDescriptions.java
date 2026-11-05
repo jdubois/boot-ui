@@ -48,8 +48,10 @@ public final class McpToolDescriptions {
                             + "and full GC, so run only when memory evidence is needed."),
             Map.entry(
                     "security_scan",
-                    "Actively review application security configuration and return prioritized findings. Treat results "
-                            + "as review evidence and verify exploitability before proposing a fix."),
+                    "On explicit request, review application security configuration and bounded local declarations "
+                            + "for SpotBugs/FindSecBugs, Semgrep, SonarQube, or CodeQL. BootUI never runs these tools; "
+                            + "a static-only result does not assess runtime security. Treat results as review "
+                            + "evidence and verify exploitability before proposing a fix."),
             Map.entry(
                     "pentest_scan",
                     "Actively send bounded synthetic probes to this application's loopback endpoint and return security "
@@ -70,6 +72,8 @@ public final class McpToolDescriptions {
                             + "whether the default list shows it. query is empty, all, new, security, diff, latency, "
                             + "an observation kind, or a route, table, bean, or class; past the limit, listed rows "
                             + "come first and every kind is listed once before any kind twice. "
+                            + "The insufficient and partial counts cover every observation matching this query, "
+                            + "including rows omitted by the limit. "
                             + "requests counts completed HTTP exchanges only: zero is not proof nothing ran when "
                             + "an observation names a request or execution, a non-HTTP limitation, or eviction says "
                             + "otherwise. A run-level observation with no exemplar does not. The empty query is the "
@@ -86,7 +90,8 @@ public final class McpToolDescriptions {
                             + "to verify and at most 20 evidence rows. Drill down with get_request_profile on its "
                             + "exemplar request. An unknown or evicted id is a tool error naming get_runtime_insights, "
                             + "which lists the current ids; available=false with a reason means Runtime Insights is "
-                            + "unavailable."),
+                            + "unavailable. The observation status is explicit: insufficient evidence and partial "
+                            + "source coverage are not a clean result."),
             Map.entry(
                     "get_runtime_impact",
                     "For a route, bean, class, method (Class#method, with parameter types for one overload, or a "
@@ -124,7 +129,10 @@ public final class McpToolDescriptions {
                             + "frames, causes, and individual occurrences. With the BootUI agent's caught-exceptions "
                             + "sensor, caughtInCode summarizes exceptions application code caught: a finding was not "
                             + "seen rethrown or logged at WARN or above while the evidence was complete; unknown "
-                            + "means incomplete evidence, never swallowed. totalExceptions counts the occurrences in the "
+                            + "means incomplete evidence, never swallowed. caughtInCode also reports counts for rows "
+                            + "below the finding threshold (insufficient) and rows whose outcomes are unknown, pending, "
+                            + "or counted only (partial); these are evidence states, not findings. totalExceptions "
+                            + "counts the occurrences in the "
                             + "retained groups, so clear_exceptions resets it."),
             Map.entry(
                     "get_exception_detail",
@@ -293,7 +301,8 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_security_report",
                     "Return the last completed Security advisor report without starting a new configuration scan. Use "
-                            + "this cached evidence before deciding whether an active security_scan is necessary."),
+                            + "this cached evidence before deciding whether an active security_scan is necessary. A "
+                            + "static-only report checks local analyzer declarations and does not assess runtime security."),
             Map.entry(
                     "get_pentest_report",
                     "Return the last completed Pentesting advisor report without sending any HTTP probes. Use this "

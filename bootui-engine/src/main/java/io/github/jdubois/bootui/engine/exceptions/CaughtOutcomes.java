@@ -561,31 +561,38 @@ public final class CaughtOutcomes {
                 settling++;
             }
         }
-        // Counted occurrences go to the rows of their site and owner kind, whatever their route and class.
+        // Use a single matching row only when attribution is unambiguous; otherwise retain the null-route, null-class
+        // grouping.
         counted.forEach((key, count) -> {
             CaughtExceptionPayload site = countedSites.get(key);
-            Row target = null;
-            for (Row row : rows.values()) {
-                if (row.siteKey.equals(siteKey(site)) && row.ownerKind.equals(key.split("\u0000", -1)[1])) {
-                    target = row;
-                    break;
-                }
-            }
-            if (target == null) {
-                target = rows.computeIfAbsent(key, k -> new Row(k, null, key.split("\u0000", -1)[1], site));
+            String ownerKind = key.split("\u0000", -1)[1];
+            List<Row> matches = rows.values().stream()
+                    .filter(row -> row.siteKey.equals(siteKey(site)) && row.ownerKind.equals(ownerKind))
+                    .toList();
+            Row target;
+            if (matches.size() == 1) {
+                target = matches.get(0);
+            } else {
+                target = rows.computeIfAbsent(key, k -> new Row(k, null, ownerKind, site));
             }
             target.counted += count;
         });
         List<CaughtExceptionRowDto> dtos = new ArrayList<>();
         long total = 0;
         int findings = 0;
+        int insufficient = 0;
+        int partial = 0;
         for (Row row : rows.values()) {
             CaughtExceptionRowDto dto = row.dto();
             total += dto.occurrences();
             findings += dto.finding() ? 1 : 0;
+            insufficient += "INSUFFICIENT".equals(dto.status()) ? 1 : 0;
+            partial += "PARTIAL".equals(dto.status()) ? 1 : 0;
             dtos.add(dto);
         }
         dtos.sort(Comparator.comparing((CaughtExceptionRowDto dto) -> !dto.finding())
+                .thenComparing(dto -> !"INSUFFICIENT".equals(dto.status()))
+                .thenComparing(dto -> !"PARTIAL".equals(dto.status()))
                 .thenComparing(Comparator.comparingLong(CaughtExceptionRowDto::occurrences)
                         .reversed())
                 .thenComparing(CaughtExceptionRowDto::id));
@@ -596,6 +603,8 @@ public final class CaughtOutcomes {
                 settling,
                 total,
                 findings,
+                insufficient,
+                partial,
                 dtos.size() > MAX_ROWS ? dtos.subList(0, MAX_ROWS) : dtos);
     }
 
@@ -647,6 +656,13 @@ public final class CaughtOutcomes {
         CaughtExceptionRowDto dto() {
             boolean finding = !notLoggedRequests.isEmpty()
                     && (notLoggedRequests.size() >= FINDING_REQUESTS || site.family() != null);
+            int notRethrownOrLoggedRequests = notLoggedRequests.size();
+            int minimumRequests = site.family() == null ? FINDING_REQUESTS : 1;
+            boolean incomplete =
+                    outcomes[Outcome.UNKNOWN.ordinal()] > 0 || outcomes[Outcome.PENDING.ordinal()] > 0 || counted > 0;
+            String status = finding
+                    ? "FINDING"
+                    : incomplete ? "PARTIAL" : notRethrownOrLoggedRequests > 0 ? "INSUFFICIENT" : "OBSERVED";
             String reason = reasons.entrySet().stream()
                     .max(Map.Entry.comparingByValue())
                     .map(Map.Entry::getKey)
@@ -679,6 +695,9 @@ public final class CaughtOutcomes {
                     reason,
                     shapes(site.siteFlags()),
                     finding,
+                    status,
+                    notRethrownOrLoggedRequests,
+                    minimumRequests,
                     exemplar,
                     occurrences == 0 ? 0L : firstSeen,
                     occurrences == 0 ? 0L : lastSeen);

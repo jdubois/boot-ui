@@ -2,8 +2,10 @@
 import {acceptConfirm, expect, test} from '../tests/fixtures.js'
 import {registerResourceLedgerTests} from '../scenarios/resource-ledger.js'
 import {registerThreadAnalysisTests} from '../scenarios/thread-analysis.js'
+import {registerActionPolicyTests} from '../scenarios/action-policy.js'
 
 registerThreadAnalysisTests(test, expect, acceptConfirm)
+registerActionPolicyTests(test, expect)
 
 async function expandAllSidebarGroups(page) {
   const toggles = page.locator('aside .bootui-nav-group__toggle')
@@ -379,14 +381,20 @@ test.describe('BootUI on Spring WebFlux', () => {
     await expect(page.getByText(/Spring MVC mapping/)).toHaveCount(0)
   })
 
-  test('Security advisor runs the 26-rule reactive catalogue', async ({page}) => {
+  test('Security advisor runs reactive rules and the shared static-analysis check', async ({page}) => {
     await page.goto('/bootui/#/security')
     await expect(page.locator('.panel-availability-alert')).toHaveCount(0)
+    const scanResponse = page.waitForResponse(
+      (response) => response.request().method() === 'POST' && /\/security\/scan$/.test(new URL(response.url()).pathname)
+    )
     await page.getByRole('button', {name: 'Run security checks'}).click()
+    const report = await (await scanResponse).json()
+    expect(report.rulesEvaluated).toBe(27)
+    expect(report.results.map((result) => result.id)).not.toContain('SEC-STATIC-001')
     await expect(
       page.locator('.advisor-summary__metric--status').getByText('Results available', {exact: true})
     ).toBeVisible({timeout: 15_000})
-    await expect(page.getByText('Rules evaluated').locator('..')).toContainText('26')
+    await expect(page.getByText('Rules evaluated').locator('..')).toContainText('27')
   })
 
   test('REST Client records WebClient calls, streams updates, and protects actions with CSRF', async ({

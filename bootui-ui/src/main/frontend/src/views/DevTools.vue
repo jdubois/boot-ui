@@ -97,6 +97,7 @@ async function restart() {
   )
     return
 
+  if (readOnly.value || actionLoading.value) return
   actionLoading.value = 'restart'
   try {
     const result = await getDiagnosticAcknowledgement(

@@ -9,10 +9,24 @@ function respond(body, status = 200) {
 }
 
 function liveMemoryPanel(overrides = {}) {
-  return {id: 'live-memory', enabled: true, available: true, ...overrides}
+  return {id: 'live-memory', enabled: true, available: true, readOnly: false, ...overrides}
 }
 
 describe('LowFootprintBanner', () => {
+  it('keeps cached status visible but blocks resuming if the owning panel disappears', async () => {
+    const fetchMock = vi.fn(() => respond({active: true, components: [], warnings: []}))
+    vi.stubGlobal('fetch', fetchMock)
+    const panels = ref({panels: [liveMemoryPanel()]})
+    const wrapper = mount(LowFootprintBanner, {global: {provide: {panels}}})
+    await flushPromises()
+    panels.value = null
+    await flushPromises()
+    expect(wrapper.get('[data-testid="low-footprint-banner-off"]').element.disabled).toBe(true)
+    await wrapper.vm.$.setupState.turnOff()
+    expect(fetchMock).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
   beforeEach(() => resetLowFootprintForTests())
   afterEach(() => vi.unstubAllGlobals())
 
@@ -143,7 +157,10 @@ describe('LowFootprintBanner', () => {
   it('keeps the active banner and displays the server reason when resume fails', async () => {
     const fetchMock = vi.fn((_, init) =>
       init?.method === 'POST'
-        ? respond({reason: 'Resume is blocked by policy.'}, 403)
+        ? respond(
+            {error: 'BootUI panel access denied', panel: 'live-memory', reason: 'Resume is blocked by policy.'},
+            403
+          )
         : respond({active: true, components: [], warnings: []})
     )
     vi.stubGlobal('fetch', fetchMock)

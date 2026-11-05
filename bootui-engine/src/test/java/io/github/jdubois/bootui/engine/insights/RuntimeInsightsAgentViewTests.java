@@ -568,11 +568,41 @@ class RuntimeInsightsAgentViewTests {
                         exact.unlistedReason()));
         RuntimeInsightsReportDto thin = new RuntimeInsightsReportDto(
                 true, null, report.window(), List.of(), List.of(), insufficient, List.of(), List.of(), 0);
-        assertThat(RuntimeInsightsAgentView.list(thin, "GET /api/orders", 20).next())
+        RuntimeInsightsAgentReportDto thinList = RuntimeInsightsAgentView.list(thin, "GET /api/orders", 1);
+        assertThat(thinList.insufficient()).isEqualTo(1);
+        assertThat(thinList.partial()).isZero();
+        assertThat(thinList.omitted()).isEqualTo(2);
+        assertThat(thinList.next())
                 .filteredOn(step -> "get_runtime_insight".equals(step.tool()))
                 .singleElement()
                 .as("the asked route's row is followed up even with too little evidence, never another route's")
                 .satisfies(step -> assertThat(step.arguments()).containsEntry("id", RepeatedSelects.KIND + ":3"));
+
+        List<RuntimeObservationDto> partial = new ArrayList<>(insufficient);
+        partial.set(
+                2,
+                new RuntimeObservationDto(
+                        exact.id(),
+                        exact.kind(),
+                        exact.subject(),
+                        "PARTIAL",
+                        exact.sentence(),
+                        exact.eligible(),
+                        exact.affected(),
+                        exact.minimumTier(),
+                        exact.whatToCheck(),
+                        exact.exemplarRequestIds(),
+                        exact.evidenceRows(),
+                        exact.limitations(),
+                        exact.listed(),
+                        exact.unlistedReason()));
+        RuntimeInsightsAgentReportDto partialList = RuntimeInsightsAgentView.list(
+                new RuntimeInsightsReportDto(
+                        true, null, report.window(), List.of(), List.of(), partial, List.of(), List.of(), 0),
+                null,
+                1);
+        assertThat(partialList.partial()).isEqualTo(1);
+        assertThat(partialList.insufficient()).isZero();
 
         assertThat(RuntimeInsightsAgentView.list(report, "GET /api/orders", 1).observations())
                 .extracting(observation -> observation.subject())

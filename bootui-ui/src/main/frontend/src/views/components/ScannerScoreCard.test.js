@@ -3,6 +3,19 @@ import {describe, expect, it} from 'vitest'
 import ScannerScoreCard from './ScannerScoreCard.vue'
 
 describe('ScannerScoreCard', () => {
+  it('explains a disabled action, guards synthetic clicks, and keeps navigation available', async () => {
+    const wrapper = mount(ScannerScoreCard, {
+      global: {stubs: {RouterLink: true}},
+      props: {title: 'Memory', to: '/memory', runDisabled: true, runDisabledReason: 'Memory is read-only.'}
+    })
+    const button = wrapper.get('button')
+    expect(button.element.disabled).toBe(true)
+    expect(wrapper.get(`[id="${button.attributes('aria-describedby')}"]`).text()).toBe('Memory is read-only.')
+    await wrapper.vm.$.setupState.onRun()
+    expect(wrapper.emitted('run')).toBeUndefined()
+    expect(wrapper.get('router-link-stub').attributes('to')).toBe('/memory')
+  })
+
   it.each([
     [100, 'success'],
     [80, 'success'],

@@ -1196,6 +1196,8 @@ public abstract class AbstractMcpConformanceTest {
             JsonNode list = callTool("get_runtime_insights", "{\"limit\":3}");
             assertThat(list.has("coverage")).isTrue();
             assertThat(list.has("checksNotRun")).isTrue();
+            assertThat(list.path("insufficient").isIntegralNumber()).isTrue();
+            assertThat(list.path("partial").isIntegralNumber()).isTrue();
             assertThat(list.path("observations").size()).isLessThanOrEqualTo(3);
             if (!list.path("available").asBoolean()) {
                 assertThat(list.path("unavailableReason").asText()).isNotBlank();

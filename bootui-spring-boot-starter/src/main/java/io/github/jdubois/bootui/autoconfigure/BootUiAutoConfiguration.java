@@ -56,7 +56,9 @@ import io.github.jdubois.bootui.autoconfigure.safety.LegacyBootUiPathFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.LocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.safety.SecurityHeadersFilter;
+import io.github.jdubois.bootui.autoconfigure.security.SecurityAdvisorOperations;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
+import io.github.jdubois.bootui.autoconfigure.security.StaticSecurityController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceDataSourceBeanPostProcessor;
@@ -190,6 +192,7 @@ import tools.jackson.databind.ObjectMapper;
     ProfileDiffController.class,
     SpringSecurityController.class,
     SecurityController.class,
+    StaticSecurityController.class,
     SpringController.class,
     SecurityLogsController.class,
     LiveMemoryController.class,
@@ -287,6 +290,7 @@ public class BootUiAutoConfiguration {
             FaultToleranceController.class.getName(),
             SecurityLogsController.class.getName(),
             SecurityController.class.getName(),
+            StaticSecurityController.class.getName(),
             SpringController.class.getName(),
             SpringSecurityController.class.getName(),
             StartupController.class.getName(),
@@ -551,7 +555,7 @@ public class BootUiAutoConfiguration {
                 ObjectProvider<SpringController> spring,
                 ObjectProvider<HibernateController> hibernate,
                 ObjectProvider<MemoryController> memory,
-                ObjectProvider<SecurityController> security,
+                ObjectProvider<SecurityAdvisorOperations> security,
                 ObjectProvider<PentestingController> pentesting,
                 ObjectProvider<RestApiController> restApi,
                 ObjectProvider<GraalVmController> graalvm,

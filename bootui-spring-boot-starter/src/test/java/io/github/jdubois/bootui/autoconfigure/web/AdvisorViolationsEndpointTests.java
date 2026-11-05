@@ -20,6 +20,7 @@ import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityControlle
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.safety.PanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
+import io.github.jdubois.bootui.autoconfigure.security.StaticSecurityController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.core.dto.AdvisorViolationDetailsDto;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
@@ -41,6 +42,7 @@ class AdvisorViolationsEndpointTests {
                 Arguments.of("rest-api", RestApiController.class),
                 Arguments.of("memory", MemoryController.class),
                 Arguments.of("security", SecurityController.class),
+                Arguments.of("security", StaticSecurityController.class),
                 Arguments.of("security", ReactiveSecurityController.class),
                 Arguments.of("database-advisor", DatabaseAdvisorController.class));
     }

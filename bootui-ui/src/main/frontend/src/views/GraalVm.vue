@@ -203,12 +203,13 @@ async function loadReport() {
 }
 
 async function cancelScan() {
+  if (readOnly.value || cancellingScan.value) return
   cancellingScan.value = true
   try {
-    const res = await apiFetch('api/graalvm/scan/cancel', {method: 'POST'})
-    if (res.ok) scanProgress.value = await res.json()
-  } catch {
-    // The in-flight scan request will still finish and report any outcome.
+    scanProgress.value = await getJson('api/graalvm/scan/cancel', {method: 'POST'})
+  } catch (e) {
+    showActionMessage(describeLoadError(e, 'Unable to cancel GraalVM readiness checks').message)
+    cancellingScan.value = false
   }
 }
 
@@ -278,16 +279,15 @@ async function installMetadata() {
     confirmLabel: 'Write files',
     danger: true
   })
-  if (!ok) return
+  if (!ok || readOnly.value) return
   installing.value = true
   try {
-    const res = await apiFetch('api/graalvm/install', {method: 'POST'})
-    installResult.value = await res.json()
+    installResult.value = await getJson('api/graalvm/install', {method: 'POST'})
   } catch (e) {
     installResult.value = {
       installed: false,
       status: 'ERROR',
-      message: describeLoadError(e, 'Unable to install reachability metadata'),
+      message: describeLoadError(e, 'Unable to install reachability metadata').message,
       path: null
     }
   } finally {
@@ -307,16 +307,15 @@ async function installDockerfile() {
     confirmLabel: 'Write file',
     danger: true
   })
-  if (!ok) return
+  if (!ok || readOnly.value) return
   installingDockerfile.value = true
   try {
-    const res = await apiFetch('api/graalvm/dockerfile/install', {method: 'POST'})
-    dockerInstallResult.value = await res.json()
+    dockerInstallResult.value = await getJson('api/graalvm/dockerfile/install', {method: 'POST'})
   } catch (e) {
     dockerInstallResult.value = {
       installed: false,
       status: 'ERROR',
-      message: describeLoadError(e, 'Unable to write Dockerfile-native'),
+      message: describeLoadError(e, 'Unable to write Dockerfile-native').message,
       path: null
     }
   } finally {
@@ -336,16 +335,15 @@ async function installBoth() {
     confirmLabel: 'Write files',
     danger: true
   })
-  if (!ok) return
+  if (!ok || readOnly.value) return
   installingBoth.value = true
   try {
-    const res = await apiFetch('api/graalvm/install/all', {method: 'POST'})
-    bothInstallResult.value = await res.json()
+    bothInstallResult.value = await getJson('api/graalvm/install/all', {method: 'POST'})
   } catch (e) {
     bothInstallResult.value = {
       installed: false,
       status: 'ERROR',
-      message: describeLoadError(e, 'Unable to write the GraalVM artifacts'),
+      message: describeLoadError(e, 'Unable to write the GraalVM artifacts').message,
       metadata: null,
       dockerfile: null
     }
@@ -416,7 +414,8 @@ onBeforeUnmount(stopProgressPolling)
         <div class="d-flex align-items-center gap-2">
           <button
             v-if="scanProgress.phase && scanProgress.phase.startsWith('dependencies')"
-            :disabled="cancellingScan"
+            :disabled="cancellingScan || readOnly"
+            :title="readOnly ? readOnlyReason : undefined"
             class="btn btn-sm btn-outline-primary"
             type="button"
             @click="cancelScan"

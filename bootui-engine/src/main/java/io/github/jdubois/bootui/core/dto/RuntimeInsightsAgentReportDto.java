@@ -19,6 +19,8 @@ import java.util.List;
  *     that left evidence out, as {@code <kind>: EVALUATED, partly: <what it could not see>}
  * @param observations the observations that matched, every kind's most affected first, then the rest
  * @param omitted the matching observations beyond {@code limit}
+ * @param insufficient the report-wide count of observations below their evidence minimum
+ * @param partial the report-wide count of observations with incomplete source evidence
  * @param notExercised declared routes no request of this run reached, at most {@value #MAX_NOT_EXERCISED}
  * @param notExercisedOmitted the declared routes not reached beyond those listed
  * @param limitations what the report cannot see
@@ -36,7 +38,9 @@ public record RuntimeInsightsAgentReportDto(
         List<String> notExercised,
         int notExercisedOmitted,
         List<String> limitations,
-        List<RuntimeNextStepDto> next) {
+        List<RuntimeNextStepDto> next,
+        int insufficient,
+        int partial) {
 
     /** The observations listed when no limit is asked for. */
     public static final int DEFAULT_LIMIT = 8;
@@ -77,6 +81,38 @@ public record RuntimeInsightsAgentReportDto(
                 notExercised,
                 notExercisedOmitted,
                 limitations,
-                List.of());
+                List.of(),
+                0,
+                0);
+    }
+
+    public RuntimeInsightsAgentReportDto(
+            boolean available,
+            String unavailableReason,
+            String query,
+            long requests,
+            List<RuntimeInsightCoverageDto> coverage,
+            List<String> checksNotRun,
+            List<RuntimeInsightAgentDto> observations,
+            int omitted,
+            List<String> notExercised,
+            int notExercisedOmitted,
+            List<String> limitations,
+            List<RuntimeNextStepDto> next) {
+        this(
+                available,
+                unavailableReason,
+                query,
+                requests,
+                coverage,
+                checksNotRun,
+                observations,
+                omitted,
+                notExercised,
+                notExercisedOmitted,
+                limitations,
+                next,
+                0,
+                0);
     }
 }

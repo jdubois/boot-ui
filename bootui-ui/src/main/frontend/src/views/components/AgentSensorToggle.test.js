@@ -59,6 +59,16 @@ function mountToggle(props = toggle(), panels = manifest()) {
 }
 
 describe('AgentSensorToggle', () => {
+  it('guards a synthetic switch event after the owning panel disappears', async () => {
+    const panels = manifest()
+    const wrapper = mountToggle(toggle(), panels)
+    panels.value = null
+    await flushPromises()
+    await wrapper.vm.$.setupState.flip({target: {checked: true}})
+    expect(fetchMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   let fetchMock
 
   beforeEach(() => {

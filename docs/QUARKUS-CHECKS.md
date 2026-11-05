@@ -12,6 +12,12 @@ exposes credentials or secrets, or modifies the
 configuration. Findings are heuristic review prompts; the right remediation depends on the application's
 threat model and deployment topology.
 
+The shared `SEC-STATIC-001` check also inspects bounded local build, repository configuration, and workflow files for
+FindSecBugs/SpotBugs, Semgrep, SonarQube, or CodeQL declarations. It runs only on an explicit scan, never executes an
+analyzer, and does not assess runtime security or contribute runtime evidence or a score by itself. A missing build
+file produces no absence finding. The bounded local inspection does not resolve remote Maven parents, Gradle applied
+scripts or convention plugins, or organization-managed CI configuration.
+
 OIDC checks aggregate the active default tenant and active named tenants; a tenant with
 `quarkus.oidc[.<tenant>].tenant-enabled=false` is excluded.
 

@@ -65,18 +65,52 @@ class JournalAggregatesTests {
     }
 
     @Test
-    void completedExecutionIgnoresLateChildrenInCountersButKeepsTheirEdges() {
+    void completedExecutionAttributesLateSqlToItsCompletedWork() {
         publish(execution("job", JournalSource.SQL, new SqlPayload("select * from orders", null, "db", false)));
         publish(execution("job", JournalSource.SCHEDULED, new ScheduledPayload("Job.run", null)));
         publish(execution("job", JournalSource.SQL, new SqlPayload("select * from lines", null, "db", false)));
-        assertThat(aggregates.snapshot().executions())
-                .singleElement()
-                .satisfies(work -> assertThat(work.stats().statements()).containsOnlyKeys("select * from orders"));
+        assertThat(aggregates.snapshot().executions()).singleElement().satisfies(work -> {
+            assertThat(work.stats().statements())
+                    .containsEntry("select * from orders", 1L)
+                    .containsEntry("select * from lines", 1L);
+            assertThat(work.stats().childCounts()).containsEntry(JournalSource.SQL, 2L);
+        });
         assertThat(aggregates.snapshot().edges())
                 .extracting(edge -> edge.edge().toKey())
                 .contains("orders", "lines");
         aggregates.clear();
         assertThat(aggregates.snapshot().executions()).isEmpty();
+    }
+
+    @Test
+    void completedExecutionAttributesLateConnectionEventsWithoutOpeningAnotherExecution() {
+        publish(execution("job", JournalSource.SQL, new SqlPayload("select * from orders", null, "db", false)));
+        publish(execution("job", JournalSource.SCHEDULED, new ScheduledPayload("Job.run", null)));
+        publish(RuntimeEvent.of(
+                JournalSource.CONNECTION,
+                1001,
+                5_000_000,
+                CorrelationContext.forExecution("job"),
+                "worker",
+                null,
+                false,
+                new ConnectionPayload("orders", 1_000_000, 1)));
+
+        assertThat(aggregates.snapshot().executions()).singleElement().satisfies(work -> {
+            assertThat(work.stats().childCounts()).containsEntry(JournalSource.CONNECTION, 1L);
+            assertThat(work.stats().connectionWaitNanos()).isEqualTo(1_000_000L);
+        });
+        assertThat(aggregates.snapshot().overflowed()).containsEntry(JournalAggregates.OPEN_EXECUTIONS, 0L);
+    }
+
+    @Test
+    void lateSqlForAnEvictedCompletedExecutionDoesNotCreateAnOpenExecution() {
+        for (int i = 0; i <= JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(execution("job-" + i, JournalSource.SCHEDULED, new ScheduledPayload("Job.run", null)));
+        }
+        publish(execution("job-0", JournalSource.SQL, new SqlPayload("select 1", null, "db", false)));
+
+        assertThat(aggregates.snapshot().overflowed()).containsEntry(JournalAggregates.OPEN_EXECUTIONS, 0L);
     }
 
     private static RuntimeEvent execution(String id, JournalSource source, RuntimeEventPayload payload) {

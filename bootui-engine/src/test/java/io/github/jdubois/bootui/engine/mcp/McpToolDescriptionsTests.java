@@ -25,6 +25,19 @@ class McpToolDescriptionsTests {
     }
 
     @Test
+    void runtimeAndCaughtExceptionDescriptionsNameIncompleteEvidenceStates() {
+        for (Function<String, String> descriptions :
+                List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+            assertThat(descriptions.apply("get_runtime_insights"))
+                    .contains("insufficient and partial counts", "including rows omitted by the limit");
+            assertThat(descriptions.apply("get_runtime_insight"))
+                    .contains("observation status is explicit", "partial source coverage");
+            assertThat(descriptions.apply("get_exceptions"))
+                    .contains("below the finding threshold (insufficient)", "counted only (partial)");
+        }
+    }
+
+    @Test
     void agentStatusWarnsAboutSharedTasksAfterExecutorOverflowOnEveryStack() {
         for (Function<String, String> provider :
                 List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
@@ -51,6 +64,18 @@ class McpToolDescriptionsTests {
                             "raw session/sample SQL");
             assertThat(descriptions.apply("get_mysql_report"))
                     .contains("without contacting", "NOT_READ", "exposure-policy", "readAt", "approved");
+        }
+    }
+
+    @Test
+    void securityScanExplainsItsLocalStaticAnalysisCheckWithoutImplyingExecution() {
+        for (Function<String, String> descriptions :
+                List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+            assertThat(descriptions.apply("security_scan"))
+                    .contains("bounded local declarations", "FindSecBugs", "BootUI never runs these tools")
+                    .contains("static-only result does not assess runtime security");
+            assertThat(descriptions.apply("get_security_report"))
+                    .contains("without starting a new configuration scan", "does not assess runtime security");
         }
     }
 

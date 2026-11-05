@@ -346,6 +346,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
     private volatile boolean idleSuspended = false;
     private final Set<String> dataSourceNames = new ConcurrentSkipListSet<>();
     private final SqlCaptureScopes sqlCaptureScopes = new SqlCaptureScopes();
+    private final Object journalBindingLock = new Object();
+    private long journalGeneration;
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
     private final CorrelationSource correlation = new CorrelationSource();
     private final ThreadKinds threadKinds = new ThreadKinds();
@@ -451,12 +453,16 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
      */
     @Override
     public void setRuntimeEventSink(RuntimeEventSink journal) {
-        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+        RuntimeEventSink installed = journal == null ? RuntimeEventSink.NONE : journal;
+        synchronized (journalBindingLock) {
+            this.journal = installed;
+            journalGeneration++;
+        }
         SqlCaptureScopes.Snapshot scope = sqlCaptureScopes.snapshot();
-        scope.executions().forEach(name -> this.journal.registerSqlCapture(name, Provenance.EXECUTION));
-        scope.preparations().forEach(name -> this.journal.registerSqlCapture(name, Provenance.PREPARATION));
+        scope.executions().forEach(name -> installed.registerSqlCapture(name, Provenance.EXECUTION));
+        scope.preparations().forEach(name -> installed.registerSqlCapture(name, Provenance.PREPARATION));
         if (scope.incomplete()) {
-            this.journal.registerSqlCapture(null, Provenance.UNKNOWN);
+            installed.registerSqlCapture(null, Provenance.UNKNOWN);
         }
     }
 
@@ -681,7 +687,48 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                 thread,
                 dataSource,
                 Provenance.EXECUTION,
-                batch ? Math.max(0, batchSize) : 1);
+                batch ? Math.max(0, batchSize) : 1,
+                null,
+                false);
+    }
+
+    /**
+     * Records JDBC execution with an observed row count. When {@code deferResultSet} is true, the returned handle
+     * publishes the immutable event only after the result set reaches a terminal state.
+     */
+    public DeferredSqlEvent recordJdbcNanos(
+            StatementType statementType,
+            Category category,
+            String sql,
+            List<String> parameters,
+            long durationNanos,
+            boolean success,
+            String errorMessage,
+            Long affectedRows,
+            int batchSize,
+            String connectionId,
+            String thread,
+            String dataSource,
+            boolean batch,
+            Long rowCount,
+            boolean deferResultSet) {
+        return capture(
+                statementType,
+                category,
+                sql,
+                parameters,
+                durationNanos,
+                success,
+                errorMessage,
+                affectedRows,
+                batchSize,
+                connectionId,
+                thread,
+                dataSource,
+                Provenance.EXECUTION,
+                batch ? Math.max(0, batchSize) : 1,
+                rowCount,
+                deferResultSet);
     }
 
     /** Records only SQL inspection: no JDBC execution, outcome, or elapsed database time was observed. */
@@ -701,10 +748,12 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                 Thread.currentThread().getName(),
                 dataSource,
                 Provenance.PREPARATION,
-                0);
+                0,
+                null,
+                false);
     }
 
-    private void capture(
+    private DeferredSqlEvent capture(
             StatementType statementType,
             Category category,
             String sql,
@@ -718,9 +767,11 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
             String thread,
             String dataSource,
             Provenance provenance,
-            int journalBatchSize) {
+            int journalBatchSize,
+            Long rowCount,
+            boolean deferJournalEvent) {
         if (!enabled || BootUiJdbcCaptureGuard.isSuppressed()) {
-            return;
+            return null;
         }
         // Whether request input reached this statement's text, on the thread that issued it (docs/PLAN-v2.md §5.16,
         // M5-6b): only while request-value matching is on; never a value or the text kept.
@@ -730,9 +781,10 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
         // A paused or idle-suspended panel skips its own buffer, listeners, and span enrichment, but the runtime
         // journal keeps recording whenever it records SQL (docs/PLAN-v2.md §5.2).
         boolean panel = capturesForPanel();
-        boolean toJournal = journal.records(JournalSource.SQL);
+        JournalBinding binding = deferJournalEvent ? beginJournalCapture() : null;
+        boolean toJournal = deferJournalEvent ? binding != null : journal.records(JournalSource.SQL);
         if (!panel && !toJournal) {
-            return;
+            return null;
         }
         CorrelationContext context = correlation.current();
         ThreadKind threadKind = threadKinds.current();
@@ -776,8 +828,9 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                     provenance);
             buffer.add(entry, failedOrSlow);
         }
+        DeferredSqlEvent deferred = null;
         if (toJournal) {
-            publish(
+            RuntimeEvent event = sqlEvent(
                     context,
                     traceId,
                     timestamp,
@@ -793,7 +846,13 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                     dataSource,
                     codePathStamp,
                     provenance,
-                    journalBatchSize);
+                    journalBatchSize,
+                    rowCount);
+            if (deferJournalEvent) {
+                deferred = new DeferredSqlEvent(this, binding, event);
+            } else {
+                publish(event);
+            }
         }
         if (panel) {
             totalCaptured.incrementAndGet();
@@ -802,10 +861,11 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                 enrichActiveSpan(traceId);
             }
         }
+        return deferred;
     }
 
-    /** Publishes a statement to the journal, stamped when it started; never throws. */
-    private void publish(
+    /** Builds a statement event stamped when its JDBC execution completed; never throws. */
+    private RuntimeEvent sqlEvent(
             CorrelationContext context,
             String traceId,
             long completedEpochMillis,
@@ -821,30 +881,85 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
             String dataSource,
             long codePathStamp,
             Provenance provenance,
-            int batchSize) {
+            int batchSize,
+            Long rowCount) {
+        return RuntimeEvent.of(
+                JournalSource.SQL,
+                RuntimeEvent.startMillis(completedEpochMillis, durationNanos),
+                durationNanos,
+                context,
+                traceId,
+                thread,
+                threadKind,
+                failedOrSlow,
+                new SqlPayload(
+                        sql,
+                        null,
+                        dataSource == null ? context.dataSource() : dataSource,
+                        !success,
+                        frames,
+                        phase,
+                        completedNanos,
+                        codePathStamp,
+                        provenance,
+                        batchSize,
+                        rowCount));
+    }
+
+    /** Publishes an immediate statement event; never throws. */
+    private void publish(RuntimeEvent event) {
         try {
-            journal.offer(RuntimeEvent.of(
-                    JournalSource.SQL,
-                    RuntimeEvent.startMillis(completedEpochMillis, durationNanos),
-                    durationNanos,
-                    context,
-                    traceId,
-                    thread,
-                    threadKind,
-                    failedOrSlow,
-                    new SqlPayload(
-                            sql,
-                            null,
-                            dataSource == null ? context.dataSource() : dataSource,
-                            !success,
-                            frames,
-                            phase,
-                            completedNanos,
-                            codePathStamp,
-                            provenance,
-                            batchSize)));
+            journal.offer(event);
         } catch (RuntimeException ex) {
             // Publishing never disturbs the statement it observes.
+        }
+    }
+
+    private JournalBinding beginJournalCapture() {
+        synchronized (journalBindingLock) {
+            RuntimeEventSink sink = journal;
+            RuntimeEventSink.DeferredCapture capture = sink.beginCapture(JournalSource.SQL);
+            return capture == null ? null : new JournalBinding(sink, capture, journalGeneration);
+        }
+    }
+
+    private void publishDeferred(JournalBinding binding, RuntimeEvent event) {
+        synchronized (journalBindingLock) {
+            try {
+                if (journal != binding.sink() || journalGeneration != binding.generation()) {
+                    binding.capture().discard(event);
+                } else {
+                    binding.capture().offer(event);
+                }
+            } catch (RuntimeException ex) {
+                // Deferred publishing never disturbs result-set consumption.
+            }
+        }
+    }
+
+    private record JournalBinding(RuntimeEventSink sink, RuntimeEventSink.DeferredCapture capture, long generation) {}
+
+    /** Completes one deferred SQL journal event once its result-set row count is known or unavailable. */
+    public static final class DeferredSqlEvent {
+
+        private final SqlTraceRecorder owner;
+        private final JournalBinding binding;
+        private final RuntimeEvent event;
+        private final AtomicBoolean completed = new AtomicBoolean();
+
+        private DeferredSqlEvent(SqlTraceRecorder owner, JournalBinding binding, RuntimeEvent event) {
+            this.owner = owner;
+            this.binding = binding;
+            this.event = event;
+        }
+
+        /** Publishes the event with an exact row count, or {@code null} when the count could not be established. */
+        public void complete(Long rowCount) {
+            if (!completed.compareAndSet(false, true)) {
+                return;
+            }
+            SqlPayload payload = (SqlPayload) event.payload();
+            owner.publishDeferred(binding, event.withPayload(payload.withRowCount(rowCount)));
         }
     }
 
@@ -854,6 +969,12 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
      */
     public boolean capturesForPanel() {
         return enabled && !idleSuspended && recording.get();
+    }
+
+    /** Whether an active runtime journal can retain JDBC row-count observations now. */
+    public boolean recordsSqlRowCounts() {
+        RuntimeEventSink sink = journal;
+        return enabled && !BootUiJdbcCaptureGuard.isSuppressed() && !sink.paused() && sink.records(JournalSource.SQL);
     }
 
     /**

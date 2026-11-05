@@ -173,7 +173,7 @@ async function restart(service) {
     confirmLabel: 'Restart',
     danger: true
   })
-  if (!ok) return
+  if (!ok || readOnly.value) return
   if (selected.value?.id !== service.id) {
     logs.value = null
   }

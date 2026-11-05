@@ -166,6 +166,27 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void deferredCapturesCannotPublishAcrossClearOrLowFootprintPause() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        RuntimeEventSink.DeferredCapture beforeClear = journal.beginCapture(JournalSource.SQL);
+        assertThat(beforeClear).isNotNull();
+
+        journal.clear();
+
+        assertThat(beforeClear.offer(sql(1, false))).isFalse();
+        RuntimeEventSink.DeferredCapture beforePause = journal.beginCapture(JournalSource.SQL);
+        assertThat(beforePause).isNotNull();
+        journal.suspendForLowFootprint();
+
+        assertThat(beforePause.offer(sql(2, false))).isFalse();
+        journal.resumeFromLowFootprint();
+        journal.dispatchPending();
+
+        assertThat(journal.entries()).isEmpty();
+        assertThat(journal.status().accepted()).isEmpty();
+    }
+
+    @Test
     void workOnBootUisOwnThreadsIsNeverRecorded() throws Exception {
         RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
         CompletableFuture<Boolean> fromBootUi = new CompletableFuture<>();

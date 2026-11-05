@@ -5,6 +5,7 @@ import net from 'node:net'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {expect, test} from './fixtures.js'
+import {assertScorecardReadOnly} from '../scenarios/action-policy.js'
 
 const testDir = path.dirname(fileURLToPath(import.meta.url))
 const e2eDir = path.resolve(testDir, '..')
@@ -54,6 +55,7 @@ test.describe('Read-only properties', () => {
 
       await assertHttpProbeReadOnly(page, app.baseUrl, 'BootUI is read-only via bootui.read-only=true')
       await assertHeapDumpReadOnly(page, app.baseUrl, 'BootUI is read-only via bootui.read-only=true')
+      await assertScorecardReadOnly(page, expect, app.baseUrl, 'BootUI is read-only via bootui.read-only=true')
     } finally {
       await app.stop()
     }

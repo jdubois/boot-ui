@@ -130,7 +130,7 @@ async function downloadDump() {
   } finally {
     confirmingDownload.value = false
   }
-  if (!confirmed || observationActive.value) return
+  if (!confirmed || readOnly.value || observationActive.value) return
   downloading.value = true
   downloadError.value = null
   try {

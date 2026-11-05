@@ -37,9 +37,11 @@ const hasRows = computed(() => rows.value.length > 0)
 const summary = computed(() => {
   const occurrences = formatNumber(props.report?.occurrences || 0)
   const findings = formatNumber(props.report?.findings || 0)
+  const insufficient = formatNumber(props.report?.insufficient || 0)
+  const partial = formatNumber(props.report?.partial || 0)
   return `${occurrences} caught occurrence${props.report?.occurrences === 1 ? '' : 's'} · ${findings} finding${
     props.report?.findings === 1 ? '' : 's'
-  }`
+  } · ${insufficient} insufficient · ${partial} partial`
 })
 
 const settlingText = computed(
@@ -148,14 +150,33 @@ function shapeLabel(shape) {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in rows" :key="row.id" :class="{'caught-row-finding': row.finding}">
+              <tr
+                v-for="row in rows"
+                :key="row.id"
+                :class="{'caught-row-finding': row.finding, 'caught-row-partial': row.status === 'PARTIAL'}"
+              >
                 <td>
                   <div class="d-flex flex-column gap-1">
                     <span class="fw-semibold" :title="row.siteClass">
                       <code>{{ handlerLabel(row) }}</code>
                     </span>
-                    <span v-if="row.finding" class="badge rounded-pill text-bg-light border caught-finding">
+                    <span
+                      v-if="row.finding || row.status === 'FINDING'"
+                      class="badge rounded-pill text-bg-light border caught-finding"
+                    >
                       <i class="bi bi-search me-1" aria-hidden="true"></i>Finding
+                    </span>
+                    <span
+                      v-else-if="row.status === 'INSUFFICIENT'"
+                      class="badge rounded-pill text-bg-light border caught-insufficient"
+                    >
+                      Insufficient evidence ({{ formatNumber(row.notRethrownOrLoggedRequests) }}/{{
+                        formatNumber(row.minimumRequests)
+                      }}
+                      requests)
+                    </span>
+                    <span v-else-if="row.status === 'PARTIAL'" class="badge rounded-pill text-bg-light border">
+                      Partial evidence
                     </span>
                   </div>
                 </td>
@@ -188,6 +209,9 @@ function shapeLabel(shape) {
                   <span v-else class="text-body-secondary small">—</span>
                   <div v-if="row.unknown > 0 && row.unknownReason" class="small text-body-secondary mt-1">
                     Unknown: {{ row.unknownReason }}
+                  </div>
+                  <div v-if="row.status === 'PARTIAL'" class="small text-body-secondary mt-1">
+                    Unknown, pending, or counted-only outcomes prevent a verdict.
                   </div>
                 </td>
                 <td>
@@ -246,6 +270,15 @@ function shapeLabel(shape) {
 .caught-finding {
   align-self: flex-start;
   color: var(--bootui-warning-text-strong) !important;
+}
+
+.caught-insufficient {
+  align-self: flex-start;
+  color: var(--bootui-info-text) !important;
+}
+
+.caught-row-partial {
+  --bs-table-bg: color-mix(in srgb, var(--bootui-info-text) 5%, transparent);
 }
 
 .caught-chip {

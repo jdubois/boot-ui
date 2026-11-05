@@ -302,6 +302,8 @@ public abstract class AbstractCliConformanceTest {
         Response list = invoke("get_runtime_insights", "{\"query\":\"\",\"limit\":2}");
         assertThat(list.status()).isEqualTo(200);
         assertThat(list.json().has("coverage")).isTrue();
+        assertThat(list.json().path("insufficient").isIntegralNumber()).isTrue();
+        assertThat(list.json().path("partial").isIntegralNumber()).isTrue();
         assertThat(list.json().path("observations").size()).isLessThanOrEqualTo(2);
         assertThat(invoke("get_runtime_insights", "{}")
                         .json()

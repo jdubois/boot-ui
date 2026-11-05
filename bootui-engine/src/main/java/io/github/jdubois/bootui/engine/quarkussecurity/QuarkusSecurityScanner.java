@@ -10,10 +10,13 @@ import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
+import io.github.jdubois.bootui.engine.staticsecurity.StaticSecurityAnalysisDetector;
+import io.github.jdubois.bootui.engine.staticsecurity.StaticSecurityAnalysisRule;
 import io.github.jdubois.bootui.engine.support.DetailText;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import io.github.jdubois.bootui.spi.QuarkusSecurityPermission;
 import io.github.jdubois.bootui.spi.QuarkusSecuritySnapshot;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.util.Comparator;
 import java.util.List;
@@ -41,6 +44,8 @@ public final class QuarkusSecurityScanner {
             .thenComparing(SecurityRuleResultDto::id);
 
     private final Supplier<QuarkusSecuritySnapshot> snapshotSupplier;
+    private final Supplier<Path> projectRootSupplier;
+    private final StaticSecurityAnalysisDetector staticSecurityDetector = new StaticSecurityAnalysisDetector();
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     /** The synthetic id of an analysisErrors entry when the observation itself failed. */
@@ -49,13 +54,20 @@ public final class QuarkusSecurityScanner {
     private final AdvisorScanState<SecurityReport> state =
             new AdvisorScanState<>(SecurityReport::withViolationDetails, QuarkusSecurityScanner::ruleCatalog);
 
-    private QuarkusSecurityScanner(Supplier<QuarkusSecuritySnapshot> snapshotSupplier, Clock clock) {
+    private QuarkusSecurityScanner(
+            Supplier<QuarkusSecuritySnapshot> snapshotSupplier, Clock clock, Supplier<Path> projectRootSupplier) {
         this.snapshotSupplier = snapshotSupplier;
         this.clock = clock;
+        this.projectRootSupplier = projectRootSupplier;
     }
 
     public static QuarkusSecurityScanner usingSnapshot(Supplier<QuarkusSecuritySnapshot> supplier, Clock clock) {
-        return new QuarkusSecurityScanner(supplier, clock);
+        return new QuarkusSecurityScanner(supplier, clock, () -> null);
+    }
+
+    public static QuarkusSecurityScanner usingSnapshot(
+            Supplier<QuarkusSecuritySnapshot> supplier, Clock clock, Supplier<Path> projectRootSupplier) {
+        return new QuarkusSecurityScanner(supplier, clock, projectRootSupplier);
     }
 
     public SecurityReport initialReport() {
@@ -95,16 +107,34 @@ public final class QuarkusSecurityScanner {
                 throw new IllegalStateException();
             }
         } catch (RuntimeException | LinkageError ex) {
+            StaticSecurityAnalysisDetector.Inspection inspection = inspectStaticSecurity();
+            List<SecurityRuleResultDto> findings = staticFindings(inspection, collector);
+            List<SecurityRuleResultDto> errors = List.of(error("Quarkus security configuration could not be read."));
+            if (inspection.state() == StaticSecurityAnalysisDetector.State.INDETERMINATE) {
+                return report(
+                        "ERROR",
+                        "Could not read Quarkus security configuration or assess static analyzer declarations.",
+                        clock.millis(),
+                        List.of(),
+                        findings,
+                        errors,
+                        StaticSecurityAnalysisRule.addAssessmentLimitation(AdvisorEvidenceDto.unknown()),
+                        inspection.evaluated() ? 1 : 0);
+            }
             return report(
                     "ERROR",
                     "Could not read Quarkus security configuration.",
                     clock.millis(),
                     List.of(),
-                    List.of(),
-                    List.of(error("Quarkus security configuration could not be read.")));
+                    findings,
+                    errors,
+                    AdvisorEvidenceDto.unknown(),
+                    inspection.evaluated() ? 1 : 0);
         }
         QuarkusSecurityChecks.Evaluation evaluation = QuarkusSecurityChecks.evaluateObserved(snap, collector);
-        List<SecurityRuleResultDto> violations = evaluation.findings();
+        List<SecurityRuleResultDto> violations = new java.util.ArrayList<>(evaluation.findings());
+        StaticSecurityAnalysisDetector.Inspection inspection = inspectStaticSecurity();
+        violations.addAll(staticFindings(inspection, collector));
         List<String> policyLabels = snap.permissions().stream()
                 .map(QuarkusSecurityScanner::policyLabel)
                 .distinct()
@@ -113,16 +143,40 @@ public final class QuarkusSecurityScanner {
                 .map(QuarkusSecurityScanner::error)
                 .toList();
         boolean partial = !evaluation.evidence().coverageComplete();
+        AdvisorEvidenceDto evidence = inspection.state() == StaticSecurityAnalysisDetector.State.INDETERMINATE
+                ? StaticSecurityAnalysisRule.addAssessmentLimitation(evaluation.evidence())
+                : evaluation.evidence();
+        partial |= !evidence.coverageComplete();
+        String message = partial
+                ? "Known Quarkus security declarations analysed; unsupported or unreadable observations remain incomplete."
+                : "Quarkus security configuration analysed.";
+        if (inspection.state() == StaticSecurityAnalysisDetector.State.INDETERMINATE) {
+            message += " Static analyzer configuration could not be assessed.";
+        }
         return report(
                 partial ? "PARTIAL" : "SCANNED",
-                partial
-                        ? "Known Quarkus security declarations analysed; unsupported or unreadable observations remain incomplete."
-                        : "Quarkus security configuration analysed.",
+                message,
                 clock.millis(),
                 policyLabels,
                 violations,
                 errors,
-                evaluation.evidence());
+                evidence,
+                inspection.evaluated() ? QuarkusSecurityChecks.ruleCount() + 1 : QuarkusSecurityChecks.ruleCount());
+    }
+
+    private List<SecurityRuleResultDto> staticFindings(
+            StaticSecurityAnalysisDetector.Inspection inspection, AdvisorViolationCollector collector) {
+        return inspection.state() == StaticSecurityAnalysisDetector.State.NOT_CONFIGURED
+                ? List.of(StaticSecurityAnalysisRule.finding(collector))
+                : List.of();
+    }
+
+    private StaticSecurityAnalysisDetector.Inspection inspectStaticSecurity() {
+        try {
+            return staticSecurityDetector.inspect(projectRootSupplier == null ? null : projectRootSupplier.get());
+        } catch (RuntimeException | LinkageError ex) {
+            return new StaticSecurityAnalysisDetector.Inspection(StaticSecurityAnalysisDetector.State.INDETERMINATE);
+        }
     }
 
     /**
@@ -171,6 +225,7 @@ public final class QuarkusSecurityScanner {
     private static List<String> ruleCatalog() {
         List<String> catalog = new java.util.ArrayList<>(QuarkusSecurityChecks.ruleIds());
         catalog.add(ANALYSIS_RULE_ID);
+        catalog.add(StaticSecurityAnalysisDetector.RULE_ID);
         return catalog;
     }
 
@@ -206,21 +261,28 @@ public final class QuarkusSecurityScanner {
             List<SecurityRuleResultDto> raw,
             List<SecurityRuleResultDto> errors,
             AdvisorEvidenceDto evidence) {
+        return report(
+                status, message, scannedAt, policyLabels, raw, errors, evidence, QuarkusSecurityChecks.ruleCount());
+    }
+
+    private SecurityReport report(
+            String status,
+            String message,
+            Long scannedAt,
+            List<String> policyLabels,
+            List<SecurityRuleResultDto> raw,
+            List<SecurityRuleResultDto> errors,
+            AdvisorEvidenceDto evidence,
+            int rulesEvaluated) {
         List<SecurityRuleResultDto> violations = raw.stream().sorted(IMPORTANCE).toList();
         SecurityScanStatusDto scan = new SecurityScanStatusDto(
-                ANALYZER,
-                status,
-                message,
-                scannedAt,
-                QuarkusSecurityChecks.ruleCount(),
-                policyLabels.size(),
-                violations.size());
+                ANALYZER, status, message, scannedAt, rulesEvaluated, policyLabels.size(), violations.size());
         return new SecurityReport(
                 true,
                 DISCLAIMER,
                 policyLabels,
                 policyLabels.size(),
-                QuarkusSecurityChecks.ruleCount(),
+                rulesEvaluated,
                 violations.size(),
                 severityCounts(violations),
                 scan,

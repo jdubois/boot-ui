@@ -12,6 +12,7 @@ import UnavailableState from './components/UnavailableState.vue'
 const props = defineProps(panelProps)
 const panels = inject('panels', ref(null))
 const isQuarkus = computed(() => panels.value?.platform === 'quarkus')
+const staticOnlyReport = computed(() => panel.report?.scan?.analyzer === 'BootUI Static Security Advisor')
 const fwName = computed(() => (isQuarkus.value ? 'Quarkus' : 'Spring Security'))
 const policyNoun = computed(() => (isQuarkus.value ? 'Permission policies' : 'Filter chains'))
 const policyMetricLabel = computed(() => (isQuarkus.value ? 'Permission policies' : 'Filter chains analysed'))
@@ -30,7 +31,7 @@ const panel = useAdvisorPanel(props, {
     <PanelHeader
       icon="bi-shield-check"
       title="Security"
-      subtitle="Review the registered security configuration with bounded best-practice checks."
+      subtitle="Review security configuration and local static-analysis setup with bounded checks."
       :loading="panel.loading"
       :error="panel.error"
     >
@@ -75,8 +76,10 @@ const panel = useAdvisorPanel(props, {
         ]"
       />
       <div class="alert alert-info">
-        <strong>Heuristic {{ fwName }} rules.</strong>
+        <strong v-if="staticOnlyReport">Static analyzer configuration check.</strong>
+        <strong v-else>Heuristic {{ fwName }} rules.</strong>
         {{ panel.report.disclaimer }}
+        <span v-if="staticOnlyReport"> {{ panel.report.scan.message }}</span>
         <span v-if="panel.readOnly">Scanning is read-only. {{ panel.readOnlyReason }}</span>
       </div>
 

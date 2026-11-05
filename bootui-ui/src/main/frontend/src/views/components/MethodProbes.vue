@@ -1,6 +1,7 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
-import {apiFetch, getJson} from '../../api.js'
+import {getJson} from '../../api.js'
+import {diagnosticActionError} from '../../utils/diagnosticAcknowledgement.js'
 import {formatClockTime, formatNumber, shortName} from '../../utils/format.js'
 import {formatLoadError} from '../../utils/loadError.js'
 import {useConfirm} from '../../utils/useConfirm.js'
@@ -120,23 +121,19 @@ async function start() {
     }))
   )
     return
+  if (props.readOnly || busy.value) return
   busy.value = true
   clear()
   try {
-    const res = await apiFetch('api/code-paths/probes', {
+    const body = await getJson('api/code-paths/probes', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(shapes ? {method: props.method, recordShapes: true} : {method: props.method})
     })
-    const body = await res.json().catch(() => null)
-    if (!res.ok) {
-      show(body?.error ?? `Could not start the probe (HTTP ${res.status}).`, 'danger')
-    } else {
-      expanded.value = new Set([...expanded.value, body.id])
-      flash(`Probe ${body.id} started: call the method now.`, 'success')
-    }
+    expanded.value = new Set([...expanded.value, body.id])
+    flash(`Probe ${body.id} started: call the method now.`, 'success')
   } catch (e) {
-    show(formatLoadError(e, 'Could not start the probe'), 'danger')
+    show(diagnosticActionError(e, 'Could not start the probe'), 'danger')
   } finally {
     busy.value = false
     await load()
@@ -150,13 +147,9 @@ async function stop(probe) {
   }
   clearList()
   try {
-    const res = await apiFetch(`api/code-paths/probes/${encodeURIComponent(probe.id)}/stop`, {method: 'POST'})
-    if (!res.ok) {
-      const body = await res.json().catch(() => null)
-      showList(body?.error ?? `Could not stop probe ${probe.id} (HTTP ${res.status}).`, 'danger')
-    }
+    await getJson(`api/code-paths/probes/${encodeURIComponent(probe.id)}/stop`, {method: 'POST'})
   } catch (e) {
-    showList(formatLoadError(e, 'Could not stop the probe'), 'danger')
+    showList(diagnosticActionError(e, 'Could not stop the probe'), 'danger')
   }
   await load()
 }

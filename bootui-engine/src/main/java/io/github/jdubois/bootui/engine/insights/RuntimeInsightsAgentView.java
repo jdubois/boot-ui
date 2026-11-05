@@ -182,6 +182,12 @@ public final class RuntimeInsightsAgentView {
         }
         List<String> notExercised = report.notExercised();
         int notExercisedShown = Math.min(RuntimeInsightsAgentReportDto.MAX_NOT_EXERCISED, notExercised.size());
+        int insufficient = (int) matching.stream()
+                .filter(observation -> "INSUFFICIENT".equals(observation.status()))
+                .count();
+        int partial = (int) matching.stream()
+                .filter(observation -> "PARTIAL".equals(observation.status()))
+                .count();
         return new RuntimeInsightsAgentReportDto(
                 true,
                 null,
@@ -195,7 +201,9 @@ public final class RuntimeInsightsAgentView {
                 notExercised.size() - notExercisedShown + report.notExercisedOmitted(),
                 limitations,
                 // A diff query asks for the comparison, so it comes before the lead observation's follow-ups.
-                asked.equalsIgnoreCase("diff") ? asks.then(next) : next.then(asks));
+                asked.equalsIgnoreCase("diff") ? asks.then(next) : next.then(asks),
+                insufficient,
+                partial);
     }
 
     /** {@link #detail(RuntimeObservationDetailDto, Predicate)} naming any tool as a next step. */

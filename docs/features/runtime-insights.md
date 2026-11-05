@@ -125,7 +125,7 @@ changed-method evidence. The table says what each counts; the drawers below hold
 
 ::: details Observation details: database, transactions, and ORM
 
-- `repeated-selects`: the same SELECT run five or more times in a request after another statement, from three requests. With the [BootUI agent](java-agent.md)'s `code-paths` sensor, it names the application method that issued the repeats, such as a service method looping over a repository. For a repository or DAO class of the application's own, which the sensor instruments, it names the first method above it that is not one, through the repository method ([Code Paths](java-agent.md#code-paths)).
+- `repeated-selects`: the same SELECT run five or more times in a request after another statement, from three requests. Exact JDBC row counts are retained when available, but SQL rows do not establish how many entities or response items a query produced. With the [BootUI agent](java-agent.md)'s `code-paths` sensor, it names the application method that issued the repeats, such as a service method looping over a repository. For a repository or DAO class of the application's own, which the sensor instruments, it names the first method above it that is not one, through the repository method ([Code Paths](java-agent.md#code-paths)).
 - `connections-per-request`: requests that held two or more connections of one data source at the same time, with the known pool maximum and a hold-and-wait concurrency estimate: floor((pool − 1) ÷ (held − 1)) + 1. The estimate assumes nested hold-and-wait checkouts rather than parallel independent work; other pool users can exhaust the pool at lower concurrency. Neither overlapping connections nor the estimate proves a deadlock.
 - `safe-method-dml`: GET or HEAD requests with executed writes, or on Quarkus with unverified Hibernate write preparations. These are separate findings, worded as questions rather than proof that a prepared statement ran.
 - `split-transaction-writes`: requests whose writes committed in two or more independent transactions or autocommit statements.
@@ -208,7 +208,12 @@ phases, authorization, or measured resources) stay on HTTP requests.
 Every observation reports whether it ran. With no eligible work, a check reports **Not enough evidence**, not that it
 ran. One whose journal source is not recorded, whose panel is disabled, or which does not apply to this stack says so
 with its reason, so an empty list never reads as healthy. Findings below their minimum are shown as **insufficient**,
-naming what is missing, and a source that dropped events marks its findings **partial**.
+naming what is missing, and a source that dropped events marks its findings **partial**. The agent report also returns
+aggregate insufficient and partial counts for every observation matching its query, even when the displayed list is
+limited. The CLI can fail a CI step on either state with `bootui insights list --fail-on insufficient`.
+That gate checks observation rows, not check-level statuses, and implicitly requests every observation kind when
+`--query` is omitted; an explicit query remains scoped. An empty all-query result passes only when the report has
+request activity.
 
 ::: details Limits: unrecordable sources, drops, and eviction
 

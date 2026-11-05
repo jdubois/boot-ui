@@ -12,9 +12,12 @@ another panel, including scans started in an advisor panel or by a local agent. 
 a probe, or an external query. Before any scan has run, the summary reports how many visible advisors have been
 assessed and prompts you to run them.
 
-**Run all scanners** triggers every available scanner, or you can run each card on its own. After a run-all, a
-dismissible tip points at the MCP Server panel, since enabling it lets an AI agent read these same results and fix the
-findings for you.
+**Run all scanners** triggers only available, enabled scanners whose own panel policy permits actions, or you can run
+each permitted card on its own. Read-only cards keep their cached results and **Open panel** links, with a disabled
+action and its policy explanation. The Scorecard's own `overview` policy never grants permission to an advisor.
+While target permissions are unknown, actions remain disabled. Run-all is disabled when no target can run.
+After a run-all, a dismissible tip points at the MCP Server panel, since enabling it lets an AI agent read these same
+results and fix the findings for you.
 
 ## Overall score
 
@@ -60,7 +63,7 @@ A card shows its scan status as a badge — `Not scanned yet`, `Scan complete`, 
 | **Not scored**     | No eligible score. **Open panel** shows the full reason.                                                        |
 | **Not applicable** | Confirmed empty scope: `usable: false`, `coverageComplete: true`, and no limitations.                           |
 
-A card that has never been scanned keeps its **Run scan** action.
+A card that has never been scanned keeps its **Run scan** action, disabled when its target panel policy forbids it.
 
 Secondary diagnostics stay in each advisor's collapsed **Scan notes**, reachable through **Open panel**. The Scorecard
 summarizes how many advisors have scan notes instead of repeating each explanation, counting partial scans and
@@ -100,9 +103,9 @@ exactly one `AVAILABLE` signal carrying a nonnegative safe integer count for eac
 malformed, duplicate, and unavailable signals leave GitHub **Not scored**, even when another signal reports known alerts, and an unscored GitHub is excluded
 from the overall average. The actual counts stay visible either way.
 
-Connecting and refreshing are always user-triggered, including through **Run all scanners** when GitHub is the only
-available card. Refreshing or a failed request preserves the last accepted report and its score, while a newly received
-unavailable report clears that score.
+Connecting and refreshing are always user-triggered and respect the GitHub panel's own read-only policy, including
+through **Run all scanners** when GitHub is the only available card. Refreshing or a failed request preserves the last
+accepted report and its score, while a newly received unavailable report clears that score.
 
 ## Refresh behavior
 
@@ -114,6 +117,9 @@ A busy or failed request keeps the last accepted report and adds a warning or an
 replaces the old assessment, scoring usable partial evidence and excluding failed or unusable reports. A `NOT_SCANNED`
 response, such as after an application restart, replaces the old findings and returns the card to **Run scan**. A scan
 already in progress finishes before the return-navigation refresh reads its updated report.
+
+The backend still enforces policy if it changes after the page loads. A policy denial displays its explanation and
+HTTP status, without discarding the last report or interpreting the explanation as HTML.
 
 The panel is available on every adapter. The scoring dashboard is rendered entirely in the browser: the shell reads
 each advisor's own reports and displays its independent score, so no backend dashboard service is involved. The shell

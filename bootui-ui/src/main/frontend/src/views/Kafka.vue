@@ -1,6 +1,6 @@
 <script setup>
 import LowFootprintBanner from './components/LowFootprintBanner.vue'
-import {apiFetch, getJson} from '../api.js'
+import {apiError, apiFetch, getJson} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
 import {formatClockTime, formatNumber} from '../utils/format.js'
@@ -118,10 +118,11 @@ async function clearAll() {
     }))
   )
     return
+  if (readOnly.value || busy.value) return
   busy.value = true
   try {
     const res = await apiFetch('api/kafka', {method: 'DELETE'})
-    if (!res.ok && res.status !== 204) throw new Error(`HTTP ${res.status}`)
+    if (!res.ok && res.status !== 204) throw await apiError(res)
     reportVersion++
     await loadAfterCurrent()
     flash('Cleared captured Kafka activity.', 'success')

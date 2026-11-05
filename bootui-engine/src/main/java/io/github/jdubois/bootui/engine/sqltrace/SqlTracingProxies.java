@@ -9,13 +9,18 @@ import java.lang.reflect.Proxy;
 import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.sql.DataSource;
 
@@ -46,11 +51,27 @@ public final class SqlTracingProxies {
     private static final Set<String> EXECUTE_METHODS =
             Set.of("execute", "executeQuery", "executeUpdate", "executeLargeUpdate");
     private static final Set<String> BATCH_EXECUTE_METHODS = Set.of("executeBatch", "executeLargeBatch");
+    private static final Set<String> RESULT_SET_INVALIDATORS = Set.of(
+            "absolute",
+            "afterLast",
+            "beforeFirst",
+            "cancelRowUpdates",
+            "deleteRow",
+            "first",
+            "insertRow",
+            "last",
+            "moveToCurrentRow",
+            "moveToInsertRow",
+            "previous",
+            "refreshRow",
+            "relative",
+            "updateRow");
 
     static final int MAX_BATCH_PREVIEW_ITEMS = 5;
     static final int MAX_BATCH_PREVIEW_PARAMETERS = 5;
     static final int MAX_BATCH_SQL_PREVIEW_CHARS = 256;
     static final int MAX_BATCH_PARAMETER_PREVIEW_CHARS = 128;
+    static final int MAX_PENDING_RESULT_SETS_PER_CONNECTION = 64;
 
     // Fixed proxy interface sets. These must stay in sync with SqlTraceRuntimeHints, which registers the
     // same JDK proxies for native images; the ordering is significant because it identifies the proxy class.
@@ -59,6 +80,7 @@ public final class SqlTracingProxies {
     static final Class<?>[] STATEMENT_INTERFACES = {Statement.class};
     static final Class<?>[] PREPARED_STATEMENT_INTERFACES = {PreparedStatement.class};
     static final Class<?>[] CALLABLE_STATEMENT_INTERFACES = {CallableStatement.class};
+    static final Class<?>[] RESULT_SET_INTERFACES = {ResultSet.class};
 
     private SqlTracingProxies() {}
 
@@ -77,6 +99,10 @@ public final class SqlTracingProxies {
 
     public static Class<?>[] callableStatementInterfaces() {
         return CALLABLE_STATEMENT_INTERFACES.clone();
+    }
+
+    public static Class<?>[] resultSetInterfaces() {
+        return RESULT_SET_INTERFACES.clone();
     }
 
     /**
@@ -266,6 +292,7 @@ public final class SqlTracingProxies {
         private final String connectionId;
         private final String dataSource;
         private final ConnectionCheckout checkout;
+        private final Set<PendingSqlResult> pendingResults = Collections.newSetFromMap(new IdentityHashMap<>());
 
         ConnectionHandler(
                 Object target,
@@ -285,12 +312,21 @@ public final class SqlTracingProxies {
                 return handleObjectMethod(proxy, method, args);
             }
             String name = method.getName();
-            if ("close".equals(name) && method.getParameterCount() == 0) {
+            if (("close".equals(name) && method.getParameterCount() == 0) || "abort".equals(name)) {
+                finishPendingResults();
                 try {
                     return invokeTarget(method, args);
                 } finally {
                     recorder.releaseConnection(checkout);
                 }
+            }
+            if ("commit".equals(name)
+                    || "rollback".equals(name)
+                    || ("setAutoCommit".equals(name)
+                            && args != null
+                            && args.length == 1
+                            && Boolean.TRUE.equals(args[0]))) {
+                finishPendingResults();
             }
             Object result = invokeTarget(method, args);
             if (result instanceof Statement statement) {
@@ -301,9 +337,29 @@ public final class SqlTracingProxies {
                             case "prepareCall" -> StatementType.CALLABLE;
                             default -> StatementType.STATEMENT;
                         };
-                return wrapStatement(statement, recorder, connectionId, dataSource, checkout, type, sql);
+                return wrapStatement(statement, recorder, connectionId, dataSource, checkout, type, sql, this);
             }
             return result;
+        }
+
+        private synchronized boolean register(PendingSqlResult pending) {
+            if (pendingResults.size() >= MAX_PENDING_RESULT_SETS_PER_CONNECTION) {
+                return false;
+            }
+            pendingResults.add(pending);
+            return true;
+        }
+
+        private synchronized void remove(PendingSqlResult pending) {
+            pendingResults.remove(pending);
+        }
+
+        private void finishPendingResults() {
+            List<PendingSqlResult> pending;
+            synchronized (this) {
+                pending = new ArrayList<>(pendingResults);
+            }
+            pending.forEach(PendingSqlResult::finishAtConnectionClose);
         }
     }
 
@@ -314,17 +370,169 @@ public final class SqlTracingProxies {
             String dataSource,
             ConnectionCheckout checkout,
             StatementType type,
-            String preparedSql) {
+            String preparedSql,
+            ConnectionHandler connection) {
         Class<?>[] interfaces =
                 switch (type) {
                     case PREPARED -> PREPARED_STATEMENT_INTERFACES;
                     case CALLABLE -> CALLABLE_STATEMENT_INTERFACES;
                     case STATEMENT -> STATEMENT_INTERFACES;
                 };
-        return (Statement) Proxy.newProxyInstance(
-                classLoader(statement),
-                interfaces,
-                new StatementHandler(statement, recorder, connectionId, dataSource, checkout, type, preparedSql));
+        StatementHandler handler = new StatementHandler(
+                statement, recorder, connectionId, dataSource, checkout, type, preparedSql, connection);
+        Statement proxy = (Statement) Proxy.newProxyInstance(classLoader(statement), interfaces, handler);
+        handler.attachProxy(proxy);
+        return proxy;
+    }
+
+    private static final class PendingSqlResult {
+
+        private final SqlTraceRecorder.DeferredSqlEvent event;
+        private final StatementHandler statement;
+        private final ConnectionHandler connection;
+        private final boolean deferUntilStatementClose;
+        private final boolean countEligible;
+        private final AtomicBoolean terminal = new AtomicBoolean();
+
+        private ResultSet target;
+        private ResultSet proxy;
+        private long rows;
+        private boolean valid = true;
+        private boolean exhausted;
+
+        PendingSqlResult(
+                SqlTraceRecorder.DeferredSqlEvent event,
+                StatementHandler statement,
+                ConnectionHandler connection,
+                boolean deferUntilStatementClose,
+                Category category) {
+            this.event = event;
+            this.statement = statement;
+            this.connection = connection;
+            this.deferUntilStatementClose = deferUntilStatementClose;
+            this.countEligible = category != Category.DDL;
+        }
+
+        synchronized ResultSet wrap(ResultSet resultSet) {
+            if (proxy != null && target == resultSet) {
+                return proxy;
+            }
+            if (target != null && target != resultSet) {
+                finish(null);
+                return resultSet;
+            }
+            target = resultSet;
+            try {
+                valid = countEligible && resultSet.getType() == ResultSet.TYPE_FORWARD_ONLY;
+            } catch (SQLException | RuntimeException ex) {
+                valid = false;
+            }
+            if (proxy != null) {
+                return proxy;
+            }
+            try {
+                proxy = (ResultSet) Proxy.newProxyInstance(
+                        classLoader(resultSet),
+                        RESULT_SET_INTERFACES,
+                        new ResultSetHandler(resultSet, this, statement.statementProxy));
+                return proxy;
+            } catch (RuntimeException ex) {
+                finish(null);
+                return resultSet;
+            }
+        }
+
+        synchronized void advanced(boolean hasRow) {
+            if (terminal.get() || !valid) {
+                return;
+            }
+            if (!hasRow) {
+                exhausted = true;
+                if (!deferUntilStatementClose) {
+                    finish(rows);
+                }
+                return;
+            }
+            if (rows == Long.MAX_VALUE) {
+                finish(null);
+                return;
+            }
+            rows++;
+        }
+
+        void invalidate() {
+            finish(null);
+        }
+
+        synchronized void resultSetClosed() {
+            if (terminal.get()) {
+                return;
+            }
+            if (!exhausted || !valid) {
+                finish(null);
+            }
+        }
+
+        synchronized void finishAtStatementClose() {
+            finish(valid && exhausted ? rows : null);
+        }
+
+        void finishAtConnectionClose() {
+            finishAtStatementClose();
+        }
+
+        synchronized void finish(Long rowCount) {
+            if (!terminal.compareAndSet(false, true)) {
+                return;
+            }
+            event.complete(rowCount);
+            connection.remove(this);
+            statement.clearPendingResult(this);
+        }
+    }
+
+    private static final class ResultSetHandler extends DelegatingHandler {
+
+        private final PendingSqlResult pending;
+        private final Statement statementProxy;
+
+        ResultSetHandler(Object target, PendingSqlResult pending, Statement statementProxy) {
+            super(target, pending.statement.recorder);
+            this.pending = pending;
+            this.statementProxy = statementProxy;
+        }
+
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            if (isObjectMethod(method)) {
+                return handleObjectMethod(proxy, method, args);
+            }
+            String name = method.getName();
+            if ("getStatement".equals(name) && method.getParameterCount() == 0) {
+                return statementProxy;
+            }
+            if ("next".equals(name) && method.getParameterCount() == 0) {
+                try {
+                    Object result = invokeTarget(method, args);
+                    pending.advanced(Boolean.TRUE.equals(result));
+                    return result;
+                } catch (Throwable ex) {
+                    pending.invalidate();
+                    throw ex;
+                }
+            }
+            if ("close".equals(name) && method.getParameterCount() == 0) {
+                try {
+                    return invokeTarget(method, args);
+                } finally {
+                    pending.resultSetClosed();
+                }
+            }
+            if ("unwrap".equals(name) || RESULT_SET_INVALIDATORS.contains(name) || name.startsWith("update")) {
+                pending.invalidate();
+            }
+            return invokeTarget(method, args);
+        }
     }
 
     /** Times {@code execute*}/{@code executeBatch}, captures bound parameters, and records the outcome. */
@@ -335,11 +543,15 @@ public final class SqlTracingProxies {
         private final ConnectionCheckout checkout;
         private final StatementType statementType;
         private final String preparedSql;
+        private final ConnectionHandler connection;
 
         private final TreeMap<Integer, String> parameters = new TreeMap<>();
         private final List<String> batchParameterPreviews = new ArrayList<>(MAX_BATCH_PREVIEW_ITEMS);
         private final List<String> batchSqlPreviews = new ArrayList<>(MAX_BATCH_PREVIEW_ITEMS);
         private int batchSize;
+        private boolean batchHasDdl;
+        private volatile PendingSqlResult pendingResult;
+        private volatile Statement statementProxy;
 
         StatementHandler(
                 Object target,
@@ -348,13 +560,19 @@ public final class SqlTracingProxies {
                 String dataSource,
                 ConnectionCheckout checkout,
                 StatementType statementType,
-                String preparedSql) {
+                String preparedSql,
+                ConnectionHandler connection) {
             super(target, recorder);
             this.connectionId = connectionId;
             this.dataSource = dataSource;
             this.checkout = checkout;
             this.statementType = statementType;
             this.preparedSql = preparedSql;
+            this.connection = connection;
+        }
+
+        void attachProxy(Statement proxy) {
+            statementProxy = proxy;
         }
 
         @Override
@@ -363,6 +581,23 @@ public final class SqlTracingProxies {
                 return handleObjectMethod(proxy, method, args);
             }
             String name = method.getName();
+            if ("close".equals(name) && method.getParameterCount() == 0) {
+                finishPendingAtStatementClose();
+                return invokeTarget(method, args);
+            }
+            if ("getResultSet".equals(name) && method.getParameterCount() == 0) {
+                try {
+                    Object result = invokeTarget(method, args);
+                    return result instanceof ResultSet resultSet ? wrapCurrentResult(resultSet) : result;
+                } catch (Throwable ex) {
+                    finishPendingUnknown();
+                    throw ex;
+                }
+            }
+            if ("getMoreResults".equals(name)) {
+                finishPendingUnknown();
+                return invokeTarget(method, args);
+            }
             if (name.startsWith("set") && isParameterSetter(method, args)) {
                 captureParameter(name, args);
                 return invokeTarget(method, args);
@@ -380,12 +615,64 @@ public final class SqlTracingProxies {
                 return invokeTarget(method, args);
             }
             if (BATCH_EXECUTE_METHODS.contains(name)) {
+                finishPendingAtStatementClose();
                 return timeBatch(method, args);
             }
             if (EXECUTE_METHODS.contains(name)) {
+                finishPendingAtStatementClose();
                 return timeExecution(name, method, args);
             }
             return invokeTarget(method, args);
+        }
+
+        private ResultSet wrapCurrentResult(ResultSet resultSet) {
+            PendingSqlResult pending = pendingResult;
+            if (pending == null) {
+                return resultSet;
+            }
+            return pending.wrap(resultSet);
+        }
+
+        private void attachPendingResult(
+                SqlTraceRecorder.DeferredSqlEvent event,
+                ResultSet resultSet,
+                boolean deferUntilStatementClose,
+                Category category) {
+            if (event == null) {
+                return;
+            }
+            PendingSqlResult pending =
+                    new PendingSqlResult(event, this, connection, deferUntilStatementClose, category);
+            if (!connection.register(pending)) {
+                event.complete(null);
+                return;
+            }
+            pendingResult = pending;
+            if (resultSet != null) {
+                pending.wrap(resultSet);
+            }
+        }
+
+        private void clearPendingResult(PendingSqlResult pending) {
+            if (pendingResult == pending) {
+                pendingResult = null;
+            }
+        }
+
+        private void finishPendingAtStatementClose() {
+            PendingSqlResult pending = pendingResult;
+            pendingResult = null;
+            if (pending != null) {
+                pending.finishAtStatementClose();
+            }
+        }
+
+        private void finishPendingUnknown() {
+            PendingSqlResult pending = pendingResult;
+            pendingResult = null;
+            if (pending != null) {
+                pending.finish(null);
+            }
         }
 
         private boolean isParameterSetter(Method method, Object[] args) {
@@ -414,6 +701,7 @@ public final class SqlTracingProxies {
                 }
             } else if (args != null && args.length > 0 && args[0] instanceof String sql) {
                 batchSize++;
+                batchHasDdl |= classify(null, sql) == Category.DDL;
                 if (batchSqlPreviews.size() < MAX_BATCH_PREVIEW_ITEMS) {
                     batchSqlPreviews.add(truncatePreview(sql, MAX_BATCH_SQL_PREVIEW_CHARS));
                 }
@@ -429,14 +717,21 @@ public final class SqlTracingProxies {
             boolean success = true;
             String error = null;
             Long affected = null;
+            Long rowCount = null;
+            Object result = null;
+            boolean deferResultSet = false;
             try {
-                Object result = invokeTarget(method, args);
+                result = invokeTarget(method, args);
                 if (result instanceof Integer count) {
                     affected = count.longValue();
+                    rowCount = updateRowCount(category, count.longValue());
                 } else if (result instanceof Long count) {
                     affected = count;
+                    rowCount = updateRowCount(category, count);
+                } else if ("execute".equals(name) && Boolean.FALSE.equals(result) && recorder.recordsSqlRowCounts()) {
+                    rowCount = updateRowCount(category, largeUpdateCount());
                 }
-                return result;
+                deferResultSet = result instanceof ResultSet || ("execute".equals(name) && Boolean.TRUE.equals(result));
             } catch (Throwable ex) {
                 success = false;
                 error = ex.getMessage();
@@ -445,21 +740,43 @@ public final class SqlTracingProxies {
                 if (checkout != null) {
                     checkout.statementExecuted();
                 }
-                recorder.recordNanos(
-                        statementType,
-                        category,
-                        sql,
-                        preparedSql != null && recorder.capturesForPanel() ? orderedParameters() : List.of(),
-                        nanos(start),
-                        success,
-                        error,
-                        affected,
-                        0,
-                        connectionId,
-                        Thread.currentThread().getName(),
-                        dataSource,
-                        false);
+                SqlTraceRecorder.DeferredSqlEvent deferred = null;
+                try {
+                    deferred = recorder.recordJdbcNanos(
+                            statementType,
+                            category,
+                            sql,
+                            preparedSql != null && recorder.capturesForPanel() ? orderedParameters() : List.of(),
+                            nanos(start),
+                            success,
+                            error,
+                            affected,
+                            0,
+                            connectionId,
+                            Thread.currentThread().getName(),
+                            dataSource,
+                            false,
+                            rowCount,
+                            deferResultSet);
+                } catch (RuntimeException ex) {
+                    // Capture failures never change the application's JDBC result.
+                }
+                if (deferResultSet && deferred != null) {
+                    try {
+                        attachPendingResult(
+                                deferred,
+                                result instanceof ResultSet resultSet ? resultSet : null,
+                                "execute".equals(name),
+                                category);
+                    } catch (RuntimeException ex) {
+                        deferred.complete(null);
+                    }
+                }
             }
+            if (result instanceof ResultSet resultSet) {
+                return wrapCurrentResult(resultSet);
+            }
+            return result;
         }
 
         private Object timeBatch(Method method, Object[] args) throws Throwable {
@@ -469,9 +786,11 @@ public final class SqlTracingProxies {
             boolean success = true;
             String error = null;
             Long affected = null;
+            Long rowCount = null;
             try {
                 Object result = invokeTarget(method, args);
                 affected = sumBatchResult(result);
+                rowCount = batchHasDdl ? null : exactBatchResult(result, category);
                 return result;
             } catch (Throwable ex) {
                 success = false;
@@ -481,21 +800,43 @@ public final class SqlTracingProxies {
                 if (checkout != null) {
                     checkout.statementExecuted();
                 }
-                recorder.recordNanos(
-                        statementType,
-                        category,
-                        sql,
-                        preparedSql != null && recorder.capturesForPanel() ? batchParameterPreview() : List.of(),
-                        nanos(start),
-                        success,
-                        error,
-                        affected,
-                        batchSize,
-                        connectionId,
-                        Thread.currentThread().getName(),
-                        dataSource,
-                        true);
+                try {
+                    recorder.recordJdbcNanos(
+                            statementType,
+                            category,
+                            sql,
+                            preparedSql != null && recorder.capturesForPanel() ? batchParameterPreview() : List.of(),
+                            nanos(start),
+                            success,
+                            error,
+                            affected,
+                            batchSize,
+                            connectionId,
+                            Thread.currentThread().getName(),
+                            dataSource,
+                            true,
+                            rowCount,
+                            false);
+                } catch (RuntimeException ex) {
+                    // Capture failures never change the application's JDBC result.
+                }
                 clearBatchState();
+            }
+        }
+
+        private Long largeUpdateCount() {
+            try {
+                long count = ((Statement) target).getLargeUpdateCount();
+                return count < 0 ? null : count;
+            } catch (SQLFeatureNotSupportedException | UnsupportedOperationException ex) {
+                try {
+                    int count = ((Statement) target).getUpdateCount();
+                    return count < 0 ? null : (long) count;
+                } catch (SQLException | RuntimeException fallbackFailure) {
+                    return null;
+                }
+            } catch (SQLException | RuntimeException ex) {
+                return null;
             }
         }
 
@@ -550,6 +891,7 @@ public final class SqlTracingProxies {
 
         private void clearBatchState() {
             batchSize = 0;
+            batchHasDdl = false;
             batchParameterPreviews.clear();
             batchSqlPreviews.clear();
         }
@@ -666,5 +1008,39 @@ public final class SqlTracingProxies {
             return sum;
         }
         return null;
+    }
+
+    private static Long exactBatchResult(Object result, Category category) {
+        if (category == Category.DDL) {
+            return null;
+        }
+        long sum = 0;
+        try {
+            if (result instanceof int[] counts) {
+                for (int count : counts) {
+                    if (count < 0) {
+                        return null;
+                    }
+                    sum = Math.addExact(sum, count);
+                }
+                return sum;
+            }
+            if (result instanceof long[] counts) {
+                for (long count : counts) {
+                    if (count < 0) {
+                        return null;
+                    }
+                    sum = Math.addExact(sum, count);
+                }
+                return sum;
+            }
+        } catch (ArithmeticException ex) {
+            return null;
+        }
+        return null;
+    }
+
+    private static Long updateRowCount(Category category, Long count) {
+        return category == Category.DDL || count == null || count < 0 ? null : count;
     }
 }

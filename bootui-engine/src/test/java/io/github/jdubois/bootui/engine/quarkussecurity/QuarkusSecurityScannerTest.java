@@ -10,14 +10,59 @@ import io.github.jdubois.bootui.spi.QuarkusSecurityEndpoint;
 import io.github.jdubois.bootui.spi.QuarkusSecurityEvidence;
 import io.github.jdubois.bootui.spi.QuarkusSecurityPermission;
 import io.github.jdubois.bootui.spi.QuarkusSecuritySnapshot;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class QuarkusSecurityScannerTest {
+
+    @TempDir
+    Path projectRoot;
+
+    @Test
+    void staticInfoDoesNotChangeQuarkusRuntimeEvidence() throws IOException {
+        Files.writeString(projectRoot.resolve("pom.xml"), "<project><modelVersion>4.0.0</modelVersion></project>");
+        Snap snap = new Snap();
+        SecurityReport baseline =
+                QuarkusSecurityScanner.usingSnapshot(snap::build, CLOCK).scan();
+        SecurityReport withStaticCheck = QuarkusSecurityScanner.usingSnapshot(snap::build, CLOCK, () -> projectRoot)
+                .scan();
+
+        assertThat(withStaticCheck.evidence()).isEqualTo(baseline.evidence());
+        assertThat(withStaticCheck.rulesEvaluated()).isEqualTo(baseline.rulesEvaluated() + 1);
+        assertThat(withStaticCheck.results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-STATIC-001");
+    }
+
+    @Test
+    void keepsStaticFindingWhenQuarkusRuntimeSnapshotFails() throws IOException {
+        Files.writeString(projectRoot.resolve("pom.xml"), "<project><modelVersion>4.0.0</modelVersion></project>");
+        QuarkusSecurityScanner scanner = QuarkusSecurityScanner.usingSnapshot(
+                () -> {
+                    throw new IllegalStateException("snapshot unavailable");
+                },
+                CLOCK,
+                () -> projectRoot);
+
+        SecurityReport report = scanner.scan();
+
+        assertThat(report.scan().status()).isEqualTo("ERROR");
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-STATIC-001");
+        assertThat(report.violationsFound()).isEqualTo(1);
+        assertThat(scanner.ruleViolations(
+                                "SEC-STATIC-001", report.violationDetails().scanId(), 0, null)
+                        .violationCount())
+                .isOne();
+    }
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(ints = {1, 4, 10000})

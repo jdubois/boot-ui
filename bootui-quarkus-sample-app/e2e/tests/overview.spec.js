@@ -1,11 +1,13 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
+import {registerActionPolicyTests} from '../../../bootui-spring-sample-app/e2e/scenarios/action-policy.js'
 import {
   registerAdvisorScoringTests,
   stubUnscannedAdvisorReports
 } from '../../../bootui-spring-sample-app/e2e/scenarios/advisor-scoring.js'
 
 registerAdvisorScoringTests(test, expect)
+registerActionPolicyTests(test, expect)
 
 test.describe('Scorecard view (Quarkus)', () => {
   test.beforeEach(async ({page}) => stubUnscannedAdvisorReports(page))

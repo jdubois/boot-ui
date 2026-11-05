@@ -132,7 +132,8 @@ See [Properties](PROPERTIES.md) for `bootui.cli.max-results`, `bootui.cli.execut
 | `--no-color` | `NO_COLOR` | — | Disable ANSI colour. |
 | `-v, --verbose` | — | — | Show the underlying failure when a request does not complete. |
 
-Advisor commands also take [`--fail-on <severity>`](#gate-on-severity), which exits `3` when a retained finding is at or above that severity.
+Advisor commands take [`--fail-on <severity>`](#gate-on-severity). Runtime Insights and exception-list commands take
+[`--fail-on insufficient`](#gate-on-insufficient-evidence) to fail CI when evidence is insufficient or partial.
 
 Options work before or after the command, so both `bootui --url :9000 beans` and `bootui beans --url :9000`
 do the same thing.
@@ -270,9 +271,9 @@ the offset after any failure or silently rescan to recover. See [agent paginatio
 | Code | Meaning |
 | --- | --- |
 | `0` | The tool ran and answered. |
-| `1` | Usage error, a rejected argument, authentication was rejected, or the application could not be reached or did not answer. Also an advisor command run with [`--fail-on`](#gate-on-severity) whose answer cannot be evaluated. |
+| `1` | Usage error, a rejected argument, authentication was rejected, or the application could not be reached or did not answer. Also a `--fail-on` answer whose evidence cannot be evaluated. |
 | `2` | BootUI declined to run the tool: its panel is disabled, read-only and the tool is an action, or its CLI catalog confirms the endpoint is disabled. |
-| `3` | An advisor command run with [`--fail-on`](#gate-on-severity) found a retained finding at or above the threshold. |
+| `3` | A command's [`--fail-on`](#gate-on-severity) or [`--fail-on insufficient`](#gate-on-insufficient-evidence) gate found a qualifying finding or insufficient evidence. |
 
 HTTP `503` alone is not a policy refusal. The CLI checks the target's BootUI catalog and reports endpoint disablement
 only when `enabled` is `false` and `tools` is empty. An outage, an invalid catalog, or a wrong target exits `1`, not
@@ -505,6 +506,31 @@ bootui hibernate scan --fail-on high    # exit 3 when a HIGH or CRITICAL finding
 
 The option is CLI-only. It is not an MCP argument and is never sent to the application.
 
+### Gate on insufficient evidence
+
+`insights list`, `insights show <id>`, and `exceptions list` accept `--fail-on insufficient`. The gate exits `3` when
+Runtime Insights has any **INSUFFICIENT** or **PARTIAL** observations, or when caught-exception rows have insufficient
+or partial evidence. Partial caught-exception evidence includes unknown, settling, or counted-only outcomes; the shape
+`discards` alone is not treated as proof of a finding.
+
+```bash
+bootui insights list --fail-on insufficient
+bootui exceptions list --fail-on insufficient
+```
+
+Exit `0` means the available, evaluated evidence contains no insufficient or partial observation rows; it does not
+assert that a specific bug is present or absent. Check-level statuses are informational and do not gate. Exit `1` means
+the result is unavailable, lacks the aggregate counts or status needed to evaluate the gate, or has an unrecognized or
+unavailable observation status. An empty `insights list` result passes only when `query=all` and the report has request
+activity; a scoped query with no matching observations and an all-query report with no request activity fail closed.
+A missing caught-exceptions sensor also fails closed rather than passing.
+
+For `insights list`, omitting `--query` with this gate implicitly requests `query=all`, so every observation kind is
+included. An explicit `--query` retains its scope. Aggregate counts cover every observation matching that query,
+including rows omitted by `--limit`, so shortening the displayed list cannot hide insufficient evidence. The response
+is printed without rewriting it, but the implicit query can make it more complete than the default compact list.
+The gate is CLI-only.
+
 ## In CI
 
 The CLI is designed for a job that starts the application, asks it something, and stops it:
@@ -533,6 +559,10 @@ Three details make that work as a gate rather than as a job that merely looks gr
 **Let the CLI apply the threshold.** `--fail-on high` exits `3` when a retained finding is `HIGH` or `CRITICAL`, so
 the job needs no `jq` expression over `severityCounts`. The JSON on stdout is the same as without the option; see
 [Gate on severity](#gate-on-severity) for what the gate refuses to call a pass.
+
+For evidence-driven checks, `bootui insights list --fail-on insufficient` and
+`bootui exceptions list --fail-on insufficient` fail with exit `3` when evidence is below the existing minimum or
+incomplete; see [Gate on insufficient evidence](#gate-on-insufficient-evidence).
 
 **Capture the exit code instead of letting it abort the step.** A step runs under `bash -e`, so a bare
 `bootui …` that exits non-zero skips the rest of the script, including the shutdown. The `|| status=$?` form

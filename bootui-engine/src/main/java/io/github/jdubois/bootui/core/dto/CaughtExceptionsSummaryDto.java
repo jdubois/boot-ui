@@ -10,6 +10,8 @@ import java.util.List;
  * @param unavailableReason why not, when not available
  * @param occurrences every occurrence observed
  * @param findings the rows that are findings
+ * @param insufficient rows below the finding threshold with complete evidence
+ * @param partial rows with unknown, pending, or counted outcomes that prevent a verdict
  * @param settling occurrences whose request has not settled yet
  * @param topFindings at most ten finding rows
  */
@@ -18,6 +20,8 @@ public record CaughtExceptionsSummaryDto(
         String unavailableReason,
         long occurrences,
         int findings,
+        int insufficient,
+        int partial,
         long settling,
         List<CaughtExceptionRowDto> topFindings) {
 
@@ -28,6 +32,16 @@ public record CaughtExceptionsSummaryDto(
         topFindings = DtoCollections.immutableCopy(topFindings);
     }
 
+    public CaughtExceptionsSummaryDto(
+            boolean available,
+            String unavailableReason,
+            long occurrences,
+            int findings,
+            long settling,
+            List<CaughtExceptionRowDto> topFindings) {
+        this(available, unavailableReason, occurrences, findings, 0, 0, settling, topFindings);
+    }
+
     /** The summary of {@code report}. */
     public static CaughtExceptionsSummaryDto of(CaughtExceptionsReport report) {
         return new CaughtExceptionsSummaryDto(
@@ -35,6 +49,8 @@ public record CaughtExceptionsSummaryDto(
                 report.unavailableReason(),
                 report.occurrences(),
                 report.findings(),
+                report.insufficient(),
+                report.partial(),
                 report.settling(),
                 report.rows().stream()
                         .filter(CaughtExceptionRowDto::finding)

@@ -2869,7 +2869,7 @@ class BootUiQuarkusProcessor {
 
     /**
      * Registers the JDK dynamic proxies the SQL Trace capture creates ({@code DataSource}+{@code AgroalDataSource},
-     * {@code Connection}, {@code Statement}, {@code PreparedStatement}, {@code CallableStatement}) as native-image
+     * {@code Connection}, {@code Statement}, {@code PreparedStatement}, {@code CallableStatement}, {@code ResultSet}) as native-image
      * proxy metadata — the Quarkus analogue of the Spring adapter's {@code SqlTraceRuntimeHints}. Without it a
      * native image crashes at runtime building a proxy over an unregistered interface set. Gated dev/test + AGROAL,
      * matching the producer; the interface sets come from the shared engine constants so they cannot drift.
@@ -2891,5 +2891,6 @@ class BootUiQuarkusProcessor {
         proxies.produce(new NativeImageProxyDefinitionBuildItem("java.sql.Statement"));
         proxies.produce(new NativeImageProxyDefinitionBuildItem("java.sql.PreparedStatement"));
         proxies.produce(new NativeImageProxyDefinitionBuildItem("java.sql.CallableStatement"));
+        proxies.produce(new NativeImageProxyDefinitionBuildItem("java.sql.ResultSet"));
     }
 }
