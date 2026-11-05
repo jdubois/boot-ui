@@ -612,22 +612,26 @@ you re-run the checks.
 
 The Security panel runs an explicit, read-only scan of the application's security configuration to flag hardening gaps
 across authentication, authorization, CSRF, sessions, transport and headers, CORS, method security, actuator exposure,
-OAuth2 resource-server validation, and configuration hygiene. It never intercepts live traffic, exposes credentials,
-keys, or session identifiers, or modifies the configuration. The same panel and `/bootui/api/security` contract support
-all three stacks.
+OAuth2 resource-server validation, and configuration hygiene. A shared check also reports when local project files
+declare no supported static security analyzer. It never runs those tools, assesses runtime security from that check,
+intercepts live traffic, exposes credentials, keys, or session identifiers, or modifies the configuration. The same
+panel and `/bootui/api/security` contract support all three stacks.
 
 ### Spring Boot (Spring Security)
 
 ![BootUI Security panel — Spring Security](../images/bootui-security.webp)
 
 On Spring Boot it analyses Spring Security when present: already-created `SecurityFilterChain` configuration and
-supported metadata, without executing authorization managers, custom matchers, or credential providers. Unsupported
-evidence stays incomplete rather than becoming a verdict. See [SECURITY-CHECKS.md](../SECURITY-CHECKS.md).
+supported metadata, without executing authorization managers, custom matchers, or credential providers. The advisor
+also remains available without Spring Security and then reports only the bounded local static-analyzer configuration
+check; that result is not a runtime security assessment. Unsupported evidence stays incomplete rather than becoming a
+verdict. See [SECURITY-CHECKS.md](../SECURITY-CHECKS.md).
 
 ### Spring WebFlux
 
 On WebFlux it evaluates a dedicated 26-rule `SEC-RXF-*` catalogue over `SecurityWebFilterChain` beans, reactive
-CORS/OAuth2 beans, and security-relevant configuration, excluding BootUI's own permit-all chain.
+CORS/OAuth2 beans, and security-relevant configuration, excluding BootUI's own permit-all chain. The shared static
+analyzer configuration check is also available when Spring Security is absent.
 
 ::: details On Quarkus
 
@@ -636,8 +640,9 @@ CORS/OAuth2 beans, and security-relevant configuration, excluding BootUI's own p
 On Quarkus it runs a Quarkus-native ruleset over the HTTP permission policies, MicroProfile `Config`, and annotated
 endpoints: Elytron/OIDC authentication, `quarkus.http.auth.permission.*` authorization, TLS and transport policy,
 forwarded-header proxy trust, CORS (including the wildcard-origin-with-credentials trap), response headers, and
-`@RolesAllowed`, `@PermissionsAllowed`, and `@AuthorizationPolicy`. The UI relabels metrics ("Permission policies" in
-place of "Filter chains"). See [QUARKUS-CHECKS.md](../QUARKUS-CHECKS.md).
+`@RolesAllowed`, `@PermissionsAllowed`, and `@AuthorizationPolicy`. The shared static analyzer configuration check
+also runs on explicit scans. The UI relabels metrics ("Permission policies" in place of "Filter chains"). See
+[QUARKUS-CHECKS.md](../QUARKUS-CHECKS.md).
 :::
 
 ## Pentesting

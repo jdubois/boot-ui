@@ -330,7 +330,7 @@ findings from the score.
 
 The access-aware rules follow Boot 4.1.1: endpoint settings override global defaults, then `max-permitted` caps access. Typed conversion accepts Boot-supported spellings such as `readonly` and legacy `enabled=on`. Empty values that bind to null inherit the next policy level; two non-null typed `access` and legacy `enabled` values at the same scope conflict rather than silently taking precedence. Both heapdump and shutdown default to access `none`. A valid empty include falls back to `health`; excludes win. Invalid binding is not silently treated as empty.
 
-Host configuration is distinguished from BootUI's low-priority management defaults. The Security advisor's SEC-ACT-* rules review overlapping exposure, but that panel exists only when Spring Security filter chains are present; these rules keep Actuator exposure visible for applications without Spring Security. Exposure/access observations do not establish authorization or public reachability; a separate management port is not itself an access control, and disabling endpoint discovery does not disable routes.
+Host configuration is distinguished from BootUI's low-priority management defaults. The Security advisor's SEC-ACT-* rules review overlapping exposure when Spring Security filter chains are available; the panel remains available without Spring Security for its local static-analyzer configuration check. These rules keep Actuator exposure visible for applications without Spring Security. Exposure/access observations do not establish authorization or public reachability; a separate management port is not itself an access control, and disabling endpoint discovery does not disable routes.
 
 ### SPRING-MGMT-001 - Review host wildcard Actuator exposure
 

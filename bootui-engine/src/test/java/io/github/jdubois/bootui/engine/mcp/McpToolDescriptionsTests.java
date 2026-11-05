@@ -55,6 +55,18 @@ class McpToolDescriptionsTests {
     }
 
     @Test
+    void securityScanExplainsItsLocalStaticAnalysisCheckWithoutImplyingExecution() {
+        for (Function<String, String> descriptions :
+                List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+            assertThat(descriptions.apply("security_scan"))
+                    .contains("bounded local declarations", "FindSecBugs", "BootUI never runs these tools")
+                    .contains("static-only result does not assess runtime security");
+            assertThat(descriptions.apply("get_security_report"))
+                    .contains("without starting a new configuration scan", "does not assess runtime security");
+        }
+    }
+
+    @Test
     void agentSensorActionsExplainEvidenceCostAndApprovalOnEveryStack() {
         for (Function<String, String> descriptions :
                 List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {

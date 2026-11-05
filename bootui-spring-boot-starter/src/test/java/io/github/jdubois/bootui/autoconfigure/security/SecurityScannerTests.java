@@ -14,6 +14,8 @@ import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
 import io.micrometer.observation.ObservationRegistry;
 import jakarta.servlet.http.HttpServletRequest;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -22,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.aot.BeanInstanceSupplier;
@@ -63,6 +66,71 @@ class SecurityScannerTests {
 
     private static final int RULE_COUNT = 54;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
+
+    @TempDir
+    Path projectRoot;
+
+    @Test
+    void noSecurityContextStillReportsStaticAdvisoryWithoutClaimingRuntimeEvidence() throws Exception {
+        Files.writeString(projectRoot.resolve("pom.xml"), "<project><modelVersion>4.0.0</modelVersion></project>");
+        SecurityScanner scanner = new SecurityScanner((SecurityContext) null, CLOCK, () -> projectRoot);
+
+        SecurityReport report = scanner.scan();
+
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.rulesEvaluated()).isEqualTo(1);
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.results()).singleElement().satisfies(result -> {
+            assertThat(result.id()).isEqualTo("SEC-STATIC-001");
+            assertThat(result.severity()).isEqualTo("INFO");
+        });
+        assertThat(scanner.ruleViolations(
+                                "SEC-STATIC-001", report.violationDetails().scanId(), 0, null)
+                        .violationCount())
+                .isOne();
+    }
+
+    @Test
+    void staticInfoDoesNotChangeServletRuntimeEvidence() throws Exception {
+        Files.writeString(projectRoot.resolve("pom.xml"), "<project><modelVersion>4.0.0</modelVersion></project>");
+        SecurityContext context = contextWith(hardenedChain(), new MockEnvironment());
+        SecurityReport baseline = new SecurityScanner(context, CLOCK).scan();
+        SecurityReport withStaticCheck = new SecurityScanner(context, CLOCK, () -> projectRoot).scan();
+
+        assertThat(baseline.evidence().usable()).isTrue();
+        assertThat(withStaticCheck.evidence()).isEqualTo(baseline.evidence());
+        assertThat(withStaticCheck.rulesEvaluated()).isEqualTo(baseline.rulesEvaluated() + 1);
+        assertThat(withStaticCheck.results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-STATIC-001");
+    }
+
+    @Test
+    void reportsStaticOnlyAssessmentWhenServletChainIsUnavailable() throws Exception {
+        Files.writeString(projectRoot.resolve("pom.xml"), "<project><modelVersion>4.0.0</modelVersion></project>");
+
+        SecurityReport report =
+                scannerFor(null, null, new MockEnvironment(), projectRoot).scan();
+
+        assertThat(report.scan().message())
+                .contains("No Spring Security filter chain was found", "No local static analyzer");
+        assertThat(report.scan().analyzer()).isEqualTo("BootUI Static Security Advisor");
+        assertThat(report.disclaimer()).contains("local analyzer configuration only");
+        assertThat(report.results()).extracting(SecurityRuleResultDto::id).contains("SEC-STATIC-001");
+        assertThat(report.evidence().usable()).isFalse();
+    }
+
+    @Test
+    void preservesStaticAssessmentLimitationsWithoutServletChains() throws Exception {
+        Files.writeString(projectRoot.resolve("pom.xml"), "<project");
+
+        SecurityReport report =
+                scannerFor(null, null, new MockEnvironment(), projectRoot).scan();
+
+        assertThat(report.scan().analyzer()).isEqualTo("BootUI Static Security Advisor");
+        assertThat(report.evidence().limitations())
+                .contains("Static analyzer configuration could not be assessed from bounded local files.");
+    }
 
     @Test
     void aotFactoryMetadataExcludesOnlyBootUisChainWithoutInvokingItsGenerator() throws Exception {
@@ -822,6 +890,11 @@ class SecurityScannerTests {
 
     private static SecurityScanner scannerFor(
             FilterChainProxy proxy, ListableBeanFactory beanFactory, MockEnvironment environment) {
+        return scannerFor(proxy, beanFactory, environment, null);
+    }
+
+    private static SecurityScanner scannerFor(
+            FilterChainProxy proxy, ListableBeanFactory beanFactory, MockEnvironment environment, Path projectRoot) {
         if (beanFactory == null) beanFactory = new DefaultListableBeanFactory();
         if (proxy != null
                 && beanFactory instanceof DefaultListableBeanFactory configurable
@@ -832,7 +905,7 @@ class SecurityScannerTests {
         ObjectProvider<ListableBeanFactory> beanFactories = mock(ObjectProvider.class);
         when(filterChains.getIfAvailable()).thenReturn(proxy);
         when(beanFactories.getIfAvailable()).thenReturn(beanFactory);
-        return new SecurityScanner(filterChains, beanFactories, environment, CLOCK);
+        return new SecurityScanner(filterChains, beanFactories, environment, CLOCK, () -> projectRoot);
     }
 
     private static SecurityContext hardenedContext(List<PasswordEncoderModel> encoders, MockEnvironment environment) {

@@ -1,10 +1,11 @@
 # Security checks
 
 The Security panel runs a fixed, on-demand ruleset against the host application's Spring Security configuration:
-**54 servlet rules** and **26 reactive rules**. It inspects recognized, already-created filter chains and supported
-configuration metadata. It does not execute application authorization managers, custom matchers, decoders, credential
-providers or CORS/header callbacks to infer security decisions, initialize lazy application beans, intercept live
-traffic, or modify security configuration. Credentials, keys and session identifiers never belong in findings.
+**54 servlet rules** and **26 reactive rules**, plus the shared `SEC-STATIC-001` check for declared static security
+analysis. It inspects recognized, already-created filter chains and supported configuration metadata. It does not
+execute application authorization managers, custom matchers, decoders, credential providers or CORS/header callbacks
+to infer security decisions, initialize lazy application beans, intercept live traffic, or modify security
+configuration. Credentials, keys and session identifiers never belong in findings.
 
 The checks are heuristic review prompts. They highlight common Spring Security hardening gaps, but the right remediation
 still depends on the application's threat model and deployment topology.
@@ -34,11 +35,18 @@ An unrelated custom filter does not invalidate independently inspected configura
 or header-writer facts. Custom CSRF matching is recorded separately from the known filter inventory and limits
 applicable CSRF checks, not unrelated header checks; no matcher is executed.
 
-The panel is available only when Spring Security is on the classpath and at least one application
-`SecurityFilterChain` (servlet) or `SecurityWebFilterChain` (WebFlux) bean exists.
-If Spring Security is absent or no filter chains are registered, BootUI returns a stable empty report with an explanatory
-status. Unsupported or unreadable observations remain unknown: dependent rules do not manufacture a passing result or
-a missing-control finding. Incomplete collection is summarized as a partial scan; genuine collection/evaluation
+The Security Advisor remains available on Spring MVC and WebFlux without Spring Security or application filter chains.
+On an explicit scan, `SEC-STATIC-001` checks bounded local build, repository configuration, and workflow files for
+FindSecBugs/SpotBugs, Semgrep, SonarQube, or CodeQL declarations. A declared configuration counts; BootUI does not
+run an analyzer or verify that it ran. When a build file is absent, the check is silent. When a build file exists but
+no analyzer is declared, the INFO finding recommends adding one. This local configuration check does not assess
+runtime security or contribute runtime evidence or a score by itself. It does not resolve remote Maven parents,
+Gradle applied scripts or convention plugins, or organization-managed CI configuration, so its finding describes only
+declarations observed in the bounded local project and repository files.
+
+Spring Security rules inspect recognized, already-created filter chains and supported configuration metadata.
+Unsupported or unreadable observations remain unknown: dependent rules do not manufacture a passing result or a
+missing-control finding. Incomplete collection is summarized as a partial scan; genuine collection/evaluation
 failures use sanitized analysis errors. Known findings remain visible when unrelated evidence is incomplete.
 Inventories and recursive inspection are bounded; reaching a bound also makes the scan incomplete.
 

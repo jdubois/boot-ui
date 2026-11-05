@@ -133,4 +133,28 @@ describe('Security', () => {
     expect(wrapper.text()).not.toContain('Filter chains analysed')
     expect(wrapper.text()).not.toContain('Heuristic Spring Security rules.')
   })
+
+  it('explains that a static-only report does not assess runtime security', async () => {
+    const report = advisorReport([
+      ruleResult('SEC-STATIC-001', 'No local static security analysis declared', 'INFO', 'VIOLATION', 1)
+    ])
+    report.scan = {
+      ...report.scan,
+      analyzer: 'BootUI Static Security Advisor',
+      status: 'PARTIAL',
+      message: 'Static analyzer configuration was not found. Runtime security was not assessed.'
+    }
+    report.evidence = {usable: false, coverageComplete: false, limitations: ['Runtime security was not assessed.']}
+    report.filterChains = []
+    report.filterChainsAnalyzed = 0
+    report.rulesEvaluated = 1
+
+    const wrapper = await mountWithReport(report)
+
+    expect(wrapper.text()).toContain('Static analyzer configuration check.')
+    expect(wrapper.text()).toContain('Runtime security was not assessed.')
+    expect(wrapper.text()).toContain('No local static security analysis declared')
+    expect(wrapper.find('.advisor-summary__value').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Heuristic Spring Security rules.')
+  })
 })

@@ -48,8 +48,10 @@ public final class McpToolDescriptions {
                             + "and full GC, so run only when memory evidence is needed."),
             Map.entry(
                     "security_scan",
-                    "Actively review application security configuration and return prioritized findings. Treat results "
-                            + "as review evidence and verify exploitability before proposing a fix."),
+                    "On explicit request, review application security configuration and bounded local declarations "
+                            + "for SpotBugs/FindSecBugs, Semgrep, SonarQube, or CodeQL. BootUI never runs these tools; "
+                            + "a static-only result does not assess runtime security. Treat results as review "
+                            + "evidence and verify exploitability before proposing a fix."),
             Map.entry(
                     "pentest_scan",
                     "Actively send bounded synthetic probes to this application's loopback endpoint and return security "
@@ -293,7 +295,8 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_security_report",
                     "Return the last completed Security advisor report without starting a new configuration scan. Use "
-                            + "this cached evidence before deciding whether an active security_scan is necessary."),
+                            + "this cached evidence before deciding whether an active security_scan is necessary. A "
+                            + "static-only report checks local analyzer declarations and does not assess runtime security."),
             Map.entry(
                     "get_pentest_report",
                     "Return the last completed Pentesting advisor report without sending any HTTP probes. Use this "

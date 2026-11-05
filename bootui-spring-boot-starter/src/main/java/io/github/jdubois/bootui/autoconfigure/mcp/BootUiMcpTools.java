@@ -23,7 +23,7 @@ import io.github.jdubois.bootui.autoconfigure.postgres.PostgresqlController;
 import io.github.jdubois.bootui.autoconfigure.rabbit.RabbitController;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
-import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
+import io.github.jdubois.bootui.autoconfigure.security.SecurityAdvisorOperations;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.transactions.TransactionsController;
@@ -123,7 +123,7 @@ public class BootUiMcpTools {
             ObjectProvider<SpringController> spring,
             ObjectProvider<HibernateController> hibernate,
             ObjectProvider<MemoryController> memory,
-            ObjectProvider<SecurityController> security,
+            ObjectProvider<SecurityAdvisorOperations> security,
             ObjectProvider<PentestingController> pentesting,
             ObjectProvider<RestApiController> restApi,
             ObjectProvider<GraalVmController> graalvm,
@@ -163,7 +163,7 @@ public class BootUiMcpTools {
         SpringController springBean = spring.getIfAvailable();
         HibernateController hibernateBean = hibernate.getIfAvailable();
         MemoryController memoryBean = memory.getIfAvailable();
-        SecurityController securityBean = security.getIfAvailable();
+        SecurityAdvisorOperations securityBean = security.getIfAvailable();
         PentestingController pentestingBean = pentesting.getIfAvailable();
         RestApiController restApiBean = restApi.getIfAvailable();
         GraalVmController graalvmBean = graalvm.getIfAvailable();

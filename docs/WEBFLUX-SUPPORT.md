@@ -583,8 +583,13 @@ The advisor uses a dedicated 26-rule reactive catalogue (`SEC-RXF-*`) over a neu
 the application's `SecurityWebFilterChain` configuration. It stays distinct from the raw `spring-security` panel: the
 raw panel explains the configured chains and mappings, while the advisor turns the observed posture into bounded,
 deterministic findings across authorization, CSRF, CORS, headers, Actuator exposure, OAuth2/JWT, configuration, and
-reactive session policy. BootUI's own permit-all chain is excluded from availability and analysis. See
+reactive session policy. BootUI's own permit-all chain is excluded from runtime analysis. See
 `docs/SECURITY-CHECKS.md` for the complete reactive catalogue.
+
+The advisor remains available without Spring Security for the shared `SEC-STATIC-001` configuration check. An explicit
+scan inspects bounded local declarations for SpotBugs/FindSecBugs, Semgrep, SonarQube, or CodeQL; it never runs an
+analyzer. Missing or indeterminate build files produce no absence finding, and static-only results do not assess
+runtime security or create a score. Cached report reads do not inspect project files.
 
 The catalogue is aligned with the Java 17 / Spring Boot 4.1.1 / Spring Security 7.1.1 baseline and deliberately
 describes only evidence the adapter can observe: installed filter/header-writer types, inspectable CORS maps, and host

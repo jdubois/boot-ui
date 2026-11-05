@@ -1133,7 +1133,9 @@ public class BootUiEngineProducer {
     @Singleton
     public QuarkusSecurityScanner quarkusSecurityScanner(Config config) {
         QuarkusSecurityScanner scanner = QuarkusSecurityScanner.usingSnapshot(
-                new QuarkusSecuritySnapshotProviderImpl(config)::snapshot, Clock.systemUTC());
+                new QuarkusSecuritySnapshotProviderImpl(config)::snapshot,
+                Clock.systemUTC(),
+                () -> Path.of(System.getProperty("user.dir", ".")));
         scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
         return scanner;
     }

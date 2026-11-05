@@ -16,7 +16,7 @@ import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiMcpTools;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityController;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
-import io.github.jdubois.bootui.autoconfigure.security.SecurityController;
+import io.github.jdubois.bootui.autoconfigure.security.SecurityAdvisorOperations;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.core.dto.JavaAgentReport;
 import io.github.jdubois.bootui.core.dto.JavaAgentSensorSwitchRequest;
@@ -68,7 +68,7 @@ class McpToolCatalogParityTests {
                     "memory", MemoryController.class,
                     "security",
                             registry == BootUiMcpTools.class
-                                    ? SecurityController.class
+                                    ? SecurityAdvisorOperations.class
                                     : ReactiveSecurityController.class,
                     "database_advisor", DatabaseAdvisorController.class);
             Map<Class<?>, Object> controllers = new LinkedHashMap<>();
