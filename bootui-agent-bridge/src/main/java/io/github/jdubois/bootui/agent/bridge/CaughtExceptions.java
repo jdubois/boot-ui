@@ -149,6 +149,7 @@ public final class CaughtExceptions {
     static final int FAMILY_DEPTH = 10;
 
     private static final String SQL_EXCEPTION = "java.sql.SQLException";
+    private static final String HIBERNATE_JDBC_EXCEPTION = "org.hibernate.JDBCException";
     private static final String IO_EXCEPTION = "java.io.IOException";
     private static final String DATA_ACCESS_EXCEPTION = "org.springframework.dao.DataAccessException";
 
@@ -474,12 +475,15 @@ public final class CaughtExceptions {
         }
     }
 
-    /** {@code type}'s family: SQL, I/O, Spring data access, or none, by name, at most {@value #FAMILY_DEPTH} levels. */
+    /**
+     * {@code type}'s family: SQL ({@code java.sql.SQLException} or Hibernate's {@code org.hibernate.JDBCException}),
+     * I/O, Spring data access, or none, by name, at most {@value #FAMILY_DEPTH} levels.
+     */
     static int family(Class<?> type) {
         Class<?> current = type;
         for (int i = 0; current != null && i < FAMILY_DEPTH; i++) {
             String name = current.getName();
-            if (SQL_EXCEPTION.equals(name)) {
+            if (SQL_EXCEPTION.equals(name) || HIBERNATE_JDBC_EXCEPTION.equals(name)) {
                 return FAMILY_SQL;
             }
             if (IO_EXCEPTION.equals(name)) {

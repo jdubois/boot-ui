@@ -72,6 +72,12 @@ class CaughtExceptionsTests {
     }
 
     @Test
+    void hibernateJdbcExceptionsAreClassifiedAsSqlBySuperclassName() {
+        assertThat(CaughtExceptions.family(org.hibernate.JDBCException.class)).isEqualTo(CaughtExceptions.FAMILY_SQL);
+        assertThat(CaughtExceptions.family(GenericJDBCException.class)).isEqualTo(CaughtExceptions.FAMILY_SQL);
+    }
+
+    @Test
     void aCaughtExceptionLeavingAMethodIsThrownWithTheOwnerItWasCaughtUnder() {
         long token = claim();
         context.set(owner(REQUEST, null));
@@ -588,6 +594,8 @@ class CaughtExceptionsTests {
     private static Object[] owner(String request, String execution) {
         return new Object[] {request, execution, null, null, "/shop", null, null, 1L, 1L};
     }
+
+    private static final class GenericJDBCException extends org.hibernate.JDBCException {}
 
     private long generation() {
         return (Long) ((Map<?, ?>) AgentBridge.status().get("claim")).get("generation");
