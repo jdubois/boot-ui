@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.cli.ci;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.cli.BootUiCli;
 import io.github.jdubois.bootui.client.JsonValue;
@@ -48,6 +49,54 @@ class CiBundleEvaluatorTests {
 
         assertThat(exitCode).isZero();
         assertThat(output.toString()).contains("offline assessment passed");
+    }
+
+    @Test
+    void snapshotEvaluationUsesTheCapturedBundleAndPolicyAfterTheirPathsChange() throws Exception {
+        Path input = writeBundle(bundle("PASS", List.of(), policyHash));
+        byte[] capturedBundle = Files.readAllBytes(input);
+        CiPolicy capturedPolicy = CiPolicy.readSnapshot(Files.readAllBytes(policy));
+        Files.writeString(input, "{\"status\":\"PASS\"}");
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"low"}}}
+                """);
+
+        assertThat(CiBundleEvaluator.evaluateSnapshot(capturedBundle, "test-assessment", capturedPolicy)
+                        .exitCode())
+                .isZero();
+        assertThat(CiBundleEvaluator.evaluate(input, "test-assessment", policy).exitCode())
+                .isEqualTo(1);
+        assertThat(CiPolicy.read(policy).sha256()).isNotEqualTo(capturedPolicy.sha256());
+    }
+
+    @Test
+    void snapshotEvaluationRejectsMalformedAndOversizedInput() throws Exception {
+        CiPolicy capturedPolicy = CiPolicy.readSnapshot(Files.readAllBytes(policy));
+        assertThat(CiBundleEvaluator.evaluateSnapshot(new byte[0], "test-assessment", capturedPolicy)
+                        .exitCode())
+                .isEqualTo(1);
+        assertThat(CiBundleEvaluator.evaluateSnapshot(new byte[2 * 1024 * 1024 + 1], "test-assessment", capturedPolicy)
+                        .exitCode())
+                .isEqualTo(1);
+        assertThat(CiBundleEvaluator.evaluateSnapshot(
+                                "{\"schemaVersion\":1,\"schemaVersion\":1}"
+                                        .getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                                "test-assessment",
+                                capturedPolicy)
+                        .exitCode())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void policySnapshotsKeepTheExistingStrictSizeAndEncodingRules() {
+        assertThatThrownBy(() -> CiPolicy.readSnapshot(new byte[0])).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> CiPolicy.readSnapshot(new byte[CiPolicy.MAX_POLICY_BYTES + 1]))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> CiPolicy.readSnapshot(new byte[] {(byte) 0xff}))
+                .isInstanceOf(java.nio.charset.CharacterCodingException.class);
+        assertThatThrownBy(() -> CiPolicy.readSnapshot(
+                        "{\"schemaVersion\":1,\"schemaVersion\":1}".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

@@ -215,18 +215,24 @@ before the application is stopped. To gate on severity, add `--fail-on high` (`c
 `info`) to an advisor `scan` or `report` command instead of parsing `severityCounts`: it exits `3` on a finding at or
 above the threshold, and `1` when the scan cannot be evaluated (never scanned, disabled, nothing assessed, or no `severityCounts`).
 
-For the strict live-target CI workflow, use `bootui ci attach` immediately before the existing workload and
-`bootui ci assess` afterward only when the CLI build explicitly contains those commands. Select a literal loopback URL
-and pass the exact same URL to attach, the workload, and assessment. This path supports a Spring Boot application or
-an external Quarkus `quarkus:dev` process; it does not start the app, prove that scenarios exercised it, or support
-remote targets. Quarkus CI collection from an `@QuarkusTest` process after teardown is not supported, and the Quarkus
-application advisor (`spring` policy key) is rejected because its dev-mode evidence is partial. Keep Quarkus dev-mode
-sources and compiled output untouched between attach and assessment because a reload can change the witnessed run
-identity. The repository composite Action wraps these phases, but is available to consumers only from a release
-containing the commands. The application owner must opt in to the BootUI dependency in a CI-only build profile,
-activate it before startup, and point `BOOTUI_OVERRIDES_FILE` at a fresh empty per-assessment path outside watched
-paths on both frameworks. Quarkus uses this setting to locate advisor dismissals. Never import local dismissals. The
-strict JSON policy runs only its named advisors; incomplete evidence, unknown severity,
+For live-target CI, use `bootui ci attach` immediately before the existing workload and `bootui ci assess` afterward
+only when the CLI build explicitly contains those commands. Select a literal loopback URL and pass the exact same URL
+to attach, the workload, and assessment. This supports a Spring Boot application or an external Quarkus `quarkus:dev`
+process; it does not start the app, prove that scenarios exercised it, or support remote targets. For
+framework-managed `@SpringBootTest` or `@QuarkusTest` lifecycles, pin the complete expected context set with
+`bootui ci prepare-contexts`, call `CiCollection.begin(...)` and `Window.finish()` from the test lifecycle, and run
+`bootui ci check-contexts` only after all producer processes exit. Retain the plan digest outside the writable
+evidence root; use one root per policy and a filesystem provider supporting `SecureDirectoryStream`. This gate checks
+consistency and window completion, not workload attestation or tamper-proof authenticity. The Quarkus application
+advisor (`spring` policy key) is rejected for strict CI because its dev-mode evidence is partial. Keep Quarkus
+dev-mode sources and compiled output untouched between live attach and assessment because a reload can change the
+witnessed run identity. The repository composite Action wraps live attach/assessment and accepts saved bundles for
+offline validation; `phase: prepare-cli` exports its signature-verified CLI for later test and gate steps. Consumers
+need a published release containing the commands and must align the Action's `bootui-version` with the test-scoped
+`bootui-cli` dependency. The application owner must opt in to
+the BootUI dependency in a CI-only build profile, activate it before startup, and point `BOOTUI_OVERRIDES_FILE` at a
+fresh empty per-assessment path outside watched paths on both frameworks. Quarkus uses this setting to locate advisor
+dismissals. Never import local dismissals. The strict JSON policy runs only its named advisors; incomplete evidence, unknown severity,
 suppression, truncation, paging inconsistencies, and errors fail assessment. Aggregate exits are `0` pass, `1` not
 assessed/error (takes precedence over findings), and `3` proven threshold violation; underlying per-tool exit codes
 remain unchanged. Publish the bounded JSON/Markdown/JUnit outputs before applying that final gate, while recognizing

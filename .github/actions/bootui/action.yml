@@ -1,24 +1,27 @@
-name: BootUI live-target assessment
-description: Attach to and assess one explicitly selected local Spring Boot or Quarkus development application.
+name: BootUI CI assessment
+description: Run live-target assessments and offline saved-bundle checks.
 inputs:
   phase:
-    description: Run attach before the workload or assess after it.
+    description: Verify the CLI for later steps, run a live assessment, or validate a saved bundle offline.
     required: true
   bootui-version:
     description: Published stable BootUI CLI version containing the ci commands.
     required: true
   url:
     description: Explicit HTTP URL using a literal loopback address and port.
-    required: true
+    required: false
   assessment-id:
-    description: Unique identifier shared by attach and assess for this run.
-    required: true
+    description: Expected ID for offline validation or the attach and assess phases.
+    required: false
   policy:
     description: Path to the strict JSON policy file.
-    required: true
+    required: false
   witness:
     description: Path to the attach witness, outside cleanable build output.
-    required: true
+    required: false
+  input-bundle:
+    description: Saved assessment bundle for the offline phase; no application is contacted.
+    required: false
   output-dir:
     description: Fresh directory for assessment JSON, Markdown, and JUnit reports.
     required: false
@@ -35,8 +38,8 @@ inputs:
     default: "60"
 outputs:
   exit-code:
-    description: CLI aggregate result (0 pass, 1 not assessed/error, 3 policy violation).
-    value: ${{ steps.report.outputs.exit-code || steps.invoke.outputs.exit-code || '1' }}
+    description: CLI aggregate result; unset for prepare-cli (0 pass, 1 not assessed/error, 3 policy violation).
+    value: ${{ steps.report.outputs.exit-code || steps.invoke.outputs.exit-code }}
   report-dir:
     description: Fresh directory containing reports, including fallback reports on action failure.
     value: ${{ steps.report.outputs.report-dir || steps.invoke.outputs.report-dir }}
@@ -51,7 +54,7 @@ runs:
         BOOTUI_VERSION: ${{ inputs.bootui-version }}
       run: bash "$ACTION_PATH/prepare-cli.sh"
     - id: invoke
-      if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+      if: ${{ !cancelled() && inputs.phase != 'prepare-cli' && steps.prepare.outcome == 'success' }}
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
@@ -60,13 +63,14 @@ runs:
         BOOTUI_ASSESSMENT_ID: ${{ inputs.assessment-id }}
         BOOTUI_POLICY: ${{ inputs.policy }}
         BOOTUI_WITNESS: ${{ inputs.witness }}
+        BOOTUI_INPUT_BUNDLE: ${{ inputs.input-bundle }}
         BOOTUI_OUTPUT_DIR: ${{ inputs.output-dir }}
         BOOTUI_ATTACH_EXIT_CODE: ${{ inputs.attach-exit-code }}
         BOOTUI_API_PATH: ${{ inputs.api-path }}
         BOOTUI_TIMEOUT: ${{ inputs.timeout }}
       run: bash "$ACTION_PATH/invoke.sh"
     - id: report
-      if: ${{ always() && inputs.phase == 'assess' && steps.invoke.outputs.summary-fresh != 'true' }}
+      if: ${{ !cancelled() && inputs.phase == 'assess' && steps.invoke.outputs.summary-fresh != 'true' }}
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
@@ -75,7 +79,7 @@ runs:
         BOOTUI_ATTACH_EXIT_CODE: ${{ inputs.attach-exit-code }}
         BOOTUI_PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
       run: bash "$ACTION_PATH/report-error.sh"
-    - if: ${{ always() && inputs.phase == 'assess' }}
+    - if: ${{ !cancelled() && inputs.phase == 'assess' }}
       shell: bash
       env:
         BOOTUI_REPORT_DIR: ${{ steps.report.outputs.report-dir || steps.invoke.outputs.report-dir }}
@@ -87,7 +91,7 @@ runs:
             'No valid assessment summary was produced. Check the action step output and preserve any files that were written.' \
             >> "$GITHUB_STEP_SUMMARY"
         fi
-    - if: ${{ always() }}
+    - if: ${{ !cancelled() && inputs.phase != 'prepare-cli' }}
       shell: bash
       env:
         BOOTUI_ACTION_EXIT_CODE: ${{ steps.invoke.outputs.exit-code }}

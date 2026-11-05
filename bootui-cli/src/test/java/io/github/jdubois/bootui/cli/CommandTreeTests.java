@@ -86,6 +86,12 @@ class CommandTreeTests {
     void ciCheckIsOfflineAndAcceptsOnlySavedBundleInputs() {
         String checkHelp = help("ci", "check");
         assertThat(checkHelp).contains("--input", "--assessment-id", "--policy").doesNotContain("--url");
+        assertThat(help("ci", "prepare-contexts"))
+                .contains("--root", "--assessment-id", "--policy", "--contexts")
+                .doesNotContain("--url");
+        assertThat(help("ci", "check-contexts"))
+                .contains("--root", "--assessment-id", "--plan-sha256")
+                .doesNotContain("--url");
         assertThat(paths).isEmpty();
     }
 

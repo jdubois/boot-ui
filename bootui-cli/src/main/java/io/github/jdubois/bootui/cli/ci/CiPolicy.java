@@ -33,6 +33,10 @@ public record CiPolicy(Map<Advisor, Selection> advisors, boolean includeInsights
         try (InputStream input = Files.newInputStream(path)) {
             bytes = input.readNBytes(MAX_POLICY_BYTES_PLUS_ONE);
         }
+        return readSnapshot(bytes);
+    }
+
+    static CiPolicy readSnapshot(byte[] bytes) throws java.nio.charset.CharacterCodingException {
         if (bytes.length == 0 || bytes.length > MAX_POLICY_BYTES) {
             throw new IllegalArgumentException("Policy must be between 1 and " + MAX_POLICY_BYTES + " bytes");
         }

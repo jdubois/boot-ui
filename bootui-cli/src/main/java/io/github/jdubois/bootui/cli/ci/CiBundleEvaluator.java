@@ -113,6 +113,14 @@ public final class CiBundleEvaluator {
         }
     }
 
+    static Result evaluateSnapshot(byte[] bundleBytes, String expectedAssessmentId, CiPolicy policy) {
+        try {
+            return evaluate(parseBundle(bundleBytes), expectedAssessmentId, policy);
+        } catch (JsonParseException | IllegalArgumentException | ArithmeticException invalid) {
+            return new Result("NOT_ASSESSED", 1);
+        }
+    }
+
     private static Result evaluate(JsonValue bundle, String expectedAssessmentId, CiPolicy policy) {
         requireObject(bundle);
         int schemaVersion = schemaVersion(bundle.get("schemaVersion"));
@@ -408,6 +416,10 @@ public final class CiBundleEvaluator {
         try (InputStream input = Files.newInputStream(path)) {
             bytes = input.readNBytes(MAX_BUNDLE_BYTES_PLUS_ONE);
         }
+        return parseBundle(bytes);
+    }
+
+    static JsonValue parseBundle(byte[] bytes) {
         if (bytes.length == 0 || bytes.length > MAX_BUNDLE_BYTES) {
             throw invalid();
         }

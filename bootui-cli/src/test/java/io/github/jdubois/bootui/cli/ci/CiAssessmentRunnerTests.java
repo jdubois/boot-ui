@@ -19,6 +19,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -31,6 +35,8 @@ class CiAssessmentRunnerTests {
     Path temp;
 
     private HttpServer server;
+    private int targetRequests;
+    private int catalogStatus = 200;
     private boolean finding;
     private int findingRuleCount = 1;
     private boolean springFails = true;
@@ -109,6 +115,383 @@ class CiAssessmentRunnerTests {
                         .exitCode())
                 .isZero();
         assertThat(Files.readString(output.resolve("junit.xml"))).contains("<testsuite");
+    }
+
+    @Test
+    void accountsForTwoExplicitWindowsEvenWhenTheyShareOneRuntimeIdentity() throws Exception {
+        startServer();
+        Path policy = writePolicy();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", policy, List.of("web", "worker"));
+        CiCollection.Window web = collectionWindow(root, plan, "web");
+        CiCollection.Window worker = collectionWindow(root, plan, "worker");
+        assertThat(web.attached()).isTrue();
+        assertThat(worker.attached()).isTrue();
+        assertThat(web.finish()).isZero();
+        assertThat(web.finish()).isZero();
+        assertThat(worker.finish()).isZero();
+
+        JsonValue first = JsonValue.parse(
+                Files.readString(CiCollection.evidenceDirectory(root, "web").resolve("bundle.json")));
+        JsonValue second = JsonValue.parse(
+                Files.readString(CiCollection.evidenceDirectory(root, "worker").resolve("bundle.json")));
+        assertThat(first.get("instanceId").asString(null))
+                .isEqualTo(second.get("instanceId").asString(null));
+        assertThat(first.get("runId").asString(null))
+                .isEqualTo(second.get("runId").asString(null));
+        assertThat(first.get("assessmentId").asString(null))
+                .isNotEqualTo(second.get("assessmentId").asString(null));
+        CiCollection.Result checked = CiCollection.check(root, plan, "workflow:1");
+        assertThat(checked.status()).isEqualTo("PASS");
+        assertThat(checked.exitCode()).isZero();
+        assertThat(checked.contexts())
+                .extracting(CiCollection.ContextResult::contextId)
+                .containsExactly("web", "worker");
+    }
+
+    @Test
+    void reportsTheEvidenceDirectoryForCompletedWindows() throws Exception {
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        assertThat(collectionWindow(root, plan, "web").finish()).isZero();
+        StringWriter output = new StringWriter();
+        StringWriter errors = new StringWriter();
+
+        int exitCode = BootUiCli.run(
+                new String[] {
+                    "ci",
+                    "check-contexts",
+                    "--root",
+                    root.toString(),
+                    "--assessment-id",
+                    "workflow:1",
+                    "--plan-sha256",
+                    plan
+                },
+                Map.of(),
+                false,
+                new PrintWriter(output, true),
+                new PrintWriter(errors, true));
+
+        assertThat(exitCode).isZero();
+        assertThat(errors.toString()).isEmpty();
+        assertThat(output.toString())
+                .contains("web: PASS (reports: " + CiCollection.evidenceDirectory(root, "web") + ")");
+    }
+
+    @Test
+    void expectedWindowCheckDoesNotContactTheApplication() throws Exception {
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        int requestsBefore = targetRequests;
+
+        assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isEqualTo(1);
+        assertThat(targetRequests).isEqualTo(requestsBefore);
+    }
+
+    @Test
+    void missingEvidenceTakesPrecedenceOverAProvenViolation() throws Exception {
+        finding = true;
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web", "worker"));
+        CiCollection.Window web = collectionWindow(root, plan, "web");
+        assertThat(web.finish()).isEqualTo(3);
+        CiCollection.Result incomplete = CiCollection.check(root, plan, "workflow:1");
+        assertThat(incomplete.exitCode()).isEqualTo(1);
+        assertThat(incomplete.contexts())
+                .extracting(CiCollection.ContextResult::status)
+                .containsExactly("VIOLATION", "NOT_ASSESSED");
+        finding = false;
+        assertThat(collectionWindow(root, plan, "worker").finish()).isZero();
+        assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isEqualTo(3);
+    }
+
+    @Test
+    void duplicateClaimsLeaveAStickyFailureEvenAfterTheFirstWindowPasses() throws Exception {
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        assertThat(collectionWindow(root, plan, "web").finish()).isZero();
+        CiCollection.Window duplicate = collectionWindow(root, plan, "web");
+        assertThat(duplicate.attached()).isFalse();
+        assertThat(duplicate.attachFailureCode()).isEqualTo("DUPLICATE_CONTEXT");
+        assertThat(duplicate.finish()).isEqualTo(1);
+        assertThat(CiCollection.check(root, plan, "workflow:1").errors()).contains("REFUSED_CONTEXT_CLAIM");
+        assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentlyClaimingTheSameWindowCannotProduceAGreenGate() throws Exception {
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        CountDownLatch ready = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<CiCollection.Window> first = executor.submit(() -> {
+                ready.await();
+                return collectionWindow(root, plan, "web");
+            });
+            Future<CiCollection.Window> second = executor.submit(() -> {
+                ready.await();
+                return collectionWindow(root, plan, "web");
+            });
+            ready.countDown();
+            List<CiCollection.Window> windows =
+                    List.of(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS));
+            assertThat(windows.stream().filter(CiCollection.Window::attached).count())
+                    .isEqualTo(1);
+            for (CiCollection.Window window : windows) {
+                assertThat(window.finish()).isIn(0, 1);
+            }
+            assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isEqualTo(1);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void separateModuleProcessesCanCompleteDifferentPlannedWindows() throws Exception {
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web", "worker"));
+        Path webModule = Files.createDirectory(temp.resolve("web-module"));
+        Path workerModule = Files.createDirectory(temp.resolve("worker-module"));
+        Process web = collectionProcess(webModule, root, plan, "web");
+        Process worker = collectionProcess(workerModule, root, plan, "worker");
+        try {
+            assertThat(processResult(web)).isEqualTo("0:ATTACHED");
+            assertThat(processResult(worker)).isEqualTo("0:ATTACHED");
+            assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isZero();
+        } finally {
+            web.destroyForcibly();
+            worker.destroyForcibly();
+        }
+    }
+
+    @Test
+    void separateProcessesCannotBothClaimTheSameWindow() throws Exception {
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        Process first = collectionProcess(temp, root, plan, "web");
+        Process second = collectionProcess(temp, root, plan, "web");
+        try {
+            assertThat(List.of(processResult(first), processResult(second)))
+                    .containsExactlyInAnyOrder("0:ATTACHED", "1:DUPLICATE_CONTEXT");
+            assertThat(CiCollection.check(root, plan, "workflow:1").errors()).contains("REFUSED_CONTEXT_CLAIM");
+        } finally {
+            first.destroyForcibly();
+            second.destroyForcibly();
+        }
+    }
+
+    @Test
+    void unplannedAndInvalidPlanAttemptsPoisonOtherwisePassingEvidence() throws Exception {
+        startServer();
+        Path policy = writePolicy();
+        Path unplannedRoot = temp.resolve("unplanned");
+        String unplannedPlan = CiCollection.prepare(unplannedRoot, "workflow:1", policy, List.of("web"));
+        assertThat(collectionWindow(unplannedRoot, unplannedPlan, "web").finish())
+                .isZero();
+        CiCollection.Window unplanned = collectionWindow(unplannedRoot, unplannedPlan, null);
+        assertThat(unplanned.attachFailureCode()).isEqualTo("UNEXPECTED_CONTEXT");
+        assertThat(CiCollection.check(unplannedRoot, unplannedPlan, "workflow:1")
+                        .exitCode())
+                .isEqualTo(1);
+
+        Path invalidRoot = temp.resolve("invalid-plan");
+        String validPlan = CiCollection.prepare(invalidRoot, "workflow:1", policy, List.of("web"));
+        assertThat(collectionWindow(invalidRoot, validPlan, "web").finish()).isZero();
+        CiCollection.Window invalid = collectionWindow(invalidRoot, "0".repeat(64), "web");
+        assertThat(invalid.attachFailureCode()).isEqualTo("INVALID_PLAN_OR_POLICY");
+        assertThat(CiCollection.check(invalidRoot, validPlan, "workflow:1").exitCode())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void refusedAttachLeavesTheWorkloadFreeToRunAndTheGateFailsClosed() throws Exception {
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        CiCollection.Window window =
+                CiCollection.begin(root, plan, "workflow:1", "web", "http://localhost:8080", "/bootui/api", 5);
+        assertThat(window.attached()).isFalse();
+        assertThat(window.attachFailureCode()).isEqualTo("INVALID_TARGET_OR_OPTIONS");
+        var request = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url() + "/bootui/api/overview"))
+                .GET()
+                .build();
+        assertThat(java.net.http.HttpClient.newHttpClient()
+                        .send(request, java.net.http.HttpResponse.BodyHandlers.discarding())
+                        .statusCode())
+                .isEqualTo(200);
+        assertThat(window.finish()).isEqualTo(1);
+        assertThat(CiCollection.check(root, plan, "workflow:1")
+                        .contexts()
+                        .get(0)
+                        .errorCode())
+                .isEqualTo("INVALID_TARGET_OR_OPTIONS");
+    }
+
+    @Test
+    void postContactAttachRefusalStillAllowsWorkloadAndFailsTheFinalGate() throws Exception {
+        catalogStatus = 503;
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        CiCollection.Window window = collectionWindow(root, plan, "web");
+        assertThat(window.attached()).isFalse();
+        assertThat(window.attachFailureCode()).isEqualTo("TARGET_REQUEST_FAILED");
+        assertThat(targetRequests).isEqualTo(1);
+
+        var workloadRequest = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url() + "/bootui/api/overview"))
+                .GET()
+                .build();
+        assertThat(java.net.http.HttpClient.newHttpClient()
+                        .send(workloadRequest, java.net.http.HttpResponse.BodyHandlers.discarding())
+                        .statusCode())
+                .isEqualTo(200);
+        assertThat(targetRequests).isEqualTo(2);
+        assertThat(window.finish()).isEqualTo(1);
+        assertThat(targetRequests).isEqualTo(2);
+        assertThat(CiCollection.check(root, plan, "workflow:1")
+                        .contexts()
+                        .get(0)
+                        .errorCode())
+                .isEqualTo("TARGET_REQUEST_FAILED");
+    }
+
+    @Test
+    void targetLossBeforeFinishCannotProduceACompletedWindow() throws Exception {
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        CiCollection.Window window = collectionWindow(root, plan, "web");
+        assertThat(window.attached()).isTrue();
+        server.stop(0);
+        server = null;
+
+        assertThat(window.finish()).isEqualTo(1);
+        CiCollection.ContextResult result =
+                CiCollection.check(root, plan, "workflow:1").contexts().get(0);
+        assertThat(result.status()).isEqualTo("NOT_ASSESSED");
+        assertThat(result.errorCode()).isEqualTo("ASSESSMENT_NOT_COMPLETED");
+    }
+
+    @Test
+    void snapshotsThePolicyAndRejectsLaterPlanOrPolicyDrift() throws Exception {
+        startServer();
+        Path policy = writePolicy();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", policy, List.of("web"));
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"low"}}}
+                """);
+        assertThat(collectionWindow(root, plan, "web").finish()).isZero();
+        assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isZero();
+        assertThat(CiCollection.check(root, "0".repeat(64), "workflow:1").exitCode())
+                .isEqualTo(1);
+        Files.writeString(root.resolve("policy.json"), Files.readString(policy));
+        assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isEqualTo(1);
+    }
+
+    @Test
+    void refusesCrossContextReplayEvenWhenTheCompletionHashesAreRecomputed() throws Exception {
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web", "worker"));
+        assertThat(collectionWindow(root, plan, "web").finish()).isZero();
+        assertThat(collectionWindow(root, plan, "worker").finish()).isZero();
+        Path web = CiCollection.evidenceDirectory(root, "web");
+        Path worker = CiCollection.evidenceDirectory(root, "worker");
+        for (String file : List.of("witness.json", "bundle.json")) {
+            byte[] replacement = Files.readAllBytes(web.resolve(file));
+            Files.write(worker.resolve(file), replacement);
+            replaceJsonField(
+                    worker.resolve("completion.json"),
+                    file.equals("witness.json") ? "witnessSha256" : "bundleSha256",
+                    JsonValue.of(CiEvidenceStore.sha256(replacement)));
+        }
+        assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isEqualTo(1);
+    }
+
+    @Test
+    void checksWitnessAndBundleIdentityEvenWhenTheWitnessHashIsRecomputed() throws Exception {
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        assertThat(collectionWindow(root, plan, "web").finish()).isZero();
+        Path slot = CiCollection.evidenceDirectory(root, "web");
+        replaceJsonField(slot.resolve("witness.json"), "instanceId", JsonValue.of("ffffffff"));
+        replaceJsonField(
+                slot.resolve("completion.json"),
+                "witnessSha256",
+                JsonValue.of(CiEvidenceStore.sha256(Files.readAllBytes(slot.resolve("witness.json")))));
+        assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isEqualTo(1);
+    }
+
+    @Test
+    void outputCollisionsNeverOverwriteExistingEvidenceOrProduceACompletedGate() throws Exception {
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        CiCollection.Window window = collectionWindow(root, plan, "web");
+        Path existing = CiCollection.evidenceDirectory(root, "web").resolve("bundle.json");
+        Files.writeString(existing, "do not replace");
+        assertThatThrownBy(window::finish).isInstanceOf(IOException.class);
+        assertThat(Files.readString(existing)).isEqualTo("do not replace");
+        assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isEqualTo(1);
+    }
+
+    @Test
+    void failedCompletionWriteCannotBeReportedAsSuccessByARepeatedFinish() throws Exception {
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        CiCollection.Window window = collectionWindow(root, plan, "web");
+        Path completion = CiCollection.evidenceDirectory(root, "web").resolve("completion.json");
+        Files.writeString(completion, "do not replace");
+
+        assertThatThrownBy(window::finish).isInstanceOf(IOException.class);
+        assertThat(window.finish()).isEqualTo(1);
+        assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isEqualTo(1);
+    }
+
+    @Test
+    void rejectsMalformedCompletionAndUnexpectedEvidence() throws Exception {
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        assertThat(collectionWindow(root, plan, "web").finish()).isZero();
+        Path slot = CiCollection.evidenceDirectory(root, "web");
+        Path unexpected = slot.resolve("unexpected");
+        Files.writeString(unexpected, "unexpected");
+        assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isEqualTo(1);
+        Files.delete(unexpected);
+        replaceJsonField(slot.resolve("completion.json"), "status", JsonValue.NULL);
+        assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isEqualTo(1);
+    }
+
+    @Test
+    void rejectsSymbolicLinksInTheEvidenceRootAndWindow() throws Exception {
+        startServer();
+        Path root = temp.resolve("contexts");
+        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        assertThat(collectionWindow(root, plan, "web").finish()).isZero();
+        Path witness = CiCollection.evidenceDirectory(root, "web").resolve("witness.json");
+        Path outside = temp.resolve("outside.json");
+        Files.writeString(outside, Files.readString(witness));
+        Files.delete(witness);
+        Files.createSymbolicLink(witness, outside);
+        assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isEqualTo(1);
+        assertThat(Files.isRegularFile(outside)).isTrue();
+        Path linkedRoot = temp.resolve("linked-root");
+        Files.createSymbolicLink(linkedRoot, root);
+        assertThat(CiCollection.check(linkedRoot, plan, "workflow:1").exitCode())
+                .isEqualTo(1);
     }
 
     @Test
@@ -1074,6 +1457,48 @@ class CiAssessmentRunnerTests {
         return new CiAssessmentRunner(url(), "/bootui/api", 5, "test-assessment", policy, witness, output);
     }
 
+    private CiCollection.Window collectionWindow(Path root, String plan, String context) throws IOException {
+        return CiCollection.begin(root, plan, "workflow:1", context, url(), "/bootui/api", 5);
+    }
+
+    private Process collectionProcess(Path workingDirectory, Path root, String plan, String context)
+            throws IOException {
+        String separator = System.getProperty("path.separator");
+        String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+        String absoluteClasspath = java.util.Arrays.stream(classpath.split(java.util.regex.Pattern.quote(separator)))
+                .map(entry -> Path.of(entry).toAbsolutePath().normalize().toString())
+                .collect(java.util.stream.Collectors.joining(separator));
+        return new ProcessBuilder(
+                        Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                        "-cp",
+                        absoluteClasspath,
+                        CiCollectionProcessMain.class.getName(),
+                        root.toString(),
+                        plan,
+                        context,
+                        url())
+                .directory(workingDirectory.toFile())
+                .redirectErrorStream(true)
+                .start();
+    }
+
+    private static String processResult(Process process) throws Exception {
+        assertThat(process.waitFor(30, TimeUnit.SECONDS))
+                .as("collection child exited")
+                .isTrue();
+        return process.exitValue() + ":"
+                + new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+    }
+
+    private static void replaceJsonField(Path file, String name, JsonValue replacement) throws IOException {
+        JsonValue original = JsonValue.parseStrict(Files.readString(file));
+        Map<String, JsonValue> values = new LinkedHashMap<>();
+        for (String key : original.names()) {
+            values.put(key, key.equals(name) ? replacement : original.get(key));
+        }
+        Files.writeString(file, JsonWriter.pretty(JsonValue.object(values)));
+    }
+
     private String url() {
         return "http://127.0.0.1:" + server.getAddress().getPort();
     }
@@ -1126,6 +1551,7 @@ class CiAssessmentRunnerTests {
     }
 
     private void handle(HttpExchange exchange) throws IOException {
+        targetRequests++;
         String path = exchange.getRequestURI().getPath();
         String body;
         if (path.endsWith("/cli")) {
@@ -1212,8 +1638,10 @@ class CiAssessmentRunnerTests {
         }
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.sendResponseHeaders(
-                path.endsWith("/tools/get_runtime_insights") ? runtimeInsightsStatus : 200, bytes.length);
+        int status = path.endsWith("/tools/get_runtime_insights")
+                ? runtimeInsightsStatus
+                : path.endsWith("/cli") ? catalogStatus : 200;
+        exchange.sendResponseHeaders(status, bytes.length);
         exchange.getResponseBody().write(bytes);
         exchange.close();
     }

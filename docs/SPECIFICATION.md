@@ -3904,15 +3904,18 @@ Design rules:
   a future native-image build stays a build-file change rather than a rewrite.
 - **CI orchestration is a client-side exception.** `bootui ci attach` and `assess` contact only an explicitly selected
   literal-loopback Spring Boot target or external Quarkus `quarkus:dev` process and run the strict live assessment.
-  `bootui ci check` reads a bounded, versioned
-  bundle and the exact policy offline, verifies assessment identity and evidence consistency, and recomputes the
-  verdict from findings. An opt-in Runtime Insights projection is bounded and report-only; it omits application
-  prose and request identifiers, does not prove workload attribution, and cannot change the advisor verdict. It has
-  no application URL or network fallback. Bundles remain self-reported evidence, not cryptographic attestation;
-  aggregate exits are `0` pass, `1` invalid/incomplete, and `3` threshold violation, with errors taking precedence.
-  The Markdown summary shows at most 50 sanitized rule summaries, prioritizes threshold-meeting findings, names stable
-  assessment error codes, and states when additional summaries remain in the complete bundle; raw finding text is never
-  included.
+  `bootui ci check` reads a bounded, versioned bundle and the exact policy offline, verifies assessment identity and
+  evidence consistency, and recomputes the verdict from findings. `prepare-contexts` pins one policy and the complete
+  expected-window set; the `CiCollection` test-lifecycle API claims and completes each window, and `check-contexts`
+  verifies the evidence after all producer processes exit. The composite Action's `prepare-cli` phase exports a
+  signature-verified CLI for later workflow steps, and its `offline` phase revalidates a saved bundle without
+  contacting an application. An opt-in Runtime Insights projection is bounded and report-only; it omits application
+  prose and request identifiers, does not prove workload attribution, and cannot change the advisor verdict. Offline
+  checks have no application URL or network fallback. Bundles remain self-reported evidence, not cryptographic
+  attestation; aggregate exits are `0` pass, `1` invalid/incomplete, and `3` threshold violation, with errors taking
+  precedence. The Markdown summary shows at most 50 sanitized rule summaries, prioritizes threshold-meeting findings,
+  names stable assessment error codes, and states when additional summaries remain in the complete bundle; raw finding
+  text is never included.
 
 ## 7. UX specification
 

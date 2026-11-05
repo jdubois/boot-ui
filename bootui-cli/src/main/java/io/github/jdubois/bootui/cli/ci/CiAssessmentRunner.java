@@ -846,6 +846,28 @@ public final class CiAssessmentRunner {
         try (InputStream input = Files.newInputStream(witnessPath)) {
             bytes = input.readNBytes(16 * 1024 + 1);
         }
+        return parseWitness(bytes, assessmentId);
+    }
+
+    static JsonValue validateWitnessSnapshot(byte[] bytes, String assessmentId, CiPolicy policy) {
+        try {
+            JsonValue witness = parseWitness(bytes, assessmentId);
+            CiAssessmentRunner validator = new CiAssessmentRunner(
+                    witness.get("targetUrl").asString(null),
+                    witness.get("apiPath").asString(null),
+                    60,
+                    assessmentId,
+                    null,
+                    null,
+                    null);
+            validator.validateWitness(witness, policy);
+            return witness;
+        } catch (AssessmentFailure | IllegalArgumentException invalid) {
+            throw new IllegalArgumentException("Invalid CI witness", invalid);
+        }
+    }
+
+    private static JsonValue parseWitness(byte[] bytes, String assessmentId) {
         if (bytes.length > 16 * 1024) {
             throw new AssessmentFailure("INVALID_WITNESS");
         }

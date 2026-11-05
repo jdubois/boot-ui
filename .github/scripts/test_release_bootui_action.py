@@ -17,15 +17,34 @@ class BootUiActionTests(unittest.TestCase):
         self.assertIn("!cancelled()", invoke)
         self.assertNotIn("always()", invoke)
 
+    def test_fallback_summary_and_result_do_not_run_after_cancellation(self):
+        action = (ACTION / "action.yml").read_text()
+        tail = action.split("    - id: report\n", 1)[1]
+        self.assertIn(
+            "if: ${{ !cancelled() && inputs.phase == 'assess' && steps.invoke.outputs.summary-fresh != 'true' }}",
+            tail,
+        )
+        self.assertIn("    - if: ${{ !cancelled() && inputs.phase == 'assess' }}", tail)
+        self.assertIn("    - if: ${{ !cancelled() && inputs.phase != 'prepare-cli' }}", tail)
+        self.assertNotIn("always()", tail)
+
     def test_action_preserves_consumer_invocation_and_fallback_contract(self):
         action = (ACTION / "action.yml").read_text()
         prepare = action.split("    - id: prepare\n", 1)[1].split("    - id: invoke\n", 1)[0]
         invoke = action.split("    - id: invoke\n", 1)[1].split("    - id: report\n", 1)[0]
         report = action.split("    - id: report\n", 1)[1].split("    - if:", 1)[0]
         self.assertIn("if: ${{ inputs.phase != 'assess' || inputs.attach-exit-code == '0' }}", prepare)
-        self.assertIn("if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}", invoke)
         self.assertIn(
-            "if: ${{ always() && inputs.phase == 'assess' && steps.invoke.outputs.summary-fresh != 'true' }}",
+            "if: ${{ !cancelled() && inputs.phase != 'prepare-cli' && steps.prepare.outcome == 'success' }}",
+            invoke,
+        )
+        self.assertIn("required: false", action.split("  assessment-id:\n", 1)[1].split("  policy:\n", 1)[0])
+        self.assertIn('[[ "$phase" == offline ]]', (ACTION / "invoke.sh").read_text())
+        self.assertIn("input-bundle:", action)
+        self.assertIn("steps.invoke.outputs.exit-code }}", action)
+        self.assertIn("inputs.phase != 'prepare-cli'", action)
+        self.assertIn(
+            "if: ${{ !cancelled() && inputs.phase == 'assess' && steps.invoke.outputs.summary-fresh != 'true' }}",
             report,
         )
         for step, script in ((prepare, "prepare-cli.sh"), (invoke, "invoke.sh"), (report, "report-error.sh")):
@@ -45,6 +64,7 @@ class BootUiActionTests(unittest.TestCase):
             "BOOTUI_URL": "inputs.url",
             "BOOTUI_POLICY": "inputs.policy",
             "BOOTUI_WITNESS": "inputs.witness",
+            "BOOTUI_INPUT_BUNDLE": "inputs.input-bundle",
             "BOOTUI_API_PATH": "inputs.api-path",
             "BOOTUI_TIMEOUT": "inputs.timeout",
         }
@@ -147,6 +167,79 @@ class BootUiActionTests(unittest.TestCase):
         self.assertIn("summary-fresh=true", self.outputs.read_text())
         self.assertIn(f"report-dir={self.root / 'assessment'}", self.outputs.read_text())
 
+    def test_offline_phase_revalidates_saved_bundle_and_writes_a_safe_summary(self):
+        self.prepare_fake_cli()
+        bundle = self.root / "input-bundle.json"
+        bundle.write_text('{"status":"VIOLATION"}')
+        summary = self.root / "step-summary.md"
+        arguments = self.root / "arguments.txt"
+        self.environment.update(
+            BOOTUI_PHASE="offline",
+            BOOTUI_INPUT_BUNDLE=str(bundle),
+            BOOTUI_ASSESSMENT_ID="123:1:orders",
+            FAKE_MODE="offline",
+            FAKE_EXIT="3",
+            GITHUB_STEP_SUMMARY=str(summary),
+            FAKE_ARGS=str(arguments),
+        )
+        result = self.run_script("invoke.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(arguments.read_text().split(), [
+            "ci", "check", "--input", str(bundle), "--assessment-id", "123:1:orders",
+            "--policy", str(self.root / "policy.json"),
+        ])
+        self.assertIn("exit-code=3", self.outputs.read_text())
+        self.assertEqual(
+            summary.read_text(),
+            "## BootUI offline assessment: VIOLATION\n\n"
+            "The saved bundle contains findings at or above the configured threshold.\n",
+        )
+        self.assertFalse((self.root / "assessment").exists())
+
+    def test_offline_phase_requires_an_existing_bundle(self):
+        self.prepare_fake_cli()
+        summary = self.root / "step-summary.md"
+        self.environment.update(
+            BOOTUI_PHASE="offline",
+            BOOTUI_INPUT_BUNDLE=str(self.root / "missing.json"),
+            GITHUB_STEP_SUMMARY=str(summary),
+        )
+        result = self.run_script("invoke.sh")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("input-bundle must name a readable saved bundle", result.stderr)
+        self.assertIn("exit-code=1", self.outputs.read_text())
+        self.assertEqual(
+            summary.read_text(),
+            "## BootUI offline assessment: NOT_ASSESSED\n\n"
+            "The saved bundle was invalid or incomplete; no pass was inferred.\n",
+        )
+
+    def test_offline_phase_writes_pass_and_not_assessed_summaries(self):
+        self.prepare_fake_cli()
+        bundle = self.root / "input-bundle.json"
+        bundle.write_text("{}")
+        for status, expected in (
+            (0, "## BootUI offline assessment: PASS\n\nThe saved bundle passed policy validation.\n"),
+            (
+                1,
+                "## BootUI offline assessment: NOT_ASSESSED\n\n"
+                "The saved bundle was invalid or incomplete; no pass was inferred.\n",
+            ),
+        ):
+            with self.subTest(status=status):
+                summary = self.root / f"summary-{status}.md"
+                self.outputs.write_text("")
+                self.environment.update(
+                    BOOTUI_PHASE="offline",
+                    BOOTUI_INPUT_BUNDLE=str(bundle),
+                    FAKE_MODE="offline",
+                    FAKE_EXIT=str(status),
+                    GITHUB_STEP_SUMMARY=str(summary),
+                )
+                result = self.run_script("invoke.sh")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(summary.read_text(), expected)
+
     def prepare_fake_cli(self):
         binary_dir = self.root / "bin"
         binary_dir.mkdir()
@@ -154,6 +247,11 @@ class BootUiActionTests(unittest.TestCase):
         java.write_text(
             "#!/usr/bin/env bash\n"
             "test \"$BOOTUI_NO_UPDATE_CHECK\" = 1 || exit 99\n"
+            "if [[ \"$FAKE_MODE\" == offline ]]; then\n"
+            "  shift 2\n"
+            "  printf '%s\\n' \"$@\" > \"$FAKE_ARGS\"\n"
+            "  exit \"$FAKE_EXIT\"\n"
+            "fi\n"
             "mkdir \"$BOOTUI_OUTPUT_DIR\"\n"
             "echo '# BootUI assessment' > \"$BOOTUI_OUTPUT_DIR/summary.md\"\n"
             "if [[ \"$FAKE_REPORTS\" == complete ]]; then\n"
@@ -175,6 +273,8 @@ class BootUiActionTests(unittest.TestCase):
             BOOTUI_POLICY=str(policy),
             BOOTUI_WITNESS=str(self.root / "witness"),
             BOOTUI_ATTACH_EXIT_CODE="0",
+            FAKE_MODE="live",
+            FAKE_ARGS=str(self.root / "arguments.txt"),
         )
 
 

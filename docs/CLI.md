@@ -553,12 +553,12 @@ messages under `METADATA_ONLY`.
 
 For the supported composite Action and a full caller-owned GitHub Actions example, see [BootUI in CI](CI.md).
 
-`bootui ci attach`, `bootui ci assess`, and `bootui ci check` are client-side orchestration commands, not MCP tools
-and not part of the generated command manifest. `attach` and `assess` are intentionally narrower than ordinary CLI
+The `bootui ci` commands are client-side orchestration, not MCP tools and not part of the generated command manifest.
+`attach` and `assess` are intentionally narrower than ordinary CLI
 use: one explicitly selected literal loopback URL, a Spring Boot application or external Quarkus `quarkus:dev`
 process, a strict JSON policy, and a pre-workload identity witness. They do not start the application, run tests, or
-prove that tests exercised the witnessed process. Do not use a deployed or remote target. Collection from an
-`@QuarkusTest` process after test teardown is not supported.
+prove that tests exercised the witnessed process. Do not use a deployed or remote target. Framework-managed tests can
+instead use `CiCollection` within the test lifecycle; see [framework-managed CI collection](CI.md#framework-managed-test-lifecycles).
 
 The policy selects only named advisors; every selected advisor is strict, including optional advisors that are
 available. A required advisor must be advertised, enabled, scannable, usable, coverage-complete, and have at least
@@ -666,6 +666,20 @@ bootui ci check \
   --policy ci/bootui-policy.json
 ```
 
+`ci prepare-contexts` creates a fresh absolute evidence root, fixes its exact policy snapshot and complete list of
+expected context IDs, and prints the plan's SHA-256 digest. Retain both that digest and the expected assessment ID
+outside the writable root. Each test window calls the `CiCollection.begin(...)` API from the CLI artifact and invokes
+`Window.finish()` before application teardown. After every producer process exits, `ci check-contexts` verifies all
+expected windows offline. Its exits are `0` for a complete pass, `1` for incomplete or invalid evidence, and `3` for a
+proven threshold violation. The final gate must run after all producers; use one root per policy and a filesystem
+provider supporting `SecureDirectoryStream`. This proves consistency and explicit window completion, not that tests
+actually exercised the witnessed application or that evidence is tamper-proof. See [the lifecycle API and example](CI.md#framework-managed-test-lifecycles).
+
+The composite Action's `phase: prepare-cli` downloads and verifies the signed CLI, exporting `BOOTUI_CLI_JAR` for
+later steps. `phase: offline` accepts `input-bundle`, `assessment-id`, and `policy` to run `ci check` without contacting
+an application. It writes a fixed status summary to the GitHub job summary; it does not rewrite or upload the supplied
+bundle.
+
 `ci check` reads a bounded strict-JSON bundle, rejects duplicate or unknown fields and incomplete evidence, verifies
 the policy digest and assessment ID, and recomputes the threshold result from the retained findings. It has no target
 URL or network fallback. The check validates consistency, not authenticity: CI artifacts are self-reported evidence,
@@ -687,10 +701,10 @@ instead. Run cleanup only for the process the workflow owns. In GitHub Actions, 
 still prevent collection or publishing; the witness proves identity continuity, not workload attestation.
 
 The composite Action downloads a pinned stable CLI release and verifies its Maven Central signature against BootUI's
-pinned release signing key. The action and CLI commands become usable by consumers only after a release containing
-them is published. The composite Action still supports live attach/assessment only; offline evaluation is available
-through `bootui ci check`, but is not yet an Action input mode. This increment does not provide framework-managed
-test producers, comparisons, SARIF, or annotations.
+pinned release signing key. The Action and CLI commands become usable by consumers only after a release containing
+them is published. The lifecycle API and expected-window commands are part of the CLI artifact, not a framework
+plugin; the test suite must call them from its own lifecycle hooks. This increment does not provide comparisons,
+SARIF, or annotations.
 
 ## Every command
 

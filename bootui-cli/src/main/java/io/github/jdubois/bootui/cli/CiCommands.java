@@ -2,9 +2,11 @@ package io.github.jdubois.bootui.cli;
 
 import io.github.jdubois.bootui.cli.ci.CiAssessmentRunner;
 import io.github.jdubois.bootui.cli.ci.CiBundleEvaluator;
+import io.github.jdubois.bootui.cli.ci.CiCollection;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.concurrent.Callable;
 import picocli.CommandLine;
 import picocli.CommandLine.Model.CommandSpec;
@@ -21,6 +23,8 @@ final class CiCommands {
         ci.addSubcommand("attach", new CommandLine(attach(context)));
         ci.addSubcommand("assess", new CommandLine(assess(context)));
         ci.addSubcommand("check", new CommandLine(check(context)));
+        ci.addSubcommand("prepare-contexts", new CommandLine(prepareContexts(context)));
+        ci.addSubcommand("check-contexts", new CommandLine(checkContexts(context)));
         root.addSubcommand("ci", new CommandLine(ci));
     }
 
@@ -117,6 +121,62 @@ final class CiCommands {
                 "Fresh directory for bundle.json, summary.md, and junit.xml.",
                 true,
                 value -> command.outputDirectory = value));
+        return spec;
+    }
+
+    private static CommandSpec prepareContexts(CliContext context) {
+        PrepareContexts command = new PrepareContexts(context);
+        CommandSpec spec = CommandSpec.wrapWithoutInspection(command).name("prepare-contexts");
+        spec.usageMessage()
+                .description("Prepare a fresh expected-window evidence root and print its plan SHA-256.")
+                .footer("", "Retain the printed digest independently of the writable evidence root.");
+        configure(spec);
+        spec.addOption(pathOption(
+                "--root",
+                "<directory>",
+                "New absolute evidence root outside cleanable output.",
+                true,
+                value -> command.root = value));
+        spec.addOption(stringOption(
+                "--assessment-id",
+                "<id>",
+                "Unique identifier for this run.",
+                true,
+                value -> command.assessmentId = value));
+        spec.addOption(pathOption(
+                "--policy",
+                "<file>",
+                "Strict JSON policy applied to every window.",
+                true,
+                value -> command.policy = value));
+        spec.addOption(stringOption(
+                "--contexts",
+                "<ids>",
+                "Comma-separated expected window IDs.",
+                true,
+                value -> command.contexts = value));
+        return spec;
+    }
+
+    private static CommandSpec checkContexts(CliContext context) {
+        CheckContexts command = new CheckContexts(context);
+        CommandSpec spec = CommandSpec.wrapWithoutInspection(command).name("check-contexts");
+        spec.usageMessage()
+                .description("Check every expected collection window offline after all producers have finished.")
+                .footer(
+                        "",
+                        "Exit codes: 0 pass, 1 incomplete/error, 3 proven threshold violation. Errors take precedence.");
+        configure(spec);
+        spec.addOption(pathOption(
+                "--root", "<directory>", "Prepared absolute evidence root.", true, value -> command.root = value));
+        spec.addOption(stringOption(
+                "--assessment-id", "<id>", "Expected run identifier.", true, value -> command.assessmentId = value));
+        spec.addOption(stringOption(
+                "--plan-sha256",
+                "<sha256>",
+                "Independently retained prepared-plan digest.",
+                true,
+                value -> command.planSha256 = value));
         return spec;
     }
 
@@ -305,6 +365,63 @@ final class CiCommands {
                 context.err().println("BootUI offline assessment found a policy-threshold violation.");
             } else {
                 context.err().println("BootUI offline bundle is invalid or the assessment was not completed.");
+            }
+            return result.exitCode();
+        }
+    }
+
+    private static final class PrepareContexts implements Callable<Integer> {
+
+        private final CliContext context;
+        private Path root;
+        private Path policy;
+        private String assessmentId;
+        private String contexts;
+
+        PrepareContexts(CliContext context) {
+            this.context = context;
+        }
+
+        @Override
+        public Integer call() {
+            try {
+                String digest =
+                        CiCollection.prepare(root, assessmentId, policy, Arrays.asList(contexts.split(",", -1)));
+                context.out().println(digest);
+                return ExitCodes.SUCCESS;
+            } catch (IOException | IllegalArgumentException | SecurityException invalid) {
+                context.err()
+                        .println("BootUI could not prepare a fresh expected-context plan: " + invalid.getMessage());
+                return ExitCodes.ERROR;
+            }
+        }
+    }
+
+    private static final class CheckContexts implements Callable<Integer> {
+
+        private final CliContext context;
+        private Path root;
+        private String assessmentId;
+        private String planSha256;
+
+        CheckContexts(CliContext context) {
+            this.context = context;
+        }
+
+        @Override
+        public Integer call() {
+            CiCollection.Result result = CiCollection.check(root, planSha256, assessmentId);
+            for (CiCollection.ContextResult window : result.contexts()) {
+                String evidencePath = "PASS".equals(window.status()) || "VIOLATION".equals(window.status())
+                        ? " (reports: " + CiCollection.evidenceDirectory(root, window.contextId()) + ")"
+                        : "";
+                context.out()
+                        .println(window.contextId() + ": " + window.status()
+                                + (window.errorCode().isEmpty() ? "" : " (" + window.errorCode() + ")")
+                                + evidencePath);
+            }
+            for (String error : result.errors()) {
+                context.err().println("BootUI collection error: " + error);
             }
             return result.exitCode();
         }

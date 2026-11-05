@@ -4,12 +4,128 @@ BootUI can gate an existing integration workload with fresh runtime diagnostics.
 application and CLI: the live-target workflow accepts only a literal loopback URL and does not cross a container
 network boundary. Keep application startup, test execution, and cleanup in the caller's workflow.
 
-The composite Action supports Spring Boot live targets and external Quarkus development-mode targets. The workflow
-below requires a published BootUI CLI release that contains `bootui ci attach` and `bootui ci assess`; if the policy
-opts in to Runtime Insights, the CLI must also understand `runtimeContext`. Older CLI releases reject unknown policy
-keys. The CLI can also
-revalidate a saved bundle offline with `bootui ci check`, but the Action does not yet accept offline input bundles.
-Collection from inside the Quarkus test lifecycle, baselines, SARIF, and annotations are not included.
+The composite Action supports live Spring Boot and external Quarkus development-mode targets, plus offline validation
+of a saved bundle. The live workflow requires a published BootUI CLI release that contains `bootui ci attach` and
+`bootui ci assess`; if the policy opts in to Runtime Insights, the CLI must also understand `runtimeContext`. Older CLI
+releases reject unknown policy keys. Framework-managed test collection is available through the Java `CiCollection`
+API and its `bootui ci prepare-contexts` / `check-contexts` commands. Baselines, SARIF, and annotations are not
+included.
+
+## Framework-managed test lifecycles
+
+Use framework-managed collection when the test framework owns the application lifetime, including Spring
+`@SpringBootTest` and Quarkus `@QuarkusTest`. Prepare the evidence root and its complete expected-window list before
+starting tests. Retain the printed plan digest and assessment ID outside the writable evidence root, then call
+`CiCollection.begin(...)` once for each expected window and `Window.finish()` before the framework stops its
+application. After every producer process has exited, run `ci check-contexts` as the final gate.
+
+Use the Action's `prepare-cli` phase to download and verify the signed CLI once, before preparing the plan. The
+`BOOTUI_CLI_JAR` value is exported through `GITHUB_ENV` for following steps:
+
+```yaml
+- name: Set up the verified BootUI CLI
+  uses: jdubois/boot-ui/.github/actions/bootui@<reviewed-commit-sha>
+  with:
+    phase: prepare-cli
+    bootui-version: '<published-ci-capable-version>'
+```
+
+Add the matching, non-shaded CLI artifact as a test-scoped dependency; keep its version identical to
+`bootui-version`:
+
+```xml
+<dependency>
+  <groupId>com.julien-dubois.bootui</groupId>
+  <artifactId>bootui-cli</artifactId>
+  <version>${bootui.version}</version>
+  <scope>test</scope>
+</dependency>
+```
+
+For Spring MVC and WebFlux, pass the actual random port from `@LocalServerPort`; for Quarkus, use the test URL from
+`@TestHTTPResource`. `BOOTUI_CI_*` values written to `GITHUB_ENV` are inherited by Maven's forked test JVMs and their
+workload processes unless the test runner explicitly replaces the environment.
+
+```bash
+evidence="$RUNNER_TEMP/bootui-ci/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/contexts"
+assessment_id="$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:integration"
+mkdir -p "$(dirname "$evidence")"
+plan_file="$RUNNER_TEMP/bootui-ci-plan.sha256"
+java -jar "$BOOTUI_CLI_JAR" ci prepare-contexts \
+  --root "$evidence" \
+  --assessment-id "$assessment_id" \
+  --policy ci/bootui-policy.json \
+  --contexts orders,catalog > "$plan_file"
+printf 'BOOTUI_CI_EVIDENCE_ROOT=%s\n' "$evidence" >> "$GITHUB_ENV"
+printf 'BOOTUI_CI_ASSESSMENT_ID=%s\n' "$assessment_id" >> "$GITHUB_ENV"
+printf 'BOOTUI_CI_PLAN_SHA256=%s\n' "$(cat "$plan_file")" >> "$GITHUB_ENV"
+```
+
+`prepare-contexts` creates the evidence root but not its parent, so create the parent first as shown. Keep the
+assessment ID and plan digest outside that writable root.
+
+In the test class, add the published `bootui-cli` dependency to the test classpath and bind each ID to the framework's
+actual loopback port. The expected IDs must be fixed before the workload; a skipped, filtered, crashed, or retried
+window then fails the gate instead of disappearing from the denominator. Disable automatic test retries for these
+classes, or assign each planned attempt its own context ID.
+
+```java
+CiCollection.Window window = CiCollection.begin(
+    Path.of(System.getenv("BOOTUI_CI_EVIDENCE_ROOT")),
+    System.getenv("BOOTUI_CI_PLAN_SHA256"),
+    System.getenv("BOOTUI_CI_ASSESSMENT_ID"),
+    "orders",
+    "http://127.0.0.1:" + localPort,
+    "/bootui/api",
+    60);
+try {
+    runIntegrationWorkload();
+} finally {
+    window.finish();
+}
+```
+
+An ordinary attach refusal returns an unattached window rather than skipping the workload; `finish()` records the
+refusal and the later gate fails. Do not ignore exceptions that prevent the evidence root or claim from being safely
+accessed. Always finish before framework teardown so the assessment can read the live test application.
+
+Run the check only after all Maven/Surefire/Failsafe or other producer processes have terminated. Guard the step with
+`!cancelled()` so it doesn't race a cancelled test process; set a job timeout to bound failures outside the gate's
+control:
+
+```yaml
+- name: Gate framework collections
+  if: ${{ !cancelled() }}
+  run: |
+    java -jar "$BOOTUI_CLI_JAR" ci check-contexts \
+      --root "$BOOTUI_CI_EVIDENCE_ROOT" \
+      --assessment-id "$BOOTUI_CI_ASSESSMENT_ID" \
+      --plan-sha256 "$BOOTUI_CI_PLAN_SHA256"
+```
+
+The gate prints each context's status and, for completed assessments, the directory containing its sanitized
+`bundle.json`, `summary.md`, and `junit.xml`:
+
+```text
+orders: VIOLATION (reports: /runner/temp/.../slots/<context-sha256>)
+catalog: PASS (reports: /runner/temp/.../slots/<context-sha256>)
+```
+
+`NOT_ASSESSED` contexts include a stable error code and have no report bundle. Inspect a violation's bundle and summary
+at the printed path; no findings are copied into an unbounded aggregate log.
+
+Exit codes are `0` for a complete pass, `3` for complete evidence with a threshold violation, and `1` for missing,
+invalid, refused, or incomplete evidence. Errors take precedence over findings. Each root contains one exact policy
+snapshot; use separate roots and gates when stacks require different policies. Keep the root outside cleanable build
+output and Quarkus watched paths. Collection requires a filesystem provider with `SecureDirectoryStream`; unsupported
+providers fail closed (including common Windows providers).
+
+This gate checks evidence consistency and explicit expected-window accounting, not workload attestation. A test can
+mislabel a window or control the whole CI job; plan, report, and witness hashes do not prove which requests exercised
+the application. Protect the evidence root from concurrent writers: secure path handling does not make a hostile
+shared filesystem safe, and the final check should run under a bounded job timeout. Retain the plan digest
+independently and protect CI artifacts and job permissions. The final gate detects persisted refusals and incomplete
+windows only when it runs after every producer has finished.
 
 ## Spring Boot: add BootUI only to the diagnostic build
 
