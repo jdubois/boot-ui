@@ -169,7 +169,8 @@ counts each occurrence under one outcome, from **Rethrown** and **Logged** to **
 :::
 
 A row is a finding when occurrences not seen rethrown or logged came from at least three requests, or from one for an
-SQL, I/O, or data-access exception. A finding states a fact, never a verdict: BootUI never calls an exception
+SQL, I/O, or data-access exception (Hibernate's `JDBCException` subclasses, such as `GenericJDBCException`, count as
+SQL). A finding states a fact, never a verdict: BootUI never calls an exception
 swallowed.
 
 ::: details When an occurrence counts as complete evidence, and known limits
