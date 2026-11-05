@@ -540,6 +540,8 @@ public final class BootUiApiContractCatalog {
                     "settling", JsonType.INTEGER,
                     "occurrences", JsonType.INTEGER,
                     "findings", JsonType.INTEGER,
+                    "insufficient", JsonType.INTEGER,
+                    "partial", JsonType.INTEGER,
                     "rows", JsonType.ARRAY));
 
     /**

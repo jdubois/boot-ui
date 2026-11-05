@@ -35,6 +35,9 @@ function row(overrides = {}) {
     unknownReason: null,
     shapes: ['discards', 'prints-stack-trace'],
     finding: false,
+    status: 'OBSERVED',
+    notRethrownOrLoggedRequests: 0,
+    minimumRequests: 3,
     exemplarRequestId: null,
     firstSeen: 1700000000000,
     lastSeen: 1700000005000,
@@ -50,6 +53,8 @@ function report(overrides = {}) {
     settling: 0,
     occurrences: 3,
     findings: 0,
+    insufficient: 0,
+    partial: 0,
     rows: [row()],
     ...overrides
   }
@@ -102,6 +107,31 @@ describe('CaughtInCode', () => {
     expect(region.text()).toContain('Not seen rethrown or logged at WARN or above')
     expect(region.text()).toContain('Finding')
     expect(wrapper.html()).not.toContain('swallowed')
+  })
+
+  it('distinguishes insufficient and partial evidence from findings', () => {
+    const wrapper = mountCaught({
+      report: report({
+        insufficient: 1,
+        partial: 1,
+        rows: [
+          row({
+            id: 'insufficient',
+            status: 'INSUFFICIENT',
+            notRethrownOrLoggedRequests: 1,
+            minimumRequests: 3,
+            requests: 1
+          }),
+          row({id: 'partial', status: 'PARTIAL', counted: 2, requests: 2})
+        ]
+      })
+    })
+
+    expect(wrapper.text()).toContain('1 insufficient · 1 partial')
+    expect(wrapper.text()).toContain('Insufficient evidence (1/3 requests)')
+    expect(wrapper.text()).toContain('Partial evidence')
+    expect(wrapper.text()).toContain('Unknown, pending, or counted-only outcomes prevent a verdict.')
+    expect(wrapper.text()).not.toContain('Finding')
   })
 
   it('renders unknown reasons and the settling count', () => {

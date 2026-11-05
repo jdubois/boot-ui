@@ -3,8 +3,7 @@ package io.github.jdubois.bootui.cli;
 import java.util.Set;
 
 /**
- * The tools that take {@code --fail-on}: the advisors whose answer carries a top-level {@code severityCounts}
- * and a {@code scan.status}.
+ * The tools that take {@code --fail-on}, separated by the kind of evidence they can evaluate.
  *
  * <p>The command tree is built from the bundled manifest before any call, and the manifest carries only input
  * schemas, so eligibility is a CLI-side list rather than something read from a response. {@code FailOnToolsTests}
@@ -38,12 +37,31 @@ final class FailOnTools {
             "vulnerabilities_scan",
             "get_vulnerabilities_report");
 
+    /** Reports with explicit evidence sufficiency states. */
+    static final Set<String> INSUFFICIENT_TOOLS =
+            Set.of("get_exceptions", "get_runtime_insight", "get_runtime_insights");
+
     /** Reads that grade nothing: runtime views and a heap-dump inventory have no severities to gate on. */
     static final Set<String> EXCLUDED = Set.of("get_postgresql_report", "get_mysql_report", "get_heap_dump_report");
 
     private FailOnTools() {}
 
     static boolean supports(String toolName) {
+        return TOOLS.contains(toolName) || INSUFFICIENT_TOOLS.contains(toolName);
+    }
+
+    static boolean supportsSeverity(String toolName) {
         return TOOLS.contains(toolName);
+    }
+
+    static boolean supportsInsufficient(String toolName) {
+        return INSUFFICIENT_TOOLS.contains(toolName);
+    }
+
+    static String accepted(String toolName) {
+        if (supportsSeverity(toolName) && supportsInsufficient(toolName)) {
+            return FailOn.accepted() + ", insufficient";
+        }
+        return supportsInsufficient(toolName) ? "insufficient" : FailOn.accepted();
     }
 }

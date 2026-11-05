@@ -11,7 +11,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * The CLI-side severity gate behind {@code --fail-on}.
+ * The CLI-side finding-severity and evidence-sufficiency gates behind {@code --fail-on}.
  *
  * <p>The option is consumed here and never reaches the MCP arguments: the gate reads the advisor answer the
  * tool already returned. A gate that cannot be evaluated is an error, never a pass — a {@code NOT_SCANNED}
@@ -36,6 +36,20 @@ final class FailOn {
         }
     }
 
+    /** A severity threshold or an evidence-sufficiency gate. */
+    enum Criterion {
+        CRITICAL,
+        HIGH,
+        MEDIUM,
+        LOW,
+        INFO,
+        INSUFFICIENT;
+
+        String label() {
+            return name().toLowerCase(Locale.ROOT);
+        }
+    }
+
     /** What the gate decided; {@code message} goes to stderr when it is not blank. */
     record Verdict(int exitCode, String message) {}
 
@@ -47,24 +61,37 @@ final class FailOn {
 
     private FailOn() {}
 
-    /** The accepted values as shown in usage errors: {@code critical, high, medium, low, info}. */
+    /** The accepted severity values as shown in usage errors. */
     static String accepted() {
         return Arrays.stream(Severity.values()).map(Severity::label).collect(Collectors.joining(", "));
     }
 
-    /** Reads a {@code --fail-on} value, ignoring case. */
-    static Severity parse(String value) {
+    /** Reads a {@code --fail-on} value allowed for the selected tool, ignoring case. */
+    static Criterion parse(String toolName, String value) {
         String normalized = value.trim().toUpperCase(Locale.ROOT);
-        for (Severity severity : Severity.values()) {
-            if (severity.name().equals(normalized)) {
-                return severity;
+        if ("INSUFFICIENT".equals(normalized) && FailOnTools.supportsInsufficient(toolName)) {
+            return Criterion.INSUFFICIENT;
+        }
+        if (FailOnTools.supportsSeverity(toolName)) {
+            for (Severity severity : Severity.values()) {
+                if (severity.name().equals(normalized)) {
+                    return Criterion.valueOf(severity.name());
+                }
             }
         }
-        throw new IllegalArgumentException("'" + value + "' is not a severity; use one of " + accepted() + ".");
+        throw new IllegalArgumentException(
+                "'" + value + "' is not accepted here; use one of " + FailOnTools.accepted(toolName) + ".");
     }
 
-    /** Decides the exit code for a successful advisor answer. */
-    static Verdict evaluate(JsonValue payload, Severity threshold) {
+    /** Decides the exit code for a successful tool answer. */
+    static Verdict evaluate(JsonValue payload, Criterion criterion, String toolName) {
+        if (criterion == Criterion.INSUFFICIENT) {
+            return evaluateInsufficient(payload, toolName);
+        }
+        return evaluateSeverity(payload, Severity.valueOf(criterion.name()));
+    }
+
+    private static Verdict evaluateSeverity(JsonValue payload, Severity threshold) {
         JsonValue counts = payload.get("severityCounts");
         // Every advisor lists every severity, even with nothing found, so an empty array is not a clean result.
         if (!counts.isArray() || counts.size() == 0) {
@@ -126,6 +153,107 @@ final class FailOn {
                     + " is not proof there is none; see the evidence in the output.");
         }
         return new Verdict(met.isEmpty() ? ExitCodes.SUCCESS : ExitCodes.THRESHOLD, String.join("\n", notes));
+    }
+
+    private static Verdict evaluateInsufficient(JsonValue payload, String toolName) {
+        if (!payload.isObject()
+                || !payload.get("available").isBoolean()
+                || !payload.get("available").asBoolean(false)) {
+            return unevaluable("the answer is unavailable");
+        }
+        JsonValue insufficient;
+        JsonValue partial;
+        long listedInsufficient = 0;
+        long listedPartial = 0;
+        switch (toolName) {
+            case "get_runtime_insights" -> {
+                insufficient = payload.get("insufficient");
+                partial = payload.get("partial");
+                if (!payload.get("observations").isArray() || !nonNegativeInteger(payload.get("omitted"))) {
+                    return unevaluable("the runtime-insights list is incomplete or misshapen");
+                }
+                for (JsonValue observation : payload.get("observations").values()) {
+                    if (!observation.isObject() || !observation.get("status").isString()) {
+                        return unevaluable("a listed observation has no status");
+                    }
+                    String status = observation.get("status").asString("");
+                    if (!Set.of("OBSERVED", "INSUFFICIENT", "PARTIAL").contains(status)) {
+                        return unevaluable("an observation status is not recognised");
+                    }
+                    listedInsufficient += "INSUFFICIENT".equals(status) ? 1 : 0;
+                    listedPartial += "PARTIAL".equals(status) ? 1 : 0;
+                }
+            }
+            case "get_runtime_insight" -> {
+                JsonValue observation = payload.get("observation");
+                if (!observation.isObject() || !observation.get("status").isString()) {
+                    return unevaluable("the observation has no status");
+                }
+                String status = observation.get("status").asString("");
+                return switch (status) {
+                    case "OBSERVED", "FINDING" -> new Verdict(ExitCodes.SUCCESS, "");
+                    case "INSUFFICIENT", "PARTIAL" ->
+                        new Verdict(
+                                ExitCodes.THRESHOLD, "--fail-on insufficient: observation status is " + status + ".");
+                    case "UNAVAILABLE", "NOT_APPLICABLE" -> unevaluable("the observation status is " + status);
+                    default -> unevaluable("the observation status is not recognised");
+                };
+            }
+            case "get_exceptions" -> {
+                JsonValue caught = payload.get("caughtInCode");
+                if (!caught.isObject()
+                        || !caught.get("available").isBoolean()
+                        || !caught.get("available").asBoolean(false)) {
+                    return unevaluable("caught-exception evidence is unavailable");
+                }
+                insufficient = caught.get("insufficient");
+                partial = caught.get("partial");
+            }
+            default -> {
+                return unevaluable("the selected tool does not report evidence sufficiency");
+            }
+        }
+        if (!nonNegativeInteger(insufficient) || !nonNegativeInteger(partial)) {
+            return unevaluable("the answer has no valid insufficient and partial counts");
+        }
+        long insufficientCount = insufficient.asLong(-1);
+        long partialCount = partial.asLong(-1);
+        if ("get_runtime_insights".equals(toolName)) {
+            long omittedCount = payload.get("omitted").asLong(0);
+            if (insufficientCount < listedInsufficient || partialCount < listedPartial) {
+                return unevaluable("the runtime-insights aggregate counts do not match the listed results");
+            }
+            long hiddenInsufficient = insufficientCount - listedInsufficient;
+            long hiddenPartial = partialCount - listedPartial;
+            if (hiddenInsufficient > omittedCount || hiddenPartial > omittedCount - hiddenInsufficient) {
+                return unevaluable("the runtime-insights aggregate counts do not match the listed results");
+            }
+        }
+        if ("get_runtime_insights".equals(toolName)
+                && insufficientCount == 0
+                && partialCount == 0
+                && payload.get("observations").size() == 0
+                && payload.get("omitted").asLong(0) == 0) {
+            JsonValue query = payload.get("query");
+            JsonValue requests = payload.get("requests");
+            if (!query.isString()
+                    || !"all".equalsIgnoreCase(query.asString("").trim())
+                    || !nonNegativeInteger(requests)
+                    || requests.asLong(0) == 0) {
+                return unevaluable("an empty result requires query=all and request activity");
+            }
+        }
+        if (insufficientCount > 0 || partialCount > 0) {
+            return new Verdict(
+                    ExitCodes.THRESHOLD,
+                    "--fail-on insufficient: found " + insufficientCount + " insufficient and " + partialCount
+                            + " partial evidence rows.");
+        }
+        return new Verdict(ExitCodes.SUCCESS, "");
+    }
+
+    private static boolean nonNegativeInteger(JsonValue value) {
+        return value.isNumber() && value.asDisplayText().matches(NON_NEGATIVE_INTEGER);
     }
 
     private static boolean isWord(String text) {

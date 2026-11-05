@@ -81,10 +81,10 @@ final class CliContext {
     }
 
     /**
-     * Calls one tool and reports it; with {@code failOn} the answer is also held against a severity threshold.
+     * Calls one tool and reports it; with {@code failOn} the answer is also held against an evidence gate.
      *
-     * <p>The threshold is CLI-only: it is never an MCP argument, and the answer is printed exactly as without it
-     * before the gate is read.
+     * <p>The gate is CLI-only, and the tool's answer is printed verbatim before it is read. An insufficient-evidence
+     * gate on the Runtime Insights list requests every observation kind when no query was supplied.
      */
     int invokeTool(
             ToolManifest.Tool tool,
@@ -93,11 +93,17 @@ final class CliContext {
             String id,
             String scanId,
             Integer offset,
-            FailOn.Severity failOn) {
+            FailOn.Criterion failOn) {
         return withClient(client -> {
             Map<String, JsonValue> arguments = new LinkedHashMap<>();
-            if (query != null) {
-                arguments.put("query", JsonValue.of(query));
+            String effectiveQuery = query;
+            if (failOn == FailOn.Criterion.INSUFFICIENT
+                    && "get_runtime_insights".equals(tool.name())
+                    && effectiveQuery == null) {
+                effectiveQuery = "all";
+            }
+            if (effectiveQuery != null) {
+                arguments.put("query", JsonValue.of(effectiveQuery));
             }
             if (limit != null) {
                 arguments.put("limit", JsonValue.of(limit.longValue()));
@@ -117,7 +123,7 @@ final class CliContext {
                 if (failOn == null) {
                     return ExitCodes.SUCCESS;
                 }
-                FailOn.Verdict verdict = FailOn.evaluate(result.payload(), failOn);
+                FailOn.Verdict verdict = FailOn.evaluate(result.payload(), failOn, tool.name());
                 if (!verdict.message().isBlank()) {
                     err.println(verdict.message());
                     err.flush();

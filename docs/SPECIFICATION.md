@@ -3357,7 +3357,7 @@ Initial endpoints:
 | `/bootui/api/log-tail/recent`                    | GET    | Recent log lines                                                                       |
 | `/bootui/api/log-tail/stream`                    | GET    | Log stream over Server-Sent Events                                                     |
 | `/bootui/api/exceptions`                         | GET    | Bounded exception groups with status and occurrence summaries                         |
-| `/bootui/api/exceptions/caught`                  | GET    | Caught-in-application-code outcomes from the opt-in `caught-exceptions` sensor and runtime journal; unavailable without their evidence, never proof of swallowed errors from silence |
+| `/bootui/api/exceptions/caught`                  | GET    | Caught-in-application-code outcomes from the opt-in `caught-exceptions` sensor and runtime journal, with per-row finding/insufficient/partial/observed status and aggregate counts; unavailable without their evidence, never proof of swallowed errors from silence |
 | `/bootui/api/exceptions/{id}`                    | GET    | One exception group's detail: stack frames, causes, and retained occurrences          |
 | `/bootui/api/exceptions/{id}/status`             | POST   | Set an exception group's triage status (`{"status": ...}`)                            |
 | `/bootui/api/exceptions`                         | DELETE | Clear retained exception groups when not read-only                                    |
@@ -3893,13 +3893,14 @@ Design rules:
 - **Runtime discovery is authoritative.** The bundled manifest exists so `--help` works with nothing running. What a
   given application actually exposes comes from `GET /bootui/api/cli`, which `bootui tools` prints: stacks advertise
   different tool sets, some tools appear only when a library is present, and panels can be disabled.
-- **Refusal is not failure.** Exit `0` means the tool answered, `1` a usage, authentication, or transport error, and
-  `2` that BootUI declined — a disabled panel, or an action on a read-only one. `3` is the one deliberate finding
-  signal: an advisor command run with `--fail-on <severity>` retained a finding at or above it, and a gate that cannot
-  be evaluated (a report that was never scanned, or one without `severityCounts`) is `1`, never `0`. That distinction is the reason the
-  endpoint puts the outcome in the status code, and dropping it would force CI to parse error text. A rejected token
-  is deliberately `1` and not `2`: it says nothing about how the target's panels are configured, so a job that treats
-  `2` as "skip this check" must not swallow it.
+- **Refusal is not failure.** Exit `0` means the tool answered, `1` a usage, authentication, transport, or unevaluable
+  gate error, and `2` that BootUI declined — a disabled panel, or an action on a read-only one. `3` is the deliberate CI
+  gate signal: an advisor command run with `--fail-on <severity>` retained a finding at or above it, or a Runtime
+  Insights/caught-exception command run with `--fail-on insufficient` found insufficient or partial observation rows.
+  An unevaluable gate (a report that was never scanned, unavailable evidence, or missing status/count fields) is `1`,
+  never `0`. That distinction lets CI branch on the status code without parsing error text. A rejected token is
+  deliberately `1` and not `2`: it says nothing about how the target's panels are configured, so a job that treats `2`
+  as "skip this check" must not swallow it.
 - **Exact output when it is being parsed.** Output is the server's bytes verbatim with `--json` or when stdout is not
   a terminal, and a rendered table or tree otherwise. The rendering infers structure from shape because the payload is
   opaque, so it is explicitly best-effort; `--json` is the stable form. Rendered output replaces control characters,

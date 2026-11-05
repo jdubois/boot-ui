@@ -36,7 +36,7 @@ final class CommandTree {
                 .footer(
                         "",
                         "Exit codes: 0 answered, 1 usage or transport error, 2 refused by BootUI's panel policy, "
-                                + "3 --fail-on threshold met.",
+                                + "3 --fail-on gate met.",
                         "Run 'bootui tools' to see what a specific application actually exposes.");
 
         List<CommandSpec> toolGroups = new ArrayList<>();
@@ -198,23 +198,30 @@ final class CommandTree {
         }
         if (FailOnTools.supports(tool.name())) {
             spec.addOption(OptionSpec.builder("--fail-on")
-                    .paramLabel("<severity>")
-                    .type(FailOn.Severity.class)
-                    .description("Exit 3 when a retained finding is at or above this severity ("
-                            + FailOn.accepted()
-                            + "). Exits 1 when the scan cannot be evaluated, such as a report that was "
-                            + "never scanned. The output is unchanged.")
-                    .converters(CommandTree::severity)
-                    .setter(setter((FailOn.Severity value) -> command.failOn = value))
+                    .paramLabel(FailOnTools.supportsInsufficient(tool.name()) ? "<criterion>" : "<severity>")
+                    .type(FailOn.Criterion.class)
+                    .description(
+                            FailOnTools.supportsInsufficient(tool.name())
+                                    ? "Use insufficient to exit 3 when evidence is insufficient or partial; exits 1 when "
+                                            + "evidence cannot be evaluated. The tool response is not rewritten."
+                                            + ("get_runtime_insights".equals(tool.name())
+                                                    ? " When --query is omitted, the gate checks all observation kinds."
+                                                    : "")
+                                    : "Exit 3 when a retained finding is at or above this severity ("
+                                            + FailOn.accepted()
+                                            + "). Exits 1 when the scan cannot be evaluated, such as a report that was "
+                                            + "never scanned. The output is unchanged.")
+                    .converters(value -> criterion(tool.name(), value))
+                    .setter(setter((FailOn.Criterion value) -> command.failOn = value))
                     .build());
         }
         configure(context, spec);
         return spec;
     }
 
-    private static FailOn.Severity severity(String value) {
+    private static FailOn.Criterion criterion(String toolName, String value) {
         try {
-            return FailOn.parse(value);
+            return FailOn.parse(toolName, value);
         } catch (IllegalArgumentException invalid) {
             throw new CommandLine.TypeConversionException(invalid.getMessage());
         }
@@ -413,7 +420,7 @@ final class CommandTree {
         private String id;
         private String scanId;
         private Integer offset;
-        private FailOn.Severity failOn;
+        private FailOn.Criterion failOn;
 
         ToolCommand(CliContext context, ToolManifest.Tool tool) {
             this.context = context;

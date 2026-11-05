@@ -208,7 +208,12 @@ phases, authorization, or measured resources) stay on HTTP requests.
 Every observation reports whether it ran. With no eligible work, a check reports **Not enough evidence**, not that it
 ran. One whose journal source is not recorded, whose panel is disabled, or which does not apply to this stack says so
 with its reason, so an empty list never reads as healthy. Findings below their minimum are shown as **insufficient**,
-naming what is missing, and a source that dropped events marks its findings **partial**.
+naming what is missing, and a source that dropped events marks its findings **partial**. The agent report also returns
+aggregate insufficient and partial counts for every observation matching its query, even when the displayed list is
+limited. The CLI can fail a CI step on either state with `bootui insights list --fail-on insufficient`.
+That gate checks observation rows, not check-level statuses, and implicitly requests every observation kind when
+`--query` is omitted; an explicit query remains scoped. An empty all-query result passes only when the report has
+request activity.
 
 ::: details Limits: unrecordable sources, drops, and eviction
 
