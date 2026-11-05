@@ -107,7 +107,8 @@ public final class JournalAggregates implements JournalListener {
     private final CappedMap<Route> executionStats = new CappedMap<>(MAX_ROUTES, Route::new);
     private final Map<String, JournalSource> executionSources = new LinkedHashMap<>();
     private final LinkedHashMap<String, PendingRequest> pendingExecutions = new LinkedHashMap<>();
-    private final Map<String, Boolean> completedExecutions = bounded(MAX_PENDING_REQUESTS);
+    private final LinkedHashMap<String, Route> completedExecutions = new LinkedHashMap<>();
+    private final LinkedHashMap<String, Boolean> expiredExecutionIds = new LinkedHashMap<>();
     private long unattributedExecutions;
     private long exceptionGroupAttributions;
 
@@ -442,7 +443,7 @@ public final class JournalAggregates implements JournalListener {
             if (held != null) {
                 stats.fold(held, subject, failed ? 500 : 200, this);
             }
-            completedExecutions.put(event.executionId(), Boolean.TRUE);
+            rememberCompletedExecution(event.executionId(), stats);
             return;
         }
         CompletedRequest completedRequest = event.requestId() == null ? null : completed.get(event.requestId());
@@ -463,6 +464,10 @@ public final class JournalAggregates implements JournalListener {
         if (completedRequest != null) {
             completedRequest.route.addChild(event);
         }
+        Route completedExecution = event.requestId() == null ? completedExecutions.get(event.executionId()) : null;
+        if (completedExecution != null) {
+            completedExecution.addChild(event);
+        }
         if (payload instanceof SqlPayload sql) {
             String fingerprint = SqlShapes.fingerprint(sql.sql());
             statements.get(fingerprint).add(event, sql);
@@ -471,6 +476,8 @@ public final class JournalAggregates implements JournalListener {
                 if (completedRequest != null) {
                     completedRequest.route.statement(key);
                 }
+            } else if (completedExecution != null) {
+                completedExecution.statement(fingerprint);
             }
         } else if (payload instanceof ExceptionPayload exception) {
             exceptionGroups.get(exception.groupId()).add(exception);
@@ -483,10 +490,14 @@ public final class JournalAggregates implements JournalListener {
             }
         } else if (payload instanceof TransactionPayload transaction) {
             transactionalMethods.get(transaction.method()).add(event, transaction);
-        } else if (payload instanceof ConnectionPayload connection && children != null) {
-            children.connectionWaitNanos += connection.waitNanos();
+        } else if (payload instanceof ConnectionPayload connection) {
+            if (children != null) {
+                children.connectionWaitNanos += connection.waitNanos();
+            }
             if (completedRequest != null) {
                 completedRequest.route.connectionWaitNanos += connection.waitNanos();
+            } else if (completedExecution != null) {
+                completedExecution.connectionWaitNanos += connection.waitNanos();
             }
         } else if (payload instanceof CachePayload cache
                 && children != null
@@ -853,7 +864,11 @@ public final class JournalAggregates implements JournalListener {
     }
 
     private PendingRequest executionChildren(String id) {
-        if (id == null || ExecutionIds.isAsync(id) || id.startsWith("task-") || completedExecutions.containsKey(id)) {
+        if (id == null
+                || ExecutionIds.isAsync(id)
+                || id.startsWith("task-")
+                || completedExecutions.containsKey(id)
+                || expiredExecutionIds.containsKey(id)) {
             return null;
         }
         PendingRequest children = pendingExecutions.get(id);
@@ -868,6 +883,21 @@ public final class JournalAggregates implements JournalListener {
             pendingExecutions.put(id, children);
         }
         return children;
+    }
+
+    private void rememberCompletedExecution(String id, Route route) {
+        if (!completedExecutions.containsKey(id) && completedExecutions.size() >= MAX_PENDING_REQUESTS) {
+            Iterator<String> oldest = completedExecutions.keySet().iterator();
+            String expired = oldest.next();
+            oldest.remove();
+            expiredExecutionIds.put(expired, Boolean.TRUE);
+            if (expiredExecutionIds.size() > MAX_PENDING_REQUESTS) {
+                Iterator<String> expiredOldest = expiredExecutionIds.keySet().iterator();
+                expiredOldest.next();
+                expiredOldest.remove();
+            }
+        }
+        completedExecutions.put(id, route);
     }
 
     /**
@@ -920,6 +950,7 @@ public final class JournalAggregates implements JournalListener {
         executionSources.clear();
         pendingExecutions.clear();
         completedExecutions.clear();
+        expiredExecutionIds.clear();
         unattributedExecutions = 0;
         exceptionGroupAttributions = 0;
         routes.clear();

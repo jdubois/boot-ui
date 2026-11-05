@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
 import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.Statement;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,8 @@ class SqlTraceRuntimeHintsTests {
                 .accepts(hints);
         assertThat(RuntimeHintsPredicates.proxies().forInterfaces(CallableStatement.class))
                 .accepts(hints);
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(ResultSet.class))
+                .accepts(hints);
     }
 
     @Test
@@ -55,6 +58,8 @@ class SqlTraceRuntimeHintsTests {
         assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.preparedStatementInterfaces()))
                 .accepts(hints);
         assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.callableStatementInterfaces()))
+                .accepts(hints);
+        assertThat(RuntimeHintsPredicates.proxies().forInterfaces(SqlTracingProxies.resultSetInterfaces()))
                 .accepts(hints);
     }
 }

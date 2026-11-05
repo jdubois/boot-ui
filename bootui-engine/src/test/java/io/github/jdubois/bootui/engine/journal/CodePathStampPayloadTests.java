@@ -34,14 +34,62 @@ class CodePathStampPayloadTests {
     }
 
     @Test
+    void rowCountsAreUnknownForFailedPreparationsAndNegativeValues() {
+        assertThat(new SqlPayload(
+                                "update account set active = true",
+                                null,
+                                "db",
+                                true,
+                                null,
+                                null,
+                                5L,
+                                0,
+                                SqlPayload.Provenance.EXECUTION,
+                                1,
+                                3L)
+                        .rowCount())
+                .isNull();
+        assertThat(new SqlPayload(
+                                "select 1",
+                                null,
+                                "db",
+                                false,
+                                null,
+                                null,
+                                5L,
+                                0,
+                                SqlPayload.Provenance.PREPARATION,
+                                0,
+                                1L)
+                        .rowCount())
+                .isNull();
+        assertThat(new SqlPayload(
+                                "select 1",
+                                null,
+                                "db",
+                                false,
+                                null,
+                                null,
+                                5L,
+                                0,
+                                SqlPayload.Provenance.EXECUTION,
+                                1,
+                                -2L)
+                        .rowCount())
+                .isNull();
+    }
+
+    @Test
     void interningKeepsTheStampAndItsBytesAreCounted() {
         JournalDictionary dictionary = new JournalDictionary(100, 100_000);
         SqlPayload sql = new SqlPayload("select 1", "A.b:1", "db", false, null, null, 5L, STAMP);
+        SqlPayload countedSql = sql.withRowCount(3L);
         RestClientPayload rest = new RestClientPayload("GET", "h:1", "/", 200, "RestClient", false, null, 5L, STAMP);
         CachePayload cache = new CachePayload("c", "HIT", null, STAMP);
         AiPayload ai = new AiPayload("chat", "openai", "gpt", 1L, 2L, "stop", false, "s1", 5L, STAMP);
 
         assertThat(((SqlPayload) sql.interned(dictionary)).codePathStamp()).isEqualTo(STAMP);
+        assertThat(((SqlPayload) countedSql.interned(dictionary)).rowCount()).isEqualTo(3L);
         assertThat(((RestClientPayload) rest.interned(dictionary)).codePathStamp())
                 .isEqualTo(STAMP);
         assertThat(((CachePayload) cache.interned(dictionary)).codePathStamp()).isEqualTo(STAMP);
@@ -52,7 +100,12 @@ class CodePathStampPayloadTests {
         // Fixed parts, with every string counted as the payload's own: the stamp's long and the batch size's int are in
         // them.
         assertThat(sql.estimatedBytes())
-                .isEqualTo(56
+                .isEqualTo(64
+                        + JournalDictionary.retained(null, "select 1")
+                        + JournalDictionary.retained(null, "A.b:1")
+                        + JournalDictionary.retained(null, "db"));
+        assertThat(countedSql.estimatedBytes())
+                .isEqualTo(80
                         + JournalDictionary.retained(null, "select 1")
                         + JournalDictionary.retained(null, "A.b:1")
                         + JournalDictionary.retained(null, "db"));

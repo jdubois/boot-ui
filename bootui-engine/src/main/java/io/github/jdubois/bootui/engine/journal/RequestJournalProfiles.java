@@ -271,16 +271,27 @@ public final class RequestJournalProfiles {
         for (JournalEntry child : children) {
             RequestTimelineItemDto item = item(child, rows.get(journal.eventId(child)), start);
             if (item != null) {
-                timed.add(new Timed(item, child.sequence()));
+                timed.add(new Timed(item, child.sequence(), startNanos(child.event())));
             }
         }
         for (JournalEntry child : children) {
             for (RequestTimelineItemDto flush : flushes(child.event(), start)) {
-                timed.add(new Timed(flush, child.sequence()));
+                timed.add(new Timed(flush, child.sequence(), startNanos(child.event())));
             }
         }
-        timed.sort(
-                Comparator.comparingLong((Timed t) -> t.item().offsetMillis()).thenComparingLong(Timed::sequence));
+        timed.sort((left, right) -> {
+            int byOffset = Long.compare(left.item().offsetMillis(), right.item().offsetMillis());
+            if (byOffset != 0) {
+                return byOffset;
+            }
+            if (left.startNanos() != null && right.startNanos() != null) {
+                int byStart = Long.compare(left.startNanos(), right.startNanos());
+                if (byStart != 0) {
+                    return byStart;
+                }
+            }
+            return Long.compare(left.sequence(), right.sequence());
+        });
 
         ResourceUsage usage = payload == null ? null : payload.resources();
         if (payload == null) {
@@ -513,6 +524,17 @@ public final class RequestJournalProfiles {
                 threadKind);
     }
 
+    private static Long startNanos(RuntimeEvent event) {
+        if (!(event.payload() instanceof SqlPayload sql) || sql.completedNanos() < 0 || event.durationNanos() < 0) {
+            return null;
+        }
+        try {
+            return Math.subtractExact(sql.completedNanos(), event.durationNanos());
+        } catch (ArithmeticException ex) {
+            return null;
+        }
+    }
+
     private static RequestResourcesDto resources(ResourceUsage usage) {
         if (usage == null) {
             return null;
@@ -657,5 +679,5 @@ public final class RequestJournalProfiles {
         }
     }
 
-    private record Timed(RequestTimelineItemDto item, long sequence) {}
+    private record Timed(RequestTimelineItemDto item, long sequence, Long startNanos) {}
 }

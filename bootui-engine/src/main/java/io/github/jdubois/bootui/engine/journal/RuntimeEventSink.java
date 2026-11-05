@@ -29,6 +29,29 @@ public interface RuntimeEventSink {
     boolean offer(RuntimeEvent event);
 
     /**
+     * Pins admission for work whose immutable event will only be complete later, such as a JDBC query whose row count
+     * is known after its result set is consumed. The returned capture is valid only for the run state at this call.
+     * Implementations with recording generations should reject it after clear, pause, or close.
+     */
+    default DeferredCapture beginCapture(JournalSource source) {
+        if (source == null || paused() || !records(source)) {
+            return null;
+        }
+        return this::offer;
+    }
+
+    /** A one-use admission lease for an event completed after the observed operation. */
+    @FunctionalInterface
+    interface DeferredCapture {
+
+        /** Offers the completed event through the admission state pinned by {@link #beginCapture(JournalSource)}. */
+        boolean offer(RuntimeEvent event);
+
+        /** Marks a capture that could not be published because its owning recorder was replaced. */
+        default void discard(RuntimeEvent event) {}
+    }
+
+    /**
      * Offers an application event already classified while BootUI handles an import request. Implementations may
      * bypass only the current request's self-work marker; every other source, capacity, and thread guard still applies.
      */

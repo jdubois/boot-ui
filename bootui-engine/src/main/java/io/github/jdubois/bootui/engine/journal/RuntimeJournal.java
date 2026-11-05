@@ -117,6 +117,8 @@ public final class RuntimeJournal
     private final Thread dispatcher;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final Object lifecycle = new Object();
+    private final Object deferredLifecycle = new Object();
+    private long deferredGeneration;
     private final Runnable beforeQueueOffer;
     private final IntConsumer beforeQueueDrain;
     private final long dispatcherPollMillis;
@@ -300,6 +302,64 @@ public final class RuntimeJournal
             return false;
         }
         return enqueue(event);
+    }
+
+    @Override
+    public DeferredCapture beginCapture(JournalSource source) {
+        if (source == null || !settings.enabled() || !settings.records(source) || isBootUiWork()) {
+            return null;
+        }
+        synchronized (deferredLifecycle) {
+            if (paused || closed.get()) {
+                return null;
+            }
+            JournalQueue queue = admission;
+            long generation = deferredGeneration;
+            return new DeferredCapture() {
+                @Override
+                public boolean offer(RuntimeEvent event) {
+                    return offerDeferred(queue, generation, event);
+                }
+
+                @Override
+                public void discard(RuntimeEvent event) {
+                    ring.lost(event);
+                }
+            };
+        }
+    }
+
+    private boolean offerDeferred(JournalQueue queue, long generation, RuntimeEvent event) {
+        if (event == null || event.source() != JournalSource.SQL) {
+            return false;
+        }
+        synchronized (deferredLifecycle) {
+            if (generation != deferredGeneration
+                    || paused
+                    || closed.get()
+                    || !settings.records(event.source())
+                    || admission != queue) {
+                ring.lost(event);
+                return false;
+            }
+            int outcome;
+            try {
+                outcome = queue.offer(event, event.failedOrSlow());
+            } catch (RuntimeException ex) {
+                outcome = JournalQueue.FULL;
+            }
+            if (outcome == JournalQueue.ACCEPTED) {
+                return true;
+            }
+            if (outcome == JournalQueue.DETACHED) {
+                ring.lost(event);
+                return false;
+            }
+            int source = event.source().ordinal();
+            dropped[source].increment();
+            droppedAt.set(source, System.currentTimeMillis());
+            return false;
+        }
     }
 
     /**
@@ -746,7 +806,12 @@ public final class RuntimeJournal
      */
     @Override
     public void suspendForLowFootprint() {
-        paused = true;
+        synchronized (deferredLifecycle) {
+            if (!paused) {
+                paused = true;
+                deferredGeneration++;
+            }
+        }
     }
 
     /**
@@ -755,14 +820,17 @@ public final class RuntimeJournal
      */
     @Override
     public void resumeFromLowFootprint() {
-        if (!paused) {
-            return;
+        synchronized (deferredLifecycle) {
+            if (!paused) {
+                return;
+            }
+            long now = System.currentTimeMillis();
+            for (int source = 0; source < droppedAt.length(); source++) {
+                droppedAt.set(source, now);
+            }
+            paused = false;
+            deferredGeneration++;
         }
-        long now = System.currentTimeMillis();
-        for (int source = 0; source < droppedAt.length(); source++) {
-            droppedAt.set(source, now);
-        }
-        paused = false;
     }
 
     /** The journal's recording, its GC listener, and its resource sampler, which low-footprint mode reports apart. */
