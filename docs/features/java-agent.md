@@ -636,8 +636,8 @@ application code catches and which of them are thrown again. It records events i
 no runtime switch for it. It stays off by default because its overhead does not yet fit the default sensors' budget.
 
 With complete evidence, **Not seen rethrown or logged at WARN or above** means BootUI saw none of the other outcomes:
-the exception was not rethrown, replaced, reported, logged at `WARN` or above, handed on, re-interrupted, or retried.
-It is not proof of a bug. An intentional fallback can produce this outcome—for example, a `NumberFormatException` while
+BootUI did not observe a rethrow, replacement, report, `WARN`-or-higher log, handoff, re-interruption, or retry. It is
+not proof of a bug. An intentional fallback can produce this outcome—for example, a `NumberFormatException` while
 parsing an unset optional environment setting during a request. BootUI cannot infer programmer intent from an
 exception's type, so review the handler and surrounding code before treating the row as a swallowed error.
 
