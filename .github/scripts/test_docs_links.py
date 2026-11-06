@@ -73,8 +73,11 @@ class DocumentationLinksTests(unittest.TestCase):
                 "spring-boot-add-bootui-only-to-the-diagnostic-build",
                 "quarkus-development-mode-target",
                 "attach-run-assess-and-publish",
+                "quick-start-github-actions",
+                "results",
+                "try-a-complete-sample",
             },
-            page.headings,
+            page.ids,
         )
         self.assertIn("/boot-ui/ci/framework-tests", page.links)
         self.assertIn("/boot-ui/ci/reference", page.links)

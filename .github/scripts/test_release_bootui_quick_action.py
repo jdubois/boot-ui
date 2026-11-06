@@ -392,6 +392,27 @@ class QuickActionTests(unittest.TestCase):
         self.assertEqual(catalog.returncode, 0, catalog.stderr)
         self.assertEqual(catalog.stdout, "2.9.0\n")
 
+    def test_version_resolution_does_not_require_tomllib_for_explicit_versions(self):
+        program = r"""
+import builtins
+import runpy
+import sys
+original = builtins.__import__
+def without_tomllib(name, *args, **kwargs):
+    if name == "tomllib":
+        raise ModuleNotFoundError(name)
+    return original(name, *args, **kwargs)
+builtins.__import__ = without_tomllib
+sys.argv = [sys.argv[1], "2.8.0"]
+runpy.run_path(sys.argv[0], run_name="__main__")
+"""
+        result = subprocess.run(
+            ["python3", "-c", program, str(ACTION / "resolve-version.py")],
+            env=self.env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "2.8.0\n")
+
     def test_start_launches_waits_and_stops_a_custom_application(self):
         project = self.root / "server"
         state = self.root / "state"

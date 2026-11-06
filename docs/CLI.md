@@ -598,11 +598,11 @@ process, a strict JSON policy, and a pre-workload identity witness. They do not 
 prove that tests exercised the witnessed process. Do not use a deployed or remote target. Framework-managed tests can
 instead use `CiCollection` within the test lifecycle; see [framework-managed CI collection](CI.md#framework-managed-test-lifecycles).
 
-The policy selects only named advisors; every selected advisor is strict, including optional advisors that are
-available. A required advisor must be advertised, enabled, scannable, usable, coverage-complete, and have at least
-one subject. Incomplete evidence, scan/report disagreement, suppressed or dismissed findings, unknown severities,
-truncation, paging inconsistencies, and collection errors are not passes. An optional advisor may be skipped only
-when the catalog confirms that it is unavailable or disabled; a transport or assessment error is still an error.
+The policy selects only named advisors. A required advisor must be advertised, enabled, scannable, usable,
+coverage-complete, and have at least one subject. Incomplete evidence, scan/report disagreement, suppressed or
+dismissed findings, unknown severities, truncation, paging inconsistencies, and collection errors are not passes for
+a required advisor. An optional advisor is assessed and gated when available; framework incompatibility, unavailability,
+or unevaluable optional evidence is retained as an explicit `SKIPPED` row with a stable reason.
 The policy allow-list excludes the Memory advisor because its scan may trigger a full garbage collection; the
 Database advisor's policy key is `database-advisor`. Runtime Insights context is optional and report-only: omit the
 `runtimeContext` object (or set `includeInsights` to `false`) to make no extra request. A policy containing
@@ -634,13 +634,14 @@ For a Quarkus application with Hibernate and a configured datasource, one possib
 }
 ```
 
-Choose advisors and thresholds for the target; an optional advisor is still assessed when available, and incomplete
-evidence fails rather than becoming a skip.
+Choose advisors and thresholds for the target. An optional advisor is assessed when available and its successful
+findings gate normally; incomplete optional evidence is an explicit skip, while incomplete required evidence fails.
 
 Attach immediately before the workload, and use the exact same URL for the existing integration scenarios and the
 later assessment. On failure, attach prints a stable error code to stderr and writes it into a `NOT_ASSESSED`
-witness when possible. Selecting the `spring` advisor for a Quarkus target fails with
-`UNSUPPORTED_ADVISOR_FOR_FRAMEWORK`. Choose a fresh witness path and output directory for each run; assess only after
+witness when possible. Selecting the `spring` advisor as required for a Quarkus target fails with
+`UNSUPPORTED_ADVISOR_FOR_FRAMEWORK`; an optional selection is skipped as `FRAMEWORK_UNAVAILABLE`. Choose a fresh witness
+path and output directory for each run; assess only after
 a successful attach:
 
 ```bash

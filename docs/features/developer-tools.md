@@ -190,9 +190,11 @@ The CLI also has a separate `bootui ci` orchestration namespace, outside the gen
 `ci assess` work with one explicit local Spring Boot target or external Quarkus `quarkus:dev` process; `ci check`
 revalidates a saved assessment bundle against its policy and expected assessment ID without contacting an application.
 `ci prepare-contexts` and `ci check-contexts` support test-framework-owned application lifecycles through the
-`CiCollection` API, accounting for an explicit expected set of completed test windows. The composite Action defaults
-to attaching to a running application, executing a test command, and publishing a gated assessment with a built-in
-Architecture policy. It can also prepare a signature-verified CLI for later steps or revalidate a saved bundle offline.
+`CiCollection` API, accounting for an explicit expected set of completed test windows. The composite Action's default
+`run` phase starts the conventional Spring Boot or Quarkus development process on loopback, runs every available local
+CI advisor, publishes the summary and bounded reports, and stops its owned process. It detects the CLI version from
+the application dependency; `test-command` is optional and defaults to no workload. It can also use an externally
+started app, prepare a signature-verified CLI for later steps, or revalidate a saved bundle offline.
 The policy can opt into a
 bounded, sanitized, report-only Runtime Insights projection; it never gates on observations or proves workload
 attribution. These commands do not add diagnostic tools or change the MCP contract.

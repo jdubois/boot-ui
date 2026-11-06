@@ -3,8 +3,12 @@ import os
 from pathlib import Path
 import re
 import sys
-import tomllib
 import xml.etree.ElementTree as ET
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    tomllib = None
 
 
 MAVEN_NAMESPACE = {"m": "http://maven.apache.org/POM/4.0.0"}
@@ -97,7 +101,9 @@ def gradle_versions(path):
     except UnicodeError:
         return versions
     for match in GRADLE_COORDINATE.finditer(source):
-        version = match.group(1).removesuffix('"').removesuffix("'")
+        version = match.group(1)
+        if version.endswith(('"', "'")):
+            version = version[:-1]
         if STABLE_VERSION.fullmatch(version):
             versions.add(version)
     properties = {}
@@ -141,7 +147,7 @@ def expand_property(value, properties):
 
 def catalog_versions(root):
     catalog = root / "gradle" / "libs.versions.toml"
-    if not catalog.is_file():
+    if tomllib is None or not catalog.is_file():
         return set()
     try:
         data = tomllib.loads(catalog.read_text(encoding="utf-8"))

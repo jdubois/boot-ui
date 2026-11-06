@@ -87,19 +87,23 @@ class CiExampleDocumentationTests(unittest.TestCase):
                     self.assertNotIn("UNRELEASED", (self.root / path).read_text(encoding="utf-8"))
             guide = (self.root / "docs/CI.md").read_text(encoding="utf-8")
             self.assertIn(f"uses: jdubois/boot-ui/.github/actions/bootui@{action_ref}", guide)
-            self.assertIn("reads the stable BootUI dependency version", guide)
+            self.assertIn("exactly one stable `bootui-version`", guide)
 
     def test_primary_guide_starts_with_the_simple_action_not_a_policy_or_sample_project(self):
         guide = (SOURCE_ROOT / "docs/CI.md").read_text(encoding="utf-8")
-        quick_start = guide.split("## Quick start: GitHub Actions\n", 1)[1].split("### Results\n", 1)[0]
+        quick_start = guide.split("## Add BootUI to GitHub Actions", 1)[1].split(
+            "## What appears in GitHub Actions", 1
+        )[0]
         self.assertIn("bootui-ci:source:snippets/action.yml.template:start", quick_start)
-        self.assertIn("need a policy file", quick_start)
-        self.assertIn("starts a diagnostic application process", quick_start)
-        self.assertIn("`./mvnw spring-boot:run`", quick_start)
-        self.assertIn("`./mvnw quarkus:dev`", quick_start)
-        self.assertIn("does not run `./mvnw verify`", quick_start)
+        self.assertIn("Adds a readable Markdown report", quick_start)
+        self.assertIn("One Action step", guide)
+        self.assertIn("Detects and starts your Spring Boot or Quarkus app", quick_start)
+        self.assertIn("does not run it by default", guide)
         self.assertIn("every CI-capable local advisor", guide)
         self.assertIn("excludes the GitHub advisor", guide)
+        self.assertIn("does not automatically turn an uploaded `junit.xml`", guide)
+        self.assertIn("steps.bootui.outputs.report-dir", guide)
+        self.assertIn("::: details Display BootUI as a JUnit test/check", guide)
         self.assertIn("@SpringBootTest", guide)
         self.assertIn("@QuarkusTest", guide)
         self.assertIn("[framework-managed test recipe](ci/framework-tests.md)", guide)
@@ -107,6 +111,7 @@ class CiExampleDocumentationTests(unittest.TestCase):
         self.assertNotIn("bootui-ci:source:workflows/external.yml.template", guide)
         self.assertLess(len(guide.splitlines()), 150)
         source = (SOURCE_ROOT / "examples/ci/snippets/action.yml.template").read_text(encoding="utf-8")
+        self.assertIn("id: bootui", source)
         self.assertNotIn("policy:", source)
         self.assertNotIn("phase:", source)
         self.assertNotIn("test-command:", source)
