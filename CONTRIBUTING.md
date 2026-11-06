@@ -721,6 +721,30 @@ regenerated.
 
 ## Publishing
 
+### CI documentation and examples
+
+The runnable CI recipes live in `examples/ci/`. Documentation embeds these sources through
+`<!-- bootui-ci:source:PATH:start -->` / `<!-- bootui-ci:source:PATH:end -->` regions; edit the source template rather
+than its generated Markdown copy. After changes, run:
+
+```bash
+python3 -B .github/scripts/ci-examples.py render
+python3 -B .github/scripts/ci-examples.py check
+python3 -B -m unittest discover -s .github/scripts -p 'test_ci_examples*.py'
+npm run docs:build
+```
+
+`docs/ci/release.json` deliberately marks CI support unavailable until its first release. Do not change it merely to
+make examples installable against an older CLI. Release preparation pins the committed source's Action, synchronizes
+the release record and generated examples, and then signs the release; tagged and recovery paths verify without
+rewriting them. The docs build generates the ignored starter-kit ZIP only for release-ready metadata, and the
+publication workflow separately checks exact release availability, including the CLI signature, before deploying it.
+Updating BootUI's guide does not update workflows already copied by users.
+The example templates pin third-party Actions to reviewed commit SHAs; their major versions are checked against the
+baseline workflow. Update those pins deliberately when the baseline changes.
+
+### Maven Central
+
 Maven Central publication uses the `release` Maven profile, which attaches source JARs
 and an empty placeholder Javadoc JAR (Maven Central requires the file but not its
 content; BootUI's public surface is its HTTP, MCP, and CLI contract rather than a

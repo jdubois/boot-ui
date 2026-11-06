@@ -84,6 +84,14 @@ jobs:
       - name: Test release version policy and integrity guard
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_release_*.py'
 
+      - name: Check CI documentation release metadata
+        run: python3 .github/scripts/ci-docs-version.py check
+
+      - name: Check generated CI documentation and example guards
+        run: |
+          python3 .github/scripts/ci-examples.py check
+          python3 -B -m unittest discover -s .github/scripts -p 'test_ci_examples*.py'
+
       - name: Test CI consumer acceptance guards
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_ci_consumer_acceptance.py'
 
@@ -143,6 +151,10 @@ jobs:
 
       - name: Exercise CI consumer acceptance
         run: python3 -B .github/scripts/ci-consumer-acceptance.py --maven-repository "$HOME/.m2/repository"
+
+      - name: Exercise documented CI examples against the source candidate
+        timeout-minutes: 30
+        run: python3 -B .github/scripts/ci-example-acceptance.py --maven-repository "$HOME/.m2/repository"
 
       # This packaged-runtime regression shares the sample's Failsafe setup but does not use the agent.
       # Run it here against the jar built above, even when the separate agent job is skipped.

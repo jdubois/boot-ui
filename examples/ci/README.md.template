@@ -1,0 +1,155 @@
+# Runnable BootUI CI examples
+
+These are standalone applications, not BootUI reactor modules. They demonstrate an ordinary HTTP workload on Spring
+Boot and Quarkus, with a required Architecture assessment failing on **high** or critical findings.
+
+**Published BootUI 2.3.0 does not provide these CI commands.** These examples target **@BOOTUI_VERSION@**.
+The release manifest controls when a rendered starter kit is available. Candidate testing against locally installed
+source artifacts is different from using a published release.
+
+## What is included
+
+- `spring/`: one Maven application, MVC by default and WebFlux with `-Pwebflux`.
+- `quarkus/`: a Maven application with an in-process `@QuarkusTest` lifecycle recipe; no containers are required.
+- `run-external.py`: builds a diagnostic Spring jar, starts its own JVM on an actual random loopback port, bounds
+  readiness, attaches without scans, runs `/orders` and `/catalog`, assesses, and stops its owned process group.
+- `run-framework.py`: fixes the expected `orders,catalog` windows before Maven starts. The actual framework-injected
+  ports reach `CiCollection.begin()`. Each window finishes in `finally` **before** application teardown. The offline
+  `check-contexts` runs after Maven and its forked processes exit.
+- `workflows/*.yml.template`: end-user workflows; the release kit renders the explicit version and immutable Action
+  reference. Put the chosen rendered workflow under your repository's `.github/workflows/`. Keep these example files
+  under `examples/ci/` in a source checkout, or at the extracted kit root. The workflows detect both layouts.
+
+## Try the complete kit in GitHub Actions
+
+Extract the released starter kit into a **new repository root**, including its dotfiles, `spring/`, `quarkus/`,
+shared Python files, policies, and root Maven Wrapper. Do not copy just a workflow: it builds these included example
+applications, not an arbitrary existing application. Select one or both workflows:
+
+```bash
+mkdir -p .github/workflows
+cp workflows/external.yml .github/workflows/bootui-external.yml
+cp workflows/framework.yml .github/workflows/bootui-framework.yml
+```
+
+Commit the rendered POMs, Maven Wrapper and `.mvn/wrapper/maven-wrapper.properties` along with the sources. The
+workflows bootstrap the project wrappers automatically and acquire the matching signed CLI through `prepare-cli`.
+There are no required secrets or manual CLI-installation commands for this path.
+
+Both workflows run on push, pull requests, or **Run workflow** (`workflow_dispatch`, no inputs). The external workflow
+runs MVC and WebFlux; the framework workflow runs MVC, WebFlux, and Quarkus. Commit the workflow to the default branch
+before looking for the manual button. To run fewer stacks, edit the corresponding matrix.
+
+For an existing application, copy and adapt only its relevant dependency profile, lifecycle hooks, policy and workload
+integration. These fixed example runners assume the included project names, endpoints and assertions; they are not
+automatic instrumentation of an arbitrary application. Keep your application's ordinary tests and its production build.
+
+## Prerequisites and versions
+
+Use Linux or macOS, Python 3.9+, and a supported JDK (the workflows use Java 25). The collection API requires
+`SecureDirectoryStream`; unsupported filesystem providers fail closed rather than switching to an unsafe fallback.
+No system Maven is needed. A source checkout's bootstrap copies its root Maven Wrapper. A standalone generated kit
+includes the wrapper at its root; bootstrap copies it into each application project.
+
+The Action's `prepare-cli` phase verifies the signed CLI and exports its absolute path as `BOOTUI_CLI_JAR`. Supply
+`BOOTUI_VERSION` explicitly; it must equal the CLI version, the POM's `bootui.version`, and the `-Dbootui.version`
+passed by the runners. The non-shaded `bootui-cli` artifact belongs on the test classpath; the `all` jar runs the CLI.
+Quarkus requires the concrete POM property as well as the command-line property when reloading its application model.
+Never use an older CLI as a fallback.
+
+## Run a complete recipe locally
+
+From an extracted **released** kit root, obtain its matching CLI with the included wrapper:
+
+```bash
+export BOOTUI_VERSION="$(python3 -c 'import json; print(json.load(open("ci-release.json"))["version"])')"
+mkdir -p .m2 .bootui-ci-tools
+export BOOTUI_MAVEN_REPO_LOCAL="$(cd .m2 && pwd -P)"
+bash bootstrap.sh spring
+bash bootstrap.sh quarkus
+./mvnw -B -ntp -f spring/pom.xml \
+  -Dmaven.repo.local="$BOOTUI_MAVEN_REPO_LOCAL" \
+  org.apache.maven.plugins:maven-dependency-plugin:3.11.0:copy \
+  -Dartifact="com.julien-dubois.bootui:bootui-cli:$BOOTUI_VERSION:jar:all" \
+  -DoutputDirectory="$PWD/.bootui-ci-tools"
+export BOOTUI_CLI_JAR="$PWD/.bootui-ci-tools/bootui-cli-$BOOTUI_VERSION-all.jar"
+```
+
+Maven's normal artifact/checksum handling is not the Action's OpenPGP verification. Use the Action path above when you
+need its pinned-key signature verification. Do not replace the kit version with the old published 2.3.0 CLI.
+
+After obtaining a matching CI-capable CLI (or explicitly installing source artifacts for candidate testing), set:
+
+```bash
+export BOOTUI_VERSION='<matching-ci-capable-version>'
+export BOOTUI_CLI_JAR='/absolute/path/to/bootui-cli-all.jar'
+# Use an absolute isolated Maven repository, also used by any source installation.
+mkdir -p .m2
+export BOOTUI_MAVEN_REPO_LOCAL="$(cd .m2 && pwd -P)"
+```
+
+Choose a **new absolute path whose parent already exists**, outside both project directories. Neither the path nor its
+parents may contain symlinks or `..`; `pwd -P` resolves system paths such as `/tmp` on macOS. Never reuse developer
+dismissals or a previous assessment directory. The scripts create mode-0700 state and fresh empty dismissal state;
+they delete only their own dismissal files after the workload. Reports remain for review.
+
+```bash
+ci_dir=examples/ci
+test -f "$ci_dir/run-external.py" || ci_dir=.
+export BOOTUI_CI_ROOT="$BOOTUI_MAVEN_REPO_LOCAL/example-external-1"
+python3 "$ci_dir/run-external.py" --stack mvc
+python3 "$ci_dir/check-result.py"
+
+export BOOTUI_CI_ROOT="$BOOTUI_MAVEN_REPO_LOCAL/example-framework-1"
+python3 "$ci_dir/run-framework.py" spring --stack webflux
+python3 "$ci_dir/check-result.py"
+
+export BOOTUI_CI_ROOT="$BOOTUI_MAVEN_REPO_LOCAL/example-quarkus-1"
+python3 "$ci_dir/run-framework.py" quarkus
+python3 "$ci_dir/check-result.py"
+```
+
+If `.m2` does not already exist, create it with `mkdir -p .m2` before these commands. Change the final path component
+for every retry. A source bootstrap creates ignored `pom.xml` files from the templates; remove only those generated
+POMs and bootstrap again with the new `BOOTUI_VERSION` when intentionally changing versions.
+Source-checkout bootstrap POMs and copied wrappers are generated working files; do not commit them over the templates.
+
+For ordinary local development without diagnostic dependencies:
+
+```bash
+ci_dir=examples/ci
+test -f "$ci_dir/bootstrap.sh" || ci_dir=.
+bash "$ci_dir/bootstrap.sh" spring
+(cd "$ci_dir/spring" && ./mvnw -B -ntp clean test)
+bash "$ci_dir/bootstrap.sh" quarkus
+(cd "$ci_dir/quarkus" && ./mvnw -B -ntp clean test)
+```
+
+The `bootui-ci` profile alone adds the diagnostic dependencies and `src/ci/java` tests. Running those tests locally
+without any `BOOTUI_CI_*` plan values explicitly prints that collection is disabled and still executes the workload.
+A partially configured plan, or absent collection values on CI, is an error. Ordinary non-diagnostic builds do not
+include BootUI. Spring stays disabled except in the runner environment; Quarkus exposes BootUI only in DEV/TEST launch
+modes, never a normal production launch. Do not deploy the opt-in diagnostic artifact as production.
+
+## Failures, cleanup, and reports
+
+Attach refusal still runs the ordinary workload; the later assessment fails without scanning. An HTTP/assertion
+failure remains a failed workload even when diagnostics pass. Missing, skipped, duplicate, or unfinished framework
+windows fail the final gate. Automatic test retries are not enabled. The scripts return nonzero for **either** workload
+or assessment failure, and `check-result.py` is an additional fail-closed gate after upload, never `continue-on-error`.
+
+All Maven invocations have a ten-minute bound, readiness has a two-minute bound, workload requests have ten-second
+timeouts, and the CLI has its own three-minute assessment budget. Owned process groups are terminated on completion,
+timeouts, and handled interrupts; SIGKILL or runner loss can still prevent cleanup. These examples do not stop or
+attach to an unrelated developer process.
+
+Upload only `BOOTUI_CI_ROOT/artifacts/`. Once the fresh state root exists, it contains explicitly selected bounded
+sanitized JSON, Markdown, and JUnit reports, or a minimal `NOT_ASSESSED` failure report. An earlier setup failure can
+prevent any artifact from being created. Never upload the entire state root, raw Maven/application logs, witnesses,
+or developer configuration. Framework report uploads are not the complete evidence archive required to repeat
+`check-contexts` elsewhere. Retention and access control remain your responsibility. Consistent identities and hashes
+are not proof that the workload exercised a particular process.
+
+For a negative control, set `CI_EXAMPLE_FAIL_WORKLOAD=true`; HTTP requests still run and assessments still finish, but
+the recipe and final gate fail. `BOOTUI_POLICY` may select another explicit policy path for testing attach refusal.
+Review policy changes rather than raising thresholds to make unexpected findings disappear.

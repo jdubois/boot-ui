@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "advisors": {
+    "architecture": {
+      "required": true,
+      "failOn": "high"
+    }
+  }
+}

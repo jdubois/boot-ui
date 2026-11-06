@@ -14,7 +14,10 @@ on:
       - 'package-lock.json'
       - '.github/workflows/docs-v2.yml'
       - '.github/scripts/check-docs-downloads.sh'
+      - '.github/scripts/ci-examples.py'
+      - '.github/scripts/test_ci_examples*.py'
       - '.github/scripts/test_docs_links.py'
+      - 'examples/ci/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -41,8 +44,8 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Check workshop navigation and exercise instructions
-        run: node --test docs/.vuepress/workshop.test.mjs
+      - name: Check CI and workshop navigation and exercise instructions
+        run: node --test docs/.vuepress/workshop.test.mjs docs/.vuepress/ci.test.mjs
 
       - name: Build VuePress site
         run: npm run docs:build

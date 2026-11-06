@@ -533,6 +533,10 @@ The gate is CLI-only.
 
 ## In CI
 
+For complete assessment reports and a policy gate around integration tests, start with the
+[GitHub Actions quick start](CI.md). The individual commands below are useful in existing scripts; their panel-specific
+exit behavior is different from the strict `bootui ci` assessment contract.
+
 The CLI is designed for a job that starts the application, asks it something, and stops it:
 
 ```yaml
@@ -580,6 +584,10 @@ prints log messages with secret-like assignments and authorization credentials m
 messages under `METADATA_ONLY`.
 
 ### Strict CI assessments
+
+<!-- bootui-ci:release:start -->
+> **CI support is not yet published.** Published BootUI CLI 2.3.0 does not contain these CI commands. The examples below are prepared for the first signed CI-capable release; `UNRELEASED` is not an installable version. Do not substitute the old published CLI.
+<!-- bootui-ci:release:end -->
 
 For the supported composite Action and a full caller-owned GitHub Actions example, see [BootUI in CI](CI.md).
 

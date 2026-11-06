@@ -40,6 +40,17 @@ coverage/
 **/.vuepress/.temp/
 # The showcase video is a GitHub Release asset, downloaded by pages.yml at build time.
 docs/.vuepress/public/videos/*.mp4
+# Built deterministically from the reviewed CI examples and release metadata.
+docs/.vuepress/public/ci/bootui-ci-examples.zip
+# Source-checkout CI example bootstraps; the released kit keeps these files trackable.
+/examples/ci/spring/pom.xml
+/examples/ci/spring/mvnw
+/examples/ci/spring/mvnw.cmd
+/examples/ci/spring/.mvn/
+/examples/ci/quarkus/pom.xml
+/examples/ci/quarkus/mvnw
+/examples/ci/quarkus/mvnw.cmd
+/examples/ci/quarkus/.mvn/
 
 # BootUI runtime persistence (local developer overrides)
 .bootui/

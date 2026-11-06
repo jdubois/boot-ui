@@ -1,0 +1,71 @@
+name: BootUI external application
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [mvc, webflux]
+    env:
+      BOOTUI_VERSION: '@BOOTUI_VERSION@'
+      BOOTUI_ASSESSMENT_ID: ${{ github.run_id }}:${{ github.run_attempt }}:${{ matrix.stack }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Verify the matching published CLI
+        uses: jdubois/boot-ui/.github/actions/bootui@@BOOTUI_ACTION_REF@ # v@BOOTUI_VERSION@ CLI interface; independent Action commit
+        with:
+          phase: prepare-cli
+          bootui-version: '@BOOTUI_VERSION@'
+      - name: Locate source checkout or extracted kit
+        run: |
+          recipe_dir=examples/ci
+          test -f "$recipe_dir/run-external.py" || recipe_dir=.
+          test -f "$recipe_dir/run-external.py"
+          printf 'BOOTUI_EXAMPLE_DIR=%s\n' "$recipe_dir" >> "$GITHUB_ENV"
+          printf 'BOOTUI_CI_ROOT=%s\n' "$RUNNER_TEMP/bootui-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-${{ matrix.stack }}" >> "$GITHUB_ENV"
+      - name: Build, start, attach, run workload, assess, and stop
+        run: python3 "$BOOTUI_EXAMPLE_DIR/run-external.py" --stack "${{ matrix.stack }}"
+      - name: Add BootUI report to job summary
+        if: ${{ !cancelled() && env.BOOTUI_CI_ROOT != '' }}
+        shell: bash
+        run: |
+          report="$BOOTUI_CI_ROOT/artifacts/assessment/summary.md"
+          fallback="$BOOTUI_CI_ROOT/artifacts/not-assessed/summary.md"
+          if [[ -L "$report" || -L "$fallback" ]]; then
+            echo "::error::BootUI summary must not be a symlink."
+            exit 1
+          fi
+          if [[ -f "$fallback" ]]; then report="$fallback"; fi
+          if [[ -f "$report" ]]; then
+            bytes="$(wc -c < "$report")"
+            if (( bytes > 262144 )); then
+              echo "::error::BootUI summary exceeds the upload bound."
+              exit 1
+            fi
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '%s\n' '## BootUI assessment unavailable' '' \
+              'No complete report was produced; check the job logs.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload only bounded sanitized BootUI reports
+        if: ${{ !cancelled() && env.BOOTUI_CI_ROOT != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bootui-external-${{ matrix.stack }}
+          path: ${{ env.BOOTUI_CI_ROOT }}/artifacts/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Require both workload and assessment success
+        if: ${{ !cancelled() }}
+        run: python3 "$BOOTUI_EXAMPLE_DIR/check-result.py"

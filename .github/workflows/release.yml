@@ -157,6 +157,9 @@ jobs:
           # substitution above does not reach it.
           perl -0pi -e 's{^VERSION=[0-9][0-9A-Za-z.\-]*$}{VERSION=$ENV{VERSION}}mg' docs/CLI.md
           python3 .github/scripts/workshop-version.py update "$VERSION"
+          # Pin the committed release source's Action before sealing the versioned contents.
+          python3 .github/scripts/ci-docs-version.py update "$VERSION"
+          python3 .github/scripts/ci-examples.py render
 
           if ! grep -q "<version>$VERSION</version>" docs/SETUP.md; then
             echo "::error::Failed to update the bootui-spring-boot-starter version in docs/SETUP.md to $VERSION"
@@ -430,6 +433,9 @@ jobs:
          echo "$RELEASE_TAG is on origin/$RELEASE_BRANCH."
 
          python3 .github/scripts/workshop-version.py check "$VERSION"
+         # Tag entry and resume check signed contents only; never repair them in place.
+         python3 .github/scripts/ci-docs-version.py check "$VERSION"
+         python3 .github/scripts/ci-examples.py check
 
          for npm_dir in . bootui-ui/src/main/frontend bootui-spring-sample-app/e2e bootui-quarkus-sample-app/e2e; do
             node -e '
@@ -534,6 +540,8 @@ jobs:
             # a release that published bootui-cli but lost the shade execution would otherwise look fine
             # while `java -jar` and the JBang catalog both fail.
             "bootui-cli/${VERSION}/bootui-cli-${VERSION}-all.jar"
+            # The CI Action also requires the detached signature before it can run the CLI.
+            "bootui-cli/${VERSION}/bootui-cli-${VERSION}-all.jar.asc"
             # The -javaagent jar. bootui-agent-bridge is shaded inside it and is never published, so it
             # must never be polled here: it would only time out.
             "bootui-agent/${VERSION}/bootui-agent-${VERSION}.jar"

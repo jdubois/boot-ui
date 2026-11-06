@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 #
-# The documentation site hands out installer scripts as static assets, and the one-line
-# install command is the first thing a reader runs. Nothing else notices when such a URL
-# stops resolving: the site still builds, the page still renders, and only the reader
-# finds out. This checks that every install script the documentation points at is really
-# published, and that the scripts stay version-free so a release cannot leave them stale.
+# The documentation site hands out installer scripts and the CI starter kit as static assets.
+# Check that referenced downloads reach the built site and that installers stay version-free.
 #
 # Usage: check-docs-downloads.sh [built-site-directory]
 
@@ -25,9 +22,9 @@ report_error() {
   errors=$((errors + 1))
 }
 
-# Every install URL the documentation advertises must resolve to a published file.
+# Every advertised download must be present in the static assets and, when available, the built site.
 referenced="$(
-  grep -rhoE "${SITE_URL}/[A-Za-z0-9._-]+\.(sh|ps1)" \
+  grep -rhoE "${SITE_URL}/[A-Za-z0-9._/-]+\.(sh|ps1|zip)" \
     "$REPO_ROOT/README.md" "$REPO_ROOT/docs" --include='*.md' 2>/dev/null |
     sort -u || true
 )"
@@ -46,7 +43,7 @@ while IFS= read -r url; do
   if [[ -d "$DIST" && ! -f "$DIST/$asset" ]]; then
     report_error "$asset is not in the built site, so $url would return 404"
   fi
-  printf 'ok: %s is published\n' "$url"
+  printf 'ok: %s is included in documentation assets\n' "$url"
 done <<<"$referenced"
 
 # The installers resolve the version to install from the repository at run time. A

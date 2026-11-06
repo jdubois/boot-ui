@@ -12,7 +12,7 @@ from urllib.parse import unquote
 
 DIST = Path(__file__).resolve().parents[2] / "docs" / ".vuepress" / "dist"
 WORKSHOP = Path(__file__).resolve().parents[2] / "docs" / "workshop"
-PAGES = ("ai-agents", "pentest-checks", "security-checks")
+PAGES = ("ai-agents", "pentest-checks", "security-checks", "ci", "ci/framework-tests", "ci/reference")
 
 
 class PageLinks(HTMLParser):
@@ -64,6 +64,20 @@ class DocumentationLinksTests(unittest.TestCase):
                 page = self.read_page(name)
                 self.assertLessEqual(expected, page.headings)
                 self.assertLessEqual(expected, page.fragments)
+
+    def test_ci_entry_points_and_legacy_anchors_resolve(self):
+        page = self.read_page("ci")
+        self.assertLessEqual(
+            {
+                "framework-managed-test-lifecycles",
+                "spring-boot-add-bootui-only-to-the-diagnostic-build",
+                "quarkus-development-mode-target",
+                "attach-run-assess-and-publish",
+            },
+            page.headings,
+        )
+        self.assertIn("/boot-ui/ci/framework-tests", page.links)
+        self.assertIn("/boot-ui/ci/reference", page.links)
 
     def test_workshop_pages_and_internal_targets_are_generated(self):
         for source in WORKSHOP.glob("*.md"):

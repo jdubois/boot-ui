@@ -1,401 +1,340 @@
-# BootUI in CI
+# BootUI in CI/CD
 
-BootUI can gate an existing integration workload with fresh runtime diagnostics. The runner must host both the
-application and CLI: the live-target workflow accepts only a literal loopback URL and does not cross a container
-network boundary. Keep application startup, test execution, and cleanup in the caller's workflow.
+Run your integration tests, then let BootUI assess the running application. GitHub Actions shows a readable summary and
+keeps the reports; your policy decides whether diagnostic findings fail the job.
+BootUI stays local to the runner. It is not a production scanner or a hosted dashboard.
 
-The composite Action supports live Spring Boot and external Quarkus development-mode targets, plus offline validation
-of a saved bundle. The live workflow requires a published BootUI CLI release that contains `bootui ci attach` and
-`bootui ci assess`; if the policy opts in to Runtime Insights, the CLI must also understand `runtimeContext`. Older CLI
-releases reject unknown policy keys. Framework-managed test collection is available through the Java `CiCollection`
-API and its `bootui ci prepare-contexts` / `check-contexts` commands. Baselines, SARIF, and annotations are not
-included.
+<!-- bootui-ci:release:start -->
+> **CI support is not yet published.** Published BootUI CLI 2.3.0 does not contain these CI commands. The examples below are prepared for the first signed CI-capable release; `UNRELEASED` is not an installable version. Do not substitute the old published CLI.
+<!-- bootui-ci:release:end -->
 
-## Framework-managed test lifecycles
+## Choose your setup
 
-Use framework-managed collection when the test framework owns the application lifetime, including Spring
-`@SpringBootTest` and Quarkus `@QuarkusTest`. Prepare the evidence root and its complete expected-window list before
-starting tests. Retain the printed plan digest and assessment ID outside the writable evidence root, then call
-`CiCollection.begin(...)` once for each expected window and `Window.finish()` before the framework stops its
-application. After every producer process has exited, run `ci check-contexts` as the final gate.
+| Who starts the application? | Use |
+| --- | --- |
+| Your workflow starts a separate Spring Boot process | The quick start below |
+| Your workflow starts a separate Quarkus dev-mode process | [Quarkus guidance](#quarkus-development-mode-target) |
+| `@SpringBootTest` or `@QuarkusTest` starts it inside tests | [Framework-managed tests](ci/framework-tests.md) |
+| You already have a saved report bundle | [Offline rechecking](ci/reference.md#offline-rechecking) |
 
-Use the Action's `prepare-cli` phase to download and verify the signed CLI once, before preparing the plan. The
-`BOOTUI_CLI_JAR` value is exported through `GITHUB_ENV` for following steps:
+## Quick start: GitHub Actions
 
-```yaml
-- name: Set up the verified BootUI CLI
-  uses: jdubois/boot-ui/.github/actions/bootui@<reviewed-commit-sha>
-  with:
-    phase: prepare-cli
-    bootui-version: '<published-ci-capable-version>'
-```
+Use a Linux runner and a compatible JDK. Both the application and CLI must use the same literal loopback URL.
+The complete starter example supplies the application, Maven configuration, real workload, readiness checks, and
+owned-process cleanup. You do not need to invent missing helper scripts.
 
-Add the matching, non-shaded CLI artifact as a test-scoped dependency; keep its version identical to
-`bootui-version`:
+<!-- bootui-ci:kit:start -->
+The starter-kit download becomes available with the first CI-capable release. The complete example sources are in the repository's `examples/ci` directory; candidate testing is separate from a published-release installation.
+<!-- bootui-ci:kit:end -->
 
+### 1. Add BootUI only to the diagnostic build
+
+The example's diagnostic profile adds BootUI without making it part of the production artifact. The application and
+CLI use one explicit BootUI release. Configure the diagnostic process for metadata-only exposure and keep MCP off.
+Use a fresh empty dismissal store so developer-local findings cannot be hidden in CI.
+
+Extract the **whole kit into a new repository**, including dotfiles. Its `spring` project supports MVC and WebFlux.
+Keep the helper scripts beside the projects; they implement the bounded readiness, workload, reporting, and cleanup
+lifecycle. Copying a workflow alone is not enough.
+
+::: details Complete Spring Maven configuration
+
+<!-- bootui-ci:source:spring/pom.xml.template:start -->
 ```xml
-<dependency>
-  <groupId>com.julien-dubois.bootui</groupId>
-  <artifactId>bootui-cli</artifactId>
-  <version>${bootui.version}</version>
-  <scope>test</scope>
-</dependency>
-```
-
-For Spring MVC and WebFlux, pass the actual random port from `@LocalServerPort`; for Quarkus, use the test URL from
-`@TestHTTPResource`. `BOOTUI_CI_*` values written to `GITHUB_ENV` are inherited by Maven's forked test JVMs and their
-workload processes unless the test runner explicitly replaces the environment.
-
-```bash
-evidence="$RUNNER_TEMP/bootui-ci/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/contexts"
-assessment_id="$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:integration"
-mkdir -p "$(dirname "$evidence")"
-plan_file="$RUNNER_TEMP/bootui-ci-plan.sha256"
-java -jar "$BOOTUI_CLI_JAR" ci prepare-contexts \
-  --root "$evidence" \
-  --assessment-id "$assessment_id" \
-  --policy ci/bootui-policy.json \
-  --contexts orders,catalog > "$plan_file"
-printf 'BOOTUI_CI_EVIDENCE_ROOT=%s\n' "$evidence" >> "$GITHUB_ENV"
-printf 'BOOTUI_CI_ASSESSMENT_ID=%s\n' "$assessment_id" >> "$GITHUB_ENV"
-printf 'BOOTUI_CI_PLAN_SHA256=%s\n' "$(cat "$plan_file")" >> "$GITHUB_ENV"
-```
-
-`prepare-contexts` creates the evidence root but not its parent, so create the parent first as shown. Keep the
-assessment ID and plan digest outside that writable root.
-
-In the test class, add the published `bootui-cli` dependency to the test classpath and bind each ID to the framework's
-actual loopback port. The expected IDs must be fixed before the workload; a skipped, filtered, crashed, or retried
-window then fails the gate instead of disappearing from the denominator. Disable automatic test retries for these
-classes, or assign each planned attempt its own context ID.
-
-```java
-CiCollection.Window window = CiCollection.begin(
-    Path.of(System.getenv("BOOTUI_CI_EVIDENCE_ROOT")),
-    System.getenv("BOOTUI_CI_PLAN_SHA256"),
-    System.getenv("BOOTUI_CI_ASSESSMENT_ID"),
-    "orders",
-    "http://127.0.0.1:" + localPort,
-    "/bootui/api",
-    60);
-try {
-    runIntegrationWorkload();
-} finally {
-    window.finish();
-}
-```
-
-An ordinary attach refusal returns an unattached window rather than skipping the workload; `finish()` records the
-refusal and the later gate fails. Do not ignore exceptions that prevent the evidence root or claim from being safely
-accessed. Always finish before framework teardown so the assessment can read the live test application.
-
-Run the check only after all Maven/Surefire/Failsafe or other producer processes have terminated. Guard the step with
-`!cancelled()` so it doesn't race a cancelled test process; set a job timeout to bound failures outside the gate's
-control:
-
-```yaml
-- name: Gate framework collections
-  if: ${{ !cancelled() }}
-  run: |
-    java -jar "$BOOTUI_CLI_JAR" ci check-contexts \
-      --root "$BOOTUI_CI_EVIDENCE_ROOT" \
-      --assessment-id "$BOOTUI_CI_ASSESSMENT_ID" \
-      --plan-sha256 "$BOOTUI_CI_PLAN_SHA256"
-```
-
-The gate prints each context's status and, for completed assessments, the directory containing its sanitized
-`bundle.json`, `summary.md`, and `junit.xml`:
-
-```text
-orders: VIOLATION (reports: /runner/temp/.../slots/<context-sha256>)
-catalog: PASS (reports: /runner/temp/.../slots/<context-sha256>)
-```
-
-`NOT_ASSESSED` contexts include a stable error code and have no report bundle. Inspect a violation's bundle and summary
-at the printed path; no findings are copied into an unbounded aggregate log.
-
-Exit codes are `0` for a complete pass, `3` for complete evidence with a threshold violation, and `1` for missing,
-invalid, refused, or incomplete evidence. Errors take precedence over findings. Each root contains one exact policy
-snapshot; use separate roots and gates when stacks require different policies. Keep the root outside cleanable build
-output and Quarkus watched paths. Collection requires a filesystem provider with `SecureDirectoryStream`; unsupported
-providers fail closed (including common Windows providers).
-
-This gate checks evidence consistency and explicit expected-window accounting, not workload attestation. A test can
-mislabel a window or control the whole CI job; plan, report, and witness hashes do not prove which requests exercised
-the application. Protect the evidence root from concurrent writers: secure path handling does not make a hostile
-shared filesystem safe, and the final check should run under a bounded job timeout. Retain the plan digest
-independently and protect CI artifacts and job permissions. The final gate detects persisted refusals and incomplete
-windows only when it runs after every producer has finished.
-
-## Spring Boot: add BootUI only to the diagnostic build
-
-An application that does not normally use BootUI can add the Spring starter through an opt-in Maven profile:
-
-```xml
-<profiles>
-  <profile>
-    <id>bootui-ci</id>
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.2</version>
+        <relativePath/>
+    </parent>
+    <groupId>example</groupId>
+    <artifactId>orders-spring</artifactId>
+    <version>1.0.0</version>
+    <properties>
+        <java.version>17</java.version>
+        <bootui.version>UNRELEASED</bootui.version>
+        <spring.web.starter>spring-boot-starter-web</spring.web.starter>
+    </properties>
     <dependencies>
-      <dependency>
-        <groupId>com.julien-dubois.bootui</groupId>
-        <artifactId>bootui-spring-boot-starter</artifactId>
-        <version>${bootui.version}</version>
-        <scope>runtime</scope>
-      </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>${spring.web.starter}</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
-  </profile>
-</profiles>
+    <profiles>
+        <profile>
+            <id>webflux</id>
+            <properties>
+                <spring.web.starter>spring-boot-starter-webflux</spring.web.starter>
+            </properties>
+        </profile>
+        <profile>
+            <id>bootui-ci</id>
+            <dependencies>
+                <dependency>
+                    <groupId>com.julien-dubois.bootui</groupId>
+                    <artifactId>bootui-spring-boot-starter</artifactId>
+                    <version>${bootui.version}</version>
+                    <scope>runtime</scope>
+                </dependency>
+                <dependency>
+                    <groupId>com.julien-dubois.bootui</groupId>
+                    <artifactId>bootui-cli</artifactId>
+                    <version>${bootui.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <version>3.6.1</version>
+                        <executions>
+                            <execution>
+                                <id>ci-tests</id>
+                                <phase>generate-test-sources</phase>
+                                <goals><goal>add-test-source</goal></goals>
+                                <configuration>
+                                    <sources><source>src/ci/java</source></sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <forkCount>1</forkCount>
+                    <rerunFailingTestsCount>0</rerunFailingTestsCount>
+                    <systemPropertyVariables>
+                        <junit.jupiter.execution.parallel.enabled>false</junit.jupiter.execution.parallel.enabled>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
 ```
+<!-- bootui-ci:source:spring/pom.xml.template:end -->
 
-Pin `bootui.version` to a published, compatible release. Use the build profile only for the diagnostic process;
-keep the dependency out of the production runtime artifact and verify that exclusion in the production build.
-For Gradle, apply the equivalent opt-in `runtimeOnly` dependency only when a dedicated CI property is set.
+:::
 
-For Spring, explicitly configure the diagnostic process before startup:
+The starter policy assesses Architecture and fails on HIGH or CRITICAL findings. Commit it with your workflow:
 
-```yaml
-bootui:
-  enabled: ON
-  cli:
-    enabled: true
-  mcp:
-    enabled: false
-  expose-values: METADATA_ONLY
-```
-
-Also set `BOOTUI_ENABLED=ON` and point `BOOTUI_OVERRIDES_FILE` at a fresh, empty, absolute per-assessment path. Do not
-copy developer-local dismissal state. Enable only the panels needed by the selected scans; existing panel enable and
-read-only policy still applies.
-
-## Quarkus development-mode target
-
-Quarkus BootUI endpoints are active only in DEV and TEST launch modes. For the Action workflow, run a separate
-`quarkus:dev` application process on the same runner as the CLI; do not try to assess an `@QuarkusTest` application
-after its test lifecycle has torn down. Add the extension only to an opt-in diagnostic Maven profile:
-
-```xml
-<profiles>
-  <profile>
-    <id>bootui-ci</id>
-    <dependencies>
-      <dependency>
-        <groupId>com.julien-dubois.bootui</groupId>
-        <artifactId>bootui-quarkus</artifactId>
-        <version>${bootui.version}</version>
-      </dependency>
-    </dependencies>
-  </profile>
-</profiles>
-```
-
-Pin `bootui.version` to a published, compatible release, activate the profile only for the diagnostic process, and
-leave it out of the production artifact. Quarkus has no `BOOTUI_ENABLED` switch: the extension is wired by launch
-mode, so never use the CI profile for a `NORMAL` production launch. Bind the HTTP listener to `127.0.0.1` (not
-`0.0.0.0`) and use the exact same loopback URL for attach, workload, and assessment. The CLI checks the URL literal;
-it cannot verify which interface the application actually listens on.
-
-For example, the caller-owned startup script can run:
-
-```bash
-BOOTUI_CLI_ENABLED=true \
-BOOTUI_EXPOSE_VALUES=METADATA_ONLY \
-BOOTUI_OVERRIDES_FILE="$RUNNER_TEMP/bootui-ci/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/boot-ui.yml" \
-./mvnw -Pbootui-ci quarkus:dev \
-  -Dquarkus.http.host=127.0.0.1 \
-  -Dquarkus.http.port=18080 \
-  -Dbootui.cli.execution-timeout=60s
-```
-
-Quarkus reads advisor dismissals from `boot-ui.yml` in the directory containing `bootui.overrides-file`, even though
-its Configuration panel is read-only. Point `BOOTUI_OVERRIDES_FILE` at a fresh, empty, absolute path outside the
-watched project tree so checkout-local dismissals cannot suppress findings. Keep the CLI enabled; increase
-`bootui.cli.execution-timeout` for scans that need longer than its 30-second default.
-
-Start the application before attach, allow Quarkus augmentation and readiness to finish, then leave its sources and
-compiled output untouched through assessment. A dev-mode reload can rotate the run identity and causes the assessment
-to fail closed. Keep witnesses, reports, and other CI-generated files outside Quarkus's watched project paths.
-Quarkus Dev Services may start containers; for example, this repository's Quarkus sample uses PostgreSQL Dev
-Services in dev/test and needs Docker or Podman.
-
-Evidence availability is advisor- and application-specific. The Quarkus application advisor still uses policy key
-`spring`, but dev-mode evidence cannot establish effective production configuration, so attach rejects that selection
-with `UNSUPPORTED_ADVISOR_FOR_FRAMEWORK`.
-The REST API and Security advisors can report incomplete observations; the Database advisor is advertised even when no
-datasource exists and then reports `DISABLED`. `required: false` does not turn an available but partial or disabled
-scan into a skip. Architecture, Hibernate, and Database scans can be complete on a suitable application, but the
-strict assessment decides from the actual evidence; incomplete evidence always fails. Select only advisors whose
-observations apply to the target, and do not infer a pass from zero findings.
-
-## Attach, run, assess, and publish
-
-Store a strict JSON policy in the application repository. Only selected advisors run; every one must produce complete,
-usable evidence. `memory` is deliberately not in the live-target CI allow-list because its scan may trigger a full
-garbage collection. The Database advisor's policy key is `database-advisor`.
-
-To include the optional, report-only Runtime Insights snapshot, set `runtimeContext.includeInsights` to `true`. Omit
-`runtimeContext` or set it to `false` to make no extra request. The snapshot does not gate the assessment.
-
-For Spring, a policy might include REST API checks and the optional runtime snapshot:
-
+<!-- bootui-ci:source:bootui-policy.json:start -->
 ```json
 {
   "schemaVersion": 1,
   "advisors": {
-    "architecture": { "required": true, "failOn": "high" },
-    "rest-api": { "required": true, "failOn": "high" }
-  },
-  "runtimeContext": { "includeInsights": true }
-}
-```
-
-For a Quarkus application with Hibernate and a configured datasource, one possible policy is:
-
-```json
-{
-  "schemaVersion": 1,
-  "advisors": {
-    "architecture": { "required": true, "failOn": "critical" },
-    "hibernate": { "required": true, "failOn": "critical" },
-    "database-advisor": { "required": true, "failOn": "critical" }
+    "architecture": {
+      "required": true,
+      "failOn": "high"
+    }
   }
 }
 ```
+<!-- bootui-ci:source:bootui-policy.json:end -->
 
-Choose advisors and thresholds for the target; an optional advisor is still assessed when available, and incomplete
-evidence fails rather than becoming a skip.
+### 2. Add the workflow
 
-Use the composite Action in two phases. Pin the Action to a reviewed immutable commit SHA, pin the CLI to a published
-stable version that includes the `ci` commands, and install Java before invoking it. Replace the sample's
-`<reviewed-commit-sha>` with the full 40-character commit you reviewed.
+The workflow starts the app and waits for readiness, attaches, runs the workload, and assesses while the app is still
+alive. It then stops the job-owned app, adds the result to the job summary, and uploads reports. Attachment refusal
+does not suppress the test workload, but the final gate still fails. An ordinary test failure remains a failed job,
+even if BootUI later passes.
 
-The Action is implemented in this repository at `.github/actions/bootui/action.yml`; its consumer reference therefore
-uses `jdubois/boot-ui/.github/actions/bootui@<commit-sha>`. The shorthand `jdubois/bootui-action@v1` would require a
-separate repository and is not the selected layout. The Action commit and `bootui-version` input are independent
-versions. The input is deliberately explicit: it is not resolved to the latest BootUI release at runtime. Use
-Dependabot or Renovate to propose updates to both pins as pull requests, then review and merge them in the consumer
-repository. BootUI releases cannot silently update another repository's workflow.
+From the extracted kit's root, select the external-process workflow:
 
+```bash
+mkdir -p .github/workflows
+cp workflows/external.yml .github/workflows/bootui.yml
+```
+
+Keep the remaining kit files at the repository root. The source template is
+`examples/ci/workflows/external.yml.template`; the downloadable kit contains its release-rendered version.
+
+::: details Complete GitHub Actions workflow
+
+<!-- bootui-ci:source:workflows/external.yml.template:start -->
 ```yaml
-name: Integration diagnostics
-on: [push, pull_request]
+name: BootUI external application
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [mvc, webflux]
     env:
-      BOOTUI_URL: http://127.0.0.1:18080
-      BOOTUI_ASSESSMENT_ID: ${{ github.run_id }}:${{ github.run_attempt }}:orders
-      BOOTUI_WITNESS: ${{ runner.temp }}/bootui-ci/witness.json
-      BOOTUI_REPORTS: ${{ runner.temp }}/bootui-ci/assessment
-      BOOTUI_ENABLED: ON
-      BOOTUI_CLI_ENABLED: true
-      BOOTUI_MCP_ENABLED: false
-      BOOTUI_EXPOSE_VALUES: METADATA_ONLY
-      BOOTUI_OVERRIDES_FILE: ${{ runner.temp }}/bootui-ci/${{ github.run_id }}-${{ github.run_attempt }}/boot-ui.yml
+      BOOTUI_VERSION: 'UNRELEASED'
+      BOOTUI_ASSESSMENT_ID: ${{ github.run_id }}:${{ github.run_attempt }}:${{ matrix.stack }}
     steps:
-      - uses: actions/checkout@<reviewed-commit-sha>
-      - uses: actions/setup-java@<reviewed-commit-sha>
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
-          java-version: '21'
-      - name: Start the diagnostic application
-        id: app
-        run: ./ci/start-app.sh "$BOOTUI_URL"
-      - name: Attach before integration tests
-        id: attach
-        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
-        continue-on-error: true
-        uses: jdubois/boot-ui/.github/actions/bootui@<reviewed-commit-sha>
+          java-version: '25'
+      - name: Verify the matching published CLI
+        uses: jdubois/boot-ui/.github/actions/bootui@0572c2f676a0d0ead3fa9ce29b8fc9354ab7622f # vUNRELEASED CLI interface; independent Action commit
         with:
-          phase: attach
-          bootui-version: '<published-ci-capable-version>'
-          url: ${{ env.BOOTUI_URL }}
-          assessment-id: ${{ env.BOOTUI_ASSESSMENT_ID }}
-          policy: ci/bootui-policy.json
-          witness: ${{ env.BOOTUI_WITNESS }}
-      - name: Run existing integration scenarios
-        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
-        run: ./ci/run-integration-tests.sh "$BOOTUI_URL"
-      - name: Assess while the application is still running
-        id: assess
-        if: ${{ !cancelled() }}
-        uses: jdubois/boot-ui/.github/actions/bootui@<reviewed-commit-sha>
-        with:
-          phase: assess
-          bootui-version: '<published-ci-capable-version>'
-          url: ${{ env.BOOTUI_URL }}
-          assessment-id: ${{ env.BOOTUI_ASSESSMENT_ID }}
-          policy: ci/bootui-policy.json
-          witness: ${{ env.BOOTUI_WITNESS }}
-          output-dir: ${{ env.BOOTUI_REPORTS }}
-          attach-exit-code: ${{ steps.attach.outputs.exit-code }}
-      - name: Require complete assessment reports
-        if: ${{ !cancelled() }}
-        env:
-          REPORT_DIR: ${{ steps.assess.outputs.report-dir }}
+          phase: prepare-cli
+          bootui-version: 'UNRELEASED'
+      - name: Locate source checkout or extracted kit
         run: |
-          test -n "$REPORT_DIR"
-          test -f "$REPORT_DIR/bundle.json"
-          test -f "$REPORT_DIR/summary.md"
-          test -f "$REPORT_DIR/junit.xml"
-      - name: Upload bounded assessment reports
-        if: ${{ !cancelled() && steps.assess.outputs.report-dir != '' }}
-        uses: actions/upload-artifact@<reviewed-commit-sha>
+          recipe_dir=examples/ci
+          test -f "$recipe_dir/run-external.py" || recipe_dir=.
+          test -f "$recipe_dir/run-external.py"
+          printf 'BOOTUI_EXAMPLE_DIR=%s\n' "$recipe_dir" >> "$GITHUB_ENV"
+          printf 'BOOTUI_CI_ROOT=%s\n' "$RUNNER_TEMP/bootui-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-${{ matrix.stack }}" >> "$GITHUB_ENV"
+      - name: Build, start, attach, run workload, assess, and stop
+        run: python3 "$BOOTUI_EXAMPLE_DIR/run-external.py" --stack "${{ matrix.stack }}"
+      - name: Add BootUI report to job summary
+        if: ${{ !cancelled() && env.BOOTUI_CI_ROOT != '' }}
+        shell: bash
+        run: |
+          report="$BOOTUI_CI_ROOT/artifacts/assessment/summary.md"
+          fallback="$BOOTUI_CI_ROOT/artifacts/not-assessed/summary.md"
+          if [[ -L "$report" || -L "$fallback" ]]; then
+            echo "::error::BootUI summary must not be a symlink."
+            exit 1
+          fi
+          if [[ -f "$fallback" ]]; then report="$fallback"; fi
+          if [[ -f "$report" ]]; then
+            bytes="$(wc -c < "$report")"
+            if (( bytes > 262144 )); then
+              echo "::error::BootUI summary exceeds the upload bound."
+              exit 1
+            fi
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '%s\n' '## BootUI assessment unavailable' '' \
+              'No complete report was produced; check the job logs.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload only bounded sanitized BootUI reports
+        if: ${{ !cancelled() && env.BOOTUI_CI_ROOT != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: bootui-assessment
-          path: ${{ steps.assess.outputs.report-dir }}/
+          name: bootui-external-${{ matrix.stack }}
+          path: ${{ env.BOOTUI_CI_ROOT }}/artifacts/
           if-no-files-found: error
           retention-days: 7
-      - name: Stop the application owned by this job
-        if: ${{ always() }}
-        run: ./ci/stop-app.sh
+      - name: Require both workload and assessment success
+        if: ${{ !cancelled() }}
+        run: python3 "$BOOTUI_EXAMPLE_DIR/check-result.py"
 ```
+<!-- bootui-ci:source:workflows/external.yml.template:end -->
 
-Both Spring and Quarkus startup scripts must own the process they start, use the same loopback URL for attach,
-workload, and assessment, and wait for readiness before attach. For Spring, `start-app.sh` must use the `bootui-ci`
-build profile and create a fresh empty overrides file and its cleanup path before startup. For Quarkus, use the
-`quarkus:dev` process and an isolated `BOOTUI_OVERRIDES_FILE` as described above. The action's attach phase records a
-run/instance witness without scans; assess checks it before and after collection. This detects a restarted or replaced
-target, but does not prove that the integration scenarios exercised it. The application's test harness remains
-responsible for target/workload correlation.
+:::
 
-The workload runs even if attach fails. The attach step prints its stable failure code to the log. Pass the attach
-action's `exit-code` to assess: anything other than `0` prevents scans and produces a minimal failure report without
-using a possibly stale witness. If CLI setup or report
-creation fails, the action writes a separate fresh `<output-dir>.action-error` directory and exposes its location as
-`report-dir`; it never overwrites existing output. If even that report cannot be written, the required-report step
-fails. Do not reuse witness, output, or fallback paths between attempts.
+The workflow runs MVC and WebFlux independently and bootstraps the matching signature-verified released CLI; no global
+installation is needed. When adapting it to your application, keep only your stack.
 
-An optional advisor is skipped only when unavailable or disabled; if it is available, incomplete evidence still
-fails the assessment. Hibernate and Security commonly report partial coverage on real applications, so select them
-only when the application can produce complete evidence. Never interpret a partial scan as a clean result.
-Database Advisor can report informational skips for inapplicable dialects or genuinely absent optional integrations;
-failed discovery and incomplete metadata remain errors rather than neutral skips.
+### 3. Run it and read the result
 
-The client uses a three-minute total assessment budget, a per-request timeout (60 seconds by default), a 2 MiB response
-limit, and limits of 20,000 retained details and 1,000 detail pages. The application's independent
-`bootui.cli.execution-timeout` defaults to 30 seconds; configure it explicitly if a selected scan needs longer.
+Commit and push the chosen workflow and the complete kit: it runs on pushes and pull requests. You can also use
+**Run workflow** in the **Actions** tab once the workflow is on your repository's default branch; no inputs are needed.
+While it runs, GitHub shows the normal step progress and logs. BootUI's summary appears after assessment; it is not a
+live dashboard.
 
-The assessment writes bounded `bundle.json`, `summary.md`, and `junit.xml`. The Action adds the sanitized summary to
-the GitHub step summary and returns a failing action result for either an unevaluable assessment or a threshold
-violation. The summary shows at most 50 retained rule summaries, with threshold-meeting findings first, their severity
-and count, and an omission count when more are in the bundle. It also names stable assessment error codes; it never
-includes free-form finding text. The caller uploads reports before the final job result is applied. Test failures remain
-failures. Use `!cancelled()` for assessment and publication; `always()` is reserved for cleanup of the process owned
-by the job. A cancelled runner or hard timeout can still prevent collection and upload.
+| Result | What it means | What to do |
+| --- | --- | --- |
+| **PASS** | Complete assessment; no finding meets your failure threshold | Review lower-severity findings when useful |
+| **VIOLATION** | Complete assessment; a finding meets the threshold | Open the rule summary and fix it, or deliberately review your policy |
+| **NOT_ASSESSED** | BootUI could not obtain a reliable assessment | Fix setup or collection; do not interpret this as a clean scan |
 
-When requested, Runtime Insights makes one read-only call bounded to 10 seconds and reserves time for the final target
-identity check. If the remaining budget is no greater than the configured `--timeout` plus one second, the call is
-skipped and its report-only status is `ERROR` so the final identity check retains its full timeout. The bundle and step
-summary include aggregate journal coverage and at most 20 default-listed observation summaries (kind, status, and counts),
-but no routes, request IDs, application prose, or follow-up suggestions. `PARTIAL` marks
-low-footprint mode; `UNAVAILABLE`, `ERROR`, and `NOT_COLLECTED` remain report-only and do not change the advisor
-verdict or exit code. The summary shows captured counts only for `CAPTURED` or `PARTIAL`; other statuses do not imply
-zero activity. Omitted or false `includeInsights` is recorded as `NOT_REQUESTED`. This bounded projection is incomplete:
-its HTTP exchange count does not prove that the CI workload exercised the witnessed process.
-`junit.xml` remains advisor-only.
+Open the workflow run's **Summary** for the BootUI report. Under **Artifacts**, download the report containing
+`summary.md`, `bundle.json`, and `junit.xml`. The example preserves reports when the assessment fails. If setup fails
+before the report directory can be created, the summary may say the assessment is unavailable. An earlier workflow
+failure can leave no BootUI summary or artifact; check the failed step's logs.
+JUnit XML is an interchange file, not an automatically created GitHub test-results dashboard.
 
-The bundle omits free-form finding prose and raw runtime data. Artifact access, retention, and report review remain the
-workflow owner's responsibility; do not treat GitHub log masking as report redaction.
+::: details How a passing run can still have findings
+
+If your policy fails at HIGH, a LOW finding remains visible without failing the job. If it fails at CRITICAL, a HIGH
+finding is below that threshold. PASS means the configured gate passed, not “zero findings.”
+The report retains rule IDs, severity, counts, and whether they meet the threshold; it omits raw application prose.
+
+:::
+
+## Adapt it to your application
+
+Start from the complete example, then replace its application and workload with yours. Keep the ordering and failure
+guards unchanged. Set your actual packaged application/start command, readiness endpoint, port, API mount, and
+integration-test command. Select only advisors for which your application can produce complete evidence.
+The first policy selects Architecture; adding every advisor at once is not a good first setup.
+
+### Spring Boot: add BootUI only to the diagnostic build
+
+The same Spring starter supports MVC and WebFlux; the application's web starter selects the stack.
+Activate the diagnostic profile only for the process under assessment and verify the normal production build excludes
+BootUI. Use the same loopback URL for startup, workload, attachment, and assessment.
+
+### Quarkus development-mode target
+
+For an external process, run the opt-in extension-enabled application through `quarkus:dev`, not a production jar.
+BootUI endpoints exist in DEV/TEST only. Quarkus has no Spring-style `BOOTUI_ENABLED` switch.
+Keep generated evidence and the fresh dismissal store outside watched sources so a reload cannot change the app's
+run identity during assessment. Dev Services may require Docker or Podman.
+For `@QuarkusTest`, use the [test-lifecycle recipe](ci/framework-tests.md#quarkus), not a post-test live assessment.
+
+### Framework-managed test lifecycles
+
+When the test framework starts and stops the app, collect before its teardown and run an offline gate after the
+producer processes exit. The [complete test recipes](ci/framework-tests.md) provide the dependency, actual port
+injection, lifecycle hooks, and workflow. This path requires explicit test integration; no hooks are installed
+automatically.
+
+### Attach, run, assess, and publish
+
+Keep the app alive until assessment finishes. Use fresh witness/output paths per attempt, pass attachment's original
+exit code to assessment, upload from the returned `report-dir`, and reserve `always()` for owned-process cleanup.
+The [CI reference](ci/reference.md) explains Action inputs, policy, limits, and error behavior.
+
+## Troubleshooting
+
+| Symptom | First thing to check |
+| --- | --- |
+| CLI does not recognize `ci` | Use a published CI-capable release, not the earlier CLI; app and CLI versions must match |
+| `ATTACH_FAILED` | Wait for readiness; check loopback URL, actual port/API mount, activation, and CLI enablement |
+| Target changed during assessment | Avoid restarting the app or writing into Quarkus watched paths |
+| Advisor is unavailable or evidence is incomplete | Start with a small applicable policy; do not turn partial evidence into a pass |
+| Reports disappeared after a failed gate | Keep the starter's staged-report upload guarded by `!cancelled()`; direct Action users can upload its `report-dir` output |
+| Framework gate reports a missing window | Match the planned ID, run the hook once, finish before teardown, and disable unplanned retries |
+| Collection store rejects the filesystem | Use the Linux recipe; common Windows providers lack `SecureDirectoryStream` |
+
+## Versions and other CI platforms
+
+Every BootUI release updates this guide's generated examples and starter kit before the release is signed.
+The documentation website waits until that exact CI release and its CLI signature are available. Your repository's
+copied workflow is not silently updated; review future changes to its explicit CLI release and Action pin.
+
+Other platforms can use the same [CLI commands and report contract](ci/reference.md), provided the CLI and application
+share one local runner. Their application lifecycle, artifact retention, and failure handling remain the caller's
+responsibility. Baselines, SARIF, and PR annotations are not included.

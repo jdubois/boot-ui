@@ -36,7 +36,10 @@ NEXT_VERSION_CALL = (
 TAGGED_LINE_CHECK = 'if [[ "$TAGGED_RELEASE_LINE" != "${VERSION%%.*}" ]]; then'
 GATE_RUN = "run: bash .github/scripts/release-line-gate.sh"
 PAGES_DEPLOY_CONDITION = "    if: github.event_name != 'pull_request' && needs.build.outputs.publish == 'true'\n"
-PAGES_UPLOAD_CONDITION = "        if: github.event_name != 'pull_request' && steps.gate.outputs.publish == 'true'\n"
+PAGES_UPLOAD_CONDITION = (
+    "        if: github.event_name != 'pull_request' && steps.gate.outputs.publish == 'true'"
+    " && steps.ci_release.outputs.publish == 'true'\n"
+)
 DOCKER_CONFIG_CONDITION = "    if: ${{ !inputs.cleanup_only && needs.gate.outputs.publish == 'true' }}\n"
 NEWEST_MAJOR_CALL = 'bash .github/scripts/release-version-policy.sh newest-major "$RELEASE_VERSION"'
 REDEPLOY_CONDITION = "if: env.CENTRAL_AUTO_PUBLISH == 'true' && env.REDEPLOY_DOCS == 'true'"
@@ -92,7 +95,7 @@ class ReleaseIntegrityTests(unittest.TestCase):
             env = dict(os.environ)
             if root_files is not None:
                 root = Path(directory) / "repository"
-                for relative in ["pom.xml", ".github/release-line"] + [f"{m}/pom.xml" for m in PUBLISHED]:
+                for relative in ["pom.xml", ".github/release-line", ".github/workflows/build.yml"] + [f"{m}/pom.xml" for m in PUBLISHED]:
                     target = root / relative
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_text((ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8")
@@ -128,6 +131,15 @@ class ReleaseIntegrityTests(unittest.TestCase):
     def test_release_workflow_passes(self):
         result = self.check(WORKFLOW.read_text(encoding="utf-8"))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_release_integrity_guard_has_valid_bash_syntax(self):
+        result = subprocess.run(
+            ["bash", "-n", str(SCRIPT)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_ci_action_uses_the_pinned_release_signing_key(self):
         action = CI_ACTION_SIGNATURE_CHECK.read_text(encoding="utf-8")
@@ -165,6 +177,64 @@ class ReleaseIntegrityTests(unittest.TestCase):
             content = content.replace(anchor, "          " + command + "\n" + anchor, 1)
             with self.subTest(mode=mode):
                 self.assert_rejected(content, message)
+
+    def test_ci_documentation_commands_are_required_and_executable(self):
+        commands = (
+            ('python3 .github/scripts/ci-docs-version.py update "$VERSION"', "CI documentation release manifest update"),
+            ('python3 .github/scripts/ci-docs-version.py check "$VERSION"', "CI documentation immutable release manifest check"),
+            ("python3 .github/scripts/ci-examples.py render", "CI documentation consumer render"),
+            ("python3 .github/scripts/ci-examples.py check", "CI documentation immutable consumer check"),
+        )
+        for command, message in commands:
+            with self.subTest(command=command):
+                self.assert_rejected(self.mutate(command, "echo skipped"), message)
+                self.assert_rejected(self.mutate(command, "# " + command), "adjacent executable")
+
+    def test_ci_documentation_writes_cannot_be_duplicated_or_moved_to_tag_entry(self):
+        for command in ('python3 .github/scripts/ci-docs-version.py update "$VERSION"',
+                        "python3 .github/scripts/ci-examples.py render"):
+            content = WORKFLOW.read_text(encoding="utf-8").replace(
+                "      - name: Verify release version",
+                f"      - name: Extra mutation\n        run: {command}\n\n      - name: Verify release version",
+            )
+            with self.subTest(command=command):
+                self.assert_rejected(content, "writes must occur exactly once")
+
+    def test_ci_documentation_commands_are_ordered_around_sealing(self):
+        for command, anchor, message in (
+            ('python3 .github/scripts/ci-docs-version.py update "$VERSION"', "./mvnw -B -ntp versions:set",
+             "CI manifest must be updated after"),
+            ("python3 .github/scripts/ci-examples.py render", 'git commit -m "Release $TAG"',
+             "CI consumers must render before release verification"),
+            ('python3 .github/scripts/ci-docs-version.py check "$VERSION"', "- name: Checkout immutable release",
+             "CI manifest must be checked from"),
+            ("python3 .github/scripts/ci-examples.py check", "- name: Publish to Maven Central",
+             "CI consumers must be checked before publication"),
+        ):
+            content = self.mutate(command, "echo moved")
+            if "must be updated after" in message or "must be checked from" in message:
+                content = content.replace(anchor, command + "\n" + anchor, 1)
+            else:
+                content = content.replace(anchor, anchor + "\n" + command, 1)
+            with self.subTest(command=command):
+                self.assert_rejected(content, message)
+
+    def test_ci_documentation_writes_cannot_be_hidden_by_skip_build(self):
+        pair = ('          python3 .github/scripts/ci-docs-version.py update "$VERSION"\n'
+                '          python3 .github/scripts/ci-examples.py render\n')
+        content = self.mutate(pair, "")
+        anchor = '          if [[ "$SKIP_BUILD" != "true" ]]; then\n'
+        content = content.replace(anchor, anchor + pair, 1)
+        self.assert_rejected(content, "outside and before the skip_build conditional")
+
+    def test_ci_documentation_baseline_check_is_required(self):
+        build = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        command = "python3 .github/scripts/ci-docs-version.py check"
+        self.assertIn(command, build)
+        self.assert_rejected(
+            None, "Java 17 baseline must check CI documentation",
+            root_files={".github/workflows/build.yml": build.replace(command, "echo skipped")},
+        )
 
     def plugin_version_command(self, marker):
         content = WORKFLOW.read_text(encoding="utf-8")
@@ -761,13 +831,36 @@ class ReleaseIntegrityTests(unittest.TestCase):
                 "uploaded only when the release-line gate allows it",
             ),
             (
-                "      publish: ${{ steps.gate.outputs.publish }}\n",
+                "      publish: ${{ steps.gate.outputs.publish == 'true' && steps.ci_release.outputs.publish == 'true' }}\n",
                 "      publish: 'true'\n",
                 "documentation site gate output",
             ),
         ):
             with self.subTest(old=old):
                 self.assert_rejected(None, message, pages=self.mutate_file(PAGES, old, new))
+
+    def test_pages_exact_manifest_gate_is_required_and_cannot_be_bypassed(self):
+        for old, new, message in (
+            ("run: python3 .github/scripts/ci-docs-version.py publication-gate", "run: echo skipped",
+             "exact CI manifest publication gate"),
+            ("        id: ci_release\n", "        id: other\n", "exact CI manifest publication gate"),
+            (PAGES_UPLOAD_CONDITION, PAGES_UPLOAD_CONDITION.replace(" && steps.ci_release.outputs.publish == 'true'", ""),
+             "uploaded only when"),
+            ("publish: ${{ steps.gate.outputs.publish == 'true' && steps.ci_release.outputs.publish == 'true' }}",
+             "publish: ${{ steps.gate.outputs.publish }}", "documentation site gate output"),
+        ):
+            with self.subTest(old=old):
+                self.assert_rejected(None, message, pages=self.mutate_file(PAGES, old, new))
+
+    def test_exact_manifest_gate_cannot_force_a_publish_answer(self):
+        command = "run: python3 .github/scripts/ci-docs-version.py publication-gate"
+        for suffix in ('; echo "publish=true" >> "$GITHUB_OUTPUT"',
+                       ' || echo "publish=true" >> "$GITHUB_OUTPUT"'):
+            with self.subTest(suffix=suffix):
+                self.assert_rejected(
+                    None, "exact CI manifest publication gate",
+                    pages=self.mutate_file(PAGES, command, command + suffix),
+                )
 
     def test_pages_cannot_deploy_from_a_second_job(self):
         pages = PAGES.read_text(encoding="utf-8") + (
@@ -1007,6 +1100,10 @@ class ReleaseIntegrityTests(unittest.TestCase):
         polled = set(re.findall(r'"(bootui-[a-z-]+)/\$\{VERSION\}/', step))
         self.assertEqual(polled, set(ARTIFACT_IDS))
         self.assertEqual(set(ARTIFACT_IDS), set(PUBLISHED))
+
+    def test_release_waits_for_the_ci_cli_signature(self):
+        signature = '            "bootui-cli/${VERSION}/bootui-cli-${VERSION}-all.jar.asc"\n'
+        self.assert_rejected(self.mutate(signature, ""), "must poll the CI CLI signature")
 
     def test_rebase_and_passphrase_arguments_are_refused(self):
         self.assert_rejected(

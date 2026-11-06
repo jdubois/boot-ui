@@ -29,6 +29,7 @@ Read the documentation at <https://www.julien-dubois.com/boot-ui/>.
 | Properties               | <https://www.julien-dubois.com/boot-ui/properties>     |
 | AI agents                | <https://www.julien-dubois.com/boot-ui/ai-agents>      |
 | Command line             | <https://www.julien-dubois.com/boot-ui/cli>            |
+| CI/CD and GitHub Actions | [CI setup guide](docs/CI.md)                          |
 | Sample app               | <https://www.julien-dubois.com/boot-ui/try-sample-app> |
 | Repository docs          | <https://www.julien-dubois.com/boot-ui/repository>     |
 | Known limitations of 2.0 | [Known limitations](docs/KNOWN-LIMITATIONS.md)         |
@@ -77,6 +78,16 @@ declines the call and `3` when `--fail-on <severity>` finds a finding at or abov
 `--fail-on insufficient` finds insufficient or partial evidence, so CI can branch on it. Windows has a PowerShell
 installer, and JBang works too — see the
 [command-line guide](https://www.julien-dubois.com/boot-ui/cli).
+
+## Use in CI
+
+BootUI can assess the application exercised by your integration tests and fail the job when a selected advisor meets
+your policy's threshold. The application stays on the same runner, bound to loopback; BootUI is not a remote or
+production scanner. Start with the [GitHub Actions quick start](docs/CI.md).
+
+<!-- bootui-ci:release:start -->
+> **CI support is not yet published.** Published BootUI CLI 2.3.0 does not contain these CI commands. The examples below are prepared for the first signed CI-capable release; `UNRELEASED` is not an installable version. Do not substitute the old published CLI.
+<!-- bootui-ci:release:end -->
 
 ## Project resources
 
