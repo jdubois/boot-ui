@@ -6,8 +6,8 @@ This page explains the policy and failure behavior; it is not an additional setu
 
 ## Policy
 
-Use strict JSON and commit it with your application. Select a small set of advisors whose evidence applies to your
-application. Start with Architecture, then add other advisors deliberately.
+The default Action checks Architecture and fails on HIGH or CRITICAL findings. You do not need a policy file for
+that setup. To select other advisors or thresholds, commit a strict JSON policy and pass its path as `policy`:
 
 ```json
 {
@@ -47,6 +47,7 @@ The Action lives in this repository at `.github/actions/bootui/action.yml`; use
 
 | Phase | Purpose |
 | --- | --- |
+| `run` (default) | Attach to the running app, execute `test-command`, assess, add the summary, and upload reports |
 | `prepare-cli` | Download the explicitly pinned stable CLI and verify its signature; export `BOOTUI_CLI_JAR` for later steps |
 | `attach` | Record the target's instance/run identity before the workload; no advisor scans |
 | `assess` | Check identity, collect diagnostics, apply the policy, write reports and append the GitHub summary |
@@ -58,31 +59,38 @@ reviewed updates. BootUI's release automation updates its documentation, not oth
 
 | Input | Used by |
 | --- | --- |
-| `phase`, `bootui-version` | Every phase |
-| `assessment-id`, `policy` | Attach, assess, offline |
-| `url`, `witness` | Attach and assess |
+| `phase`, `bootui-version` | Every phase; `phase` defaults to `run` |
+| `test-command` | Required by `run`; must exercise the already-running application |
+| `url`, `policy`, `assessment-id` | Optional in `run`; defaults to loopback port 8080, the built-in policy, and a fresh ID |
+| `upload-artifact` | `run`; defaults to `true`, set to `false` to manage uploads yourself |
+| `assessment-id`, `policy` | Required by attach, assess, and offline |
+| `url`, `witness` | Required by attach and assess |
 | `attach-exit-code`, `output-dir` | Assess |
 | `input-bundle` | Offline |
 | `api-path`, `timeout` | Live phases; defaults `/bootui/api` and 60 seconds |
 
-`report-dir` points to the fresh report directory, including a fallback directory on failure.
-`exit-code` preserves the CLI result: `0` PASS, `3` VIOLATION, or `1` NOT_ASSESSED/error. It is unset for `prepare-cli`.
+`report-dir` points to the fresh report directory, including a fallback directory on failure when one can be produced.
+An early setup failure can leave it unset.
+`exit-code` reports the assessment result: `0` PASS, `3` VIOLATION, or `1` NOT_ASSESSED/error. It is unset for
+`prepare-cli`.
 The composite Action returns a failing shell result for both `1` and `3`; do not confuse its shell exit with the
-`exit-code` output.
+`exit-code` output. In `run`, a failed test command or report upload also fails the Action even when the validated
+assessment's `exit-code` is `0`; an invalid report makes the assessment result `1`.
 
 ## Reports and failures
 
 An assessment writes `bundle.json`, `summary.md`, and `junit.xml`. The Action adds the Markdown summary to the GitHub
-job summary. Artifact upload remains the caller's responsibility. Uploading JUnit XML alone does not create a native
-GitHub test-results dashboard.
+job summary. The default `run` phase uploads only those bounded reports; the advanced phases leave artifact upload to
+the caller. Uploading JUnit XML alone does not create a native GitHub test-results dashboard.
 
 If attachment failed, pass its original result to assess. Assessment then avoids scans and stale witnesses and writes
 a minimal `ATTACH_FAILED` report. CLI setup/report failures use a separate fresh `<output-dir>.action-error` directory,
 never overwrite existing evidence, and remain failures. Use the Action's returned `report-dir` when uploading.
 
-The example workflows let the workload continue after attach refusal, but do not use `continue-on-error` on the final
-assessment. A failed workload stays a failed job even if the later assessment passes. Assessment and upload use
-`!cancelled()`; `always()` is reserved for bounded cleanup of processes owned by the job.
+The default `run` phase executes the test command even if CLI setup or attachment fails, but never scans after a failed
+attachment. A failed workload stays a failed job even if the later assessment passes. The Action does not start or
+stop the caller's application. Assessment and upload use `!cancelled()`; `always()` is reserved for bounded cleanup
+of processes owned by the job.
 Cancellation or a hard runner timeout can still prevent collection and upload.
 
 ::: details Collection limits and sanitized content

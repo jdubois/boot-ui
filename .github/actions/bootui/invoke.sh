@@ -76,11 +76,15 @@ fi
 export BOOTUI_NO_UPDATE_CHECK=1
 status=0
 java -jar "$BOOTUI_CLI_JAR" "${arguments[@]}" || status=$?
+if [[ "$phase" == assess ]]; then
+  if [[ "$status" == 0 || "$status" == 1 || "$status" == 3 ]] \
+      && bash "$(dirname "${BASH_SOURCE[0]}")/validate-report.sh" "$output_dir"; then
+    echo "summary-fresh=true" >> "$GITHUB_OUTPUT"
+    echo "report-dir=$output_dir" >> "$GITHUB_OUTPUT"
+  else
+    status=1
+  fi
+fi
 echo "exit-code=$status" >> "$GITHUB_OUTPUT"
 write_offline_summary "$status"
-if [[ "$phase" == assess && ( "$status" == 0 || "$status" == 1 || "$status" == 3 ) \
-      && -f "$output_dir/bundle.json" && -f "$output_dir/summary.md" && -f "$output_dir/junit.xml" ]]; then
-  echo "summary-fresh=true" >> "$GITHUB_OUTPUT"
-  echo "report-dir=$output_dir" >> "$GITHUB_OUTPUT"
-fi
 exit 0

@@ -11,9 +11,19 @@ fail() {
 version="${BOOTUI_VERSION:-}"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "bootui-version must be a stable major.minor.patch version."
 [[ -n "${RUNNER_TEMP:-}" && "$RUNNER_TEMP" == /* ]] || fail "RUNNER_TEMP must be an absolute path."
+[[ "$RUNNER_TEMP" != *$'\n'* && "$RUNNER_TEMP" != *$'\r'* ]] \
+  || fail "RUNNER_TEMP must not contain a newline."
 for command in curl gpg java; do
   command -v "$command" >/dev/null 2>&1 || fail "Required command is unavailable: $command."
 done
+
+keyring_alias=""
+temporary_directory=""
+cleanup() {
+  [[ -z "$temporary_directory" ]] || rm -rf -- "$temporary_directory"
+  [[ -z "$keyring_alias" ]] || rm -rf -- "$keyring_alias"
+}
+trap cleanup EXIT
 
 readonly cli_directory="$RUNNER_TEMP/bootui-cli/$version"
 readonly keyring_directory="$RUNNER_TEMP/bootui-cli/gnupg"
@@ -22,7 +32,15 @@ readonly cli_signature="$cli_jar.asc"
 readonly release_key="$cli_directory/bootui-release-key.asc"
 mkdir -p "$cli_directory" "$keyring_directory"
 chmod 700 "$keyring_directory"
-export GNUPGHOME="$keyring_directory"
+keyring_bytes="$(printf '%s' "$keyring_directory" | wc -c)"
+if (( keyring_bytes > 70 )); then
+  # GPG agent sockets have a short Unix-domain path limit, even on long runner workspaces.
+  keyring_alias="$(mktemp -d /tmp/bootui-gnupg.XXXXXXXX)"
+  ln -s "$keyring_directory" "$keyring_alias/keyring"
+  export GNUPGHOME="$keyring_alias/keyring"
+else
+  export GNUPGHOME="$keyring_directory"
+fi
 
 if ! gpg --batch --list-keys "$RELEASE_KEY_FINGERPRINT" >/dev/null 2>&1; then
   curl --fail --silent --show-error --location --max-redirs 3 --retry 3 --connect-timeout 10 --max-time 60 --retry-max-time 180 \
@@ -43,7 +61,6 @@ verify_signature() {
 
 if [[ ! -f "$cli_jar" || ! -f "$cli_signature" ]]; then
   temporary_directory="$(mktemp -d "$RUNNER_TEMP/bootui-cli-download.XXXXXX")"
-  trap 'rm -rf -- "$temporary_directory"' EXIT
   artifact_base="https://repo.maven.apache.org/maven2/com/julien-dubois/bootui/bootui-cli/$version/bootui-cli-$version-all.jar"
   curl --fail --silent --show-error --location --max-redirs 3 --retry 3 --connect-timeout 10 --max-time 60 --retry-max-time 180 \
     --output "$temporary_directory/bootui-cli.jar" "$artifact_base"
@@ -60,4 +77,5 @@ fi
 verify_signature
 
 echo "BOOTUI_CLI_JAR=$cli_jar" >> "$GITHUB_ENV"
+echo "cli-jar=$cli_jar" >> "$GITHUB_OUTPUT"
 echo "Verified bootui-cli $version against the pinned BootUI release signing key."

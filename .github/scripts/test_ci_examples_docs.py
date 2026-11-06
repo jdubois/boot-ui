@@ -79,11 +79,42 @@ class CiExampleDocumentationTests(unittest.TestCase):
             SOURCE_ROOT / "examples/ci", self.root / "examples/ci", dirs_exist_ok=True,
             ignore=shutil.ignore_patterns("target", "__pycache__", ".m2"),
         )
-        self.record(available=True, version="2.3.1")
-        examples.synchronize(self.root, check=False)
-        for path in examples.DOCUMENTS:
-            with self.subTest(path=path):
-                self.assertNotIn("UNRELEASED", (self.root / path).read_text(encoding="utf-8"))
+        for version, action_ref in (("2.3.1", "1" * 40), ("2.4.0", "2" * 40)):
+            self.record(available=True, version=version, actionRef=action_ref)
+            examples.synchronize(self.root, check=False)
+            for path in examples.DOCUMENTS:
+                with self.subTest(version=version, path=path):
+                    self.assertNotIn("UNRELEASED", (self.root / path).read_text(encoding="utf-8"))
+            guide = (self.root / "docs/CI.md").read_text(encoding="utf-8")
+            self.assertIn(f"bootui-version: '{version}'", guide)
+            self.assertIn(f"uses: jdubois/boot-ui/.github/actions/bootui@{action_ref}", guide)
+
+    def test_primary_guide_starts_with_the_simple_action_not_a_policy_or_sample_project(self):
+        guide = (SOURCE_ROOT / "docs/CI.md").read_text(encoding="utf-8")
+        quick_start = guide.split("## Quick start: GitHub Actions\n", 1)[1].split("### Results\n", 1)[0]
+        self.assertIn("bootui-ci:source:snippets/action.yml.template:start", quick_start)
+        self.assertIn("You do not need a policy file", quick_start)
+        self.assertIn("tests that exercise", quick_start)
+        self.assertIn("running application", quick_start)
+        self.assertIn("SERVER_ADDRESS=127.0.0.1", quick_start)
+        self.assertIn("QUARKUS_HTTP_HOST=127.0.0.1", quick_start)
+        self.assertIn("BOOTUI_CLI_ENABLED=true", quick_start)
+        self.assertIn("BOOTUI_EXPOSE_VALUES=METADATA_ONLY", quick_start)
+        self.assertIn("BOOTUI_ENABLED=ON", quick_start)
+        self.assertIn("@SpringBootTest", guide)
+        self.assertIn("@QuarkusTest", guide)
+        self.assertIn("[framework-managed test recipe](ci/framework-tests.md)", guide)
+        self.assertNotIn("bootui-ci:source:spring/pom.xml.template", guide)
+        self.assertNotIn("bootui-ci:source:workflows/external.yml.template", guide)
+        self.assertLess(len(guide.splitlines()), 150)
+        source = (SOURCE_ROOT / "examples/ci/snippets/action.yml.template").read_text(encoding="utf-8")
+        self.assertIn("bootui-version: '@BOOTUI_VERSION@'", source)
+        self.assertIn("test-command:", source)
+        self.assertNotIn("policy:", source)
+        self.assertNotIn("phase:", source)
+
+    def test_checked_in_generated_regions_are_current(self):
+        examples.synchronize(SOURCE_ROOT, check=True)
 
     def test_ci_navigation_check_runs_in_both_documentation_workflows(self):
         command = "node --test docs/.vuepress/workshop.test.mjs docs/.vuepress/ci.test.mjs"

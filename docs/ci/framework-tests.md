@@ -22,7 +22,7 @@ Use the test framework's actual random port, injected through `@LocalServerPort`
 The complete example uses a fixed expected window ID and finishes collection within the live application's test.
 The same pattern applies to MVC and WebFlux; the selected web starter determines the stack.
 
-Use the [starter kit](../CI.md#quick-start-github-actions), select its framework workflow, and keep the scripts and
+Use the [starter kit](../CI.md#try-a-complete-sample), select its framework workflow, and keep the scripts and
 project together. The Maven configuration includes `bootui-cli` as an ordinary test-scoped dependency only in the
 diagnostic profile. It does not add the shaded CLI jar to the test classpath.
 

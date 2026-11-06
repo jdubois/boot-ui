@@ -81,9 +81,9 @@ installer, and JBang works too — see the
 
 ## Use in CI
 
-BootUI can assess the application exercised by your integration tests and fail the job when a selected advisor meets
-your policy's threshold. The application stays on the same runner, bound to loopback; BootUI is not a remote or
-production scanner. Start with the [GitHub Actions quick start](docs/CI.md).
+Add the BootUI Action around tests that exercise your running application; it reports Architecture findings in the
+job summary and fails on HIGH or CRITICAL findings. The application stays on the same runner, bound to loopback;
+BootUI is not a remote or production scanner. Start with the [GitHub Actions quick start](docs/CI.md).
 
 <!-- bootui-ci:release:start -->
 > **CI support is not yet published.** Published BootUI CLI 2.3.0 does not contain these CI commands. The examples below are prepared for the first signed CI-capable release; `UNRELEASED` is not an installable version. Do not substitute the old published CLI.

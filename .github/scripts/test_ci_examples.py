@@ -51,7 +51,9 @@ class CiExampleTests(unittest.TestCase):
 
     def recipe(self, **overrides):
         with patch.dict(os.environ, self.environment | overrides, clear=True):
-            with patch.object(support, "run", side_effect=[(0, "bootui 2.4.0\n"), (0, "CI help\n")]):
+            with patch.object(
+                support, "run", side_effect=[(0, "bootui 2.4.0\n"), (0, "Usage: bootui ci [-hV] [COMMAND]\n")]
+            ):
                 return support.Recipe("spring")
 
     def test_fresh_state_and_dismissals_are_private_and_not_reused(self):
@@ -73,10 +75,12 @@ class CiExampleTests(unittest.TestCase):
         self.assertFalse((self.root / "state").exists())
 
     def test_old_cli_without_ci_commands_is_not_a_fallback(self):
-        with patch.dict(os.environ, self.environment, clear=True):
-            with patch.object(support, "run", side_effect=[(0, "bootui 2.4.0\n"), (2, "unknown command")]):
-                with self.assertRaisesRegex(ValueError, "no CI commands"):
-                    support.Recipe("spring")
+        for help_result in ((2, "unknown command"), (0, "Usage: bootui [-hV] [COMMAND]\n")):
+            with self.subTest(help_result=help_result), patch.dict(os.environ, self.environment, clear=True):
+                with patch.object(support, "run", side_effect=[(0, "bootui 2.4.0\n"), help_result]):
+                    with self.assertRaisesRegex(ValueError, "no CI commands"):
+                        support.Recipe("spring")
+        self.assertFalse((self.root / "state").exists())
 
     def test_watched_and_relative_state_paths_are_rejected(self):
         for value in ("relative-state", str(EXAMPLES / "quarkus/target/state")):

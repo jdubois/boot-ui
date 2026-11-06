@@ -1,0 +1,5 @@
+- name: BootUI diagnostics
+  uses: jdubois/boot-ui/.github/actions/bootui@@BOOTUI_ACTION_REF@ # v@BOOTUI_VERSION@ CLI interface; independent Action commit
+  with:
+    bootui-version: '@BOOTUI_VERSION@'
+    test-command: ./mvnw verify

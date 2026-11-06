@@ -76,8 +76,9 @@ class Recipe:
         cli_env = dict(os.environ, BOOTUI_NO_UPDATE_CHECK="1")
         code, output = run(self.cli + ["--version"], cwd=EXAMPLES, env=cli_env, timeout=30)
         require(code == 0 and output.strip() == "bootui " + self.version, "CLI and Maven BootUI versions must match")
-        code, _ = run(self.cli + ["ci", "--help"], cwd=EXAMPLES, env=cli_env, timeout=30)
-        require(code == 0, "This CLI has no CI commands; published 2.3.0 is not CI-capable")
+        code, help_output = run(self.cli + ["ci", "--help"], cwd=EXAMPLES, env=cli_env, timeout=30)
+        require(code == 0 and re.search(r"(?m)^Usage: bootui ci(?:\s|$)", help_output),
+                "This CLI has no CI commands; published 2.3.0 is not CI-capable")
 
         raw_root = os.environ.get("BOOTUI_CI_ROOT", "")
         self.root = Path(raw_root)

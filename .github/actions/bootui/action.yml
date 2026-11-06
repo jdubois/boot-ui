@@ -2,11 +2,15 @@ name: BootUI CI assessment
 description: Run live-target assessments and offline saved-bundle checks.
 inputs:
   phase:
-    description: Verify the CLI for later steps, run a live assessment, or validate a saved bundle offline.
-    required: true
+    description: Run the workload and assess it, or use prepare-cli, attach, assess, or offline for advanced integration.
+    required: false
+    default: run
   bootui-version:
     description: Published stable BootUI CLI version containing the ci commands.
     required: true
+  test-command:
+    description: Shell command that exercises the already-running application; required for the default run phase.
+    required: false
   url:
     description: Explicit HTTP URL using a literal loopback address and port.
     required: false
@@ -14,8 +18,12 @@ inputs:
     description: Expected ID for offline validation or the attach and assess phases.
     required: false
   policy:
-    description: Path to the strict JSON policy file.
+    description: Optional strict JSON policy for the default run phase; required by the advanced phases.
     required: false
+  upload-artifact:
+    description: Upload the sanitized reports in the default run phase.
+    required: false
+    default: "true"
   witness:
     description: Path to the attach witness, outside cleanable build output.
     required: false
@@ -38,23 +46,119 @@ inputs:
     default: "60"
 outputs:
   exit-code:
-    description: CLI aggregate result; unset for prepare-cli (0 pass, 1 not assessed/error, 3 policy violation).
-    value: ${{ steps.report.outputs.exit-code || steps.invoke.outputs.exit-code }}
+    description: Assessment result; unset for prepare-cli (0 pass, 1 not assessed/error, 3 policy violation).
+    value: ${{ steps.quick_gate.outputs.exit-code || steps.report.outputs.exit-code || steps.invoke.outputs.exit-code }}
   report-dir:
-    description: Fresh directory containing reports, including fallback reports on action failure.
-    value: ${{ steps.report.outputs.report-dir || steps.invoke.outputs.report-dir }}
+    description: Fresh directory containing reports when available, including fallback reports on action failure.
+    value: ${{ steps.quick_validate.outputs.report-dir || steps.report.outputs.report-dir || steps.invoke.outputs.report-dir }}
 runs:
   using: composite
   steps:
+    - id: quick_setup
+      if: ${{ inputs.phase == 'run' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        BOOTUI_TEST_COMMAND: ${{ inputs.test-command }}
+        BOOTUI_ASSESSMENT_ID: ${{ inputs.assessment-id }}
+        BOOTUI_UPLOAD_ARTIFACT: ${{ inputs.upload-artifact }}
+      run: bash "$ACTION_PATH/quick-setup.sh"
     - id: prepare
-      if: ${{ inputs.phase != 'assess' || inputs.attach-exit-code == '0' }}
+      if: ${{ (inputs.phase != 'run' || steps.quick_setup.outcome == 'success') && (inputs.phase != 'assess' || inputs.attach-exit-code == '0') }}
+      continue-on-error: ${{ inputs.phase == 'run' }}
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
         BOOTUI_VERSION: ${{ inputs.bootui-version }}
       run: bash "$ACTION_PATH/prepare-cli.sh"
+    - id: quick_attach
+      if: ${{ !cancelled() && inputs.phase == 'run' && steps.quick_setup.outcome == 'success' && steps.prepare.outcome == 'success' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        BOOTUI_CLI_JAR: ${{ steps.prepare.outputs.cli-jar }}
+        BOOTUI_PHASE: attach
+        BOOTUI_URL: ${{ inputs.url || 'http://127.0.0.1:8080' }}
+        BOOTUI_ASSESSMENT_ID: ${{ steps.quick_setup.outputs.assessment-id }}
+        BOOTUI_POLICY: ${{ inputs.policy || format('{0}/default-policy.json', github.action_path) }}
+        BOOTUI_WITNESS: ${{ steps.quick_setup.outputs.witness }}
+        BOOTUI_API_PATH: ${{ inputs.api-path }}
+        BOOTUI_TIMEOUT: ${{ inputs.timeout }}
+      run: bash "$ACTION_PATH/invoke.sh"
+    - id: quick_workload
+      if: ${{ !cancelled() && inputs.phase == 'run' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        BOOTUI_TEST_COMMAND: ${{ inputs.test-command }}
+      run: bash "$ACTION_PATH/quick-workload.sh"
+    - id: quick_assess
+      if: ${{ !cancelled() && inputs.phase == 'run' && steps.quick_setup.outcome == 'success' && steps.prepare.outcome == 'success' && steps.quick_attach.outputs.exit-code == '0' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        BOOTUI_CLI_JAR: ${{ steps.prepare.outputs.cli-jar }}
+        BOOTUI_PHASE: assess
+        BOOTUI_URL: ${{ inputs.url || 'http://127.0.0.1:8080' }}
+        BOOTUI_ASSESSMENT_ID: ${{ steps.quick_setup.outputs.assessment-id }}
+        BOOTUI_POLICY: ${{ inputs.policy || format('{0}/default-policy.json', github.action_path) }}
+        BOOTUI_WITNESS: ${{ steps.quick_setup.outputs.witness }}
+        BOOTUI_OUTPUT_DIR: ${{ steps.quick_setup.outputs.report-dir }}
+        BOOTUI_ATTACH_EXIT_CODE: ${{ steps.quick_attach.outputs.exit-code }}
+        BOOTUI_API_PATH: ${{ inputs.api-path }}
+        BOOTUI_TIMEOUT: ${{ inputs.timeout }}
+      run: bash "$ACTION_PATH/invoke.sh"
+    - id: quick_report
+      if: ${{ !cancelled() && inputs.phase == 'run' && steps.quick_setup.outcome == 'success' && steps.quick_assess.outputs.summary-fresh != 'true' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        BOOTUI_OUTPUT_DIR: ${{ steps.quick_setup.outputs.report-dir }}
+        BOOTUI_ASSESSMENT_ID: ${{ steps.quick_setup.outputs.assessment-id }}
+        BOOTUI_ATTACH_EXIT_CODE: ${{ steps.prepare.outcome == 'success' && (steps.quick_attach.outputs.exit-code || '1') || '0' }}
+        BOOTUI_PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+      run: bash "$ACTION_PATH/report-error.sh"
+    - id: quick_validate
+      if: ${{ !cancelled() && inputs.phase == 'run' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        BOOTUI_REPORT_DIR: ${{ steps.quick_report.outputs.report-dir || steps.quick_assess.outputs.report-dir }}
+      run: bash "$ACTION_PATH/quick-report.sh"
+    - id: quick_upload
+      if: ${{ !cancelled() && inputs.phase == 'run' && inputs.upload-artifact == 'true' && steps.quick_validate.outcome == 'success' }}
+      continue-on-error: true
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ steps.quick_setup.outputs.artifact-name }}
+        path: |
+          ${{ steps.quick_validate.outputs.report-dir }}/bundle.json
+          ${{ steps.quick_validate.outputs.report-dir }}/summary.md
+          ${{ steps.quick_validate.outputs.report-dir }}/junit.xml
+        if-no-files-found: error
+        retention-days: 7
+    - id: quick_gate
+      if: ${{ !cancelled() && inputs.phase == 'run' }}
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        BOOTUI_SETUP_OUTCOME: ${{ steps.quick_setup.outcome }}
+        BOOTUI_PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+        BOOTUI_ATTACH_EXIT_CODE: ${{ steps.quick_attach.outputs.exit-code }}
+        BOOTUI_WORKLOAD_OUTCOME: ${{ steps.quick_workload.outcome }}
+        BOOTUI_ASSESS_EXIT_CODE: ${{ steps.quick_report.outputs.exit-code || steps.quick_assess.outputs.exit-code }}
+        BOOTUI_REPORT_OUTCOME: ${{ steps.quick_validate.outcome }}
+        BOOTUI_UPLOAD_ARTIFACT: ${{ inputs.upload-artifact }}
+        BOOTUI_UPLOAD_OUTCOME: ${{ steps.quick_upload.outcome }}
+      run: bash "$ACTION_PATH/quick-gate.sh"
     - id: invoke
-      if: ${{ !cancelled() && inputs.phase != 'prepare-cli' && steps.prepare.outcome == 'success' }}
+      if: ${{ !cancelled() && inputs.phase != 'run' && inputs.phase != 'prepare-cli' && steps.prepare.outcome == 'success' }}
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
@@ -91,7 +195,7 @@ runs:
             'No valid assessment summary was produced. Check the action step output and preserve any files that were written.' \
             >> "$GITHUB_STEP_SUMMARY"
         fi
-    - if: ${{ !cancelled() && inputs.phase != 'prepare-cli' }}
+    - if: ${{ !cancelled() && inputs.phase != 'run' && inputs.phase != 'prepare-cli' }}
       shell: bash
       env:
         BOOTUI_ACTION_EXIT_CODE: ${{ steps.invoke.outputs.exit-code }}

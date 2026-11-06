@@ -589,7 +589,7 @@ messages under `METADATA_ONLY`.
 > **CI support is not yet published.** Published BootUI CLI 2.3.0 does not contain these CI commands. The examples below are prepared for the first signed CI-capable release; `UNRELEASED` is not an installable version. Do not substitute the old published CLI.
 <!-- bootui-ci:release:end -->
 
-For the supported composite Action and a full caller-owned GitHub Actions example, see [BootUI in CI](CI.md).
+For the simple GitHub Action and complete examples, see [BootUI in CI](CI.md).
 
 The `bootui ci` commands are client-side orchestration, not MCP tools and not part of the generated command manifest.
 `attach` and `assess` are intentionally narrower than ordinary CLI
