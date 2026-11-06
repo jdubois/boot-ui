@@ -16,9 +16,17 @@ elif [[ "${BOOTUI_PREPARE_OUTCOME:-}" != success ]]; then
   echo "::error::BootUI CLI setup failed." >&2
   assessment=1
   failed=1
+elif [[ "${BOOTUI_START_OUTCOME:-success}" != success ]]; then
+  echo "::error::BootUI could not start the application." >&2
+  assessment=1
+  failed=1
 elif [[ "${BOOTUI_ATTACH_EXIT_CODE:-}" != 0 ]]; then
   echo "::error::BootUI could not attach to the application." >&2
   assessment=1
+  failed=1
+fi
+if [[ "${BOOTUI_STOP_OUTCOME:-skipped}" != success && "${BOOTUI_STOP_OUTCOME:-skipped}" != skipped ]]; then
+  echo "::error::BootUI could not stop the application it started." >&2
   failed=1
 fi
 if [[ "${BOOTUI_WORKLOAD_OUTCOME:-}" != success ]]; then

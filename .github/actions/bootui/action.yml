@@ -6,11 +6,21 @@ inputs:
     required: false
     default: run
   bootui-version:
-    description: Published stable BootUI CLI version containing the ci commands.
-    required: true
-  test-command:
-    description: Shell command that exercises the already-running application; required for the default run phase.
+    description: Published stable BootUI CLI version containing the ci commands; auto uses the version declared by the application.
     required: false
+    default: auto
+  test-command:
+    description: Optional shell command that exercises the started application; none runs no workload, while auto selects Maven verify or Gradle check.
+    required: false
+    default: none
+  app-command:
+    description: Foreground command that starts the application; auto detects Spring Boot or Quarkus, and none uses an externally started app.
+    required: false
+    default: auto
+  startup-timeout:
+    description: Maximum seconds to wait for the started application's BootUI CLI endpoint.
+    required: false
+    default: "120"
   url:
     description: Explicit HTTP URL using a literal loopback address and port.
     required: false
@@ -61,6 +71,8 @@ runs:
       env:
         ACTION_PATH: ${{ github.action_path }}
         BOOTUI_TEST_COMMAND: ${{ inputs.test-command }}
+        BOOTUI_APP_COMMAND: ${{ inputs.app-command }}
+        BOOTUI_STARTUP_TIMEOUT: ${{ inputs.startup-timeout }}
         BOOTUI_ASSESSMENT_ID: ${{ inputs.assessment-id }}
         BOOTUI_UPLOAD_ARTIFACT: ${{ inputs.upload-artifact }}
       run: bash "$ACTION_PATH/quick-setup.sh"
@@ -72,8 +84,20 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         BOOTUI_VERSION: ${{ inputs.bootui-version }}
       run: bash "$ACTION_PATH/prepare-cli.sh"
-    - id: quick_attach
+    - id: quick_start
       if: ${{ !cancelled() && inputs.phase == 'run' && steps.quick_setup.outcome == 'success' && steps.prepare.outcome == 'success' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        BOOTUI_STATE_DIR: ${{ steps.quick_setup.outputs.state-dir }}
+        BOOTUI_APP_COMMAND: ${{ inputs.app-command }}
+        BOOTUI_URL: ${{ inputs.url || 'http://127.0.0.1:8080' }}
+        BOOTUI_API_PATH: ${{ inputs.api-path }}
+        BOOTUI_STARTUP_TIMEOUT: ${{ inputs.startup-timeout }}
+      run: bash "$ACTION_PATH/quick-start.sh"
+    - id: quick_attach
+      if: ${{ !cancelled() && inputs.phase == 'run' && steps.quick_setup.outcome == 'success' && steps.prepare.outcome == 'success' && steps.quick_start.outcome == 'success' }}
       continue-on-error: true
       shell: bash
       env:
@@ -122,7 +146,17 @@ runs:
         BOOTUI_ASSESSMENT_ID: ${{ steps.quick_setup.outputs.assessment-id }}
         BOOTUI_ATTACH_EXIT_CODE: ${{ steps.prepare.outcome == 'success' && (steps.quick_attach.outputs.exit-code || '1') || '0' }}
         BOOTUI_PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+        BOOTUI_START_OUTCOME: ${{ steps.quick_start.outcome }}
       run: bash "$ACTION_PATH/report-error.sh"
+    - id: quick_stop
+      if: ${{ always() && inputs.phase == 'run' && steps.quick_start.outputs.pid != '' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        BOOTUI_APP_PID: ${{ steps.quick_start.outputs.pid }}
+        BOOTUI_APP_URL: ${{ inputs.url || 'http://127.0.0.1:8080' }}
+      run: bash "$ACTION_PATH/quick-stop.sh"
     - id: quick_validate
       if: ${{ !cancelled() && inputs.phase == 'run' }}
       continue-on-error: true
@@ -150,6 +184,8 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         BOOTUI_SETUP_OUTCOME: ${{ steps.quick_setup.outcome }}
         BOOTUI_PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+        BOOTUI_START_OUTCOME: ${{ steps.quick_start.outcome }}
+        BOOTUI_STOP_OUTCOME: ${{ steps.quick_stop.outcome }}
         BOOTUI_ATTACH_EXIT_CODE: ${{ steps.quick_attach.outputs.exit-code }}
         BOOTUI_WORKLOAD_OUTCOME: ${{ steps.quick_workload.outcome }}
         BOOTUI_ASSESS_EXIT_CODE: ${{ steps.quick_report.outputs.exit-code || steps.quick_assess.outputs.exit-code }}

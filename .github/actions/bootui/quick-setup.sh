@@ -6,8 +6,13 @@ fail() {
   exit 1
 }
 
-test_command="${BOOTUI_TEST_COMMAND:-}"
-[[ -n "${test_command//[[:space:]]/}" ]] || fail "test-command is required for the default run phase."
+test_command="${BOOTUI_TEST_COMMAND:-none}"
+[[ -n "${test_command//[[:space:]]/}" ]] || fail "test-command must be none, auto, or a shell command."
+app_command="${BOOTUI_APP_COMMAND:-auto}"
+[[ -n "${app_command//[[:space:]]/}" ]] || fail "app-command must be auto, none, or a shell command."
+startup_timeout="${BOOTUI_STARTUP_TIMEOUT:-120}"
+[[ "$startup_timeout" =~ ^[1-9][0-9]*$ && "$startup_timeout" -le 600 ]] \
+  || fail "startup-timeout must be between 1 and 600 seconds."
 [[ "${BOOTUI_UPLOAD_ARTIFACT:-}" == true || "${BOOTUI_UPLOAD_ARTIFACT:-}" == false ]] \
   || fail "upload-artifact must be true or false."
 [[ -n "${RUNNER_TEMP:-}" && "$RUNNER_TEMP" == /* && -d "$RUNNER_TEMP" ]] \
@@ -26,6 +31,7 @@ assessment_id="${BOOTUI_ASSESSMENT_ID:-gha-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_
 
 {
   printf 'assessment-id=%s\n' "$assessment_id"
+  printf 'state-dir=%s\n' "$state"
   printf 'witness=%s/witness.json\n' "$state"
   printf 'report-dir=%s/assessment\n' "$state"
   printf 'artifact-name=bootui-%s\n' "$suffix"

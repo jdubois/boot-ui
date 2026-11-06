@@ -186,7 +186,7 @@ class CiBundleEvaluatorTests {
     }
 
     @Test
-    void rejectsQuarkusBundlesThatSkipAnOptionalSpringAdvisor() throws Exception {
+    void acceptsQuarkusBundlesThatSkipAnOptionalSpringAdvisor() throws Exception {
         Files.writeString(policy, """
                 {"schemaVersion":1,"advisors":{
                   "architecture":{"required":true,"failOn":"high"},
@@ -203,7 +203,7 @@ class CiBundleEvaluatorTests {
                 "status",
                 "SKIPPED",
                 "reason",
-                "UNAVAILABLE",
+                "FRAMEWORK_UNAVAILABLE",
                 "findingCount",
                 0,
                 "rulesSkipped",
@@ -225,7 +225,7 @@ class CiBundleEvaluatorTests {
                 "advisors",
                 JsonValue.array(List.of(architecture, skippedSpring)));
 
-        assertThat(check(bundle, "test-assessment")).isEqualTo(1);
+        assertThat(check(bundle, "test-assessment")).isZero();
     }
 
     @Test

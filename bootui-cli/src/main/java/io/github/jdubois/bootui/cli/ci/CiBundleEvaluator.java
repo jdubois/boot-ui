@@ -99,7 +99,28 @@ public final class CiBundleEvaluator {
             "findings");
     private static final Set<String> FINDING_KEYS = Set.of("ruleId", "severity", "count");
     private static final Set<String> ERROR_KEYS = Set.of("code");
-    private static final Set<String> OPTIONAL_SKIP_REASONS = Set.of("UNAVAILABLE", "PANEL_DISABLED", "PANEL_READ_ONLY");
+    private static final Set<String> OPTIONAL_SKIP_REASONS = Set.of(
+            "UNAVAILABLE",
+            "PANEL_DISABLED",
+            "PANEL_READ_ONLY",
+            "FRAMEWORK_UNAVAILABLE",
+            "REQUEST_FAILED",
+            "SCAN_FAILED",
+            "REPORT_FAILED",
+            "SCAN_REPORT_MISMATCH",
+            "EVIDENCE_UNEVALUABLE",
+            "ZERO_SUBJECTS",
+            "SCAN_INCOMPLETE",
+            "INVALID_REPORT",
+            "ADVISOR_ERRORS",
+            "DETAILS_INCOMPLETE",
+            "SUPPRESSION_PRESENT",
+            "COUNTS_INCONSISTENT",
+            "DETAIL_BUDGET_EXCEEDED",
+            "DETAIL_PAGE_FAILED",
+            "DETAIL_PAGE_INCONSISTENT",
+            "DETAIL_PAGE_NO_PROGRESS",
+            "UNKNOWN_SEVERITY");
 
     private CiBundleEvaluator() {}
 
@@ -174,6 +195,12 @@ public final class CiBundleEvaluator {
             }
             CiPolicy.Selection selection = policy.advisors().get(name);
             String status = advisor.get("status").asString(null);
+            if (!framework.supports(name)
+                    && (!"SKIPPED".equals(status)
+                            || !"FRAMEWORK_UNAVAILABLE"
+                                    .equals(advisor.get("reason").asString(null)))) {
+                throw invalid();
+            }
             if ("SKIPPED".equals(status)) {
                 validateSkipped(advisor, selection);
             } else {

@@ -533,7 +533,7 @@ class CiAssessmentRunnerTests {
     }
 
     @Test
-    void rejectsTheQuarkusApplicationAdvisorBeforeTheWorkload() throws Exception {
+    void skipsTheOptionalQuarkusApplicationAdvisorBeforeTheWorkload() throws Exception {
         frameworkName = "Quarkus";
         startServer();
         Path policy = writePolicyWithOptionalSpringAdvisor();
@@ -559,16 +559,51 @@ class CiAssessmentRunnerTests {
                 new PrintWriter(cliOutput, true),
                 new PrintWriter(cliOutput, true));
 
-        assertThat(exitCode).isEqualTo(1);
-        assertThat(cliOutput.toString()).contains("UNSUPPORTED_ADVISOR_FOR_FRAMEWORK");
-        assertThat(Files.readString(witness)).contains("UNSUPPORTED_ADVISOR_FOR_FRAMEWORK");
+        assertThat(exitCode).isZero();
+        assertThat(cliOutput.toString()).doesNotContain("UNSUPPORTED_ADVISOR_FOR_FRAMEWORK");
+        assertThat(Files.readString(witness)).contains("\"preflight\": \"FRAMEWORK_UNAVAILABLE\"");
         assertThat(overviewRequests).isEqualTo(1);
         assertThat(detailRequests).isZero();
 
-        assertThat(runner(policy, witness, output).assess()).isEqualTo(1);
-        assertThat(Files.readString(output.resolve("bundle.json"))).contains("UNSUPPORTED_ADVISOR_FOR_FRAMEWORK");
-        assertThat(overviewRequests).isEqualTo(1);
+        int assessmentExit = runner(policy, witness, output).assess();
+        assertThat(assessmentExit)
+                .withFailMessage(() -> {
+                    try {
+                        return Files.readString(output.resolve("bundle.json"));
+                    } catch (IOException e) {
+                        return "bundle unavailable: " + e;
+                    }
+                })
+                .isZero();
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"status\": \"PASS\"", "\"reason\": \"FRAMEWORK_UNAVAILABLE\"");
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isZero();
+        assertThat(overviewRequests).isEqualTo(3);
         assertThat(detailRequests).isZero();
+    }
+
+    @Test
+    void skipsAnUnevaluableOptionalAdvisorButKeepsRequiredFindings() throws Exception {
+        finding = true;
+        springFails = true;
+        startServer();
+        Path policy = writePolicyWithOptionalSpringAdvisor();
+        Path witness = temp.resolve("optional-witness.json");
+        Path output = temp.resolve("optional-assessment");
+        CiAssessmentRunner runner = runner(policy, witness, output);
+        assertThat(runner.attach()).isZero();
+
+        assertThat(runner.assess()).isEqualTo(3);
+        String bundle = Files.readString(output.resolve("bundle.json"));
+        assertThat(bundle)
+                .contains("\"status\": \"VIOLATION\"", "\"reason\": \"SCAN_FAILED\"", "\"name\": \"architecture\"");
+        assertThat(Files.readString(output.resolve("summary.md")))
+                .contains("| architecture | ARCH-001 | HIGH | 1 | yes |", "| spring | false | SKIPPED |");
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isEqualTo(3);
     }
 
     @Test
@@ -1528,7 +1563,7 @@ class CiAssessmentRunnerTests {
         Path policy = temp.resolve("optional-spring-policy.json");
         Files.writeString(policy, """
                 {"schemaVersion":1,"advisors":{
-                  "hibernate":{"required":true,"failOn":"high"},
+                  "architecture":{"required":true,"failOn":"high"},
                   "spring":{"required":false,"failOn":"high"}
                 }}
                 """);

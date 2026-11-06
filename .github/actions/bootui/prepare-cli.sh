@@ -8,14 +8,15 @@ fail() {
   exit 1
 }
 
-version="${BOOTUI_VERSION:-}"
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "bootui-version must be a stable major.minor.patch version."
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 [[ -n "${RUNNER_TEMP:-}" && "$RUNNER_TEMP" == /* ]] || fail "RUNNER_TEMP must be an absolute path."
 [[ "$RUNNER_TEMP" != *$'\n'* && "$RUNNER_TEMP" != *$'\r'* ]] \
   || fail "RUNNER_TEMP must not contain a newline."
-for command in curl gpg java; do
+for command in curl gpg java python3; do
   command -v "$command" >/dev/null 2>&1 || fail "Required command is unavailable: $command."
 done
+version="$(python3 "$script_dir/resolve-version.py" "${BOOTUI_VERSION:-auto}")"
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "bootui-version must resolve to a stable major.minor.patch version."
 
 keyring_alias=""
 temporary_directory=""
@@ -75,6 +76,11 @@ if [[ ! -f "$cli_jar" || ! -f "$cli_signature" ]]; then
   mv "$temporary_directory/bootui-cli.jar.asc" "$cli_signature"
 fi
 verify_signature
+
+ci_help="$(java -jar "$cli_jar" ci --help 2>&1)" \
+  || fail "The selected BootUI CLI cannot run the CI commands."
+grep -Eq '^Usage: bootui ci([[:space:]]|$)' <<<"$ci_help" \
+  || fail "The selected BootUI release does not contain the CI command interface; select a CI-capable release."
 
 echo "BOOTUI_CLI_JAR=$cli_jar" >> "$GITHUB_ENV"
 echo "cli-jar=$cli_jar" >> "$GITHUB_OUTPUT"

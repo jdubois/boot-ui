@@ -4,6 +4,26 @@
     "architecture": {
       "required": true,
       "failOn": "high"
+    },
+    "hibernate": {
+      "required": false,
+      "failOn": "high"
+    },
+    "spring": {
+      "required": false,
+      "failOn": "high"
+    },
+    "rest-api": {
+      "required": false,
+      "failOn": "high"
+    },
+    "security": {
+      "required": false,
+      "failOn": "high"
+    },
+    "database-advisor": {
+      "required": false,
+      "failOn": "high"
     }
   }
 }

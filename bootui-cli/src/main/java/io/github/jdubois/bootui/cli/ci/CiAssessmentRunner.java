@@ -214,7 +214,7 @@ public final class CiAssessmentRunner {
                 requireSameIdentity(witness, current);
                 state.context(policy, current);
                 preflight(policy, before, current.framework());
-                List<AdvisorResult> results = collect(policy, before, client, deadline);
+                List<AdvisorResult> results = collect(policy, before, current.framework(), client, deadline);
                 RuntimeContext runtimeContext = collectRuntimeInsights(policy, before, client, deadline);
                 state.runtimeContext(runtimeContext);
                 Identity after = identity(client, deadline);
@@ -278,7 +278,8 @@ public final class CiAssessmentRunner {
         List<JsonValue> outcomes = new ArrayList<>();
         for (CiPolicy.Advisor advisor : policy.orderedAdvisors()) {
             CiPolicy.Selection selection = policy.advisors().get(advisor);
-            String unavailable = unavailability(advisor, catalog);
+            String unavailable =
+                    framework.supports(advisor) ? unavailability(advisor, catalog) : "FRAMEWORK_UNAVAILABLE";
             if (unavailable != null && selection.required()) {
                 throw new AssessmentFailure("REQUIRED_ADVISOR_UNAVAILABLE");
             }
@@ -293,15 +294,24 @@ public final class CiAssessmentRunner {
         return outcomes;
     }
 
-    private List<AdvisorResult> collect(CiPolicy policy, BootUiCatalog catalog, BootUiClient client, long deadline) {
+    private List<AdvisorResult> collect(
+            CiPolicy policy, BootUiCatalog catalog, CiFramework framework, BootUiClient client, long deadline) {
         List<AdvisorResult> output = new ArrayList<>();
-        int remainingDetails = MAX_TOTAL_DETAILS;
-        int remainingPages = MAX_TOTAL_PAGES;
+        DetailBudget budget = new DetailBudget();
         for (CiPolicy.Advisor advisor : policy.orderedAdvisors()) {
             if (System.nanoTime() >= deadline) {
                 throw new AssessmentFailure("ASSESSMENT_BUDGET_EXCEEDED");
             }
             CiPolicy.Selection selection = policy.advisors().get(advisor);
+            if (!framework.supports(advisor)) {
+                if (selection.required()) {
+                    throw new AssessmentFailure("UNSUPPORTED_ADVISOR_FOR_FRAMEWORK");
+                }
+                AdvisorResult skipped = AdvisorResult.skipped(advisor, false, "FRAMEWORK_UNAVAILABLE");
+                output.add(skipped);
+                collected.add(skipped);
+                continue;
+            }
             String unavailable = unavailability(advisor, catalog);
             if (unavailable != null) {
                 if (selection.required()) {
@@ -312,63 +322,80 @@ public final class CiAssessmentRunner {
                 collected.add(skipped);
                 continue;
             }
-            ToolResult scan =
-                    client.invokeBounded(advisor.scanTool(), Map.of(), MAX_RESPONSE_BYTES, remaining(deadline));
-            if (!scan.successful()) {
-                throw new AssessmentFailure("SCAN_FAILED");
+            try {
+                ToolResult scan =
+                        client.invokeBounded(advisor.scanTool(), Map.of(), MAX_RESPONSE_BYTES, remaining(deadline));
+                if (!scan.successful()) {
+                    throw new AssessmentFailure("SCAN_FAILED");
+                }
+                ToolResult reportResult =
+                        client.invokeBounded(advisor.reportTool(), Map.of(), MAX_RESPONSE_BYTES, remaining(deadline));
+                if (!reportResult.successful()) {
+                    throw new AssessmentFailure("REPORT_FAILED");
+                }
+                JsonValue report = reportResult.payload();
+                EvaluatedReport evaluated = evaluateReport(advisor, selection, report);
+                if (!evaluated
+                        .scanId()
+                        .equals(scan.payload()
+                                .get("violationDetails")
+                                .get("scanId")
+                                .asString(null))) {
+                    throw new AssessmentFailure("SCAN_REPORT_MISMATCH");
+                }
+                JsonValue scanSummary = scan.payload();
+                JsonValue scanStatus = scanSummary.get("scan");
+                JsonValue scanEvidence = scanSummary.get("evidence");
+                if (!"SCANNED".equals(scanStatus.get("status").asString(null))
+                        || integer(scanStatus.get("rulesEvaluated")) != integer(report.get("rulesEvaluated"))
+                        || integer(scanStatus.get(advisor.subjectField()))
+                                != integer(report.get(advisor.subjectField()))
+                        || integer(scanStatus.get("violationsFound"))
+                                != evaluated.findings().size()
+                        || integer(scanSummary.get("findingsFound"))
+                                != evaluated.findings().size()
+                        || !scanEvidence.get("usable").isBoolean()
+                        || !scanEvidence.get("usable").asBoolean(false)
+                        || !scanEvidence.get("coverageComplete").isBoolean()
+                        || !scanEvidence.get("coverageComplete").asBoolean(false)
+                        || !scanEvidence.get("limitations").isArray()
+                        || scanEvidence.get("limitations").size() != 0
+                        || !severityCounts(scanSummary.get("severityCounts")).equals(evaluated.severityCounts())) {
+                    throw new AssessmentFailure("SCAN_REPORT_MISMATCH");
+                }
+                PagedFindings pages = pageFindings(advisor, evaluated, catalog, client, budget, deadline);
+                AdvisorResult completed = new AdvisorResult(
+                        advisor,
+                        selection.required(),
+                        "ASSESSED",
+                        evaluated.totalFindings(),
+                        evaluated.rulesSkipped(),
+                        evaluated.rulesEvaluated(),
+                        evaluated.subjectsAnalyzed(),
+                        true,
+                        true,
+                        List.of(),
+                        pages.findings(),
+                        null,
+                        evaluated.findings().stream()
+                                .anyMatch(finding -> finding.severity().meets(selection.failOn())));
+                output.add(completed);
+                collected.add(completed);
+            } catch (AssessmentFailure failure) {
+                if (selection.required() || "ASSESSMENT_BUDGET_EXCEEDED".equals(failure.code())) {
+                    throw failure;
+                }
+                AdvisorResult skipped = AdvisorResult.skipped(advisor, false, failure.code());
+                output.add(skipped);
+                collected.add(skipped);
+            } catch (BootUiClientException requestFailure) {
+                if (selection.required()) {
+                    throw requestFailure;
+                }
+                AdvisorResult skipped = AdvisorResult.skipped(advisor, false, "REQUEST_FAILED");
+                output.add(skipped);
+                collected.add(skipped);
             }
-            ToolResult reportResult =
-                    client.invokeBounded(advisor.reportTool(), Map.of(), MAX_RESPONSE_BYTES, remaining(deadline));
-            if (!reportResult.successful()) {
-                throw new AssessmentFailure("REPORT_FAILED");
-            }
-            JsonValue report = reportResult.payload();
-            EvaluatedReport evaluated = evaluateReport(advisor, selection, report);
-            if (!evaluated
-                    .scanId()
-                    .equals(scan.payload().get("violationDetails").get("scanId").asString(null))) {
-                throw new AssessmentFailure("SCAN_REPORT_MISMATCH");
-            }
-            JsonValue scanSummary = scan.payload();
-            JsonValue scanStatus = scanSummary.get("scan");
-            JsonValue scanEvidence = scanSummary.get("evidence");
-            if (!"SCANNED".equals(scanStatus.get("status").asString(null))
-                    || integer(scanStatus.get("rulesEvaluated")) != integer(report.get("rulesEvaluated"))
-                    || integer(scanStatus.get(advisor.subjectField())) != integer(report.get(advisor.subjectField()))
-                    || integer(scanStatus.get("violationsFound"))
-                            != evaluated.findings().size()
-                    || integer(scanSummary.get("findingsFound"))
-                            != evaluated.findings().size()
-                    || !scanEvidence.get("usable").isBoolean()
-                    || !scanEvidence.get("usable").asBoolean(false)
-                    || !scanEvidence.get("coverageComplete").isBoolean()
-                    || !scanEvidence.get("coverageComplete").asBoolean(false)
-                    || !scanEvidence.get("limitations").isArray()
-                    || scanEvidence.get("limitations").size() != 0
-                    || !severityCounts(scanSummary.get("severityCounts")).equals(evaluated.severityCounts())) {
-                throw new AssessmentFailure("SCAN_REPORT_MISMATCH");
-            }
-            PagedFindings pages =
-                    pageFindings(advisor, evaluated, catalog, client, remainingDetails, remainingPages, deadline);
-            remainingDetails -= pages.detailCount();
-            remainingPages -= pages.pageCount();
-            AdvisorResult completed = new AdvisorResult(
-                    advisor,
-                    selection.required(),
-                    "ASSESSED",
-                    evaluated.totalFindings(),
-                    evaluated.rulesSkipped(),
-                    evaluated.rulesEvaluated(),
-                    evaluated.subjectsAnalyzed(),
-                    true,
-                    true,
-                    List.of(),
-                    pages.findings(),
-                    null,
-                    evaluated.findings().stream()
-                            .anyMatch(finding -> finding.severity().meets(selection.failOn())));
-            output.add(completed);
-            collected.add(completed);
         }
         return List.copyOf(output);
     }
@@ -716,8 +743,7 @@ public final class CiAssessmentRunner {
             EvaluatedReport evaluated,
             BootUiCatalog catalog,
             BootUiClient client,
-            int remainingDetails,
-            int remainingPages,
+            DetailBudget budget,
             long deadline) {
         List<JsonValue> findings = new ArrayList<>();
         int pages = 0;
@@ -733,7 +759,7 @@ public final class CiAssessmentRunner {
                 if (System.nanoTime() >= deadline) {
                     throw new AssessmentFailure("ASSESSMENT_BUDGET_EXCEEDED");
                 }
-                if (++pages > remainingPages || details >= remainingDetails) {
+                if (!budget.tryPage() || budget.details() >= MAX_TOTAL_DETAILS) {
                     throw new AssessmentFailure("DETAIL_BUDGET_EXCEEDED");
                 }
                 Map<String, JsonValue> args = new LinkedHashMap<>();
@@ -799,7 +825,7 @@ public final class CiAssessmentRunner {
                 if (retained != total || retained != finding.count() + finding.suppressedCount()) {
                     throw new AssessmentFailure("DETAILS_INCOMPLETE");
                 }
-                if (returned > remainingDetails - details) {
+                if (!budget.tryDetails(returned)) {
                     throw new AssessmentFailure("DETAIL_BUDGET_EXCEEDED");
                 }
                 details += Math.toIntExact(returned);
@@ -815,6 +841,31 @@ public final class CiAssessmentRunner {
                     "ruleId", finding.ruleId(), "severity", finding.severity().name(), "count", finding.count()));
         }
         return new PagedFindings(List.copyOf(findings), details, pages);
+    }
+
+    private static final class DetailBudget {
+        private int details;
+        private int pages;
+
+        boolean tryPage() {
+            if (pages >= MAX_TOTAL_PAGES) {
+                return false;
+            }
+            pages++;
+            return true;
+        }
+
+        boolean tryDetails(long additional) {
+            if (additional < 0 || additional > MAX_TOTAL_DETAILS - details) {
+                return false;
+            }
+            details += Math.toIntExact(additional);
+            return true;
+        }
+
+        int details() {
+            return details;
+        }
     }
 
     private String unavailability(CiPolicy.Advisor advisor, BootUiCatalog catalog) {
@@ -965,7 +1016,7 @@ public final class CiAssessmentRunner {
                 return false;
             }
             String preflight = advisor.get("preflight").asString(null);
-            if (!Set.of("READY", "UNAVAILABLE", "PANEL_DISABLED", "PANEL_READ_ONLY")
+            if (!Set.of("READY", "UNAVAILABLE", "PANEL_DISABLED", "PANEL_READ_ONLY", "FRAMEWORK_UNAVAILABLE")
                     .contains(preflight)) {
                 return false;
             }

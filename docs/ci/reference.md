@@ -6,14 +6,21 @@ This page explains the policy and failure behavior; it is not an additional setu
 
 ## Policy
 
-The default Action checks Architecture and fails on HIGH or CRITICAL findings. You do not need a policy file for
-that setup. To select other advisors or thresholds, commit a strict JSON policy and pass its path as `policy`:
+The default Action runs every CI-capable local advisor—Architecture, Hibernate, Spring, REST API, Security, and
+Database—and fails on HIGH or CRITICAL findings. Architecture is required; the other advisors run when available and
+can be skipped explicitly when the target cannot produce complete evidence. You do not need a policy file for this
+setup. To select a narrower set or other thresholds, commit a strict JSON policy and pass its path as `policy`:
 
 ```json
 {
   "schemaVersion": 1,
   "advisors": {
-    "architecture": { "required": true, "failOn": "high" }
+    "architecture": { "required": true, "failOn": "high" },
+    "hibernate": { "required": false, "failOn": "high" },
+    "spring": { "required": false, "failOn": "high" },
+    "rest-api": { "required": false, "failOn": "high" },
+    "security": { "required": false, "failOn": "high" },
+    "database-advisor": { "required": false, "failOn": "high" }
   }
 }
 ```
@@ -21,14 +28,19 @@ that setup. To select other advisors or thresholds, commit a strict JSON policy 
 `failOn` accepts `critical`, `high`, `medium`, `low`, or `info`. Findings at that severity or higher fail the gate.
 A passing assessment can still contain findings below the threshold. At least one advisor must be required.
 
-Every selected available advisor must produce complete, usable evidence. `required: false` is not a way to turn
-partial coverage into a pass: it permits a skip only when the catalog confirms the advisor is unavailable or disabled.
-Discovery failures, incomplete observations, unknown severities, truncation, suppressed findings, and inconsistent
-scan/report data are assessment errors.
+Every required advisor must produce complete, usable evidence. An optional advisor that is unavailable, unsupported on
+the target framework, or cannot produce a complete assessment is retained as an explicit `SKIPPED` entry with a stable
+reason. When an optional advisor completes, its findings are gated normally. Required-advisor discovery failures,
+incomplete observations, unknown severities, truncation, suppressed findings, and inconsistent scan/report data remain
+assessment errors.
 
 ::: details Advisor selection and framework differences
 
-The live CI allow-list deliberately excludes Memory because it may trigger a full garbage collection.
+The live CI allow-list deliberately excludes Memory because it may trigger a full garbage collection. Vulnerability
+queries are excluded because they call an external advisory service, and the GitHub advisor is excluded because it
+reads repository security signals with repository credentials. Neither source belongs in the local runtime scan.
+The browser's Overall score can average those remote signals with local known-findings scores, but CI does not use that
+client-side aggregate: it applies each selected advisor's severity threshold deterministically.
 Database Advisor uses the policy key `database-advisor`.
 
 Hibernate and Security can report partial coverage on real applications. Database Advisor needs applicable integration
@@ -47,7 +59,7 @@ The Action lives in this repository at `.github/actions/bootui/action.yml`; use
 
 | Phase | Purpose |
 | --- | --- |
-| `run` (default) | Attach to the running app, execute `test-command`, assess, add the summary, and upload reports |
+| `run` (default) | Start or reuse an app, wait for readiness, attach, execute `test-command`, assess, stop the owned app, publish, and upload |
 | `prepare-cli` | Download the explicitly pinned stable CLI and verify its signature; export `BOOTUI_CLI_JAR` for later steps |
 | `attach` | Record the target's instance/run identity before the workload; no advisor scans |
 | `assess` | Check identity, collect diagnostics, apply the policy, write reports and append the GitHub summary |
@@ -59,8 +71,11 @@ reviewed updates. BootUI's release automation updates its documentation, not oth
 
 | Input | Used by |
 | --- | --- |
-| `phase`, `bootui-version` | Every phase; `phase` defaults to `run` |
-| `test-command` | Required by `run`; must exercise the already-running application |
+| `phase` | Every phase; defaults to `run` |
+| `bootui-version` | Every phase; defaults to `auto`, resolving exactly one stable BootUI dependency version from Maven or Gradle; advanced phases may still pin it explicitly |
+| `test-command` | `run`; defaults to `none`; set it to a finite workload, or to `auto` for Maven `verify`/Gradle `check`; an explicit workload must exercise the running application |
+| `app-command` | `run`; defaults to `auto`, selecting the conventional Spring Boot or Quarkus development command; `none` uses an externally managed app |
+| `startup-timeout` | `run`; defaults to 120 seconds and is bounded to 1–600 |
 | `url`, `policy`, `assessment-id` | Optional in `run`; defaults to loopback port 8080, the built-in policy, and a fresh ID |
 | `upload-artifact` | `run`; defaults to `true`, set to `false` to manage uploads yourself |
 | `assessment-id`, `policy` | Required by attach, assess, and offline |
@@ -87,10 +102,12 @@ If attachment failed, pass its original result to assess. Assessment then avoids
 a minimal `ATTACH_FAILED` report. CLI setup/report failures use a separate fresh `<output-dir>.action-error` directory,
 never overwrite existing evidence, and remain failures. Use the Action's returned `report-dir` when uploading.
 
-The default `run` phase executes the test command even if CLI setup or attachment fails, but never scans after a failed
-attachment. A failed workload stays a failed job even if the later assessment passes. The Action does not start or
-stop the caller's application. Assessment and upload use `!cancelled()`; `always()` is reserved for bounded cleanup
-of processes owned by the job.
+An application-start failure produces `APP_START_FAILED`; CLI setup and start failures do not imply that the target
+was clean. The default `run` phase executes the test command even if CLI setup, application start, or attachment fails,
+but never scans after a failed attachment. A failed workload stays a failed job even if the later assessment passes.
+The Action starts the process from `app-command` in a fresh process group and stops only that group. For
+`app-command: none`, the caller remains responsible for starting and stopping the application. Assessment and upload
+use `!cancelled()`; bounded cleanup of the owned process uses `always()`.
 Cancellation or a hard runner timeout can still prevent collection and upload.
 
 ::: details Collection limits and sanitized content

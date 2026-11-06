@@ -8,9 +8,13 @@ assessment_id="${BOOTUI_ASSESSMENT_ID:-}"
   exit 1
 }
 [[ "$assessment_id" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]] || assessment_id="unavailable"
-if [[ "${BOOTUI_ATTACH_EXIT_CODE:-}" != 0 ]]; then
+if [[ "${BOOTUI_PREPARE_OUTCOME:-success}" == failure ]]; then
+  code="CLI_SETUP_FAILED"
+elif [[ "${BOOTUI_START_OUTCOME:-success}" == failure ]]; then
+  code="APP_START_FAILED"
+elif [[ "${BOOTUI_ATTACH_EXIT_CODE:-}" != 0 ]]; then
   code="ATTACH_FAILED"
-elif [[ "${BOOTUI_PREPARE_OUTCOME:-}" != success ]]; then
+elif [[ "${BOOTUI_PREPARE_OUTCOME:-success}" != success ]]; then
   code="CLI_SETUP_FAILED"
 else
   code="REPORT_UNAVAILABLE"

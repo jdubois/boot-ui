@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import tempfile
 import unittest
@@ -25,6 +26,8 @@ class QuickActionTests(unittest.TestCase):
             GITHUB_RUN_ATTEMPT="2",
             RUNNER_TEMP=str(self.root),
             BOOTUI_TEST_COMMAND="printf 'workload ran\\n'",
+            BOOTUI_APP_COMMAND="auto",
+            BOOTUI_STARTUP_TIMEOUT="120",
             BOOTUI_UPLOAD_ARTIFACT="true",
             BOOTUI_ASSESSMENT_ID="",
         )
@@ -43,13 +46,21 @@ class QuickActionTests(unittest.TestCase):
         policy = json.loads((ACTION / "default-policy.json").read_text())
         self.assertEqual(policy, {
             "schemaVersion": 1,
-            "advisors": {"architecture": {"required": True, "failOn": "high"}},
+            "advisors": {
+                "architecture": {"required": True, "failOn": "high"},
+                "hibernate": {"required": False, "failOn": "high"},
+                "spring": {"required": False, "failOn": "high"},
+                "rest-api": {"required": False, "failOn": "high"},
+                "security": {"required": False, "failOn": "high"},
+                "database-advisor": {"required": False, "failOn": "high"},
+            },
         })
         self.assertEqual(policy, json.loads((ROOT / "examples/ci/bootui-policy.json").read_text()))
         action = (ACTION / "action.yml").read_text()
         self.assertIn("    default: run\n", action)
+        self.assertIn("    default: auto\n", action)
         self.assertEqual(action.count("inputs.policy || format('{0}/default-policy.json', github.action_path)"), 2)
-        self.assertEqual(action.count("inputs.url || 'http://127.0.0.1:8080'"), 2)
+        self.assertEqual(action.count("inputs.url || 'http://127.0.0.1:8080'"), 4)
         self.assertEqual(action.count("BOOTUI_CLI_JAR: ${{ steps.prepare.outputs.cli-jar }}"), 2)
         self.assertIn('echo "cli-jar=$cli_jar" >> "$GITHUB_OUTPUT"', (ACTION / "prepare-cli.sh").read_text())
 
@@ -64,6 +75,19 @@ class QuickActionTests(unittest.TestCase):
         self.assertIn("steps.quick_attach.outputs.exit-code == '0'", assess)
         self.assertNotIn("steps.quick_workload.outcome", assess)
 
+    def test_action_starts_and_stops_only_its_managed_application(self):
+        action = (ACTION / "action.yml").read_text()
+        start = action.split("    - id: quick_start\n", 1)[1].split("    - id: quick_attach\n", 1)[0]
+        stop = action.split("    - id: quick_stop\n", 1)[1].split("    - id: quick_validate\n", 1)[0]
+        self.assertIn("BOOTUI_APP_COMMAND: ${{ inputs.app-command }}", start)
+        self.assertIn("steps.quick_setup.outputs.state-dir", start)
+        self.assertIn("steps.prepare.outcome == 'success'", start)
+        self.assertIn("continue-on-error: true", start)
+        self.assertIn("always()", stop)
+        self.assertIn("steps.quick_start.outputs.pid != ''", stop)
+        self.assertIn("BOOTUI_APP_URL:", stop)
+        self.assertIn('run: bash "$ACTION_PATH/quick-stop.sh"', stop)
+
     def test_only_validated_reports_are_uploaded_and_cancellation_stays_respected(self):
         action = (ACTION / "action.yml").read_text()
         upload = action.split("    - id: quick_upload\n", 1)[1].split("    - id: quick_gate\n", 1)[0]
@@ -72,32 +96,34 @@ class QuickActionTests(unittest.TestCase):
         for name in ("bundle.json", "summary.md", "junit.xml"):
             self.assertIn(f"steps.quick_validate.outputs.report-dir }}}}/{name}", upload)
         self.assertNotIn("witness", upload)
-        self.assertNotIn("always()", action)
+        self.assertEqual(action.count("always()"), 1)
 
     def test_quick_phase_order_and_fail_closed_outcome_wiring(self):
         action = (ACTION / "action.yml").read_text()
         names = (
-            "quick_setup", "prepare", "quick_attach", "quick_workload", "quick_assess",
-            "quick_report", "quick_validate", "quick_upload", "quick_gate",
+            "quick_setup", "prepare", "quick_start", "quick_attach", "quick_workload", "quick_assess",
+            "quick_report", "quick_stop", "quick_validate", "quick_upload", "quick_gate",
         )
         positions = [action.index(f"    - id: {name}\n") for name in names]
         self.assertEqual(positions, sorted(positions))
         self.assertNotIn(".conclusion", action)
-        for index, name in enumerate(names[2:], start=2):
+        for index, name in enumerate(names[3:7], start=3):
             end = positions[index + 1] if index + 1 < len(positions) else action.index("    - id: invoke\n")
             with self.subTest(step=name):
                 self.assertIn("!cancelled()", action[positions[index]:end])
-        report = action[positions[5]:positions[6]]
+        report = action[positions[6]:positions[7]]
         self.assertIn(
             "steps.prepare.outcome == 'success' && (steps.quick_attach.outputs.exit-code || '1') || '0'",
             report,
         )
-        validate = action[positions[6]:positions[7]]
+        validate = action[positions[8]:positions[9]]
         self.assertIn("steps.quick_report.outputs.report-dir || steps.quick_assess.outputs.report-dir", validate)
-        gate = action[positions[8]:action.index("    - id: invoke\n")]
+        gate = action[positions[10]:action.index("    - id: invoke\n")]
         for name, expression in (
             ("BOOTUI_SETUP_OUTCOME", "steps.quick_setup.outcome"),
             ("BOOTUI_PREPARE_OUTCOME", "steps.prepare.outcome"),
+            ("BOOTUI_START_OUTCOME", "steps.quick_start.outcome"),
+            ("BOOTUI_STOP_OUTCOME", "steps.quick_stop.outcome"),
             ("BOOTUI_ATTACH_EXIT_CODE", "steps.quick_attach.outputs.exit-code"),
             ("BOOTUI_WORKLOAD_OUTCOME", "steps.quick_workload.outcome"),
             ("BOOTUI_ASSESS_EXIT_CODE", "steps.quick_report.outputs.exit-code || steps.quick_assess.outputs.exit-code"),
@@ -116,6 +142,7 @@ class QuickActionTests(unittest.TestCase):
         state = Path(values["witness"]).parent
         self.assertTrue(state.is_dir())
         self.assertEqual(state.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(values["state-dir"], str(state))
         self.assertEqual(values["report-dir"], str(state / "assessment"))
         self.assertNotIn(self.env["BOOTUI_TEST_COMMAND"], self.outputs.read_text())
         self.outputs.unlink()
@@ -135,6 +162,8 @@ class QuickActionTests(unittest.TestCase):
             ("BOOTUI_TEST_COMMAND", " \n ", "test-command"),
             ("BOOTUI_UPLOAD_ARTIFACT", "yes", "upload-artifact"),
             ("BOOTUI_ASSESSMENT_ID", "bad\nid", "assessment-id"),
+            ("BOOTUI_APP_COMMAND", " \n ", "app-command"),
+            ("BOOTUI_STARTUP_TIMEOUT", "601", "startup-timeout"),
             ("RUNNER_TEMP", "relative", "RUNNER_TEMP"),
         ):
             with self.subTest(key=key):
@@ -148,6 +177,378 @@ class QuickActionTests(unittest.TestCase):
                     del self.env[key]
                 else:
                     self.env[key] = original
+
+    def test_command_detection_selects_maven_and_gradle_defaults(self):
+        for files, expected_app, expected_test in (
+            ({"pom.xml": "<artifactId>spring-boot-starter-web</artifactId>"}, "spring-boot:run", "verify"),
+            ({"pom.xml": "<artifactId>quarkus-maven-plugin</artifactId>"}, "quarkus:dev", "verify"),
+            ({"build.gradle": "plugins { id 'org.springframework.boot' }"}, "bootRun", "check"),
+            ({"build.gradle.kts": 'plugins { id("io.quarkus") }'}, "quarkusDev", "check"),
+        ):
+            with self.subTest(files=files):
+                project = self.root / str(len(list(self.root.iterdir())))
+                project.mkdir()
+                for name, content in files.items():
+                    (project / name).write_text(content)
+                for wrapper in ("mvnw", "gradlew"):
+                    if (wrapper == "mvnw") == ("pom.xml" in files):
+                        path = project / wrapper
+                        path.write_text("#!/bin/sh\nexit 0\n")
+                        path.chmod(0o755)
+                environment = dict(self.env, BOOTUI_WORKING_DIRECTORY=str(project))
+                app = subprocess.run(
+                    ["bash", str(ACTION / "detect-command.sh"), "app", "auto"],
+                    env=environment, capture_output=True, text=True, check=False,
+                )
+                test = subprocess.run(
+                    ["bash", str(ACTION / "detect-command.sh"), "test", "auto"],
+                    env=environment, capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(app.returncode, 0, app.stderr)
+                self.assertEqual(test.returncode, 0, test.stderr)
+                self.assertTrue(app.stdout.rstrip().endswith(expected_app), app.stdout)
+                self.assertTrue(test.stdout.rstrip().endswith(expected_test), test.stdout)
+
+    def test_command_detection_honors_custom_commands_and_rejects_ambiguity(self):
+        project = self.root / "custom"
+        project.mkdir()
+        (project / "pom.xml").write_text(
+            "<artifactId>spring-boot-maven-plugin</artifactId>"
+            "<artifactId>quarkus-maven-plugin</artifactId>"
+        )
+        environment = dict(self.env, BOOTUI_WORKING_DIRECTORY=str(project))
+        custom = subprocess.run(
+            ["bash", str(ACTION / "detect-command.sh"), "app", "./run-app --profile ci"],
+            env=environment, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(custom.returncode, 0, custom.stderr)
+        self.assertEqual(custom.stdout, "./run-app --profile ci\n")
+        ambiguous = subprocess.run(
+            ["bash", str(ACTION / "detect-command.sh"), "app", "auto"],
+            env=environment, capture_output=True, text=True, check=False,
+        )
+        self.assertNotEqual(ambiguous.returncode, 0)
+        self.assertIn("Both Spring Boot and Quarkus", ambiguous.stderr)
+
+    def test_command_detection_activates_the_conventional_diagnostic_profile(self):
+        project = self.root / "profiled"
+        project.mkdir()
+        (project / "mvnw").write_text("#!/bin/sh\nexit 0\n")
+        (project / "mvnw").chmod(0o755)
+        (project / "pom.xml").write_text(
+            "<project><profiles><profile><id>bootui-ci</id><dependencies><dependency>"
+            "<artifactId>bootui-spring-boot-starter</artifactId>"
+            "</dependency></dependencies></profile></profiles>"
+            "<dependencies><dependency><artifactId>spring-boot-starter-web</artifactId>"
+            "</dependency></dependencies></project>"
+        )
+        result = subprocess.run(
+            ["bash", str(ACTION / "detect-command.sh"), "app", "auto"],
+            env=dict(self.env, BOOTUI_WORKING_DIRECTORY=str(project)),
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "./mvnw -Pbootui-ci spring-boot:run\n")
+        workload = subprocess.run(
+            ["bash", str(ACTION / "detect-command.sh"), "test", "auto"],
+            env=dict(self.env, BOOTUI_WORKING_DIRECTORY=str(project)),
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(workload.returncode, 0, workload.stderr)
+        self.assertEqual(workload.stdout, "./mvnw -Pbootui-ci verify\n")
+
+    def test_auto_workload_preserves_maven_defaults_and_custom_override(self):
+        project = self.root / "workload"
+        project.mkdir()
+        wrapper = project / "mvnw"
+        wrapper.write_text("#!/usr/bin/env bash\nprintf 'executed:%s\\n' \"$*\"\n")
+        wrapper.chmod(0o755)
+        (project / "pom.xml").write_text("<artifactId>spring-boot-starter-web</artifactId>")
+        self.env.update(GITHUB_WORKSPACE=str(project), BOOTUI_TEST_COMMAND="auto")
+        result = self.run_script("quick-workload.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "executed:verify\n")
+        self.env["BOOTUI_TEST_COMMAND"] = "printf 'custom workload\\n'"
+        result = self.run_script("quick-workload.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "custom workload\n")
+
+    def test_no_workload_is_the_default(self):
+        self.env.update(
+            GITHUB_WORKSPACE=str(self.root),
+            BOOTUI_TEST_COMMAND="none",
+        )
+        result = self.run_script("quick-workload.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("No workload command configured", result.stdout)
+        self.assertNotIn("verify", result.stdout)
+
+    def test_version_detection_uses_exactly_one_stable_application_dependency(self):
+        project = self.root / "version-project"
+        project.mkdir()
+        environment = dict(self.env, GITHUB_WORKSPACE=str(project))
+
+        (project / "pom.xml").write_text(
+            "<project xmlns='http://maven.apache.org/POM/4.0.0'>"
+            "<properties><bootui.version>2.4.0</bootui.version></properties>"
+            "<dependencies><dependency>"
+            "<groupId>com.julien-dubois.bootui</groupId>"
+            "<artifactId>bootui-spring-boot-starter</artifactId>"
+            "<version>${bootui.version}</version>"
+            "</dependency></dependencies></project>"
+        )
+        detected = subprocess.run(
+            ["python3", str(ACTION / "resolve-version.py"), "auto"],
+            env=environment, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(detected.returncode, 0, detected.stderr)
+        self.assertEqual(detected.stdout, "2.4.0\n")
+
+        (project / "build.gradle").write_text(
+            'runtimeOnly "com.julien-dubois.bootui:bootui-quarkus:2.5.0"\n'
+        )
+        ambiguous = subprocess.run(
+            ["python3", str(ACTION / "resolve-version.py"), "auto"],
+            env=environment, capture_output=True, text=True, check=False,
+        )
+        self.assertNotEqual(ambiguous.returncode, 0)
+        self.assertIn("Multiple BootUI versions", ambiguous.stderr)
+
+        explicit = subprocess.run(
+            ["python3", str(ACTION / "resolve-version.py"), "2.6.0"],
+            env=environment, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(explicit.returncode, 0, explicit.stderr)
+        self.assertEqual(explicit.stdout, "2.6.0\n")
+
+    def test_version_detection_supports_namespace_free_and_profile_properties(self):
+        project = self.root / "version-profile"
+        project.mkdir()
+        (project / "pom.xml").write_text(
+            "<project><profiles><profile><id>bootui-ci</id><properties>"
+            "<bootui.version>2.7.0</bootui.version></properties></profile></profiles>"
+            "<dependencies><dependency><groupId>com.julien-dubois.bootui</groupId>"
+            "<artifactId>bootui-spring-boot-starter</artifactId>"
+            "<version>${bootui.version}</version></dependency></dependencies></project>"
+        )
+        result = subprocess.run(
+            ["python3", str(ACTION / "resolve-version.py"), "auto"],
+            env=dict(self.env, GITHUB_WORKSPACE=str(project)),
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "2.7.0\n")
+
+        (project / "pom.xml").write_text(
+            "<project><properties><a>${b}</a><b>${a}</b></properties>"
+            "<dependencies><dependency><groupId>com.julien-dubois.bootui</groupId>"
+            "<artifactId>bootui-spring-boot-starter</artifactId>"
+            "<version>${a}</version></dependency></dependencies></project>"
+        )
+        cyclic = subprocess.run(
+            ["python3", str(ACTION / "resolve-version.py"), "auto"],
+            env=dict(self.env, GITHUB_WORKSPACE=str(project)),
+            capture_output=True, text=True, check=False, timeout=5,
+        )
+        self.assertNotEqual(cyclic.returncode, 0)
+        self.assertIn("Could not detect", cyclic.stderr)
+
+    def test_version_detection_supports_parent_properties_and_gradle_catalogs(self):
+        project = self.root / "multi-module"
+        module = project / "service"
+        module.mkdir(parents=True)
+        (project / "pom.xml").write_text(
+            "<project xmlns='http://maven.apache.org/POM/4.0.0'>"
+            "<properties><bootui.version>2.8.0</bootui.version></properties></project>"
+        )
+        (module / "pom.xml").write_text(
+            "<project xmlns='http://maven.apache.org/POM/4.0.0'><dependencies><dependency>"
+            "<groupId>com.julien-dubois.bootui</groupId>"
+            "<artifactId>bootui-spring-boot-starter</artifactId>"
+            "<version>${bootui.version}</version></dependency></dependencies></project>"
+        )
+        detected = subprocess.run(
+            ["python3", str(ACTION / "resolve-version.py"), "auto"],
+            env=dict(self.env, GITHUB_WORKSPACE=str(project)),
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(detected.returncode, 0, detected.stderr)
+        self.assertEqual(detected.stdout, "2.8.0\n")
+
+        (project / "pom.xml").unlink()
+        (module / "pom.xml").unlink()
+        (project / "gradle").mkdir()
+        (project / "gradle" / "libs.versions.toml").write_text(
+            "[versions]\nbootui = '2.9.0'\n"
+            "[libraries]\nbootui-starter = { module = "
+            "'com.julien-dubois.bootui:bootui-spring-boot-starter', version.ref = 'bootui' }\n"
+            "[plugins]\nspring-boot = { id = 'org.springframework.boot', version = '4.1.2' }\n"
+        )
+        catalog = subprocess.run(
+            ["python3", str(ACTION / "resolve-version.py"), "auto"],
+            env=dict(self.env, GITHUB_WORKSPACE=str(project)),
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(catalog.returncode, 0, catalog.stderr)
+        self.assertEqual(catalog.stdout, "2.9.0\n")
+
+    def test_start_launches_waits_and_stops_a_custom_application(self):
+        project = self.root / "server"
+        state = self.root / "state"
+        project.mkdir()
+        state.mkdir()
+        with socket.socket() as candidate:
+            candidate.bind(("127.0.0.1", 0))
+            port = candidate.getsockname()[1]
+        environment_file = self.root / "environment.json"
+        server = project / "server.py"
+        server.write_text(
+            "import json, os\n"
+            "from http.server import BaseHTTPRequestHandler, HTTPServer\n"
+            "from pathlib import Path\n"
+            "Path(os.environ['TEST_ENVIRONMENT_FILE']).write_text(json.dumps({\n"
+            "  'enabled': os.environ.get('BOOTUI_ENABLED'),\n"
+            "  'cli': os.environ.get('BOOTUI_CLI_ENABLED'),\n"
+            "  'exposure': os.environ.get('BOOTUI_EXPOSE_VALUES'),\n"
+            "  'overrides': os.environ.get('BOOTUI_OVERRIDES_FILE'),\n"
+            "  'port': os.environ.get('SERVER_PORT'),\n"
+            "  'quarkus_console': os.environ.get('QUARKUS_CONSOLE_ENABLED'),\n"
+            "  'quarkus_testing': os.environ.get('QUARKUS_TEST_CONTINUOUS_TESTING'),\n"
+            "  'quarkus_analytics': os.environ.get('QUARKUS_ANALYTICS_DISABLED'),\n"
+            "}))\n"
+            "class Handler(BaseHTTPRequestHandler):\n"
+            "  def do_GET(self):\n"
+            "    body = b'{\"enabled\":true}'\n"
+            "    self.send_response(200)\n"
+            "    self.send_header('Content-Length', str(len(body)))\n"
+            "    self.end_headers()\n"
+            "    self.wfile.write(body)\n"
+            "  def log_message(self, *args):\n"
+            "    pass\n"
+            f"HTTPServer(('127.0.0.1', {port}), Handler).serve_forever()\n"
+        )
+        self.env.update(
+            GITHUB_WORKSPACE=str(project),
+            BOOTUI_STATE_DIR=str(state),
+            BOOTUI_APP_COMMAND="python3 server.py",
+            BOOTUI_URL=f"http://127.0.0.1:{port}",
+            BOOTUI_API_PATH="/bootui/api",
+            BOOTUI_STARTUP_TIMEOUT="10",
+            TEST_ENVIRONMENT_FILE=str(environment_file),
+        )
+        result = self.run_script("quick-start.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outputs = self.output()
+        self.assertEqual(outputs["managed"], "true")
+        pid = outputs["pid"]
+        self.assertTrue(int(pid) > 1)
+        started_environment = json.loads(environment_file.read_text())
+        self.assertEqual(started_environment, {
+            "enabled": "ON",
+            "cli": "true",
+            "exposure": "METADATA_ONLY",
+            "overrides": str(state / "boot-ui.yml"),
+            "port": str(port),
+            "quarkus_console": "false",
+            "quarkus_testing": "disabled",
+            "quarkus_analytics": "true",
+        })
+        self.assertTrue((state / "ready.json").is_file())
+        self.env["BOOTUI_APP_PID"] = pid
+        stopped = self.run_script("quick-stop.sh")
+        self.assertEqual(stopped.returncode, 0, stopped.stderr)
+        self.assertNotEqual(
+            subprocess.run(["kill", "-0", pid], capture_output=True, check=False).returncode,
+            0,
+        )
+
+    def test_external_application_mode_does_not_start_or_stop_a_process(self):
+        state = self.root / "external-state"
+        state.mkdir()
+        self.env.update(
+            BOOTUI_STATE_DIR=str(state),
+            BOOTUI_APP_COMMAND="none",
+        )
+        result = self.run_script("quick-start.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.output(), {"managed": "false"})
+        stopped = self.run_script("quick-stop.sh")
+        self.assertEqual(stopped.returncode, 0, stopped.stderr)
+
+    def test_start_failure_cleans_up_before_timing_out(self):
+        state = self.root / "failed-state"
+        state.mkdir()
+        with socket.socket() as candidate:
+            candidate.bind(("127.0.0.1", 0))
+            port = candidate.getsockname()[1]
+        self.env.update(
+            BOOTUI_STATE_DIR=str(state),
+            BOOTUI_APP_COMMAND="sleep 30",
+            BOOTUI_URL=f"http://127.0.0.1:{port}",
+            BOOTUI_STARTUP_TIMEOUT="1",
+        )
+        result = self.run_script("quick-start.sh")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("within 1 seconds", result.stderr)
+        pid = self.output()["pid"]
+        self.assertNotEqual(
+            subprocess.run(["kill", "-0", "--", f"-{pid}"], capture_output=True).returncode,
+            0,
+        )
+
+    def test_start_rejects_non_loopback_targets_and_occupied_endpoints(self):
+        state = self.root / "invalid-start"
+        state.mkdir()
+        marker = self.root / "launched"
+        self.env.update(
+            BOOTUI_STATE_DIR=str(state),
+            BOOTUI_APP_COMMAND=f"touch {marker}",
+            BOOTUI_STARTUP_TIMEOUT="1",
+        )
+        for url in ("http://localhost:8080", "http://0.0.0.0:8080", "http://192.168.1.2:8080"):
+            with self.subTest(url=url):
+                marker.unlink(missing_ok=True)
+                self.outputs.unlink(missing_ok=True)
+                self.env["BOOTUI_URL"] = url
+                result = self.run_script("quick-start.sh")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(marker.exists())
+                self.assertFalse(self.outputs.exists())
+
+        self.env["BOOTUI_URL"] = "https://127.0.0.1:8443"
+        https = self.run_script("quick-start.sh")
+        self.assertNotEqual(https.returncode, 0)
+        self.assertIn("Managed applications must use http", https.stderr)
+        self.assertFalse(marker.exists())
+
+        with socket.socket() as occupied:
+            occupied.bind(("127.0.0.1", 0))
+            occupied.listen()
+            port = occupied.getsockname()[1]
+            self.env.update(
+                BOOTUI_URL=f"http://127.0.0.1:{port}",
+                BOOTUI_APP_COMMAND=f"touch {marker}",
+            )
+            result = self.run_script("quick-start.sh")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("already occupied", result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertFalse(self.outputs.exists())
+
+    def test_stop_treats_an_unreaped_zombie_as_stopped(self):
+        process = subprocess.Popen(
+            ["sleep", "300"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, start_new_session=True,
+        )
+        self.addCleanup(lambda: process.poll() is None and process.kill())
+        process.terminate()
+        started = __import__("time").monotonic()
+        self.env["BOOTUI_APP_PID"] = str(process.pid)
+        result = self.run_script("quick-stop.sh")
+        elapsed = __import__("time").monotonic() - started
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertLess(elapsed, 5)
+        process.wait(timeout=1)
 
     def test_workload_preserves_failure_and_bash_pipeline_status(self):
         self.env["BOOTUI_TEST_COMMAND"] = "printf 'before\\n'; false | cat; echo unreachable"
@@ -223,6 +624,8 @@ class QuickActionTests(unittest.TestCase):
         self.env.update(
             BOOTUI_SETUP_OUTCOME="success",
             BOOTUI_PREPARE_OUTCOME="success",
+            BOOTUI_START_OUTCOME="success",
+            BOOTUI_STOP_OUTCOME="skipped",
             BOOTUI_ATTACH_EXIT_CODE="0",
             BOOTUI_WORKLOAD_OUTCOME="success",
             BOOTUI_ASSESS_EXIT_CODE="0",
@@ -236,6 +639,7 @@ class QuickActionTests(unittest.TestCase):
         for key, value in (
             ("BOOTUI_SETUP_OUTCOME", "failure"),
             ("BOOTUI_PREPARE_OUTCOME", "failure"),
+            ("BOOTUI_START_OUTCOME", "failure"),
             ("BOOTUI_ATTACH_EXIT_CODE", "1"),
             ("BOOTUI_WORKLOAD_OUTCOME", "failure"),
             ("BOOTUI_ASSESS_EXIT_CODE", "1"),
@@ -265,6 +669,7 @@ class QuickActionTests(unittest.TestCase):
     def test_gate_does_not_report_a_pass_when_assessment_report_is_untrustworthy(self):
         self.env.update(
             BOOTUI_SETUP_OUTCOME="success", BOOTUI_PREPARE_OUTCOME="success",
+            BOOTUI_START_OUTCOME="success", BOOTUI_STOP_OUTCOME="success",
             BOOTUI_ATTACH_EXIT_CODE="0", BOOTUI_WORKLOAD_OUTCOME="success",
             BOOTUI_ASSESS_EXIT_CODE="0", BOOTUI_REPORT_OUTCOME="failure",
             BOOTUI_UPLOAD_OUTCOME="skipped",
@@ -276,6 +681,7 @@ class QuickActionTests(unittest.TestCase):
         for key, value, message in (
             ("BOOTUI_SETUP_OUTCOME", "failure", "input or runner setup failed"),
             ("BOOTUI_PREPARE_OUTCOME", "failure", "CLI setup failed"),
+            ("BOOTUI_START_OUTCOME", "failure", "could not start the application"),
             ("BOOTUI_ATTACH_EXIT_CODE", "1", "could not attach"),
         ):
             with self.subTest(key=key):
@@ -290,6 +696,7 @@ class QuickActionTests(unittest.TestCase):
     def test_upload_failure_does_not_relabel_a_trustworthy_assessment(self):
         self.env.update(
             BOOTUI_SETUP_OUTCOME="success", BOOTUI_PREPARE_OUTCOME="success",
+            BOOTUI_START_OUTCOME="success", BOOTUI_STOP_OUTCOME="success",
             BOOTUI_ATTACH_EXIT_CODE="0", BOOTUI_WORKLOAD_OUTCOME="success",
             BOOTUI_ASSESS_EXIT_CODE="0", BOOTUI_REPORT_OUTCOME="success",
             BOOTUI_UPLOAD_OUTCOME="failure",

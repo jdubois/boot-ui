@@ -19,7 +19,8 @@ enum CiFramework {
     }
 
     boolean supportsPolicy(CiPolicy policy) {
-        return policy.orderedAdvisors().stream().allMatch(this::supports);
+        return policy.advisors().entrySet().stream()
+                .allMatch(entry -> !entry.getValue().required() || supports(entry.getKey()));
     }
 
     static CiFramework fromName(String name) {

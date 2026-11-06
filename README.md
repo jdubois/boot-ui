@@ -81,9 +81,11 @@ installer, and JBang works too — see the
 
 ## Use in CI
 
-Add the BootUI Action around tests that exercise your running application; it reports Architecture findings in the
-job summary and fails on HIGH or CRITICAL findings. The application stays on the same runner, bound to loopback;
-BootUI is not a remote or production scanner. Start with the [GitHub Actions quick start](docs/CI.md).
+Add the BootUI Action to a job and it automatically starts the conventional Spring Boot or Quarkus development process,
+runs every available local CI advisor, reports findings in the job summary, and fails on HIGH or CRITICAL findings.
+An optional workload can exercise that same process before assessment. The application stays on the same runner,
+bound to loopback; BootUI is not a remote or production scanner. Start with the
+[GitHub Actions quick start](docs/CI.md).
 
 <!-- bootui-ci:release:start -->
 > **CI support is not yet published.** Published BootUI CLI 2.3.0 does not contain these CI commands. The examples below are prepared for the first signed CI-capable release; `UNRELEASED` is not an installable version. Do not substitute the old published CLI.

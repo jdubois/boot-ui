@@ -3920,9 +3920,13 @@ Design rules:
   `bootui ci check` reads a bounded, versioned bundle and the exact policy offline, verifies assessment identity and
   evidence consistency, and recomputes the verdict from findings. `prepare-contexts` pins one policy and the complete
   expected-window set; the `CiCollection` test-lifecycle API claims and completes each window, and `check-contexts`
-  verifies the evidence after all producer processes exit. The composite Action defaults to a single `run` step for an
-  already-running application: it attaches, executes the caller's test command, assesses, and publishes bounded reports,
-  using a built-in Architecture policy unless the caller supplies one. The `prepare-cli` phase exports a
+  verifies the evidence after all producer processes exit. The composite Action defaults to a single `run` step: it
+  detects and starts a conventional Spring Boot or Quarkus development process (or uses an explicit
+  `app-command`/external `none` mode), waits for the loopback BootUI endpoint, attaches, optionally executes a caller's
+  workload, assesses, stops its owned process, and publishes bounded reports. Its built-in policy runs every available
+  CI-capable local advisor, with Architecture required and stack/data-source-specific advisors optional by availability;
+  it excludes the GitHub and vulnerability sources and gates individual findings rather than the browser's aggregate
+  score. The `prepare-cli` phase exports a
   signature-verified CLI for later workflow steps, and its `offline` phase revalidates a saved bundle without
   contacting an application. An opt-in Runtime Insights projection is bounded and report-only; it omits application
   prose and request identifiers, does not prove workload attribution, and cannot change the advisor verdict. Offline

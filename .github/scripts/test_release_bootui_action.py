@@ -117,6 +117,16 @@ class BootUiActionTests(unittest.TestCase):
         bundle = json.loads((self.root / "assessment.action-error" / "bundle.json").read_text())
         self.assertEqual(bundle["errors"], [{"code": "CLI_SETUP_FAILED"}])
 
+    def test_application_start_failure_produces_a_distinct_error(self):
+        self.environment.update(
+            BOOTUI_ATTACH_EXIT_CODE="1", BOOTUI_PREPARE_OUTCOME="success",
+            BOOTUI_START_OUTCOME="failure",
+        )
+        result = self.run_script("report-error.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bundle = json.loads((self.root / "assessment.action-error" / "bundle.json").read_text())
+        self.assertEqual(bundle["errors"], [{"code": "APP_START_FAILED"}])
+
     def test_missing_report_after_successful_setup_is_an_error(self):
         self.environment.update(BOOTUI_ATTACH_EXIT_CODE="0", BOOTUI_PREPARE_OUTCOME="success")
         result = self.run_script("report-error.sh")
@@ -403,7 +413,17 @@ done
 exit 92
 """,
         )
-        self.tool("java", "#!/usr/bin/env bash\nexit 0\n")
+        self.tool(
+            "java",
+            """#!/usr/bin/env bash
+if [[ "${FAKE_CI_HELP:-available}" == available ]]; then
+  printf 'Usage: bootui ci <command>\\n'
+  exit 0
+fi
+printf 'Usage: bootui <command>\\n'
+exit 0
+""",
+        )
 
     def tool(self, name, content):
         path = self.bin / name
@@ -440,6 +460,31 @@ exit 92
         commands = self.log.read_text().splitlines()
         self.assertEqual(sum(" --verify " in line for line in commands), 1)
         self.assertFalse(any(line.startswith("curl ") for line in commands))
+
+    def test_auto_version_prepares_the_cli_declared_by_the_application(self):
+        project = self.root / "application"
+        project.mkdir()
+        (project / "pom.xml").write_text(
+            "<project xmlns='http://maven.apache.org/POM/4.0.0'>"
+            "<dependencies><dependency>"
+            "<groupId>com.julien-dubois.bootui</groupId>"
+            "<artifactId>bootui-spring-boot-starter</artifactId>"
+            "<version>2.3.0</version>"
+            "</dependency></dependencies></project>"
+        )
+        self.environment.update(BOOTUI_VERSION="auto", GITHUB_WORKSPACE=str(project))
+        self.cache_cli()
+        result = self.run_prepare()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_advertised()
+
+    def test_old_cli_help_is_not_advertised_as_ci_capable(self):
+        self.cache_cli()
+        self.environment["FAKE_CI_HELP"] = "legacy"
+        result = self.run_prepare()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not contain the CI command interface", result.stderr)
+        self.assert_not_advertised()
 
     def test_cached_bad_signature_or_wrong_primary_key_is_never_advertised(self):
         self.cache_cli()
