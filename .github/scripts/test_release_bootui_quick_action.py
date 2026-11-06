@@ -176,27 +176,48 @@ class QuickActionTests(unittest.TestCase):
         self.assertEqual(self.summary.read_text(), "# BootUI assessment: PASS\n")
         self.assertEqual(self.output()["report-dir"], str(report))
 
-    def test_report_rejects_missing_symlinked_empty_and_oversized_files(self):
+    def test_report_enforces_each_file_type_and_size_bound(self):
         report = self.report()
-        summary = report / "summary.md"
-        for problem in ("missing", "symlink", "empty", "oversized"):
-            with self.subTest(problem=problem):
-                summary.unlink(missing_ok=True)
-                if problem == "symlink":
-                    outside = self.root / "outside"
-                    outside.write_text("not a report")
-                    summary.symlink_to(outside)
-                elif problem == "empty":
-                    summary.touch()
-                elif problem == "oversized":
-                    summary.write_bytes(b"x" * (256 * 1024 + 1))
+        outside = self.root / "outside"
+        outside.write_text("not a report")
+        for name, limit in (("bundle.json", 16 * 1024 * 1024), ("summary.md", 256 * 1024),
+                            ("junit.xml", 256 * 1024)):
+            path = report / name
+            original = path.read_bytes()
+            for problem in ("missing", "symlink", "empty", "at-limit", "oversized"):
+                with self.subTest(name=name, problem=problem):
+                    path.unlink(missing_ok=True)
+                    if problem == "symlink":
+                        path.symlink_to(outside)
+                    elif problem in ("empty", "at-limit", "oversized"):
+                        with path.open("wb") as file:
+                            file.truncate({"empty": 0, "at-limit": limit, "oversized": limit + 1}[problem])
+                    self.summary.unlink(missing_ok=True)
+                    self.outputs.unlink(missing_ok=True)
+                    result = self.run_script("quick-report.sh")
+                    if problem == "at-limit":
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(self.output()["report-dir"], str(report))
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("assessment unavailable", self.summary.read_text())
+                        self.assertFalse(self.outputs.exists())
+            path.unlink()
+            path.write_bytes(original)
+
+    def test_report_rejects_symlinked_directories_even_with_trailing_slashes(self):
+        report = self.report()
+        alias = self.root / "report-alias"
+        alias.symlink_to(report, target_is_directory=True)
+        for suffix in ("", "/", "///"):
+            with self.subTest(suffix=suffix):
                 self.summary.unlink(missing_ok=True)
                 self.outputs.unlink(missing_ok=True)
+                self.env["BOOTUI_REPORT_DIR"] = f"{alias}{suffix}"
                 result = self.run_script("quick-report.sh")
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("assessment unavailable", self.summary.read_text())
                 self.assertFalse(self.outputs.exists())
-        summary.unlink()
 
     def successful_gate(self):
         self.env.update(
@@ -274,6 +295,14 @@ class QuickActionTests(unittest.TestCase):
             BOOTUI_UPLOAD_OUTCOME="failure",
         )
         self.assertNotEqual(self.run_script("quick-gate.sh").returncode, 0)
+        self.assertEqual(self.output()["exit-code"], "0")
+
+    def test_workload_failure_does_not_relabel_a_trustworthy_assessment(self):
+        self.successful_gate()
+        self.env["BOOTUI_WORKLOAD_OUTCOME"] = "failure"
+        result = self.run_script("quick-gate.sh")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("test command failed", result.stderr)
         self.assertEqual(self.output()["exit-code"], "0")
 
 
