@@ -26,6 +26,31 @@ import org.junit.jupiter.api.io.TempDir;
  */
 class UpdateCheckTests {
 
+    @Test
+    void ciCommandsNeverEnableTheUpdateCheckEvenOnATerminal() {
+        assertThat(BootUiCli.updateCheckTerminal(new String[] {"ci", "attach"}, true))
+                .isFalse();
+        assertThat(BootUiCli.updateCheckTerminal(new String[] {"--verbose", "ci", "assess"}, true))
+                .isFalse();
+        assertThat(BootUiCli.updateCheckTerminal(new String[] {"--verbose", "ci", "check"}, true))
+                .isFalse();
+        assertThat(BootUiCli.updateCheckTerminal(new String[] {"overview"}, true))
+                .isTrue();
+    }
+
+    @Test
+    void argumentFilesSuppressTheUpdateCheckForReleasedVersions() throws IOException {
+        Path arguments = stateDir.resolve("offline-check.args");
+        Files.writeString(arguments, "ci check --input bundle.json --assessment-id run-1 --policy policy.json");
+
+        UpdateCheck check = UpdateCheck.create(
+                "1.15.0", environment(), BootUiCli.updateCheckTerminal(new String[] {"@" + arguments}, true));
+        check.startRefreshIfDue();
+        check.awaitRefresh();
+
+        assertThat(requests).hasValue(0);
+    }
+
     private static final String METADATA = """
             <?xml version="1.0" encoding="UTF-8"?>
             <metadata>

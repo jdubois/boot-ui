@@ -28,7 +28,17 @@ public abstract class JsonValue {
 
     /** Parses one JSON document. */
     public static JsonValue parse(String json) {
-        return JsonReader.read(json);
+        return JsonReader.read(json, false);
+    }
+
+    /**
+     * Parses one JSON document and rejects duplicate object member names.
+     *
+     * <p>Ordinary server responses retain the established last-value behavior for compatibility. Callers
+     * interpreting policy or other security-sensitive local input should use this strict form.
+     */
+    public static JsonValue parseStrict(String json) {
+        return JsonReader.read(json, true);
     }
 
     /** A JSON string. */

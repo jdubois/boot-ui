@@ -50,5 +50,15 @@ class QuarkusEntityDiscoveryTest {
 
         assertThat(discovery.entities()).isEmpty();
         assertThat(discovery.repositories()).isEmpty();
+        assertThat(discovery.knownAbsent()).isTrue();
+    }
+
+    @Test
+    void failedFactoryDiscoveryIsNotAnAbsentIntegration() {
+        EntityDiscovery discovery = QuarkusEntityDiscovery.discover(() -> {
+            throw new IllegalStateException("factory discovery failed");
+        });
+        assertThat(discovery.knownAbsent()).isFalse();
+        assertThat(discovery.errors()).containsExactly("factory discovery failed");
     }
 }

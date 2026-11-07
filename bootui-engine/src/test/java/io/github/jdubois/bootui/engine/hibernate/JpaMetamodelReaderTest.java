@@ -25,6 +25,7 @@ class JpaMetamodelReaderTest {
         assertThat(discovery.entities()).isEmpty();
         assertThat(discovery.repositories()).isEmpty();
         assertThat(discovery.errors()).containsExactly("No EntityManagerFactory beans are available.");
+        assertThat(discovery.knownAbsent()).isTrue();
     }
 
     @Test
@@ -35,6 +36,7 @@ class JpaMetamodelReaderTest {
 
         assertThat(discovery.entities()).isEmpty();
         assertThat(discovery.errors()).containsExactly("metamodel unavailable");
+        assertThat(discovery.knownAbsent()).isFalse();
     }
 
     private static EntityManagerFactory throwingFactory(String message) {

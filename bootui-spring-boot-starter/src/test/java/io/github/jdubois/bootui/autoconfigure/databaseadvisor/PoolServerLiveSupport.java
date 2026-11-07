@@ -48,7 +48,7 @@ final class PoolServerLiveSupport {
         DatabaseAdvisorReport report = DatabaseAdvisorScanner.usingDiscovery(
                         () -> new DatabaseAdvisorDataSourceDiscovery(
                                 List.of(new NamedDataSource("primary", dataSource)), List.of()),
-                        () -> EntityDiscovery.empty(null),
+                        () -> EntityDiscovery.absent(null),
                         List::of,
                         evidence,
                         Clock.systemUTC())

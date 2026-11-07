@@ -40,6 +40,9 @@ const sidebarLabels = {
   'REPOSITORY.md': 'Repository',
   'WORKS-WITH.md': 'BootUI family',
   'CLI.md': 'Command line',
+  'CI.md': 'CI/CD and GitHub Actions',
+  'ci/framework-tests.md': 'Framework-managed CI tests',
+  'ci/reference.md': 'CI reference',
   'V2-EARLY-ADOPTERS.md': 'Try 2.0 early',
   'V2-VALIDATION-REPORT.md': 'v2 validation report',
   'V2-RELEASE.md': 'Releasing 2.0',
@@ -73,7 +76,8 @@ const groups = [
       'setup/java-agent.md',
       'setup/activation.md',
       'setup/environments.md',
-      'setup/troubleshooting.md'
+      'setup/troubleshooting.md',
+      'CI.md'
     ]
   },
   {
@@ -102,7 +106,16 @@ const groups = [
   },
   {
     text: 'Reference',
-    docs: ['PROPERTIES.md', 'FRAMEWORK-SUPPORT.md', 'AI-AGENTS.md', 'CLI.md', 'WORKS-WITH.md', 'KNOWN-LIMITATIONS.md']
+    docs: [
+      'PROPERTIES.md',
+      'FRAMEWORK-SUPPORT.md',
+      'AI-AGENTS.md',
+      'CLI.md',
+      'ci/framework-tests.md',
+      'ci/reference.md',
+      'WORKS-WITH.md',
+      'KNOWN-LIMITATIONS.md'
+    ]
   },
   {
     text: 'Diagnostic checks',

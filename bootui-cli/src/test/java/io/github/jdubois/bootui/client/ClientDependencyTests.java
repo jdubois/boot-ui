@@ -6,6 +6,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import io.github.jdubois.bootui.cli.ci.CiAssessmentRunner;
+import io.github.jdubois.bootui.cli.ci.CiBundleEvaluator;
+import io.github.jdubois.bootui.cli.ci.CiCollection;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -19,6 +22,9 @@ class ClientDependencyTests {
     private static final JavaClasses CLIENT = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
             .importPackages("io.github.jdubois.bootui.client");
+    private static final JavaClasses CI = new ClassFileImporter()
+            .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+            .importPackages("io.github.jdubois.bootui.cli.ci");
 
     @Test
     void clientDependsOnTheJdkAndItselfOnly() {
@@ -35,5 +41,19 @@ class ClientDependencyTests {
         // Guards the rule above against passing vacuously on an empty import.
         assertThat(CLIENT.contain(BootUiClient.class)).isTrue();
         assertThat(CLIENT.contain(JsonReader.class)).isTrue();
+    }
+
+    @Test
+    void ciCollectorsDependOnTheJdkAndClientOnly() {
+        classes()
+                .should()
+                .onlyDependOnClassesThat()
+                .resideInAnyPackage(
+                        "java..", "javax..", "io.github.jdubois.bootui.client", "io.github.jdubois.bootui.cli.ci..")
+                .because("in-process CI collectors must work without the optional picocli dependency")
+                .check(CI);
+        assertThat(CI.contain(CiAssessmentRunner.class)).isTrue();
+        assertThat(CI.contain(CiBundleEvaluator.class)).isTrue();
+        assertThat(CI.contain(CiCollection.class)).isTrue();
     }
 }

@@ -7,6 +7,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Strict live-target CI assessments** add `bootui ci attach` and `bootui ci assess`, plus a signature-verifying
+  composite GitHub Action and caller-owned workflow guide ([CI guide](docs/CI.md); [#1592](https://github.com/jdubois/boot-ui/issues/1592)).
+- Extend strict live-target assessments to external Quarkus `quarkus:dev` processes with framework-aware identity
+  witnesses; incomplete Quarkus advisor evidence remains a failure.
+- **Offline CI bundle validation** adds `bootui ci check` to recompute the policy verdict without contacting the
+  application, with a matching offline phase in the composite Action.
+- **Framework-managed CI collection** adds the `CiCollection` lifecycle API and `bootui ci prepare-contexts` /
+  `check-contexts` commands to gate a predeclared set of test windows after their producer processes exit.
+- **Report-only CI runtime context** adds an opt-in bounded, sanitized Runtime Insights projection to CI assessment
+  bundles and summaries without changing advisor verdicts.
+- **CI summaries** show bounded rule IDs, severities, counts, threshold matches, and assessment error codes.
+
+### Changed
+
+- Treat missing JDBC driver metadata and incomplete Hibernate or PostgreSQL discovery as incomplete Database advisor
+  evidence instead of clean coverage.
+
 ### Fixed
 
 - **Compact transaction labels distinguish physical children and savepoints** instead of calling them `PARTICIPATING`;

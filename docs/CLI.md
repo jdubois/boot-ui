@@ -533,6 +533,10 @@ The gate is CLI-only.
 
 ## In CI
 
+For complete assessment reports and a policy gate around integration tests, start with the
+[GitHub Actions quick start](CI.md). The individual commands below are useful in existing scripts; their panel-specific
+exit behavior is different from the strict `bootui ci` assessment contract.
+
 The CLI is designed for a job that starts the application, asks it something, and stops it:
 
 ```yaml
@@ -578,6 +582,168 @@ no tool becomes reachable that was not already reachable — the CLI is a second
 gated by the same per-panel policy and the same `bootui.expose-values` rule. `bootui logs tail`, for example,
 prints log messages with secret-like assignments and authorization credentials masked by default, and without
 messages under `METADATA_ONLY`.
+
+### Strict CI assessments
+
+<!-- bootui-ci:release:start -->
+> **CI support is not yet published.** Published BootUI CLI 2.3.0 does not contain these CI commands. The examples below are prepared for the first signed CI-capable release; `UNRELEASED` is not an installable version. Do not substitute the old published CLI.
+<!-- bootui-ci:release:end -->
+
+For the simple GitHub Action and complete examples, see [BootUI in CI](CI.md).
+
+The `bootui ci` commands are client-side orchestration, not MCP tools and not part of the generated command manifest.
+`attach` and `assess` are intentionally narrower than ordinary CLI
+use: one explicitly selected literal loopback URL, a Spring Boot application or external Quarkus `quarkus:dev`
+process, a strict JSON policy, and a pre-workload identity witness. They do not start the application, run tests, or
+prove that tests exercised the witnessed process. Do not use a deployed or remote target. Framework-managed tests can
+instead use `CiCollection` within the test lifecycle; see [framework-managed CI collection](CI.md#framework-managed-test-lifecycles).
+
+The policy selects only named advisors. A required advisor must be advertised, enabled, scannable, usable,
+coverage-complete, and have at least one subject. Incomplete evidence, scan/report disagreement, suppressed or
+dismissed findings, unknown severities, truncation, paging inconsistencies, and collection errors are not passes for
+a required advisor. An optional advisor is assessed and gated when available; framework incompatibility, unavailability,
+or unevaluable optional evidence is retained as an explicit `SKIPPED` row with a stable reason.
+The policy allow-list excludes the Memory advisor because its scan may trigger a full garbage collection; the
+Database advisor's policy key is `database-advisor`. Runtime Insights context is optional and report-only: omit the
+`runtimeContext` object (or set `includeInsights` to `false`) to make no extra request. A policy containing
+`runtimeContext` requires a CLI version that understands that key; older releases reject unknown policy keys.
+
+For Spring, a policy can include REST API checks and the optional runtime snapshot:
+
+```json
+{
+  "schemaVersion": 1,
+  "advisors": {
+    "architecture": { "required": true, "failOn": "high" },
+    "rest-api": { "required": true, "failOn": "high" }
+  },
+  "runtimeContext": { "includeInsights": true }
+}
+```
+
+For a Quarkus application with Hibernate and a configured datasource, one possible policy is:
+
+```json
+{
+  "schemaVersion": 1,
+  "advisors": {
+    "architecture": { "required": true, "failOn": "critical" },
+    "hibernate": { "required": true, "failOn": "critical" },
+    "database-advisor": { "required": true, "failOn": "critical" }
+  }
+}
+```
+
+Choose advisors and thresholds for the target. An optional advisor is assessed when available and its successful
+findings gate normally; incomplete optional evidence is an explicit skip, while incomplete required evidence fails.
+
+Attach immediately before the workload, and use the exact same URL for the existing integration scenarios and the
+later assessment. On failure, attach prints a stable error code to stderr and writes it into a `NOT_ASSESSED`
+witness when possible. Selecting the `spring` advisor as required for a Quarkus target fails with
+`UNSUPPORTED_ADVISOR_FOR_FRAMEWORK`; an optional selection is skipped as `FRAMEWORK_UNAVAILABLE`. Choose a fresh witness
+path and output directory for each run; assess only after
+a successful attach:
+
+```bash
+assessment_root="$RUNNER_TEMP/bootui-ci/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+attach_status=0
+bootui ci attach \
+  --url http://127.0.0.1:18080 \
+  --assessment-id "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:orders" \
+  --policy ci/bootui-policy.json \
+  --output "$assessment_root/witness.json" || attach_status=$?
+
+workload_status=0
+./ci/run-integration-tests.sh http://127.0.0.1:18080 || workload_status=$?
+
+assessment_status=1
+if [ "$attach_status" -eq 0 ]; then
+  assessment_status=0
+  bootui ci assess \
+    --url http://127.0.0.1:18080 \
+    --assessment-id "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:orders" \
+    --policy ci/bootui-policy.json \
+    --witness "$assessment_root/witness.json" \
+    --output-dir "$assessment_root/assessment" || assessment_status=$?
+else
+  echo "BootUI attach failed; refusing to scan with an unverified witness." >&2
+fi
+# Publish any reports before applying these results as the final job gate.
+if [ "$workload_status" -ne 0 ]; then exit "$workload_status"; fi
+exit "$assessment_status"
+```
+
+The assessment writes a bounded `bundle.json`, `summary.md`, and `junit.xml`; report prose and raw finding text are
+not copied into these outputs. The Markdown summary lists up to 50 retained rule IDs, severities, counts, and whether
+they meet their advisor's threshold. Threshold-meeting findings appear first; any omitted rule summaries remain in
+`bundle.json`. Stable assessment error codes also appear in the summary. With `runtimeContext.includeInsights: true`,
+one bounded read-only Runtime Insights call adds aggregate coverage and at most 20 default-listed, sanitized observation
+summaries to the bundle and Markdown summary, never to JUnit. The projection omits routes, request IDs, observation
+prose, and follow-up suggestions; its HTTP exchange count cannot prove the CI workload exercised the witnessed process.
+`CAPTURED`, `PARTIAL` (low-footprint mode),
+`UNAVAILABLE`, and `ERROR` describe the optional context only and never affect the advisor verdict or exit code;
+`NOT_REQUESTED` means the policy omitted or disabled the request, while `NOT_COLLECTED` means assessment stopped
+before it could be made.
+
+The call is capped at 10 seconds and reserves the configured `--timeout` plus one second for the final identity check.
+If the remaining budget is no greater than that reserve, no Runtime Insights request is made and its report-only status
+is `ERROR`. The summary shows captured counts only for `CAPTURED` or `PARTIAL`; other statuses do not imply zero
+activity. Publish the summary and files before making the recorded result the final job gate.
+The aggregate exits are `0` for a valid pass or confirmed optional absence, `1` for an unevaluable/error result, and
+`3` for a proven threshold violation. An error takes precedence over findings, while already collected findings remain
+in the bundle and summary. This is separate from the legacy per-tool exit codes above; in particular, a required panel
+refusal cannot become a green assessment.
+
+After downloading the assessment artifact to `$RUNNER_TEMP/bootui-ci/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/assessment`,
+validate it in a later, offline job with the same policy file and expected assessment ID:
+
+```bash
+assessment_root="$RUNNER_TEMP/bootui-ci/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+bootui ci check \
+  --input "$assessment_root/assessment/bundle.json" \
+  --assessment-id "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:orders" \
+  --policy ci/bootui-policy.json
+```
+
+`ci prepare-contexts` creates a fresh absolute evidence root, fixes its exact policy snapshot and complete list of
+expected context IDs, and prints the plan's SHA-256 digest. Retain both that digest and the expected assessment ID
+outside the writable root. Each test window calls the `CiCollection.begin(...)` API from the CLI artifact and invokes
+`Window.finish()` before application teardown. After every producer process exits, `ci check-contexts` verifies all
+expected windows offline. Its exits are `0` for a complete pass, `1` for incomplete or invalid evidence, and `3` for a
+proven threshold violation. The final gate must run after all producers; use one root per policy and a filesystem
+provider supporting `SecureDirectoryStream`. This proves consistency and explicit window completion, not that tests
+actually exercised the witnessed application or that evidence is tamper-proof. See [the lifecycle API and example](CI.md#framework-managed-test-lifecycles).
+
+The composite Action's `phase: prepare-cli` downloads and verifies the signed CLI, exporting `BOOTUI_CLI_JAR` for
+later steps. `phase: offline` accepts `input-bundle`, `assessment-id`, and `policy` to run `ci check` without contacting
+an application. It writes a fixed status summary to the GitHub job summary; it does not rewrite or upload the supplied
+bundle.
+
+`ci check` reads a bounded strict-JSON bundle, rejects duplicate or unknown fields and incomplete evidence, verifies
+the policy digest and assessment ID, and recomputes the threshold result from the retained findings. It has no target
+URL or network fallback. The check validates consistency, not authenticity: CI artifacts are self-reported evidence,
+not tamper-proof attestation. Optional `SKIPPED` advisor rows are also self-reported and are not independently
+corroborated offline; mark every advisor needed for the gate as `required: true` in the collection policy. It validates
+the optional runtime projection's bounded structure and its policy opt-in, but never gates on its observations.
+Schema-version-1 success bundles are treated as Spring Boot for compatibility; a `NOT_ASSESSED` bundle can remain
+schema version 1 if identity was never established. Schema-version-1 bundles may omit `runtimeContext` only when the
+policy did not request Runtime Insights. Schema-version-2 bundles record `frameworkName` when identity is known.
+Both versions require complete advisor evidence.
+Neither the projection nor the identity witness proves workload attribution.
+
+Both frameworks must point `BOOTUI_OVERRIDES_FILE` at a fresh, empty, absolute per-assessment path outside watched and
+build-output directories; this isolates Quarkus's advisor-dismissal store as well as Spring's overrides. Never reuse
+developer-local dismissals. Spring must explicitly activate BootUI and keep its dependency in a repository-owned
+CI-only build profile, not the normal production dependency graph. Quarkus activates BootUI by DEV/TEST launch mode
+instead. Run cleanup only for the process the workflow owns. In GitHub Actions, assessment/publication belongs behind
+`!cancelled()`, while `always()` is for bounded cleanup of that owned process. A cancelled runner or hard timeout can
+still prevent collection or publishing; the witness proves identity continuity, not workload attestation.
+
+The composite Action downloads a pinned stable CLI release and verifies its Maven Central signature against BootUI's
+pinned release signing key. The Action and CLI commands become usable by consumers only after a release containing
+them is published. The lifecycle API and expected-window commands are part of the CLI artifact, not a framework
+plugin; the test suite must call them from its own lifecycle hooks. This increment does not provide comparisons,
+SARIF, or annotations.
 
 ## Every command
 

@@ -1,0 +1,5 @@
+**/target/
+**/.mvn/wrapper/maven-wrapper.jar
+.m2/
+.bootui-ci-tools/
+__pycache__/

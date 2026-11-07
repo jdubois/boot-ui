@@ -170,7 +170,7 @@ class DatabaseFindingSuppressionTests {
         var schema = DatabaseAdvisorFixtures.schema("primary", Dialect.GENERIC, tables);
         DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.using(
                 () -> List.of(new NamedDataSource("primary", dataSource)),
-                () -> EntityDiscovery.empty(null),
+                () -> EntityDiscovery.absent(null),
                 FIXED_CLOCK);
         scanner.setViolationRetentionLimit(() -> retention);
         try (var introspector = mockStatic(SchemaIntrospector.class)) {

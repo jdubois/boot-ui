@@ -75,6 +75,27 @@ class CommandTreeTests {
     }
 
     @Test
+    void ciOrchestrationIsSeparateFromTheGeneratedToolManifest() {
+        assertThat(ToolManifest.bundled().tools())
+                .noneMatch(tool -> tool.command().equals("ci") || tool.command().startsWith("ci "));
+        assertThat(run(List.of("ci", "attach", "--help"))).isEqualTo(ExitCodes.SUCCESS);
+        assertThat(paths).isEmpty();
+    }
+
+    @Test
+    void ciCheckIsOfflineAndAcceptsOnlySavedBundleInputs() {
+        String checkHelp = help("ci", "check");
+        assertThat(checkHelp).contains("--input", "--assessment-id", "--policy").doesNotContain("--url");
+        assertThat(help("ci", "prepare-contexts"))
+                .contains("--root", "--assessment-id", "--policy", "--contexts")
+                .doesNotContain("--url");
+        assertThat(help("ci", "check-contexts"))
+                .contains("--root", "--assessment-id", "--plan-sha256")
+                .doesNotContain("--url");
+        assertThat(paths).isEmpty();
+    }
+
+    @Test
     void everyCommandAcceptsExactlyTheArgumentsItsSchemaDeclares() {
         Map<String, String> failures = new LinkedHashMap<>();
 

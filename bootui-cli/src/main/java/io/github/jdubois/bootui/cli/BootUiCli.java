@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.cli;
 import io.github.jdubois.bootui.client.BootUiClient;
 import io.github.jdubois.bootui.client.BootUiClientOptions;
 import java.io.PrintWriter;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.function.Function;
 import picocli.CommandLine;
@@ -50,7 +51,7 @@ public final class BootUiCli {
         root.version("bootui " + version());
 
         // Started before the command so it overlaps the work rather than following it, and never waited for.
-        UpdateCheck updateCheck = UpdateCheck.create(version(), environment, terminal);
+        UpdateCheck updateCheck = UpdateCheck.create(version(), environment, updateCheckTerminal(args, terminal));
         updateCheck.startRefreshIfDue();
 
         CommandLine commandLine = new CommandLine(root)
@@ -81,5 +82,11 @@ public final class BootUiCli {
     private static String version() {
         String version = BootUiCli.class.getPackage().getImplementationVersion();
         return version == null ? "dev" : version;
+    }
+
+    static boolean updateCheckTerminal(String[] args, boolean terminal) {
+        return terminal
+                && !Arrays.asList(args).contains("ci")
+                && Arrays.stream(args).noneMatch(argument -> argument.startsWith("@"));
     }
 }

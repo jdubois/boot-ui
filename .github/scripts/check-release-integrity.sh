@@ -153,6 +153,26 @@ require_literal 'fs.readFileSync("plugins/bootui/plugin.json", "utf8")' \
 require_literal 'if (plugin.version !== process.argv[1]) {' 'portable plugin release version verification'
 require_literal 'python3 .github/scripts/workshop-version.py update "$VERSION"' 'workshop release version update'
 require_literal 'python3 .github/scripts/workshop-version.py check "$VERSION"' 'workshop immutable release version check'
+require_literal 'python3 .github/scripts/ci-docs-version.py update "$VERSION"' 'CI documentation release manifest update'
+require_literal 'python3 .github/scripts/ci-docs-version.py check "$VERSION"' 'CI documentation immutable release manifest check'
+require_literal 'python3 .github/scripts/ci-examples.py render' 'CI documentation consumer render'
+require_literal 'python3 .github/scripts/ci-examples.py check' 'CI documentation immutable consumer check'
+# Exact executable lines, in their fixed shell blocks, not comments or commands hidden behind skip_build.
+ci_prepare_pair=$'          python3 .github/scripts/ci-docs-version.py update "$VERSION"\n          python3 .github/scripts/ci-examples.py render'
+ci_check_pair=$'         python3 .github/scripts/ci-docs-version.py check "$VERSION"\n         python3 .github/scripts/ci-examples.py check'
+if ! [[ "$(sed -n '/- name: Prepare release version/,/- name: Resolve immutable release/p' "$WORKFLOW")" == *"$ci_prepare_pair"* ]]; then
+  report_error 'CI manifest update and consumer render must be adjacent executable preparation commands'
+fi
+if ! [[ "$(sed -n '/- name: Verify release version/,/- name: Smoke test the staged release candidate/p' "$WORKFLOW")" == *"$ci_check_pair"* ]]; then
+  report_error 'CI manifest and consumer checks must be adjacent executable immutable-verification commands'
+fi
+if [[ "$(grep -Fc 'python3 .github/scripts/ci-docs-version.py update' "$WORKFLOW" || true)" -ne 1 ]] ||
+  [[ "$(grep -Fc 'python3 .github/scripts/ci-examples.py render' "$WORKFLOW" || true)" -ne 1 ]]; then
+  report_error 'CI documentation writes must occur exactly once, during preparation only'
+fi
+if ! grep -Fxq '        run: python3 .github/scripts/ci-docs-version.py check' "$REPOSITORY_ROOT/.github/workflows/build.yml" 2>/dev/null; then
+  report_error 'the Java 17 baseline must check CI documentation release metadata'
+fi
 require_literal 'python3 .github/scripts/assemble_central_bundle.py "$LOCAL_REPO" "$VERSION" target/central-bundle.zip' \
   'Central bundle assembled from the installed release'
 require_literal 'python3 .github/scripts/publish_central_bundle.py target/central-bundle.zip' \
@@ -192,6 +212,9 @@ availability_step="$(
   sed -n '/- name: Wait for Maven Central availability/,/- name: Smoke test published distributions/p' "$WORKFLOW"
 )"
 readonly availability_step
+if ! grep -Fxq '            "bootui-cli/${VERSION}/bootui-cli-${VERSION}-all.jar.asc"' <<<"$availability_step"; then
+  report_error 'Maven Central availability must poll the CI CLI signature before deploying documentation'
+fi
 if grep -Fq 'bootui-agent-bridge/' <<<"$availability_step"; then
   report_error 'bootui-agent-bridge is never published and must not be polled on Maven Central'
 fi
@@ -558,6 +581,22 @@ require_order '- name: Checkout immutable release' 'python3 .github/scripts/work
   'the workshop version must be checked from the immutable release checkout'
 require_order 'python3 .github/scripts/workshop-version.py check "$VERSION"' '- name: Publish to Maven Central' \
   'the workshop version must be checked before publication'
+require_order './mvnw -B -ntp versions:set' 'python3 .github/scripts/ci-docs-version.py update "$VERSION"' \
+  'the CI manifest must be updated after release version validation'
+require_order 'python3 .github/scripts/ci-docs-version.py update "$VERSION"' 'python3 .github/scripts/ci-examples.py render' \
+  'CI consumers must render after the manifest update'
+require_order 'python3 .github/scripts/ci-examples.py render' './mvnw -B -ntp -Prelease clean verify' \
+  'CI consumers must render before release verification and sealing'
+require_order 'python3 .github/scripts/ci-examples.py render' 'if [[ "$SKIP_BUILD" != "true" ]]; then' \
+  'CI consumers must render outside and before the skip_build conditional'
+require_order 'python3 .github/scripts/ci-examples.py render' 'git commit -m "Release $TAG"' \
+  'CI documentation writes must precede the release commit even with skip_build'
+require_order '- name: Checkout immutable release' 'python3 .github/scripts/ci-docs-version.py check "$VERSION"' \
+  'the CI manifest must be checked from the immutable release checkout'
+require_order 'python3 .github/scripts/ci-docs-version.py check "$VERSION"' 'python3 .github/scripts/ci-examples.py check' \
+  'CI consumers must be checked after the immutable manifest'
+require_order 'python3 .github/scripts/ci-examples.py check' '- name: Publish to Maven Central' \
+  'CI consumers must be checked before publication and on resume'
 require_order 'REMOTE_SOURCE_SHA=' 'git tag -s "$TAG"' \
   'the source branch advancement guard must run before tag creation'
 require_order 'git commit -m "Release $TAG"' 'git tag -s "$TAG"' \
@@ -668,16 +707,20 @@ readonly GATE_STEP_LINE="        $GATE_RUN"
 if ! grep -Fxq -- "$GATE_STEP_LINE" "$PAGES_WORKFLOW"; then
   report_workflow_error "$PAGES_WORKFLOW" "missing documentation site release-line gate ('$GATE_RUN' on a line of its own)"
 fi
-require_workflow_literal "$PAGES_WORKFLOW" 'publish: ${{ steps.gate.outputs.publish }}' \
+require_workflow_literal "$PAGES_WORKFLOW" "publish: \${{ steps.gate.outputs.publish == 'true' && steps.ci_release.outputs.publish == 'true' }}" \
   'documentation site gate output'
 pages_build="$(job_block "$PAGES_WORKFLOW" build)"
 pages_deploy="$(job_block "$PAGES_WORKFLOW" deploy)"
 if ! grep -Fxq -- "$GATE_STEP_LINE" <<<"$pages_build"; then
   report_workflow_error "$PAGES_WORKFLOW" 'the release-line gate must run in the build job'
 fi
-if ! grep -Fq -- "if: github.event_name != 'pull_request' && steps.gate.outputs.publish == 'true'" \
+if ! grep -Fxq -- "        if: github.event_name != 'pull_request' && steps.gate.outputs.publish == 'true' && steps.ci_release.outputs.publish == 'true'" \
   <<<"$(sed -n '/- name: Upload Pages artifact/,/uses:/p' "$PAGES_WORKFLOW")"; then
   report_workflow_error "$PAGES_WORKFLOW" 'the Pages artifact must be uploaded only when the release-line gate allows it'
+fi
+ci_pages_gate=$'        id: ci_release\n        if: github.event_name != \'pull_request\' && steps.gate.outputs.publish == \'true\'\n        run: python3 .github/scripts/ci-docs-version.py publication-gate\n'
+if ! [[ "$pages_build" == *"$ci_pages_gate"* ]]; then
+  report_workflow_error "$PAGES_WORKFLOW" 'the exact CI manifest publication gate must run in the build job'
 fi
 if [[ "$(grep -Fc 'actions/deploy-pages' "$PAGES_WORKFLOW" || true)" -ne 1 ]] ||
   ! grep -Fq 'actions/deploy-pages' <<<"$pages_deploy"; then

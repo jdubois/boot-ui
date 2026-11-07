@@ -51,6 +51,9 @@ unsupported hints and failed restoration are reported rather than silently ignor
   missing coverage can be reported separately while retaining confirmed findings.
 - The scan is `PARTIAL` when metadata or required evidence is incomplete, and `ERROR` when no discovered schema
   could be read. Normal wrong-dialect or absent optional-feature skips are informational.
+- An absent JPA integration is a neutral skip; a failed metamodel discovery is incomplete evidence even when
+  it discovers no entities. Missing JDBC driver name, version or URL evidence and an incomplete PostgreSQL relation
+  inventory also prevent a complete assessment.
 - A PostgreSQL-only inventory makes MySQL/MariaDB and Oracle rules **not applicable**, not incomplete: their
   `SKIPPED` counters and `INFO` diagnostics remain, but they earn no completed-check credit and add no assessment
   limitations. An applicable vendor's unavailable/version-unsupported catalog is different: it records missing

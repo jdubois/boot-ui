@@ -1,0 +1,3 @@
+- name: BootUI diagnostics
+  id: bootui
+  uses: jdubois/boot-ui/.github/actions/bootui@@BOOTUI_ACTION_REF@ # v@BOOTUI_VERSION@ CLI interface; independent Action commit

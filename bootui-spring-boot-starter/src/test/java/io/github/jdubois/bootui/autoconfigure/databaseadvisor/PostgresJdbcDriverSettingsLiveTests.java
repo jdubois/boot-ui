@@ -50,7 +50,7 @@ class PostgresJdbcDriverSettingsLiveTests {
         DatabaseAdvisorReport report = DatabaseAdvisorScanner.usingDiscovery(
                         () -> new DatabaseAdvisorDataSourceDiscovery(
                                 List.of(new NamedDataSource("primary", source)), List.of()),
-                        () -> EntityDiscovery.empty(null),
+                        () -> EntityDiscovery.absent(null),
                         List::of,
                         evidence,
                         Clock.systemUTC())

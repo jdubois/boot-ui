@@ -24,7 +24,7 @@ jobs:
       contents: read
       pages: read
     outputs:
-      publish: ${{ steps.gate.outputs.publish }}
+      publish: ${{ steps.gate.outputs.publish == 'true' && steps.ci_release.outputs.publish == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -33,6 +33,14 @@ jobs:
         id: gate
         if: github.event_name != 'pull_request'
         run: bash .github/scripts/release-line-gate.sh
+
+      # A prepared same-major release is pushed before its Central upload. Keep the prior site
+      # until this exact manifest version (all seven jars/POMs and the signed CLI all jar) is public.
+      # Unavailable manifests permit explicitly labeled coming-soon docs, never a public kit.
+      - name: Check exact CI documentation release availability
+        id: ci_release
+        if: github.event_name != 'pull_request' && steps.gate.outputs.publish == 'true'
+        run: python3 .github/scripts/ci-docs-version.py publication-gate
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -63,8 +71,8 @@ jobs:
             exit 1
           fi
 
-      - name: Check workshop navigation and exercise instructions
-        run: node --test docs/.vuepress/workshop.test.mjs
+      - name: Check CI and workshop navigation and exercise instructions
+        run: node --test docs/.vuepress/workshop.test.mjs docs/.vuepress/ci.test.mjs
 
       - name: Check analytics consent handling
         run: npm run test:analytics
@@ -117,7 +125,7 @@ jobs:
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_docs_links.py'
 
       - name: Upload Pages artifact
-        if: github.event_name != 'pull_request' && steps.gate.outputs.publish == 'true'
+        if: github.event_name != 'pull_request' && steps.gate.outputs.publish == 'true' && steps.ci_release.outputs.publish == 'true'
         uses: actions/upload-pages-artifact@v5
         with:
           path: docs/.vuepress/dist

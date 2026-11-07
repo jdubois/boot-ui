@@ -219,6 +219,42 @@ For Runtime Insights and caught exceptions, `--fail-on insufficient` exits `3` o
 rows and `1` when evidence cannot be evaluated. Runtime Insights checks every observation kind if `--query` is omitted;
 an explicit query stays scoped, and check-level statuses remain informational.
 
+The default GitHub Action is the simplest live-target path: its `run` phase detects the Spring Boot or Quarkus start
+command, resolves the CLI version from the application's Maven or Gradle dependency, starts the app on literal
+loopback, runs all available local CI advisors, publishes the job summary and bounded reports, and stops only its
+owned process. No test-scoped `bootui-cli` dependency, policy file, or workload is required. Set `test-command` only
+when tests deliberately exercise that separately running app. Advanced workflows can invoke `bootui ci attach` before
+a workload and `bootui ci assess` afterward with the exact same literal loopback URL; direct CLI use does not start the
+app, prove workload attribution, or support remote targets. For
+framework-managed `@SpringBootTest` or `@QuarkusTest` lifecycles, pin the complete expected context set with
+`bootui ci prepare-contexts`, call `CiCollection.begin(...)` and `Window.finish()` from the test lifecycle, and run
+`bootui ci check-contexts` only after all producer processes exit. Retain the plan digest outside the writable
+evidence root; use one root per policy and a filesystem provider supporting `SecureDirectoryStream`. This gate checks
+consistency and window completion, not workload attestation or tamper-proof authenticity. The Quarkus application
+advisor (`spring` policy key) is rejected for strict CI because its dev-mode evidence is partial. Keep Quarkus
+dev-mode sources and compiled output untouched between live attach and assessment because a reload can change the
+witnessed run identity. `phase: prepare-cli` exports its signature-verified CLI for custom steps, and the Action
+accepts saved bundles for offline validation. Framework-managed `CiCollection` tests need the ordinary test-scoped
+`bootui-cli` API, while the default Action does not. The Action supplies a fresh isolated dismissal path and enables
+metadata-only BootUI for its child process; custom externally managed targets must do the equivalent. Never import local
+dismissals. The strict JSON policy runs its named advisors: required advisors fail on incomplete evidence, unknown
+severity, suppression, truncation, paging inconsistencies, or errors; optional advisors can report explicit skips
+for unavailable or unevaluable evidence, while their successful findings still gate. Aggregate exits are `0` pass, `1` not
+assessed/error (takes precedence over findings), and `3` proven threshold violation; underlying per-tool exit codes
+remain unchanged. Publish the bounded JSON/Markdown/JUnit outputs before applying that final gate, while recognizing
+that cancellation or a hard runner timeout can prevent publication. The identity witness is not workload attestation.
+See
+[the CI setup and workflow](https://github.com/jdubois/boot-ui/blob/main/docs/CI.md) and
+[the CLI CI contract](https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md#strict-ci-assessments); pin the Action
+to a reviewed commit and use a published, signed CLI release containing these commands. `bootui ci check` can
+revalidate a saved bundle offline against its expected assessment ID and exact policy file; it checks consistency,
+not authenticity. Optional skipped-advisor rows remain self-reported, so make every gating advisor required.
+Use these CI commands and the Action only with a published, signed BootUI release that contains the CI interface.
+The policy may opt into one bounded Runtime Insights summary with `runtimeContext.includeInsights: true`; it includes
+default-listed observations, is sanitized and report-only, and does not prove the workload exercised the witnessed
+process or affect the advisor verdict. If the remaining budget cannot preserve the configured request timeout plus one
+second for the final identity check, the optional call is skipped and reported as `ERROR`.
+
 The full command table is at `https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md`; each command maps to the MCP
 tool of the same behavior. `bootui agent status` maps to `get_agent_status` and is read-only on Spring MVC, WebFlux, and
 Quarkus.

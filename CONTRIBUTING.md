@@ -262,6 +262,24 @@ npm install
 npm test
 ```
 
+### CI consumer acceptance
+
+The Java 17 baseline also builds standalone Spring MVC, Spring WebFlux, and Quarkus consumers, verifies that their
+production packages exclude BootUI and their opt-in CI packages contain the current candidate, and exercises the CLI
+and Action invocation scripts against each. To reproduce it with an isolated Maven repository:
+
+```bash
+export MAVEN_OPTS="${MAVEN_OPTS:-} -Dmaven.repo.local=$PWD/.m2"
+./mvnw -B -ntp -pl bootui-spring-boot-starter,bootui-quarkus,bootui-quarkus-deployment,bootui-cli -am -DskipTests install
+python3 -B -m unittest discover -s .github/scripts -p 'test_ci_consumer_acceptance.py'
+python3 -B .github/scripts/ci-consumer-acceptance.py --maven-repository "$PWD/.m2"
+```
+
+The Quarkus fixture's `bootui-ci` profile supplies deterministic security observations and a synthetic credential; it is
+for acceptance testing, not a production launch profile.
+
+The harness does not exercise the Action's release-signature download or the GitHub-hosted runner.
+
 ### Coverage
 
 Run the same instrumented Maven/Vitest coverage build as CI with:
@@ -702,6 +720,30 @@ while `npm run dev` is already running, restart the dev server so the subset is
 regenerated.
 
 ## Publishing
+
+### CI documentation and examples
+
+The runnable CI recipes live in `examples/ci/`. Documentation embeds these sources through
+`<!-- bootui-ci:source:PATH:start -->` / `<!-- bootui-ci:source:PATH:end -->` regions; edit the source template rather
+than its generated Markdown copy. After changes, run:
+
+```bash
+python3 -B .github/scripts/ci-examples.py render
+python3 -B .github/scripts/ci-examples.py check
+python3 -B -m unittest discover -s .github/scripts -p 'test_ci_examples*.py'
+npm run docs:build
+```
+
+`docs/ci/release.json` deliberately marks CI support unavailable until its first release. Do not change it merely to
+make examples installable against an older CLI. Release preparation pins the committed source's Action, synchronizes
+the release record and generated examples, and then signs the release; tagged and recovery paths verify without
+rewriting them. The docs build generates the ignored starter-kit ZIP only for release-ready metadata, and the
+publication workflow separately checks exact release availability, including the CLI signature, before deploying it.
+Updating BootUI's guide does not update workflows already copied by users.
+The example templates pin third-party Actions to reviewed commit SHAs; their major versions are checked against the
+baseline workflow. Update those pins deliberately when the baseline changes.
+
+### Maven Central
 
 Maven Central publication uses the `release` Maven profile, which attaches source JARs
 and an empty placeholder Javadoc JAR (Maven Central requires the file but not its
