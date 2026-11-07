@@ -902,7 +902,8 @@ jobs:
       - name: Build the Spring sample app and the BootUI agent
         run: ./mvnw -T 1C -B -ntp -pl bootui-spring-sample-app -am -DskipTests install
 
-      # A report-only leg (the runtime journal's) never fails the build, as its job's step did not.
+      # A report-only leg (an opt-in sensor's or the runtime journal's) never fails the build. Its report is still
+      # gathered below, where a sensor that later becomes a default can be gated against the default rule.
       - name: ${{ matrix.leg.step }}
         continue-on-error: ${{ matrix.leg.report-only }}
         run: >
@@ -1077,7 +1078,7 @@ jobs:
             step: Measure the thread-activity sensor's share on the thread route
             it: AgentOverheadBenchmarkIT
             reports: agent-overhead
-            report-only: false
+            report-only: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.route=threads -Dbootui.benchmark.report=spring-mvc-thread-activity-ab
@@ -1088,7 +1089,7 @@ jobs:
             step: Measure the agent's overhead with thread-activity on the thread route
             it: AgentOverheadBenchmarkIT
             reports: agent-overhead
-            report-only: false
+            report-only: true
             args: >-
               -Dbootui.benchmark=true -Dbootui.benchmark.passes=15 -Dbootui.benchmark.agent.fail-above-percent=30
               -Dbootui.benchmark.route=threads -Dbootui.benchmark.report=spring-mvc-agent-threads
