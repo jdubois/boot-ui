@@ -25,6 +25,7 @@ import xml.etree.ElementTree as ET
 
 MANIFEST = "docs/ci/release.json"
 ACTION = ".github/actions/bootui"
+ACTION_METADATA = "action.yml"
 # Published 2.3.0 predates the ci commands. Never advertise it as a CI-capable release.
 LAST_WITHOUT_CI = (2, 3, 0)
 VERSION = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
@@ -82,16 +83,16 @@ def verify_action(root, ref):
         raise ValueError("actionRef must identify a commit, not a tag or tree")
     git(root, "merge-base", "--is-ancestor", ref, "HEAD")
     expected = {}
-    for entry in git(root, "ls-tree", "-r", ref, "--", ACTION).splitlines():
+    for entry in git(root, "ls-tree", "-r", ref, "--", ACTION_METADATA, ACTION).splitlines():
         metadata, path = entry.split("\t", 1)
         mode, kind, oid = metadata.split()
         if kind != "blob" or mode not in ("100644", "100755"):
             raise ValueError("Reviewed Action must contain only regular files")
         expected[path] = (mode, oid)
-    if f"{ACTION}/action.yml" not in expected:
-        raise ValueError("Reviewed actionRef contains no BootUI Action")
+    if ACTION_METADATA not in expected:
+        raise ValueError("Reviewed actionRef contains no repository-root BootUI Action")
     actual = {}
-    for path in (root / ACTION).rglob("*"):
+    for path in (root / ACTION_METADATA, *(root / ACTION).rglob("*")):
         if path.is_symlink():
             raise ValueError("Action symlinks are not supported")
         if path.is_dir():

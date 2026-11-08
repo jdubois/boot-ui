@@ -739,6 +739,8 @@ make examples installable against an older CLI. Release preparation pins the com
 the release record and generated examples, and then signs the release; tagged and recovery paths verify without
 rewriting them. The docs build generates the ignored starter-kit ZIP only for release-ready metadata, and the
 publication workflow separately checks exact release availability, including the CLI signature, before deploying it.
+The repository-root `action.yml` is the public entry point; implementation scripts stay in `.github/actions/bootui/`.
+Generated workflows use `jdubois/boot-ui@vX.Y.Z` for the signed release and `@vUNRELEASED` before publication.
 Updating BootUI's guide does not update workflows already copied by users.
 The example templates pin third-party Actions to reviewed commit SHAs; their major versions are checked against the
 baseline workflow. Update those pins deliberately when the baseline changes.

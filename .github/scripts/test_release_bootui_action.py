@@ -1,6 +1,8 @@
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -8,17 +10,66 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 ACTION = ROOT / ".github" / "actions" / "bootui"
+ACTION_METADATA = ROOT / "action.yml"
 
 
 class BootUiActionTests(unittest.TestCase):
+    def test_root_action_resolves_its_assets_outside_the_consumer_checkout(self):
+        downloaded = self.root / "downloaded action"
+        downloaded.mkdir()
+        shutil.copy2(ACTION_METADATA, downloaded / "action.yml")
+        shutil.copytree(ACTION, downloaded / ".github/actions/bootui")
+        consumer = self.root / "consumer"
+        shadow = consumer / ".github/actions/bootui"
+        shadow.mkdir(parents=True)
+        (shadow / "report-error.sh").write_text("exit 99\n", encoding="utf-8")
+        metadata = (downloaded / "action.yml").read_text()
+        script_steps = re.findall(
+            r"    - .*?(?=\n    - |\Z)", metadata, re.DOTALL,
+        )
+        invoked = []
+        for step in script_steps:
+            command = re.search(r'^      run: bash "\$ACTION_PATH/([^"]+)"$', step, re.MULTILINE)
+            if command is None:
+                continue
+            path = re.search(r"^        ACTION_PATH: (.+)$", step, re.MULTILINE)
+            self.assertIsNotNone(path, command[1])
+            action_path = Path(path[1].replace("${{ github.action_path }}", str(downloaded)))
+            script = action_path / command[1]
+            self.assertEqual(script.parent, downloaded / ".github/actions/bootui")
+            self.assertTrue(script.is_file(), script)
+            invoked.append(script)
+        self.assertEqual(len(invoked), 12)
+        policies = re.findall(
+            r"inputs\.policy \|\| format\('([^']+)', github\.action_path\)", metadata,
+        )
+        self.assertEqual(len(policies), 2)
+        for policy in policies:
+            path = Path(policy.format(downloaded))
+            self.assertEqual(json.loads(path.read_text()), json.loads((ACTION / "default-policy.json").read_text()))
+        self.environment.update(BOOTUI_ATTACH_EXIT_CODE="0", BOOTUI_PREPARE_OUTCOME="failure")
+        result = subprocess.run(
+            ["bash", str(next(script for script in invoked if script.name == "report-error.sh"))],
+            cwd=consumer, env=self.environment, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = self.root / "assessment.action-error"
+        self.assertEqual(
+            json.loads((report / "bundle.json").read_text())["errors"], [{"code": "CLI_SETUP_FAILED"}],
+        )
+        self.assertEqual({path.name for path in report.iterdir()}, {"bundle.json", "summary.md", "junit.xml"})
+
+    def test_root_action_remains_in_the_formatting_scope(self):
+        self.assertIn("<include>action.yml</include>", (ROOT / "pom.xml").read_text())
+
     def test_invoke_does_not_run_after_cancellation(self):
-        action = (ACTION / "action.yml").read_text()
+        action = ACTION_METADATA.read_text()
         invoke = action.split("    - id: invoke\n", 1)[1].split("    - id: report\n", 1)[0]
         self.assertIn("!cancelled()", invoke)
         self.assertNotIn("always()", invoke)
 
     def test_fallback_summary_and_result_do_not_run_after_cancellation(self):
-        action = (ACTION / "action.yml").read_text()
+        action = ACTION_METADATA.read_text()
         tail = action.split("    - id: report\n", 1)[1]
         self.assertIn(
             "if: ${{ !cancelled() && inputs.phase == 'assess' && steps.invoke.outputs.summary-fresh != 'true' }}",
@@ -29,7 +80,7 @@ class BootUiActionTests(unittest.TestCase):
         self.assertNotIn("always()", tail)
 
     def test_action_preserves_consumer_invocation_and_fallback_contract(self):
-        action = (ACTION / "action.yml").read_text()
+        action = ACTION_METADATA.read_text()
         prepare = action.split("    - id: prepare\n", 1)[1].split("    - id: quick_attach\n", 1)[0]
         invoke = action.split("    - id: invoke\n", 1)[1].split("    - id: report\n", 1)[0]
         report = action.split("    - id: report\n", 1)[1].split("    - if:", 1)[0]
@@ -50,6 +101,8 @@ class BootUiActionTests(unittest.TestCase):
         )
         for step, script in ((prepare, "prepare-cli.sh"), (invoke, "invoke.sh"), (report, "report-error.sh")):
             self.assertIn(f'run: bash "$ACTION_PATH/{script}"', step)
+        self.assertIn("ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui", action)
+        self.assertFalse((ACTION / "action.yml").exists())
         self.assertIn(
             'echo "BOOTUI_CLI_JAR=$cli_jar" >> "$GITHUB_ENV"',
             (ACTION / "prepare-cli.sh").read_text(),

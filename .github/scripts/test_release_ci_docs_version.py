@@ -27,9 +27,9 @@ class CiDocsVersionTests(unittest.TestCase):
         self.git("init", "-q")
         self.git("config", "user.email", "ci-docs-test@example.invalid")
         self.git("config", "user.name", "CI docs test")
+        (self.root / HELPER.ACTION_METADATA).write_text("runs:\n  using: composite\n", encoding="utf-8")
         action = self.root / HELPER.ACTION
         action.mkdir(parents=True)
-        (action / "action.yml").write_text("runs:\n  using: composite\n", encoding="utf-8")
         (action / "invoke.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         (action / "invoke.sh").chmod(0o755)
         self.set_project("2.3.0")
@@ -178,6 +178,12 @@ class CiDocsVersionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "differs"):
             self.synchronize("2.3.1", check=False)
         script.chmod(0o755)
+        metadata = self.root / HELPER.ACTION_METADATA
+        original_metadata = metadata.read_bytes()
+        metadata.write_text("runs:\n  using: node20\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "differs"):
+            self.synchronize("2.3.1", check=False)
+        metadata.write_bytes(original_metadata)
         extra = script.parent / "untracked.sh"
         extra.write_text("echo extra", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "differs"):
@@ -186,8 +192,27 @@ class CiDocsVersionTests(unittest.TestCase):
         script.unlink()
         with self.assertRaisesRegex(ValueError, "differs"):
             self.synchronize("2.3.1", check=False)
-        script.symlink_to("action.yml")
+        script.symlink_to("invoke.sh")
         with self.assertRaisesRegex(ValueError, "symlinks"):
+            self.synchronize("2.3.1", check=False)
+
+    def test_root_metadata_is_required_and_cannot_be_a_symlink(self):
+        self.set_project("2.3.1")
+        metadata = self.root / HELPER.ACTION_METADATA
+        metadata.unlink()
+        with self.assertRaisesRegex(ValueError, "regular files"):
+            self.synchronize("2.3.1", check=False)
+        metadata.symlink_to(HELPER.ACTION + "/invoke.sh")
+        with self.assertRaisesRegex(ValueError, "symlinks"):
+            self.synchronize("2.3.1", check=False)
+
+    def test_nested_only_source_cannot_be_pinned_as_a_root_action(self):
+        (self.root / HELPER.ACTION_METADATA).unlink()
+        (self.root / HELPER.ACTION / "action.yml").write_text("runs:\n  using: composite\n", encoding="utf-8")
+        self.git("add", ".")
+        self.git("commit", "-qm", "Old nested-only Action")
+        self.set_project("2.3.1")
+        with self.assertRaisesRegex(ValueError, "repository-root"):
             self.synchronize("2.3.1", check=False)
 
     def test_signed_action_ref_must_resolve_to_ancestor_commit_containing_action(self):

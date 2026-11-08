@@ -470,6 +470,7 @@
                         <format>
                             <includes>
                                 <include>*.md</include>
+                                <include>action.yml</include>
                                 <include>.github/**/*.md</include>
                                 <include>.github/**/*.yml</include>
                                 <include>docs/**/*.md</include>

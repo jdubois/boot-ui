@@ -108,6 +108,27 @@ class ActionReferenceTests(unittest.TestCase):
             self.assertIn("generated.lock.yml", result.stderr)
             self.assertIn("Non-allowlisted action", result.stderr)
 
+    def test_discovery_checks_repository_root_actions(self):
+        for name in ("action.yml", "action.yaml"):
+            for reference, expected in (
+                (f"actions/upload-artifact@{SHA} # v7.0.2", 0),
+                ("actions/github-script@main", 1),
+            ):
+                with self.subTest(name=name, reference=reference), tempfile.TemporaryDirectory() as directory:
+                    (Path(directory) / name).write_text(
+                        "runs:\n  using: composite\n  steps:\n"
+                        f"    - uses: {reference}\n",
+                        encoding="utf-8",
+                    )
+                    result = subprocess.run(
+                        ["bash", str(SCRIPT)], cwd=directory, capture_output=True, text=True, check=False,
+                    )
+                    self.assertEqual(result.returncode, expected, result.stderr)
+                    if expected:
+                        self.assertIn(f"{name}:4:", result.stderr)
+                    else:
+                        self.assertIn("1 reference(s) across 1 file(s)", result.stdout)
+
     def test_shared_matrix_steps_are_checked_at_the_anchor(self):
         with tempfile.TemporaryDirectory() as directory:
             workflow = Path(directory) / "workflow.yml"

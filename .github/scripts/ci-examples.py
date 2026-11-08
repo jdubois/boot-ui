@@ -45,7 +45,7 @@ def substitutions(root, record):
     ns = {"m": "http://maven.apache.org/POM/4.0.0"}
     values = {
         "@BOOTUI_VERSION@": record["version"] if record["available"] else "UNRELEASED",
-        "@BOOTUI_ACTION_REF@": record["actionRef"],
+        "@BOOTUI_ACTION_REF@": f"v{record['version']}" if record["available"] else "vUNRELEASED",
     }
     for token, property_name in (
         ("@SPRING_BOOT_VERSION@", "spring-boot.version"),
@@ -80,7 +80,7 @@ def release_notice(record):
         )
     return (
         f"> **Example release: BootUI {record['version']}.** Use a published copy of this same release for the application and CLI. "
-        "The Action is pinned independently to a reviewed immutable source revision. The documentation and starter "
+        f"The Action is pinned to this release's signed `v{record['version']}` tag. The documentation and starter "
         "kit are synchronized during release preparation; a repository can contain them before publication. "
         "The documentation website publishes the kit only after the exact CI release is verified as available.\n"
     )
