@@ -13,8 +13,10 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SecureDirectoryStream;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,6 +26,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -122,7 +125,7 @@ class CiAssessmentRunnerTests {
         startServer();
         Path policy = writePolicy();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", policy, List.of("web", "worker"));
+        String plan = prepareCollection(root, "workflow:1", policy, List.of("web", "worker"));
         CiCollection.Window web = collectionWindow(root, plan, "web");
         CiCollection.Window worker = collectionWindow(root, plan, "worker");
         assertThat(web.attached()).isTrue();
@@ -153,7 +156,7 @@ class CiAssessmentRunnerTests {
     void reportsTheEvidenceDirectoryForCompletedWindows() throws Exception {
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web"));
         assertThat(collectionWindow(root, plan, "web").finish()).isZero();
         StringWriter output = new StringWriter();
         StringWriter errors = new StringWriter();
@@ -184,7 +187,7 @@ class CiAssessmentRunnerTests {
     void expectedWindowCheckDoesNotContactTheApplication() throws Exception {
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web"));
         int requestsBefore = targetRequests;
 
         assertThat(CiCollection.check(root, plan, "workflow:1").exitCode()).isEqualTo(1);
@@ -196,7 +199,7 @@ class CiAssessmentRunnerTests {
         finding = true;
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web", "worker"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web", "worker"));
         CiCollection.Window web = collectionWindow(root, plan, "web");
         assertThat(web.finish()).isEqualTo(3);
         CiCollection.Result incomplete = CiCollection.check(root, plan, "workflow:1");
@@ -213,7 +216,7 @@ class CiAssessmentRunnerTests {
     void duplicateClaimsLeaveAStickyFailureEvenAfterTheFirstWindowPasses() throws Exception {
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web"));
         assertThat(collectionWindow(root, plan, "web").finish()).isZero();
         CiCollection.Window duplicate = collectionWindow(root, plan, "web");
         assertThat(duplicate.attached()).isFalse();
@@ -227,7 +230,7 @@ class CiAssessmentRunnerTests {
     void concurrentlyClaimingTheSameWindowCannotProduceAGreenGate() throws Exception {
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web"));
         CountDownLatch ready = new CountDownLatch(1);
         var executor = Executors.newFixedThreadPool(2);
         try {
@@ -257,7 +260,7 @@ class CiAssessmentRunnerTests {
     void separateModuleProcessesCanCompleteDifferentPlannedWindows() throws Exception {
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web", "worker"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web", "worker"));
         Path webModule = Files.createDirectory(temp.resolve("web-module"));
         Path workerModule = Files.createDirectory(temp.resolve("worker-module"));
         Process web = collectionProcess(webModule, root, plan, "web");
@@ -276,7 +279,7 @@ class CiAssessmentRunnerTests {
     void separateProcessesCannotBothClaimTheSameWindow() throws Exception {
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web"));
         Process first = collectionProcess(temp, root, plan, "web");
         Process second = collectionProcess(temp, root, plan, "web");
         try {
@@ -294,7 +297,7 @@ class CiAssessmentRunnerTests {
         startServer();
         Path policy = writePolicy();
         Path unplannedRoot = temp.resolve("unplanned");
-        String unplannedPlan = CiCollection.prepare(unplannedRoot, "workflow:1", policy, List.of("web"));
+        String unplannedPlan = prepareCollection(unplannedRoot, "workflow:1", policy, List.of("web"));
         assertThat(collectionWindow(unplannedRoot, unplannedPlan, "web").finish())
                 .isZero();
         CiCollection.Window unplanned = collectionWindow(unplannedRoot, unplannedPlan, null);
@@ -304,7 +307,7 @@ class CiAssessmentRunnerTests {
                 .isEqualTo(1);
 
         Path invalidRoot = temp.resolve("invalid-plan");
-        String validPlan = CiCollection.prepare(invalidRoot, "workflow:1", policy, List.of("web"));
+        String validPlan = prepareCollection(invalidRoot, "workflow:1", policy, List.of("web"));
         assertThat(collectionWindow(invalidRoot, validPlan, "web").finish()).isZero();
         CiCollection.Window invalid = collectionWindow(invalidRoot, "0".repeat(64), "web");
         assertThat(invalid.attachFailureCode()).isEqualTo("INVALID_PLAN_OR_POLICY");
@@ -316,7 +319,7 @@ class CiAssessmentRunnerTests {
     void refusedAttachLeavesTheWorkloadFreeToRunAndTheGateFailsClosed() throws Exception {
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web"));
         CiCollection.Window window =
                 CiCollection.begin(root, plan, "workflow:1", "web", "http://localhost:8080", "/bootui/api", 5);
         assertThat(window.attached()).isFalse();
@@ -341,7 +344,7 @@ class CiAssessmentRunnerTests {
         catalogStatus = 503;
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web"));
         CiCollection.Window window = collectionWindow(root, plan, "web");
         assertThat(window.attached()).isFalse();
         assertThat(window.attachFailureCode()).isEqualTo("TARGET_REQUEST_FAILED");
@@ -368,7 +371,7 @@ class CiAssessmentRunnerTests {
     void targetLossBeforeFinishCannotProduceACompletedWindow() throws Exception {
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web"));
         CiCollection.Window window = collectionWindow(root, plan, "web");
         assertThat(window.attached()).isTrue();
         server.stop(0);
@@ -386,7 +389,7 @@ class CiAssessmentRunnerTests {
         startServer();
         Path policy = writePolicy();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", policy, List.of("web"));
+        String plan = prepareCollection(root, "workflow:1", policy, List.of("web"));
         Files.writeString(policy, """
                 {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"low"}}}
                 """);
@@ -402,7 +405,7 @@ class CiAssessmentRunnerTests {
     void refusesCrossContextReplayEvenWhenTheCompletionHashesAreRecomputed() throws Exception {
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web", "worker"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web", "worker"));
         assertThat(collectionWindow(root, plan, "web").finish()).isZero();
         assertThat(collectionWindow(root, plan, "worker").finish()).isZero();
         Path web = CiCollection.evidenceDirectory(root, "web");
@@ -422,7 +425,7 @@ class CiAssessmentRunnerTests {
     void checksWitnessAndBundleIdentityEvenWhenTheWitnessHashIsRecomputed() throws Exception {
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web"));
         assertThat(collectionWindow(root, plan, "web").finish()).isZero();
         Path slot = CiCollection.evidenceDirectory(root, "web");
         replaceJsonField(slot.resolve("witness.json"), "instanceId", JsonValue.of("ffffffff"));
@@ -437,7 +440,7 @@ class CiAssessmentRunnerTests {
     void outputCollisionsNeverOverwriteExistingEvidenceOrProduceACompletedGate() throws Exception {
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web"));
         CiCollection.Window window = collectionWindow(root, plan, "web");
         Path existing = CiCollection.evidenceDirectory(root, "web").resolve("bundle.json");
         Files.writeString(existing, "do not replace");
@@ -450,7 +453,7 @@ class CiAssessmentRunnerTests {
     void failedCompletionWriteCannotBeReportedAsSuccessByARepeatedFinish() throws Exception {
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web"));
         CiCollection.Window window = collectionWindow(root, plan, "web");
         Path completion = CiCollection.evidenceDirectory(root, "web").resolve("completion.json");
         Files.writeString(completion, "do not replace");
@@ -464,7 +467,7 @@ class CiAssessmentRunnerTests {
     void rejectsMalformedCompletionAndUnexpectedEvidence() throws Exception {
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web"));
         assertThat(collectionWindow(root, plan, "web").finish()).isZero();
         Path slot = CiCollection.evidenceDirectory(root, "web");
         Path unexpected = slot.resolve("unexpected");
@@ -479,7 +482,7 @@ class CiAssessmentRunnerTests {
     void rejectsSymbolicLinksInTheEvidenceRootAndWindow() throws Exception {
         startServer();
         Path root = temp.resolve("contexts");
-        String plan = CiCollection.prepare(root, "workflow:1", writePolicy(), List.of("web"));
+        String plan = prepareCollection(root, "workflow:1", writePolicy(), List.of("web"));
         assertThat(collectionWindow(root, plan, "web").finish()).isZero();
         Path witness = CiCollection.evidenceDirectory(root, "web").resolve("witness.json");
         Path outside = temp.resolve("outside.json");
@@ -1494,6 +1497,16 @@ class CiAssessmentRunnerTests {
 
     private CiCollection.Window collectionWindow(Path root, String plan, String context) throws IOException {
         return CiCollection.begin(root, plan, "workflow:1", context, url(), "/bootui/api", 5);
+    }
+
+    private static String prepareCollection(Path root, String assessmentId, Path policy, List<String> contexts)
+            throws IOException {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(root.getParent())) {
+            Assumptions.assumeTrue(
+                    stream instanceof SecureDirectoryStream<?>,
+                    "The filesystem does not support secure evidence directory access");
+        }
+        return CiCollection.prepare(root, assessmentId, policy, contexts);
     }
 
     private Process collectionProcess(Path workingDirectory, Path root, String plan, String context)
