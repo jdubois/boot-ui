@@ -240,6 +240,10 @@ Quarkus has no Actuator repository, so a small Vert.x route filter, wired in dev
 request into a bounded buffer sized by the same property. Masking, trace-id extraction, self-exclusion, and paging run
 through the shared engine, so the wire format is identical.
 
+BootUI's own MVC and WebFlux recording filters ignore null header names. Other runtime capture failures are logged
+without changing the application's response or replacing an application exception; the affected exchange may be
+missing from the panel. An application-provided recording filter remains application-managed.
+
 Every exchange also carries BootUI's own `requestId`, generated when the request starts, with or without OpenTelemetry.
 It follows the request across threads on every stack, is the exchange's `id`, and is matched by the search field. An
 exchange recorded without one, for example by an application-provided repository, keeps a hash of the exchange as id.

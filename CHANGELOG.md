@@ -28,6 +28,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Spring MVC and WebFlux HTTP exchange recording no longer disrupts responses**: null header names are ignored and
+  other capture failures are logged without replacing application errors ([#1610](https://github.com/jdubois/boot-ui/issues/1610)).
 - **Compact transaction labels distinguish physical children and savepoints** instead of calling them `PARTICIPATING`;
   failed or unverified boundaries report `UNKNOWN` ([#1595](https://github.com/jdubois/boot-ui/issues/1595)).
 
