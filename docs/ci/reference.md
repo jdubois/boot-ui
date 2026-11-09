@@ -54,8 +54,9 @@ Choose advisors from the actual application's capabilities, not from assumed cro
 
 ## Action phases and outputs
 
-The Action lives in this repository at `.github/actions/bootui/action.yml`; use
-`jdubois/boot-ui/.github/actions/bootui@<reviewed-full-commit-sha>`, not `jdubois/bootui-action@v1`.
+The Action entry point is the repository-root `action.yml`; use `jdubois/boot-ui@vX.Y.Z`, replacing `X.Y.Z` with
+a published CI-capable release. When upgrading a former `.github/actions/bootui` reference, remove that subpath.
+Existing old-subpath SHA pins continue to use their original source; the entry point is absent from new releases.
 
 | Phase | Purpose |
 | --- | --- |
@@ -65,9 +66,13 @@ The Action lives in this repository at `.github/actions/bootui/action.yml`; use
 | `assess` | Check identity, collect diagnostics, apply the policy, write reports and append the GitHub summary |
 | `offline` | Validate an existing bundle without contacting an application |
 
-The Action pin and CLI release are independent. The examples pin an immutable source revision and an explicit CLI
-release; no `latest` resolution occurs inside a job. After adopting an example, maintain your own workflow pins through
-reviewed updates. BootUI's release automation updates its documentation, not other repositories.
+The Action tag selects the released Action code. The CLI version is resolved from the application's BootUI dependency
+by default, or can be set explicitly with `bootui-version`; no `latest` resolution occurs inside a job. After adopting an
+example, maintain your own workflow pins through reviewed updates. BootUI's release automation updates its documentation,
+not other repositories.
+
+For workflows that require SHA pins, use `jdubois/boot-ui@<full-commit-sha>` with the commit peeled from the signed
+release tag. GitHub Actions does not verify the tag's signature when executing an Action.
 
 | Input | Used by |
 | --- | --- |

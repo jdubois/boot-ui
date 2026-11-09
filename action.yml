@@ -69,7 +69,7 @@ runs:
       continue-on-error: true
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui
         BOOTUI_TEST_COMMAND: ${{ inputs.test-command }}
         BOOTUI_APP_COMMAND: ${{ inputs.app-command }}
         BOOTUI_STARTUP_TIMEOUT: ${{ inputs.startup-timeout }}
@@ -81,7 +81,7 @@ runs:
       continue-on-error: ${{ inputs.phase == 'run' }}
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui
         BOOTUI_VERSION: ${{ inputs.bootui-version }}
       run: bash "$ACTION_PATH/prepare-cli.sh"
     - id: quick_start
@@ -89,7 +89,7 @@ runs:
       continue-on-error: true
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui
         BOOTUI_STATE_DIR: ${{ steps.quick_setup.outputs.state-dir }}
         BOOTUI_APP_COMMAND: ${{ inputs.app-command }}
         BOOTUI_URL: ${{ inputs.url || 'http://127.0.0.1:8080' }}
@@ -101,12 +101,12 @@ runs:
       continue-on-error: true
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui
         BOOTUI_CLI_JAR: ${{ steps.prepare.outputs.cli-jar }}
         BOOTUI_PHASE: attach
         BOOTUI_URL: ${{ inputs.url || 'http://127.0.0.1:8080' }}
         BOOTUI_ASSESSMENT_ID: ${{ steps.quick_setup.outputs.assessment-id }}
-        BOOTUI_POLICY: ${{ inputs.policy || format('{0}/default-policy.json', github.action_path) }}
+        BOOTUI_POLICY: ${{ inputs.policy || format('{0}/.github/actions/bootui/default-policy.json', github.action_path) }}
         BOOTUI_WITNESS: ${{ steps.quick_setup.outputs.witness }}
         BOOTUI_API_PATH: ${{ inputs.api-path }}
         BOOTUI_TIMEOUT: ${{ inputs.timeout }}
@@ -116,7 +116,7 @@ runs:
       continue-on-error: true
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui
         BOOTUI_TEST_COMMAND: ${{ inputs.test-command }}
       run: bash "$ACTION_PATH/quick-workload.sh"
     - id: quick_assess
@@ -124,12 +124,12 @@ runs:
       continue-on-error: true
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui
         BOOTUI_CLI_JAR: ${{ steps.prepare.outputs.cli-jar }}
         BOOTUI_PHASE: assess
         BOOTUI_URL: ${{ inputs.url || 'http://127.0.0.1:8080' }}
         BOOTUI_ASSESSMENT_ID: ${{ steps.quick_setup.outputs.assessment-id }}
-        BOOTUI_POLICY: ${{ inputs.policy || format('{0}/default-policy.json', github.action_path) }}
+        BOOTUI_POLICY: ${{ inputs.policy || format('{0}/.github/actions/bootui/default-policy.json', github.action_path) }}
         BOOTUI_WITNESS: ${{ steps.quick_setup.outputs.witness }}
         BOOTUI_OUTPUT_DIR: ${{ steps.quick_setup.outputs.report-dir }}
         BOOTUI_ATTACH_EXIT_CODE: ${{ steps.quick_attach.outputs.exit-code }}
@@ -141,7 +141,7 @@ runs:
       continue-on-error: true
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui
         BOOTUI_OUTPUT_DIR: ${{ steps.quick_setup.outputs.report-dir }}
         BOOTUI_ASSESSMENT_ID: ${{ steps.quick_setup.outputs.assessment-id }}
         BOOTUI_ATTACH_EXIT_CODE: ${{ steps.prepare.outcome == 'success' && (steps.quick_attach.outputs.exit-code || '1') || '0' }}
@@ -153,7 +153,7 @@ runs:
       continue-on-error: true
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui
         BOOTUI_APP_PID: ${{ steps.quick_start.outputs.pid }}
         BOOTUI_APP_URL: ${{ inputs.url || 'http://127.0.0.1:8080' }}
       run: bash "$ACTION_PATH/quick-stop.sh"
@@ -162,7 +162,7 @@ runs:
       continue-on-error: true
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui
         BOOTUI_REPORT_DIR: ${{ steps.quick_report.outputs.report-dir || steps.quick_assess.outputs.report-dir }}
       run: bash "$ACTION_PATH/quick-report.sh"
     - id: quick_upload
@@ -181,7 +181,7 @@ runs:
       if: ${{ !cancelled() && inputs.phase == 'run' }}
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui
         BOOTUI_SETUP_OUTCOME: ${{ steps.quick_setup.outcome }}
         BOOTUI_PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
         BOOTUI_START_OUTCOME: ${{ steps.quick_start.outcome }}
@@ -197,7 +197,7 @@ runs:
       if: ${{ !cancelled() && inputs.phase != 'run' && inputs.phase != 'prepare-cli' && steps.prepare.outcome == 'success' }}
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui
         BOOTUI_PHASE: ${{ inputs.phase }}
         BOOTUI_URL: ${{ inputs.url }}
         BOOTUI_ASSESSMENT_ID: ${{ inputs.assessment-id }}
@@ -213,7 +213,7 @@ runs:
       if: ${{ !cancelled() && inputs.phase == 'assess' && steps.invoke.outputs.summary-fresh != 'true' }}
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui
         BOOTUI_OUTPUT_DIR: ${{ inputs.output-dir }}
         BOOTUI_ASSESSMENT_ID: ${{ inputs.assessment-id }}
         BOOTUI_ATTACH_EXIT_CODE: ${{ inputs.attach-exit-code }}

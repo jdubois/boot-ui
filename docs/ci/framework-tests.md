@@ -499,7 +499,7 @@ jobs:
           distribution: temurin
           java-version: '25'
       - name: Verify the matching published CLI
-        uses: jdubois/boot-ui/.github/actions/bootui@0572c2f676a0d0ead3fa9ce29b8fc9354ab7622f # vUNRELEASED CLI interface; independent Action commit
+        uses: jdubois/boot-ui@vUNRELEASED
         with:
           phase: prepare-cli
           bootui-version: 'UNRELEASED'
