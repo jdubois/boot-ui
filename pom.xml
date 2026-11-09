@@ -79,7 +79,7 @@
         <spring-retry.version>2.0.13</spring-retry.version>
         <!-- Not managed by the Spring Boot BOM either: test-only in bootui-engine (ArchUnit fixtures) and in
              bootui-spring-boot-starter (a Surefire execution of its own), never a dependency of BootUI. -->
-        <spring-modulith.version>2.1.1</spring-modulith.version>
+        <spring-modulith.version>2.1.2</spring-modulith.version>
         <!-- testcontainers version is managed by the Spring Boot BOM (2.0.x) -->
         <!-- opentelemetry-proto remains on -alpha as the upstream project does not publish stable releases yet -->
         <opentelemetry-proto.version>1.10.0-alpha</opentelemetry-proto.version>
