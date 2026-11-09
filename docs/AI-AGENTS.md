@@ -49,6 +49,14 @@ Use the [CLI](CLI.md) when the agent's host can only run shell commands: a sandb
 a CI job, or a human running one-off checks. The agent skill falls back to `bootui` commands whenever its host does not
 already expose BootUI's MCP tools.
 
+For version-matched instructions, prefer `bootui docs cli`, `bootui docs properties`, or
+`bootui docs --search "<text>"` over GitHub's main branch. These read bundled Markdown offline; add `--json` explicitly
+for structured results. They describe the CLI release, while `bootui tools` remains authoritative for the application's
+available diagnostics. `bootui update --check` checks release availability without changing files; `bootui update`
+replaces an executable and requires the user's approval. JBang installations receive a reinstall command, and Windows
+installations receive instructions to download, review, and run the installer after the CLI exits; neither upgrades
+automatically. See [offline documentation](CLI.md#offline-documentation) and [updates](CLI.md#staying-up-to-date).
+
 ## Install the BootUI agent skill
 
 BootUI ships an agent skill that teaches GitHub Copilot how to install and configure BootUI, inspect a running

@@ -91,7 +91,7 @@ if ($Uninstall) {
       }
   }
   # What the CLI's update check left there.
-  foreach ($stateFile in @('latest-version', 'update-checked-at')) {
+  foreach ($stateFile in @('latest-version', 'update-checked-at', 'installation-v1', 'update.lock')) {
     Remove-Item -LiteralPath (Join-Path $InstallDir $stateFile) -Force -ErrorAction SilentlyContinue
   }
   if (-not $removed) { Write-Step 'Nothing to remove.' }
@@ -165,6 +165,8 @@ try {
 
   New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
   New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+  $InstallDir = (Resolve-Path -LiteralPath $InstallDir).Path
+  $BinDir = (Resolve-Path -LiteralPath $BinDir).Path
 
   $targetJar = Join-Path $InstallDir $jarName
   Move-Item -LiteralPath $tempJar -Destination $targetJar -Force
@@ -193,6 +195,7 @@ set "BOOTUI_JAR=$targetJar"
 rem Where the CLI keeps what its update check found. Only needed because this
 rem install chose a directory; the CLI defaults to the same place on its own.
 if not defined BOOTUI_INSTALL_DIR set "BOOTUI_INSTALL_DIR=$InstallDir"
+if not defined BOOTUI_MAVEN_REPO set "BOOTUI_MAVEN_REPO=$MavenRepo"
 if not defined JAVA_HOME goto bootui_path
 if not exist "%JAVA_HOME%\bin\java.exe" goto bootui_path
 "%JAVA_HOME%\bin\java.exe" -jar "%BOOTUI_JAR%" %*
@@ -208,6 +211,9 @@ exit /b %ERRORLEVEL%
 echo bootui: no Java runtime found. BootUI needs a JDK 17 or later. 1>&2
 exit /b 1
 "@ | Set-Content -LiteralPath $shim -Encoding ASCII
+$record = Join-Path $InstallDir 'installation-v1'
+$utf8 = New-Object Text.UTF8Encoding($false)
+[IO.File]::WriteAllText($record, "bootui-install-v1`n$targetJar`n$shim`n$MavenRepo`n", $utf8)
 
 Write-Step "Installed $jarName in $InstallDir"
 Write-Step "Installed the bootui command at $shim"

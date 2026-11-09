@@ -58,6 +58,10 @@ final class GlobalOptions {
         return verbose;
     }
 
+    boolean explicitJson() {
+        return json;
+    }
+
     /**
      * Whether to emit the server's JSON verbatim.
      *
