@@ -1543,6 +1543,9 @@ Features:
 Acceptance criteria:
 
 - The recorder is bounded by `bootui.http-exchanges.max-exchanges`, defaulting to 200.
+- BootUI-owned Spring MVC and WebFlux recording ignores null header names. Runtime capture failures are logged and
+  may drop an exchange, but must not alter application responses, prevent response commitment, or replace application
+  exceptions. Application-provided recording filters remain application-managed.
 - Retention is failure-preserving wherever BootUI owns recording (Quarkus, and Spring when BootUI contributes both the
   repository and its recording filter). `bootui.http-exchanges.reserved-share-percent` (default 25) of the capacity is
   reserved for the most recent `5xx` exchanges and exchanges at or above `bootui.activity.request-slow-threshold-ms`
