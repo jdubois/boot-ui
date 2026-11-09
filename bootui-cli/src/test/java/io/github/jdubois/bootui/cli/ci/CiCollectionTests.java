@@ -9,8 +9,10 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SecureDirectoryStream;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,6 +40,7 @@ class CiCollectionTests {
 
     @Test
     void prepareAndCheckCommandsUseAnIndependentlyRetainedDigest() {
+        assumeSecureDirectoryAccess();
         Path root = temp.resolve("contexts");
         CliResult prepared = run(
                 "ci", "prepare-contexts",
@@ -110,6 +113,7 @@ class CiCollectionTests {
 
     @Test
     void rejectsMalformedPlansEvenIfTheCallerPinsTheirNewDigest() throws Exception {
+        assumeSecureDirectoryAccess();
         Path root = temp.resolve("contexts");
         CiCollection.prepare(root, "run:1", policy, List.of("web"));
         Path file = root.resolve("plan.json");
@@ -135,6 +139,7 @@ class CiCollectionTests {
 
     @Test
     void aFailedPlanReadLeavesAStickyRefusalAfterThePlanIsRestored() throws Exception {
+        assumeSecureDirectoryAccess();
         Path root = temp.resolve("contexts");
         String plan = CiCollection.prepare(root, "run:1", policy, List.of("web"));
         Path preparedPolicy = root.resolve("policy.json");
@@ -149,6 +154,7 @@ class CiCollectionTests {
 
     @Test
     void anUnfinishedWindowCannotPass() throws Exception {
+        assumeSecureDirectoryAccess();
         Path root = temp.resolve("contexts");
         String plan = CiCollection.prepare(root, "run:1", policy, List.of("web"));
         CiCollection.Window window =
@@ -174,6 +180,7 @@ class CiCollectionTests {
     @Test
     void rejectsSpecialFilesWithoutBlockingOnARead() throws Exception {
         Assumptions.assumeTrue(Files.getFileStore(temp).supportsFileAttributeView("posix"));
+        assumeSecureDirectoryAccess();
         Path root = temp.resolve("contexts");
         String plan = CiCollection.prepare(root, "run:1", policy, List.of("web"));
         Path fifo = root.resolve("plan.json");
@@ -185,6 +192,29 @@ class CiCollectionTests {
                 Duration.ofSeconds(2),
                 () -> assertThat(CiCollection.check(root, plan, "run:1").exitCode())
                         .isEqualTo(1));
+    }
+
+    @Test
+    void failsClosedWhenFilesystemDoesNotSupportSecureDirectoryAccess() throws Exception {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(temp)) {
+            Assumptions.assumeFalse(
+                    stream instanceof SecureDirectoryStream<?>,
+                    "The filesystem supports secure evidence directory access");
+        }
+
+        assertThatThrownBy(() -> CiCollection.prepare(temp.resolve("contexts"), "run:1", policy, List.of("web")))
+                .isInstanceOf(IOException.class)
+                .hasMessage("The filesystem does not support secure evidence directory access");
+    }
+
+    private void assumeSecureDirectoryAccess() {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(temp)) {
+            Assumptions.assumeTrue(
+                    stream instanceof SecureDirectoryStream<?>,
+                    "The filesystem does not support secure evidence directory access");
+        } catch (IOException failure) {
+            throw new AssertionError(failure);
+        }
     }
 
     private static CliResult run(String... arguments) {
