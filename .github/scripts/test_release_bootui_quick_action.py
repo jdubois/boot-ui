@@ -9,6 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 ACTION = ROOT / ".github/actions/bootui"
+ACTION_METADATA = ROOT / "action.yml"
 
 
 class QuickActionTests(unittest.TestCase):
@@ -56,16 +57,19 @@ class QuickActionTests(unittest.TestCase):
             },
         })
         self.assertEqual(policy, json.loads((ROOT / "examples/ci/bootui-policy.json").read_text()))
-        action = (ACTION / "action.yml").read_text()
+        action = ACTION_METADATA.read_text()
         self.assertIn("    default: run\n", action)
         self.assertIn("    default: auto\n", action)
-        self.assertEqual(action.count("inputs.policy || format('{0}/default-policy.json', github.action_path)"), 2)
+        self.assertEqual(
+            action.count("inputs.policy || format('{0}/.github/actions/bootui/default-policy.json', github.action_path)"),
+            2,
+        )
         self.assertEqual(action.count("inputs.url || 'http://127.0.0.1:8080'"), 4)
         self.assertEqual(action.count("BOOTUI_CLI_JAR: ${{ steps.prepare.outputs.cli-jar }}"), 2)
         self.assertIn('echo "cli-jar=$cli_jar" >> "$GITHUB_OUTPUT"', (ACTION / "prepare-cli.sh").read_text())
 
     def test_workload_runs_even_when_setup_or_attachment_fails(self):
-        action = (ACTION / "action.yml").read_text()
+        action = ACTION_METADATA.read_text()
         workload = action.split("    - id: quick_workload\n", 1)[1].split("    - id: quick_assess\n", 1)[0]
         self.assertIn("if: ${{ !cancelled() && inputs.phase == 'run' }}", workload)
         self.assertIn("continue-on-error: true", workload)
@@ -76,7 +80,7 @@ class QuickActionTests(unittest.TestCase):
         self.assertNotIn("steps.quick_workload.outcome", assess)
 
     def test_action_starts_and_stops_only_its_managed_application(self):
-        action = (ACTION / "action.yml").read_text()
+        action = ACTION_METADATA.read_text()
         start = action.split("    - id: quick_start\n", 1)[1].split("    - id: quick_attach\n", 1)[0]
         stop = action.split("    - id: quick_stop\n", 1)[1].split("    - id: quick_validate\n", 1)[0]
         self.assertIn("BOOTUI_APP_COMMAND: ${{ inputs.app-command }}", start)
@@ -89,7 +93,7 @@ class QuickActionTests(unittest.TestCase):
         self.assertIn('run: bash "$ACTION_PATH/quick-stop.sh"', stop)
 
     def test_only_validated_reports_are_uploaded_and_cancellation_stays_respected(self):
-        action = (ACTION / "action.yml").read_text()
+        action = ACTION_METADATA.read_text()
         upload = action.split("    - id: quick_upload\n", 1)[1].split("    - id: quick_gate\n", 1)[0]
         self.assertIn("!cancelled()", upload)
         self.assertIn("steps.quick_validate.outcome == 'success'", upload)
@@ -99,7 +103,7 @@ class QuickActionTests(unittest.TestCase):
         self.assertEqual(action.count("always()"), 1)
 
     def test_quick_phase_order_and_fail_closed_outcome_wiring(self):
-        action = (ACTION / "action.yml").read_text()
+        action = ACTION_METADATA.read_text()
         names = (
             "quick_setup", "prepare", "quick_start", "quick_attach", "quick_workload", "quick_assess",
             "quick_report", "quick_stop", "quick_validate", "quick_upload", "quick_gate",

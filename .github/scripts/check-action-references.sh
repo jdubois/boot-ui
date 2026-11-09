@@ -62,6 +62,11 @@ if [[ $# -gt 0 ]]; then
     add_file "$file"
   done
 else
+  for file in action.yml action.yaml; do
+    if [[ -e "$file" || -L "$file" ]]; then
+      add_file "$file"
+    fi
+  done
   discover_files "$WORKFLOW_DIRECTORY" \( -name '*.yml' -o -name '*.yaml' \)
   discover_files "$ACTION_DIRECTORY" \( -name 'action.yml' -o -name 'action.yaml' \)
 fi

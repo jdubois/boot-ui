@@ -33,7 +33,7 @@ class CiExampleDocumentationTests(unittest.TestCase):
         self.write(".mvn/wrapper/maven-wrapper.properties", "distributionUrl=https://example.invalid/maven.zip\n")
         self.write(
             "examples/ci/workflows/live.yml.template",
-            "uses: jdubois/boot-ui/.github/actions/bootui@@BOOTUI_ACTION_REF@\n"
+            "uses: jdubois/boot-ui@@BOOTUI_ACTION_REF@\n"
             "bootui-version: '@BOOTUI_VERSION@'\n",
         )
         self.record(available=False, version=None)
@@ -57,6 +57,8 @@ class CiExampleDocumentationTests(unittest.TestCase):
         rendered = (self.root / "docs/CI.md").read_text()
         self.assertIn("not yet published", rendered)
         self.assertIn("bootui-version: 'UNRELEASED'", rendered)
+        self.assertIn("uses: jdubois/boot-ui@vUNRELEASED", rendered)
+        self.assertNotIn(ACTION, rendered)
         self.assertNotIn("bootui-version: '2.3.0'", rendered)
         examples.synchronize(self.root, check=True)
         with self.assertRaisesRegex(ValueError, "not published"):
@@ -86,7 +88,13 @@ class CiExampleDocumentationTests(unittest.TestCase):
                 with self.subTest(version=version, path=path):
                     self.assertNotIn("UNRELEASED", (self.root / path).read_text(encoding="utf-8"))
             guide = (self.root / "docs/CI.md").read_text(encoding="utf-8")
-            self.assertIn(f"uses: jdubois/boot-ui/.github/actions/bootui@{action_ref}", guide)
+            self.assertIn(f"uses: jdubois/boot-ui@v{version}", guide)
+            self.assertNotIn(f"uses: jdubois/boot-ui@{action_ref}", guide)
+            if version == "2.4.0":
+                self.assertIn(
+                    "- name: BootUI diagnostics\n  uses: jdubois/boot-ui@v2.4.0",
+                    guide,
+                )
             self.assertIn("exactly one stable `bootui-version`", guide)
 
     def test_primary_guide_starts_with_the_simple_action_not_a_policy_or_sample_project(self):
@@ -99,10 +107,11 @@ class CiExampleDocumentationTests(unittest.TestCase):
         self.assertIn("One Action step", guide)
         self.assertIn("Detects and starts your Spring Boot or Quarkus app", quick_start)
         self.assertIn("does not run it by default", guide)
-        self.assertIn("every CI-capable local advisor", guide)
-        self.assertIn("excludes the GitHub advisor", guide)
-        self.assertIn("does not automatically turn an uploaded `junit.xml`", guide)
+        self.assertIn("six CI-capable local advisors", guide)
+        self.assertIn("policy excludes the GitHub advisor", guide)
+        self.assertIn("does not turn uploaded `junit.xml` into a Tests view", guide)
         self.assertIn("steps.bootui.outputs.report-dir", guide)
+        self.assertIn("add `id: bootui`", guide)
         self.assertIn("::: details Display BootUI as a JUnit test/check", guide)
         self.assertIn("@SpringBootTest", guide)
         self.assertIn("@QuarkusTest", guide)
@@ -111,7 +120,7 @@ class CiExampleDocumentationTests(unittest.TestCase):
         self.assertNotIn("bootui-ci:source:workflows/external.yml.template", guide)
         self.assertLess(len(guide.splitlines()), 150)
         source = (SOURCE_ROOT / "examples/ci/snippets/action.yml.template").read_text(encoding="utf-8")
-        self.assertIn("id: bootui", source)
+        self.assertNotIn("id: bootui", source)
         self.assertNotIn("policy:", source)
         self.assertNotIn("phase:", source)
         self.assertNotIn("test-command:", source)
@@ -187,7 +196,7 @@ class CiExampleDocumentationTests(unittest.TestCase):
             self.assertNotIn(".bootui", " ".join(archive.namelist()))
             self.assertTrue((archive.getinfo("bootui-ci-examples/mvnw").external_attr >> 16) & 0o111)
             self.assertTrue((archive.getinfo("bootui-ci-examples/scripts/start.sh").external_attr >> 16) & 0o111)
-            self.assertIn(ACTION.encode(), archive.read("bootui-ci-examples/workflows/live.yml"))
+            self.assertIn(b"uses: jdubois/boot-ui@v2.3.1", archive.read("bootui-ci-examples/workflows/live.yml"))
 
     def test_unpublished_assets_remove_a_previous_stale_download(self):
         self.write(examples.ASSET, "old download")

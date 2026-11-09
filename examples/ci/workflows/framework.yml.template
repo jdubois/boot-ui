@@ -32,7 +32,7 @@ jobs:
           distribution: temurin
           java-version: '25'
       - name: Verify the matching published CLI
-        uses: jdubois/boot-ui/.github/actions/bootui@@BOOTUI_ACTION_REF@ # v@BOOTUI_VERSION@ CLI interface; independent Action commit
+        uses: jdubois/boot-ui@@BOOTUI_ACTION_REF@
         with:
           phase: prepare-cli
           bootui-version: '@BOOTUI_VERSION@'

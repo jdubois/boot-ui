@@ -14,8 +14,7 @@ then add this step after your usual checkout and Java setup:
 <!-- bootui-ci:source:snippets/action.yml.template:start -->
 ```yaml
 - name: BootUI diagnostics
-  id: bootui
-  uses: jdubois/boot-ui/.github/actions/bootui@0572c2f676a0d0ead3fa9ce29b8fc9354ab7622f # vUNRELEASED CLI interface; independent Action commit
+  uses: jdubois/boot-ui@vUNRELEASED
 ```
 <!-- bootui-ci:source:snippets/action.yml.template:end -->
 
@@ -59,10 +58,9 @@ The Action also uploads these files for seven days:
 
 ::: details Display BootUI as a JUnit test/check
 
-GitHub Actions does not automatically turn an uploaded `junit.xml` file into a Tests view. The
-BootUI summary is shown automatically when the Action reaches report publication. To publish a separate test/check view, feed
-`${{ steps.bootui.outputs.report-dir }}/junit.xml` to your existing JUnit reporter (which needs `checks: write`).
-For a fork pull request, use a trusted follow-up workflow because its read-only token cannot publish checks.
+GitHub does not turn uploaded `junit.xml` into a Tests view. To publish one, feed
+`${{ steps.bootui.outputs.report-dir }}/junit.xml` to a JUnit reporter with `checks: write` and add `id: bootui` to the BootUI step.
+For fork pull requests, use a trusted follow-up workflow because their token is read-only.
 
 For example, with `dorny/test-reporter`:
 
@@ -76,11 +74,11 @@ For example, with `dorny/test-reporter`:
 ```
 :::
 
-The Action runs every CI-capable local advisor: Architecture, Hibernate, Spring, REST API, Security, and Database. Architecture is required;
-stack-specific advisors can be shown as `SKIPPED`. The Action fails on HIGH or CRITICAL findings.
+The Action runs six CI-capable local advisors: Architecture, Hibernate, Spring, REST API, Security, and Database.
+Architecture is required; stack-specific advisors can be `SKIPPED`. HIGH or CRITICAL findings fail the job.
 
-The default policy excludes the GitHub advisor and vulnerability-service queries: they require repository credentials or
-external services. CI gates advisor findings directly, not the browser's aggregate score.
+The policy excludes the GitHub advisor and vulnerability-service queries, which need credentials or external services;
+CI gates advisor findings directly, not the browser's aggregate score.
 
 ::: details How startup and `verify` are handled <a id="spring-boot-add-bootui-only-to-the-diagnostic-build"></a><a id="quarkus-development-mode-target"></a><a id="attach-run-assess-and-publish"></a>
 
