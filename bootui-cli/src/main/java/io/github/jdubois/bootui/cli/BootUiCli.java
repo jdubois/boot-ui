@@ -12,16 +12,17 @@ import picocli.CommandLine.Model.CommandSpec;
 /**
  * The {@code bootui} command-line entry point.
  *
- * <p>Every subcommand is one BootUI MCP tool, projected mechanically from the registry, so the CLI can never
- * offer a diagnostic the MCP server does not, or lack one it does.
+ * <p>Every diagnostic subcommand is one BootUI MCP tool, projected mechanically from the registry, so the CLI
+ * can never offer a diagnostic the MCP server does not, or lack one it does. Documentation, updates, and CI
+ * orchestration run locally instead.
  */
 public final class BootUiCli {
 
     private BootUiCli() {}
 
     public static void main(String[] args) {
-        PrintWriter out = new PrintWriter(System.out, true);
-        PrintWriter err = new PrintWriter(System.err, true);
+        PrintWriter out = new PrintWriter(System.out, true, java.nio.charset.StandardCharsets.UTF_8);
+        PrintWriter err = new PrintWriter(System.err, true, java.nio.charset.StandardCharsets.UTF_8);
         int exitCode = run(args, System.getenv(), System.console() != null, out, err);
         out.flush();
         err.flush();
@@ -50,9 +51,7 @@ public final class BootUiCli {
         CommandSpec root = CommandTree.build(context);
         root.version("bootui " + version());
 
-        // Started before the command so it overlaps the work rather than following it, and never waited for.
-        UpdateCheck updateCheck = UpdateCheck.create(version(), environment, updateCheckTerminal(args, terminal));
-        updateCheck.startRefreshIfDue();
+        UpdateCheck[] updateCheck = new UpdateCheck[1];
 
         CommandLine commandLine = new CommandLine(root)
                 .setOut(out)
@@ -62,6 +61,25 @@ public final class BootUiCli {
                         // where escape codes would end up in whatever is reading the output.
                         terminal ? CommandLine.Help.Ansi.AUTO : CommandLine.Help.Ansi.OFF))
                 .setCaseInsensitiveEnumValuesAllowed(true)
+                .setExecutionStrategy(parsed -> {
+                    CommandLine.ParseResult leaf = parsed;
+                    boolean help = false;
+                    boolean local = false;
+                    while (leaf != null) {
+                        help |= leaf.isUsageHelpRequested() || leaf.isVersionHelpRequested();
+                        local |= switch (leaf.commandSpec().name()) {
+                            case "docs", "update", "ci" -> true;
+                            default -> false;
+                        };
+                        leaf = leaf.subcommand();
+                    }
+                    if (!help && !local) {
+                        updateCheck[0] =
+                                UpdateCheck.create(version(), environment, updateCheckTerminal(args, terminal));
+                        updateCheck[0].startRefreshIfDue();
+                    }
+                    return new CommandLine.RunLast().execute(parsed);
+                })
                 .setExecutionExceptionHandler((exception, failed, parseResult) -> {
                     // Anything reaching here is a bug or an environment failure rather than a refusal, so it
                     // gets one clear line, and the whole trace only when asked.
@@ -74,12 +92,14 @@ public final class BootUiCli {
                 });
         int exitCode = commandLine.execute(args);
         // After the answer, so it never comes between the reader and what they asked for.
-        updateCheck.report(err);
-        updateCheck.awaitRefresh();
+        if (updateCheck[0] != null) {
+            updateCheck[0].report(err);
+            updateCheck[0].awaitRefresh();
+        }
         return exitCode;
     }
 
-    private static String version() {
+    static String version() {
         String version = BootUiCli.class.getPackage().getImplementationVersion();
         return version == null ? "dev" : version;
     }

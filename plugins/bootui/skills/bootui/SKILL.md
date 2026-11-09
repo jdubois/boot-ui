@@ -101,8 +101,10 @@ container, prefer a localhost-bound published port and `bootui.trust-container-g
 Spring supports runtime configuration overrides in `.bootui/application-bootui.properties`; already-bound configuration
 may require a restart. The Quarkus Configuration panel is read-only. Do not edit `bootui.internal.*` properties.
 
-Use the full property reference at
-`https://github.com/jdubois/boot-ui/blob/main/docs/PROPERTIES.md` when a setting is not listed here.
+Use `bootui docs properties` for the bundled property reference when a setting is not listed here.
+It describes the CLI release; verify compatibility when the application uses another release. If the CLI is absent
+or predates `docs`, say that offline documentation is unavailable and read
+`https://github.com/jdubois/boot-ui/blob/v<known-version>/docs/PROPERTIES.md` using a verified release version, not `main`.
 
 ## Choose how to reach BootUI
 
@@ -157,6 +159,8 @@ Once it is on the `PATH`:
 
 ```bash
 bootui --help                                  # every command: arguments, where each <id> comes from, one example
+bootui docs cli                                # this CLI release's guide, offline raw Markdown
+bootui docs --search "blocking sensor" --json    # bundled matches with source files and one-based lines
 bootui tools                                   # what this application actually exposes
 bootui --url http://127.0.0.1:8080 overview
 bootui agent status --json                      # optional BootUI Java agent attachment/claim state
@@ -173,6 +177,16 @@ bootui exceptions show <id> --json
 bootui request-profile <id> --json # retained journal profile, or HTTP-exchange fallback
 ```
 
+- Prefer `bootui docs`, `bootui docs <topic>`, and `bootui docs --search "<text>"` to documentation from GitHub's
+  main branch. Docs need no running application, network, or approval and stay text when piped unless `--json` is
+  explicit. Unknown topics and blank searches fail; no matches is not an error. If `docs` is unavailable, use a
+  verified `v<known-version>` release reference and state the offline limitation; do not silently substitute `main`.
+- `bootui update --check --json` explicitly contacts the release repository but changes no files; exits are `0`
+  current, `3` update available, and `1` error. Ask before `bootui update`: it replaces an executable and requires a
+  published checksum. For JBang it only prints a reinstall command; ask before executing that command too.
+  Windows receives instructions to download and review `install.ps1`, then run it after the CLI exits; it cannot replace
+  its running jar. Ask before downloading or executing that installer, and never execute a remote script implicitly.
+  `manual-action-required` does not mean upgraded. Unrecognized installations are not automatically modified.
 - `--url` (or `BOOTUI_URL`) defaults to `http://localhost:8080`; pass the application's real port.
 - `--api-path` is only needed when `bootui.api-path` is customised, `--token` only when
   the caller is an untrusted non-loopback peer (use the configured or generated token), and `--timeout` raises the
@@ -196,7 +210,7 @@ bootui request-profile <id> --json # retained journal profile, or HTTP-exchange 
 - Exit codes: `0` answered, `1` usage error or unreachable application or a request the tool rejected, `2` BootUI
   declined because the panel is disabled or read-only, `3` an advisor command run with `--fail-on <severity>` found a
   retained finding at or above it, or an evidence command run with `--fail-on insufficient` found insufficient or
-  partial observation rows. A command whose tool this application does not advertise exits
+  partial observation rows. `update --check` also exits `3` when a newer CLI is available. A command whose tool this application does not advertise exits
   `1` with "This application does not expose …" and the panel's reason, such as a missing library or the Java agent.
   Treat `2` and that answer as "not available here", not as a failure to work around by loosening configuration.
 - `bootui --help` and each command's `--help` tag every action `[action - needs approval]`: it changes the
@@ -243,9 +257,8 @@ for unavailable or unevaluable evidence, while their successful findings still g
 assessed/error (takes precedence over findings), and `3` proven threshold violation; underlying per-tool exit codes
 remain unchanged. Publish the bounded JSON/Markdown/JUnit outputs before applying that final gate, while recognizing
 that cancellation or a hard runner timeout can prevent publication. The identity witness is not workload attestation.
-See
-[the CI setup and workflow](https://github.com/jdubois/boot-ui/blob/main/docs/CI.md) and
-[the CLI CI contract](https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md#strict-ci-assessments); pin the Action
+Read `bootui docs ci` for setup and `bootui docs cli` for the strict CI contract; when unavailable, use the
+version-matched release references described above. Pin the Action
 to a reviewed commit and use a published, signed CLI release containing these commands. `bootui ci check` can
 revalidate a saved bundle offline against its expected assessment ID and exact policy file; it checks consistency,
 not authenticity. Optional skipped-advisor rows remain self-reported, so make every gating advisor required.
@@ -255,8 +268,9 @@ default-listed observations, is sanitized and report-only, and does not prove th
 process or affect the advisor verdict. If the remaining budget cannot preserve the configured request timeout plus one
 second for the final identity check, the optional call is skipped and reported as `ERROR`.
 
-The full command table is at `https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md`; each command maps to the MCP
-tool of the same behavior. `bootui agent status` maps to `get_agent_status` and is read-only on Spring MVC, WebFlux, and
+Read the full command guide with `bootui docs cli`; each diagnostic command maps to the MCP
+tool of the same behavior. `docs`, `update`, and `ci` are client-side exceptions. `bootui agent status` maps to
+`get_agent_status` and is read-only on Spring MVC, WebFlux, and
 Quarkus.
 
 ### Java agent, probes, and runtime recipes

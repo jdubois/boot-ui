@@ -65,7 +65,47 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>${project.basedir}/../docs</directory>
+                <targetPath>bootui-docs</targetPath>
+                <filtering>false</filtering>
+                <includes>
+                    <include>CLI.md</include>
+                    <include>PROPERTIES.md</include>
+                    <include>SETUP.md</include>
+                    <include>AI-AGENTS.md</include>
+                    <include>CI.md</include>
+                    <include>FRAMEWORK-SUPPORT.md</include>
+                    <include>*-CHECKS.md</include>
+                    <include>features/*.md</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>3.6.1</version>
+                <configuration>
+                    <skipITs>${skipTests}</skipITs>
+                    <redirectTestOutputToFile>true</redirectTestOutputToFile>
+                    <systemPropertyVariables>
+                        <bootui.cli.jar>${project.build.directory}/${project.build.finalName}-all.jar</bootui.cli.jar>
+                    </systemPropertyVariables>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <!-- Published: Maven Central receives a flattened, parentless POM (configured in the root POM). -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>

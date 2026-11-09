@@ -3,9 +3,6 @@ package io.github.jdubois.bootui.cli;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -13,7 +10,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.Map;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -39,12 +35,8 @@ final class UpdateCheck {
     private static final String LATEST_VERSION_FILE = "latest-version";
     private static final String STAMP_FILE = "update-checked-at";
     private static final Duration MAX_AGE = Duration.ofDays(1);
-    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration SHUTDOWN_GRACE = Duration.ofMillis(250);
-    private static final int MAX_METADATA_BYTES = 512 * 1024;
     private static final Pattern VERSION = Pattern.compile("[0-9A-Za-z][0-9A-Za-z.+-]*");
-    private static final Pattern RELEASE = Pattern.compile("<release>\\s*([^<]+?)\\s*</release>");
-    private static final Pattern LATEST = Pattern.compile("<latest>\\s*([^<]+?)\\s*</latest>");
 
     private final boolean enabled;
     private final String installedVersion;
@@ -155,34 +147,7 @@ final class UpdateCheck {
     }
 
     private String fetchLatestVersion() throws Exception {
-        HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(REQUEST_TIMEOUT)
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
-        HttpRequest request = HttpRequest.newBuilder(metadataUrl)
-                .timeout(REQUEST_TIMEOUT)
-                .header("Accept", "application/xml")
-                .header("User-Agent", "bootui-cli/" + installedVersion)
-                .GET()
-                .build();
-        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() != 200) {
-            return null;
-        }
-        String body = response.body();
-        if (body == null || body.length() > MAX_METADATA_BYTES) {
-            return null;
-        }
-        String version = firstMatch(RELEASE, body);
-        if (version == null) {
-            version = firstMatch(LATEST, body);
-        }
-        return version != null && VERSION.matcher(version).matches() ? version : null;
-    }
-
-    private static String firstMatch(Pattern pattern, String body) {
-        Matcher matcher = pattern.matcher(body);
-        return matcher.find() ? matcher.group(1) : null;
+        return ReleaseRepository.latest(metadataUrl, installedVersion);
     }
 
     private boolean isDue() {
@@ -307,9 +272,7 @@ final class UpdateCheck {
     }
 
     private static String updateCommand() {
-        return isWindows()
-                ? "irm https://www.julien-dubois.com/boot-ui/install.ps1 | iex"
-                : "curl -fsSL https://www.julien-dubois.com/boot-ui/install.sh | sh";
+        return "bootui update";
     }
 
     private static boolean isWindows() {

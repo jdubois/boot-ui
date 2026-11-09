@@ -99,7 +99,7 @@ if [ "$uninstall" = yes ]; then
     fi
   done
   # What the CLI's update check left there.
-  rm -f "$install_dir/latest-version" "$install_dir/update-checked-at"
+  rm -f "$install_dir/latest-version" "$install_dir/update-checked-at" "$install_dir/installation-v1" "$install_dir/update.lock"
   if [ -d "$install_dir" ]; then
     rmdir "$install_dir" 2>/dev/null || true
   fi
@@ -201,6 +201,8 @@ fi
 
 mkdir -p "$install_dir" || die "could not create $install_dir"
 mkdir -p "$bin_dir" || die "could not create $bin_dir"
+install_dir="$(cd "$install_dir" && pwd -P)"
+bin_dir="$(cd "$bin_dir" && pwd -P)"
 
 target_jar="$install_dir/$jar_name"
 mv -f "$tmp_jar" "$target_jar" || die "could not write $target_jar"
@@ -225,6 +227,8 @@ JAR="$target_jar"
 # install chose a directory; the CLI defaults to the same place on its own.
 BOOTUI_INSTALL_DIR="\${BOOTUI_INSTALL_DIR:-$install_dir}"
 export BOOTUI_INSTALL_DIR
+BOOTUI_MAVEN_REPO="\${BOOTUI_MAVEN_REPO:-$repo}"
+export BOOTUI_MAVEN_REPO
 if [ -n "\${JAVA_HOME:-}" ] && [ -x "\$JAVA_HOME/bin/java" ]; then
   JAVA="\$JAVA_HOME/bin/java"
 elif command -v java >/dev/null 2>&1; then
@@ -236,6 +240,9 @@ fi
 exec "\$JAVA" -jar "\$JAR" "\$@"
 LAUNCHER
 chmod 755 "$launcher" || die "could not make $launcher executable"
+record="$(mktemp "$install_dir/.installation-XXXXXX")" || die "could not record installation ownership"
+printf 'bootui-install-v1\n%s\n%s\n%s\n' "$target_jar" "$launcher" "$repo" > "$record"
+mv -f "$record" "$install_dir/installation-v1" || die "could not record installation ownership"
 
 say "Installed $jar_name in $install_dir"
 say "Installed the bootui launcher at $launcher"

@@ -68,6 +68,14 @@ final class CliContext {
         return err;
     }
 
+    Map<String, String> environment() {
+        return environment;
+    }
+
+    boolean terminal() {
+        return terminal;
+    }
+
     /**
      * Opens a client, runs one call against it, and reports {@link BootUiClientException} the same way every
      * command does.

@@ -21,5 +21,8 @@ public final class ExitCodes {
     /** A {@code --fail-on} gate found a retained finding or insufficient evidence. */
     public static final int THRESHOLD = 3;
 
+    /** A newer CLI is available, for {@code update --check} only. */
+    public static final int UPDATE_AVAILABLE = 3;
+
     private ExitCodes() {}
 }

@@ -48,6 +48,16 @@ final class HelpListing {
             }
         }
         if (root) {
+            out.append(INDENT)
+                    .append("bootui docs [<topic>] | docs --search <text> [--json]")
+                    .append(System.lineSeparator());
+            wrap(out, DETAIL, "Read and search this CLI version's bundled documentation offline.", wrapAt);
+            out.append(INDENT).append("bootui update [--check] [--json]").append(System.lineSeparator());
+            wrap(
+                    out,
+                    DETAIL,
+                    "Check for a newer CLI or update a recognized installation. Ask before replacing an executable. --check exits 3 when an update is available.",
+                    wrapAt);
             out.append(INDENT).append("bootui tools").append(System.lineSeparator());
             wrap(
                     out,

@@ -13,6 +13,37 @@ Every diagnostic command is one BootUI [MCP](AI-AGENTS.md) tool, projected mecha
 cannot offer a diagnostic the MCP server does not, and cannot lack one it does: the command table is generated
 from the registry at build time and a test fails when the two disagree. `tools` reads the CLI catalog, and
 `mcp status|enable|disable` call the MCP Server panel directly rather than invoking catalog tools.
+`docs`, `update`, and `ci` are client-side commands, not MCP tools.
+
+## Offline documentation
+
+The CLI ships its own release's documentation inside the jar. No application or network is needed:
+
+```bash
+bootui docs                              # every topic and what it covers
+bootui docs cli                          # the command-line guide as raw Markdown
+bootui docs properties                   # configuration reference
+bootui docs --search "blocking sensor"   # matching source lines
+```
+
+Topics include setup, agent and CI usage, framework availability, feature guides, and check references.
+Output is UTF-8, independently of the JVM's default charset.
+`bootui docs` lists their stable IDs. Contributor plans, workshop material, and images are not bundled.
+Search is a case-insensitive **literal substring**, not a regular expression. Matches follow topic-list order and
+ascending source line number, printed as `file:line:text`, with one-based lines. No matches exits `0`; unknown topics,
+blank searches, or combining a topic with `--search` exit `1`.
+
+All three modes accept `--json`, before or after the command. Unlike application diagnostics, docs stay text/raw
+Markdown when piped unless `--json` is explicit. JSON shapes are:
+
+```json
+{"version":"<cli-version>","topics":[{"id":"cli","title":"Command line","description":"CLI installation, commands, output, and exit codes","file":"CLI.md"}]}
+{"version":"<cli-version>","topic":"cli","file":"CLI.md","content":"<raw Markdown>"}
+{"version":"<cli-version>","query":"blocking sensor","matches":[{"topic":"java-agent","file":"features/java-agent.md","line":123,"text":"<matching source line>"}]}
+```
+
+The version describes the installed **CLI**, not the connected application. Use `bootui tools` for that application's
+actual diagnostic availability. Docs and help/version requests never start the background update check.
 
 ## Install
 
@@ -85,12 +116,54 @@ alias bootui='java -jar ~/tools/bootui-cli-all.jar'
 
 ### Staying up to date
 
+```bash
+bootui update --check        # fresh metadata lookup, no local changes
+bootui update               # replace a recognized installer-owned CLI
+bootui update --check --json
+```
+
+`--check` exits `0` when the installed version is current or newer, `3` when an update is available, and `1` when the
+check fails. It never downloads a jar or writes update/cache files. This explicit check works even when output is piped
+or `BOOTUI_NO_UPDATE_CHECK=1`. It needs network access, but no running application.
+
+`bootui update` recognizes script installations using the running jar, installation record, and generated launcher.
+Older script installations can be recognized from their launcher on `PATH` or in `BOOTUI_BIN_DIR`.
+It respects `BOOTUI_MAVEN_REPO`, then the repository recorded by the installer, then Maven Central.
+It downloads the shaded jar and requires a published SHA-512, SHA-256, or SHA-1 checksum, in that preference order.
+A missing checksum tries the next algorithm; a malformed or mismatched checksum aborts. Unlike the installation scripts,
+self-update **never installs an unverified download**. Checksums do not verify a GPG signature.
+
+Only the proven managed jar is replaced, atomically, after checking its entry point and version. The launcher and
+historical filename stay unchanged; `bootui --version` reads the installed jar's manifest. Interrupted downloads,
+concurrent updates, or failed replacements do not delete the working jar. No downgrade is performed.
+
+**On Windows**, the running jar cannot replace itself. Before downloading an update, the command instead reports
+`manual-action-required` and asks you to download and review `install.ps1`. It prints the PowerShell command to run
+that local script after the CLI exits, preserving your version, install directory, bin directory, and repository.
+It does not download or execute the script, change files, or schedule a background replacement.
+
+For a recognized JBang installation, the command prints, but **does not execute**:
+
+```bash
+jbang app install --force --fresh bootui@jdubois/boot-ui
+```
+
+That result is `manual-action-required`, not a completed upgrade. Direct/manual jars and unrecognized installations
+are not modified; automatic replacement exits `1` with manual guidance. Development builds cannot perform a release
+check. Agents must obtain the user's approval before invoking `bootui update` or executing either printed command.
+
+Update output is text on a terminal and JSON when piped or with `--json`. The JSON envelope has `status`,
+`installedVersion`, `latestVersion` (null if unknown), `installation` (`installer`, `jbang`, or `unmanaged`), and
+`message`, plus `command` for JBang or Windows installer guidance. Status is `current`, `available`, `updated`,
+`manual-action-required`, or `failed`. Normal updates exit `0` for current, updated, or manual guidance, and `1` on failure; only `--check` uses
+exit `3`. Progress never appears on JSON stdout.
+
 Once a newer release reaches Maven Central, the CLI says so — on a terminal, after the answer, on standard
 error:
 
 ```console
 bootui: version 1.17.0 is available; you have 1.16.0.
-        Update with: curl -fsSL https://www.julien-dubois.com/boot-ui/install.sh | sh
+        Update with: bootui update
         Silence this with BOOTUI_NO_UPDATE_CHECK=1.
 ```
 
@@ -102,8 +175,8 @@ An interrupted refresh may be retried by a later run; a completed attempt is nor
 Nothing is written to standard output and
 the exit code is untouched, so a pipeline sees exactly what it saw before.
 
-A piped run says nothing and asks nothing, so CI does no unexpected network traffic. `BOOTUI_NO_UPDATE_CHECK=1`
-turns it off everywhere, and `BOOTUI_MAVEN_REPO` points it at a mirror.
+A piped diagnostic run says nothing and asks nothing, so CI does no unexpected network traffic. `BOOTUI_NO_UPDATE_CHECK=1`
+turns off the passive notice everywhere, and `BOOTUI_MAVEN_REPO` points it at a mirror.
 
 ## Turn it on
 
@@ -273,7 +346,7 @@ the offset after any failure or silently rescan to recover. See [agent paginatio
 | `0` | The tool ran and answered. |
 | `1` | Usage error, a rejected argument, authentication was rejected, or the application could not be reached or did not answer. Also a `--fail-on` answer whose evidence cannot be evaluated. |
 | `2` | BootUI declined to run the tool: its panel is disabled, read-only and the tool is an action, or its CLI catalog confirms the endpoint is disabled. |
-| `3` | A command's [`--fail-on`](#gate-on-severity) or [`--fail-on insufficient`](#gate-on-insufficient-evidence) gate found a qualifying finding or insufficient evidence. |
+| `3` | A command's [`--fail-on`](#gate-on-severity) or [`--fail-on insufficient`](#gate-on-insufficient-evidence) gate found a qualifying finding or insufficient evidence, or [`update --check`](#staying-up-to-date) found a newer CLI. |
 
 HTTP `503` alone is not a policy refusal. The CLI checks the target's BootUI catalog and reports endpoint disablement
 only when `enabled` is `false` and `tools` is empty. An outage, an invalid catalog, or a wrong target exits `1`, not

@@ -34,7 +34,7 @@ final class CommandTree {
                                 + "(default http://localhost:8080) and it answers over its local-only HTTP endpoint.",
                         "Output is JSON when piped or with --json, and readable otherwise.",
                         "",
-                        "The 'ci' commands are client-side orchestration exceptions, not MCP tools.")
+                        "The 'docs', 'update', and 'ci' commands are client-side exceptions, not MCP tools.")
                 .footer(
                         "",
                         "Exit codes: 0 answered, 1 usage or transport error, 2 refused by BootUI's panel policy, "
@@ -72,6 +72,8 @@ final class CommandTree {
         root.addSubcommand("tools", new CommandLine(toolsCommand(context)));
         root.addSubcommand("mcp", new CommandLine(mcpCommand(context)));
         CiCommands.add(context, root);
+        DocsCommand.add(context, root);
+        UpdateCommand.add(context, root);
         listCommands(root, context.manifest().tools(), true);
         return root;
     }
@@ -285,7 +287,7 @@ final class CommandTree {
      * <p>The options go on every command, not only the root, so {@code bootui beans --url …} works: people
      * type the target after the question at least as often as before it.
      */
-    private static void configure(CliContext context, CommandSpec spec) {
+    static void configure(CliContext context, CommandSpec spec) {
         GlobalOptions options = context.options();
         spec.mixinStandardHelpOptions(true);
         spec.exitCodeOnInvalidInput(ExitCodes.ERROR);
@@ -332,7 +334,12 @@ final class CommandTree {
                 "--json",
                 OptionSpec.builder("--json")
                         .type(boolean.class)
-                        .description("Print the application's JSON verbatim. Implied when output is not a terminal.")
+                        .description(
+                                "docs".equals(spec.name())
+                                        ? "Print structured JSON instead of raw Markdown or text. Never implied when piped."
+                                        : "update".equals(spec.name())
+                                                ? "Print structured update status. Implied when output is not a terminal."
+                                                : "Print the application's JSON verbatim. Implied when output is not a terminal.")
                         .setter(booleanSetter(options::setJson))
                         .build());
         globals.put(
@@ -351,6 +358,10 @@ final class CommandTree {
                         .build());
 
         for (OptionSpec option : globals.values()) {
+            if (("docs".equals(spec.name()) || "update".equals(spec.name()))
+                    && List.of("--url", "--api-path", "--token", "--timeout").contains(option.longestName())) {
+                continue;
+            }
             spec.addOption(option);
         }
     }
@@ -372,7 +383,7 @@ final class CommandTree {
         return seconds;
     }
 
-    private static <T> CommandLine.Model.ISetter setter(Consumer<T> consumer) {
+    static <T> CommandLine.Model.ISetter setter(Consumer<T> consumer) {
         return new CommandLine.Model.ISetter() {
             @Override
             @SuppressWarnings("unchecked")

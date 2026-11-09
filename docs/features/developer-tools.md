@@ -186,6 +186,12 @@ to type, such as `bootui architecture scan`, its arguments, the MCP tool it maps
 panel is disabled or read-only. That last column explains an exit code of `2`: BootUI declining to run a tool is a
 statement about how the target is configured, not a failed request.
 
+Two local commands sit outside that diagnostic registry: `bootui docs` lists, reads, and searches the CLI release's
+bundled documentation offline; `bootui update --check` checks release availability without changing files.
+`bootui update` replaces a recognized installer-owned jar on Unix only after checksum verification, so agents must ask
+first. JBang installs receive a reinstall command, and Windows receives reviewed-installer guidance instead of an
+automatic upgrade. See [the CLI guide](../CLI.md).
+
 The CLI also has a separate `bootui ci` orchestration namespace, outside the generated tool manifest. `ci attach` and
 `ci assess` work with one explicit local Spring Boot target or external Quarkus `quarkus:dev` process; `ci check`
 revalidates a saved assessment bundle against its policy and expected assessment ID without contacting an application.

@@ -3935,6 +3935,16 @@ Design rules:
   precedence. The Markdown summary shows at most 50 sanitized rule summaries, prioritizes threshold-meeting findings,
   names stable assessment error codes, and states when additional summaries remain in the complete bundle; raw finding
   text is never included.
+- **Local documentation and updates are client-side exceptions.** `docs` lists, reads, and searches release-bundled
+  user documentation without an application, filesystem writes, or network access. Pages are raw Markdown unless
+  `--json` is explicit, including when piped. `update --check` performs a fresh bounded Maven lookup without local
+  writes (exits `0` current, `3` available, `1` error). An explicit `update` replaces only a proven installer-owned
+  jar on Unix, after mandatory published-checksum and jar-identity validation, using atomic replacement and concurrent-update
+  protection. Unknown installations are not modified; recognized JBang installs receive a command rather than an
+  executed process. Windows receives reviewed-installer guidance before any artifact download because a running jar
+  cannot replace itself. Replacement/lock failures are explicit and preserve the prior jar. Agents need approval before
+  replacing an executable. Neither command changes the generated diagnostic manifest or server policy. Docs,
+  updates, and help/version requests do not start a passive update check. See [the CLI contract](CLI.md).
 
 ## 7. UX specification
 
