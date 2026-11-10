@@ -30,6 +30,7 @@ import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProc
 import io.github.jdubois.bootui.autoconfigure.jms.JmsProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.journal.ControlMarkerPublisher;
 import io.github.jdubois.bootui.autoconfigure.journal.LogbackLogCoverage;
+import io.github.jdubois.bootui.autoconfigure.journal.LogbackThreadLocalHolders;
 import io.github.jdubois.bootui.autoconfigure.journal.RunApplicationKey;
 import io.github.jdubois.bootui.autoconfigure.journal.RunStartPublisher;
 import io.github.jdubois.bootui.autoconfigure.journal.RuntimeEventPublisherInstaller;
@@ -365,6 +366,11 @@ public class BootUiEngineConfiguration {
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "ch.qos.logback.classic.LoggerContext")
     static class RuntimeJournalLogConfiguration {
+
+        @Bean
+        LogbackThreadLocalHolders bootUiLogbackThreadLocalHolders() {
+            return LogbackThreadLocalHolders.install();
+        }
 
         /** {@code null}, which Spring registers as an empty bean, when the {@code log} source is off. */
         @Bean
