@@ -55,6 +55,54 @@ class ThreadLocalsTests {
     }
 
     @Test
+    void namedInstanceHoldersResolveByIdentityWithoutHidingOtherPlainThreadLocals() {
+        String field = "ch.qos.logback.core.util.ReentryGuard$ReentryGuardImpl.guard";
+        // A console is configured before the opt-in sensor is enabled, including a later runtime enablement.
+        ThreadLocals.nameHolder(CLEARED, field);
+        long token = enabledClaim();
+        context.set(owner(REQUEST));
+
+        long scope = ThreadLocals.open();
+        scanner.set(CLEARED, true);
+        scanner.set(TENANT, true);
+        ThreadLocals.close(scope);
+
+        List<long[]> records = drain(token);
+        assertThat(records).hasSize(2);
+        for (long[] record : records) {
+            int hash = (int) record[SideEffects.R_NANOS];
+            String[] answer = ThreadLocals.holder(generation(), id(record), hash, null, null, 1L);
+            assertThat(answer[0]).isEqualTo(hash == scanner.hash(CLEARED) ? field : "resolved java.lang.ThreadLocal");
+        }
+        ThreadLocals.nameHolder(CLEARED, null);
+        long[] named = records.stream()
+                .filter(record -> (int) record[SideEffects.R_NANOS] == scanner.hash(CLEARED))
+                .findFirst()
+                .orElseThrow();
+        assertThat(ThreadLocals.holder(generation(), id(named), scanner.hash(CLEARED), null, null, 1L)[0])
+                .isEqualTo("resolved java.lang.ThreadLocal");
+    }
+
+    @Test
+    void instanceHolderRegistrationsAreBoundedWeakAndReusable() {
+        for (int i = 0; i < ThreadLocals.MAX_NAMED_HOLDERS; i++) {
+            ThreadLocal<Object> key = new ThreadLocal<>();
+            keep.add(key);
+            ThreadLocals.nameHolder(key, "com.example.Holder.LOCAL");
+        }
+        ThreadLocal<Object> overflow = new ThreadLocal<>();
+        ThreadLocals.nameHolder(overflow, "com.example.Overflow.LOCAL");
+        for (int i = 0; i < ThreadLocals.MAX_NAMED_HOLDERS; i++) {
+            assertThat(ThreadLocals.NAMED_HOLDERS.get(i).get()).isNotSameAs(overflow);
+        }
+        ThreadLocals.NAMED_HOLDERS.get(0).clear();
+        ThreadLocals.nameHolder(overflow, "com.example.Overflow.LOCAL");
+        assertThat(ThreadLocals.NAMED_HOLDERS.get(0).get()).isSameAs(overflow);
+        ThreadLocals.nameHolder(overflow, null);
+        assertThat(ThreadLocals.NAMED_HOLDERS.get(0)).isNull();
+    }
+
+    @Test
     void aThreadLocalLeftSetInAnExplicitScopeIsRecordedOnceWithItsOwnerNeverItsValue() {
         long token = enabledClaim();
         context.set(owner(REQUEST));

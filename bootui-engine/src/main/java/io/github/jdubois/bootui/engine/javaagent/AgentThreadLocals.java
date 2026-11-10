@@ -36,6 +36,21 @@ public final class AgentThreadLocals {
         }
     }
 
+    /**
+     * Names a framework-owned thread-local key, never its value. The engine's holder policy still decides its
+     * exclusion. Registration is bounded and weak; a null field removes it. Older agents simply do nothing.
+     */
+    public static void nameHolder(Object key, String field) {
+        MethodHandle nameHolder = handles.nameHolder;
+        if (nameHolder != null) {
+            try {
+                nameHolder.invokeExact(key, field);
+            } catch (Throwable ex) {
+                // Observation must never disturb the logging framework.
+            }
+        }
+    }
+
     /** Opens a scope on the calling thread, owned by BootUI's current context: a token for {@link #close}, else 0. */
     public static long open() {
         MethodHandle open = handles.open;
@@ -142,9 +157,10 @@ public final class AgentThreadLocals {
             MethodHandle holder,
             MethodHandle exclude,
             MethodHandle openUnowned,
-            MethodHandle own) {
+            MethodHandle own,
+            MethodHandle nameHolder) {
 
-        static final Handles NONE = new Handles(null, null, null, null, null, null, null);
+        static final Handles NONE = new Handles(null, null, null, null, null, null, null, null);
 
         static Handles locate() {
             try {
@@ -180,10 +196,20 @@ public final class AgentThreadLocals {
                                 "exclude",
                                 MethodType.methodType(void.class, long.class, int.class, int.class)),
                         lookup.findStatic(threadLocals, "openUnowned", MethodType.methodType(long.class)),
-                        lookup.findStatic(threadLocals, "own", MethodType.methodType(void.class)));
+                        lookup.findStatic(threadLocals, "own", MethodType.methodType(void.class)),
+                        optionalNameHolder(lookup, threadLocals));
             } catch (Throwable ex) {
                 // A bridge from before M5-5f.
                 return NONE;
+            }
+        }
+
+        private static MethodHandle optionalNameHolder(MethodHandles.Lookup lookup, Class<?> threadLocals) {
+            try {
+                return lookup.findStatic(
+                        threadLocals, "nameHolder", MethodType.methodType(void.class, Object.class, String.class));
+            } catch (NoSuchMethodException | IllegalAccessException olderAgent) {
+                return null;
             }
         }
     }
