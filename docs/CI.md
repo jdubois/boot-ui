@@ -31,11 +31,11 @@ Open the workflow run's **Summary**. An abbreviated failed assessment looks like
 ```markdown
 # BootUI assessment: VIOLATION
 
-| Advisor | Required | Status | Findings | Rules skipped |
-|---|---:|---|---:|---:|
-| architecture | true | ASSESSED | 1 | 0 |
-| rest-api | false | ASSESSED | 0 | 0 |
-| security | false | SKIPPED | 0 | 0 |
+| Advisor | Required | Status | Findings | Rules skipped | Reason |
+|---|---:|---|---:|---:|---|
+| architecture | true | ASSESSED | 1 | 0 | - |
+| rest-api | false | ASSESSED | 0 | 0 | - |
+| security | false | SKIPPED | 0 | 0 | UNAVAILABLE |
 
 ### Retained finding summaries
 

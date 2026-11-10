@@ -779,6 +779,7 @@ public final class CiAssessmentRunner {
                         || !evaluated.scanId().equals(page.get("scanId").asString(null))
                         || !finding.ruleId().equals(page.get("ruleId").asString(null))
                         || !violations.isArray()
+                        || violations.values().stream().anyMatch(violation -> !violation.isString())
                         || !metadata.isObject()) {
                     throw new AssessmentFailure("DETAIL_PAGE_INCONSISTENT");
                 }
@@ -1584,7 +1585,8 @@ public final class CiAssessmentRunner {
                     .append("/")
                     .append(bundle.get("runId").asString("unknown"))
                     .append("`.\n\n")
-                    .append("| Advisor | Required | Status | Findings | Rules skipped |\n|---|---:|---|---:|---:|\n");
+                    .append(
+                            "| Advisor | Required | Status | Findings | Rules skipped | Reason |\n|---|---:|---|---:|---:|---|\n");
             for (JsonValue advisor : bundle.get("advisors").values()) {
                 output.append("| ")
                         .append(advisor.get("name").asString(""))
@@ -1596,6 +1598,8 @@ public final class CiAssessmentRunner {
                         .append(advisor.get("findingCount").asLong(0))
                         .append(" | ")
                         .append(advisor.get("rulesSkipped").asLong(0))
+                        .append(" | ")
+                        .append(advisor.get("reason").asString("-"))
                         .append(" |\n");
             }
             appendFindings(output);
@@ -1753,7 +1757,9 @@ public final class CiAssessmentRunner {
                         .append(result.advisor.policyName())
                         .append("\">");
                 if (result.status.equals("SKIPPED")) {
-                    xml.append("<skipped message=\"Optional advisor is unavailable or disabled\"/>");
+                    xml.append("<skipped message=\"Optional advisor was not assessed: ")
+                            .append(result.reason)
+                            .append("\"/>");
                 } else if (result.violation) {
                     xml.append("<failure message=\"Advisor met the configured severity threshold\"/>");
                 }

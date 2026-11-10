@@ -34,6 +34,10 @@ reason. When an optional advisor completes, its findings are gated normally. Req
 incomplete observations, unknown severities, truncation, suppressed findings, and inconsistent scan/report data remain
 assessment errors.
 
+The Markdown **Reason** column and JUnit skipped-test message carry the same stable reason code as the JSON report,
+such as `UNAVAILABLE`, `EVIDENCE_UNEVALUABLE`, or `REQUEST_FAILED`. A skipped advisor has not been assessed;
+its zero finding count is not evidence that it passed.
+
 ::: details Advisor selection and framework differences
 
 The live CI allow-list deliberately excludes Memory because it may trigger a full garbage collection. Vulnerability
@@ -123,6 +127,8 @@ Live assessment has a three-minute total budget, a configurable per-request time
 
 The Markdown summary retains at most 50 rule summaries, with threshold-meeting findings first and an omission count
 for additional retained rules. Reports contain rule IDs, severity and counts, not free-form application finding prose.
+Every retained violation detail must be a JSON string. A malformed value on any page makes the assessment
+`NOT_ASSESSED` with `DETAIL_PAGE_INCONSISTENT` when the advisor is required, or skips an optional advisor with that reason.
 GitHub log masking is not a substitute for report sanitization. Protect artifact access and retention independently.
 
 :::

@@ -25,11 +25,14 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.UnaryOperator;
+import javax.xml.parsers.DocumentBuilderFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class CiAssessmentRunnerTests {
@@ -69,6 +72,7 @@ class CiAssessmentRunnerTests {
     private String runtimeInsightsQuery;
     private int runtimeInsightsLimit;
     private String runtimeInsightsBody = runtimeInsightsReport(false, false);
+    private final Map<String, UnaryOperator<String>> responseTransforms = new LinkedHashMap<>();
 
     @AfterEach
     void stopServer() {
@@ -908,6 +912,262 @@ class CiAssessmentRunnerTests {
         assertThat(Files.readString(temp.resolve("second/bundle.json"))).contains("DETAIL_PAGE_INCONSISTENT");
     }
 
+    @ParameterizedTest
+    @CsvSource({
+        "null,0,true",
+        "true,0,true",
+        "42,0,true",
+        "{},0,true",
+        "[],0,true",
+        "null,200,true",
+        "true,200,true",
+        "42,200,true",
+        "{},200,true",
+        "[],200,true",
+        "null,0,false",
+        "null,200,false"
+    })
+    void rejectsNonStringRetainedDetailsBeforeReturningAnyFindingVerdict(String detail, int offset, boolean medium)
+            throws Exception {
+        finding = true;
+        findingCount = offset + 1;
+        architectureFindingsMedium = medium;
+        responseTransforms.put("get_architecture_rule_violations", body -> {
+            if (JsonValue.parseStrict(body).get("page").get("offset").asInt(-1) != offset) {
+                return body;
+            }
+            return replaceResponseField(body, "violations", JsonValue.array(List.of(JsonValue.parseStrict(detail))));
+        });
+        startServer();
+        Path policy = writePolicy();
+        Path output = temp.resolve("assessment");
+        CiAssessmentRunner runner = runner(policy, temp.resolve("witness.json"), output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(1);
+        assertThat(detailRequests).isEqualTo(offset == 0 ? 1 : 2);
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"status\": \"NOT_ASSESSED\"", "\"code\": \"DETAIL_PAGE_INCONSISTENT\"");
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isEqualTo(1);
+        assertThat(Files.readString(output.resolve("junit.xml"))).contains("<error");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"private-finding-payload\"", "\"\""})
+    void acceptsStringRetainedDetailsBelowTheThresholdWithoutPublishingThem(String detail) throws Exception {
+        finding = true;
+        architectureFindingsMedium = true;
+        responseTransforms.put(
+                "get_architecture_rule_violations",
+                body -> replaceResponseField(
+                        body, "violations", JsonValue.array(List.of(JsonValue.parseStrict(detail)))));
+        startServer();
+        Path output = temp.resolve("assessment");
+        CiAssessmentRunner runner = runner(writePolicy(), temp.resolve("witness.json"), output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isZero();
+        assertThat(Files.readString(output.resolve("summary.md")))
+                .contains("| architecture | true | ASSESSED | 1 | 0 | - |");
+        for (String name : List.of("bundle.json", "summary.md", "junit.xml")) {
+            assertThat(Files.readString(output.resolve(name))).doesNotContain("private-finding-payload");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "UNAVAILABLE",
+                "PANEL_DISABLED",
+                "PANEL_READ_ONLY",
+                "EVIDENCE_UNEVALUABLE",
+                "REQUEST_FAILED",
+                "SUPPRESSION_PRESENT",
+                "DETAIL_PAGE_INCONSISTENT"
+            })
+    void showsTheStableOptionalAdvisorSkipReasonInAllReports(String reason) throws Exception {
+        springFails = false;
+        architectureFindingsMedium = true;
+        switch (reason) {
+            case "UNAVAILABLE", "PANEL_DISABLED", "PANEL_READ_ONLY" ->
+                responseTransforms.put("cli", body -> {
+                    List<JsonValue> tools = JsonValue.parseStrict(body).get("tools").values().stream()
+                            .filter(tool -> !"UNAVAILABLE".equals(reason)
+                                    || !tool.get("name").asString("").contains("spring"))
+                            .map(tool -> {
+                                if (!"spring_scan".equals(tool.get("name").asString(null))) {
+                                    return tool;
+                                }
+                                String field = "PANEL_DISABLED".equals(reason) ? "panelEnabled" : "panelReadOnly";
+                                return JsonValue.parseStrict(replaceResponseField(
+                                        tool.toJson(), field, JsonValue.of(!"PANEL_DISABLED".equals(reason))));
+                            })
+                            .toList();
+                    return replaceResponseField(body, "tools", JsonValue.array(tools));
+                });
+            case "EVIDENCE_UNEVALUABLE" ->
+                responseTransforms.put(
+                        "get_spring_report",
+                        body -> replaceResponseField(body, "evidence", JsonValue.parseStrict("""
+                            {"usable":false,"coverageComplete":false,"limitations":["private-evidence-reason"]}
+                            """)));
+            case "REQUEST_FAILED" -> responseTransforms.put("get_spring_report", body -> "private-invalid-json");
+            case "SUPPRESSION_PRESENT" -> {
+                finding = true;
+                responseTransforms.put(
+                        "get_spring_report", body -> body.replace("\"dismissed\":false", "\"dismissed\":true"));
+            }
+            case "DETAIL_PAGE_INCONSISTENT" -> {
+                finding = true;
+                responseTransforms.put(
+                        "get_spring_rule_violations",
+                        body -> replaceResponseField(
+                                body, "violations", JsonValue.array(List.of(JsonValue.parseStrict("null")))));
+            }
+            default -> throw new AssertionError("Unexpected reason: " + reason);
+        }
+        startServer();
+        Path policy = writePolicyWithOptionalSpringAdvisor();
+        Path output = temp.resolve("assessment");
+        CiAssessmentRunner runner = runner(policy, temp.resolve("witness.json"), output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isZero();
+        assertThat(Files.readString(output.resolve("bundle.json"))).contains("\"reason\": \"" + reason + "\"");
+        assertThat(Files.readString(output.resolve("summary.md")))
+                .contains("| spring | false | SKIPPED | 0 | 0 | " + reason + " |");
+        var junit = DocumentBuilderFactory.newInstance()
+                .newDocumentBuilder()
+                .parse(output.resolve("junit.xml").toFile());
+        var skipped = junit.getElementsByTagName("skipped");
+        assertThat(skipped.getLength()).isEqualTo(1);
+        assertThat(skipped.item(0).getAttributes().getNamedItem("message").getNodeValue())
+                .contains(reason);
+        assertThat(junit.getDocumentElement().getAttribute("skipped")).isEqualTo("1");
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isZero();
+        for (String name : List.of("bundle.json", "summary.md", "junit.xml")) {
+            assertThat(Files.readString(output.resolve(name)))
+                    .doesNotContain("private-finding-payload", "private-evidence-reason", "private-invalid-json");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "PARTIAL",
+                "UNUSABLE",
+                "INCOMPLETE",
+                "UNKNOWN_SEVERITY",
+                "RULE_DISMISSED",
+                "FINDING_SUPPRESSED",
+                "DETAIL_SUPPRESSED",
+                "TRUNCATED",
+                "OVERSIZED_DETAIL"
+            })
+    void requiredIncompleteOrSuppressedEvidenceCannotPass(String problem) throws Exception {
+        finding = true;
+        architectureFindingsMedium = true;
+        String expectedCode;
+        switch (problem) {
+            case "PARTIAL" -> {
+                responseTransforms.put("get_architecture_report", body -> body.replace("\"SCANNED\"", "\"PARTIAL\""));
+                expectedCode = "SCAN_INCOMPLETE";
+            }
+            case "UNUSABLE", "INCOMPLETE" -> {
+                responseTransforms.put(
+                        "get_architecture_report",
+                        body -> replaceResponseField(
+                                body, "evidence", JsonValue.parseStrict("""
+                                {"usable":%s,"coverageComplete":false,"limitations":["private-evidence-reason"]}
+                                """.formatted("INCOMPLETE".equals(problem)))));
+                expectedCode = "EVIDENCE_UNEVALUABLE";
+            }
+            case "UNKNOWN_SEVERITY" -> {
+                responseTransforms.put(
+                        "get_architecture_report",
+                        body -> body.replace("\"severity\":\"MEDIUM\"", "\"severity\":\"UNKNOWN\""));
+                expectedCode = "UNKNOWN_SEVERITY";
+            }
+            case "RULE_DISMISSED" -> {
+                responseTransforms.put(
+                        "get_architecture_report", body -> body.replace("\"dismissed\":false", "\"dismissed\":true"));
+                expectedCode = "SUPPRESSION_PRESENT";
+            }
+            case "FINDING_SUPPRESSED" -> {
+                responseTransforms.put(
+                        "get_architecture_report",
+                        body -> replaceResponseField(body, "suppression", JsonValue.parseStrict("""
+                                {"suppressedFindings":1,"incompleteRules":[],
+                                 "findings":[{"ruleId":"ARCH-001","identity":"private-identity","state":"MATCHED"}],
+                                 "omitted":0}
+                                """)));
+                expectedCode = "SUPPRESSION_PRESENT";
+            }
+            case "DETAIL_SUPPRESSED" -> {
+                findingCount = 201;
+                responseTransforms.put("get_architecture_rule_violations", body -> {
+                    if (JsonValue.parseStrict(body).get("page").get("offset").asInt(-1) == 0) {
+                        return body;
+                    }
+                    return replaceResponseField(body, "suppressed", JsonValue.array(List.of(JsonValue.of(true))));
+                });
+                expectedCode = "SUPPRESSION_PRESENT";
+            }
+            case "TRUNCATED" -> {
+                responseTransforms.put(
+                        "get_architecture_report", body -> body.replace("\"truncated\":false", "\"truncated\":true"));
+                expectedCode = "DETAILS_INCOMPLETE";
+            }
+            case "OVERSIZED_DETAIL" -> {
+                responseTransforms.put(
+                        "get_architecture_rule_violations",
+                        body -> replaceResponseField(
+                                body,
+                                "violations",
+                                JsonValue.array(List.of(JsonValue.of("private-finding-payload"
+                                        .repeat(CiAssessmentRunner.MAX_RESPONSE_BYTES / 20))))));
+                expectedCode = "TARGET_REQUEST_FAILED";
+            }
+            default -> throw new AssertionError("Unexpected problem: " + problem);
+        }
+        startServer();
+        Path output = temp.resolve("assessment");
+        CiAssessmentRunner runner = runner(writePolicy(), temp.resolve("witness.json"), output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(1);
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"status\": \"NOT_ASSESSED\"", "\"code\": \"" + expectedCode + "\"");
+        for (String name : List.of("bundle.json", "summary.md", "junit.xml")) {
+            assertThat(Files.readString(output.resolve(name)))
+                    .doesNotContain("private-finding-payload", "private-evidence-reason", "private-identity");
+        }
+        if ("DETAIL_SUPPRESSED".equals(problem)) {
+            assertThat(detailRequests).isEqualTo(2);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"20000,0", "20001,1"})
+    void enforcesTheRetainedDetailBudgetWithoutRejectingTheExactLimit(int count, int exitCode) throws Exception {
+        finding = true;
+        architectureFindingsMedium = true;
+        findingCount = count;
+        startServer();
+        Path output = temp.resolve("assessment");
+        CiAssessmentRunner runner = runner(writePolicy(), temp.resolve("witness.json"), output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(exitCode);
+        assertThat(detailRequests).isEqualTo(100);
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains(exitCode == 0 ? "\"status\": \"PASS\"" : "\"code\": \"DETAIL_BUDGET_EXCEEDED\"");
+    }
+
     @Test
     void rejectsAChangedRunIdentityAfterTheWorkloadAndPublishesAnError() throws Exception {
         startServer();
@@ -1539,12 +1799,17 @@ class CiAssessmentRunnerTests {
     }
 
     private static void replaceJsonField(Path file, String name, JsonValue replacement) throws IOException {
-        JsonValue original = JsonValue.parseStrict(Files.readString(file));
+        Files.writeString(file, replaceResponseField(Files.readString(file), name, replacement));
+    }
+
+    private static String replaceResponseField(String body, String name, JsonValue replacement) {
+        JsonValue original = JsonValue.parseStrict(body);
         Map<String, JsonValue> values = new LinkedHashMap<>();
         for (String key : original.names()) {
-            values.put(key, key.equals(name) ? replacement : original.get(key));
+            values.put(key, original.get(key));
         }
-        Files.writeString(file, JsonWriter.pretty(JsonValue.object(values)));
+        values.put(name, replacement);
+        return JsonWriter.pretty(JsonValue.object(values));
     }
 
     private String url() {
@@ -1683,6 +1948,10 @@ class CiAssessmentRunnerTests {
             body = detailPage(arguments.get("id").asString(null), offset, limit);
         } else {
             body = "{}";
+        }
+        UnaryOperator<String> transform = responseTransforms.get(path.substring(path.lastIndexOf('/') + 1));
+        if (transform != null) {
+            body = transform.apply(body);
         }
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json");
