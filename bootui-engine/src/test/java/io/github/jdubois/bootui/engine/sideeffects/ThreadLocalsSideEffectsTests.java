@@ -80,6 +80,27 @@ class ThreadLocalsSideEffectsTests {
     }
 
     @Test
+    void aNamedConsoleGuardIsExcludedButAnUnresolvedApplicationLocalIsStillReported() {
+        answers.put(
+                FRAMEWORK,
+                new String[] {"ch.qos.logback.core.util.ReentryGuard$ReentryGuardImpl.guard", "false", "false", null});
+        start();
+        leaveSet(FRAMEWORK);
+        leaveSet(UNRESOLVED);
+
+        SideEffectsSensorReport report = service.sensor("thread-locals", null, null);
+
+        assertThat(report.rows()).singleElement().satisfies(row -> {
+            assertThat(row.target()).isEqualTo("holder not resolved (java.lang.ThreadLocal)");
+            assertThat(row.origin()).isEqualTo(SideEffectOrigins.UNKNOWN);
+        });
+        assertThat(report.limitations())
+                .anySatisfy(limitation ->
+                        assertThat(limitation).contains("ch.qos.logback.core.util.ReentryGuard$ReentryGuardImpl 1"));
+        assertThat(excluded).containsExactly(System.identityHashCode(FRAMEWORK));
+    }
+
+    @Test
     void aThreadLocalLeftSetIsARowOfItsRouteNamedByItsHolderNeverItsValue() {
         start();
         leaveSet(TENANT);

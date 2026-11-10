@@ -594,6 +594,11 @@ that set and clear their own thread locals (Spring's request and transaction hol
 Jackson, Netty) are dropped and counted. Event loops, virtual threads, and scopes no request or job owns are not scanned.
 Add `thread-locals` to `bootui.agent.sensors`, or [switch it on at run time](#switching-sensors-at-run-time).
 
+On Spring MVC and WebFlux, BootUI also names the instance-held re-entry guards of configured root Logback console
+appenders, so a first log on a worker is counted as framework bookkeeping, not a leak. This reads only the exact key
+identity, never its value, using at most 128 weak registrations. Logging resets remove the old keys; unsupported
+backend versions or unrecognized holders remain unresolved and visible rather than being broadly suppressed.
+
 A scope opens around a Spring MVC request, a request's task on a pool worker, Spring WebFlux work on `boundedElastic`, a
 Quarkus blocking resource method or managed executor task, and a scheduled run.
 

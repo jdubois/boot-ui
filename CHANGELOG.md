@@ -28,6 +28,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Logback console bookkeeping is not a ThreadLocal leak** on Spring MVC and WebFlux when a pooled worker first logs
+  ([#1622](https://github.com/jdubois/boot-ui/pull/1622)).
 - **Spring MVC and WebFlux HTTP exchange recording no longer disrupts responses**: null header names are ignored and
   other capture failures are logged without replacing application errors ([#1610](https://github.com/jdubois/boot-ui/issues/1610)).
 - **Compact transaction labels distinguish physical children and savepoints** instead of calling them `PARTICIPATING`;
