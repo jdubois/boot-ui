@@ -59,6 +59,9 @@ public final class ThreadLocals {
     /** Keys remembered per claim generation. */
     public static final int REGISTRY = 1_024;
 
+    /** Framework-owned instance fields an adapter can name, without retaining their keys or class loaders. */
+    static final int MAX_NAMED_HOLDERS = 128;
+
     /** A scan's results. */
     public static final int TOO_LARGE = -1;
 
@@ -123,6 +126,18 @@ public final class ThreadLocals {
     private static final ClassLoader PLATFORM = platformLoader();
     private static final AtomicReference<Registry> REGISTRY_REF = new AtomicReference<Registry>();
     private static final AtomicLong TOKENS = new AtomicLong();
+    static final AtomicReferenceArray<NamedHolder> NAMED_HOLDERS =
+            new AtomicReferenceArray<NamedHolder>(MAX_NAMED_HOLDERS);
+
+    static final class NamedHolder extends WeakReference<Object> {
+
+        final String field;
+
+        NamedHolder(Object key, String field) {
+            super(key);
+            this.field = field;
+        }
+    }
 
     private static final LongAdder SCOPES = new LongAdder();
     private static final LongAdder SCANS = new LongAdder();
@@ -198,6 +213,39 @@ public final class ThreadLocals {
      */
     public static void configure(boolean scopes) {
         adapterScopes = scopes;
+    }
+
+    /**
+     * Names a framework's instance-held thread local by identity, as a configured console appender's re-entry guard.
+     * Reads no thread-local value; the engine still decides whether the named holder is excluded. Bounded and weak,
+     * usable before the sensor is switched on; {@code null} for {@code field} removes the registration. Never throws.
+     */
+    public static void nameHolder(Object key, String field) {
+        try {
+            if (!(key instanceof ThreadLocal) || (field != null && (field.length() == 0 || field.length() > 512))) {
+                return;
+            }
+            int free = -1;
+            for (int i = 0; i < MAX_NAMED_HOLDERS; i++) {
+                NamedHolder known = NAMED_HOLDERS.get(i);
+                Object held = known == null ? null : known.get();
+                if (held == key) {
+                    NAMED_HOLDERS.compareAndSet(i, known, field == null ? null : new NamedHolder(key, field));
+                    return;
+                }
+                if (held == null && free < 0) {
+                    free = i;
+                }
+            }
+            if (field != null && free >= 0) {
+                NamedHolder previous = NAMED_HOLDERS.get(free);
+                if (previous == null || previous.get() == null) {
+                    NAMED_HOLDERS.compareAndSet(free, previous, new NamedHolder(key, field));
+                }
+            }
+        } catch (Throwable ex) {
+            SideEffects.failed(SideEffects.SENSOR_THREAD_LOCALS, ex);
+        }
     }
 
     /**
@@ -349,6 +397,12 @@ public final class ThreadLocals {
             Object key = known == null ? null : known.get();
             if (key == null) {
                 return new String[] {null, "false", "false", "collected"};
+            }
+            for (int i = 0; i < MAX_NAMED_HOLDERS; i++) {
+                NamedHolder named = NAMED_HOLDERS.get(i);
+                if (named != null && named.get() == key) {
+                    return new String[] {named.field, "false", "false", null};
+                }
             }
             Resolver current = resolver;
             if (current == null) {
@@ -880,6 +934,9 @@ public final class ThreadLocals {
         selfTestCount = 0;
         accessError = null;
         REGISTRY_REF.set(null);
+        for (int i = 0; i < MAX_NAMED_HOLDERS; i++) {
+            NAMED_HOLDERS.set(i, null);
+        }
         LongAdder[] adders = {
             SCOPES,
             SCANS,
