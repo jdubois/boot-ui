@@ -3,7 +3,7 @@
 **One Action step. A live application assessment in your job Summary.**
 
 <!-- bootui-ci:release:start -->
-> **CI support is not yet published.** Published BootUI CLI 2.3.0 does not contain these CI commands. The examples below are prepared for the first signed CI-capable release; `UNRELEASED` is not an installable version. Do not substitute the old published CLI.
+> **Example release: BootUI 2.4.0.** Use a published copy of this same release for the application and CLI. The Action is pinned to this release's signed `v2.4.0` tag. The documentation and starter kit are synchronized during release preparation; a repository can contain them before publication. The documentation website publishes the kit only after the exact CI release is verified as available.
 <!-- bootui-ci:release:end -->
 
 ## Add BootUI to GitHub Actions <a id="quick-start-github-actions"></a>
@@ -14,7 +14,7 @@ then add this step after your usual checkout and Java setup:
 <!-- bootui-ci:source:snippets/action.yml.template:start -->
 ```yaml
 - name: BootUI diagnostics
-  uses: jdubois/boot-ui@vUNRELEASED
+  uses: jdubois/boot-ui@v2.4.0
 ```
 <!-- bootui-ci:source:snippets/action.yml.template:end -->
 
@@ -131,7 +131,7 @@ and custom workflows.
 The starter kit includes runnable Spring MVC, WebFlux, and Quarkus examples. It is not required for the Action.
 
 <!-- bootui-ci:kit:start -->
-The starter-kit download becomes available with the first CI-capable release. The complete example sources are in the repository's `examples/ci` directory; candidate testing is separate from a published-release installation.
+[Download the complete starter kit](https://www.julien-dubois.com/boot-ui/ci/bootui-ci-examples.zip). It includes the projects, Maven Wrapper, policies, scripts, and selectable workflow files. Extract it into a new repository to try the example, or copy only the diagnostic configuration and workflow you need into an existing project.
 <!-- bootui-ci:kit:end -->
 
 ## Troubleshooting

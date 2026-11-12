@@ -32,14 +32,14 @@ continue after a response. They support the same evidence discipline; fixing tho
 
 - JDK 17 or later, Git 2.23 or later, an editor, and basic familiarity with Java and Maven.
 - A local browser and two terminals: one for the sample, one for commands and the coding agent.
-- The released **2.3.0** sample source and published CLI, prepared in [Chapter 01](01-setup-and-tooling.md).
+- The released **2.4.0** sample source and published CLI, prepared in [Chapter 01](01-setup-and-tooling.md).
 - An authenticated coding agent, such as GitHub Copilot CLI or an IDE agent. Pairing is welcome.
 - Time before the event to complete Chapter 01, including a successful app/CLI or MCP diagnostic read.
 
 Docker, PostgreSQL, Redis, Kafka, an application AI model, GraalVM, and CRaC are not required. The core workshop
 uses H2 and an in-memory Caffeine cache. BootUI itself requires no coding-agent subscription.
 
-Use the exact release the facilitator specifies; this edition pins **2.3.0**. Do not mix a moving branch, a released
+Use the exact release the facilitator specifies; this edition pins **2.4.0**. Do not mix a moving branch, a released
 1.x CLI, and a different Java agent. Participants edit a disposable clone, never an employer's application.
 
 ## Agenda

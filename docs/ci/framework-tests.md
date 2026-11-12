@@ -4,7 +4,7 @@ Use this path when `@SpringBootTest` or `@QuarkusTest` owns the application's li
 separate process, the [GitHub Actions quick start](../CI.md) is simpler.
 
 <!-- bootui-ci:release:start -->
-> **CI support is not yet published.** Published BootUI CLI 2.3.0 does not contain these CI commands. The examples below are prepared for the first signed CI-capable release; `UNRELEASED` is not an installable version. Do not substitute the old published CLI.
+> **Example release: BootUI 2.4.0.** Use a published copy of this same release for the application and CLI. The Action is pinned to this release's signed `v2.4.0` tag. The documentation and starter kit are synchronized during release preparation; a repository can contain them before publication. The documentation website publishes the kit only after the exact CI release is verified as available.
 <!-- bootui-ci:release:end -->
 
 ## The lifecycle
@@ -46,7 +46,7 @@ diagnostic profile. It does not add the shaded CLI jar to the test classpath.
     <version>1.0.0</version>
     <properties>
         <java.version>17</java.version>
-        <bootui.version>UNRELEASED</bootui.version>
+        <bootui.version>2.4.0</bootui.version>
         <spring.web.starter>spring-boot-starter-web</spring.web.starter>
     </properties>
     <dependencies>
@@ -247,7 +247,7 @@ The Maven profile enables the extension only for diagnostics, with the ordinary 
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <quarkus.platform.version>3.40.1.1</quarkus.platform.version>
-        <bootui.version>UNRELEASED</bootui.version>
+        <bootui.version>2.4.0</bootui.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -490,7 +490,7 @@ jobs:
             stack: mvc
             label: quarkus
     env:
-      BOOTUI_VERSION: 'UNRELEASED'
+      BOOTUI_VERSION: '2.4.0'
       BOOTUI_ASSESSMENT_ID: ${{ github.run_id }}:${{ github.run_attempt }}:${{ matrix.label }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -499,10 +499,10 @@ jobs:
           distribution: temurin
           java-version: '25'
       - name: Verify the matching published CLI
-        uses: jdubois/boot-ui@vUNRELEASED
+        uses: jdubois/boot-ui@v2.4.0
         with:
           phase: prepare-cli
-          bootui-version: 'UNRELEASED'
+          bootui-version: '2.4.0'
       - name: Locate source checkout or extracted kit
         run: |
           recipe_dir=examples/ci

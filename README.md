@@ -88,7 +88,7 @@ bound to loopback; BootUI is not a remote or production scanner. Start with the
 [GitHub Actions quick start](docs/CI.md).
 
 <!-- bootui-ci:release:start -->
-> **CI support is not yet published.** Published BootUI CLI 2.3.0 does not contain these CI commands. The examples below are prepared for the first signed CI-capable release; `UNRELEASED` is not an installable version. Do not substitute the old published CLI.
+> **Example release: BootUI 2.4.0.** Use a published copy of this same release for the application and CLI. The Action is pinned to this release's signed `v2.4.0` tag. The documentation and starter kit are synchronized during release preparation; a repository can contain them before publication. The documentation website publishes the kit only after the exact CI release is verified as available.
 <!-- bootui-ci:release:end -->
 
 ## Project resources

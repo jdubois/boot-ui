@@ -29,7 +29,7 @@ Require Chapter 01's complete pre-work, including a successful actual transport 
 `127.0.0.1`; BootUI's console guards do not secure its intentionally unsafe application fixtures.
 Docker/Podman is an additional requirement only for the optional Quarkus sample's PostgreSQL Dev Services.
 
-Record the actual **2.3.0** tag SHA/artifact checksums. Verify the immutable release includes these
+Record the actual **2.4.0** tag SHA/artifact checksums. Verify the immutable release includes these
 materials and all used v2 surfaces. Do not claim published artifacts were checked from a development checkout.
 Rehearse from a fresh clone, not the helper's prebuilt workspace.
 
@@ -205,7 +205,7 @@ Before each workshop delivery:
    `python3 -B -m unittest discover -s .github/scripts -p 'test_docs_links.py'`.
 2. Inspect Workshop after Features in desktop/mobile navbar, its ordered sidebar after Get started, the homepage
    row, and all clean `/boot-ui/workshop/...` routes.
-3. From **v2.3.0**, run warm build/launch, baseline fixture test, supplied test red/green, live reload and comparison.
+3. From **v2.4.0**, run warm build/launch, baseline fixture test, supplied test red/green, live reload and comparison.
 4. Verify the pinned published CLI/agent/consumer skill, real MCP client, default sensors/self-tests, and optional
    unavailable states.
 5. Pilot the exact 180-minute agenda including questions, break, pairing, Windows, provider latency, and recovery.

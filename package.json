@@ -1,7 +1,7 @@
 {
   "name": "bootui-site",
   "private": true,
-  "version": "2.3.0",
+  "version": "2.4.0",
   "type": "module",
   "scripts": {
     "docs:dev": "python3 -B .github/scripts/ci-examples.py check && python3 -B .github/scripts/ci-examples.py assets && vuepress dev docs --host 127.0.0.1 --port 8090",
