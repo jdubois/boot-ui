@@ -115,9 +115,6 @@ public record CiPolicy(
         if (value.size() == 0) {
             throw new IllegalArgumentException(label + " must name at least one observation kind");
         }
-        if (!includeInsights) {
-            throw new IllegalArgumentException(label + " requires runtimeContext.includeInsights to be true");
-        }
         List<String> kinds = new ArrayList<>();
         for (JsonValue entry : value.values()) {
             String kind = entry.asString(null);
@@ -127,6 +124,10 @@ public record CiPolicy(
             }
             if (kinds.contains(kind)) {
                 throw new IllegalArgumentException(label + " has a duplicate kind: " + kind);
+            }
+            if (!includeInsights && CiRuntimeGate.RUNTIME_INSIGHTS_KINDS.contains(kind)) {
+                throw new IllegalArgumentException(
+                        label + " requires runtimeContext.includeInsights to be true for " + kind);
             }
             kinds.add(kind);
         }

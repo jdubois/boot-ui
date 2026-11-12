@@ -74,6 +74,8 @@ class CiAssessmentRunnerTests {
     private String runtimeInsightsBody = runtimeInsightsReport(false, false);
     private final Map<String, String> runtimeInsightsByQuery = new LinkedHashMap<>();
     private final List<String> runtimeInsightsQueries = new ArrayList<>();
+    private String sideEffectsBody;
+    private final List<String> sideEffectsQueries = new ArrayList<>();
     private final Map<String, UnaryOperator<String>> responseTransforms = new LinkedHashMap<>();
 
     @AfterEach
@@ -1946,6 +1948,59 @@ class CiAssessmentRunnerTests {
         assertThat(Files.readString(plain.resolve("junit.xml"))).doesNotContain("runtime:");
     }
 
+    @Test
+    void aGatedRequestInputSinkMatchFailsTheAssessmentWithoutRuntimeInsights() throws Exception {
+        sideEffectsBody = sinksReport(true, 0, """
+                {"scope":"route","attribution":"private-route","sensor":"security-sinks","kind":"SQL text",
+                 "target":"select * from t order by {private}","count":2,"completed":0,"parameter":"private",
+                 "detail":"private detail"}""");
+        startServer();
+        Path policy = temp.resolve("policy-with-sink-gate.json");
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"high"}},
+                 "runtimeContext":{"includeInsights":false,"failOnObservations":["request-input-in-sink"]}}
+                """);
+        Path output = temp.resolve("sinks");
+        CiAssessmentRunner runner = runner(policy, temp.resolve("witness.json"), output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(3);
+        assertThat(sideEffectsQueries).containsExactly("security-sinks");
+        assertThat(runtimeInsightsRequests).isZero();
+        assertThat(Files.readString(output.resolve("summary.md")))
+                .contains("| request-input-in-sink | VIOLATION | - | 2 |");
+        assertThat(Files.readString(output.resolve("sarif.json")))
+                .contains("\"ruleId\": \"request-input-in-sink\"", "security-sinks sensor recorded");
+        for (String name : CiAssessmentRunner.REPORT_FILES) {
+            assertThat(Files.readString(output.resolve(name))).doesNotContain("private");
+        }
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isEqualTo(3);
+
+        sideEffectsBody = sinksReport(false, 0, "");
+        Path off = temp.resolve("sinks-off");
+        CiAssessmentRunner offRunner = runner(policy, temp.resolve("witness-off.json"), off);
+        assertThat(offRunner.attach()).isZero();
+        assertThat(offRunner.assess()).isEqualTo(1);
+        assertThat(Files.readString(off.resolve("bundle.json"))).contains("\"reason\": \"REQUEST_VALUES_OFF\"");
+
+        sideEffectsBody = sinksReport(true, 0, "");
+        Path clean = temp.resolve("sinks-clean");
+        CiAssessmentRunner cleanRunner = runner(policy, temp.resolve("witness-clean.json"), clean);
+        assertThat(cleanRunner.attach()).isZero();
+        assertThat(cleanRunner.assess()).isZero();
+    }
+
+    private static String sinksReport(boolean matching, long unconfirmed, String rows) {
+        return """
+                {"available":true,"unavailableReason":null,"query":"security-sinks",
+                 "sensors":[{"id":"security-sinks","state":"recording","dropped":0}],
+                 "matched":%d,"rows":[%s],"omitted":0,"limitations":["private limitation"],
+                 "requestValueMatching":%s,"unconfirmedSinkMatches":%d}
+                """.formatted(rows.isEmpty() ? 0 : 1, rows, matching, unconfirmed);
+    }
+
     private static int runCli(String... arguments) {
         StringWriter output = new StringWriter();
         return BootUiCli.run(arguments, Map.of(), false, new PrintWriter(output, true), new PrintWriter(output, true));
@@ -2028,6 +2083,11 @@ class CiAssessmentRunnerTests {
                 Files.createDirectory(obstructOutput.resolve("junit.xml"));
             }
             body = overview();
+        } else if (path.endsWith("/tools/get_side_effects") && sideEffectsBody != null) {
+            JsonValue arguments =
+                    JsonValue.parse(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            sideEffectsQueries.add(arguments.get("query").asString(null));
+            body = sideEffectsBody;
         } else if (path.endsWith("/tools/get_runtime_insights")) {
             runtimeInsightsRequests++;
             JsonValue arguments =
@@ -2146,6 +2206,10 @@ class CiAssessmentRunnerTests {
                     "runtime-insights",
                     runtimeInsightsPanelEnabled,
                     true));
+        }
+        if (sideEffectsBody != null) {
+            tools.add(tool(
+                    "get_side_effects", false, "QUERY_LIMIT", List.of("query", "limit"), "side-effects", true, true));
         }
         return """
                 {"serverName":"bootui","serverVersion":"dev","enabled":true,"maxResults":200,"tools":[%s]}

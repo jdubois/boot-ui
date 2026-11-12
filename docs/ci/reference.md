@@ -222,30 +222,38 @@ Without a runtime gate, JUnit output remains advisor-only.
 
 ### Runtime gate
 
-To fail the assessment on a Runtime Insights security observation, name it in `failOnObservations` (unreleased):
+To fail the assessment on a runtime security observation, name it in `failOnObservations` (unreleased):
 
 ```json
 "runtimeContext": {
   "includeInsights": true,
-  "failOnObservations": ["anonymous-success-on-restricted-route", "anonymous-data-reach"]
+  "failOnObservations": [
+    "anonymous-success-on-restricted-route",
+    "anonymous-data-reach",
+    "request-input-in-sink"
+  ]
 }
 ```
 
-Only these two kinds are accepted, and only with `includeInsights: true`. The assessment reads each named kind
-separately, because `anonymous-data-reach` is not in the default listing, and judges it:
+| Kind | Source | Needs |
+| --- | --- | --- |
+| `anonymous-success-on-restricted-route`, `anonymous-data-reach` | [Runtime Insights](../features/runtime-insights.md) | `includeInsights: true`; a workload that sends anonymous requests to restricted routes |
+| `request-input-in-sink` | the [BootUI agent](../features/java-agent.md#the-security-sinks-sensor)'s `security-sinks` sensor | the target started with the `-javaagent`, `bootui.agent.sensors` including `security-sinks`, `bootui.agent.security-sinks.request-values=true`, and a workload such as your tests or a DAST scan |
+
+The assessment reads each named kind separately (`anonymous-data-reach` is not in the default listing, and sink rows
+come from Side Effects) and judges it:
 
 | Result | When |
 | --- | --- |
-| `VIOLATION` | The run recorded at least one observation of the kind; the assessment fails with exit code `3`. |
+| `VIOLATION` | The run recorded at least one observation of the kind, or one confirmed request-input sink row (SQL text, command, file path, or outbound URL; the sensor's JDK checks do not count); the assessment fails with exit code `3`. |
 | `PASS` | The check ran with complete evidence and recorded nothing. |
-| `NOT_ASSESSED` | The journal or tool was unavailable, capture was paused, the check did not run or ran partly, its rows were below their evidence minimum or partial, or the limit left rows out. The assessment reports `RUNTIME_GATE_INCOMPLETE` and exits `1`. |
+| `NOT_ASSESSED` | The source was unavailable; capture was paused or dropped records; the check did not run or ran partly; rows were below their evidence minimum, partial, or left out by the limit; request-value matching was off or the target is too old to say; or sink matches were still waiting for a second request to confirm them. The assessment reports `RUNTIME_GATE_INCOMPLETE` and exits `1`. |
 
-Both checks rely only on requests an authorization decision proved anonymous, so the workload must send anonymous
-requests to restricted routes; otherwise the check is insufficient and the gate is not assessed rather than passed. The
-bundle's
-`runtimeContext.gate` keeps each kind's result, reason, and affected count, never its routes, tables, or sentences; the
-summary, a `runtime:<kind>` JUnit test case, and a SARIF result per violation report the same facts, and offline checks
-re-validate them against the policy. Request-input sink matches (`security-sinks`) cannot be gated yet.
+The anonymous-access checks rely only on requests an authorization decision proved anonymous, so a workload without
+anonymous requests to restricted routes leaves them insufficient: not assessed, not passed. The bundle's
+`runtimeContext.gate` keeps each kind's result, reason, and affected count, never routes, tables, parameter names,
+values, or sentences; the summary, a `runtime:<kind>` JUnit test case, and a SARIF result per violation report the same
+facts, and offline checks re-validate them against the policy.
 
 ## Offline rechecking
 

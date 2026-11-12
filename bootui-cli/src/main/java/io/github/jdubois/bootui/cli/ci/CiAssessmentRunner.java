@@ -413,7 +413,7 @@ public final class CiAssessmentRunner {
         if (!policy.includeInsights()) {
             return RuntimeContext.empty("NOT_REQUESTED");
         }
-        String toolProblem = runtimeInsightsToolProblem(catalog);
+        String toolProblem = queryToolProblem(catalog, RUNTIME_INSIGHTS_TOOL, RUNTIME_INSIGHTS_PANEL);
         if (toolProblem != null) {
             return RuntimeContext.empty(toolProblem);
         }
@@ -447,14 +447,14 @@ public final class CiAssessmentRunner {
         }
     }
 
-    /** {@code null} when the Runtime Insights tool can be read, else the context status that says why not. */
-    private static String runtimeInsightsToolProblem(BootUiCatalog catalog) {
-        BootUiCatalog.CatalogTool tool = catalog.tool(RUNTIME_INSIGHTS_TOOL);
+    /** {@code null} when a read-only query tool can be read, else {@code UNAVAILABLE} or {@code ERROR}. */
+    private static String queryToolProblem(BootUiCatalog catalog, String name, String panel) {
+        BootUiCatalog.CatalogTool tool = catalog.tool(name);
         if (tool == null || !tool.panelEnabled()) {
             return "UNAVAILABLE";
         }
         if (tool.action()
-                || !RUNTIME_INSIGHTS_PANEL.equals(tool.panel())
+                || !panel.equals(tool.panel())
                 || !"QUERY_LIMIT".equals(tool.schema())
                 || !tool.arguments().containsAll(List.of("query", "limit"))) {
             return "ERROR";
@@ -474,10 +474,10 @@ public final class CiAssessmentRunner {
 
     private List<CiRuntimeGate.Result> collectRuntimeGate(
             CiPolicy policy, BootUiCatalog catalog, BootUiClient client, long deadline) {
-        String toolProblem = runtimeInsightsToolProblem(catalog);
         int limit = Math.min(MAX_RUNTIME_OBSERVATIONS, Math.max(1, catalog.maxResults()));
         List<CiRuntimeGate.Result> gate = new ArrayList<>();
         for (String kind : policy.failOnObservations()) {
+            String toolProblem = queryToolProblem(catalog, CiRuntimeGate.toolFor(kind), CiRuntimeGate.panelFor(kind));
             gate.add(
                     toolProblem != null
                             ? CiRuntimeGate.Result.notAssessed(kind, toolProblem)
@@ -491,9 +491,11 @@ public final class CiAssessmentRunner {
         if (budget == null) {
             return CiRuntimeGate.Result.notAssessed(kind, "ERROR");
         }
-        Map<String, JsonValue> arguments = Map.of("query", JsonValue.of(kind), "limit", JsonValue.of(limit));
+        Map<String, JsonValue> arguments =
+                Map.of("query", JsonValue.of(CiRuntimeGate.queryFor(kind)), "limit", JsonValue.of(limit));
         try {
-            ToolResult result = client.invokeBounded(RUNTIME_INSIGHTS_TOOL, arguments, MAX_RESPONSE_BYTES, budget);
+            ToolResult result =
+                    client.invokeBounded(CiRuntimeGate.toolFor(kind), arguments, MAX_RESPONSE_BYTES, budget);
             if (!result.successful()) {
                 return CiRuntimeGate.Result.notAssessed(
                         kind, result.status() == 403 || result.status() == 404 ? "UNAVAILABLE" : "ERROR");

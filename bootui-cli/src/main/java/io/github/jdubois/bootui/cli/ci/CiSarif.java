@@ -158,14 +158,26 @@ final class CiSarif {
         return JsonValue.object(result);
     }
 
+    private static boolean sink(String kind) {
+        return CiRuntimeGate.SINK_KIND.equals(kind);
+    }
+
     private static JsonValue gateRule(String kind) {
+        String source = sink(kind) ? "security-sinks" : "runtime-insights";
         Map<String, JsonValue> properties = new LinkedHashMap<>();
-        properties.put("tags", JsonValue.array(List.of(JsonValue.of("runtime-insights"), JsonValue.of("security"))));
+        properties.put("tags", JsonValue.array(List.of(JsonValue.of(source), JsonValue.of("security"))));
         properties.put("security-severity", JsonValue.of(securitySeverity(CiPolicy.Severity.HIGH)));
         Map<String, JsonValue> rule = new LinkedHashMap<>();
         rule.put("id", JsonValue.of(kind));
         rule.put("name", JsonValue.of(kind));
-        rule.put("shortDescription", object("text", JsonValue.of("BootUI Runtime Insights observation " + kind)));
+        rule.put(
+                "shortDescription",
+                object(
+                        "text",
+                        JsonValue.of(
+                                sink(kind)
+                                        ? "BootUI agent security-sinks observation " + kind
+                                        : "BootUI Runtime Insights observation " + kind)));
         rule.put("defaultConfiguration", object("level", JsonValue.of("error")));
         rule.put("properties", JsonValue.object(properties));
         return JsonValue.object(rule);
@@ -173,7 +185,7 @@ final class CiSarif {
 
     private static JsonValue gateResult(String kind, int ruleIndex, long affected) {
         Map<String, JsonValue> properties = new LinkedHashMap<>();
-        properties.put("source", JsonValue.of("runtime-insights"));
+        properties.put("source", JsonValue.of(sink(kind) ? "security-sinks" : "runtime-insights"));
         properties.put("affected", JsonValue.of(affected));
         properties.put("meetsThreshold", JsonValue.of(true));
         Map<String, JsonValue> result = new LinkedHashMap<>();
@@ -184,8 +196,13 @@ final class CiSarif {
                 "message",
                 object(
                         "text",
-                        JsonValue.of(kind + ": Runtime Insights observed this in the assessed run (affected: "
-                                + affected + "); the policy's runtime gate fails on it.")));
+                        JsonValue.of(kind
+                                + (sink(kind)
+                                        ? ": the BootUI agent's security-sinks sensor recorded request input reaching a"
+                                                + " sink unchanged"
+                                        : ": Runtime Insights observed this")
+                                + " in the assessed run (affected: " + affected
+                                + "); the policy's runtime gate fails on it.")));
         result.put("properties", JsonValue.object(properties));
         return JsonValue.object(result);
     }

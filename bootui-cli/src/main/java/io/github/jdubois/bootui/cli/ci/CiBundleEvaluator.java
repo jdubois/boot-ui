@@ -335,7 +335,7 @@ public final class CiBundleEvaluator {
     /** Validates the runtime context and returns whether its runtime gate holds a violation. */
     private static boolean validateRuntimeContext(JsonValue context, CiPolicy policy) {
         if (context.isMissing()) {
-            if (policy.includeInsights()) {
+            if (policy.includeInsights() || !policy.failOnObservations().isEmpty()) {
                 throw invalid();
             }
             return false;

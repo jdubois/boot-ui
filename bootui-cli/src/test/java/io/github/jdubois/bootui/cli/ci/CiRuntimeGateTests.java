@@ -104,6 +104,81 @@ class CiRuntimeGateTests {
                 .hasMessageContaining("array");
     }
 
+    private static final String SINK = "request-input-in-sink";
+
+    @Test
+    void aConfirmedSinkRowIsAViolationAndJdkCheckRowsAreNot() {
+        assertThat(CiRuntimeGate.evaluate(
+                        SINK, sinks(true, "recording", 0, 0, 0, row("SQL text", 3), row("weak digest", 9))))
+                .isEqualTo(new CiRuntimeGate.Result(SINK, "VIOLATION", "-", 3));
+        assertThat(CiRuntimeGate.evaluate(SINK, sinks(true, "recording", 0, 0, 0, row("weak digest", 9))))
+                .isEqualTo(new CiRuntimeGate.Result(SINK, "PASS", "-", 0));
+    }
+
+    @Test
+    void sinkMatchingThatIsOffUnknownPausedLossyOrPendingCannotPass() {
+        assertThat(CiRuntimeGate.evaluate(SINK, sinks(false, "recording", 0, 0, 0))
+                        .reason())
+                .isEqualTo("REQUEST_VALUES_OFF");
+        assertThat(CiRuntimeGate.evaluate(SINK, sinks(null, "recording", 0, 0, 0))
+                        .reason())
+                .isEqualTo("UNSUPPORTED");
+        assertThat(CiRuntimeGate.evaluate(SINK, sinks(true, "disabled", 0, 0, 0))
+                        .reason())
+                .isEqualTo("SENSOR_NOT_RECORDING");
+        assertThat(CiRuntimeGate.evaluate(SINK, sinks(true, "recording", 4, 0, 0))
+                        .reason())
+                .isEqualTo("PARTIAL_CAPTURE");
+        assertThat(CiRuntimeGate.evaluate(SINK, sinks(true, "recording", 0, 1, 0))
+                        .reason())
+                .isEqualTo("UNCONFIRMED");
+        assertThat(CiRuntimeGate.evaluate(SINK, sinks(true, "recording", 0, 0, 2))
+                        .reason())
+                .isEqualTo("OMITTED");
+        assertThat(CiRuntimeGate.evaluate(SINK, JsonValue.parseStrict("{\"available\":false}"))
+                        .reason())
+                .isEqualTo("UNAVAILABLE");
+        assertThat(CiRuntimeGate.evaluate(SINK, sinks(true, "recording", 4, 1, 2, row("command", 1)))
+                        .result())
+                .isEqualTo("VIOLATION");
+    }
+
+    @Test
+    void theSinkKindDoesNotNeedRuntimeInsights() {
+        CiPolicy policy = CiPolicy.parse(policy(false, "[\"" + SINK + "\"]"), "s");
+
+        assertThat(policy.failOnObservations()).containsExactly(SINK);
+        assertThat(CiRuntimeGate.toolFor(SINK)).isEqualTo("get_side_effects");
+        assertThat(CiRuntimeGate.queryFor(SINK)).isEqualTo("security-sinks");
+        assertThat(CiRuntimeGate.toolFor(KIND)).isEqualTo("get_runtime_insights");
+        assertThat(CiRuntimeGate.queryFor(KIND)).isEqualTo(KIND);
+    }
+
+    private static String row(String kind, long count) {
+        return """
+                {"scope":"route","attribution":"private-route","sensor":"security-sinks","kind":"%s",
+                 "target":"private target","count":%d,"completed":0,"detail":"private detail"}
+                """.formatted(kind, count);
+    }
+
+    private static JsonValue sinks(
+            Boolean matching, String state, long dropped, long unconfirmed, int omitted, String... rows) {
+        return JsonValue.parseStrict("""
+                {"available":true,"unavailableReason":null,"query":"security-sinks",
+                 "sensors":[{"id":"processes","state":"disabled","dropped":7},
+                            {"id":"security-sinks","state":"%s","dropped":%d}],
+                 "matched":%d,"rows":[%s],"omitted":%d,"limitations":["private limitation"]%s,
+                 "unconfirmedSinkMatches":%d}
+                """.formatted(
+                        state,
+                        dropped,
+                        rows.length + omitted,
+                        String.join(",", rows),
+                        omitted,
+                        matching == null ? "" : ",\"requestValueMatching\":" + matching,
+                        unconfirmed));
+    }
+
     private static String policy(boolean includeInsights, String failOnObservations) {
         return """
                 {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"high"}},
