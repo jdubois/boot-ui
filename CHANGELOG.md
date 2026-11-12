@@ -7,33 +7,45 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-11-12
+
+This release brings BootUI diagnostics to CI, adds offline CLI documentation and installation-aware updates, and
+makes incomplete runtime evidence explicit.
+
 ### Added
 
-- **Strict live-target CI assessments** add `bootui ci attach` and `bootui ci assess`, plus a signature-verifying
-  composite GitHub Action and caller-owned workflow guide ([CI guide](docs/CI.md); [#1592](https://github.com/jdubois/boot-ui/issues/1592)).
-- Extend strict live-target assessments to external Quarkus `quarkus:dev` processes with framework-aware identity
-  witnesses; incomplete Quarkus advisor evidence remains a failure.
-- **Offline CI bundle validation** adds `bootui ci check` to recompute the policy verdict without contacting the
-  application, with a matching offline phase in the composite Action.
-- **Framework-managed CI collection** adds the `CiCollection` lifecycle API and `bootui ci prepare-contexts` /
-  `check-contexts` commands to gate a predeclared set of test windows after their producer processes exit.
-- **Report-only CI runtime context** adds an opt-in bounded, sanitized Runtime Insights projection to CI assessment
-  bundles and summaries without changing advisor verdicts.
-- **CI summaries** show bounded rule IDs, severities, counts, threshold matches, and assessment error codes.
+- **CI assessments and GitHub Action** gate live Spring Boot and Quarkus apps and publish bounded findings with optional
+  runtime context ([CI guide](docs/CI.md); [#1600](https://github.com/jdubois/boot-ui/pull/1600), [#1626](https://github.com/jdubois/boot-ui/pull/1626)).
+- **Offline and test-lifecycle CI checks** validate retained evidence after application and test processes exit
+  ([Framework-managed tests](docs/ci/framework-tests.md); [#1600](https://github.com/jdubois/boot-ui/pull/1600)).
+- **Offline CLI documentation and update commands** add `bootui docs`, `bootui update --check`, and installation-aware
+  `bootui update` ([CLI guide](docs/CLI.md); [#1614](https://github.com/jdubois/boot-ui/pull/1614)).
+- **Incomplete-evidence statuses and CLI gates** expose insufficient or partial observations and let CLI reads fail on them
+  ([CLI gates](docs/CLI.md#gate-on-insufficient-evidence); [#1589](https://github.com/jdubois/boot-ui/issues/1589)).
+- **Static security analyzer checks** flag missing local analyzer declarations, including on apps without Spring Security
+  ([Security checks](docs/SECURITY-CHECKS.md#availability-and-bounds); [#1597](https://github.com/jdubois/boot-ui/issues/1597)).
 
 ### Changed
 
-- Treat missing JDBC driver metadata and incomplete Hibernate or PostgreSQL discovery as incomplete Database advisor
-  evidence instead of clean coverage.
+- **Incomplete Database advisor discovery no longer reads as clean coverage** when JDBC driver metadata, Hibernate, or
+  PostgreSQL evidence is missing ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md); [#1600](https://github.com/jdubois/boot-ui/pull/1600)).
 
 ### Fixed
 
-- **Logback console bookkeeping is not a ThreadLocal leak** on Spring MVC and WebFlux when a pooled worker first logs
+- **Read-only panel policy is respected** by Scorecard, run-all, and confirmed actions, with clear refusal messages
+  ([#1602](https://github.com/jdubois/boot-ui/pull/1602)).
+- **HTTP exchange recording no longer disrupts application responses** on Spring MVC and WebFlux
+  ([#1615](https://github.com/jdubois/boot-ui/pull/1615)).
+- **Startup SQL is retained in Spring MVC and WebFlux run comparisons** instead of being omitted
+  ([#1598](https://github.com/jdubois/boot-ui/pull/1598)).
+- **Hibernate JDBC exceptions are classified as SQL failures** in caught-exception diagnostics
+  ([#1590](https://github.com/jdubois/boot-ui/issues/1590)).
+- **Logback console logging no longer produces false ThreadLocal leak reports** on Spring MVC and WebFlux
   ([#1622](https://github.com/jdubois/boot-ui/pull/1622)).
-- **Spring MVC and WebFlux HTTP exchange recording no longer disrupts responses**: null header names are ignored and
-  other capture failures are logged without replacing application errors ([#1610](https://github.com/jdubois/boot-ui/issues/1610)).
-- **Compact transaction labels distinguish physical children and savepoints** instead of calling them `PARTICIPATING`;
-  failed or unverified boundaries report `UNKNOWN` ([#1595](https://github.com/jdubois/boot-ui/issues/1595)).
+- **Compact transaction labels on Spring MVC and WebFlux** report `REQUIRES_NEW` children and `NESTED` savepoints instead
+  of `PARTICIPATING`, and `UNKNOWN` for failed or unverified boundaries ([#1599](https://github.com/jdubois/boot-ui/pull/1599)).
+- **Documentation-site search stays readable** with opaque theme-aware surfaces instead of a transparent, blurred overlay
+  ([#1603](https://github.com/jdubois/boot-ui/pull/1603)).
 
 ## [2.3.0] - 2026-11-04
 
