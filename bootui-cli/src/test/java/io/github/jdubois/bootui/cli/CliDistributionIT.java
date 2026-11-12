@@ -24,6 +24,33 @@ class CliDistributionIT {
     Path directory;
 
     @Test
+    void onlyTheRunnableJarBundlesDocumentation() throws Exception {
+        Path runnable = Path.of(System.getProperty("bootui.cli.jar"));
+        String thinName = runnable.getFileName().toString().replace("-all.jar", ".jar");
+        try (JarFile all = new JarFile(runnable.toFile());
+                JarFile thin = new JarFile(runnable.resolveSibling(thinName).toFile())) {
+            for (var topic : DocsCommand.TOPICS) {
+                var entry = all.getJarEntry("bootui-docs/" + topic.file());
+                assertThat(entry).isNotNull();
+                try (var input = all.getInputStream(entry)) {
+                    assertThat(input.readAllBytes()).isEqualTo(Files.readAllBytes(Path.of("../docs", topic.file())));
+                }
+            }
+            assertThat(thin.stream().map(JarEntry::getName)).noneMatch(name -> name.startsWith("bootui-docs/"));
+            assertThat(thin.getJarEntry("io/github/jdubois/bootui/client/BootUiClient.class"))
+                    .isNotNull();
+        }
+        Path sources = runnable.resolveSibling(thinName.replace(".jar", "-sources.jar"));
+        if (Files.exists(sources)) {
+            try (JarFile jar = new JarFile(sources.toFile())) {
+                assertThat(jar.stream().map(JarEntry::getName)).noneMatch(name -> name.startsWith("bootui-docs/"));
+                assertThat(jar.getJarEntry("io/github/jdubois/bootui/client/BootUiClient.java"))
+                        .isNotNull();
+            }
+        }
+    }
+
+    @Test
     void releasedDocsAndHelpNeverContactTheRepositoryEvenOnATerminal() throws Exception {
         Path jar = directory.resolve("bootui.jar");
         Files.write(jar, versionedJar("1.0.0"));

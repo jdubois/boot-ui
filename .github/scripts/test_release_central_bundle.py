@@ -2,6 +2,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parent / "check-central-bundle.py"
 SPEC = importlib.util.spec_from_file_location("check_central_bundle", SCRIPT)
@@ -111,6 +112,53 @@ class CentralBundleTests(unittest.TestCase):
         artifact_dir = self.root / GROUP_PATH / "bootui-agent" / VERSION
         for name in (f"bootui-agent-{VERSION}.jar.asc", f"bootui-agent-{VERSION}.pom.asc"):
             (artifact_dir / name).write_text("signature", encoding="utf-8")
+        self.assertEqual(self.errors(), [])
+
+    def files(self):
+        return [path for path in self.root.rglob("*") if path.is_file()]
+
+    def sign(self):
+        for path in self.files():
+            if path.suffix in (".jar", ".pom"):
+                path.with_name(path.name + ".asc").write_text("signature", encoding="utf-8")
+
+    def resize_payload(self, total):
+        jar = self.root / GROUP_PATH / "bootui-cli" / VERSION / f"bootui-cli-{VERSION}-all.jar"
+        size = jar.stat().st_size + total - sum(path.stat().st_size for path in self.files())
+        with jar.open("r+b") as output:
+            output.truncate(size)
+
+    def test_signed_payload_must_be_strictly_below_20_decimal_megabytes(self):
+        self.sign()
+        self.resize_payload(19_999_999)
+        self.assertEqual(self.errors(), [])
+        for size in (20_000_000, 20_000_001):
+            with self.subTest(size=size):
+                self.resize_payload(size)
+                self.assert_error("must be below 20,000,000 bytes (20 MB)")
+        with patch("sys.stderr"), patch("builtins.print"):
+            self.assertEqual(bundle.main(["check-central-bundle.py", str(self.root), VERSION]), 1)
+
+    def test_unsigned_candidates_reserve_space_for_every_signature(self):
+        unsigned = [path for path in self.files() if path.suffix in (".jar", ".pom")]
+        reserve = len(unsigned) * 4096
+        self.resize_payload(20_000_000 - reserve - 1)
+        self.assertEqual(self.errors(), [])
+        self.resize_payload(20_000_000 - reserve)
+        self.assert_error(f"plus {reserve:,} bytes reserved for missing signatures")
+        # A present signature replaces its reserve, not adds to it, including in partially signed candidates.
+        unsigned[0].with_name(unsigned[0].name + ".asc").write_text("signature", encoding="utf-8")
+        self.assertEqual(self.errors(), [])
+
+    def test_checksums_and_signatures_count_toward_the_payload_budget(self):
+        self.sign()
+        self.resize_payload(19_999_999)
+        for suffix in (".sha1", ".asc"):
+            path = next(path for path in self.files() if path.name.endswith(suffix))
+            original = path.read_bytes()
+            path.write_bytes(original + b"x")
+            self.assert_error("must be below 20,000,000 bytes")
+            path.write_bytes(original)
         self.assertEqual(self.errors(), [])
 
     def test_resolver_bookkeeping_and_foreign_files_are_rejected(self):

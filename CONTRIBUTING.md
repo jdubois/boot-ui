@@ -774,6 +774,12 @@ any POM that is not flattened. Every signature must verify and be by the pinned
 release key before the upload; the workflow also checks the build's signatures before
 the tag.
 
+The bundle check also requires the published files to total **less than 20 MB (20,000,000 bytes)**, including
+checksums and signatures, regardless of the upload ZIP's compressed size. Unsigned candidates reserve 4 KiB per
+missing signature before tagging; the signed bundle is checked against its actual size before upload. This is a
+per-release budget, not a guarantee of monthly capacity: Central also tracks organization-wide file and release counts.
+The CLI's offline docs ship only in its runnable `all` JAR, not in the thin client or sources JAR.
+
 Normal version preparation stages the exact unsigned candidate bundle and runs the consumer smoke tests before the
 release commit and tag. A tag-entry or `skip_build` run that did not pass that smoke stages and tests from the immutable
 tagged checkout before uploading instead; successful pre-tag smoke is not rerun after tagging. After publication,

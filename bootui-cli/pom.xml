@@ -115,6 +115,9 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <configuration>
+                    <excludes>
+                        <exclude>bootui-docs/**</exclude>
+                    </excludes>
                     <archive>
                         <manifest>
                             <mainClass>io.github.jdubois.bootui.cli.BootUiCli</mainClass>
@@ -122,6 +125,40 @@
                         </manifest>
                     </archive>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <configuration>
+                    <excludeResources>true</excludeResources>
+                </configuration>
+                <executions>
+                    <execution>
+                        <!-- Build the release sources before the distribution integration tests inspect them. -->
+                        <id>attach-sources</id>
+                        <phase>package</phase>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>prepare-cli-docs</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <!-- Unattached input for the runnable jar; the client and sources need no docs copy. -->
+                                <jar destfile="${project.build.directory}/cli-docs.jar"
+                                     basedir="${project.build.outputDirectory}" includes="bootui-docs/**"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <!--
                 The artifact people actually run is the shaded one: `java -jar` and JBang both need every
@@ -146,6 +183,9 @@
                             <shadedArtifactAttached>true</shadedArtifactAttached>
                             <shadedClassifierName>all</shadedClassifierName>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <extraJars>
+                                <extraJar>${project.build.directory}/cli-docs.jar</extraJar>
+                            </extraJars>
                             <transformers>
                                 <transformer
                                         implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
