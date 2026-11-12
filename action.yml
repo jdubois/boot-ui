@@ -65,6 +65,7 @@ runs:
   using: composite
   steps:
     - id: quick_setup
+      name: Prepare assessment
       if: ${{ inputs.phase == 'run' }}
       continue-on-error: true
       shell: bash
@@ -77,14 +78,18 @@ runs:
         BOOTUI_UPLOAD_ARTIFACT: ${{ inputs.upload-artifact }}
       run: bash "$ACTION_PATH/quick-setup.sh"
     - id: prepare
+      name: Download and verify BootUI CLI
       if: ${{ (inputs.phase != 'run' || steps.quick_setup.outcome == 'success') && (inputs.phase != 'assess' || inputs.attach-exit-code == '0') }}
       continue-on-error: ${{ inputs.phase == 'run' }}
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui
         BOOTUI_VERSION: ${{ inputs.bootui-version }}
+        BOOTUI_PHASE: ${{ inputs.phase }}
+        BOOTUI_APP_COMMAND: ${{ inputs.app-command }}
       run: bash "$ACTION_PATH/prepare-cli.sh"
     - id: quick_start
+      name: Start application
       if: ${{ !cancelled() && inputs.phase == 'run' && steps.quick_setup.outcome == 'success' && steps.prepare.outcome == 'success' }}
       continue-on-error: true
       shell: bash
@@ -97,6 +102,7 @@ runs:
         BOOTUI_STARTUP_TIMEOUT: ${{ inputs.startup-timeout }}
       run: bash "$ACTION_PATH/quick-start.sh"
     - id: quick_attach
+      name: Connect to BootUI
       if: ${{ !cancelled() && inputs.phase == 'run' && steps.quick_setup.outcome == 'success' && steps.prepare.outcome == 'success' && steps.quick_start.outcome == 'success' }}
       continue-on-error: true
       shell: bash
@@ -112,6 +118,7 @@ runs:
         BOOTUI_TIMEOUT: ${{ inputs.timeout }}
       run: bash "$ACTION_PATH/invoke.sh"
     - id: quick_workload
+      name: Run configured workload
       if: ${{ !cancelled() && inputs.phase == 'run' }}
       continue-on-error: true
       shell: bash
@@ -120,6 +127,7 @@ runs:
         BOOTUI_TEST_COMMAND: ${{ inputs.test-command }}
       run: bash "$ACTION_PATH/quick-workload.sh"
     - id: quick_assess
+      name: Assess application
       if: ${{ !cancelled() && inputs.phase == 'run' && steps.quick_setup.outcome == 'success' && steps.prepare.outcome == 'success' && steps.quick_attach.outputs.exit-code == '0' }}
       continue-on-error: true
       shell: bash
@@ -137,6 +145,7 @@ runs:
         BOOTUI_TIMEOUT: ${{ inputs.timeout }}
       run: bash "$ACTION_PATH/invoke.sh"
     - id: quick_report
+      name: Report assessment failure
       if: ${{ !cancelled() && inputs.phase == 'run' && steps.quick_setup.outcome == 'success' && steps.quick_assess.outputs.summary-fresh != 'true' }}
       continue-on-error: true
       shell: bash
@@ -146,9 +155,11 @@ runs:
         BOOTUI_ASSESSMENT_ID: ${{ steps.quick_setup.outputs.assessment-id }}
         BOOTUI_ATTACH_EXIT_CODE: ${{ steps.prepare.outcome == 'success' && (steps.quick_attach.outputs.exit-code || '1') || '0' }}
         BOOTUI_PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+        BOOTUI_APP_CONFIG_ERROR: ${{ steps.prepare.outputs.app-config-error }}
         BOOTUI_START_OUTCOME: ${{ steps.quick_start.outcome }}
       run: bash "$ACTION_PATH/report-error.sh"
     - id: quick_stop
+      name: Stop application
       if: ${{ always() && inputs.phase == 'run' && steps.quick_start.outputs.pid != '' }}
       continue-on-error: true
       shell: bash
@@ -158,6 +169,7 @@ runs:
         BOOTUI_APP_URL: ${{ inputs.url || 'http://127.0.0.1:8080' }}
       run: bash "$ACTION_PATH/quick-stop.sh"
     - id: quick_validate
+      name: Publish assessment summary
       if: ${{ !cancelled() && inputs.phase == 'run' }}
       continue-on-error: true
       shell: bash
@@ -166,6 +178,7 @@ runs:
         BOOTUI_REPORT_DIR: ${{ steps.quick_report.outputs.report-dir || steps.quick_assess.outputs.report-dir }}
       run: bash "$ACTION_PATH/quick-report.sh"
     - id: quick_upload
+      name: Upload diagnostic reports
       if: ${{ !cancelled() && inputs.phase == 'run' && inputs.upload-artifact == 'true' && steps.quick_validate.outcome == 'success' }}
       continue-on-error: true
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -178,11 +191,13 @@ runs:
         if-no-files-found: error
         retention-days: 7
     - id: quick_gate
+      name: Check assessment result
       if: ${{ !cancelled() && inputs.phase == 'run' }}
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui
         BOOTUI_SETUP_OUTCOME: ${{ steps.quick_setup.outcome }}
+        BOOTUI_APP_CONFIG_ERROR: ${{ steps.prepare.outputs.app-config-error }}
         BOOTUI_PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
         BOOTUI_START_OUTCOME: ${{ steps.quick_start.outcome }}
         BOOTUI_STOP_OUTCOME: ${{ steps.quick_stop.outcome }}
@@ -194,6 +209,7 @@ runs:
         BOOTUI_UPLOAD_OUTCOME: ${{ steps.quick_upload.outcome }}
       run: bash "$ACTION_PATH/quick-gate.sh"
     - id: invoke
+      name: Run requested BootUI phase
       if: ${{ !cancelled() && inputs.phase != 'run' && inputs.phase != 'prepare-cli' && steps.prepare.outcome == 'success' }}
       shell: bash
       env:
@@ -210,6 +226,7 @@ runs:
         BOOTUI_TIMEOUT: ${{ inputs.timeout }}
       run: bash "$ACTION_PATH/invoke.sh"
     - id: report
+      name: Report incomplete assessment
       if: ${{ !cancelled() && inputs.phase == 'assess' && steps.invoke.outputs.summary-fresh != 'true' }}
       shell: bash
       env:
@@ -220,6 +237,7 @@ runs:
         BOOTUI_PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
       run: bash "$ACTION_PATH/report-error.sh"
     - if: ${{ !cancelled() && inputs.phase == 'assess' }}
+      name: Publish phase summary
       shell: bash
       env:
         BOOTUI_REPORT_DIR: ${{ steps.report.outputs.report-dir || steps.invoke.outputs.report-dir }}
@@ -232,6 +250,7 @@ runs:
             >> "$GITHUB_STEP_SUMMARY"
         fi
     - if: ${{ !cancelled() && inputs.phase != 'run' && inputs.phase != 'prepare-cli' }}
+      name: Check phase result
       shell: bash
       env:
         BOOTUI_ACTION_EXIT_CODE: ${{ steps.invoke.outputs.exit-code }}

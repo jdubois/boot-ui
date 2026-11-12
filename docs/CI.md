@@ -8,7 +8,7 @@
 
 ## Add BootUI to GitHub Actions <a id="quick-start-github-actions"></a>
 
-On a Linux runner, add BootUI to the diagnostic build for [Spring Boot](SETUP.md) or [Quarkus](setup/quarkus.md),
+On a Linux runner, include BootUI in the started build for [Spring Boot](SETUP.md) or [Quarkus](setup/quarkus.md) ([2.4.0 profile setup](ci/reference.md#maven-and-gradle-profiles)),
 then add this step after your usual checkout and Java setup:
 
 <!-- bootui-ci:source:snippets/action.yml.template:start -->
@@ -91,7 +91,7 @@ The Action detects these long-lived commands:
 | Gradle + Spring Boot | `./gradlew --no-daemon bootRun` |
 | Gradle + Quarkus | `./gradlew --no-daemon quarkusDev` |
 
-Maven projects with a `bootui-ci` profile get `-Pbootui-ci` automatically.
+In 2.4.0, Maven projects with a `bootui-ci` profile get `-Pbootui-ci` automatically; [other profiles need an explicit command](ci/reference.md#maven-and-gradle-profiles).
 
 `spring-boot:run` or `quarkus:dev` **starts the app and keeps it running**. `mvn verify` **builds and tests, then
 exits**. Most advisors do not need `verify`, so the Action does not run it by default. Add `test-command` only when
@@ -141,7 +141,7 @@ The starter kit includes runnable Spring MVC, WebFlux, and Quarkus examples. It 
 | `NOT_ASSESSED` or `ATTACH_FAILED` | The application is ready, bound to loopback, and has BootUI and its CLI endpoint enabled. |
 | Tests pass but BootUI fails | Open the summary for the failing rule or incomplete required check. |
 | The CLI does not recognize `ci` | Use a published CI-capable release, not the older 2.3.0 CLI. |
-| The app starts but BootUI never becomes ready | Add BootUI to the started build (often `-Pbootui-ci`) or set `app-command` explicitly. |
+| The app starts but BootUI never becomes ready | Check the started build's dependency/profile and API path; see [profile setup](ci/reference.md#maven-and-gradle-profiles). |
 | `@SpringBootTest` / `@QuarkusTest` starts and stops its own app | <a id="framework-managed-test-lifecycles"></a>Use the [framework-managed test recipe](ci/framework-tests.md). |
 
 An early workflow failure, cancellation, or hard runner timeout can prevent a summary or artifact from being created. Reports contain sanitized diagnostic summaries, not application logs or the attachment witness.

@@ -322,6 +322,7 @@ public final class CiAssessmentRunner {
                 collected.add(skipped);
                 continue;
             }
+            JsonValue advisorReport = null;
             try {
                 ToolResult scan =
                         client.invokeBounded(advisor.scanTool(), Map.of(), MAX_RESPONSE_BYTES, remaining(deadline));
@@ -334,6 +335,7 @@ public final class CiAssessmentRunner {
                     throw new AssessmentFailure("REPORT_FAILED");
                 }
                 JsonValue report = reportResult.payload();
+                advisorReport = report;
                 EvaluatedReport evaluated = evaluateReport(advisor, selection, report);
                 if (!evaluated
                         .scanId()
@@ -378,14 +380,15 @@ public final class CiAssessmentRunner {
                         pages.findings(),
                         null,
                         evaluated.findings().stream()
-                                .anyMatch(finding -> finding.severity().meets(selection.failOn())));
+                                .anyMatch(finding -> finding.severity().meets(selection.failOn())),
+                        List.of());
                 output.add(completed);
                 collected.add(completed);
             } catch (AssessmentFailure failure) {
                 if (selection.required() || "ASSESSMENT_BUDGET_EXCEEDED".equals(failure.code())) {
                     throw failure;
                 }
-                AdvisorResult skipped = AdvisorResult.skipped(advisor, false, failure.code());
+                AdvisorResult skipped = AdvisorResult.skipped(advisor, false, failure.code(), advisorReport);
                 output.add(skipped);
                 collected.add(skipped);
             } catch (BootUiClientException requestFailure) {
@@ -1409,6 +1412,7 @@ public final class CiAssessmentRunner {
         private final List<JsonValue> findings;
         private final String reason;
         private final boolean violation;
+        private final List<String> coverageNotes;
 
         AdvisorResult(
                 CiPolicy.Advisor advisor,
@@ -1423,7 +1427,8 @@ public final class CiAssessmentRunner {
                 List<JsonValue> limitations,
                 List<JsonValue> findings,
                 String reason,
-                boolean violation) {
+                boolean violation,
+                List<String> coverageNotes) {
             this.advisor = advisor;
             this.required = required;
             this.status = status;
@@ -1437,11 +1442,52 @@ public final class CiAssessmentRunner {
             this.findings = findings;
             this.reason = reason;
             this.violation = violation;
+            this.coverageNotes = coverageNotes;
         }
 
         static AdvisorResult skipped(CiPolicy.Advisor advisor, boolean required, String reason) {
+            return skipped(advisor, required, reason, null);
+        }
+
+        static AdvisorResult skipped(CiPolicy.Advisor advisor, boolean required, String reason, JsonValue report) {
             return new AdvisorResult(
-                    advisor, required, "SKIPPED", 0, 0, 0, 0, false, false, List.of(), List.of(), reason, false);
+                    advisor,
+                    required,
+                    "SKIPPED",
+                    0,
+                    0,
+                    0,
+                    0,
+                    false,
+                    false,
+                    List.of(),
+                    List.of(),
+                    reason,
+                    false,
+                    coverageNotes(advisor, reason, report));
+        }
+
+        private static List<String> coverageNotes(CiPolicy.Advisor advisor, String reason, JsonValue report) {
+            if (!"EVIDENCE_UNEVALUABLE".equals(reason) || report == null) {
+                return List.of();
+            }
+            List<String> notes = new ArrayList<>();
+            JsonValue evidence = report.get("evidence");
+            for (String flag : List.of("usable", "coverageComplete")) {
+                notes.add(flag + "="
+                        + (evidence.get(flag).isBoolean() ? evidence.get(flag).asBoolean(false) : "unknown"));
+            }
+            for (String field : List.of("rulesEvaluated", advisor.subjectField())) {
+                JsonValue count = report.get(field);
+                if (count.isNumber() && count.asDisplayText().matches("[0-9]{1,6}")) {
+                    notes.add("reported " + field + "=" + count.asDisplayText());
+                }
+            }
+            if (evidence.get("limitations").isArray()) {
+                notes.add("reported coverage limitations="
+                        + evidence.get("limitations").size());
+            }
+            return List.copyOf(notes);
         }
     }
 
@@ -1602,6 +1648,7 @@ public final class CiAssessmentRunner {
                         .append(advisor.get("reason").asString("-"))
                         .append(" |\n");
             }
+            appendSkippedCoverage(output);
             appendFindings(output);
             JsonValue context = bundle.get("runtimeContext");
             String contextStatus = context.get("status").asString("ERROR");
@@ -1677,6 +1724,49 @@ public final class CiAssessmentRunner {
                 throw new IllegalStateException("Summary exceeded its byte limit");
             }
             return text;
+        }
+
+        private void appendSkippedCoverage(StringBuilder output) {
+            long skipped = results.stream()
+                    .filter(result -> "SKIPPED".equals(result.status))
+                    .count();
+            if (skipped == 0) {
+                return;
+            }
+            output.append("\n### Skipped advisor coverage\n\n")
+                    .append(results.size() - skipped)
+                    .append(" of ")
+                    .append(results.size())
+                    .append(
+                            " advisors assessed. PASS means the configured policy passed, not that skipped advisors passed.")
+                    .append(" Their zero finding counts do not establish that no checks ran or no issues exist.\n\n");
+            for (AdvisorResult result : results) {
+                if (!"SKIPPED".equals(result.status)) {
+                    continue;
+                }
+                String explanation =
+                        switch (result.reason) {
+                            case "UNAVAILABLE" -> "Required diagnostic tools are not advertised by this application.";
+                            case "FRAMEWORK_UNAVAILABLE" -> "This advisor is not supported on the target framework.";
+                            case "EVIDENCE_UNEVALUABLE" ->
+                                "A report was returned, but usable, complete evidence was not established.";
+                            case "PANEL_DISABLED" -> "The advisor panel is disabled.";
+                            case "PANEL_READ_ONLY" -> "Panel policy prevents the required scan.";
+                            default -> "The advisor could not complete a trustworthy assessment; see its reason code.";
+                        };
+                output.append("- **")
+                        .append(result.advisor.policyName())
+                        .append("** (`")
+                        .append(result.reason)
+                        .append("`): ")
+                        .append(explanation);
+                if (!result.coverageNotes.isEmpty()) {
+                    output.append(" Diagnostic metadata (unvalidated, not assessed findings): ")
+                            .append(String.join("; ", result.coverageNotes))
+                            .append(".");
+                }
+                output.append("\n");
+            }
         }
 
         private void appendFindings(StringBuilder output) {
