@@ -7,6 +7,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`SEC-STATIC-002`: SpotBugs analyzer / Java-release compatibility (Maven).** The Static Security Advisor now warns
+  (MEDIUM) when a declared `spotbugs-maven-plugin` version bundles a SpotBugs core too old to read the project's Java
+  release — which fails with `Unsupported class file major version` and silently produces no findings. Thresholds are
+  derived from the ASM release notes and the published `spotbugs` core POMs (Java 24 needs core ≥ 4.9.0; Java 25 ≥
+  4.9.4). Reads only the declared version; unresolved versions, Java releases outside the known range, and non-Maven
+  builds are never flagged ([#1629](https://github.com/jdubois/boot-ui/issues/1629)).
+
 ## [2.4.0] - 2026-11-12
 
 This release brings BootUI diagnostics to CI, adds offline CLI documentation and installation-aware updates, and

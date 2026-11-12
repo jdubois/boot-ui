@@ -39,7 +39,16 @@ The Security Advisor remains available on Spring MVC and WebFlux without Spring 
 On an explicit scan, `SEC-STATIC-001` checks bounded local build, repository configuration, and workflow files for
 FindSecBugs/SpotBugs, Semgrep, SonarQube, or CodeQL declarations. A declared configuration counts; BootUI does not
 run an analyzer or verify that it ran. When a build file is absent, the check is silent. When a build file exists but
-no analyzer is declared, the INFO finding recommends adding one. This local configuration check does not assess
+no analyzer is declared, the INFO finding recommends adding one.
+
+`SEC-STATIC-002` (Maven only) is the companion MEDIUM check: when a `spotbugs-maven-plugin` version is declared, it
+compares the bundled SpotBugs core against the project's Java release (`maven.compiler.release`,
+`maven.compiler.target`, or `java.version`, resolving a `${property}` across the local parent chain). A SpotBugs build
+that predates ASM support for that release fails on its bytecode with `Unsupported class file major version` and
+produces no findings, so a declared analyzer is silently not analyzing. The thresholds are derived from the ASM release
+notes and the published `spotbugs` core POMs (Java 24 needs core ≥ 4.9.0; Java 25 needs ≥ 4.9.4). The check reads only
+the declared version; Java releases outside the known range, unresolved versions, and non-Maven builds are never
+flagged. This local configuration check does not assess
 runtime security or contribute runtime evidence or a score by itself. It does not resolve remote Maven parents,
 Gradle applied scripts or convention plugins, or organization-managed CI configuration, so its finding describes only
 declarations observed in the bounded local project and repository files.

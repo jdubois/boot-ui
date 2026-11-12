@@ -5,9 +5,12 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import javax.xml.XMLConstants;
@@ -185,6 +188,163 @@ public final class StaticSecurityAnalysisDetector {
 
     private static List<Path> repositoryRoots(Path projectRoot, Path repositoryRoot) {
         return repositoryRoot.equals(projectRoot) ? List.of(projectRoot) : List.of(projectRoot, repositoryRoot);
+    }
+
+    /** A declared {@code spotbugs-maven-plugin} version too old to read the project's Java release. */
+    public record SpotBugsCompatibility(String declaredCore, String minimumCore, int javaRelease) {}
+
+    /**
+     * Checks whether a declared Maven {@code spotbugs-maven-plugin} version can analyze the project's Java release.
+     *
+     * <p>Returns empty when no concrete plugin version is declared, the version or Java release cannot be resolved from
+     * bounded local files, or the release is outside the range with a known minimum — so this never raises a false
+     * warning. See {@link SpotBugsJavaCompatibility} for the sourced thresholds.
+     */
+    public Optional<SpotBugsCompatibility> inspectSpotBugsCompatibility(Path projectRoot) {
+        if (projectRoot == null) {
+            return Optional.empty();
+        }
+        try {
+            Path root = projectRoot.toAbsolutePath().normalize();
+            if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(root)) {
+                return Optional.empty();
+            }
+            Path repositoryRoot = repositoryRoot(root);
+            for (Path buildFile : buildFiles(root)) {
+                if (!buildFile.getFileName().toString().equals("pom.xml")) {
+                    continue;
+                }
+                Optional<SpotBugsCompatibility> result = inspectSpotBugsPom(buildFile, repositoryRoot);
+                if (result.isPresent()) {
+                    return result;
+                }
+            }
+        } catch (RuntimeException ex) {
+            return Optional.empty();
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<SpotBugsCompatibility> inspectSpotBugsPom(Path initialPom, Path repositoryRoot) {
+        Map<String, String> properties = new HashMap<>();
+        String declaredVersion = null;
+        Path pom = initialPom;
+        List<Path> visited = new ArrayList<>();
+        for (int depth = 0; depth < MAX_PARENT_POMS; depth++) {
+            if (pom == null || visited.contains(pom)) {
+                break;
+            }
+            visited.add(pom);
+            Document document;
+            try {
+                document = parsePom(pom);
+            } catch (IOException | ParserConfigurationException | SAXException ex) {
+                break;
+            }
+            mergeProperties(document, properties);
+            if (declaredVersion == null) {
+                declaredVersion = spotBugsPluginVersion(document);
+            }
+            pom = localParentPom(document, pom, repositoryRoot);
+        }
+        if (declaredVersion == null) {
+            return Optional.empty();
+        }
+        String resolvedVersion = resolveProperty(declaredVersion, properties);
+        String releaseRaw = properties.get("maven.compiler.release");
+        if (releaseRaw == null) {
+            releaseRaw = properties.get("maven.compiler.target");
+        }
+        if (releaseRaw == null) {
+            releaseRaw = properties.get("java.version");
+        }
+        int javaRelease = parseJavaRelease(resolveProperty(releaseRaw, properties));
+        return SpotBugsJavaCompatibility.evaluate(resolvedVersion, javaRelease)
+                .map(result -> new SpotBugsCompatibility(result.declaredCore(), result.minimumCore(), javaRelease));
+    }
+
+    private static void mergeProperties(Document document, Map<String, String> into) {
+        NodeList properties = document.getElementsByTagNameNS("*", "properties");
+        for (int i = 0; i < properties.getLength(); i++) {
+            if (!(properties.item(i) instanceof Element propertiesElement)) {
+                continue;
+            }
+            for (Node child = propertiesElement.getFirstChild(); child != null; child = child.getNextSibling()) {
+                if (child instanceof Element element) {
+                    into.putIfAbsent(
+                            localName(element), element.getTextContent().strip());
+                }
+            }
+        }
+    }
+
+    private static String spotBugsPluginVersion(Document document) {
+        NodeList plugins = document.getElementsByTagNameNS("*", "plugin");
+        for (int i = 0; i < plugins.getLength(); i++) {
+            if (!(plugins.item(i) instanceof Element plugin)) {
+                continue;
+            }
+            if (text(directChild(plugin, "artifactId")).equals("spotbugs-maven-plugin")) {
+                String version = text(directChild(plugin, "version"));
+                if (!version.isEmpty()) {
+                    return version;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Path localParentPom(Document document, Path pom, Path repositoryRoot) {
+        Element parent = directChild(document.getDocumentElement(), "parent");
+        if (parent == null) {
+            return null;
+        }
+        Element relativePathElement = directChild(parent, "relativePath");
+        String relativePath = relativePathElement == null
+                ? "../pom.xml"
+                : relativePathElement.getTextContent().strip();
+        if (relativePath.isEmpty()) {
+            return null;
+        }
+        Path parentPom = pom.getParent().resolve(relativePath).normalize();
+        if (!parentPom.startsWith(repositoryRoot)) {
+            return null;
+        }
+        if (Files.isDirectory(parentPom, LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(parentPom)) {
+            parentPom = parentPom.resolve("pom.xml");
+        }
+        if (!Files.isRegularFile(parentPom, LinkOption.NOFOLLOW_LINKS)
+                || containsSymbolicLink(repositoryRoot, parentPom)) {
+            return null;
+        }
+        return parentPom;
+    }
+
+    private static String resolveProperty(String value, Map<String, String> properties) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.strip();
+        if (trimmed.startsWith("${") && trimmed.endsWith("}")) {
+            String key = trimmed.substring(2, trimmed.length() - 1);
+            return properties.get(key);
+        }
+        return trimmed;
+    }
+
+    private static int parseJavaRelease(String value) {
+        if (value == null || value.isBlank()) {
+            return 0;
+        }
+        String release = value.strip();
+        if (release.startsWith("1.")) {
+            release = release.substring(2);
+        }
+        try {
+            return Integer.parseInt(release);
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
     }
 
     private static MavenInspection inspectMaven(Path initialPom, Path repositoryRoot) {
