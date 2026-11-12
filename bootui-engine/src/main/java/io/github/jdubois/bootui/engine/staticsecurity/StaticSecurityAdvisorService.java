@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
@@ -30,7 +31,8 @@ public final class StaticSecurityAdvisorService {
     private final StaticSecurityAnalysisDetector detector = new StaticSecurityAnalysisDetector();
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private final AdvisorScanState<SecurityReport> state = new AdvisorScanState<>(
-            SecurityReport::withViolationDetails, () -> List.of(StaticSecurityAnalysisDetector.RULE_ID));
+            SecurityReport::withViolationDetails,
+            () -> List.of(StaticSecurityAnalysisDetector.RULE_ID, SpotBugsAnalyzerVersionRule.RULE_ID));
 
     public StaticSecurityAdvisorService(Supplier<Path> projectRoot, Clock clock) {
         this.projectRoot = projectRoot;
@@ -101,10 +103,13 @@ public final class StaticSecurityAdvisorService {
     }
 
     private SecurityReport doScan(AdvisorViolationCollector collector) {
+        Path root;
         StaticSecurityAnalysisDetector.Inspection inspection;
         try {
-            inspection = detector.inspect(projectRoot == null ? null : projectRoot.get());
+            root = projectRoot == null ? null : projectRoot.get();
+            inspection = detector.inspect(root);
         } catch (RuntimeException | LinkageError ex) {
+            root = null;
             inspection =
                     new StaticSecurityAnalysisDetector.Inspection(StaticSecurityAnalysisDetector.State.INDETERMINATE);
         }
@@ -125,8 +130,22 @@ public final class StaticSecurityAdvisorService {
                         0,
                         List.of(),
                         StaticSecurityAnalysisRule.addAssessmentLimitation(AdvisorEvidenceDto.unknown()));
-            case CONFIGURED ->
-                report(
+            case CONFIGURED -> {
+                Optional<StaticSecurityAnalysisDetector.SpotBugsCompatibility> compatibility =
+                        spotBugsCompatibility(root);
+                if (compatibility.isPresent()) {
+                    SecurityRuleResultDto finding = SpotBugsAnalyzerVersionRule.finding(collector, compatibility.get());
+                    yield report(
+                            "PARTIAL",
+                            "A recognized static analyzer is declared, but the declared SpotBugs version cannot analyze "
+                                    + "this Java release, so it produces no findings. BootUI does not verify that it "
+                                    + "ran; runtime security was not assessed.",
+                            clock.millis(),
+                            2,
+                            List.of(finding),
+                            AdvisorEvidenceDto.unknown());
+                }
+                yield report(
                         "PARTIAL",
                         "A recognized static analyzer is declared. BootUI does not verify that it ran; runtime security "
                                 + "was not assessed.",
@@ -134,6 +153,7 @@ public final class StaticSecurityAdvisorService {
                         1,
                         List.of(),
                         AdvisorEvidenceDto.unknown());
+            }
             case NOT_CONFIGURED -> {
                 SecurityRuleResultDto finding = StaticSecurityAnalysisRule.finding(collector);
                 yield report(
@@ -145,6 +165,14 @@ public final class StaticSecurityAdvisorService {
                         AdvisorEvidenceDto.unknown());
             }
         };
+    }
+
+    private Optional<StaticSecurityAnalysisDetector.SpotBugsCompatibility> spotBugsCompatibility(Path root) {
+        try {
+            return detector.inspectSpotBugsCompatibility(root);
+        } catch (RuntimeException | LinkageError ex) {
+            return Optional.empty();
+        }
     }
 
     private SecurityReport report(
