@@ -1,7 +1,14 @@
 # BootUI v2 Plan: from panels to runtime understanding
 
-This document plans **BootUI 2.0**. The v1 plan, [PLAN.md](PLAN.md), keeps governing the 1.x line on `main`. All v2
-work happens on the long-lived `v2` branch, and nothing from it is released before 2.0.0 (§4). Section numbers are
+::: warning Historical design and delivery record
+BootUI 2.0 shipped on 2026-10-12 after `v2` was merged into `main`. The current roadmap is [PLAN.md](PLAN.md);
+[CHANGELOG.md](https://github.com/jdubois/boot-ui/blob/main/CHANGELOG.md) records released capabilities. The original milestone statuses, branch/release
+instructions, and deferred list below are historical, not current work instructions or commitments. Later corrections
+to technical details do not make those statuses current. Section identifiers remain stable for existing references.
+:::
+
+This document planned **BootUI 2.0**. At the time, the v1 plan, [PLAN.md](PLAN.md), governed the 1.x line on `main`;
+v2 work happened on the long-lived `v2` branch, with nothing released before 2.0.0 (§4). Section numbers are
 stable identifiers: cite them as `PLAN-v2.md §5.1`, and never renumber or reuse them. An item is 📋 Planned, 🚧 In
 progress, ✅ Delivered, 💤 Deferred, or ❌ Cut.
 

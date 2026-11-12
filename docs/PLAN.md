@@ -1,22 +1,28 @@
-# BootUI Implementation Plan
+# BootUI Roadmap
+
+Current as of **2026-11-12**, after **2.4.0**. This is the current roadmap, not a release commitment.
+[CHANGELOG.md](https://github.com/jdubois/boot-ui/blob/main/CHANGELOG.md) records shipped behavior;
+[PLAN-v2.md](PLAN-v2.md) is the historical 2.0 design and
+delivery record. Its section identifiers remain valid, but its branch instructions, milestone statuses, and deferred
+list are not the current backlog.
 
 ## 1. Strategy
 
 BootUI adds a safe, local-only developer console to a running application, shipping on **Spring Boot (servlet and
-WebFlux starters) and Quarkus (an extension)** from one shared, framework-neutral engine that serves the same Vue UI and
-the same `/bootui/api/**` contract on every runtime. The released surface covers 60 panels across runtime introspection,
+WebFlux through one starter) and Quarkus (an extension)** from one shared, framework-neutral engine that serves the
+same Vue UI and the same `/bootui/api/**` contract on every runtime. The released surface covers runtime introspection,
 configuration, databases, services, diagnostics, project health, and developer tooling, and MCP tools and the `bootui`
 command-line interface reach the same diagnostics without a browser.
 
-BootUI 1.x is in maintenance. Its last workstream deepened diagnostics rather than widening coverage, and shipped the
-shared foundations that later work reuses: the tiered capture buffer, the generalized profile assembler, route
-rankings, the log exposure policy, and advisor violation locations (§2). The rest of that roadmap was dropped on
-2026-09-30, except two items BootUI 2.0 depends on. §3.25 has shipped, and §3.18 remains; it ships on `main` like any
-1.x item and reaches 2.0 when `main` is merged into `v2`. Otherwise 1.x receives bug fixes, security fixes, and dependency
-updates only. New capabilities are planned for BootUI 2.0 in `docs/PLAN-v2.md`, on the `v2` branch.
+BootUI 2.0 shipped on 2026-10-12, and current development is on `main`. Exact correlation, the bounded runtime
+journal, Runtime Insights, change impact, run comparison, and the optional Java agent are released capabilities,
+not future milestones. Releases 2.1–2.4 extended them with low-footprint controls, deeper database diagnostics,
+thread investigations, agent playbooks, and CI assessments (§2).
 
-Sampling, quotas, remote ingestion, alerting integrations, and personal-data capture stay out of scope, because BootUI
-remains local-only, bounded, and network-free on render. The priorities for every item below remain unchanged:
+The direction is to make local runtime evidence more useful and trustworthy for developers and agents, including
+explicitly invoked dev/test CI workflows, without becoming production monitoring or requiring external infrastructure.
+Remote evidence collection, alerting integrations, and additional personal-data capture are not roadmap commitments.
+BootUI remains local-only, bounded, and network-free on render. The priorities remain:
 
 1. Safety and local-only operation.
 2. Easy installation with no extra setup.
@@ -36,39 +42,50 @@ Every item, and every maintenance change, must:
 ## 2. Roadmap status and order of work
 
 Section numbers are stable identifiers. Code comments and other documents cite them, so a number is never reused or
-renumbered, and delivered or dropped items leave gaps. An item is either 📋 Planned, with its full specification in §3;
-✅ Delivered, condensed into the [delivered](#delivered) table with its behavior documented under `docs/features/`; or
-dropped, listed with its former number under [Dropped](#dropped). The pull request that ships an item moves it to the
-delivered table.
+renumbered, and delivered or dropped items leave gaps. An item is ✅ Delivered, 📋 Planned, 💤 Backlog (not scheduled),
+or a proposal awaiting a decision. Dropped 1.x scope remains under [Dropped](#dropped) as history, not as a prohibition
+on all later work.
+
+The pull request that ships an item updates its status and moves its specification to the delivered summary and
+feature documentation. Each release refreshes the date, release baseline, and recent-release summary in this file.
 
 ### Order of work
 
-One item remains, and everything it depends on has shipped. It is one pull request.
+No next feature or release date is committed by this revision. Maintenance continues on the released surface;
+the candidates below need an explicit scope and scheduling decision before implementation.
 
-| Wave | Item                  | Panels    | Depends on | BootUI 2.0 uses it for                                            |
-| ---- | --------------------- | --------- | ---------- | ----------------------------------------------------------------- |
-| 2    | §3.18 Data access map | SQL Trace | §3.12      | Table references in the runtime model, and `anonymous-data-reach` |
+| Candidate | Status | Decision needed |
+| --------- | ------ | --------------- |
+| §3.18 Data access map | 💤 Backlog | Decide whether a dedicated route-by-table SQL Trace view adds enough value beyond released change impact and anonymous-access observations. |
+| Assessment mode with external DAST traffic and SARIF ([#1629](https://github.com/jdubois/boot-ui/issues/1629)) | Proposal | Validate feasibility, evidence quality, privacy, and the boundary with existing opt-in security-sink sensors before accepting scope. |
+| Other deferred v2 ideas | Historical candidates only | Reassess individually against current capabilities and demonstrated demand; none inherits a delivery order from `PLAN-v2.md` §5.10. |
 
-- **Wave 0**, §3.27 Log exposure policy, has shipped ([delivered](#delivered)). It closed the one gap where captured
-  application text bypassed the value-exposure policy, ahead of everything else because safety is the first priority.
-- **Wave 1** built the shared pieces that later work reuses: the tiered capture buffer, the generalized profile
-  assembler, one percentile helper and slowest-request KPI, and the violation location model with its source locator.
-  All of them have shipped, as §3.24a, §3.20a, §3.22, and §3.19, and BootUI 2.0 builds on them.
-- **Wave 2** keeps only the two items BootUI 2.0 depends on, with their 1.x scope; `docs/PLAN-v2.md` §3 describes how
-  2.0 uses them. §3.25 Agent-ready profiles and exception export has shipped ([delivered](#delivered)), and §3.18 is
-  next. The rest of wave 2, and waves 3 and 4, were [dropped](#dropped).
+The data access map is **not a prerequisite for released 2.x capabilities**. The runtime model, change impact, and
+`anonymous-data-reach` already use the existing lexical `SqlTables` extraction. The full report, SQL Trace view,
+`get_sql_data_access` tool, and `bootui sql data-access` command specified in §3.18 have not shipped.
 
-```mermaid
-graph LR
-  S20a["3.20a Shared assembler ✅"] --> S25["3.25 Agent export ✅"]
-  S12["3.12 SQL route attribution ✅"] --> S18["3.18 Data access map"]
-  S25 --> V2["BootUI 2.0"]
-  S18 --> V2
-```
-
-A ✅ node has shipped. The BootUI 2.0 milestones that use each item are specified in `docs/PLAN-v2.md`.
+The deferred list needs this distinction too: 2.4.0 already ships CI assessments and live/offline gates, but that
+does not imply the old proposal for observation-specific CI budgets is complete. R2DBC capture, named runtime-model
+paths, and other deferred ideas remain candidates, not promises. The assessment-mode proposal does not reverse the
+historical cut of full taint tracking or authorize vulnerability verdicts from verbatim sink matches.
 
 ### Delivered
+
+Recent releases establish the baseline for future work:
+
+| Release | Delivered capability | Documentation |
+| ------- | -------------------- | ------------- |
+| 2.0.0 | Exact correlation, runtime journal, Runtime Insights, change impact, run comparison, and the optional Java agent with Code Paths, Code Inventory, and Side Effects | [Live Activity](features/live-activity.md), [Runtime Insights](features/runtime-insights.md), [Java Agent](features/java-agent.md) |
+| 2.1.0 | Low-footprint mode and redesigned trace waterfall and request timeline | [Live Memory](features/runtime.md#low-footprint-mode), [Traces](features/diagnostics.md#traces) |
+| 2.2.0 | Expanded Database advisor and Runtime Insights checks, advisor finding changes/dismissals, CLI severity gates, and MCP/CLI low-footprint controls | [Database checks](DATABASE-ADVISOR-CHECKS.md), [Runtime Insights](features/runtime-insights.md), [CLI](CLI.md) |
+| 2.3.0 | Bounded thread investigations, six application-improvement playbooks, and grouped Runtime Insights observations | [Threads](features/runtime.md#threads), [AI agents](AI-AGENTS.md#application-improvement-playbooks), [Runtime Insights](features/runtime-insights.md) |
+| 2.4.0 | Live/offline CI assessments and GitHub Action, incomplete-evidence gates, static analyzer declaration checks, offline CLI documentation, and installation-aware updates | [CI](CI.md), [Framework-managed tests](ci/framework-tests.md), [CLI](CLI.md), [Security checks](SECURITY-CHECKS.md) |
+
+Availability remains capability-specific across Spring MVC, Spring WebFlux, and Quarkus; see
+[Framework support](FRAMEWORK-SUPPORT.md). Later maintenance commits are recorded separately from these released
+features in the changelog and Git history.
+
+::: details Earlier roadmap deliveries and stable section references
 
 | §     | Item                                                                       | Release    | Documentation                                                                        |
 | ----- | -------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------ |
@@ -80,33 +97,39 @@ A ✅ node has shipped. The BootUI 2.0 milestones that use each item are specifi
 | 3.16  | Cache tiering and hit ratios                                               | 1.15.0     | [Tiering and hit ratios](features/services.md#tiering-and-hit-ratios)                |
 | —     | Command-line endpoint, `bootui` CLI, and Command Line panel                | 1.16.0     | [Command Line](features/developer-tools.md#command-line), [CLI](CLI.md)              |
 | 3.17  | MySQL operational view, tested on Oracle MySQL 8.4 LTS                     | 1.18.0     | [MySQL](features/database.md#mysql)                                                  |
-| 3.19  | Structured violation locations in advisor findings                         | Unreleased | [Violation locations](features/advisors.md#violation-locations)                      |
-| 3.20a | Shared profile assembler with REST client and cache evidence               | Unreleased | [Per-request profiler](features/live-activity.md#the-per-request-profiler)           |
-| 3.22  | Route performance rankings in HTTP Exchanges                               | Unreleased | [Route rankings](features/diagnostics.md#route-rankings)                             |
-| 3.24a | Failure-preserving retention in HTTP Exchanges, SQL Trace, and REST Client | Unreleased | [Failure-preserving retention](features/diagnostics.md#failure-preserving-retention) |
-| 3.25  | Agent-ready profiles and exception export in Live Activity and Exceptions  | Unreleased | [Copy profile and Copy for AI](features/live-activity.md#copy-profile-and-copy-for-ai) |
-| 3.27  | Log exposure policy for Log Tail and Dev Services                          | Unreleased | [Log message exposure](features/diagnostics.md#log-message-exposure)                 |
+| 3.19  | Structured violation locations in advisor findings                         | 1.20.0 | [Violation locations](features/advisors.md#violation-locations)                      |
+| 3.20a | Shared profile assembler with REST client and cache evidence               | 1.20.0 | [Per-request profiler](features/live-activity.md#the-per-request-profiler)           |
+| 3.22  | Route performance rankings in HTTP Exchanges                               | 1.20.0 | [Route rankings](features/diagnostics.md#route-rankings)                             |
+| 3.24a | Failure-preserving retention in HTTP Exchanges, SQL Trace, and REST Client | 1.20.0 | [Failure-preserving retention](features/diagnostics.md#failure-preserving-retention) |
+| 3.25  | Agent-ready profiles and exception export in Live Activity and Exceptions  | 1.20.0 | [Copy profile and Copy for AI](features/live-activity.md#copy-profile-and-copy-for-ai) |
+| 3.27  | Log exposure policy for Log Tail and Dev Services                          | 1.20.0 | [Log message exposure](features/diagnostics.md#log-message-exposure)                 |
 
-Earlier deliveries were removed from this plan when they shipped; `CHANGELOG.md` records every release. The MySQL panel
+Earlier deliveries were removed from this plan when they shipped; `CHANGELOG.md` records every release.
+
+:::
+
+The MySQL panel
 reads MariaDB through MySQL Connector/J on a best-effort basis, labelled unsupported; certified MariaDB support stays
 outside this roadmap.
 
 ### Dropped
+
+This is the scope dropped from the **1.x roadmap on 2026-09-30**. The 2.x journal and agent later supplied some of
+these capabilities through a different design; current behavior is documented under `docs/features/`.
 
 - **MongoDB operational view** (formerly §3.5), dropped on 2026-09-30. BootUI plans no MongoDB client, topology,
   database, collection, or index view. The Spring Data panel still lists MongoDB repositories, and Dev Services still
   shows MongoDB service connections.
 - **Spring Batch** (formerly §3.9), dropped on 2026-09-30. BootUI plans no Spring Batch job, execution, or step view.
 - **The rest of the 1.x diagnostics roadmap**, dropped on 2026-09-30 when 1.x entered maintenance. New capability work
-  is planned for BootUI 2.0 instead, in `docs/PLAN-v2.md` on the `v2` branch. The panels these items would have
-  extended keep their current behavior, and code comments that cite one of these numbers describe that behavior.
+  moved to the 2.0 workstream recorded in `docs/PLAN-v2.md`, rather than remaining 1.x commitments.
   - **Declarative HTTP client registry** (formerly §3.6), a new Services panel.
   - **gRPC** (formerly §3.8), a new Services panel.
   - **Correlation-ID filtering** (formerly §3.14).
   - **Scheduled-run and consumed-message profiles** (formerly §3.20b and §3.20c), the remaining slices of §3.20
     Execution-context profiles, whose shared profile assembler shipped as §3.20a. Scheduled runs and consumed messages
-    stay top-level in Live Activity, and only an unowned exception nests under its scheduled run. BootUI 2.0's exact
-    correlation gives both their own execution identity.
+    stayed top-level in 1.x Live Activity, and only an unowned exception nested under its scheduled run. Released
+    2.x exact correlation gives both their own execution identity.
   - **Log correlation** (formerly §3.21).
   - **Scheduled task run history** (formerly §3.23).
   - **Capture ignore rules** (formerly §3.24b), the remaining slice of §3.24, whose failure-preserving retention
@@ -115,9 +138,14 @@ outside this roadmap.
 
 ## 3. Feature specifications
 
-Planned items only, in section-number order. §2 gives the order of work.
+Retained backlog specifications, in section-number order. They are not scheduled commitments; §2 records current
+status and the decisions needed before work starts.
 
-### 3.18 Data access map — SQL Trace 📋 Planned
+### 3.18 Data access map — SQL Trace 💤 Backlog
+
+Retained from the 1.x plan for a future scope decision. Before scheduling, reconcile this specification with current
+`SqlTables`, exact request correlation, the runtime journal, and existing impact tools; reuse those implementations
+rather than introducing a second extraction or attribution path.
 
 SQL Trace already attributes retained statements to inbound routes (§3.12), but it answers "which routes spend database
 time?" rather than "which routes read or write this table?". This enhancement derives a route-by-table access map from
@@ -161,8 +189,9 @@ Architecture:
 - Put table extraction, access classification, aggregation, bounds, and entity labelling in JSON-free, framework-neutral
   engine services beside `SqlTraceInsightsService`. Adapters supply only the request evidence, correlation tiers, and
   route templates they already supply for insights.
-- Build a small reference scanner over `SqlStatementNormalizer` output, in the same dependency-free lexical style. Add
-  no SQL grammar dependency and no dialect-specific parser, and never fail on unknown syntax.
+- Extend `SqlTables`' statement-text extraction rather than adding a second scanner, in the same dependency-free
+  lexical style. Add no SQL grammar dependency and no dialect-specific parser. Unknown syntax must not throw;
+  report it as `PARTIAL` or `UNRESOLVED` instead of silently claiming complete extraction.
 - Never report a CTE name, derived table, table-valued function, or alias as a table. Quoted identifiers keep their
   case while unquoted ones fold for grouping. A schema-qualified name is never merged with an unqualified one, because
   the connection's default schema is unknown.
@@ -210,8 +239,9 @@ Acceptance criteria:
 
 ## 4. Cross-cutting work
 
-The remaining item extends an existing panel and adds one MCP tool and CLI command. Consistency tests enforce much
-of the lists below, so a missed step fails the build rather than drifting silently.
+These delivery requirements apply to future changes. The retained §3.18 proposal extends an existing panel and adds
+one MCP tool and CLI command; it is not the only permitted future work. Consistency tests enforce much of the lists
+below, so a missed step fails the build rather than drifting silently.
 
 ### Every item
 
@@ -232,7 +262,7 @@ of the lists below, so a missed step fails the build rather than drifting silent
   regenerated `bootui-cli/src/main/resources/bootui-tools.json`, the tool lists in `docs/AI-AGENTS.md`,
   `docs/features/developer-tools.md`, and `docs/SPECIFICATION.md`, plus `docs/CLI.md` and `skills/bootui/SKILL.md`.
   `ToolManifestGeneratorTests` and `mcpToolCatalogIsDocumentedInEveryCanonicalToolList` enforce most of this.
-- Reuse an existing `McpToolSchema`: `NONE`, `LIMIT`, `QUERY_LIMIT`, `ID`, or `RULE_VIOLATIONS`. The published CLI binds
+- Reuse an existing `McpToolSchema` supported by the published CLI. The published CLI binds
   options by schema name, so a new schema needs `ToolManifest` and `CommandTree` changes, and older `bootui` binaries
   cannot pass its arguments. An item that needs one says so in its specification.
 - Choose CLI command paths that are unique and never a prefix of another path. `bootui activity`, for example, is
@@ -244,7 +274,7 @@ of the lists below, so a missed step fails the build rather than drifting silent
 
 ### Adding a panel
 
-No remaining item adds a panel. The checklist stays as the reference for any panel 1.x maintenance adds. In addition:
+The retained data access map proposal adds no panel. For any future panel addition:
 
 - Register the panel in `BootUiPanels` — id, title, action capability, and API prefix — and in the conformance manifests
   `expected-panels-spring.json`, `expected-panels-webflux.json`, and `expected-panels-quarkus.json`, in catalog order.
