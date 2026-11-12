@@ -64,6 +64,9 @@ applyTo: ".github/workflows/**,.github/scripts/**,.github/dependabot.yml,Dockerf
 - `build.yml`'s `published-cli` job runs `.github/scripts/published-cli-smoke.sh`: the newest published `bootui-cli`
   `all` jar, pinned by SHA-256, against the Spring sample built from the checkout. After a release, bump its version
   and checksum together.
+- `build.yml`'s `action-smoke` job invokes the checkout's root Action with `uses: ./` and the explicit trusted
+  `cli-jar` source-build input. It consumes the same run's `bootui-action-cli` and `bootui-spring-sample-app` artifacts
+  from `build`; preserve their names and paths together, and keep artifact names unique if the build matrix expands.
 - `dependency-submission.yml` submits the Maven dependency tree, transitive dependencies included, to the dependency
   graph on pushes to `main` only, since Dependabot alerts read only the default branch. GitHub's automatic dependency
   submission is turned off because it ran on every branch and pull request; keep it off.

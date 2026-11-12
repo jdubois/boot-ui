@@ -420,6 +420,7 @@ class PrepareCliTests(unittest.TestCase):
             PATH=f"{self.bin}:{os.environ['PATH']}",
             RUNNER_TEMP=str(self.root),
             BOOTUI_VERSION="2.3.0",
+            BOOTUI_LOCAL_CLI_JAR="",
             GITHUB_OUTPUT=str(self.outputs),
             GITHUB_ENV=str(self.github_env),
             FAKE_LOG=str(self.log),
@@ -504,6 +505,67 @@ exit 0
     def assert_advertised(self):
         self.assertEqual(self.outputs.read_text(), f"cli-jar={self.jar}\n")
         self.assertEqual(self.github_env.read_text(), f"BOOTUI_CLI_JAR={self.jar}\n")
+
+    def test_local_source_cli_accepts_absolute_and_workspace_relative_paths_without_a_release(self):
+        self.jar = (self.root / "source build/bootui-cli-2.5.0-SNAPSHOT-all.jar").resolve()
+        self.jar.parent.mkdir()
+        self.jar.write_text("source candidate")
+        for path in (str(self.jar), str(self.jar.relative_to(self.root.resolve()))):
+            with self.subTest(path=path):
+                self.environment.update(
+                    BOOTUI_VERSION="auto", BOOTUI_LOCAL_CLI_JAR=path, GITHUB_WORKSPACE=str(self.root),
+                )
+                result = self.run_prepare()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assert_advertised()
+                self.assertIn("signature verification are skipped", result.stdout)
+                self.assertFalse(self.log.exists(), "A source CLI must not invoke curl or gpg")
+                self.outputs.unlink()
+                self.github_env.unlink()
+
+    def test_invalid_local_cli_paths_fail_without_downloading_a_release(self):
+        for path in (str(self.root / "missing.jar"), str(self.root), "jar\ninjected=value", "jar\rvalue"):
+            with self.subTest(path=path):
+                self.environment.update(BOOTUI_VERSION="auto", BOOTUI_LOCAL_CLI_JAR=path)
+                result = self.run_prepare()
+                self.assertNotEqual(result.returncode, 0)
+                self.assert_not_advertised()
+                self.assertFalse(self.log.exists())
+
+    def test_local_cli_must_offer_the_ci_interface(self):
+        self.jar.parent.mkdir(parents=True)
+        self.jar.write_text("legacy candidate")
+        self.environment.update(
+            BOOTUI_VERSION="auto", BOOTUI_LOCAL_CLI_JAR=str(self.jar), FAKE_CI_HELP="legacy",
+        )
+        result = self.run_prepare()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not contain the CI command interface", result.stderr)
+        self.assert_not_advertised()
+        self.assertFalse(self.log.exists())
+
+    def test_local_cli_symlinks_cannot_hide_newlines_in_the_resolved_path(self):
+        for suffix in ("\n", "\r", "\ninjected=value"):
+            with self.subTest(suffix=suffix):
+                target = self.root / ("candidate.jar" + suffix)
+                target.write_text("candidate")
+                link = self.root / "candidate-link.jar"
+                link.symlink_to(target)
+                self.environment.update(BOOTUI_VERSION="auto", BOOTUI_LOCAL_CLI_JAR=str(link))
+                result = self.run_prepare()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("resolved cli-jar must not contain a newline", result.stderr)
+                self.assert_not_advertised()
+                self.assertFalse(self.log.exists())
+                link.unlink()
+
+    def test_local_cli_cannot_be_combined_with_a_release_version(self):
+        self.environment["BOOTUI_LOCAL_CLI_JAR"] = str(self.jar)
+        result = self.run_prepare()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cannot be combined", result.stderr)
+        self.assert_not_advertised()
+        self.assertFalse(self.log.exists())
 
     def test_cached_cli_is_advertised_only_after_signature_verification(self):
         self.cache_cli()
