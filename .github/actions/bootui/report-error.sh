@@ -35,5 +35,7 @@ printf '# BootUI assessment: NOT_ASSESSED\n\nThe assessment could not be complet
 printf '%s\n' '<testsuite name="bootui-ci" tests="1" failures="0" errors="1" skipped="0">' \
   '  <testcase classname="bootui.ci" name="assessment"><error message="BootUI assessment could not be completed"/></testcase>' \
   '</testsuite>' > "$report_dir/junit.xml"
+printf '{"$schema":"https://json.schemastore.org/sarif-2.1.0.json","version":"2.1.0","runs":[{"tool":{"driver":{"name":"BootUI","informationUri":"https://github.com/jdubois/boot-ui","rules":[]}},"invocations":[{"executionSuccessful":false,"toolExecutionNotifications":[{"level":"error","descriptor":{"id":"%s"},"message":{"text":"Assessment error: %s."}}]}],"results":[],"properties":{"assessmentId":"%s","status":"NOT_ASSESSED","policySha256":""}}]}\n' \
+  "$code" "$code" "$assessment_id" > "$report_dir/sarif.json"
 echo "exit-code=1" >> "$GITHUB_OUTPUT"
 echo "report-dir=$report_dir" >> "$GITHUB_OUTPUT"

@@ -886,7 +886,7 @@ jobs:
           BOOTUI_REPORT_DIR: ${{ steps.bootui.outputs.report-dir }}
         run: |
           test "$BOOTUI_EXIT_CODE" = 0
-          for report in bundle.json summary.md junit.xml; do
+          for report in bundle.json summary.md junit.xml sarif.json; do
             test -s "$BOOTUI_REPORT_DIR/$report"
           done
 

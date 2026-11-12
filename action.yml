@@ -192,6 +192,7 @@ runs:
           ${{ steps.quick_validate.outputs.report-dir }}/bundle.json
           ${{ steps.quick_validate.outputs.report-dir }}/summary.md
           ${{ steps.quick_validate.outputs.report-dir }}/junit.xml
+          ${{ steps.quick_validate.outputs.report-dir }}/sarif.json
         if-no-files-found: error
         retention-days: 7
     - id: quick_gate

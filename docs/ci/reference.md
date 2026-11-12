@@ -117,9 +117,17 @@ assessment's `exit-code` is `0`; an invalid report makes the assessment result `
 
 ## Reports and failures
 
-An assessment writes `bundle.json`, `summary.md`, and `junit.xml`. The Action adds the Markdown summary to the GitHub
-job summary. The default `run` phase uploads only those bounded reports; the advanced phases leave artifact upload to
-the caller. Uploading JUnit XML alone does not create a native GitHub test-results dashboard.
+An assessment writes `bundle.json`, `summary.md`, `junit.xml`, and `sarif.json`. The Action adds the Markdown summary
+to the GitHub job summary. The default `run` phase uploads only those bounded reports; the advanced phases leave artifact
+upload to the caller. Uploading JUnit XML alone does not create a native GitHub test-results dashboard.
+
+`sarif.json` is a SARIF 2.1.0 projection of the sanitized bundle, so it holds the same facts as the Markdown summary: one
+result per retained rule summary, with the rule ID, a level from the severity (`error` for CRITICAL and HIGH, `warning`
+for MEDIUM, `note` for LOW and INFO), the advisor, the count, and whether the severity meets the advisor's `failOn`.
+Security-advisor rules also carry a GitHub `security-severity`. A skipped optional advisor and each assessment error are
+tool execution notifications, and a NOT_ASSESSED report is an unsuccessful run, so an empty result list never reads as a
+pass. The bundle retains no source frames, routes, or finding text, so results have no physical location; viewers that
+require one, such as GitHub code scanning, may not display them as file annotations.
 
 If attachment failed, pass its original result to assess. Assessment then avoids scans and stale witnesses and writes
 a minimal `ATTACH_FAILED` report. CLI setup/report failures use a separate fresh `<output-dir>.action-error` directory,

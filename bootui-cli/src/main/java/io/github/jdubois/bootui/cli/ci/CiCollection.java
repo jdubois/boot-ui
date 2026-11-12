@@ -532,7 +532,7 @@ public final class CiCollection {
                 if (!attributes.isDirectory()) {
                     throw new IOException("The temporary CI report directory changed");
                 }
-                for (String name : List.of("bundle.json", "summary.md", "junit.xml")) {
+                for (String name : CiAssessmentRunner.REPORT_FILES) {
                     Files.deleteIfExists(reports.resolve(name));
                 }
                 Files.delete(reports);

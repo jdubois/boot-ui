@@ -42,6 +42,10 @@ public final class CiAssessmentRunner {
     static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
     static final int MAX_BUNDLE_BYTES = 2 * 1024 * 1024;
     static final int MAX_SUMMARY_BYTES = 256 * 1024;
+    static final int MAX_SARIF_BYTES = 4 * 1024 * 1024;
+    /** Every report an assessment writes, together or not at all. */
+    static final List<String> REPORT_FILES = List.of("junit.xml", "bundle.json", "summary.md", "sarif.json");
+
     static final int MAX_SUMMARY_FINDINGS = 50;
     static final int MAX_DETAIL_PAGE_SIZE = 200;
     static final int MAX_TOTAL_DETAILS = 20_000;
@@ -1550,14 +1554,22 @@ public final class CiAssessmentRunner {
                 if (json.getBytes(StandardCharsets.UTF_8).length > MAX_BUNDLE_BYTES) {
                     throw new IOException("Bundle exceeded its byte limit");
                 }
-                String summary = markdown(bundle);
-                String xml = junit(bundle);
-                for (Map.Entry<String, String> report : List.of(
-                        Map.entry("junit.xml", xml),
-                        Map.entry("bundle.json", json),
-                        Map.entry("summary.md", summary))) {
-                    Path path = outputDirectory.resolve(report.getKey());
-                    writeNewFile(path, report.getValue());
+                String sarif = JsonWriter.pretty(CiSarif.from(bundle, policy)) + "\n";
+                if (sarif.getBytes(StandardCharsets.UTF_8).length > MAX_SARIF_BYTES) {
+                    throw new IOException("SARIF report exceeded its byte limit");
+                }
+                Map<String, String> reports = Map.of(
+                        "junit.xml",
+                        junit(bundle),
+                        "bundle.json",
+                        json,
+                        "summary.md",
+                        markdown(bundle),
+                        "sarif.json",
+                        sarif);
+                for (String name : REPORT_FILES) {
+                    Path path = outputDirectory.resolve(name);
+                    writeNewFile(path, reports.get(name));
                     written.add(path);
                 }
             } catch (IOException | RuntimeException failure) {

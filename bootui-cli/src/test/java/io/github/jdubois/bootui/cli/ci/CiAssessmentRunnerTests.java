@@ -122,6 +122,11 @@ class CiAssessmentRunnerTests {
                         .exitCode())
                 .isZero();
         assertThat(Files.readString(output.resolve("junit.xml"))).contains("<testsuite");
+        assertThat(Files.readString(output.resolve("sarif.json")))
+                .isEqualTo(JsonWriter.pretty(CiSarif.from(
+                                JsonValue.parseStrict(Files.readString(output.resolve("bundle.json"))),
+                                CiPolicy.read(policy)))
+                        + "\n");
     }
 
     @Test
@@ -717,10 +722,11 @@ class CiAssessmentRunnerTests {
         assertThat(runner.attach()).isZero();
         assertThat(runner.assess()).isEqualTo(3);
 
-        for (Path report :
-                List.of(output.resolve("bundle.json"), output.resolve("summary.md"), output.resolve("junit.xml"))) {
-            assertThat(Files.readString(report)).doesNotContain("private-finding-payload");
+        for (String name : CiAssessmentRunner.REPORT_FILES) {
+            assertThat(Files.readString(output.resolve(name))).doesNotContain("private-finding-payload");
         }
+        assertThat(Files.readString(output.resolve("sarif.json")))
+                .contains("\"ruleId\": \"ARCH-001\"", "\"level\": \"error\"", "\"meetsThreshold\": true");
         assertThat(Files.readString(output.resolve("bundle.json"))).contains("\"status\": \"VIOLATION\"");
         assertThat(Files.readString(output.resolve("summary.md")))
                 .contains("| architecture | ARCH-001 | HIGH | 1 | yes |");
@@ -971,7 +977,7 @@ class CiAssessmentRunnerTests {
         assertThat(runner.assess()).isZero();
         assertThat(Files.readString(output.resolve("summary.md")))
                 .contains("| architecture | true | ASSESSED | 1 | 0 | - |");
-        for (String name : List.of("bundle.json", "summary.md", "junit.xml")) {
+        for (String name : CiAssessmentRunner.REPORT_FILES) {
             assertThat(Files.readString(output.resolve(name))).doesNotContain("private-finding-payload");
         }
     }
@@ -1067,7 +1073,7 @@ class CiAssessmentRunnerTests {
         assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
                         .exitCode())
                 .isZero();
-        for (String name : List.of("bundle.json", "summary.md", "junit.xml")) {
+        for (String name : CiAssessmentRunner.REPORT_FILES) {
             assertThat(Files.readString(output.resolve(name)))
                     .doesNotContain(
                             "private-finding-payload",
@@ -1164,7 +1170,7 @@ class CiAssessmentRunnerTests {
         assertThat(runner.assess()).isEqualTo(1);
         assertThat(Files.readString(output.resolve("bundle.json")))
                 .contains("\"status\": \"NOT_ASSESSED\"", "\"code\": \"" + expectedCode + "\"");
-        for (String name : List.of("bundle.json", "summary.md", "junit.xml")) {
+        for (String name : CiAssessmentRunner.REPORT_FILES) {
             assertThat(Files.readString(output.resolve(name)))
                     .doesNotContain("private-finding-payload", "private-evidence-reason", "private-identity");
         }

@@ -79,7 +79,7 @@ def verify_reports(state, names, expected_workload):
     for name in names:
         directory = artifacts / name
         consumer.require(
-            {path.name for path in directory.iterdir()} == {"bundle.json", "summary.md", "junit.xml"},
+            {path.name for path in directory.iterdir()} == {"bundle.json", "summary.md", "junit.xml", "sarif.json"},
             f"Incomplete reports in {directory}",
         )
         bundle = json.loads((directory / "bundle.json").read_text(encoding="utf-8"))
