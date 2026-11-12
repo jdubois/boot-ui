@@ -276,25 +276,29 @@ class QuarkusAppMetadataCollectorTest {
     }
 
     @Test
-    void ambiguousSubresourcesDoNotBecomeVirtualThreadEntrypoints() throws IOException {
-        Index application = index(VirtualResource.class);
+    void subresourcesAndNonRootResourcesAreInspectedWithoutEmittingUnresolvedErrors() throws IOException {
+        Index application = index(VirtualResource.class, DependentResource.class);
         var context = arc(application, false);
 
         QuarkusAppMetadata result = collect(
                 application,
                 application,
                 context,
-                List.of(endpoint(application, VirtualResource.class, "synchronizedCall", true)),
+                List.of(
+                        endpoint(application, VirtualResource.class, "synchronizedCall", true),
+                        endpoint(application, DependentResource.class, "call", false)),
                 List.of(),
-                List.of(VirtualResource.class));
+                List.of(VirtualResource.class, DependentResource.class));
 
-        assertThat(result.synchronizedVirtualThreadMethods()).isEmpty();
-        assertThat(result.problems()).extracting("ruleId").containsExactly("QA-CDI-002", "QA-PERF-002");
+        assertThat(result.endpointCount()).isEqualTo(2);
+        assertThat(result.synchronizedVirtualThreadMethods())
+                .containsExactly(VirtualResource.class.getName() + "#synchronizedCall()");
+        assertThat(result.problems()).isEmpty();
     }
 
     @Test
-    void clientIdentitiesComeFromSurvivingQualifiedBeansNotOutboundAnnotationCounts() throws IOException {
-        Index application = index(OutboundClient.class, UnusedClient.class);
+    void clientIdentitiesComeFromSurvivingQualifiedBeansIncludingCombinedIndexInterfaces() throws IOException {
+        Index application = index(UnusedClient.class);
         Index combined = index(
                 OutboundClient.class,
                 UnusedClient.class,
@@ -313,14 +317,42 @@ class QuarkusAppMetadataCollectorTest {
     }
 
     @Test
-    void customQualifiedClientsDoNotClaimManagedTimeoutConfiguration() throws IOException {
+    void customQualifiedClientsDoNotClaimManagedTimeoutConfigurationOrPoisonRule() throws IOException {
         Index application = index(OutboundClient.class, CustomClient.class);
         Index combined = index(OutboundClient.class, CustomClient.class, RestClient.class, Object.class);
         var context = arc(combined, false);
         QuarkusAppMetadata result = collect(application, combined, context, List.of(), List.of(), List.of());
 
         assertThat(result.restClients()).isEmpty();
-        assertThat(result.problems()).extracting("ruleId").containsExactly("QA-WEB-003");
+        assertThat(result.problems()).isEmpty();
+    }
+
+    @Test
+    void excludesKotlinLateinitPropertiesBeanParamFieldsEnumsAndUnindexedJakartaSuperclasses() throws IOException {
+        Index application = index(
+                KotlinBean.class,
+                BeanParamContainer.class,
+                EnumHolderBean.class,
+                JaxRsApplicationBean.class,
+                ScheduledVirtualBean.class);
+        Index combined = index(
+                KotlinBean.class,
+                BeanParamContainer.class,
+                EnumHolderBean.class,
+                SampleStatus.class,
+                JaxRsApplicationBean.class,
+                ScheduledVirtualBean.class,
+                kotlin.Metadata.class,
+                io.quarkus.scheduler.Scheduled.class,
+                Object.class);
+        var context = arc(combined, false);
+
+        QuarkusAppMetadata result = collect(application, combined, context, List.of(), List.of(), List.of());
+
+        assertThat(result.sharedFields()).containsExactly(field(KotlinBean.class, "jvmField", "APPLICATION", false));
+        assertThat(result.synchronizedVirtualThreadMethods())
+                .containsExactly(ScheduledVirtualBean.class.getName() + "#tick()");
+        assertThat(result.problems()).isEmpty();
     }
 
     @Test
@@ -765,5 +797,59 @@ class QuarkusAppMetadataCollectorTest {
     @Singleton
     static class UnknownTemporalBean {
         public final java.time.temporal.Temporal temporal = null;
+    }
+
+    enum SampleStatus {
+        PENDING,
+        DONE
+    }
+
+    @Singleton
+    static class EnumHolderBean {
+        public final SampleStatus status = SampleStatus.PENDING;
+        public final java.util.concurrent.TimeUnit unit = java.util.concurrent.TimeUnit.SECONDS;
+    }
+
+    @RequestScoped
+    static class BeanParamContainer {
+        @QueryParam("filter")
+        public String filter;
+
+        @org.jboss.resteasy.reactive.RestQuery("sort")
+        public String sort;
+    }
+
+    @Singleton
+    static class JaxRsApplicationBean extends jakarta.ws.rs.core.Application {}
+
+    @Singleton
+    static class ScheduledVirtualBean {
+        @io.quarkus.scheduler.Scheduled(every = "10s")
+        @io.smallrye.common.annotation.RunOnVirtualThread
+        public synchronized void tick() {}
+    }
+
+    @ApplicationScoped
+    @kotlin.Metadata
+    static class KotlinBean {
+        public String lateinitProp;
+        public boolean isReady;
+        public String jvmField;
+
+        public String getLateinitProp() {
+            return lateinitProp;
+        }
+
+        public void setLateinitProp(String value) {
+            this.lateinitProp = value;
+        }
+
+        public boolean isReady() {
+            return isReady;
+        }
+
+        public void setReady(boolean value) {
+            this.isReady = value;
+        }
     }
 }

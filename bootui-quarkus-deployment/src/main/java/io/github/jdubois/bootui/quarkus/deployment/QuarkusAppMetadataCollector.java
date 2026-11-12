@@ -53,6 +53,22 @@ final class QuarkusAppMetadataCollector {
     private static final DotName CONFIG_MAPPING = DotName.createSimple("io.smallrye.config.ConfigMapping");
     private static final DotName SCHEDULED = DotName.createSimple("io.quarkus.scheduler.Scheduled");
     private static final DotName SCHEDULES = DotName.createSimple("io.quarkus.scheduler.Scheduled$Schedules");
+    private static final DotName RUN_ON_VIRTUAL_THREAD =
+            DotName.createSimple("io.smallrye.common.annotation.RunOnVirtualThread");
+    private static final DotName KOTLIN_METADATA = DotName.createSimple("kotlin.Metadata");
+    private static final Set<DotName> NON_REST_VIRTUAL_THREAD_ENTRY_ANNOTATIONS = Set.of(
+            SCHEDULED,
+            SCHEDULES,
+            DotName.createSimple("org.eclipse.microprofile.reactive.messaging.Incoming"),
+            DotName.createSimple("org.eclipse.microprofile.reactive.messaging.Outgoing"),
+            DotName.createSimple("io.quarkus.vertx.ConsumeEvent"),
+            DotName.createSimple("io.quarkus.websockets.next.OnOpen"),
+            DotName.createSimple("io.quarkus.websockets.next.OnTextMessage"),
+            DotName.createSimple("io.quarkus.websockets.next.OnBinaryMessage"),
+            DotName.createSimple("io.quarkus.websockets.next.OnPingMessage"),
+            DotName.createSimple("io.quarkus.websockets.next.OnPongMessage"),
+            DotName.createSimple("io.quarkus.websockets.next.OnClose"),
+            DotName.createSimple("io.quarkus.websockets.next.OnError"));
     private static final List<String> ALL_RULES =
             List.of("QA-CDI-002", "QA-CDI-003", "QA-CDI-004", "QA-PERF-002", "QA-WEB-003");
 
@@ -153,10 +169,11 @@ final class QuarkusAppMetadataCollector {
             List<ClassInfo> classes = knownClasses.stream()
                     .sorted(Comparator.comparing(info -> info.name().toString()))
                     .toList();
-            Map<String, BeanInfo> beans = resolvedBeans(application, survivingBeans, state);
+            Map<String, BeanInfo> beans = resolvedBeans(application, combined, survivingBeans, state);
             state.beanCount = beans.size();
             Set<String> resources =
                     registeredEndpoints(application, combined, entries, endpoints, beans.keySet(), state);
+            collectBeanVirtualThreadMethods(beans.values(), combined, state);
             for (Map.Entry<String, BeanInfo> entry : beans.entrySet()) {
                 BeanInfo bean = entry.getValue();
                 DotName scope = bean.getScope().getDotName();
@@ -198,7 +215,7 @@ final class QuarkusAppMetadataCollector {
     }
 
     private static Map<String, BeanInfo> resolvedBeans(
-            IndexView application, Iterable<BeanInfo> survivingBeans, State state) {
+            IndexView application, IndexView combined, Iterable<BeanInfo> survivingBeans, State state) {
         Map<String, BeanInfo> beans = new TreeMap<>();
         Iterator<BeanInfo> iterator = survivingBeans.iterator();
         int inspected = 0;
@@ -230,7 +247,10 @@ final class QuarkusAppMetadataCollector {
                         state.problem(List.of("QA-WEB-003"), QuarkusAppMetadataStore.INCOMPLETE);
                         break;
                     }
-                    ClassInfo client = application.getClassByName(type.name());
+                    ClassInfo client = combined.getClassByName(type.name());
+                    if (client == null) {
+                        client = application.getClassByName(type.name());
+                    }
                     if (client == null || !client.isInterface()) {
                         continue;
                     }
@@ -244,8 +264,8 @@ final class QuarkusAppMetadataCollector {
                         continue;
                     }
                     if (!managedWrapper) {
-                        // A user-supplied @RestClient implementation need not use Quarkus' managed transport.
-                        state.problem(List.of("QA-WEB-003"), QuarkusAppMetadataStore.UNRESOLVED);
+                        // A user-supplied @RestClient implementation or test mock need not use Quarkus' managed
+                        // transport.
                         continue;
                     }
                     if (state.clients.size() <= MAX_CLIENTS) {
@@ -302,6 +322,9 @@ final class QuarkusAppMetadataCollector {
         resources.addAll(rootClasses);
         for (ResourceClass resource : endpoints.get().getSubResourceClasses()) {
             subresourceClasses.add(resource.getClassName());
+            if (beans.contains(resource.getClassName())) {
+                resources.add(resource.getClassName());
+            }
         }
         Set<MethodKey> methodIds = new HashSet<>();
         List<ResteasyReactiveResourceMethodEntriesBuildItem.Entry> ordered = entries.get().getEntries().stream()
@@ -326,14 +349,12 @@ final class QuarkusAppMetadataCollector {
             if (application.getClassByName(entry.getActualClassInfo().name()) == null) {
                 continue;
             }
-            if (!rootClasses.contains(owner)) {
-                // A locator can return a non-CDI object; its dispatch and sharing cannot be inferred from a class bean.
-                if (subresourceClasses.contains(owner)) {
-                    state.problem(List.of("QA-CDI-002", "QA-PERF-002"), QuarkusAppMetadataStore.UNRESOLVED);
-                }
+            if (!rootClasses.contains(owner) && !subresourceClasses.contains(owner)) {
                 continue;
             }
-            resources.add(owner);
+            if (beans.contains(owner)) {
+                resources.add(owner);
+            }
             methodIds.add(new MethodKey(entry.getActualClassInfo().name(), entry.getMethodInfo()));
             if (entry.getResourceMethod().isRunOnVirtualThread()) {
                 try {
@@ -359,6 +380,69 @@ final class QuarkusAppMetadataCollector {
         }
         state.endpointCount = methodIds.size();
         return resources;
+    }
+
+    private static void collectBeanVirtualThreadMethods(Collection<BeanInfo> beans, IndexView index, State state) {
+        int remainingMethodCharacters = QuarkusAppMetadataStore.MAX_RESOURCE_BYTES / 4;
+        for (BeanInfo bean : beans) {
+            Optional<AnnotationTarget> target = bean.getTarget();
+            if (target.isEmpty() || target.get().kind() != AnnotationTarget.Kind.CLASS) {
+                continue;
+            }
+            ClassInfo beanClass = target.get().asClass();
+            String owner = beanClass.name().toString();
+            boolean beanVirtualThread = beanClass.hasDeclaredAnnotation(RUN_ON_VIRTUAL_THREAD);
+            ClassInfo current = beanClass;
+            Set<DotName> seen = new HashSet<>();
+            try {
+                while (current != null && seen.add(current.name())) {
+                    boolean classVirtualThread =
+                            beanVirtualThread || current.hasDeclaredAnnotation(RUN_ON_VIRTUAL_THREAD);
+                    for (MethodInfo method : current.methods().stream()
+                            .sorted(Comparator.comparing(MethodInfo::name).thenComparing(MethodInfo::toString))
+                            .toList()) {
+                        if (!Modifier.isSynchronized(method.flags())
+                                || Modifier.isStatic(method.flags())
+                                || Modifier.isAbstract(method.flags())
+                                || method.isSynthetic()) {
+                            continue;
+                        }
+                        if (!isNonRestVirtualThreadEntryMethod(method, classVirtualThread)) {
+                            continue;
+                        }
+                        String methodId = methodId(owner, method);
+                        if (methodId.length() > remainingMethodCharacters) {
+                            throw new LimitReached();
+                        }
+                        if (state.virtualMethods.add(methodId)) {
+                            remainingMethodCharacters -= methodId.length();
+                        }
+                    }
+                    DotName parent = current.superName();
+                    if (parent == null
+                            || parent.toString().startsWith("java.")
+                            || parent.toString().startsWith("jakarta.")) {
+                        break;
+                    }
+                    current = index.getClassByName(parent);
+                }
+            } catch (LimitReached exception) {
+                state.problem(List.of("QA-PERF-002"), QuarkusAppMetadataStore.INCOMPLETE);
+                return;
+            }
+        }
+    }
+
+    private static boolean isNonRestVirtualThreadEntryMethod(MethodInfo method, boolean classVirtualThread) {
+        if (!classVirtualThread && !method.hasDeclaredAnnotation(RUN_ON_VIRTUAL_THREAD)) {
+            return false;
+        }
+        for (DotName entryAnnotation : NON_REST_VIRTUAL_THREAD_ENTRY_ANNOTATIONS) {
+            if (method.hasDeclaredAnnotation(entryAnnotation)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static MethodInfo endpointImplementation(
@@ -415,7 +499,7 @@ final class QuarkusAppMetadataCollector {
                     .sorted(Comparator.comparing(FieldInfo::name))
                     .toList()) {
                 budget.take();
-                if (isPublicState(field, injectedFields, resource, !scope.equals("SINGLETON"))) {
+                if (isPublicState(field, index, injectedFields, resource, !scope.equals("SINGLETON"))) {
                     if (beanName.length() > QuarkusAppMetadataStore.MAX_STRING_BYTES
                             || field.name().length() > QuarkusAppMetadataStore.MAX_STRING_BYTES) {
                         throw new LimitReached();
@@ -430,6 +514,10 @@ final class QuarkusAppMetadataCollector {
             }
             current = index.getClassByName(parent);
             if (current == null) {
+                String parentName = parent.toString();
+                if (parentName.startsWith("java.") || parentName.startsWith("jakarta.")) {
+                    return;
+                }
                 throw new IllegalStateException();
             }
         }
@@ -441,46 +529,103 @@ final class QuarkusAppMetadataCollector {
      * excluded to limit noise, although constructor-assigned values can still differ on the proxy.
      */
     static boolean isPublicState(FieldInfo field, Set<FieldKey> injectedFields, boolean resource, boolean proxied) {
+        return isPublicState(field, null, injectedFields, resource, proxied);
+    }
+
+    static boolean isPublicState(
+            FieldInfo field, IndexView index, Set<FieldKey> injectedFields, boolean resource, boolean proxied) {
         if (!Modifier.isPublic(field.flags())
                 || Modifier.isStatic(field.flags())
-                || injectedFields.contains(fieldId(field))) {
+                || field.isSynthetic()
+                || injectedFields.contains(fieldId(field))
+                || isKotlinAccessorBackedProperty(field)) {
             return false;
         }
-        if (resource
-                && REST_INJECTED_FIELDS.stream()
-                        .anyMatch(annotation -> field.hasAnnotation(DotName.createSimple(annotation)))) {
+        if (REST_INJECTED_FIELDS.stream()
+                .anyMatch(annotation -> field.hasAnnotation(DotName.createSimple(annotation)))) {
             return false;
         }
         if (!Modifier.isFinal(field.flags()) || field.type().kind() == Type.Kind.PRIMITIVE) {
             return !Modifier.isFinal(field.flags());
         }
+        if (isEnumType(field.type().name(), index)) {
+            return false;
+        }
         String type = field.type().name().toString();
         return !IMMUTABLE_VALUE_TYPES.contains(type) && (proxied || !THREAD_SAFE_TYPES.contains(type));
     }
 
+    private static boolean isKotlinAccessorBackedProperty(FieldInfo field) {
+        ClassInfo owner = field.declaringClass();
+        String name = field.name();
+        if (owner == null || name == null || name.isEmpty() || !owner.hasDeclaredAnnotation(KOTLIN_METADATA)) {
+            return false;
+        }
+        boolean isPrefixed = name.length() > 2 && name.startsWith("is") && Character.isUpperCase(name.charAt(2));
+        String getterName = isPrefixed ? name : "get" + capitalize(name);
+        String setterName = "set" + (isPrefixed ? name.substring(2) : capitalize(name));
+        MethodInfo getter = owner.method(getterName);
+        MethodInfo setter = owner.method(setterName, field.type());
+        return isKotlinAccessor(getter, field.type())
+                && isKotlinAccessor(setter, Type.create(DotName.createSimple("void"), Type.Kind.VOID));
+    }
+
+    private static boolean isKotlinAccessor(MethodInfo method, Type expectedReturnType) {
+        return method != null
+                && !Modifier.isStatic(method.flags())
+                && !method.isSynthetic()
+                && method.returnType().kind() == expectedReturnType.kind()
+                && (expectedReturnType.kind() == Type.Kind.VOID
+                        || method.returnType().name().equals(expectedReturnType.name()));
+    }
+
+    private static String capitalize(String name) {
+        return Character.toUpperCase(name.charAt(0)) + name.substring(1);
+    }
+
+    private static boolean isEnumType(DotName typeName, IndexView index) {
+        if (index != null) {
+            ClassInfo typeInfo = index.getClassByName(typeName);
+            if (typeInfo != null) {
+                return typeInfo.isEnum();
+            }
+        }
+        String name = typeName.toString();
+        if (name.startsWith("java.") || name.startsWith("jakarta.")) {
+            try {
+                return Class.forName(name, false, QuarkusAppMetadataCollector.class.getClassLoader())
+                        .isEnum();
+            } catch (ClassNotFoundException | RuntimeException | LinkageError ignored) {
+                return false;
+            }
+        }
+        return false;
+    }
+
     private static void declarations(List<ClassInfo> classes, State state) {
+        Budget budget = new Budget(MAX_MEMBERS);
         try {
             for (ClassInfo info : classes) {
                 if (info.declaredAnnotation(CONFIG_MAPPING) != null) {
                     state.configMappings++;
                 }
                 for (FieldInfo field : info.fields()) {
-                    state.members.take();
+                    budget.take();
                     if (field.hasAnnotation(CONFIG_PROPERTY)) {
                         state.configProperties++;
                     }
                 }
                 for (MethodInfo method : info.methods()) {
-                    state.members.take();
+                    budget.take();
                     for (AnnotationInstance annotation : method.annotations()) {
-                        state.members.take();
+                        budget.take();
                         if (annotation.name().equals(CONFIG_PROPERTY)) {
                             state.configProperties++;
                         } else if (annotation.name().equals(SCHEDULED)) {
                             state.scheduled++;
                         } else if (annotation.name().equals(SCHEDULES) && annotation.value() != null) {
                             int count = annotation.value().asNestedArray().length;
-                            state.members.take(count);
+                            budget.take(count);
                             state.scheduled += count;
                         }
                     }

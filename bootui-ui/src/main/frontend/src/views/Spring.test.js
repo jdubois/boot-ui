@@ -179,9 +179,22 @@ describe('Spring', () => {
   })
 
   it('renders Quarkus advisor copy when the platform is quarkus', async () => {
+    const report = advisorReport([])
+    report.analysisErrors = [
+      {
+        id: 'QA-CFG-003',
+        name: 'Verbose root logging in observed production configuration',
+        category: 'Configuration',
+        severity: 'MEDIUM',
+        description: 'A required configuration value could not be classified safely.',
+        status: 'ERROR',
+        violationCount: 0,
+        sampleViolations: []
+      }
+    ]
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve(new Response(JSON.stringify(advisorReport([])), {status: 200})))
+      vi.fn(() => Promise.resolve(new Response(JSON.stringify(report), {status: 200})))
     )
 
     const wrapper = mount(Spring, {
@@ -194,5 +207,6 @@ describe('Spring', () => {
     expect(wrapper.text()).not.toContain('Beans analysed')
     expect(wrapper.text()).toContain('No Quarkus Advisor findings')
     expect(wrapper.text()).not.toContain('No Spring Advisor findings')
+    expect(wrapper.text()).toContain('A required configuration value could not be classified safely.')
   })
 })

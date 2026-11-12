@@ -110,7 +110,8 @@ class QuarkusAppScannerTest {
 
     /**
      * The development-mode shape the Quarkus sample reports: request draining is absent from the loaded declarations
-     * and production coverage is unobserved. The rule has one outcome, the finding, which carries the coverage note.
+     * and production coverage is unobserved. The rule has one outcome, the finding, which carries the coverage note,
+     * while the clean unobserved production rule is recorded as a SKIPPED diagnostic rather than an analysis error.
      */
     @Test
     void absentRequestDrainingWithUnobservedProductionIsOneFindingNotAlsoAnError() {
@@ -126,7 +127,10 @@ class QuarkusAppScannerTest {
         assertThat(report.results()).extracting(SpringRuleResultDto::id).containsExactly("QA-WEB-004");
         assertThat(find(report, "QA-WEB-004").description())
                 .contains("Coverage is incomplete: Only loaded production declarations were inspected");
-        assertThat(report.analysisErrors()).extracting(SpringRuleResultDto::id).containsExactly("QA-WEB-002");
+        assertThat(report.analysisErrors()).isEmpty();
+        assertThat(QuarkusAppChecks.evaluate(snap.build()).skipped())
+                .extracting(SpringRuleResultDto::id, SpringRuleResultDto::status)
+                .containsExactly(org.assertj.core.api.Assertions.tuple("QA-WEB-002", "SKIPPED"));
         assertThat(report.evidence().limitations())
                 .extracting(limitation -> limitation.substring(0, limitation.indexOf(':')))
                 .containsExactly("QA-WEB-002", "QA-WEB-004");
@@ -177,12 +181,42 @@ class QuarkusAppScannerTest {
     @Test
     void inspectedMetadataAndInapplicableInventoriesDoNotCompleteChecks() {
         Snap snap = new Snap();
+        snap.metadata = new QuarkusAppMetadata(
+                true, 0, 0, 0, 0, 8, false, false, false, List.of(), List.of(), List.of(), List.of());
         snap.runtimeJdk = 24;
         SpringReport report = scan(snap);
         assertThat(report.rulesEvaluated()).isEqualTo(14);
         assertThat(report.inspected()).isNotEmpty();
         assertThat(report.evidence().usable()).isFalse();
         assertThat(report.evidence().coverageComplete()).isTrue();
+    }
+
+    @Test
+    void cleanDevelopmentScanWithApplicableBeansAndEndpointsIsUsableAndHasNoAnalysisErrors() {
+        Snap snap = new Snap();
+        snap.profiles = List.of("dev");
+        for (String id : List.of(
+                "QA-CFG-002",
+                "QA-CFG-003",
+                "QA-CFG-005",
+                "QA-PROD-002",
+                "QA-PROD-003",
+                "QA-WEB-001",
+                "QA-WEB-002",
+                "QA-WEB-004")) {
+            snap.evaluated.remove(id);
+            snap.problems.add(new QuarkusAppEvidenceProblem(
+                    id,
+                    "Only loaded production declarations were inspected; effective production configuration, "
+                            + "external overrides and unloaded profile-aware files are unavailable."));
+        }
+        SpringReport report = scan(snap);
+        assertThat(report.results()).isEmpty();
+        assertThat(report.analysisErrors()).isEmpty();
+        assertThat(report.evidence().usable()).isTrue();
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.rulesEvaluated()).isEqualTo(6);
     }
 
     @Test
@@ -685,22 +719,27 @@ class QuarkusAppScannerTest {
                 "QA-WEB-002",
                 "QA-WEB-004"
             })
-    void productionCoverageErrorsExplicitlyExplainLoadedDeclarationLimitations(String id) {
+    void productionCoverageLimitationsAreSkippedDiagnosticsRatherThanAnalysisErrors(String id) {
         Snap snap = new Snap();
         snap.problems.add(new QuarkusAppEvidenceProblem(
                 id,
                 "Only loaded production declarations were inspected; effective production configuration, "
                         + "external overrides and unloaded profile-aware files are unavailable."));
         SpringReport report = scan(snap);
-        assertThat(report.analysisErrors()).singleElement().satisfies(error -> {
-            assertThat(error.description())
-                    .contains(
-                            "Only loaded production declarations were inspected",
-                            "Loaded declarations cannot reconstruct a future production deployment's effective",
-                            "external overrides",
-                            "unloaded profile-aware files");
-            assertThat(error.recommendation()).contains("Review loaded production declarations separately");
-        });
+        assertThat(report.analysisErrors()).isEmpty();
+        assertThat(QuarkusAppChecks.evaluate(snap.build()).skipped())
+                .singleElement()
+                .satisfies(skipped -> {
+                    assertThat(skipped.id()).isEqualTo(id);
+                    assertThat(skipped.status()).isEqualTo("SKIPPED");
+                    assertThat(skipped.description())
+                            .contains(
+                                    "Only loaded production declarations were inspected",
+                                    "Loaded declarations cannot reconstruct a future production deployment's effective",
+                                    "external overrides",
+                                    "unloaded profile-aware files");
+                    assertThat(skipped.recommendation()).contains("Review loaded production declarations separately");
+                });
         snap.problems.clear();
         snap.evaluated.remove(id);
         assertThat(scan(snap).analysisErrors())
