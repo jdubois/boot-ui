@@ -3930,7 +3930,8 @@ Design rules:
   CI-capable local advisor, with Architecture required and stack/data-source-specific advisors optional by availability;
   it excludes the GitHub and vulnerability sources and gates individual findings rather than the browser's aggregate
   score. The `prepare-cli` phase exports a
-  signature-verified CLI for later workflow steps, and its `offline` phase revalidates a saved bundle without
+  signature-verified CLI for later workflow steps by default; an explicit trusted local `cli-jar` input supports
+  source-build testing without release download or signature verification. Its `offline` phase revalidates a saved bundle without
   contacting an application. An opt-in Runtime Insights projection is bounded and report-only; it omits application
   prose and request identifiers, does not prove workload attribution, and cannot change the advisor verdict. Offline
   checks have no application URL or network fallback. Bundles remain self-reported evidence, not cryptographic

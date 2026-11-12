@@ -78,7 +78,7 @@ Existing old-subpath SHA pins continue to use their original source; the entry p
 | Phase | Purpose |
 | --- | --- |
 | `run` (default) | Start or reuse an app, wait for readiness, attach, execute `test-command`, assess, stop the owned app, publish, and upload |
-| `prepare-cli` | Download the explicitly pinned stable CLI and verify its signature; export `BOOTUI_CLI_JAR` for later steps |
+| `prepare-cli` | Prepare the CLI (signature-verified release by default); export `BOOTUI_CLI_JAR` for later steps |
 | `attach` | Record the target's instance/run identity before the workload; no advisor scans |
 | `assess` | Check identity, collect diagnostics, apply the policy, write reports and append the GitHub summary |
 | `offline` | Validate an existing bundle without contacting an application |
@@ -95,6 +95,7 @@ release tag. GitHub Actions does not verify the tag's signature when executing a
 | --- | --- |
 | `phase` | Every phase; defaults to `run` |
 | `bootui-version` | Every phase; defaults to `auto`, resolving exactly one stable BootUI dependency version from Maven or Gradle; advanced phases may still pin it explicitly |
+| `cli-jar` (unreleased) | Every phase; repeat on each Action invocation when using a trusted local CLI jar for source-build testing. Relative to the workspace or absolute; skips release download and signature verification and cannot be combined with an explicit `bootui-version` |
 | `test-command` | `run`; defaults to `none`; set it to a finite workload, or to `auto` for Maven `verify`/Gradle `check`; an explicit workload must exercise the running application |
 | `app-command` | `run`; defaults to `auto`, selecting the conventional Spring Boot or Quarkus development command; `none` uses an externally managed app |
 | `startup-timeout` | `run`; defaults to 120 seconds and is bounded to 1–600 |

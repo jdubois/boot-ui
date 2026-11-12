@@ -277,7 +277,16 @@ jobs:
         with:
           name: bootui-spring-sample-app
           path: bootui-spring-sample-app/target/*.jar
-          if-no-files-found: warn
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload the current CLI for the Action smoke test
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bootui-action-cli
+          path: bootui-cli/target/*-all.jar
+          if-no-files-found: error
           retention-days: 7
 
   quarkus-extension-its:
@@ -812,6 +821,74 @@ jobs:
           path: ${{ runner.temp }}/published-cli/
           if-no-files-found: ignore
           retention-days: 7
+
+  action-smoke:
+    name: Checkout Action against Spring sample (Java 17)
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download the Spring sample built by this run
+        uses: actions/download-artifact@v8
+        with:
+          name: bootui-spring-sample-app
+          path: bootui-spring-sample-app/target
+
+      - name: Download the CLI built by this run
+        uses: actions/download-artifact@v8
+        with:
+          name: bootui-action-cli
+          path: bootui-cli/target
+
+      - name: Select the current build jars
+        id: jars
+        run: |
+          cli_jars=(bootui-cli/target/*-all.jar)
+          sample_jars=(bootui-spring-sample-app/target/bootui-spring-sample-app-*.jar)
+          if [[ ${#cli_jars[@]} -ne 1 || ! -f "${cli_jars[0]}" ]]; then
+            echo "::error::Expected exactly one CLI jar from this build."
+            exit 1
+          fi
+          if [[ ${#sample_jars[@]} -ne 1 || ! -f "${sample_jars[0]}" ]]; then
+            echo "::error::Expected exactly one Spring sample jar from this build."
+            exit 1
+          fi
+          printf 'cli=%s\nsample=%s\n' "${cli_jars[0]}" "${sample_jars[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Run the checkout's BootUI Action
+        id: bootui
+        uses: ./
+        env:
+          BOOTUI_SMOKE_SAMPLE_JAR: ${{ steps.jars.outputs.sample }}
+        with:
+          cli-jar: ${{ steps.jars.outputs.cli }}
+          app-command: >-
+            java -jar "$BOOTUI_SMOKE_SAMPLE_JAR"
+            --spring.profiles.active=dev --spring.devtools.restart.enabled=false
+          url: http://127.0.0.1:18094
+          startup-timeout: '300'
+          policy: .github/scripts/fixtures/ci-action-smoke-policy.json
+
+      - name: Require a completed assessment and reports
+        env:
+          BOOTUI_EXIT_CODE: ${{ steps.bootui.outputs.exit-code }}
+          BOOTUI_REPORT_DIR: ${{ steps.bootui.outputs.report-dir }}
+        run: |
+          test "$BOOTUI_EXIT_CODE" = 0
+          for report in bundle.json summary.md junit.xml; do
+            test -s "$BOOTUI_REPORT_DIR/$report"
+          done
 
   # The BootUI agent's cumulative overhead (PLAN-v2 §5.13, §8, M5-12): the Spring sample's executable jar without the
   # agent and with every default sensor claimed, BootUI on in both, in fifteen alternating pairs. The budget is 10 %: the

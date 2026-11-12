@@ -281,6 +281,15 @@ for acceptance testing, not a production launch profile.
 
 The harness does not exercise the Action's release-signature download or the GitHub-hosted runner.
 
+The baseline workflow's **Checkout Action against Spring sample (Java 17)** job runs the whole composite Action with `uses: ./`,
+so it runs the composite Action from the exact checkout, including pull request changes, rather than a release tag.
+It reuses the CLI and Spring sample jars built by the same run and exercises managed startup,
+assessment, the job Summary, report upload, and cleanup. The smoke policy requires a complete Architecture assessment
+but gates only CRITICAL findings because the sample intentionally demonstrates HIGH findings; the Action's default
+policy is unchanged. Its explicit `cli-jar` input selects the current build without a release download or signature
+verification; normal Action consumers still get signature-verified releases. Use the existing **Run workflow** button
+to run this job as part of the baseline build. The separate published CLI smoke job retains released-client coverage.
+
 ### Coverage
 
 Run the same instrumented Maven/Vitest coverage build as CI with:

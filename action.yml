@@ -9,6 +9,9 @@ inputs:
     description: Published stable BootUI CLI version containing the ci commands; auto uses the version declared by the application.
     required: false
     default: auto
+  cli-jar:
+    description: Optional trusted local CLI jar for source-build testing; skips release download and signature verification and cannot be combined with an explicit bootui-version.
+    required: false
   test-command:
     description: Optional shell command that exercises the started application; none runs no workload, while auto selects Maven verify or Gradle check.
     required: false
@@ -78,13 +81,14 @@ runs:
         BOOTUI_UPLOAD_ARTIFACT: ${{ inputs.upload-artifact }}
       run: bash "$ACTION_PATH/quick-setup.sh"
     - id: prepare
-      name: Download and verify BootUI CLI
+      name: Prepare BootUI CLI
       if: ${{ (inputs.phase != 'run' || steps.quick_setup.outcome == 'success') && (inputs.phase != 'assess' || inputs.attach-exit-code == '0') }}
       continue-on-error: ${{ inputs.phase == 'run' }}
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}/.github/actions/bootui
         BOOTUI_VERSION: ${{ inputs.bootui-version }}
+        BOOTUI_LOCAL_CLI_JAR: ${{ inputs.cli-jar }}
         BOOTUI_PHASE: ${{ inputs.phase }}
         BOOTUI_APP_COMMAND: ${{ inputs.app-command }}
       run: bash "$ACTION_PATH/prepare-cli.sh"

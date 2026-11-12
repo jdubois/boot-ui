@@ -4,6 +4,7 @@ from pathlib import Path
 import socket
 import subprocess
 import tempfile
+import textwrap
 import unittest
 from xml.sax.saxutils import escape
 
@@ -74,6 +75,37 @@ class QuickActionTests(unittest.TestCase):
         for step in steps:
             if step.strip():
                 self.assertRegex(step, r"(?:^|\n)\s*(?:- )?name: [A-Z][^\n]+")
+
+    def test_smoke_job_requires_exactly_one_current_cli_and_sample_jar(self):
+        workflow = (ROOT / ".github/workflows/build.yml").read_text()
+        step = workflow.split("      - name: Select the current build jars\n", 1)[1].split("\n      - name:", 1)[0]
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        for cli_count, sample_count in ((1, 1), (0, 1), (2, 1), (1, 0), (1, 2)):
+            with self.subTest(cli=cli_count, sample=sample_count), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                for module, count, suffix in (
+                    ("bootui-cli", cli_count, "-all"),
+                    ("bootui-spring-sample-app", sample_count, ""),
+                ):
+                    target = root / module / "target"
+                    target.mkdir(parents=True)
+                    for index in range(count):
+                        (target / f"{module}-{index}{suffix}.jar").touch()
+                output = root / "output"
+                result = subprocess.run(
+                    ["bash", "-e", "-o", "pipefail", "-c", script],
+                    cwd=root, env=dict(os.environ, GITHUB_OUTPUT=str(output)), capture_output=True, text=True,
+                )
+                if cli_count == sample_count == 1:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(output.read_text().splitlines(), [
+                        "cli=bootui-cli/target/bootui-cli-0-all.jar",
+                        "sample=bootui-spring-sample-app/target/bootui-spring-sample-app-0.jar",
+                    ])
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("::error::Expected exactly one", result.stdout)
+                    self.assertFalse(output.exists())
 
     def test_workload_runs_even_when_setup_or_attachment_fails(self):
         action = ACTION_METADATA.read_text()
