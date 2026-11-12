@@ -58,7 +58,8 @@ class WorkshopVersionTests(unittest.TestCase):
             workshop_version.synchronize(root, "7.8.9", check=True)
             before = {path: path.read_bytes() for path in root.rglob("*.md")}
             for path, content in before.items():
-                self.assertNotIn(previous.encode(), content, str(path))
+                if b"<!-- bootui-workshop:history:start -->" not in content:
+                    self.assertNotIn(previous.encode(), content, str(path))
             setup = (root / "docs/workshop/01-setup-and-tooling.md").read_text(encoding="utf-8")
             for snippet in ("--branch v7.8.9", "--version 7.8.9", "-Version 7.8.9", "<version>7.8.9</version>"):
                 self.assertIn(snippet, setup)
@@ -67,6 +68,44 @@ class WorkshopVersionTests(unittest.TestCase):
             self.assertEqual(extra.read_text(encoding="utf-8"), "BootUI 7.8.9; loopback 127.0.0.1; library 9.8.7\n")
             workshop_version.synchronize(root, "7.8.9", check=False)
             self.assertEqual(before, {path: path.read_bytes() for path in root.rglob("*.md")})
+
+    def test_historical_evidence_is_preserved_across_releases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.copy_workshop(root)
+            overview = (root / "docs/workshop/README.md").read_text(encoding="utf-8")
+            previous = workshop_version.PIN.search(overview)[1]
+            history = (
+                "<!-- bootui-workshop:history:start -->\n"
+                f"Rehearsed --branch v{previous}, --version {previous}; returned bootui {previous}.\n"
+                "<!-- bootui-workshop:history:end -->"
+            )
+            extra = root / "workshop/history.md"
+            extra.write_text(f"Use {previous}.\n{history}\nInstall --version {previous}.\n", encoding="utf-8")
+            for target in ("7.8.9", "8.0.0"):
+                workshop_version.synchronize(root, target, check=False)
+                workshop_version.synchronize(root, target, check=True)
+                self.assertEqual(
+                    extra.read_text(encoding="utf-8"),
+                    f"Use {target}.\n{history}\nInstall --version {target}.\n",
+                )
+
+    def test_invalid_history_markers_fail_without_writing(self):
+        for content in (
+            "<!-- bootui-workshop:history:start -->",
+            "<!-- bootui-workshop:history:end -->",
+            "<!-- bootui-workshop:history:start --><!-- bootui-workshop:history:start -->"
+            "<!-- bootui-workshop:history:end --><!-- bootui-workshop:history:end -->",
+        ):
+            with self.subTest(content=content), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.copy_workshop(root)
+                (root / "workshop/history.md").write_text(content, encoding="utf-8")
+                before = {path: path.read_bytes() for path in root.rglob("*.md")}
+                for check in (True, False):
+                    with self.assertRaisesRegex(ValueError, "workshop history"):
+                        workshop_version.synchronize(root, "7.8.9", check=check)
+                    self.assertEqual(before, {path: path.read_bytes() for path in root.rglob("*.md")})
 
     def test_mixed_command_versions_fail_without_writing(self):
         for snippet in (

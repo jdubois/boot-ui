@@ -13,6 +13,25 @@ REFERENCE = re.compile(
     r"(?:--branch v|--version |-Version |bootui-agent-|<version>)"
     r"([0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)"
 )
+HISTORY_START = "<!-- bootui-workshop:history:start -->"
+HISTORY_END = "<!-- bootui-workshop:history:end -->"
+HISTORY_MARKERS = re.compile("(" + re.escape(HISTORY_START) + "|" + re.escape(HISTORY_END) + ")")
+
+
+def versioned_parts(path, content):
+    historical = False
+    for part in HISTORY_MARKERS.split(content):
+        if part == HISTORY_START:
+            if historical:
+                raise ValueError(f"{path}: nested workshop history markers")
+            historical = True
+        elif part == HISTORY_END:
+            if not historical:
+                raise ValueError(f"{path}: unmatched workshop history end marker")
+            historical = False
+        yield part, historical
+    if historical:
+        raise ValueError(f"{path}: missing workshop history end marker")
 
 
 def synchronize(root, version, *, check):
@@ -32,12 +51,16 @@ def synchronize(root, version, *, check):
             raise ValueError(f"{root / directory}: workshop Markdown files are missing")
         for path in files:
             content = path.read_text(encoding="utf-8")
-            if not check:
-                content = replacement.sub(lambda _: version, content)
-            contents[path] = content
-            for match in REFERENCE.finditer(content):
-                if match[1] != version:
-                    errors.append(f"{path.relative_to(root)}: expected {version}, found {match[0]}")
+            parts = []
+            for part, historical in versioned_parts(path.relative_to(root), content):
+                if not historical:
+                    if not check:
+                        part = replacement.sub(lambda _: version, part)
+                    for match in REFERENCE.finditer(part):
+                        if match[1] != version:
+                            errors.append(f"{path.relative_to(root)}: expected {version}, found {match[0]}")
+                parts.append(part)
+            contents[path] = "".join(parts)
     if check and previous != version:
         errors.append(f"docs/workshop/README.md: edition pins {previous}, expected {version}")
     if errors:

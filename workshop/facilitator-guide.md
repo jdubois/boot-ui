@@ -190,6 +190,8 @@ Workshop mode reads version metadata from that checkout and requires its own fro
 `BOOTUI_SCREENSHOT_BASE_URL` unset and choose an unused capture port.
 After each release, regenerate from the new tag and update the overview's provenance commit; the version helper
 updates text pins, not image pixels.
+Keep immutable rehearsal records and legacy-release caveats inside paired
+`bootui-workshop:history:start` / `bootui-workshop:history:end` HTML comments so version bumps preserve them.
 
 ## Validation and release rehearsal
 
@@ -213,10 +215,11 @@ policy. The target is `https://www.julien-dubois.com/boot-ui/workshop`, **not** 
 
 ### Validation evidence and remaining rehearsal
 
-The initial generation checks used the development checkout. A subsequent five-model rehearsal preceded the current
-release: two personas used the tag at `7d4bf29eb48e2016e17ec13087a2618eedb74416`, and three used the tag at
-`ddfcb243615fae417cea2c46e11797bffbc43231`. This is historical evidence, not proof that all five ran the current
-release or the final revision. The current release's separate rehearsal is recorded below.
+<!-- bootui-workshop:history:start -->
+The initial generation checks used the development checkout. A subsequent five-model rehearsal preceded the first
+published workshop edition: two personas used the tag at `7d4bf29eb48e2016e17ec13087a2618eedb74416`, and three used the tag at
+`ddfcb243615fae417cea2c46e11797bffbc43231`. This is historical evidence, not proof that all five ran that edition
+or its final revision. That edition's separate rehearsal is recorded below.
 
 | Check | Result |
 | --- | --- |
@@ -258,6 +261,7 @@ behavior. The later rehearsal added published CLI installation and tagged-source
 were separately rendered from the released frontend and visually inspected. Those synthetic reference images are not
 participant runtime proof. Future-release downloads, an authenticated external coding-agent session, Windows execution,
 and an unfamiliar-participant three-hour pilot still require event/release rehearsal.
+<!-- bootui-workshop:history:end -->
 
 ## Completion and feedback
 

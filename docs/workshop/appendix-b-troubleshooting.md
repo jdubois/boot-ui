@@ -34,7 +34,6 @@ is incomplete; pairing is preferable to spending an entire chapter reinstalling 
 | Windows agent jar path fails | Warm build result, exact jar, comma in path | Stop on missing jar; rebuild or use a supported path, never an empty agent argument |
 | Quarkus Dev Services cannot start | Docker/Podman and PostgreSQL prerequisite | Prepare Appendix C's container runtime or local PostgreSQL separately |
 | Missing time breakdown | Five warm requests and capture coverage | Warm/collect; unknown time is not proof of slow business code |
-| Audit child labeled `PARTICIPATING` by compact transaction list on 2.3.0 or earlier | Journal/activity boundary and separate connection ids | Known compact-label bug, including this workshop's pinned release: confirm has independent `REQUIRES_NEW` work; compare ship's same-transaction control, not annotations alone |
 | Java Agent `NOT_ATTACHED` | Correct agent launcher or startup `-javaagent` | Full-stop and attach only at the Chapter 05 boundary |
 | `ARMED` but sensor unavailable | Installed state and self-tests, packages, release/protocol | Read reason; attachment alone does not prove capture |
 | No Code Path | Instrumented application bean/method, same run, row/depth limits | Exercise the route; explain excluded or assembly-only work |

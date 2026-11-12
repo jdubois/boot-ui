@@ -176,14 +176,16 @@ More traffic cannot restore those missing events. Keep the comparison labeled in
 original-route request profiles for the observed SQL counts and Code Inventory for changed-method execution.
 Those are separate sources of evidence, not a successful automated run comparison. Do not clear recording to force a pass.
 
-::: details Startup SQL limitation in the pinned release
+::: details Historical startup SQL limitation
 
+<!-- bootui-workshop:history:start -->
 The v2.3.0 rehearsal reported `PARTIAL`: startup SQL ran before aggregate registration. More requests cannot repair
 that lifetime gap. The response/query-budget test and individual 17-to-1 SQL profiles still establish the local
 fix, but do not claim a verified run-level statement removal from a partial comparison.
+<!-- bootui-workshop:history:end -->
 
-The development checkout fixes Spring's startup ordering and verifies the 17-to-1 comparison and removal of the
-secondary customer SELECT across one DevTools reload. That correction is not in the workshop's pinned release.
+With the startup-ordering correction, Spring registers aggregates before recording startup SQL, allowing those
+statements to participate in the comparison across a DevTools reload.
 Real drops, unqualified SQL capture, or insufficient samples still limit comparison.
 
 :::
