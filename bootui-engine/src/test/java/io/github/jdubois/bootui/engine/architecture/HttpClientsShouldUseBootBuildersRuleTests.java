@@ -51,6 +51,18 @@ class HttpClientsShouldUseBootBuildersRuleTests {
     }
 
     @Test
+    void buildersConfiguredThroughBootBuilderConfigurerPassWhileCreateRemainsReported() {
+        ArchitectureRuleResultDto passResult =
+                evaluate(ArchitecturePlatform.SPRING, BOTH_MODULES, ConfigurerConfiguredClients.class);
+        assertThat(passResult.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+
+        ArchitectureRuleResultDto mismatchResult =
+                evaluate(ArchitecturePlatform.SPRING, BOTH_MODULES, MismatchedConfigurerClients.class);
+        assertThat(mismatchResult.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(mismatchResult.violationCount()).isEqualTo(3);
+    }
+
+    @Test
     void eachClientFamilyIsCheckedOnlyWhenItsBootModuleIsPresent() {
         HttpClientsShouldUseBootBuildersRule restClientOnly = new HttpClientsShouldUseBootBuildersRule(
                 HttpClientsShouldUseBootBuildersRule.REST_CLIENT_MODULE_MARKER::equals);
@@ -185,6 +197,53 @@ class HttpClientsShouldUseBootBuildersRuleTests {
 
         RestClient restClient() {
             return restClient;
+        }
+    }
+
+    static class RestClientBuilderConfigurer {
+        RestClient.Builder configure(RestClient.Builder builder) {
+            return builder;
+        }
+    }
+
+    static class WebClientBuilderConfigurer {
+        WebClient.Builder configure(WebClient.Builder builder) {
+            return builder;
+        }
+    }
+
+    static class ConfigurerConfiguredClients {
+
+        RestClient orders(RestClientBuilderConfigurer configurer) {
+            return configurer
+                    .configure(RestClient.builder())
+                    .baseUrl("http://orders")
+                    .build();
+        }
+
+        WebClient events(WebClientBuilderConfigurer configurer) {
+            return configurer
+                    .configure(WebClient.builder())
+                    .baseUrl("http://events")
+                    .build();
+        }
+    }
+
+    static class MismatchedConfigurerClients {
+
+        RestClient createIsStillFlagged(RestClientBuilderConfigurer configurer) {
+            configurer.configure(RestClient.builder());
+            return RestClient.create("http://orders");
+        }
+
+        RestClient wrongConfigurerFamily(WebClientBuilderConfigurer webClientConfigurer) {
+            webClientConfigurer.configure(null);
+            return RestClient.builder().build();
+        }
+
+        RestClient extraUnconfiguredBuilder(RestClientBuilderConfigurer configurer) {
+            configurer.configure(RestClient.builder());
+            return RestClient.builder().build();
         }
     }
 }

@@ -66,7 +66,14 @@ class KotlinBytecodeTests {
                 .toList();
         assertThat(serviceMethods)
                 .containsExactlyInAnyOrder(
-                        "refreshOrders", "countOrders", "notifyCustomer", "loadOrder", "auditOrder", "audit");
+                        "refreshOrders",
+                        "countOrders",
+                        "notifyCustomer",
+                        "loadOrder",
+                        "auditOrder",
+                        "audit",
+                        "auditSuspend",
+                        "save");
     }
 
     @Test
@@ -111,5 +118,20 @@ class KotlinBytecodeTests {
         assertThat(KotlinBytecode.declaredParameters(method(service, "loadOrder")))
                 .hasSize(1);
         assertThat(KotlinBytecode.declaredParameters(method(service, "audit"))).hasSize(1);
+    }
+
+    @Test
+    void treatsDefaultBridgeAsDispatchBridgeButKeepsSuspendImplVisibleAndUnwrappable() {
+        JavaClass cartService = type("KotlinCartService");
+        JavaMethod defaultBridge = method(cartService, "expire$default");
+        assertThat(KotlinBytecode.isGeneratedDispatchBridge(defaultBridge)).isTrue();
+
+        JavaClass orderService = type("KotlinOrderService");
+        JavaMethod suspendImpl = method(orderService, "refreshOrders$suspendImpl");
+        JavaMethod declared = method(orderService, "refreshOrders");
+        assertThat(KotlinBytecode.isGeneratedDispatchBridge(suspendImpl)).isFalse();
+        assertThat(KotlinBytecode.suspendImplDeclaredMethod(suspendImpl)).contains(declared);
+        assertThat(KotlinBytecode.unwrapSuspendImplOrigin(suspendImpl)).isEqualTo(declared);
+        assertThat(KotlinBytecode.unwrapSuspendImplOrigin(declared)).isEqualTo(declared);
     }
 }

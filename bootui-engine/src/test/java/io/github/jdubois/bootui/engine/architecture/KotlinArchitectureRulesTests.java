@@ -128,11 +128,20 @@ class KotlinArchitectureRulesTests {
 
         // Not findings: a suspending function dispatching to its own generated $suspendImpl body, and a
         // $default bridge calling the very function it exists to reach. Both are calls the compiler makes.
-        assertThat(result.violationCount()).isEqualTo(3);
+        // A real self-invocation inside an open suspend fun (auditSuspend -> recordAudit) IS reported and
+        // names auditSuspend rather than auditSuspend$suspendImpl.
+        assertThat(result.violationCount()).isEqualTo(4);
         assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("$suspendImpl"));
         assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("$default"));
         assertThat(result.sampleViolations())
-                .anySatisfy(violation -> assertThat(violation).contains("auditOrder"));
+                .anySatisfy(violation -> assertThat(violation).contains("auditOrder"))
+                .anySatisfy(violation -> assertThat(violation)
+                        .contains("KotlinOrderService.auditSuspend(")
+                        .contains("KotlinOrderService.save("));
+        assertThat(result.sampleLocations()).anySatisfy(location -> {
+            assertThat(location.memberName()).isEqualTo("auditSuspend");
+            assertThat(location.kind()).isEqualTo("METHOD");
+        });
     }
 
     @Test
@@ -220,5 +229,70 @@ class KotlinArchitectureRulesTests {
                             || violation.contains("component1")
                             || violation.contains("Kt.formatOrderId"));
         }
+    }
+
+    @Test
+    void parameterlessKotlinMainEntryPointMayCallSystemExit() {
+        JavaClasses classes = new ClassFileImporter().importPackages(KOTLIN_INJECTION_FIXTURES);
+        ArchitectureRuleResultDto result = new NoSystemExitRule()
+                .evaluate(new ArchitectureContext(
+                        classes, List.of(KOTLIN_INJECTION_FIXTURES), ArchitecturePlatform.SPRING));
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void deprecatedRuleFiltersKotlinBridgesAndDeprecatedScopesWhileUnwrappingSuspendImplOrigins() {
+        ArchitectureRuleResultDto result = evaluate(new NoDeprecatedApiRule());
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("KotlinDeprecated.callOld(kotlin.coroutines.Continuation)")
+                .contains("KotlinDeprecated.oldOp(")
+                .doesNotContain("$suspendImpl")
+                .doesNotContain("$default")
+                .doesNotContain("oldCaller");
+        assertThat(result.sampleLocations()).singleElement().satisfies(location -> {
+            assertThat(location.memberName()).isEqualTo("callOld");
+            assertThat(location.kind()).isEqualTo("METHOD");
+        });
+    }
+
+    @Test
+    void liteModeBeanRuleUnwrapsKotlinDefaultArgumentBridgeTarget() {
+        ArchitectureRuleResultDto result = evaluate(new LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule());
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("KotlinLiteBeans.one()")
+                .contains("KotlinLiteBeans.two(java.lang.String)")
+                .doesNotContain("$default");
+        assertThat(result.sampleLocations()).singleElement().satisfies(location -> {
+            assertThat(location.memberName()).isEqualTo("one");
+            assertThat(location.line()).isPositive();
+        });
+    }
+
+    @Test
+    void httpClientRuleUnwrapsSuspendImplOrigins() {
+        ArchitectureRuleResultDto result = new HttpClientsShouldUseBootBuildersRule(name -> true).evaluate(context());
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("KotlinHttpClientFixtures.fetchOrders(kotlin.coroutines.Continuation)")
+                .doesNotContain("$suspendImpl");
+        assertThat(result.sampleLocations()).singleElement().satisfies(location -> {
+            assertThat(location.memberName()).isEqualTo("fetchOrders");
+            assertThat(location.kind()).isEqualTo("METHOD");
+        });
     }
 }

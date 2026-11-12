@@ -1113,6 +1113,146 @@ class ArchitectureRulesTests {
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
     }
 
+    @Test
+    void asyncEventListenersShouldReturnVoidSuppressesWhenArchSpring011AlreadyFlagsMethod() {
+        ArchitectureRuleResultDto asyncResult =
+                evaluate(new AsyncMethodsShouldHaveSupportedSignaturesRule(), NonFutureAsyncEventListenerBean.class);
+        ArchitectureRuleResultDto listenerResult =
+                evaluate(new AsyncEventListenersShouldReturnVoidRule(), NonFutureAsyncEventListenerBean.class);
+
+        assertThat(asyncResult.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(asyncResult.id()).isEqualTo("ARCH-SPRING-011");
+        assertThat(asyncResult.violationCount()).isEqualTo(1);
+        assertThat(listenerResult.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+        assertThat(listenerResult.violationCount()).isZero();
+    }
+
+    @Test
+    void packageCyclesDetectCrossRootCyclesAcrossSharedMultiSegmentPrefixAndNeverCollapseSingleSegmentPrefix() {
+        JavaClasses importedClasses = new ClassFileImporter().importClasses(AlphaComponent.class, BetaComponent.class);
+        ArchitectureRuleResultDto result = new FreeOfPackageCyclesRule()
+                .evaluate(new ArchitectureContext(
+                        importedClasses,
+                        List.of(
+                                "io.github.jdubois.bootui.engine.architecture.cyclefixtures.alpha",
+                                "io.github.jdubois.bootui.engine.architecture.cyclefixtures.beta"),
+                        ArchitecturePlatform.QUARKUS));
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.id()).isEqualTo("ARCH-PKG-001");
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(FreeOfPackageCyclesRule.sliceRoots(List.of("com.acme.order", "com.other.billing")))
+                .containsExactly("com.acme.order", "com.other.billing")
+                .doesNotContain("com");
+    }
+
+    @Test
+    void internalPackagesMatchesInternalStrictlyBelowBasePackageEvenWhenBasePackageContainsInternal() {
+        JavaClasses importedClasses =
+                new ClassFileImporter().importPackages("io.github.jdubois.bootui.engine.architecture.modulefixtures");
+        // When the base package itself ends at "...moduleone.internal", classes directly in that base package
+        // have no "<module>.internal" segment below the base package, so internal access inside it is not
+        // misattributed.
+        ArchitectureRuleResultDto result = new InternalPackagesShouldNotBeAccessedExternallyRule()
+                .evaluate(new ArchitectureContext(
+                        importedClasses,
+                        List.of("io.github.jdubois.bootui.engine.architecture.modulefixtures.moduleone.internal"),
+                        ArchitecturePlatform.SPRING));
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+
+        // On Quarkus multi-root base packages where each module is its own base package, cross-module access
+        // into "<moduleBase>.internal" is still detected.
+        ArchitectureRuleResultDto quarkusMultiRoot = new InternalPackagesShouldNotBeAccessedExternallyRule()
+                .evaluate(new ArchitectureContext(
+                        importedClasses,
+                        List.of(
+                                "io.github.jdubois.bootui.engine.architecture.modulefixtures.moduleone",
+                                "io.github.jdubois.bootui.engine.architecture.modulefixtures.moduletwo"),
+                        ArchitecturePlatform.QUARKUS));
+        assertThat(quarkusMultiRoot.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(quarkusMultiRoot.violationCount()).isEqualTo(3);
+    }
+
+    @Test
+    void noSelfInvocationIgnoresPrivateStaticAndFinalHelpersInClassLevelAsyncAndFlagsMethodReferences() {
+        assertThat(evaluate(new NoSelfInvocationOfProxiedMethodsRule(), ClassLevelAsyncWithUnannotatedHelpers.class)
+                        .status())
+                .isEqualTo(ArchitectureRuleSupport.PASS);
+
+        ArchitectureRuleResultDto methodRefResult =
+                evaluate(new NoSelfInvocationOfProxiedMethodsRule(), MethodRefBean.class);
+        assertThat(methodRefResult.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(methodRefResult.violationCount()).isEqualTo(1);
+        assertThat(methodRefResult.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("MethodRefBean.save()");
+    }
+
+    @Test
+    void liteModeBeanMethodsDetectsAutoConfigurationAndStaticSiblingCallsAndUsesCallLocation() {
+        JavaClasses classes = new ClassFileImporter()
+                .importClasses(AutoConfigBean.class, StaticSiblingConfig.class, LiteBeanCallingExternalMethod.class);
+        ArchitectureContext externalCallContext = new ArchitectureContext(
+                new ClassFileImporter().importClasses(LiteBeanCallingExternalMethod.class),
+                List.of(getClass().getPackageName()),
+                ArchitecturePlatform.SPRING);
+        ArchitectureRuleResultDto externalResult =
+                new LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule().evaluate(externalCallContext);
+        assertThat(externalResult.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+        assertThat(externalCallContext.evidence().requiredUnknown()).isFalse();
+
+        ArchitectureContext context =
+                new ArchitectureContext(classes, List.of(getClass().getPackageName()), ArchitecturePlatform.SPRING);
+        ArchitectureRuleResultDto result =
+                new LiteModeBeanMethodsShouldNotCallSiblingBeanMethodsRule().evaluate(context);
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample ->
+                        assertThat(sample).contains("AutoConfigBean.first()").contains("AutoConfigBean.second()"))
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("StaticSiblingConfig.first()")
+                        .contains("StaticSiblingConfig.seco"));
+        assertThat(result.sampleLocations()).allSatisfy(location -> {
+            assertThat(location.memberName()).isEqualTo("first");
+            assertThat(location.line()).isPositive();
+        });
+    }
+
+    @Test
+    void utilityClassesIgnoresSubclassesInterfaceImplementationsAndSuperclasses() {
+        ArchitectureRuleResultDto result = evaluate(
+                new UtilityClassesShouldBeFinalWithPrivateConstructorRule(),
+                ExceptionWithStaticFactory.class,
+                InterfaceImplementingStaticHolder.class,
+                BaseClassWithStaticHelper.class,
+                SubclassOfBaseWithStaticHelper.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void noDeprecatedApiRuleExemptsCallsInsideDeprecatedClassOrMethod() {
+        assertThat(evaluate(new NoDeprecatedApiRule(), DeprecatedApiTarget.class, DeprecatedCallerScope.class)
+                        .status())
+                .isEqualTo(ArchitectureRuleSupport.PASS);
+
+        ArchitectureRuleResultDto activeResult =
+                evaluate(new NoDeprecatedApiRule(), DeprecatedApiTarget.class, ActiveDeprecatedCaller.class);
+        assertThat(activeResult.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(activeResult.violationCount()).isEqualTo(1);
+    }
+
+    @Test
+    void noSystemExitAllowsJep512PackagePrivateAndInstanceMainEntryPoints() {
+        ArchitectureRuleResultDto result =
+                evaluate(new NoSystemExitRule(), PackagePrivateMainLauncher.class, InstanceMainLauncher.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
     // Fixtures compile into target/test-classes, which ARCH-CODE-013 deliberately ignores; copy them to main output.
     private ArchitectureRuleResultDto evaluateMainOutput(ArchitectureRule rule, Class<?>... classes) {
         JavaClasses importedClasses = CompiledOutputFixtures.importFrom(tempDir, "target/classes", classes);
@@ -1768,8 +1908,8 @@ class ArchitectureRulesTests {
 
         @Async
         @EventListener
-        String methodLevel(String event) {
-            return event;
+        Future<String> methodLevel(String event) {
+            return CompletableFuture.completedFuture(event);
         }
 
         @EventListener
@@ -1782,8 +1922,8 @@ class ArchitectureRulesTests {
     private static class ClassLevelAsyncEventListenerBean {
 
         @EventListener
-        String classLevel(String event) {
-            return event;
+        CompletableFuture<String> classLevel(String event) {
+            return CompletableFuture.completedFuture(event);
         }
     }
 
@@ -1956,6 +2096,159 @@ class ArchitectureRulesTests {
 
         void check(int x) {
             assert x > 0 : "x must be positive";
+        }
+    }
+
+    private static class NonFutureAsyncEventListenerBean {
+
+        @Async
+        @EventListener
+        String handledByArchSpring011(String event) {
+            return event;
+        }
+    }
+
+    @Async
+    private static class ClassLevelAsyncWithUnannotatedHelpers {
+
+        public void execute() {
+            privateHelper();
+            staticHelper();
+            finalHelper();
+        }
+
+        private void privateHelper() {}
+
+        static void staticHelper() {}
+
+        public final void finalHelper() {}
+    }
+
+    @Service
+    private static class MethodRefBean {
+
+        Runnable run() {
+            return this::save;
+        }
+
+        @Transactional
+        public void save() {}
+    }
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.TYPE)
+    @Configuration(proxyBeanMethods = false)
+    private @interface CustomAutoConfiguration {}
+
+    @CustomAutoConfiguration
+    private static class AutoConfigBean {
+
+        @Bean
+        String first() {
+            return second();
+        }
+
+        @Bean
+        String second() {
+            return "two";
+        }
+    }
+
+    @Configuration
+    private static class StaticSiblingConfig {
+
+        @Bean
+        String first() {
+            return second();
+        }
+
+        @Bean
+        static String second() {
+            return "two";
+        }
+    }
+
+    @Component
+    private static class LiteBeanCallingExternalMethod {
+
+        @Bean
+        String value() {
+            return String.valueOf(42);
+        }
+    }
+
+    private static class ExceptionWithStaticFactory extends RuntimeException {
+
+        static ExceptionWithStaticFactory of(String message) {
+            return new ExceptionWithStaticFactory();
+        }
+    }
+
+    private static class InterfaceImplementingStaticHolder implements java.io.Serializable {
+
+        static String helper() {
+            return "ok";
+        }
+    }
+
+    private static class BaseClassWithStaticHelper {
+
+        static String helper() {
+            return "ok";
+        }
+    }
+
+    private static final class SubclassOfBaseWithStaticHelper extends BaseClassWithStaticHelper {
+
+        private final int id = 1;
+    }
+
+    private static class DeprecatedApiTarget {
+
+        @Deprecated
+        static String legacyOperation() {
+            return "legacy";
+        }
+    }
+
+    @Deprecated
+    private static class DeprecatedCallerScope {
+
+        String callFromDeprecatedClass() {
+            return DeprecatedApiTarget.legacyOperation();
+        }
+    }
+
+    private static class ActiveDeprecatedCaller {
+
+        @Deprecated
+        String allowedInDeprecatedMethod() {
+            Runnable r = new Runnable() {
+                @Override
+                public void run() {
+                    DeprecatedApiTarget.legacyOperation();
+                }
+            };
+            r.run();
+            return DeprecatedApiTarget.legacyOperation();
+        }
+
+        String flaggedInActiveMethod() {
+            return DeprecatedApiTarget.legacyOperation();
+        }
+    }
+
+    private static class PackagePrivateMainLauncher {
+
+        static void main(String[] args) {
+            System.exit(0);
+        }
+    }
+
+    private static class InstanceMainLauncher {
+
+        void main(String[] args) {
+            System.exit(0);
         }
     }
 }
