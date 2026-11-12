@@ -1011,7 +1011,12 @@ class CiAssessmentRunnerTests {
                 responseTransforms.put(
                         "get_spring_report",
                         body -> replaceResponseField(body, "evidence", JsonValue.parseStrict("""
-                            {"usable":false,"coverageComplete":false,"limitations":["private-evidence-reason"]}
+                            {"usable":false,"coverageComplete":false,"limitations":[
+                              "SPRING-ASYNC-001: private-evidence-reason",
+                              "private-evidence-reason",
+                              "SEC-PRIVATESECRET-123: private-evidence-reason",
+                              "SPRING-ASYNC-001: private-finding-payload"
+                            ]}
                             """)));
             case "REQUEST_FAILED" -> responseTransforms.put("get_spring_report", body -> "private-invalid-json");
             case "SUPPRESSION_PRESENT" -> {
@@ -1038,6 +1043,19 @@ class CiAssessmentRunnerTests {
         assertThat(Files.readString(output.resolve("bundle.json"))).contains("\"reason\": \"" + reason + "\"");
         assertThat(Files.readString(output.resolve("summary.md")))
                 .contains("| spring | false | SKIPPED | 0 | 0 | " + reason + " |");
+        assertThat(Files.readString(output.resolve("summary.md")))
+                .contains("1 of 2 advisors assessed", "not that skipped advisors passed");
+        if ("EVIDENCE_UNEVALUABLE".equals(reason)) {
+            assertThat(Files.readString(output.resolve("summary.md")))
+                    .contains(
+                            "usable=false",
+                            "coverageComplete=false",
+                            "reported componentsAnalyzed=",
+                            "reported coverage limitations=4");
+        } else if ("UNAVAILABLE".equals(reason)) {
+            assertThat(Files.readString(output.resolve("summary.md")))
+                    .contains("Required diagnostic tools are not advertised");
+        }
         var junit = DocumentBuilderFactory.newInstance()
                 .newDocumentBuilder()
                 .parse(output.resolve("junit.xml").toFile());
@@ -1051,7 +1069,11 @@ class CiAssessmentRunnerTests {
                 .isZero();
         for (String name : List.of("bundle.json", "summary.md", "junit.xml")) {
             assertThat(Files.readString(output.resolve(name)))
-                    .doesNotContain("private-finding-payload", "private-evidence-reason", "private-invalid-json");
+                    .doesNotContain(
+                            "private-finding-payload",
+                            "private-evidence-reason",
+                            "private-invalid-json",
+                            "PRIVATESECRET");
         }
     }
 

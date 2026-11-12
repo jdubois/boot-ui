@@ -38,6 +38,19 @@ The Markdown **Reason** column and JUnit skipped-test message carry the same sta
 such as `UNAVAILABLE`, `EVIDENCE_UNEVALUABLE`, or `REQUEST_FAILED`. A skipped advisor has not been assessed;
 its zero finding count is not evidence that it passed.
 
+Overall **PASS** means the configured policy passed, not that every advisor passed. `UNAVAILABLE` means required
+diagnostic tools were absent from the catalog. `EVIDENCE_UNEVALUABLE` means tools returned a report, but usable,
+complete evidence was not established. These implementation paths can differ for unconfigured integrations.
+
+::: details Clearer skipped-advisor explanations (unreleased)
+
+The human summary explains these paths and reports bounded coverage diagnostics: evidence flags, reported check/subject
+counts, and the number of coverage limitations. Counts are explicitly unvalidated observations, not assessed findings.
+Raw limitation text, application configuration, and finding prose are excluded. The JSON schema and stable reason codes
+are unchanged, so offline checks retain their existing contract. Partial coverage is still not a passed assessment.
+
+:::
+
 ::: details Advisor selection and framework differences
 
 The live CI allow-list deliberately excludes Memory because it may trigger a full garbage collection. Vulnerability
@@ -118,6 +131,59 @@ The Action starts the process from `app-command` in a fresh process group and st
 `app-command: none`, the caller remains responsible for starting and stopping the application. Assessment and upload
 use `!cancelled()`; bounded cleanup of the owned process uses `always()`.
 Cancellation or a hard runner timeout can still prevent collection and upload.
+
+## Maven and Gradle profiles
+
+**For BootUI 2.4.0**, `app-command: auto` activates Maven profile `bootui-ci` when the POM declares BootUI.
+It does not activate a profile merely because it is called `dev`. If your BootUI dependency is inside `dev`, use:
+
+```yaml
+- name: BootUI diagnostics
+  uses: jdubois/boot-ui@v2.4.0
+  with:
+    bootui-version: '2.4.0'
+    app-command: ./mvnw -B -Pdev spring-boot:run
+```
+
+Keep the application's BootUI dependency and CLI version aligned. The explicit `bootui-version` also handles a version
+property declared inside `dev`, which 2.4.0's version discovery cannot resolve. For Quarkus, replace `spring-boot:run`
+with `quarkus:dev`. For a Gradle build using the documented `dev` project property, use
+`app-command: ./gradlew --no-daemon bootRun -Pdev` (or `quarkusDev`).
+
+A dedicated Maven `bootui-ci` profile containing the dependency is the predictable CI alternative; it does not replace
+your local development profile. Maven `-Pdev` selects build dependencies, not Spring's runtime profile.
+The Action enables BootUI and its CLI endpoint through environment settings, but cannot load an absent dependency.
+
+If startup times out, run the exact command locally and check `http://127.0.0.1:8080/bootui/api/cli` (adjust the port/path).
+Check dependency inclusion and the API path before increasing the timeout. A live process or a 404 alone does not
+establish that BootUI is configured. Raw application logs are intentionally not uploaded.
+
+::: details Automatic profile selection and named Action steps (unreleased)
+
+The next Action release preserves the `bootui-ci` convention and additionally activates one unambiguous root-POM
+profile containing the Spring starter or Quarkus extension. Namespace-aware inspection includes selected-profile
+properties and dependency management, but dependency management alone, test/plugin dependencies, and comments do not
+establish runtime availability. A direct optional dependency still counts.
+
+Existing Maven profile options and activation rules retain the original launch command with a notice; custom parent,
+settings, or multi-module models should use an explicit `app-command`. Multiple unconfigured candidate profiles fail
+with explicit-command guidance. Inferred development profiles apply only to startup: `test-command: auto` retains
+plain `verify`, or `-Pbootui-ci verify` for the established CI convention. Use an explicit workload for other flags.
+Gradle behavior is unchanged.
+
+Composite substeps have readable operation names such as **Start application** and **Assess application**.
+Expanded raw logs still show the underlying scripts. Readiness failures show process/HTTP status without publishing
+response bodies or application logs. These improvements do not change the published `v2.4.0` Action.
+
+:::
+
+::: details GPG owner-trust warning
+
+`Good signature` followed by an owner-trust warning is not a failed verification. The Action checks the signature
+against the pinned BootUI release signing fingerprint. GPG separately warns that its temporary keyring has no personal
+trust certification for the key's owner. Do not disable signature verification or mark arbitrary keys as trusted.
+
+:::
 
 ::: details Collection limits and sanitized content
 

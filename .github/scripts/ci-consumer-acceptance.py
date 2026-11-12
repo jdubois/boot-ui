@@ -940,6 +940,77 @@ def exercise_stack(stack, production, diagnostic, violation_jar, cli, work, sent
     print(f"{stack}: opt-in packaging, live assessment, failure reporting, and identity checks passed", flush=True)
 
 
+def exercise_managed_start(project, repository, version, stack, cli, work, sentinel):
+    """Prove profile inference using the real launcher, not a prebuilt java -jar process."""
+    managed = work / f"{stack}-managed-project"
+    shutil.copytree(project, managed, ignore=shutil.ignore_patterns("target"))
+    pom = managed / "pom.xml"
+    source = pom.read_text(encoding="utf-8").replace(
+        "<id>bootui-ci</id>",
+        f"<id>dev</id><properties><bootui.version>{version}</bootui.version></properties>",
+    )
+    if stack == "webflux":
+        source = source.replace(
+            "<spring.web.starter>spring-boot-starter-web</spring.web.starter>",
+            "<spring.web.starter>spring-boot-starter-webflux</spring.web.starter>",
+        )
+    pom.write_text(source, encoding="utf-8")
+    shutil.copy2(ROOT / "mvnw", managed / "mvnw")
+    shutil.copytree(ROOT / ".mvn/wrapper", managed / ".mvn/wrapper")
+    state = work / f"{stack}-managed-state"
+    state.mkdir()
+    outputs = state / "outputs"
+    port = available_loopback_port()
+    url = f"http://127.0.0.1:{port}"
+    environment = dict(
+        os.environ,
+        GITHUB_WORKSPACE=str(managed),
+        GITHUB_OUTPUT=str(outputs),
+        BOOTUI_STATE_DIR=str(state),
+        BOOTUI_APP_COMMAND="auto",
+        BOOTUI_PHASE="run",
+        BOOTUI_URL=url,
+        BOOTUI_API_PATH="/bootui/api",
+        BOOTUI_STARTUP_TIMEOUT="180",
+        CI_CONSUMER_INSTANCE=uuid.uuid4().hex,
+        MAVEN_OPTS=os.environ.get("MAVEN_OPTS", "") + f" -Dmaven.repo.local={repository}",
+    )
+    detected = run(["python3", str(ACTION / "resolve-version.py"), "auto"], env=environment)
+    require(detected.stdout.strip() == version, "Managed startup resolved the wrong CLI version")
+    try:
+        try:
+            run(["bash", str(ACTION / "quick-start.sh")], env=environment, timeout=210)
+        except AssertionError as failure:
+            log = state / "application.log"
+            detail = log.read_text(encoding="utf-8", errors="replace")[-12000:] if log.is_file() else ""
+            raise AssertionError(f"{failure}\nSynthetic consumer startup log:\n{detail}") from failure
+        case = make_case(work, f"{stack}-managed-assessment", "critical", runtime_context=False)
+        environment_outputs = action_outputs(outputs)
+        require(environment_outputs.get("managed") == "true", "The Action did not own the started application")
+        for phase in ("attach", "assess"):
+            phase_environment = dict(
+                environment,
+                GITHUB_OUTPUT=str(case["dir"] / f"{phase}.outputs"),
+                BOOTUI_CLI_JAR=str(cli),
+                BOOTUI_PHASE=phase,
+                BOOTUI_POLICY=str(case["policy"]),
+                BOOTUI_ASSESSMENT_ID=case["id"],
+                BOOTUI_WITNESS=str(case["witness"]),
+                BOOTUI_OUTPUT_DIR=str(case["reports"]),
+                BOOTUI_ATTACH_EXIT_CODE="0",
+            )
+            result = run(["bash", str(ACTION / "invoke.sh")], env=phase_environment)
+            require(sentinel not in result.stdout + result.stderr, "Managed assessment leaked its sentinel")
+        check_bundle(case, cli, case["reports"], 0, sentinel)
+    finally:
+        if outputs.exists():
+            values = action_outputs(outputs)
+            if values.get("pid"):
+                run(["bash", str(ACTION / "quick-stop.sh")],
+                    env=dict(environment, BOOTUI_APP_PID=values["pid"], BOOTUI_APP_URL=url))
+    print(f"{stack}: Action auto-started the dev-only BootUI profile and assessed it", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--maven-repository", type=Path, required=True, help="Absolute isolated Maven repository")
@@ -961,6 +1032,7 @@ def main():
             diagnostic = build_consumer(project, work, repository, version, stack, True, spring_artifacts)
             violation = build_consumer(project, work, repository, version, stack, True, spring_artifacts, broken=True)
             exercise_stack(stack, production, diagnostic, violation, cli, work, sentinel)
+            exercise_managed_start(project, repository, version, stack, cli, work, sentinel)
         quarkus_project = work / "quarkus-project"
         shutil.copytree(FIXTURE / "quarkus", quarkus_project)
         exercise_quarkus(
@@ -972,6 +1044,7 @@ def main():
             cli,
             work,
         )
+        exercise_managed_start(quarkus_project, repository, version, "quarkus", cli, work, sentinel)
     print("Spring and Quarkus consumer acceptance passed; release-signature and GitHub runner execution were not exercised.")
 
 

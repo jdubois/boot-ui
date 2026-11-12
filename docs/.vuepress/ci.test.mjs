@@ -7,6 +7,10 @@ test('CI quick start and references are deliberate sidebar entries, not addition
   const started = sidebar.find((group) => group.text === 'Get started')
   const reference = sidebar.find((group) => group.text === 'Reference')
   assert.ok(started.children.some((item) => item.link === '/ci'))
+  assert.equal(
+    started.children.findIndex((item) => item.link === '/ci') + 1,
+    started.children.findIndex((item) => item.link === '/setup/java-agent')
+  )
   assert.ok(reference.children.some((item) => item.link === '/ci/framework-tests'))
   assert.ok(reference.children.some((item) => item.link === '/ci/reference'))
   const links = sidebar.flatMap((group) => group.children?.map((item) => item.link) ?? [group.link])

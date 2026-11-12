@@ -22,6 +22,8 @@ spring=false
 build_tool=
 test_command=
 bootui_profile=false
+profile=
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 if [[ -f pom.xml ]]; then
   if grep -Eq '<artifactId>quarkus-maven-plugin</artifactId>' pom.xml; then
@@ -30,10 +32,8 @@ if [[ -f pom.xml ]]; then
   if grep -Eq '<artifactId>(spring-boot-maven-plugin|spring-boot-starter-parent|spring-boot-starter[^<]*)</artifactId>' pom.xml; then
     spring=true
   fi
-  if grep -Eq '<id>bootui-ci</id>' pom.xml \
-      && grep -Eq '<artifactId>bootui-(spring-boot-starter|quarkus)</artifactId>' pom.xml; then
-    bootui_profile=true
-  fi
+  profile="$(python3 "$script_dir/maven-context.py" "$working_directory" "$kind")"
+  [[ -z "$profile" ]] || bootui_profile=true
   if [[ -x ./mvnw ]]; then
     build_tool='./mvnw'
   elif command -v mvn >/dev/null 2>&1; then
@@ -42,7 +42,7 @@ if [[ -f pom.xml ]]; then
     fail "A Maven build was detected, but neither ./mvnw nor mvn is available."
   fi
   if [[ "$bootui_profile" == true ]]; then
-    test_command="$build_tool -Pbootui-ci verify"
+    test_command="$build_tool -P$profile verify"
   else
     test_command="$build_tool verify"
   fi
@@ -77,7 +77,7 @@ case "$kind" in
     elif [[ "$spring" == true ]]; then
       if [[ "$build_tool" == './mvnw' || "$build_tool" == mvn ]]; then
         if [[ "$bootui_profile" == true ]]; then
-          printf '%s\n' "$build_tool -Pbootui-ci spring-boot:run"
+          printf '%s\n' "$build_tool -P$profile spring-boot:run"
         else
           printf '%s\n' "$build_tool spring-boot:run"
         fi
@@ -87,7 +87,7 @@ case "$kind" in
     elif [[ "$quarkus" == true ]]; then
       if [[ "$build_tool" == './mvnw' || "$build_tool" == mvn ]]; then
         if [[ "$bootui_profile" == true ]]; then
-          printf '%s\n' "$build_tool -Pbootui-ci quarkus:dev"
+          printf '%s\n' "$build_tool -P$profile quarkus:dev"
         else
           printf '%s\n' "$build_tool quarkus:dev"
         fi

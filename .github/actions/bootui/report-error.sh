@@ -8,7 +8,9 @@ assessment_id="${BOOTUI_ASSESSMENT_ID:-}"
   exit 1
 }
 [[ "$assessment_id" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]] || assessment_id="unavailable"
-if [[ "${BOOTUI_PREPARE_OUTCOME:-success}" == failure ]]; then
+if [[ "${BOOTUI_APP_CONFIG_ERROR:-false}" == true ]]; then
+  code="APP_START_FAILED"
+elif [[ "${BOOTUI_PREPARE_OUTCOME:-success}" == failure ]]; then
   code="CLI_SETUP_FAILED"
 elif [[ "${BOOTUI_START_OUTCOME:-success}" == failure ]]; then
   code="APP_START_FAILED"

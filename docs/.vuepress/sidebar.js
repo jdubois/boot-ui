@@ -73,11 +73,11 @@ const groups = [
       'SETUP.md',
       'setup/webflux.md',
       'setup/quarkus.md',
+      'CI.md',
       'setup/java-agent.md',
       'setup/activation.md',
       'setup/environments.md',
-      'setup/troubleshooting.md',
-      'CI.md'
+      'setup/troubleshooting.md'
     ]
   },
   {

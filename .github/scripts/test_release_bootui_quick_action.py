@@ -5,6 +5,7 @@ import socket
 import subprocess
 import tempfile
 import unittest
+from xml.sax.saxutils import escape
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -67,6 +68,12 @@ class QuickActionTests(unittest.TestCase):
         self.assertEqual(action.count("inputs.url || 'http://127.0.0.1:8080'"), 4)
         self.assertEqual(action.count("BOOTUI_CLI_JAR: ${{ steps.prepare.outputs.cli-jar }}"), 2)
         self.assertIn('echo "cli-jar=$cli_jar" >> "$GITHUB_OUTPUT"', (ACTION / "prepare-cli.sh").read_text())
+
+    def test_composite_steps_have_user_facing_names(self):
+        steps = ACTION_METADATA.read_text().split("  steps:\n", 1)[1].split("\n    - ")
+        for step in steps:
+            if step.strip():
+                self.assertRegex(step, r"(?:^|\n)\s*(?:- )?name: [A-Z][^\n]+")
 
     def test_workload_runs_even_when_setup_or_attachment_fails(self):
         action = ACTION_METADATA.read_text()
@@ -241,6 +248,7 @@ class QuickActionTests(unittest.TestCase):
         (project / "mvnw").chmod(0o755)
         (project / "pom.xml").write_text(
             "<project><profiles><profile><id>bootui-ci</id><dependencies><dependency>"
+            "<groupId>com.julien-dubois.bootui</groupId>"
             "<artifactId>bootui-spring-boot-starter</artifactId>"
             "</dependency></dependencies></profile></profiles>"
             "<dependencies><dependency><artifactId>spring-boot-starter-web</artifactId>"
@@ -260,6 +268,189 @@ class QuickActionTests(unittest.TestCase):
         )
         self.assertEqual(workload.returncode, 0, workload.stderr)
         self.assertEqual(workload.stdout, "./mvnw -Pbootui-ci verify\n")
+
+    def maven_project(self, body):
+        project = self.root / "maven"
+        project.mkdir(exist_ok=True)
+        (project / "mvnw").write_text("#!/bin/sh\nexit 0\n")
+        (project / "mvnw").chmod(0o755)
+        (project / "pom.xml").write_text(
+            '<project xmlns="http://maven.apache.org/POM/4.0.0">'
+            '<build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId>'
+            '</plugin></plugins></build>' + body + '</project>'
+        )
+        return project
+
+    def dependency(self, artifact="bootui-spring-boot-starter", version="2.4.0", extra="",
+                   group="com.julien-dubois.bootui"):
+        return (
+            f"<dependencies><dependency><groupId>{group}</groupId><artifactId>{artifact}</artifactId>"
+            + (f"<version>{version}</version>" if version else "")
+            + extra + "</dependency></dependencies>"
+        )
+
+    def profile(self, name, body):
+        return f"<profile><id>{escape(name)}</id>{body}</profile>"
+
+    def detect(self, project, kind="app", configured="auto", **environment):
+        return subprocess.run(
+            ["bash", str(ACTION / "detect-command.sh"), kind, configured],
+            env={**dict(self.env, BOOTUI_WORKING_DIRECTORY=str(project), MAVEN_ARGS=""), **environment},
+            capture_output=True, text=True, check=False,
+        )
+
+    def resolve(self, project, **environment):
+        return subprocess.run(
+            ["python3", str(ACTION / "resolve-version.py"), "auto"],
+            env={**dict(self.env, GITHUB_WORKSPACE=str(project), BOOTUI_PHASE="run",
+                        MAVEN_ARGS=""), **environment},
+            capture_output=True, text=True, check=False,
+        )
+
+    def test_unique_runtime_profile_is_selected_for_startup_not_workload(self):
+        for artifact, extra, profile in (
+            ("bootui-spring-boot-starter", "", "dev"),
+            ("bootui-spring-boot-starter", "<optional>true</optional>", "local-ui"),
+            ("bootui-quarkus", "<scope>runtime</scope>", "diagnostic"),
+        ):
+            with self.subTest(artifact=artifact, profile=profile):
+                project = self.maven_project(
+                    "<profiles>" + self.profile(profile, self.dependency(artifact, extra=extra)) + "</profiles>"
+                )
+                if artifact == "bootui-quarkus":
+                    pom = project / "pom.xml"
+                    pom.write_text(pom.read_text().replace("spring-boot-maven-plugin", "quarkus-maven-plugin"))
+                app = self.detect(project)
+                self.assertEqual(app.returncode, 0, app.stderr)
+                self.assertIn(f"-P{profile} ", app.stdout)
+                self.assertIn("quarkus:dev" if artifact == "bootui-quarkus" else "spring-boot:run", app.stdout)
+                workload = self.detect(project, "test")
+                self.assertEqual(workload.stdout, "./mvnw verify\n")
+                version = self.resolve(project)
+                self.assertEqual(version.returncode, 0, version.stderr)
+                self.assertEqual(version.stdout, "2.4.0\n")
+
+    def test_profile_version_properties_override_root_and_dependency_management_resolves_versions(self):
+        project = self.maven_project(
+            "<properties><bootui.version>2.3.0</bootui.version></properties><profiles>"
+            + self.profile("dev", "<properties><bootui.version>2.4.0</bootui.version></properties>"
+                           "<dependencyManagement>" + self.dependency(version="${bootui.version}")
+                           + "</dependencyManagement>" + self.dependency(version=""))
+            + "</profiles>"
+        )
+        self.assertIn("-Pdev ", self.detect(project).stdout)
+        version = self.resolve(project)
+        self.assertEqual(version.returncode, 0, version.stderr)
+        self.assertEqual(version.stdout, "2.4.0\n")
+
+    def test_unrelated_conventional_profile_does_not_hide_the_runtime_profile(self):
+        project = self.maven_project("<profiles>"
+                                     + self.profile("bootui-ci", "<properties><example>true</example></properties>")
+                                     + self.profile("dev", self.dependency()) + "</profiles>")
+        self.assertEqual(self.detect(project).stdout, "./mvnw -Pdev spring-boot:run\n")
+        self.assertEqual(self.resolve(project).stdout, "2.4.0\n")
+        project = self.maven_project(self.dependency() + "<profiles>"
+                                     + self.profile("bootui-ci", "<properties><example>true</example></properties>")
+                                     + "</profiles>")
+        self.assertEqual(self.detect(project).stdout, "./mvnw -Pbootui-ci spring-boot:run\n")
+        self.assertEqual(self.detect(project, "test").stdout, "./mvnw -Pbootui-ci verify\n")
+
+    def test_conventional_profile_properties_and_inactive_alternative_versions(self):
+        project = self.maven_project(
+            self.dependency(version="${bootui.version}") + "<profiles>"
+            + self.profile("bootui-ci", "<properties><bootui.version>2.4.0</bootui.version></properties>")
+            + self.profile("other", self.dependency(version="2.5.0")) + "</profiles>"
+        )
+        self.assertEqual(self.detect(project).stdout, "./mvnw -Pbootui-ci spring-boot:run\n")
+        self.assertEqual(self.detect(project, "test").stdout, "./mvnw -Pbootui-ci verify\n")
+        self.assertEqual(self.resolve(project).stdout, "2.4.0\n")
+        for environment in ({"BOOTUI_PHASE": "attach"}, {"BOOTUI_APP_COMMAND": "none"},
+                            {"BOOTUI_APP_COMMAND": "./mvnw -Pother spring-boot:run"},
+                            {"MAVEN_ARGS": "-Pother"}):
+            result = self.resolve(project, **environment)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Multiple BootUI versions", result.stderr)
+        self.assertEqual(self.detect(project, MAVEN_ARGS="-Pother").stdout,
+                         "./mvnw -Pbootui-ci spring-boot:run\n")
+
+    def test_non_runtime_entries_do_not_activate_profiles(self):
+        for body in (
+            "<dependencyManagement>" + self.dependency() + "</dependencyManagement>",
+            self.dependency(group="example"),
+            self.dependency(extra="<scope>test</scope>"),
+            self.dependency(artifact="bootui-cli"),
+            "<!-- " + self.dependency() + " -->",
+            "<build><plugins><plugin><artifactId>example</artifactId>"
+            + self.dependency() + "</plugin></plugins></build>",
+        ):
+            with self.subTest(body=body):
+                project = self.maven_project("<profiles>" + self.profile("dev", body) + "</profiles>")
+                result = self.detect(project)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "./mvnw spring-boot:run\n")
+        project = self.maven_project(self.dependency() + "<profiles>"
+                                     + self.profile("dev", self.dependency(version="2.5.0")) + "</profiles>")
+        self.assertEqual(self.detect(project).stdout, "./mvnw spring-boot:run\n")
+        self.assertEqual(self.resolve(project).stdout, "2.4.0\n")
+
+    def test_ambiguous_and_unsafe_profile_ids_require_explicit_commands(self):
+        for profiles, message in (
+            (self.profile("dev", self.dependency()) + self.profile("local", self.dependency()), "dev, local"),
+            *[(self.profile(name, self.dependency()), "profile ID")
+              for name in ("bad,id", "!dev", "-dev", "?dev", "$(touch injected)", "bad\nid")],
+        ):
+            with self.subTest(profiles=profiles):
+                project = self.maven_project("<profiles>" + profiles + "</profiles>")
+                result = self.detect(project)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertEqual(result.stdout, "")
+                for configured in ("./mvnw -Pdev spring-boot:run", "none"):
+                    result = self.detect(project, configured=configured)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, configured + "\n")
+
+    def test_existing_activation_and_external_profile_selection_keep_legacy_behavior(self):
+        for activation, arguments, configuration in (
+            ("<activation><activeByDefault>true</activeByDefault></activation>", "", ""),
+            ("<activation><property><name>dev</name></property></activation>", "", ""),
+            ("", "-Pdev", ""),
+            ("", "--activate-profiles=dev", ""),
+            ("", "-Dbootui.version=2.5.0", ""),
+            ("", "-f service/pom.xml", ""),
+            ("", "", "-Pdev\n"),
+        ):
+            with self.subTest(activation=activation, arguments=arguments, configuration=configuration):
+                project = self.maven_project("<profiles>"
+                                             + self.profile("dev", self.dependency() + activation) + "</profiles>")
+                config = project / ".mvn"
+                config.mkdir(exist_ok=True)
+                (config / "maven.config").write_text(configuration)
+                result = self.detect(project, MAVEN_ARGS=arguments)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "./mvnw spring-boot:run\n")
+                self.assertIn("preserved", result.stderr)
+
+    def test_profile_ambiguity_fails_before_download_and_retains_application_error_classification(self):
+        project = self.maven_project("<profiles>"
+                                     + self.profile("dev", self.dependency())
+                                     + self.profile("local", self.dependency()) + "</profiles>")
+        self.env.update(GITHUB_WORKSPACE=str(project), BOOTUI_PHASE="run")
+        result = self.run_script("prepare-cli.sh")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Multiple Maven profiles", result.stderr)
+        self.assertEqual(self.output(), {"app-config-error": "true"})
+        self.assertFalse((self.root / "bootui-cli").exists())
+        self.outputs.unlink()
+        self.env.update(
+            BOOTUI_OUTPUT_DIR=str(self.root / "failed-assessment"),
+            BOOTUI_APP_CONFIG_ERROR="true",
+            BOOTUI_PREPARE_OUTCOME="failure",
+        )
+        report = self.run_script("report-error.sh")
+        self.assertEqual(report.returncode, 0, report.stderr)
+        bundle = Path(self.output()["report-dir"]) / "bundle.json"
+        self.assertIn("APP_START_FAILED", bundle.read_text())
 
     def test_auto_workload_preserves_maven_defaults_and_custom_override(self):
         project = self.root / "workload"
@@ -520,6 +711,22 @@ runpy.run_path(sys.argv[0], run_name="__main__")
             subprocess.run(["kill", "-0", "--", f"-{pid}"], capture_output=True).returncode,
             0,
         )
+
+    def test_early_process_exit_is_reported_instead_of_aborting_the_process_probe(self):
+        state = self.root / "early-exit-state"
+        state.mkdir()
+        with socket.socket() as candidate:
+            candidate.bind(("127.0.0.1", 0))
+            port = candidate.getsockname()[1]
+        self.env.update(
+            BOOTUI_STATE_DIR=str(state),
+            BOOTUI_APP_COMMAND="exit 2",
+            BOOTUI_URL=f"http://127.0.0.1:{port}",
+            BOOTUI_STARTUP_TIMEOUT="5",
+        )
+        result = self.run_script("quick-start.sh")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("exited before BootUI became ready", result.stderr)
 
     def test_start_rejects_non_loopback_targets_and_occupied_endpoints(self):
         state = self.root / "invalid-start"

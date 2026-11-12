@@ -266,7 +266,8 @@ npm test
 
 The Java 17 baseline also builds standalone Spring MVC, Spring WebFlux, and Quarkus consumers, verifies that their
 production packages exclude BootUI and their opt-in CI packages contain the current candidate, and exercises the CLI
-and Action invocation scripts against each. To reproduce it with an isolated Maven repository:
+and Action invocation scripts against each. It also starts each stack through the Action's managed launcher with
+BootUI confined to a Maven `dev` profile, then attaches and assesses that process. To reproduce it with an isolated Maven repository:
 
 ```bash
 export MAVEN_OPTS="${MAVEN_OPTS:-} -Dmaven.repo.local=$PWD/.m2"

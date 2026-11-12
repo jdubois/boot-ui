@@ -12,6 +12,10 @@ if [[ "${BOOTUI_SETUP_OUTCOME:-}" != success ]]; then
   echo "::error::BootUI Action input or runner setup failed." >&2
   assessment=1
   failed=1
+elif [[ "${BOOTUI_APP_CONFIG_ERROR:-false}" == true ]]; then
+  echo "::error::BootUI could not select the application's startup configuration." >&2
+  assessment=1
+  failed=1
 elif [[ "${BOOTUI_PREPARE_OUTCOME:-}" != success ]]; then
   echo "::error::BootUI CLI setup failed." >&2
   assessment=1

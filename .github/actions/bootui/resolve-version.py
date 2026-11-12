@@ -4,6 +4,9 @@ from pathlib import Path
 import re
 import sys
 import xml.etree.ElementTree as ET
+import importlib.util
+
+sys.dont_write_bytecode = True
 
 try:
     import tomllib
@@ -177,6 +180,25 @@ if configured != "auto":
     raise SystemExit
 
 root = Path(os.environ.get("GITHUB_WORKSPACE") or Path.cwd()).resolve()
+if (os.environ.get("BOOTUI_PHASE") == "run"
+        and os.environ.get("BOOTUI_APP_COMMAND", "auto") == "auto"
+        and (root / "pom.xml").is_file()):
+    spec = importlib.util.spec_from_file_location("maven_context", Path(__file__).with_name("maven-context.py"))
+    context_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(context_module)
+    context = context_module.load_context(root / "pom.xml")
+    if context is not None:
+        try:
+            selected, established = context.selected()
+        except ValueError:
+            # Startup reports ambiguous profiles; version-only phases keep their existing discovery.
+            established = False
+        if established:
+            selected_versions = context.versions(selected)
+            if len(selected_versions) != 1:
+                fail("Could not resolve one stable BootUI version from the selected Maven context; set bootui-version explicitly.")
+            print(selected_versions.pop())
+            raise SystemExit
 found = set()
 for build in build_files(root):
     if build.name == "pom.xml":

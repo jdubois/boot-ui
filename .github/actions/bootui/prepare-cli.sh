@@ -15,6 +15,13 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 for command in curl gpg java python3; do
   command -v "$command" >/dev/null 2>&1 || fail "Required command is unavailable: $command."
 done
+workspace="${GITHUB_WORKSPACE:-$PWD}"
+if [[ "${BOOTUI_PHASE:-}" == run && "${BOOTUI_APP_COMMAND:-auto}" == auto && -f "$workspace/pom.xml" ]]; then
+  if ! python3 "$script_dir/maven-context.py" "$workspace" app >/dev/null; then
+    echo "app-config-error=true" >> "$GITHUB_OUTPUT"
+    fail "BootUI could not select the application's Maven profile."
+  fi
+fi
 version="$(python3 "$script_dir/resolve-version.py" "${BOOTUI_VERSION:-auto}")"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "bootui-version must resolve to a stable major.minor.patch version."
 

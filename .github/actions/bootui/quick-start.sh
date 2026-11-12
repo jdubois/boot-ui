@@ -101,19 +101,25 @@ pid="$(tr -d '[:space:]' < "$pid_file")"
 endpoint="${url%/}${api_path%/}/cli"
 ready="$state_dir/ready.json"
 deadline=$((SECONDS + startup_timeout))
+http_status=000
 while (( SECONDS < deadline )); do
-  process_stat="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+  process_stat="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
   if [[ -z "$process_stat" || "$process_stat" == Z* ]]; then
     fail "The application command exited before BootUI became ready."
   fi
-  if curl --fail --silent --show-error --noproxy '*' --connect-timeout 2 --max-time 5 \
-      --output "$ready" "$endpoint" 2>/dev/null \
+  if http_status="$(curl --fail --silent --show-error --noproxy '*' --connect-timeout 2 --max-time 5 \
+      --max-filesize 1048576 --write-out '%{http_code}' --output "$ready" "$endpoint" 2>/dev/null)" \
       && python3 - "$ready" <<'PY'
 import json
 import sys
 
-with open(sys.argv[1], encoding="utf-8") as stream:
-    document = json.load(stream)
+try:
+    with open(sys.argv[1], encoding="utf-8") as stream:
+        document = json.load(stream)
+except json.JSONDecodeError:
+    raise SystemExit(1)
+if not isinstance(document, dict):
+    raise SystemExit(1)
 if document.get("enabled") is not True:
     raise SystemExit(1)
 PY
@@ -125,8 +131,9 @@ PY
   sleep 1
 done
 
-process_stat="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+process_stat="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
 if [[ -z "$process_stat" || "$process_stat" == Z* ]]; then
   fail "The application command exited before BootUI became ready."
 fi
-fail "BootUI did not become ready within $startup_timeout seconds."
+[[ "$http_status" =~ ^[0-9]{3}$ ]] || http_status=000
+fail "BootUI did not become ready within $startup_timeout seconds (process running; last HTTP status: $http_status). Check the started build's BootUI dependency/profile and api-path; application logs are not published."
