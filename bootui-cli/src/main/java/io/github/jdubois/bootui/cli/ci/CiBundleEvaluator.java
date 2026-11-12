@@ -83,7 +83,7 @@ public final class CiBundleEvaluator {
             "notExercisedRouteCount",
             "limitationsCount");
     private static final Set<String> RUNTIME_CONTEXT_KEYS_WITH_GATE = union(RUNTIME_CONTEXT_KEYS, "gate");
-    private static final Set<String> RUNTIME_GATE_KEYS = Set.of("kind", "result", "reason", "affected");
+    private static final Set<String> RUNTIME_GATE_KEYS = Set.of("kind", "result", "reason", "affected", "callSites");
     private static final Set<String> RUNTIME_COVERAGE_KEYS = Set.of(
             "sources", "retainedEvents", "byRequestId", "byExecutionId", "byTraceId", "unlinked", "droppedEvents");
     private static final Set<String> RUNTIME_OBSERVATION_KEYS = Set.of("kind", "status", "eligible", "affected");
@@ -439,7 +439,16 @@ public final class CiBundleEvaluator {
             requireKeys(row, RUNTIME_GATE_KEYS);
             String result = row.get("result").asString(null);
             long affected = nonnegative(integer(row.get("affected")));
-            boolean passed = CiRuntimeGate.PASS.equals(result) && affected == 0;
+            JsonValue callSites = row.get("callSites");
+            if (!callSites.isArray() || callSites.size() > CiRuntimeGate.MAX_CALL_SITES) {
+                throw invalid();
+            }
+            for (JsonValue callSite : callSites.values()) {
+                if (!CiRuntimeGate.CALL_SITE.matcher(callSite.asString("")).matches()) {
+                    throw invalid();
+                }
+            }
+            boolean passed = CiRuntimeGate.PASS.equals(result) && affected == 0 && callSites.size() == 0;
             boolean violated = CiRuntimeGate.VIOLATION.equals(result);
             if (!kinds.get(index).equals(row.get("kind").asString(null))
                     || !"-".equals(row.get("reason").asString(null))

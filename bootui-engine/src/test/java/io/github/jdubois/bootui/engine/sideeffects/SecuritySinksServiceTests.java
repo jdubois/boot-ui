@@ -131,6 +131,7 @@ class SecuritySinksServiceTests {
     @Test
     void theAgentReportStatesRequestValueMatchingAndUnconfirmedMatchesAsFields() {
         start();
+        var before = service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null);
         inRequest(
                 FIRST,
                 "sort",
@@ -140,6 +141,8 @@ class SecuritySinksServiceTests {
         var pending = service.agentReport(SideEffectsCatalog.SECURITY_SINKS_ID, null);
         assertThat(pending.requestValueMatching()).isTrue();
         assertThat(pending.unconfirmedSinkMatches()).isEqualTo(1);
+        assertThat(pending.requestValuesHeld()).isEqualTo(before.requestValuesHeld() + 1);
+        assertThat(pending.requestValueChecksSkipped()).isEqualTo(before.requestValueChecksSkipped());
 
         inRequest(
                 SECOND,

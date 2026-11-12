@@ -341,6 +341,26 @@ class CiBundleEvaluatorTests {
                         withRuntimeContext(bundle("PASS", List.of(), policyHash), runtimeContext("CAPTURED")),
                         "test-assessment"))
                 .isEqualTo(1);
+        // call sites: only on a violation, and only as Class#method
+        assertThat(check(
+                        withGate(
+                                bundle("PASS", List.of(), policyHash),
+                                withMember(passed, "callSites", JsonValue.array(List.of(JsonValue.of("a.B#c"))))),
+                        "test-assessment"))
+                .isEqualTo(1);
+        assertThat(check(
+                        withGate(
+                                bundle("VIOLATION", List.of(), policyHash),
+                                withMember(
+                                        violated, "callSites", JsonValue.array(List.of(JsonValue.of("private text"))))),
+                        "test-assessment"))
+                .isEqualTo(1);
+        assertThat(check(
+                        withGate(
+                                bundle("VIOLATION", List.of(), policyHash),
+                                withMember(violated, "callSites", JsonValue.array(List.of(JsonValue.of("a.B#c"))))),
+                        "test-assessment"))
+                .isEqualTo(3);
     }
 
     private JsonValue withGate(JsonValue bundle, JsonValue row) {
@@ -350,7 +370,7 @@ class CiBundleEvaluatorTests {
 
     private static JsonValue gateRow(String kind, String result, String reason, long affected) {
         return JsonValue.parseStrict("""
-                {"kind":"%s","result":"%s","reason":"%s","affected":%d}
+                {"kind":"%s","result":"%s","reason":"%s","affected":%d,"callSites":[]}
                 """.formatted(kind, result, reason, affected));
     }
 

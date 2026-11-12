@@ -2,9 +2,11 @@ package io.github.jdubois.bootui.cli.ci;
 
 import io.github.jdubois.bootui.client.JsonValue;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * The opt-in runtime gate: one security observation kind a policy names in {@code runtimeContext.failOnObservations},
@@ -50,8 +52,26 @@ final class CiRuntimeGate {
 
     private CiRuntimeGate() {}
 
-    /** One gated kind's outcome: {@code reason} is {@code -} unless the kind was not assessed. */
-    record Result(String kind, String result, String reason, long affected) {
+    /** The most call sites a violation keeps. */
+    static final int MAX_CALL_SITES = 5;
+
+    /** A frame as the agent names it, {@code Class#method}: code identity, never a value. */
+    static final Pattern CALL_SITE =
+            Pattern.compile("[A-Za-z_$][A-Za-z0-9_$.]{0,250}#[A-Za-z_$<][A-Za-z0-9_$<>]{0,120}");
+
+    /**
+     * One gated kind's outcome: {@code reason} is {@code -} unless the kind was not assessed, and {@code callSites} are
+     * the first application frames a violation's rows name, when its source records them.
+     */
+    record Result(String kind, String result, String reason, long affected, List<String> callSites) {
+
+        Result {
+            callSites = List.copyOf(callSites);
+        }
+
+        Result(String kind, String result, String reason, long affected) {
+            this(kind, result, reason, affected, List.of());
+        }
 
         static Result notAssessed(String kind, String reason) {
             return new Result(kind, NOT_ASSESSED, reason, 0);
@@ -63,6 +83,9 @@ final class CiRuntimeGate {
             row.put("result", JsonValue.of(result));
             row.put("reason", JsonValue.of(reason));
             row.put("affected", JsonValue.of(affected));
+            row.put(
+                    "callSites",
+                    JsonValue.array(callSites.stream().map(JsonValue::of).toList()));
             return JsonValue.object(row);
         }
     }
@@ -91,6 +114,7 @@ final class CiRuntimeGate {
         }
         long affected = 0;
         boolean observed = false;
+        Set<String> callSites = new LinkedHashSet<>();
         for (JsonValue row : rows.values()) {
             long count = row.get("count").asLong(-1);
             if (count < 0) {
@@ -100,10 +124,15 @@ final class CiRuntimeGate {
                     && SINK_ROW_KINDS.contains(row.get("kind").asString(null))) {
                 observed = true;
                 affected = Math.addExact(affected, count);
+                String callSite = row.get("callSite").asString("");
+                if (callSites.size() < MAX_CALL_SITES
+                        && CALL_SITE.matcher(callSite).matches()) {
+                    callSites.add(callSite);
+                }
             }
         }
         if (observed) {
-            return new Result(SINK_KIND, VIOLATION, "-", affected);
+            return new Result(SINK_KIND, VIOLATION, "-", affected, List.copyOf(callSites));
         }
         JsonValue sensor = JsonValue.MISSING;
         for (JsonValue candidate : sensors.values()) {
@@ -121,8 +150,12 @@ final class CiRuntimeGate {
         if (!matching.asBoolean(false)) {
             return Result.notAssessed(SINK_KIND, "REQUEST_VALUES_OFF");
         }
-        if (sensor.get("dropped").asLong(1) != 0) {
+        if (sensor.get("dropped").asLong(1) != 0
+                || report.get("requestValueChecksSkipped").asLong(1) != 0) {
             return Result.notAssessed(SINK_KIND, "PARTIAL_CAPTURE");
+        }
+        if (report.get("requestValuesHeld").asLong(0) <= 0) {
+            return Result.notAssessed(SINK_KIND, "NO_REQUEST_VALUES");
         }
         if (report.get("unconfirmedSinkMatches").asLong(1) != 0) {
             return Result.notAssessed(SINK_KIND, "UNCONFIRMED");

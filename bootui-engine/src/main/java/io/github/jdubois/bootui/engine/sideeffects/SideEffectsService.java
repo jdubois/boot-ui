@@ -1121,7 +1121,7 @@ public final class SideEffectsService implements AutoCloseable {
         List<SideEffectsSensorDto> sensors = agentSensors(report.sensors(), bySensor ? asked : null);
         if (!report.available()) {
             return new SideEffectsAgentReport(
-                    false, report.unavailableReason(), asked, sensors, 0, List.of(), 0, List.of(), null, 0);
+                    false, report.unavailableReason(), asked, sensors, 0, List.of(), 0, List.of(), null, 0, 0, 0);
         }
         String needle = asked.toLowerCase(Locale.ROOT);
         List<SideEffectsRowDto> matching = new ArrayList<>();
@@ -1160,6 +1160,7 @@ public final class SideEffectsService implements AutoCloseable {
                                     + " three each."
                             : ""));
         }
+        Map<String, Object> holder = AgentRequestValues.status();
         return new SideEffectsAgentReport(
                 true,
                 null,
@@ -1170,7 +1171,14 @@ public final class SideEffectsService implements AutoCloseable {
                 matching.size() - listed.size(),
                 limitations,
                 AgentRequestValues.active(),
-                unconfirmed);
+                unconfirmed,
+                holderCount(holder, "values"),
+                holderCount(holder, "tableFull") + holderCount(holder, "stopped") + holderCount(holder, "busy"));
+    }
+
+    /** One of the request-value holder's counters, or zero without the agent's holder. */
+    private static long holderCount(Map<String, Object> holder, String key) {
+        return holder.get(key) instanceof Number number ? number.longValue() : 0;
     }
 
     /** The sensors whose rows each fixed limitation describes; the others apply to every row. */

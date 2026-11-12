@@ -53,7 +53,7 @@ final class CiSarif {
             String kind = gate.get("kind").asString("");
             String result = gate.get("result").asString("");
             if (CiRuntimeGate.VIOLATION.equals(result)) {
-                results.add(gateResult(kind, rules.size(), gate.get("affected").asLong(0)));
+                results.add(gateResult(kind, rules.size(), gate.get("affected").asLong(0), gate.get("callSites")));
                 rules.add(gateRule(kind));
             } else if (CiRuntimeGate.NOT_ASSESSED.equals(result)) {
                 notifications.add(notification(
@@ -183,7 +183,7 @@ final class CiSarif {
         return JsonValue.object(rule);
     }
 
-    private static JsonValue gateResult(String kind, int ruleIndex, long affected) {
+    private static JsonValue gateResult(String kind, int ruleIndex, long affected, JsonValue callSites) {
         Map<String, JsonValue> properties = new LinkedHashMap<>();
         properties.put("source", JsonValue.of(sink(kind) ? "security-sinks" : "runtime-insights"));
         properties.put("affected", JsonValue.of(affected));
@@ -203,6 +203,21 @@ final class CiSarif {
                                         : ": Runtime Insights observed this")
                                 + " in the assessed run (affected: " + affected
                                 + "); the policy's runtime gate fails on it.")));
+        List<JsonValue> locations = new ArrayList<>();
+        for (JsonValue callSite : callSites.values()) {
+            String frame = callSite.asString("");
+            int hash = frame.indexOf('#');
+            if (hash > 0) {
+                Map<String, JsonValue> logical = new LinkedHashMap<>();
+                logical.put("name", JsonValue.of(frame.substring(hash + 1)));
+                logical.put("fullyQualifiedName", JsonValue.of(frame.replace('#', '.')));
+                logical.put("kind", JsonValue.of("function"));
+                locations.add(object("logicalLocations", JsonValue.array(List.of(JsonValue.object(logical)))));
+            }
+        }
+        if (!locations.isEmpty()) {
+            result.put("locations", JsonValue.array(locations));
+        }
         result.put("properties", JsonValue.object(properties));
         return JsonValue.object(result);
     }

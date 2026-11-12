@@ -163,12 +163,24 @@ class CiRuntimeGateTests {
 
     private static JsonValue sinks(
             Boolean matching, String state, long dropped, long unconfirmed, int omitted, String... rows) {
+        return sinks(6, 0, matching, state, dropped, unconfirmed, omitted, rows);
+    }
+
+    private static JsonValue sinks(
+            long held,
+            long skipped,
+            Boolean matching,
+            String state,
+            long dropped,
+            long unconfirmed,
+            int omitted,
+            String... rows) {
         return JsonValue.parseStrict("""
                 {"available":true,"unavailableReason":null,"query":"security-sinks",
                  "sensors":[{"id":"processes","state":"disabled","dropped":7},
                             {"id":"security-sinks","state":"%s","dropped":%d}],
                  "matched":%d,"rows":[%s],"omitted":%d,"limitations":["private limitation"]%s,
-                 "unconfirmedSinkMatches":%d}
+                 "unconfirmedSinkMatches":%d,"requestValuesHeld":%d,"requestValueChecksSkipped":%d}
                 """.formatted(
                         state,
                         dropped,
@@ -176,7 +188,53 @@ class CiRuntimeGateTests {
                         String.join(",", rows),
                         omitted,
                         matching == null ? "" : ",\"requestValueMatching\":" + matching,
-                        unconfirmed));
+                        unconfirmed,
+                        held,
+                        skipped));
+    }
+
+    @Test
+    void aSinkViolationKeepsUpToFiveDistinctWellFormedCallSites() {
+        String[] rows = new String[8];
+        for (int i = 0; i < 6; i++) {
+            rows[i] = rowAt("com.example.Repo#find" + i);
+        }
+        rows[6] = rowAt("com.example.Repo#find0");
+        rows[7] = rowAt("select * from private where x = 1");
+
+        CiRuntimeGate.Result result = CiRuntimeGate.evaluate(SINK, sinks(true, "recording", 0, 0, 0, rows));
+
+        assertThat(result.callSites())
+                .containsExactly(
+                        "com.example.Repo#find0",
+                        "com.example.Repo#find1",
+                        "com.example.Repo#find2",
+                        "com.example.Repo#find3",
+                        "com.example.Repo#find4");
+        assertThat(result.toJson().get("callSites").size()).isEqualTo(5);
+        assertThat(CiRuntimeGate.evaluate(KIND, report(List.of(), "OBSERVED", 3, 0, false))
+                        .callSites())
+                .isEmpty();
+    }
+
+    private static String rowAt(String callSite) {
+        return """
+                {"scope":"route","attribution":"private-route","sensor":"security-sinks","kind":"SQL text",
+                 "target":"private target","count":1,"completed":0,"callSite":"%s","detail":"private detail"}
+                """.formatted(callSite);
+    }
+
+    @Test
+    void sinkMatchingThatCheckedNoRequestOrSkippedChecksCannotPass() {
+        assertThat(CiRuntimeGate.evaluate(SINK, sinks(0, 0, true, "recording", 0, 0, 0))
+                        .reason())
+                .isEqualTo("NO_REQUEST_VALUES");
+        assertThat(CiRuntimeGate.evaluate(SINK, sinks(6, 2, true, "recording", 0, 0, 0))
+                        .reason())
+                .isEqualTo("PARTIAL_CAPTURE");
+        assertThat(CiRuntimeGate.evaluate(SINK, sinks(0, 2, true, "recording", 0, 0, 0, row("SQL text", 1)))
+                        .result())
+                .isEqualTo("VIOLATION");
     }
 
     private static String policy(boolean includeInsights, String failOnObservations) {

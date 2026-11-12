@@ -1997,7 +1997,7 @@ class CiAssessmentRunnerTests {
                 {"available":true,"unavailableReason":null,"query":"security-sinks",
                  "sensors":[{"id":"security-sinks","state":"recording","dropped":0}],
                  "matched":%d,"rows":[%s],"omitted":0,"limitations":["private limitation"],
-                 "requestValueMatching":%s,"unconfirmedSinkMatches":%d}
+                 "requestValueMatching":%s,"unconfirmedSinkMatches":%d,"requestValuesHeld":3,"requestValueChecksSkipped":0}
                 """.formatted(rows.isEmpty() ? 0 : 1, rows, matching, unconfirmed);
     }
 

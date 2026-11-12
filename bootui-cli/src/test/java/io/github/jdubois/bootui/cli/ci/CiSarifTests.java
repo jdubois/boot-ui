@@ -139,6 +139,29 @@ class CiSarifTests {
         assertThat(first).doesNotContain("startTimeUtc", "endTimeUtc", "physicalLocation");
     }
 
+    @Test
+    void aSinkViolationNamesItsCallSitesAsLogicalLocations() {
+        JsonValue bundle = JsonValue.parseStrict("""
+                {"schemaVersion":2,"assessmentId":"a-3","status":"VIOLATION","bootUiVersion":"2.4.1","policySha256":"s",
+                 "runtimeContext":{"gate":[{"kind":"request-input-in-sink","result":"VIOLATION","reason":"-","affected":2,
+                   "callSites":["com.example.web.SearchController#search","com.example.Repo#find"]}]},
+                 "advisors":[],"errors":[]}
+                """);
+
+        JsonValue result = run(CiSarif.from(bundle, null)).get("results").get(0);
+
+        assertThat(result.get("ruleId").asString(null)).isEqualTo("request-input-in-sink");
+        assertThat(result.get("locations").values())
+                .extracting(location -> location.get("logicalLocations")
+                                .get(0)
+                                .get("fullyQualifiedName")
+                                .asString(null) + "/"
+                        + location.get("logicalLocations").get(0).get("kind").asString(null))
+                .containsExactly("com.example.web.SearchController.search/function", "com.example.Repo.find/function");
+        assertThat(result.get("locations").get(0).get("physicalLocation").isMissing())
+                .isTrue();
+    }
+
     private static JsonValue run(JsonValue sarif) {
         return sarif.get("runs").get(0);
     }
