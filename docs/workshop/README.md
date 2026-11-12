@@ -63,7 +63,7 @@ three hours. The timed capstone does not depend on completing these optional exe
 
 ## How to work
 
-Screenshots use the released frontend at commit `7c89042c6a0a47e1cb22d2df7412d2177d7416d1` with deterministic,
+Screenshots use the released frontend at commit `0df7ed764688d04f83c246c9965e90158c1db488` with deterministic,
 synthetic workshop data, captured through the same browser tooling as the Features screenshots. They are visual
 references, not participant-run evidence or latency benchmarks. Record your own counts, identities, and coverage.
 

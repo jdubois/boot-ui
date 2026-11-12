@@ -263,6 +263,21 @@ participant runtime proof. Future-release downloads, an authenticated external c
 and an unfamiliar-participant three-hour pilot still require event/release rehearsal.
 <!-- bootui-workshop:history:end -->
 
+<!-- bootui-workshop:history:start -->
+Release rehearsal on 2026-11-12 used a fresh **v2.4.0** clone at
+`0df7ed764688d04f83c246c9965e90158c1db488`, macOS, and JDK 17. The public installer matched the signed source,
+verified the download's published checksum, and returned `bootui 2.4.0`; the same jar independently verified against
+the pinned release GPG key. A fresh JBang resolution also returned `bootui 2.4.0`.
+
+The tagged warm build and original fixture test passed. The supplied acceptance test failed at 17 statements before
+the exact reference patch and passed afterward in the disposable clone. Published CLI overview, agent-status, and
+Insights reads confirmed matching 2.4.0 components, an armed agent, and retained repeated-SELECT evidence.
+A separate agent-attached regression kept one JVM across one DevTools reload, marked the one changed method
+unexecuted then executed, preserved identical JSON, and reported `COMPARED` with 17 -> 1 statements/request through
+REST and MCP. All 14 reference illustrations were regenerated from the tagged frontend and visually inspected;
+they remain synthetic illustrations, not participant runtime evidence.
+<!-- bootui-workshop:history:end -->
+
 ## Completion and feedback
 
 Accept a worksheet only when it distinguishes source/test/live evidence and documents uncovered work. Partial
