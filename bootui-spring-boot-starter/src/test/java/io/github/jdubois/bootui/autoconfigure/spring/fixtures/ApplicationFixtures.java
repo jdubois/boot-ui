@@ -60,6 +60,14 @@ public final class ApplicationFixtures {
         protected void run() {}
     }
 
+    public static class MixedAsync {
+        @Async("special")
+        public void qualified() {}
+
+        @Async
+        public void unqualified() {}
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableAsync
     public static class AsyncConfiguration {}
