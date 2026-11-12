@@ -211,13 +211,41 @@ GitHub log masking is not a substitute for report sanitization. Protect artifact
 ## Runtime Insights
 
 Add `"runtimeContext": { "includeInsights": true }` to request a bounded, report-only Runtime Insights snapshot.
-Omitting it, or setting it to false, makes no extra request. Runtime observations never change the advisor verdict.
+Omitting it, or setting it to false, makes no extra request. Runtime observations never change the advisor verdict
+unless the policy names them in `failOnObservations` ([runtime gate](#runtime-gate)).
 
 The optional read has a ten-second bound and preserves time for the final target identity check. `PARTIAL`,
 `UNAVAILABLE`, `ERROR`, and `NOT_COLLECTED` do not imply zero activity or a passing workload. The report retains aggregate
 coverage and at most 20 default-listed observation summaries, not routes, request IDs, application prose, or suggestions.
 Workload attribution remains `UNVERIFIED`: the observed process identity and counts do not prove that your tests exercised it.
-JUnit output remains advisor-only.
+Without a runtime gate, JUnit output remains advisor-only.
+
+### Runtime gate
+
+To fail the assessment on a Runtime Insights security observation, name it in `failOnObservations` (unreleased):
+
+```json
+"runtimeContext": {
+  "includeInsights": true,
+  "failOnObservations": ["anonymous-success-on-restricted-route", "anonymous-data-reach"]
+}
+```
+
+Only these two kinds are accepted, and only with `includeInsights: true`. The assessment reads each named kind
+separately, because `anonymous-data-reach` is not in the default listing, and judges it:
+
+| Result | When |
+| --- | --- |
+| `VIOLATION` | The run recorded at least one observation of the kind; the assessment fails with exit code `3`. |
+| `PASS` | The check ran with complete evidence and recorded nothing. |
+| `NOT_ASSESSED` | The journal or tool was unavailable, capture was paused, the check did not run or ran partly, its rows were below their evidence minimum or partial, or the limit left rows out. The assessment reports `RUNTIME_GATE_INCOMPLETE` and exits `1`. |
+
+Both checks rely only on requests an authorization decision proved anonymous, so the workload must send anonymous
+requests to restricted routes; otherwise the check is insufficient and the gate is not assessed rather than passed. The
+bundle's
+`runtimeContext.gate` keeps each kind's result, reason, and affected count, never its routes, tables, or sentences; the
+summary, a `runtime:<kind>` JUnit test case, and a SARIF result per violation report the same facts, and offline checks
+re-validate them against the policy. Request-input sink matches (`security-sinks`) cannot be gated yet.
 
 ## Offline rechecking
 

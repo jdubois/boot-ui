@@ -221,6 +221,7 @@ public final class CiAssessmentRunner {
                 List<AdvisorResult> results = collect(policy, before, current.framework(), client, deadline);
                 RuntimeContext runtimeContext = collectRuntimeInsights(policy, before, client, deadline);
                 state.runtimeContext(runtimeContext);
+                state.runtimeGate(collectRuntimeGate(policy, before, client, deadline));
                 Identity after = identity(client, deadline);
                 requireSameIdentity(witness, after);
                 if (!policy.sha256().equals(CiPolicy.read(policyPath).sha256())) {
@@ -412,24 +413,14 @@ public final class CiAssessmentRunner {
         if (!policy.includeInsights()) {
             return RuntimeContext.empty("NOT_REQUESTED");
         }
-        BootUiCatalog.CatalogTool tool = catalog.tool(RUNTIME_INSIGHTS_TOOL);
-        if (tool == null || !tool.panelEnabled()) {
-            return RuntimeContext.empty("UNAVAILABLE");
+        String toolProblem = runtimeInsightsToolProblem(catalog);
+        if (toolProblem != null) {
+            return RuntimeContext.empty(toolProblem);
         }
-        if (tool.action()
-                || !RUNTIME_INSIGHTS_PANEL.equals(tool.panel())
-                || !"QUERY_LIMIT".equals(tool.schema())
-                || !tool.arguments().containsAll(List.of("query", "limit"))) {
+        Duration contextBudget = runtimeReadBudget(deadline);
+        if (contextBudget == null) {
             return RuntimeContext.empty("ERROR");
         }
-
-        long remainingNanos = deadline - System.nanoTime();
-        long reservedNanos = timeout.plus(FINAL_IDENTITY_MARGIN).toNanos();
-        if (remainingNanos <= reservedNanos) {
-            return RuntimeContext.empty("ERROR");
-        }
-        Duration contextBudget =
-                Duration.ofNanos(Math.min(MAX_RUNTIME_CONTEXT_BUDGET.toNanos(), remainingNanos - reservedNanos));
         int observationLimit = Math.min(MAX_RUNTIME_OBSERVATIONS, Math.max(1, catalog.maxResults()));
         Map<String, JsonValue> arguments = Map.of("query", JsonValue.of(""), "limit", JsonValue.of(observationLimit));
         try {
@@ -453,6 +444,68 @@ public final class CiAssessmentRunner {
             return RuntimeContext.empty("ERROR");
         } catch (RuntimeException unexpectedContextFailure) {
             return RuntimeContext.empty("ERROR");
+        }
+    }
+
+    /** {@code null} when the Runtime Insights tool can be read, else the context status that says why not. */
+    private static String runtimeInsightsToolProblem(BootUiCatalog catalog) {
+        BootUiCatalog.CatalogTool tool = catalog.tool(RUNTIME_INSIGHTS_TOOL);
+        if (tool == null || !tool.panelEnabled()) {
+            return "UNAVAILABLE";
+        }
+        if (tool.action()
+                || !RUNTIME_INSIGHTS_PANEL.equals(tool.panel())
+                || !"QUERY_LIMIT".equals(tool.schema())
+                || !tool.arguments().containsAll(List.of("query", "limit"))) {
+            return "ERROR";
+        }
+        return null;
+    }
+
+    /** One bounded Runtime Insights read's budget, keeping time for the final identity check, or {@code null}. */
+    private Duration runtimeReadBudget(long deadline) {
+        long remainingNanos = deadline - System.nanoTime();
+        long reservedNanos = timeout.plus(FINAL_IDENTITY_MARGIN).toNanos();
+        if (remainingNanos <= reservedNanos) {
+            return null;
+        }
+        return Duration.ofNanos(Math.min(MAX_RUNTIME_CONTEXT_BUDGET.toNanos(), remainingNanos - reservedNanos));
+    }
+
+    private List<CiRuntimeGate.Result> collectRuntimeGate(
+            CiPolicy policy, BootUiCatalog catalog, BootUiClient client, long deadline) {
+        String toolProblem = runtimeInsightsToolProblem(catalog);
+        int limit = Math.min(MAX_RUNTIME_OBSERVATIONS, Math.max(1, catalog.maxResults()));
+        List<CiRuntimeGate.Result> gate = new ArrayList<>();
+        for (String kind : policy.failOnObservations()) {
+            gate.add(
+                    toolProblem != null
+                            ? CiRuntimeGate.Result.notAssessed(kind, toolProblem)
+                            : readRuntimeGate(kind, limit, client, deadline));
+        }
+        return gate;
+    }
+
+    private CiRuntimeGate.Result readRuntimeGate(String kind, int limit, BootUiClient client, long deadline) {
+        Duration budget = runtimeReadBudget(deadline);
+        if (budget == null) {
+            return CiRuntimeGate.Result.notAssessed(kind, "ERROR");
+        }
+        Map<String, JsonValue> arguments = Map.of("query", JsonValue.of(kind), "limit", JsonValue.of(limit));
+        try {
+            ToolResult result = client.invokeBounded(RUNTIME_INSIGHTS_TOOL, arguments, MAX_RESPONSE_BYTES, budget);
+            if (!result.successful()) {
+                return CiRuntimeGate.Result.notAssessed(
+                        kind, result.status() == 403 || result.status() == 404 ? "UNAVAILABLE" : "ERROR");
+            }
+            return CiRuntimeGate.evaluate(kind, result.payload());
+        } catch (BootUiClientException requestFailure) {
+            if (System.nanoTime() >= deadline) {
+                throw new AssessmentFailure("ASSESSMENT_BUDGET_EXCEEDED");
+            }
+            return CiRuntimeGate.Result.notAssessed(kind, "ERROR");
+        } catch (RuntimeException invalidReport) {
+            return CiRuntimeGate.Result.notAssessed(kind, "ERROR");
         }
     }
 
@@ -1505,6 +1558,7 @@ public final class CiAssessmentRunner {
         private List<String> errors = List.of();
         private boolean violation;
         private RuntimeContext runtimeContext = RuntimeContext.empty("NOT_COLLECTED");
+        private List<CiRuntimeGate.Result> runtimeGate = List.of();
 
         Assessment(String assessmentId, Path outputDirectory) {
             this.assessmentId = assessmentId;
@@ -1525,12 +1579,25 @@ public final class CiAssessmentRunner {
             this.runtimeContext = runtimeContext;
         }
 
+        void runtimeGate(List<CiRuntimeGate.Result> runtimeGate) {
+            this.runtimeGate = List.copyOf(runtimeGate);
+        }
+
         void finish(CiPolicy policy, Identity identity, List<AdvisorResult> results, List<String> errors) {
             this.policy = policy;
             this.identity = identity;
             this.results = results;
-            this.errors = errors;
-            this.violation = results.stream().anyMatch(result -> result.violation);
+            List<String> allErrors = new ArrayList<>(errors);
+            if (runtimeGate.stream().anyMatch(gate -> CiRuntimeGate.NOT_ASSESSED.equals(gate.result()))) {
+                allErrors.add("RUNTIME_GATE_INCOMPLETE");
+            }
+            this.errors = List.copyOf(allErrors);
+            this.violation = results.stream().anyMatch(result -> result.violation)
+                    || runtimeGate.stream().anyMatch(gate -> CiRuntimeGate.VIOLATION.equals(gate.result()));
+        }
+
+        private boolean gated() {
+            return policy != null && !policy.failOnObservations().isEmpty();
         }
 
         void finishError(String code, List<AdvisorResult> partialResults) {
@@ -1596,7 +1663,20 @@ public final class CiAssessmentRunner {
             root.put("instanceId", JsonValue.of(identity == null ? "" : identity.instanceId()));
             root.put("runId", JsonValue.of(identity == null ? "" : identity.runId()));
             root.put("policySha256", JsonValue.of(policy == null ? "" : policy.sha256()));
-            root.put("runtimeContext", runtimeContext.toJson());
+            JsonValue context = runtimeContext.toJson();
+            if (gated()) {
+                Map<String, JsonValue> withGate = new LinkedHashMap<>();
+                for (String name : context.names()) {
+                    withGate.put(name, context.get(name));
+                }
+                withGate.put(
+                        "gate",
+                        JsonValue.array(runtimeGate.stream()
+                                .map(CiRuntimeGate.Result::toJson)
+                                .toList()));
+                context = JsonValue.object(withGate);
+            }
+            root.put("runtimeContext", context);
             root.put(
                     "advisors",
                     JsonValue.array(results.stream()
@@ -1726,6 +1806,21 @@ public final class CiAssessmentRunner {
                             .append("was idle or healthy. Runtime observations do not affect the advisor verdict.\n");
                 }
             }
+            if (gated()) {
+                output.append("\n### Runtime gate\n\n")
+                        .append("| Observation | Result | Reason | Affected |\n|---|---|---|---:|\n");
+                for (CiRuntimeGate.Result gate : runtimeGate) {
+                    output.append("| ")
+                            .append(gate.kind())
+                            .append(" | ")
+                            .append(gate.result())
+                            .append(" | ")
+                            .append(gate.reason())
+                            .append(" | ")
+                            .append(gate.affected())
+                            .append(" |\n");
+                }
+            }
             if (!errors.isEmpty()) {
                 output.append("\nAssessment errors: `")
                         .append(String.join("`, `", errors))
@@ -1838,19 +1933,26 @@ public final class CiAssessmentRunner {
 
         private String junit(JsonValue bundle) {
             String status = bundle.get("status").asString("NOT_ASSESSED");
-            long failures = results.stream().filter(result -> result.violation).count();
+            List<CiRuntimeGate.Result> gates = gated() ? runtimeGate : List.of();
+            long failures = results.stream().filter(result -> result.violation).count()
+                    + gates.stream()
+                            .filter(gate -> CiRuntimeGate.VIOLATION.equals(gate.result()))
+                            .count();
             int errorsCount = "NOT_ASSESSED".equals(status) ? Math.max(1, errors.size()) : 0;
+            long gateErrors = gates.stream()
+                    .filter(gate -> CiRuntimeGate.NOT_ASSESSED.equals(gate.result()))
+                    .count();
             int skipped = (int) bundle.get("advisors").values().stream()
                     .filter(advisor -> "SKIPPED".equals(advisor.get("status").asString(null)))
                     .count();
             StringBuilder xml = new StringBuilder();
-            int tests = results.size() + errorsCount;
+            int tests = results.size() + gates.size() + errorsCount;
             xml.append("<testsuite name=\"bootui-ci\" tests=\"")
                     .append(tests)
                     .append("\" failures=\"")
                     .append(failures)
                     .append("\" errors=\"")
-                    .append(errorsCount)
+                    .append(errorsCount + gateErrors)
                     .append("\" skipped=\"")
                     .append(skipped)
                     .append("\">\n");
@@ -1864,6 +1966,19 @@ public final class CiAssessmentRunner {
                             .append("\"/>");
                 } else if (result.violation) {
                     xml.append("<failure message=\"Advisor met the configured severity threshold\"/>");
+                }
+                xml.append("</testcase>\n");
+            }
+            for (CiRuntimeGate.Result gate : gates) {
+                xml.append("  <testcase classname=\"bootui.ci\" name=\"runtime:")
+                        .append(gate.kind())
+                        .append("\">");
+                if (CiRuntimeGate.VIOLATION.equals(gate.result())) {
+                    xml.append("<failure message=\"Runtime observation met the policy gate\"/>");
+                } else if (CiRuntimeGate.NOT_ASSESSED.equals(gate.result())) {
+                    xml.append("<error message=\"Runtime gate could not be assessed: ")
+                            .append(gate.reason())
+                            .append("\"/>");
                 }
                 xml.append("</testcase>\n");
             }

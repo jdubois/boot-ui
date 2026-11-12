@@ -49,6 +49,20 @@ final class CiSarif {
                         ruleId, index, name, severity, finding.get("count").asLong(0), threshold));
             }
         }
+        for (JsonValue gate : bundle.get("runtimeContext").get("gate").values()) {
+            String kind = gate.get("kind").asString("");
+            String result = gate.get("result").asString("");
+            if (CiRuntimeGate.VIOLATION.equals(result)) {
+                results.add(gateResult(kind, rules.size(), gate.get("affected").asLong(0)));
+                rules.add(gateRule(kind));
+            } else if (CiRuntimeGate.NOT_ASSESSED.equals(result)) {
+                notifications.add(notification(
+                        "warning",
+                        "BOOTUI-RUNTIME-GATE-NOT-ASSESSED",
+                        "The runtime gate on " + kind + " was not assessed ("
+                                + gate.get("reason").asString("-") + "); it did not pass."));
+            }
+        }
         for (JsonValue error : bundle.get("errors").values()) {
             String code = error.get("code").asString("");
             notifications.add(notification("error", code, "Assessment error: " + code + "."));
@@ -140,6 +154,38 @@ final class CiSarif {
                         JsonValue.of(ruleId + ": " + count + (count == 1 ? " occurrence" : " occurrences")
                                 + " reported by the BootUI " + advisor + " advisor at " + severity.name()
                                 + " severity.")));
+        result.put("properties", JsonValue.object(properties));
+        return JsonValue.object(result);
+    }
+
+    private static JsonValue gateRule(String kind) {
+        Map<String, JsonValue> properties = new LinkedHashMap<>();
+        properties.put("tags", JsonValue.array(List.of(JsonValue.of("runtime-insights"), JsonValue.of("security"))));
+        properties.put("security-severity", JsonValue.of(securitySeverity(CiPolicy.Severity.HIGH)));
+        Map<String, JsonValue> rule = new LinkedHashMap<>();
+        rule.put("id", JsonValue.of(kind));
+        rule.put("name", JsonValue.of(kind));
+        rule.put("shortDescription", object("text", JsonValue.of("BootUI Runtime Insights observation " + kind)));
+        rule.put("defaultConfiguration", object("level", JsonValue.of("error")));
+        rule.put("properties", JsonValue.object(properties));
+        return JsonValue.object(rule);
+    }
+
+    private static JsonValue gateResult(String kind, int ruleIndex, long affected) {
+        Map<String, JsonValue> properties = new LinkedHashMap<>();
+        properties.put("source", JsonValue.of("runtime-insights"));
+        properties.put("affected", JsonValue.of(affected));
+        properties.put("meetsThreshold", JsonValue.of(true));
+        Map<String, JsonValue> result = new LinkedHashMap<>();
+        result.put("ruleId", JsonValue.of(kind));
+        result.put("ruleIndex", JsonValue.of(ruleIndex));
+        result.put("level", JsonValue.of("error"));
+        result.put(
+                "message",
+                object(
+                        "text",
+                        JsonValue.of(kind + ": Runtime Insights observed this in the assessed run (affected: "
+                                + affected + "); the policy's runtime gate fails on it.")));
         result.put("properties", JsonValue.object(properties));
         return JsonValue.object(result);
     }

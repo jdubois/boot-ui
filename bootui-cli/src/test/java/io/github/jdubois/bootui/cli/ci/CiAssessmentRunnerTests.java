@@ -72,6 +72,8 @@ class CiAssessmentRunnerTests {
     private String runtimeInsightsQuery;
     private int runtimeInsightsLimit;
     private String runtimeInsightsBody = runtimeInsightsReport(false, false);
+    private final Map<String, String> runtimeInsightsByQuery = new LinkedHashMap<>();
+    private final List<String> runtimeInsightsQueries = new ArrayList<>();
     private final Map<String, UnaryOperator<String>> responseTransforms = new LinkedHashMap<>();
 
     @AfterEach
@@ -1844,6 +1846,106 @@ class CiAssessmentRunnerTests {
         return "http://127.0.0.1:" + server.getAddress().getPort();
     }
 
+    @Test
+    void aGatedRuntimeObservationFailsTheAssessmentInEveryReport() throws Exception {
+        runtimeInsightsByQuery.put("anonymous-data-reach", gateReport("anonymous-data-reach", "OBSERVED", 2, null));
+        runtimeInsightsByQuery.put(
+                "anonymous-success-on-restricted-route",
+                gateReport("anonymous-success-on-restricted-route", null, 0, null));
+        startServer();
+        Path policy = writePolicyWithRuntimeGate("anonymous-success-on-restricted-route", "anonymous-data-reach");
+        Path output = temp.resolve("gated");
+        CiAssessmentRunner runner = runner(policy, temp.resolve("witness.json"), output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(3);
+
+        assertThat(runtimeInsightsQueries)
+                .containsExactly("", "anonymous-success-on-restricted-route", "anonymous-data-reach");
+        JsonValue gate = JsonValue.parseStrict(Files.readString(output.resolve("bundle.json")))
+                .get("runtimeContext")
+                .get("gate");
+        assertThat(gate.values())
+                .extracting(row ->
+                        row.get("kind").asString(null) + "=" + row.get("result").asString(null) + "/"
+                                + row.get("affected").asLong(-1))
+                .containsExactly("anonymous-success-on-restricted-route=PASS/0", "anonymous-data-reach=VIOLATION/2");
+        assertThat(Files.readString(output.resolve("summary.md")))
+                .contains("# BootUI assessment: VIOLATION", "| anonymous-data-reach | VIOLATION | - | 2 |");
+        assertThat(Files.readString(output.resolve("junit.xml")))
+                .contains("failures=\"1\"", "name=\"runtime:anonymous-data-reach\"><failure");
+        assertThat(Files.readString(output.resolve("sarif.json")))
+                .contains("\"ruleId\": \"anonymous-data-reach\"", "Runtime Insights observed");
+        for (String name : CiAssessmentRunner.REPORT_FILES) {
+            assertThat(Files.readString(output.resolve(name))).doesNotContain("private");
+        }
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isEqualTo(3);
+    }
+
+    @Test
+    void anEvaluatedGatedCheckWithoutARowPasses() throws Exception {
+        runtimeInsightsByQuery.put("anonymous-data-reach", gateReport("anonymous-data-reach", null, 0, null));
+        startServer();
+        Path policy = writePolicyWithRuntimeGate("anonymous-data-reach");
+        Path output = temp.resolve("gated");
+        CiAssessmentRunner runner = runner(policy, temp.resolve("witness.json"), output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isZero();
+        assertThat(Files.readString(output.resolve("summary.md"))).contains("| anonymous-data-reach | PASS | - | 0 |");
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"INSUFFICIENT", "CHECK_NOT_RUN"})
+    void aGatedCheckWithoutCompleteEvidenceIsNotAssessed(String problem) throws Exception {
+        runtimeInsightsByQuery.put(
+                "anonymous-data-reach",
+                "INSUFFICIENT".equals(problem)
+                        ? gateReport("anonymous-data-reach", "INSUFFICIENT", 0, null)
+                        : gateReport("anonymous-data-reach", null, 0, "NOT_APPLICABLE, private reason"));
+        startServer();
+        Path policy = writePolicyWithRuntimeGate("anonymous-data-reach");
+        Path output = temp.resolve("gated");
+        CiAssessmentRunner runner = runner(policy, temp.resolve("witness.json"), output);
+
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(1);
+        assertThat(Files.readString(output.resolve("bundle.json")))
+                .contains("\"code\": \"RUNTIME_GATE_INCOMPLETE\"", "\"reason\": \"" + problem + "\"")
+                .doesNotContain("private");
+        assertThat(Files.readString(output.resolve("junit.xml")))
+                .contains("name=\"runtime:anonymous-data-reach\"><error");
+        assertThat(CiBundleEvaluator.evaluate(output.resolve("bundle.json"), "test-assessment", policy)
+                        .exitCode())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void aGateWithoutTheRuntimeInsightsToolIsNotAssessedAndWithoutAGateNothingChanges() throws Exception {
+        runtimeInsightsAdvertised = false;
+        startServer();
+        Path gated = temp.resolve("gated");
+        CiAssessmentRunner runner =
+                runner(writePolicyWithRuntimeGate("anonymous-data-reach"), temp.resolve("w1.json"), gated);
+        assertThat(runner.attach()).isZero();
+        assertThat(runner.assess()).isEqualTo(1);
+        assertThat(Files.readString(gated.resolve("bundle.json"))).contains("\"reason\": \"UNAVAILABLE\"");
+
+        runtimeInsightsAdvertised = true;
+        Path plain = temp.resolve("plain");
+        CiAssessmentRunner ungated = runner(writePolicyWithRuntimeInsights(), temp.resolve("w2.json"), plain);
+        assertThat(ungated.attach()).isZero();
+        assertThat(ungated.assess()).isZero();
+        assertThat(runtimeInsightsQueries).containsExactly("");
+        assertThat(Files.readString(plain.resolve("bundle.json"))).doesNotContain("\"gate\"");
+        assertThat(Files.readString(plain.resolve("junit.xml"))).doesNotContain("runtime:");
+    }
+
     private static int runCli(String... arguments) {
         StringWriter output = new StringWriter();
         return BootUiCli.run(arguments, Map.of(), false, new PrintWriter(output, true), new PrintWriter(output, true));
@@ -1874,6 +1976,29 @@ class CiAssessmentRunnerTests {
                 }}
                 """);
         return policy;
+    }
+
+    private Path writePolicyWithRuntimeGate(String... kinds) throws IOException {
+        Path policy = temp.resolve("policy-with-runtime-gate.json");
+        Files.writeString(policy, """
+                {"schemaVersion":1,"advisors":{"architecture":{"required":true,"failOn":"high"}},
+                 "runtimeContext":{"includeInsights":true,"failOnObservations":%s}}
+                """.formatted(JsonWriter.pretty(JsonValue.array(
+                java.util.Arrays.stream(kinds).map(JsonValue::of).toList()))));
+        return policy;
+    }
+
+    private static String gateReport(String kind, String status, long affected, String checkNotRun) {
+        String rows = status == null ? "" : """
+                {"id":"private-id","kind":"%s","status":"%s","subject":"private-route",
+                 "sentence":"private sentence","eligible":4,"affected":%d,"listed":false}
+                """.formatted(kind, status, affected);
+        String notRun = checkNotRun == null ? "" : "\"" + kind + ": " + checkNotRun + "\"";
+        return """
+                {"available":true,"unavailableReason":null,"query":"%s","requests":3,"coverage":[],
+                 "checksNotRun":[%s],"observations":[%s],"omitted":0,"notExercised":[],"notExercisedOmitted":0,
+                 "limitations":["private limitation"],"next":[]}
+                """.formatted(kind, notRun, rows);
     }
 
     private Path writePolicyWithRuntimeInsights() throws IOException {
@@ -1917,7 +2042,8 @@ class CiAssessmentRunnerTests {
                     throw new IOException("Interrupted while simulating Runtime Insights", interrupted);
                 }
             }
-            body = runtimeInsightsBody;
+            runtimeInsightsQueries.add(runtimeInsightsQuery);
+            body = runtimeInsightsByQuery.getOrDefault(runtimeInsightsQuery, runtimeInsightsBody);
             if (changeIdentityAfterRuntimeInsights) {
                 currentInstance = "b1b2c3d4";
             }
