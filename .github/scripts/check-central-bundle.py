@@ -16,7 +16,9 @@ release.yml before it uploads it, unsigned by stage-release-candidate.sh. The ch
 - bootui-agent declares no dependency at all: it shades its bridge and Byte Buddy, and `dependency:get` resolves even
   an optional dependency of the artifact it fetches, so an unpublished one fails that command;
 - bootui-spring-boot-starter brings no web stack: no servlet or reactive web-server artifact at compile or
-  runtime scope, so the application's own web starter decides between Spring MVC and Spring WebFlux.
+  runtime scope, so the application's own web starter decides between Spring MVC and Spring WebFlux;
+- the published files total less than 20 MB (20,000,000 bytes), including checksums and signatures, not
+  the compressed upload ZIP. Unsigned candidates reserve 4 KiB per missing signature before tagging.
 """
 
 import sys
@@ -37,6 +39,9 @@ PUBLISHED = (
 )
 
 EXTRA_FILES = {"bootui-cli": ("all",)}
+
+MAX_RELEASE_BYTES = 20_000_000
+SIGNATURE_RESERVE_BYTES = 4096
 
 URL = "https://github.com/jdubois/boot-ui"
 SCM = {
@@ -151,6 +156,7 @@ def check_bundle(directory, version):
     if staged != sorted(PUBLISHED):
         errors.append(f"the bundle must hold exactly {sorted(PUBLISHED)}, found {staged}")
     allowed = set()
+    payloads = []
     for artifact in PUBLISHED:
         artifact_dir = base / artifact / version
         if not artifact_dir.is_dir():
@@ -159,6 +165,7 @@ def check_bundle(directory, version):
         expected = [f"{prefix}.pom", f"{prefix}.jar", f"{prefix}-sources.jar", f"{prefix}-javadoc.jar"]
         expected += [f"{prefix}-{classifier}.jar" for classifier in EXTRA_FILES.get(artifact, ())]
         for name in expected:
+            payloads.append(artifact_dir / name)
             for suffix in ("", ".md5", ".sha1"):
                 if not (artifact_dir / (name + suffix)).is_file():
                     errors.append(f"{artifact}: missing {name + suffix}")
@@ -166,10 +173,26 @@ def check_bundle(directory, version):
         pom = artifact_dir / f"{prefix}.pom"
         if pom.is_file():
             check_pom(artifact, version, pom, errors)
-    for path in sorted(Path(directory).rglob("*")):
-        if path.is_file() and path not in allowed:
+    files = sorted(path for path in Path(directory).rglob("*") if path.is_file())
+    for path in files:
+        if path not in allowed:
             errors.append(f"unexpected file in the bundle: {path.relative_to(directory).as_posix()}")
+    check_release_size(files, payloads, errors)
     return errors
+
+
+def check_release_size(files, payloads, errors):
+    size = sum(path.stat().st_size for path in files)
+    reserve = sum(
+        SIGNATURE_RESERVE_BYTES
+        for path in payloads
+        if path.is_file() and not path.with_name(path.name + ".asc").is_file()
+    )
+    if size + reserve >= MAX_RELEASE_BYTES:
+        errors.append(
+            f"release payload is {size:,} bytes plus {reserve:,} bytes reserved for missing signatures; "
+            f"must be below {MAX_RELEASE_BYTES:,} bytes (20 MB), regardless of upload ZIP compression"
+        )
 
 
 def main(argv):
