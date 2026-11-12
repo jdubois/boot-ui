@@ -72,10 +72,13 @@ public final class SpringErrorContractProvider implements ErrorContractProvider 
             "org.springframework.web.context.request.async.DeferredResult",
             "org.springframework.web.context.request.async.WebAsyncTask");
 
-    /** Return types whose status is built at runtime rather than declared. */
     /** Return types that carry the status the handler chose at runtime. */
     private static final Set<String> DYNAMIC_STATUS_TYPES = Set.of(
             "org.springframework.http.ResponseEntity",
+            "org.springframework.http.ProblemDetail",
+            "org.springframework.web.ErrorResponse",
+            "org.springframework.web.ErrorResponseException",
+            "org.springframework.web.server.ResponseStatusException",
             "org.springframework.web.servlet.function.ServerResponse",
             "org.springframework.web.reactive.function.server.ServerResponse");
 
@@ -217,16 +220,20 @@ public final class SpringErrorContractProvider implements ErrorContractProvider 
             String scopeTarget,
             Integer declaredOrder,
             boolean dynamicPrecedence) {
-        ResolvableType returnType = ResolvableType.forMethodReturnType(method, type);
+        ResolvableType returnType = declaredReturnType(method, type);
         ResolvableType unwrapped = unwrapAsync(returnType);
         Class<?> rawReturn = unwrapped.resolve();
-        boolean dynamicStatus = rawReturn != null && DYNAMIC_STATUS_TYPES.contains(rawReturn.getName());
+        boolean dynamicStatus = isDynamicStatusType(rawReturn);
         boolean envelope = rawReturn != null && BODY_ENVELOPE_TYPES.contains(rawReturn.getName());
         ResolvableType bodyType = envelope ? unwrapped.getGeneric(0) : unwrapped;
+        Class<?> resolvedBody = resolveBodyClass(bodyType);
         // Outside an envelope, a handler that does not write the response body renders a view: its return
         // value is a view name or a model, never the payload a client parses. A void return proves there is
-        // no body either way.
-        boolean bodyKnown = envelope || returnsNothing(rawReturn) || rendersBody(type, method);
+        // no body either way, and ProblemDetail/ErrorResponse contracts are always rendered as bodies.
+        boolean bodyKnown = envelope
+                || returnsNothing(rawReturn)
+                || isProblemDetailContract(rawReturn)
+                || rendersBody(type, method);
         return new ErrorHandlerDescriptor(
                 source,
                 type.getName(),
@@ -239,13 +246,82 @@ public final class SpringErrorContractProvider implements ErrorContractProvider 
                 declaredStatus(type, method),
                 dynamicStatus,
                 rawReturn == null ? null : typeName(rawReturn),
-                bodyKnown ? typeName(bodyType.resolve()) : null,
+                bodyKnown ? bodyTypeName(resolvedBody) : null,
                 produces(annotation));
+    }
+
+    private static boolean isDynamicStatusType(Class<?> rawReturn) {
+        if (rawReturn == null) {
+            return false;
+        }
+        return DYNAMIC_STATUS_TYPES.contains(rawReturn.getName()) || isProblemDetailContract(rawReturn);
+    }
+
+    private static boolean isProblemDetailContract(Class<?> type) {
+        if (type == null) {
+            return false;
+        }
+        return org.springframework.http.ProblemDetail.class.isAssignableFrom(type)
+                || org.springframework.web.ErrorResponse.class.isAssignableFrom(type);
+    }
+
+    private static Class<?> resolveBodyClass(ResolvableType bodyType) {
+        if (bodyType == ResolvableType.NONE) {
+            return null;
+        }
+        java.lang.reflect.Type rawType = bodyType.getType();
+        if (rawType instanceof java.lang.reflect.WildcardType wildcard
+                && wildcard.getLowerBounds().length == 0
+                && wildcard.getUpperBounds().length > 0) {
+            ResolvableType upper = ResolvableType.forType(wildcard.getUpperBounds()[0], bodyType);
+            Class<?> resolvedUpper = upper.resolve();
+            if (resolvedUpper != null && resolvedUpper != Object.class) {
+                return resolvedUpper;
+            }
+        }
+        return bodyType.resolve();
+    }
+
+    private static String bodyTypeName(Class<?> resolvedBody) {
+        if (resolvedBody == null) {
+            return null;
+        }
+        String name = typeName(resolvedBody);
+        if (!DYNAMIC_STATUS_TYPES.contains(name)) {
+            if (org.springframework.http.ProblemDetail.class.isAssignableFrom(resolvedBody)) {
+                return org.springframework.http.ProblemDetail.class.getName();
+            }
+            if (org.springframework.web.ErrorResponse.class.isAssignableFrom(resolvedBody)) {
+                return org.springframework.web.ErrorResponse.class.getName();
+            }
+        }
+        return name;
+    }
+
+    private static ResolvableType declaredReturnType(Method method, Class<?> declaringClass) {
+        Class<?>[] paramTypes = method.getParameterTypes();
+        if (paramTypes.length > 0
+                && "kotlin.coroutines.Continuation".equals(paramTypes[paramTypes.length - 1].getName())) {
+            ResolvableType continuation =
+                    ResolvableType.forMethodParameter(method, paramTypes.length - 1, declaringClass);
+            ResolvableType arg = continuation.getGeneric(0);
+            if (arg != ResolvableType.NONE) {
+                java.lang.reflect.Type rawType = arg.getType();
+                if (rawType instanceof java.lang.reflect.WildcardType wildcard
+                        && wildcard.getLowerBounds().length > 0) {
+                    return ResolvableType.forType(wildcard.getLowerBounds()[0], continuation);
+                }
+                return arg;
+            }
+        }
+        return ResolvableType.forMethodReturnType(method, declaringClass);
     }
 
     /** Whether the declaration proves there is no body at all. */
     private static boolean returnsNothing(Class<?> rawReturn) {
-        return rawReturn == void.class || rawReturn == Void.class;
+        return rawReturn == void.class
+                || rawReturn == Void.class
+                || (rawReturn != null && "kotlin.Unit".equals(rawReturn.getName()));
     }
 
     /**

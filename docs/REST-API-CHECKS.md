@@ -50,27 +50,33 @@ the Spring starter supplies ArchUnit transitively.
   A multi-valued outer `Flux<ResponseEntity<T>>` is not equivalent to a single response with a streaming body
   ([Spring's single-response requirement][spring-single-response]).
 - **Payload classification is bounded.** Common async/reactive wrappers, including Spring async wrappers, Mutiny,
-  and Kotlin coroutine wrappers, expose their resolvable payload or element type. Nested `void`/`Void`/`Unit` in
-  supported single-valued wrappers is no-body; a collection of nullable elements is not. Entity arrays retain their
-  element type. Body-envelope detection includes nested `HttpEntity<Object>` without giving it status authority.
-  Streaming shape survives supported envelopes such as `ResponseEntity<Flux<T>>` and `RestResponse<Multi<T>>`;
-  `ResponseEntity<List<T>>` remains a collection, not a stream. Binary `byte[]` is not a pageable resource collection.
-  Direct Spring `HttpHeaders` is headers-only; `HttpEntity<HttpHeaders>` and `ResponseEntity<HttpHeaders>` instead
-  declare a serializable payload.
+  Kotlin coroutine wrappers, Spring Data `PagedModel`/`Window`, HATEOAS `EntityModel`/`CollectionModel`/`PagedModel`,
+  and upper-bounded wildcards (`ResponseEntity<? extends Dto>`), expose their resolvable payload or element type.
+  Nested `void`/`Void`/`Unit` in supported single-valued wrappers is no-body; a collection of nullable elements is not.
+  Entity arrays retain their element type. Body-envelope detection includes nested `HttpEntity<Object>` without giving
+  it status authority. Streaming shape survives supported envelopes such as `ResponseEntity<Flux<T>>` and
+  `RestResponse<Multi<T>>`; `ResponseEntity<List<T>>` remains a collection, not a stream. Binary `byte[]` is not a
+  pageable resource collection. Direct Spring `HttpHeaders` is headers-only; `HttpEntity<HttpHeaders>` and
+  `ResponseEntity<HttpHeaders>` instead declare a serializable payload.
   Raw JAX-RS `Response` has an unknown body, not an inferred error DTO.
 - **Declared statuses and headers are read on both stacks.** Spring `@ResponseStatus` (method, else class) and Quarkus
   REST's `@ResponseStatus(int)` are normalized to the same status names, and Quarkus REST's repeatable
   `@ResponseHeader` names are recorded ([Quarkus REST response properties][quarkus-status]). Like Quarkus itself, both Quarkus annotations are ignored on methods that return
   `Response` or `RestResponse`. An explicit Quarkus status overrides the JAX-RS `void` → 204 default.
 - **Imperative response arguments make the final response unknown.** Servlet `ServletResponse`, `OutputStream`,
-  `Writer`, and reactive `ServerHttpResponse`/`ServerWebExchange` signatures can write responses directly. A `void`
+  `Writer`, reactive `ServerHttpResponse`/`ServerWebExchange`, and Quarkus/JAX-RS `HttpServerResponse`,
+  `RoutingContext`, `SseEventSink`, and `AsyncResponse` signatures can write responses directly. A `void`
   return does not prove an empty wire response. The scanner does not inspect builder chains, filters, advice, or
   emitted bytes to recover their status, headers, or body.
 - **Paths are declarations, not full route enumeration.** Root/leaf composition preserves meaningful interior and
-  trailing slashes. Spring type/method HTTP-method constraints combine by union. Required, explicitly named Spring
-  path bindings are checked against each complete mapping alternative; optional/`Optional` and aggregate map
-  bindings do not establish a missing-required-variable failure. Unresolved placeholders and unrooted JAX-RS
-  subresource paths remain unknown. JAX-RS header/query parameter bindings are not dispatch conditions.
+  trailing slashes. Spring type/method HTTP-method constraints combine by union. Required Spring
+  path bindings (including `-parameters` bytecode parameter names when the annotation omits an explicit name) are
+  checked against each complete mapping alternative; optional/`Optional` and aggregate map
+  bindings do not establish a missing-required-variable failure. Unannotated Quarkus REST path parameters matching
+  `{token}` in `@Path` and injectable context/security types (`UriInfo`, `SecurityIdentity`, `HttpHeaders`,
+  `RoutingContext`, `HttpServerRequest`) are recognized as bound parameters rather than request bodies. Unresolved
+  placeholders and unrooted JAX-RS subresource paths remain unknown. JAX-RS header/query parameter bindings are not
+  dispatch conditions.
 - **Validation annotations do not prove validation execution.** Reactive request payloads are unwrapped for shape
   checks. Supported Spring validation/meta-`@Validated` declarations are recognized conservatively; JAX-RS uses its
   own entity-validation semantics. Optional Spring primitive `boolean` is not a numeric-null failure. Kotlin
@@ -141,8 +147,8 @@ confidence: a mutation-like method name is weaker evidence than a conflicting re
 
 | Scope | HIGH | MEDIUM | LOW | INFO | Total |
 | --- | --- | --- | --- | --- | --- |
-| Stable definitions, including retired emissions | 8 | 8 | 20 | 24 | 60 |
-| Potentially emitting rules | 7 | 8 | 17 | 21 | 53 |
+| Stable definitions, including retired emissions | 9 | 7 | 20 | 24 | 60 |
+| Potentially emitting rules | 8 | 7 | 17 | 21 | 53 |
 
 The documentation checks are gated by the optional OpenAPI integration: Swagger/springdoc annotation availability on
 Spring or MicroProfile OpenAPI on Quarkus. Both annotation families are recognized without making either dependency
@@ -166,16 +172,17 @@ scope remains unscored. Coverage gaps remain in scan notes; the penalty formula 
 ### RAPI-MAP-002 - No duplicate route mappings
 
 - **Severity**: HIGH
-- **Detects**: Exact duplicate observable dispatch conditions, including path, HTTP method, media types, and applicable
-  Spring params/headers/version conditions. Meaningful slash differences are preserved. JAX-RS query/header bindings
-  do not disambiguate routes; incomplete subresource paths are not compared as complete routes.
+- **Detects**: Exact duplicate observable dispatch conditions, including path (with unconstrained `{var}` names
+  normalized), HTTP method, normalized media types, and applicable Spring params/headers/version conditions. Meaningful
+  slash differences are preserved. JAX-RS query/header bindings do not disambiguate routes; incomplete subresource paths
+  are not compared as complete routes.
 - **Spring scope**: Spring MVC and WebFlux reject *identical* mappings at startup ("Ambiguous mapping"), so a running
   application can only contain them when one controller is inactive, such as a profile- or condition-specific
   alternative; those pairs are not reported. Mappings that differ but share one path alternative or HTTP method (for
-  example `{"/a", "/b"}` and `{"/a", "/c"}`, or `GET,POST /x` and `GET /x`) register successfully and then fail each
-  matching request with "Ambiguous handler methods" (500); those are reported. Quarkus REST rejects JAX-RS duplicates at
-  startup by default (`quarkus.rest.fail-on-duplicate=true`), so a JAX-RS finding means that check is disabled or one
-  resource is a build-time alternative.
+  example `{"/a", "/b"}` and `{"/a", "/c"}`, `GET /users/{id}` and `GET /users/{userId}`, or `GET,POST /x` and `GET /x`)
+  register successfully and then fail each matching request with "Ambiguous handler methods" (500); those are reported.
+  Quarkus REST rejects JAX-RS duplicates at startup by default (`quarkus.rest.fail-on-duplicate=true`), so a JAX-RS
+  finding means that check is disabled or one resource is a build-time alternative.
 - **Recommendation**: Give each exact dispatch combination one handler. This is not a complete overlap or ambiguity detector.
 - **Learn more**: [Spring mapping conditions][spring-mapping]; [Spring handler registration][spring-handler-mapping];
   [Jakarta REST matching][jaxrs-matching]; [Quarkus duplicate-endpoint check][quarkus-duplicates].
@@ -183,8 +190,9 @@ scope remains unscored. Coverage gaps remain in scan notes; the penalty formula 
 ### RAPI-MAP-003 - Review mutation-like names on GET handlers
 
 - **Severity**: LOW
-- **Detects**: A GET handler with a create/update/delete/save-style name. Ambiguous prefixes such as `postProcess`,
-  `putAside`, and `patchVersion` are excluded. A name is not evidence that a write executes.
+- **Detects**: A REST GET handler (`serializesBody == true`) with a create/update/delete/save-style name. Noun-colliding
+  `post`, `put`, and `patch` prefixes (`postComments`, `patchNotes`, `postProcess`) are excluded. A name is not evidence
+  that a write executes.
 - **Recommendation**: Review requested effects against GET's safety requirement; use a mutating HTTP method if the
   operation really changes resource state. Incidental logging does not make a safe method unsafe.
 - **Learn more**: [RFC 9110 §9.2.1][http-safe].
@@ -209,8 +217,9 @@ scope remains unscored. Coverage gaps remain in scan notes; the penalty formula 
 ### RAPI-MAP-006 - Required Spring path bindings match each path
 
 - **Severity**: HIGH
-- **Detects**: An explicitly named, required Spring `@PathVariable` is absent from a complete individual mapping
-  alternative. Optional/`Optional`, aggregate map bindings, and unresolved paths do not establish this failure.
+- **Detects**: A required Spring `@PathVariable` (using its explicit annotation name or compiled `-parameters` name) is
+  absent from a complete individual mapping alternative. Optional/`Optional`, aggregate map bindings, and unresolved
+  paths do not establish this failure.
 - **Recommendation**: Correct the token or binding, or deliberately make the binding optional for alternatives
   without that token. JAX-RS binding/default semantics do not imply Spring's missing-required-variable error.
 - **Learn more**: [Spring `PathVariable.required`][spring-pathvar]; [Jakarta REST `PathParam`][jaxrs-pathparam].
@@ -383,7 +392,7 @@ scope remains unscored. Coverage gaps remain in scan notes; the penalty formula 
 
 ### RAPI-RESP-010 - Do not set @ResponseStatus reason on body-returning REST handlers
 
-- **Severity**: MEDIUM
+- **Severity**: HIGH
 - **Detects**: A Spring MVC REST handler or body-rendering `@ExceptionHandler` with a content-capable return whose
   effective `@ResponseStatus` (method-level, else class-level) sets a non-blank `reason`. Spring MVC then calls
   `HttpServletResponse.sendError(status, reason)` and returns before return-value handling: the returned body, even a
@@ -433,10 +442,10 @@ scope remains unscored. Coverage gaps remain in scan notes; the penalty formula 
 ### RAPI-VALID-003 - Optional Spring numeric parameters need a nullable/defaulted binding
 
 - **Severity**: MEDIUM
-- **Detects**: An optional Java numeric primitive Spring binding with no nonblank default. Omission cannot bind null,
-  and a literal empty/blank default can fail numeric conversion even when `required` retains its annotation default.
-  Primitive boolean is excluded because Spring supplies false; uncertain Kotlin source-default
-  cases are not reported as guaranteed numeric failures.
+- **Detects**: An optional Java numeric primitive Spring `@RequestParam`, `@RequestHeader`, or `@CookieValue` binding
+  with no nonblank default. Omission cannot bind null, and a literal empty/blank default can fail numeric conversion
+  even when `required` retains its annotation default. Primitive boolean is excluded because Spring supplies false;
+  uncertain Kotlin source-default cases are not reported as guaranteed numeric failures.
 - **Recommendation**: For the applicable Java numeric case, use a boxed type or an explicit default.
   This does not transfer Spring's resolver behavior to JAX-RS.
 - **Learn more**: [Spring named-value resolver][spring-named-values]; [WebFlux named-value resolver][spring-reactive-named-values].
@@ -719,9 +728,10 @@ bounded versioning hints, not a runtime request proving that version selection w
 
 - **Severity**: MEDIUM
 - **Detects**: An endpoint's declared application exception has no matching handler/mapper or applicable
-  status-annotated exception declaration in the imported model; recognized supertypes count. Alias, inferred,
-  explicit mapper, and bounded inherited exception types participate. The rule stays silent if no exception
-  handlers are declared, leaving the broad review to ERR-001.
+  status-annotated exception declaration in the imported model; recognized supertypes and natively mapped framework
+  exception hierarchies (`ErrorResponseException`, `ResponseStatusException`, and `jakarta.ws.rs.WebApplicationException`)
+  count. Alias, inferred, explicit mapper, and bounded inherited exception types participate. The rule stays silent if no
+  exception handlers are declared, leaving the broad review to ERR-001.
 - **Not evaluated**: Incomplete extraction or any imported handler/mapper with unresolved handled-exception types
   prevents an absence-based finding. The latter is an intentional `SKIPPED` limitation, not automatically `PARTIAL`;
   an observed required-evidence extraction failure is what makes the scan partial.
@@ -867,7 +877,7 @@ declarations that break requests deterministically. No ID was reused or repurpos
 | --- | --- | --- |
 | RAPI-VALID-006 | **Added**, HIGH | Several `@RequestBody` parameters read one stream; MVC fails every request with 400 ([`@RequestBody`][spring-requestbody]). |
 | RAPI-VER-007 | **Added**, HIGH | Consumes on a bodyless GET/HEAD/DELETE rejects requests without `Content-Type` with 415 on MVC and WebFlux ([consumes matching][spring-consumes-condition]). |
-| RAPI-RESP-010 | **Added**, MEDIUM | A `@ResponseStatus` reason discards the returned body on Spring MVC; WebFlux is skipped ([MVC reason handling][spring-reason]). |
+| RAPI-RESP-010 | **Added**, HIGH | A `@ResponseStatus` reason discards the returned body on Spring MVC; WebFlux is skipped ([MVC reason handling][spring-reason]). |
 | RAPI-RESP-011 | **Added**, LOW | An empty `Optional` read answers 200 with an empty body, not 404 ([`ResponseEntity.of`][spring-response-entity]). |
 | RAPI-MAP-002 | Narrowed; HIGH retained | Identical Spring mappings fail startup, so they only appear for inactive alternatives and are no longer reported; partial overlaps fail at request time and still are ([handler registration][spring-handler-mapping]). |
 | RAPI-RESP-006 | HIGH → MEDIUM | Servers drop 204 content, so clients see a consistent 204; the defect is a contradictory declaration ([RFC 9110 §15.3.5][http-no-content]). |

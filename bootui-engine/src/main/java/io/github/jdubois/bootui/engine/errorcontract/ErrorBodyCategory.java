@@ -48,17 +48,29 @@ public final class ErrorBodyCategory {
             "java.util.HashMap",
             "java.util.LinkedHashMap",
             "java.util.TreeMap",
+            "com.fasterxml.jackson.databind.JsonNode",
+            "com.fasterxml.jackson.databind.node.ObjectNode",
+            "tools.jackson.databind.JsonNode",
+            "tools.jackson.databind.node.ObjectNode",
             "jakarta.ws.rs.core.Response",
             "org.jboss.resteasy.reactive.RestResponse",
             "org.springframework.web.reactive.function.server.ServerResponse",
             "org.springframework.web.servlet.function.ServerResponse",
             "?");
 
-    private static final Set<String> EMPTY_BODY_TYPES = Set.of("void", "java.lang.Void");
+    private static final Set<String> EMPTY_BODY_TYPES = Set.of("void", "java.lang.Void", "kotlin.Unit");
 
     private static final Set<String> STRING_BODY_TYPES = Set.of("java.lang.String", "java.lang.CharSequence", "byte[]");
 
     private ErrorBodyCategory() {}
+
+    /**
+     * Whether the named type is a framework RFC 9457 problem-details representation or exception contract
+     * that carries its own status and body at runtime.
+     */
+    public static boolean isProblemDetailType(String typeName) {
+        return typeName != null && PROBLEM_DETAIL_TYPES.contains(typeName);
+    }
 
     /**
      * Classifies a declared error response body.

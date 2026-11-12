@@ -1568,7 +1568,9 @@ class BootUiQuarkusProcessor {
             if (exceptionTypes.isEmpty()) {
                 continue; // an ExceptionMapper whose handled type cannot be read is not reportable
             }
-            Type returnType = toResponse == null ? null : toResponse.returnType();
+            Type returnType = declaredReturnType(toResponse);
+            List<String> methodProduces =
+                    toResponse == null ? List.of() : mediaTypeList(toResponse.annotation(PRODUCES));
             handlers.add(new RawErrorHandler(
                     ErrorHandlerDescriptor.JAKARTA_REST_EXCEPTION_MAPPER,
                     mapper.name().toString(),
@@ -1581,7 +1583,7 @@ class BootUiQuarkusProcessor {
                     isDynamicStatus(returnType),
                     returnType == null ? null : returnType.name().toString(),
                     bodyTypeOf(returnType),
-                    mediaTypeList(mapper.declaredAnnotation(PRODUCES))));
+                    methodProduces.isEmpty() ? mediaTypeList(mapper.declaredAnnotation(PRODUCES)) : methodProduces));
         }
         for (AnnotationInstance annotation : index.getAnnotations(SERVER_EXCEPTION_MAPPER)) {
             if (annotation.target() == null || annotation.target().kind() != AnnotationTarget.Kind.METHOD) {
@@ -1596,8 +1598,8 @@ class BootUiQuarkusProcessor {
             if (exceptionTypes.isEmpty()) {
                 continue; // no declared exception type is readable, so there is nothing honest to report
             }
-            boolean resourceLocal = declaringClass.declaredAnnotation(PATH) != null;
-            Type returnType = method.returnType();
+            boolean resourceLocal = isJaxRsResourceClass(declaringClass);
+            Type returnType = declaredReturnType(method);
             AnnotationInstance status = method.annotation(RESPONSE_STATUS);
             List<String> produces = mediaTypeList(method.annotation(PRODUCES));
             handlers.add(new RawErrorHandler(
@@ -1615,6 +1617,48 @@ class BootUiQuarkusProcessor {
                     produces.isEmpty() ? mediaTypeList(declaringClass.declaredAnnotation(PRODUCES)) : produces));
         }
         return handlers;
+    }
+
+    private static boolean isJaxRsResourceClass(ClassInfo classInfo) {
+        if (classInfo.declaredAnnotation(PATH) != null) {
+            return true;
+        }
+        for (MethodInfo method : classInfo.methods()) {
+            if (method.hasAnnotation(PATH) || httpMethodOf(method) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns the declared return type of {@code method}, unwrapping the trailing
+     * {@code kotlin.coroutines.Continuation<? super T>} parameter of a Kotlin {@code suspend fun}.
+     */
+    private static Type declaredReturnType(MethodInfo method) {
+        if (method == null) {
+            return null;
+        }
+        int count = method.parametersCount();
+        if (count > 0
+                && "kotlin.coroutines.Continuation"
+                        .equals(method.parameterType(count - 1).name().toString())) {
+            Type continuation = method.parameterType(count - 1);
+            if (continuation.kind() == Type.Kind.PARAMETERIZED_TYPE) {
+                List<Type> args = continuation.asParameterizedType().arguments();
+                if (!args.isEmpty()) {
+                    Type arg = args.get(0);
+                    if (arg.kind() == Type.Kind.WILDCARD_TYPE) {
+                        Type superBound = arg.asWildcardType().superBound();
+                        return superBound != null
+                                ? superBound
+                                : arg.asWildcardType().extendsBound();
+                    }
+                    return arg;
+                }
+            }
+        }
+        return method.returnType();
     }
 
     /** {@code true} when the class belongs to BootUI's own Quarkus adapter (mirrors the mappings filter). */
@@ -1787,7 +1831,17 @@ class BootUiQuarkusProcessor {
                 return null;
             }
             List<Type> arguments = payload.asParameterizedType().arguments();
-            return arguments.isEmpty() ? null : arguments.get(0).name().toString();
+            if (arguments.isEmpty()) {
+                return null;
+            }
+            Type arg = arguments.get(0);
+            if (arg.kind() == Type.Kind.WILDCARD_TYPE
+                    && arg.asWildcardType().superBound() == null
+                    && !DotName.OBJECT_NAME.equals(
+                            arg.asWildcardType().extendsBound().name())) {
+                return arg.asWildcardType().extendsBound().name().toString();
+            }
+            return arg.name().toString();
         }
         return payload.name().toString();
     }

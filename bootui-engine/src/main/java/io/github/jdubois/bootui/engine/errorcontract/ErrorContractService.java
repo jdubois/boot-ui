@@ -376,7 +376,9 @@ public final class ErrorContractService implements ErrorContractLinkResolver {
             statusSource = STATUS_ANNOTATION;
         } else {
             status = null;
-            statusSource = descriptor.dynamicStatus() ? STATUS_DYNAMIC : STATUS_UNRESOLVED;
+            boolean dynamicStatus =
+                    descriptor.dynamicStatus() || ErrorBodyCategory.isProblemDetailType(descriptor.returnTypeName());
+            statusSource = dynamicStatus ? STATUS_DYNAMIC : STATUS_UNRESOLVED;
         }
         return new ErrorContractEntryDto(
                 component + "#" + method + "(" + candidate.exceptionType() + ")",
@@ -421,8 +423,9 @@ public final class ErrorContractService implements ErrorContractLinkResolver {
      * nothing at all.
      */
     static String bodyCategory(ErrorHandlerDescriptor descriptor) {
-        return ErrorBodyCategory.classify(
-                descriptor.returnTypeName(), descriptor.bodyTypeName(), descriptor.dynamicStatus());
+        boolean bodyProven =
+                descriptor.dynamicStatus() || ErrorBodyCategory.isProblemDetailType(descriptor.returnTypeName());
+        return ErrorBodyCategory.classify(descriptor.returnTypeName(), descriptor.bodyTypeName(), bodyProven);
     }
 
     private static boolean matches(ErrorContractEntryDto entry, String query) {

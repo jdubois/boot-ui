@@ -92,13 +92,24 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
         return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 
-    /** A type is mapped when it, or any of its ancestors, is declared as handled. */
+    /**
+     * Framework exception base types that Spring MVC, Spring WebFlux, and Jakarta REST / Quarkus REST map
+     * natively to their embedded HTTP status and representation without requiring a custom
+     * {@code @ExceptionHandler}, {@code ExceptionMapper}, or {@code @ResponseStatus}.
+     */
+    private static final Set<String> NATIVELY_MAPPED_EXCEPTIONS = Set.of(
+            RestApiModel.Types.ERROR_RESPONSE_EXCEPTION,
+            RestApiModel.Types.RESPONSE_STATUS_EXCEPTION,
+            RestApiModel.Types.JAXRS_WEB_APPLICATION_EXCEPTION);
+
+    /** A type is mapped when it, or any of its ancestors, is declared as handled or natively mapped. */
     private static boolean isMapped(ThrownExceptionModel thrown, Set<String> mapped) {
-        if (mapped.contains(thrown.exceptionTypeName())) {
+        if (mapped.contains(thrown.exceptionTypeName())
+                || NATIVELY_MAPPED_EXCEPTIONS.contains(thrown.exceptionTypeName())) {
             return true;
         }
         for (String ancestor : thrown.exceptionSuperTypeNames()) {
-            if (mapped.contains(ancestor)) {
+            if (mapped.contains(ancestor) || NATIVELY_MAPPED_EXCEPTIONS.contains(ancestor)) {
                 return true;
             }
         }
