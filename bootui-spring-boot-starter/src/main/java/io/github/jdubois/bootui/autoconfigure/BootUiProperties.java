@@ -895,6 +895,13 @@ public class BootUiProperties {
         private Duration requestTimeout = Duration.ofSeconds(10);
 
         /**
+         * Whole-scan deadline budget applied across OSV batch queries, advisory-detail fetches, and EPSS
+         * enrichment; when exceeded, the scan degrades to {@code PARTIAL} while retaining advisories
+         * fetched so far.
+         */
+        private Duration scanTimeout = Duration.ofSeconds(60);
+
+        /**
          * Maximum number of dependency packages included in one OSV batch query. Packages beyond this bound
          * are reported as {@code scan.packagesSkipped} rather than silently dropped. The default is sized to
          * cover a typical Spring Boot application's full JAR set, which commonly exceeds 300 dependencies.
@@ -941,6 +948,16 @@ public class BootUiProperties {
 
         public void setRequestTimeout(Duration requestTimeout) {
             this.requestTimeout = requestTimeout;
+        }
+
+        public Duration getScanTimeout() {
+            return scanTimeout;
+        }
+
+        public void setScanTimeout(Duration scanTimeout) {
+            this.scanTimeout = scanTimeout == null || scanTimeout.isNegative() || scanTimeout.isZero()
+                    ? Duration.ofSeconds(60)
+                    : scanTimeout;
         }
 
         public int getMaxPackages() {

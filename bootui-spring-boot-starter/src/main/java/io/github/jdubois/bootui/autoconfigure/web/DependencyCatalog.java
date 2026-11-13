@@ -193,6 +193,7 @@ public final class DependencyCatalog implements DependencyProvider {
     public DependencyInventory inventory() {
         Map<String, DependencyDto> dependencies = new LinkedHashMap<>();
         Set<String> identifiedArchives = new LinkedHashSet<>();
+        Set<String> runtimeConfirmedKeys = new LinkedHashSet<>();
 
         Set<Path> agents = agentJars();
         ArchiveCensus census = archiveCensus(agents);
@@ -218,7 +219,9 @@ public final class DependencyCatalog implements DependencyProvider {
                 appLocationDependencies.add(dependency);
                 continue;
             }
-            dependencies.putIfAbsent(key(dependency), dependency);
+            String dependencyKey = key(dependency);
+            runtimeConfirmedKeys.add(dependencyKey);
+            dependencies.putIfAbsent(dependencyKey, dependency);
         }
         long distinctAppPackages = appLocationDependencies.stream()
                 .map(DependencyDto::packageName)
@@ -228,13 +231,17 @@ public final class DependencyCatalog implements DependencyProvider {
             List<String> packages = applicationBasePackages();
             for (DependencyDto dependency : appLocationDependencies) {
                 if (!isHostCoordinate(dependency, census.repackagedArchives(), packages)) {
-                    dependencies.putIfAbsent(key(dependency), dependency);
+                    String dependencyKey = key(dependency);
+                    runtimeConfirmedKeys.add(dependencyKey);
+                    dependencies.putIfAbsent(dependencyKey, dependency);
                 }
             }
         }
         for (DependencyDto dependency : javaClassPathDependencies(agents)) {
             if (!sbom.applicationPackages().contains(dependency.packageName())) {
-                dependencies.putIfAbsent(key(dependency), dependency);
+                String dependencyKey = key(dependency);
+                runtimeConfirmedKeys.add(dependencyKey);
+                dependencies.putIfAbsent(dependencyKey, dependency);
             }
         }
 
@@ -242,15 +249,68 @@ public final class DependencyCatalog implements DependencyProvider {
             if (!dependencies.containsKey(key(dependency))
                     && !sbom.applicationPackages().contains(dependency.packageName())
                     && isShipped(dependency, archives)) {
-                dependencies.put(key(dependency), dependency);
+                String dependencyKey = key(dependency);
+                runtimeConfirmedKeys.add(dependencyKey);
+                dependencies.put(dependencyKey, dependency);
             }
         }
 
         DependencyCoverageDto coverage = coverage(archives, dependencies, identifiedArchives);
+        reconcileWithCompleteCensus(dependencies, sbom, runtimeConfirmedKeys, archives, coverage);
         List<DependencyDto> resolved = dependencies.values().stream()
                 .sorted(Comparator.comparing(DependencyDto::packageName).thenComparing(DependencyDto::version))
                 .toList();
         return new DependencyInventory(resolved, coverage);
+    }
+
+    /**
+     * Reconciles SBOM-only {@code scope: "optional"} components and duplicate-coordinate SBOM version
+     * conflicts against the runtime archive census strictly when {@code coverage.status()} is
+     * {@link DependencyCoverageDto#COMPLETE}. When any archive is unidentified or the census is
+     * unavailable, nothing is removed so a shaded or custom-named archive never causes a shipped
+     * dependency to be dropped.
+     */
+    private static void reconcileWithCompleteCensus(
+            Map<String, DependencyDto> dependencies,
+            SbomComponents sbom,
+            Set<String> runtimeConfirmedKeys,
+            List<CensusArchive> archives,
+            DependencyCoverageDto coverage) {
+        if (!DependencyCoverageDto.COMPLETE.equals(coverage.status())) {
+            return;
+        }
+        dependencies
+                .entrySet()
+                .removeIf(entry -> sbom.optionalKeys().contains(entry.getKey())
+                        && !isConfirmedAtRuntime(entry.getValue(), runtimeConfirmedKeys, archives));
+        Map<String, List<DependencyDto>> byPackage = new LinkedHashMap<>();
+        for (DependencyDto dependency : dependencies.values()) {
+            byPackage
+                    .computeIfAbsent(dependency.packageName(), ignored -> new ArrayList<>())
+                    .add(dependency);
+        }
+        for (List<DependencyDto> group : byPackage.values()) {
+            if (group.size() < 2) {
+                continue;
+            }
+            boolean anyConfirmed = group.stream()
+                    .anyMatch(dependency -> isConfirmedAtRuntime(dependency, runtimeConfirmedKeys, archives));
+            if (!anyConfirmed) {
+                continue;
+            }
+            for (DependencyDto dependency : group) {
+                String dependencyKey = key(dependency);
+                if (sbom.shippedByKey().containsKey(dependencyKey)
+                        && !isConfirmedAtRuntime(dependency, runtimeConfirmedKeys, archives)) {
+                    dependencies.remove(dependencyKey);
+                }
+            }
+        }
+    }
+
+    private static boolean isConfirmedAtRuntime(
+            DependencyDto dependency, Set<String> runtimeConfirmedKeys, List<CensusArchive> archives) {
+        return runtimeConfirmedKeys.contains(key(dependency)) || isShipped(dependency, archives);
     }
 
     private static String key(DependencyDto dependency) {
@@ -936,7 +996,12 @@ public final class DependencyCatalog implements DependencyProvider {
      * when the archive census proves its JAR is on the classpath after all.</p>
      */
     private SbomComponents sbomComponents(Set<String> repackagedArchives) {
-        SbomComponents sbom = new SbomComponents(new LinkedHashMap<>(), new LinkedHashMap<>(), new LinkedHashSet<>());
+        SbomComponents sbom = new SbomComponents(
+                new LinkedHashMap<>(),
+                new LinkedHashMap<>(),
+                new LinkedHashSet<>(),
+                new LinkedHashSet<>(),
+                new LinkedHashSet<>());
         for (String pattern : SBOM_PATTERNS) {
             for (Resource resource : resources(pattern)) {
                 readSbom(resource, sbom, repackagedArchives);
@@ -969,7 +1034,7 @@ public final class DependencyCatalog implements DependencyProvider {
                 sbom.applicationPackages().add(applicationPackage);
             }
         }
-        collectSbomComponents(root.get("components"), sbom, false);
+        collectSbomComponents(root.get("components"), sbom, false, false);
     }
 
     private static String applicationPackage(JsonNode metadata) {
@@ -995,7 +1060,8 @@ public final class DependencyCatalog implements DependencyProvider {
         return groupId != null && artifactId != null ? groupId + ":" + artifactId : null;
     }
 
-    private void collectSbomComponents(JsonNode components, SbomComponents sbom, boolean parentNotShipped) {
+    private void collectSbomComponents(
+            JsonNode components, SbomComponents sbom, boolean parentNotShipped, boolean parentOptional) {
         if (components == null || !components.isArray()) {
             return;
         }
@@ -1007,13 +1073,15 @@ public final class DependencyCatalog implements DependencyProvider {
                 continue;
             }
             boolean notShipped = parentNotShipped || isNotShipped(component);
+            boolean optional = !notShipped && (parentOptional || isOptional(component));
             JsonNode purl = component.get("purl");
             PackageUrls.MavenCoordinates coordinates =
                     purl == null || !purl.isString() ? null : PackageUrls.mavenCoordinates(purl.stringValue());
             if (coordinates != null) {
+                String coordinateKey = coordinates.packageName() + ":" + coordinates.version();
                 (notShipped ? sbom.notShippedByKey() : sbom.shippedByKey())
                         .putIfAbsent(
-                                coordinates.packageName() + ":" + coordinates.version(),
+                                coordinateKey,
                                 new DependencyDto(
                                         coordinates.groupId(),
                                         coordinates.artifactId(),
@@ -1024,10 +1092,24 @@ public final class DependencyCatalog implements DependencyProvider {
                                         "NONE",
                                         List.of(),
                                         DependencyAssessmentDto.unknown()));
+                if (!notShipped) {
+                    if (optional) {
+                        if (!sbom.requiredKeys().contains(coordinateKey)) {
+                            sbom.optionalKeys().add(coordinateKey);
+                        }
+                    } else {
+                        sbom.requiredKeys().add(coordinateKey);
+                        sbom.optionalKeys().remove(coordinateKey);
+                    }
+                }
             }
             // CycloneDX allows a component to nest the components it in turn assembles.
-            collectSbomComponents(component.get("components"), sbom, notShipped);
+            collectSbomComponents(component.get("components"), sbom, notShipped, optional);
         }
+    }
+
+    private static boolean isOptional(JsonNode component) {
+        return equalsIgnoreCaseTrimmed(component.get("scope"), "optional");
     }
 
     /**
@@ -1057,10 +1139,12 @@ public final class DependencyCatalog implements DependencyProvider {
         return node != null && node.isString() && node.stringValue().trim().equalsIgnoreCase(expected);
     }
 
-    /** SBOM components split by whether the SBOM declares them shipped; see {@link #sbomComponents()}. */
+    /** SBOM components split by whether the SBOM declares them shipped; see {@link #sbomComponents(Set)}. */
     private record SbomComponents(
             Map<String, DependencyDto> shippedByKey,
             Map<String, DependencyDto> notShippedByKey,
+            Set<String> requiredKeys,
+            Set<String> optionalKeys,
             Set<String> applicationPackages) {
 
         Collection<DependencyDto> shipped() {
