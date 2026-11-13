@@ -62,6 +62,13 @@ public final class RequestValues {
     /** The shortest value held (PLAN-v2 §5.16). */
     public static final int MIN_LENGTH = 4;
 
+    /**
+     * The shortest value held for an assessment request, one an external DAST tool tagged with the {@code
+     * X-BootUI-Assessment-Id} header: its short probes, as {@code bar} or {@code '}, are held too, and a match of one is
+     * flagged {@link #FLAG_SHORT}, so it is shown only once a second request confirms it.
+     */
+    public static final int ASSESSMENT_MIN_LENGTH = 1;
+
     /** The longest value held; a longer one is skipped and counted. */
     public static final int MAX_LENGTH = 256;
 
@@ -152,6 +159,9 @@ public final class RequestValues {
     /** In a record's outcome byte: the matched value sat inside an unquoted SQL literal (a number, true, or false). */
     public static final int FLAG_BARE_LITERAL = 16;
 
+    /** In a record's outcome byte: the matched value is shorter than {@value #MIN_LENGTH} characters. */
+    public static final int FLAG_SHORT = 32;
+
     /** What a process start's or a file operation's own record names when its executable or path held request input
      * whose redaction could not cover every occurrence. */
     public static final String FROM_REQUEST_INPUT = "(not kept: it held request input)";
@@ -214,6 +224,8 @@ public final class RequestValues {
     private static final LongAdder TABLE_FULL = new LongAdder();
     private static final LongAdder KEPT = new LongAdder();
     private static final LongAdder TOO_SHORT = new LongAdder();
+    private static final LongAdder ASSESSED = new LongAdder();
+    private static final LongAdder AMBIGUOUS = new LongAdder();
     private static final LongAdder TOO_LONG = new LongAdder();
     private static final LongAdder OVER_COUNT = new LongAdder();
     private static final LongAdder ENDED = new LongAdder();
@@ -250,6 +262,8 @@ public final class RequestValues {
         final long[] matchedHashes = new long[MATCHED_HASHES];
         int matchedCount;
         int count;
+        /** Whether an assessment request pushed values: they are held from {@value #ASSESSMENT_MIN_LENGTH} character. */
+        boolean assessment;
         /**
          * Bumped by every value added, on a push or a late pull: a text remembered under an earlier epoch is checked
          * again, as it may hold a value added since.
@@ -341,6 +355,16 @@ public final class RequestValues {
      * BootUI's own work, or without room. Returns the values the entry holds, or -1 when nothing is held. Never throws.
      */
     public static int begin(String requestId, String[] names, String[] values, Map<?, ?> late, String[] lateKeys) {
+        return begin(requestId, names, values, late, lateKeys, false);
+    }
+
+    /**
+     * {@link #begin(String, String[], String[], Map, String[])}, for an {@code assessment} request, one an external DAST
+     * tool tagged with the {@code X-BootUI-Assessment-Id} header, when true: its values are held from {@value
+     * #ASSESSMENT_MIN_LENGTH} character. The header's own value is never passed nor held.
+     */
+    public static int begin(
+            String requestId, String[] names, String[] values, Map<?, ?> late, String[] lateKeys, boolean assessment) {
         try {
             if (!active() || Reentrancy.sideEffectsSkipped()) {
                 return -1;
@@ -373,6 +397,10 @@ public final class RequestValues {
                 Entry entry = entry(index, request);
                 if (entry == null) {
                     return -1;
+                }
+                if (assessment && !entry.assessment) {
+                    entry.assessment = true;
+                    ASSESSED.increment();
                 }
                 if (values != null) {
                     for (int i = 0; i < values.length; i++) {
@@ -525,7 +553,7 @@ public final class RequestValues {
             return;
         }
         int length = value.length();
-        if (length < MIN_LENGTH) {
+        if (length < (entry.assessment ? ASSESSMENT_MIN_LENGTH : MIN_LENGTH)) {
             TOO_SHORT.increment();
             return;
         }
@@ -789,7 +817,7 @@ public final class RequestValues {
             if ((mask & (1 << i)) == 0) {
                 continue;
             }
-            int flags = position | numericFlag(text, spans, i);
+            int flags = position | valueFlags(text, spans, i);
             if (!reported(spans, i)) {
                 flags |= POSITION_UNKNOWN;
             }
@@ -809,10 +837,11 @@ public final class RequestValues {
     }
 
     /**
-     * {@link #FLAG_NUMERIC} when the first span of value {@code index} is a number: digits, with an optional leading
-     * sign and at most one decimal point, else 0.
+     * The flags of value {@code index}'s first span: {@link #FLAG_NUMERIC} when it is a number (digits, with an optional
+     * leading sign and at most one decimal point), and {@link #FLAG_SHORT} when it is shorter than {@value
+     * #MIN_LENGTH} characters; else 0.
      */
-    static int numericFlag(String text, int[] spans, int index) {
+    static int valueFlags(String text, int[] spans, int index) {
         int count = Math.min(spans[S_COUNT], MAX_SPANS);
         for (int s = 0; s < count; s++) {
             int slot = S_FIRST + 3 * s;
@@ -824,7 +853,7 @@ public final class RequestValues {
             if (start < 0 || end > text.length() || start >= end) {
                 return 0;
             }
-            return number(text, start, end) ? FLAG_NUMERIC : 0;
+            return (number(text, start, end) ? FLAG_NUMERIC : 0) | (end - start < MIN_LENGTH ? FLAG_SHORT : 0);
         }
         return 0;
     }
@@ -997,10 +1026,13 @@ public final class RequestValues {
             int flags = (partial ? F_PARTIAL : 0) | (spansFit ? 0 : F_OVERFLOW) | (seen ? F_SEEN : 0);
             for (int i = 0; i < entry.count; i++) {
                 String value = entry.values[i];
+                int before = written;
+                boolean any = false;
+                boolean overflowed = false;
                 int from = 0;
                 int at;
                 while ((at = scanned.indexOf(value, from)) >= 0) {
-                    mask |= 1 << i;
+                    any = true;
                     if (written < MAX_SPANS) {
                         if (spans != null && spans.length >= S_FIRST + 3 * (written + 1)) {
                             int slot = S_FIRST + 3 * written;
@@ -1010,9 +1042,20 @@ public final class RequestValues {
                         }
                         written++;
                     } else {
-                        flags |= F_OVERFLOW;
+                        overflowed = true;
                     }
                     from = at + value.length();
+                }
+                if (overflowed && value.length() < MIN_LENGTH) {
+                    // A short probe in more places than the spans hold tells nothing: dropped, so it never costs
+                    // another value its redacted text.
+                    written = before;
+                    AMBIGUOUS.increment();
+                } else if (any) {
+                    mask |= 1 << i;
+                    if (overflowed) {
+                        flags |= F_OVERFLOW;
+                    }
                 }
             }
             if (mask != 0 && names != null) {
@@ -1403,6 +1446,8 @@ public final class RequestValues {
             map.put("tableFull", Long.valueOf(TABLE_FULL.sum()));
             map.put("values", Long.valueOf(KEPT.sum()));
             map.put("valuesTooShort", Long.valueOf(TOO_SHORT.sum()));
+            map.put("assessmentRequests", Long.valueOf(ASSESSED.sum()));
+            map.put("shortValuesAmbiguous", Long.valueOf(AMBIGUOUS.sum()));
             map.put("valuesTooLong", Long.valueOf(TOO_LONG.sum()));
             map.put("valuesOverCount", Long.valueOf(OVER_COUNT.sum()));
             map.put("ended", Long.valueOf(ENDED.sum()));
@@ -1444,6 +1489,8 @@ public final class RequestValues {
             TABLE_FULL,
             KEPT,
             TOO_SHORT,
+            ASSESSED,
+            AMBIGUOUS,
             TOO_LONG,
             OVER_COUNT,
             ENDED,

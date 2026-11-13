@@ -79,6 +79,44 @@ class AgentRequestValuesTests {
     }
 
     @Test
+    void anAssessmentRequestPushesItsShortProbesAndAnUntaggedRequestDoesNot() {
+        claim();
+        sensor(true);
+        AgentRequestValues.configure(true);
+        int[] spans = new int[AgentRequestValues.SPANS_LENGTH];
+        String[] names = new String[AgentRequestValues.MAX_VALUES];
+
+        AgentRequestValues.begin(
+                REQUEST, new AgentRequestValues.Values().assessment(" ").add("q", "bar"));
+        assertThat(AgentRequestValues.match("where q = 'bar'", AgentRequestValues.SINK_SQL, spans, names))
+                .as("a blank header is no assessment")
+                .isZero();
+        AgentRequestValues.end(REQUEST);
+
+        AgentRequestValues.begin(
+                REQUEST, new AgentRequestValues.Values().assessment("zap-1").add("q", "bar"));
+        assertThat(AgentRequestValues.match("where q = 'bar'", AgentRequestValues.SINK_SQL, spans, names))
+                .isEqualTo(1);
+        assertThat(AgentRequestValues.status().get("assessmentRequests")).isEqualTo(1L);
+        AgentRequestValues.end(REQUEST);
+    }
+
+    @Test
+    void aShortMatchIsFlaggedShortSoItWaitsForASecondRequest() {
+        String sql = "where q = 'bar' and name = 'alice'";
+        int[] spans = new int[AgentRequestValues.SPANS_LENGTH];
+        spans[AgentRequestValues.S_COUNT] = 2;
+        spans[AgentRequestValues.S_FIRST + 1] = 11;
+        spans[AgentRequestValues.S_FIRST + 2] = 14;
+        spans[AgentRequestValues.S_FIRST + 3] = 1;
+        spans[AgentRequestValues.S_FIRST + 4] = 28;
+        spans[AgentRequestValues.S_FIRST + 5] = 33;
+
+        assertThat(RequestInputSinks.valueFlags(sql, spans, 0)).isEqualTo(AgentRequestValues.FLAG_SHORT);
+        assertThat(RequestInputSinks.valueFlags(sql, spans, 1)).isZero();
+    }
+
+    @Test
     void queryStringsAreDecodedAsFormsAndBadPairsSkipped() {
         AgentRequestValues.Values values =
                 new AgentRequestValues.Values().addQuery("a=hello+world&b=%E2%82%AC100&bad=%zz&flag&=anon&c=x%26y&&d=");

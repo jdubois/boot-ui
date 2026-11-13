@@ -239,7 +239,8 @@ public final class SideEffectsService implements AutoCloseable {
 
     static final String LIMITATION_SECURITY_SINKS = "Security sinks: request input is matched only while"
             + " bootui.agent.security-sinks.request-values is on, against the current request's query and path parameter"
-            + " values of 4 to 256 characters, at most 32 of them, never form values, headers, or bodies, and only"
+            + " values of 4 to 256 characters (from 1 on a request tagged with the X-BootUI-Assessment-Id header, whose"
+            + " value is never read), at most 32 of them, never form values, other headers, or bodies, and only"
             + " verbatim: a value encoded, trimmed, or changed in case is not seen. The values are compared, never stored,"
             + " and forgotten when the response completes. SQL text is checked where SQL Trace captures a statement,"
             + " never with R2DBC; a command where the processes sensor sees it start; a file path only with the files"
@@ -247,7 +248,8 @@ public final class SideEffectsService implements AutoCloseable {
             + " managed executor still matches, until the response completes; a task the agent propagates never does. A"
             + " row's target is the redacted text, the value replaced by the parameter's name, and SQL literals masked;"
             + " when a text was scanned only in part or held more matches than could be redacted, no text is kept. A"
-            + " value outside an SQL literal, or made of digits only, is shown once a second request confirms the text"
+            + " value outside an SQL literal, made of digits only, or shorter than 4 characters is shown once a second"
+            + " request confirms the text"
             + " varies with it.";
 
     static final String LIMITATION_SECURITY_CHECKS = "Security sinks' JDK checks: a deserialization is one outermost"
@@ -1747,7 +1749,8 @@ public final class SideEffectsService implements AutoCloseable {
                 if (unconfirmed > 0) {
                     limitations.add(unconfirmed
                             + (unconfirmed == 1 ? " security-sinks match is" : " security-sinks" + " matches are")
-                            + " not shown yet: a value outside an SQL literal, a number, or one whose place in the text"
+                            + " not shown yet: a value outside an SQL literal, a number, a probe shorter than 4"
+                            + " characters, or one whose place in the text"
                             + " is not known may be a word the text always holds, until a second request confirms the"
                             + " text varies with it.");
                 }

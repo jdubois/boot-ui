@@ -55,6 +55,13 @@ public final class AgentRequestValues {
     /** Name-value pairs an adapter passes per request at most: the bridge keeps at most 32 and counts the rest. */
     public static final int MAX_PAIRS = 64;
 
+    /**
+     * The header an external DAST tool tags its requests with ({@code docs/features/java-agent.md}): such a request's
+     * values are held from one character, so its short probes are checked too. Only whether it is present and not blank
+     * is read; its value is never kept.
+     */
+    public static final String ASSESSMENT_HEADER = "X-BootUI-Assessment-Id";
+
     /** The raw query string characters an adapter parses at most. */
     public static final int MAX_QUERY = 8 * 1024;
 
@@ -110,7 +117,8 @@ public final class AgentRequestValues {
             return false;
         }
         try {
-            int held = (int) begin.invokeExact(requestId, values.names(), values.values(), late, lateKeys);
+            int held = (int)
+                    begin.invokeExact(requestId, values.names(), values.values(), late, lateKeys, values.assessment);
             return held >= 0;
         } catch (Throwable ex) {
             // The agent never fails a request.
@@ -164,6 +172,9 @@ public final class AgentRequestValues {
 
     /** The value sat inside an unquoted literal (a number, true, or false): never a fact on its own. */
     public static final int FLAG_BARE_LITERAL = 16;
+
+    /** The value is shorter than 4 characters, a probe only an assessment request holds: never a fact on its own. */
+    public static final int FLAG_SHORT = 32;
 
     /**
      * Publishes an engine-side sink's match of the calling thread's request's value named {@code name}: the sink's
@@ -222,6 +233,7 @@ public final class AgentRequestValues {
 
         private final List<String> names = new ArrayList<>();
         private final List<String> values = new ArrayList<>();
+        private boolean assessment;
 
         /** Adds a value under {@code name}, which may be {@code null}; ignored past {@value #MAX_PAIRS} pairs. */
         public Values add(String name, String value) {
@@ -291,6 +303,15 @@ public final class AgentRequestValues {
             return this;
         }
 
+        /**
+         * Marks the request an assessment request when {@code header}, its {@link #ASSESSMENT_HEADER} value, is present
+         * and not blank. The header's value is never kept.
+         */
+        public Values assessment(String header) {
+            assessment |= header != null && !header.isBlank();
+            return this;
+        }
+
         /** Whether no value was added. */
         public boolean isEmpty() {
             return values.isEmpty();
@@ -354,7 +375,8 @@ public final class AgentRequestValues {
                                         String[].class,
                                         String[].class,
                                         Map.class,
-                                        String[].class)),
+                                        String[].class,
+                                        boolean.class)),
                         lookup.findStatic(requestValues, "end", MethodType.methodType(void.class, String.class)),
                         lookup.findStatic(
                                 requestValues,

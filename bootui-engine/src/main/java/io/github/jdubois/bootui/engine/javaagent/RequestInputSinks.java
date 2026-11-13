@@ -115,7 +115,7 @@ public final class RequestInputSinks {
                 position = AgentRequestValues.POSITION_UNKNOWN;
             }
             AgentRequestValues.publish(
-                    kind, names[i], position | numeric(text, spans, i), cut(target), rawHash, redactedHash, stamp);
+                    kind, names[i], position | valueFlags(text, spans, i), cut(target), rawHash, redactedHash, stamp);
         }
     }
 
@@ -174,10 +174,11 @@ public final class RequestInputSinks {
     }
 
     /**
-     * {@link AgentRequestValues#FLAG_NUMERIC} when the first span of value {@code index} is a number: digits, with an
-     * optional leading sign and at most one decimal point.
+     * The flags of value {@code index}'s first span: {@link AgentRequestValues#FLAG_NUMERIC} when it is a number (digits,
+     * with an optional leading sign and at most one decimal point), and {@link AgentRequestValues#FLAG_SHORT} when it
+     * is shorter than 4 characters, a probe only an assessment request holds.
      */
-    static int numeric(String text, int[] spans, int index) {
+    static int valueFlags(String text, int[] spans, int index) {
         int count = Math.min(spans[AgentRequestValues.S_COUNT], AgentRequestValues.MAX_SPANS);
         for (int s = 0; s < count; s++) {
             int slot = AgentRequestValues.S_FIRST + 3 * s;
@@ -189,7 +190,8 @@ public final class RequestInputSinks {
             if (start < 0 || end > text.length() || start >= end) {
                 return 0;
             }
-            return number(text, start, end) ? AgentRequestValues.FLAG_NUMERIC : 0;
+            return (number(text, start, end) ? AgentRequestValues.FLAG_NUMERIC : 0)
+                    | (end - start < 4 ? AgentRequestValues.FLAG_SHORT : 0);
         }
         return 0;
     }

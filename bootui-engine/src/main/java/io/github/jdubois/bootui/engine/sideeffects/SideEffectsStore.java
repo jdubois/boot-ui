@@ -396,7 +396,7 @@ final class SideEffectsStore {
     /**
      * Whether a security-sinks observation is shown from one request: a value not made of digits only, inside a quoted
      * SQL literal, across a literal's bounds, or in another sink; never one outside a literal, inside a number, true, or
-     * false, or whose place in the text is not known.
+     * false, shorter than 4 characters (an assessment request's probe), or whose place in the text is not known.
      */
     static boolean standsAlone(SideEffectRecord record) {
         if (SideEffectsCatalog.check(record.sensor(), record.kind())) {
@@ -405,7 +405,11 @@ final class SideEffectsStore {
         }
         int flags = record.outcome();
         int position = flags & 0x3;
-        if ((flags & (SideEffectsCatalog.SINK_NUMERIC | SideEffectsCatalog.SINK_BARE_LITERAL)) != 0) {
+        if ((flags
+                        & (SideEffectsCatalog.SINK_NUMERIC
+                                | SideEffectsCatalog.SINK_BARE_LITERAL
+                                | SideEffectsCatalog.SINK_SHORT))
+                != 0) {
             return false;
         }
         if ((flags & SideEffectsCatalog.SINK_CROSSES_LITERAL) != 0) {
