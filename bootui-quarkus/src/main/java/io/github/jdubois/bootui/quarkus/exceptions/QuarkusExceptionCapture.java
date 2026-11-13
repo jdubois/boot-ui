@@ -77,4 +77,8 @@ public class QuarkusExceptionCapture {
             handler = null;
         }
     }
+
+    public static ExceptionStore.BindingDiagnosticExtractor bindingDiagnosticExtractor() {
+        return new QuarkusBindingDiagnosticsExtractor();
+    }
 }

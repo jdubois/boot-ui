@@ -101,4 +101,13 @@ public final class ExceptionsControllerSupport {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Map.of("error", ex.getMessage() == null ? "Invalid request" : ex.getMessage()));
     }
+
+    public static ExceptionStore.BindingDiagnosticExtractor bindingDiagnosticExtractor() {
+        return new SpringBindingDiagnosticsExtractor();
+    }
+
+    public static java.util.List<ExceptionStore.BindingDiagnostic> extractBindingDiagnostics(
+            Throwable ex, Object rawHandler, String handlerDescription) {
+        return new SpringBindingDiagnosticsExtractor().extract(ex, rawHandler, handlerDescription);
+    }
 }

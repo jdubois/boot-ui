@@ -137,7 +137,9 @@ For `400`/`422` validation and JSON binding exceptions (`MethodArgumentNotValidE
 `UnrecognizedPropertyException`), BootUI extracts up to 10 `bindingDiagnostics` entries per occurrence
 (`targetType`, `fieldPath`, `reason`), setting `bindingDiagnosticsTruncated: true` when more exist. Because all
 validation failures thrown by the same controller method share one group fingerprint, diagnostics are stored per
-occurrence (`ExceptionOccurrenceDto` and `RequestProfileExceptionDto`).:::
+occurrence (`ExceptionOccurrenceDto` and `RequestProfileExceptionDto`).
+
+:::
 
 ### Triage status
 

@@ -1056,7 +1056,7 @@ public class BootUiEngineProducer {
                         .orElse(50));
         store.setApplicationPackages(basePackages.basePackages());
         store.setBindingDiagnosticExtractor(
-                new io.github.jdubois.bootui.quarkus.exceptions.QuarkusBindingDiagnosticsExtractor());
+                io.github.jdubois.bootui.quarkus.exceptions.QuarkusExceptionCapture.bindingDiagnosticExtractor());
         // When OpenTelemetry is present, install the span enricher so each captured exception stamps
         // bootui.exception.* on the active request span; absent OpenTelemetry it is unresolvable and the
         // store keeps the neutral no-op.

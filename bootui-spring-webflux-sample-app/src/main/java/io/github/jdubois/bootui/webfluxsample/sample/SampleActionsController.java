@@ -127,7 +127,11 @@ public class SampleActionsController {
                     "attributes[secretApiKey]",
                     "   ",
                     false,
-                    new String[] {"NotBlank.sampleOrderRequest.attributes", "NotBlank"},
+                    new String[] {
+                        "NotBlank.sampleOrderRequest.attributes[secretApiKey]",
+                        "NotBlank.attributes[secretApiKey]",
+                        "NotBlank"
+                    },
                     null,
                     "must not be blank"));
             MethodParameter parameter =

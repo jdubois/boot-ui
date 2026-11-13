@@ -7,42 +7,28 @@ import java.util.regex.Pattern;
 /**
  * Shared normalization and exposure helpers for per-occurrence validation and binding diagnostics.
  */
-public final class BindingDiagnostics {
+final class BindingDiagnostics {
 
-    /** Maximum number of binding diagnostics retained per exception occurrence. */
-    public static final int MAX_DIAGNOSTICS_PER_OCCURRENCE = 10;
+    static final int MAX_DIAGNOSTICS_PER_OCCURRENCE = 10;
 
-    /** Maximum character length of a single diagnostic target, path, or reason string. */
-    public static final int MAX_FIELD_LENGTH = 256;
+    static final int MAX_FIELD_LENGTH = 256;
 
-    /** Placeholder used for unknown JSON properties when value exposure is not {@code FULL}. */
-    public static final String UNRECOGNIZED_PROPERTY_PLACEHOLDER = "(unrecognized property)";
+    static final String UNRECOGNIZED_PROPERTY_PLACEHOLDER = "(unrecognized property)";
 
     private static final Pattern NUMERIC_OR_EMPTY_INDEX = Pattern.compile("\\[(?:\\d+|\\s*)\\]");
 
-    private static final Pattern ANY_BRACKET_SEGMENT = Pattern.compile("\\[[^\\]\\r\\n]*\\]");
+    private static final Pattern ANY_BRACKET_SEGMENT = Pattern.compile("\\[[^\\]]*(?:\\]|$)", Pattern.DOTALL);
 
     private BindingDiagnostics() {}
 
-    /**
-     * Normalizes numeric array/list indices ({@code items[0]} or {@code items[]}) to {@code items[*]}.
-     */
-    public static String normalizeNumericIndices(String fieldPath) {
+    static String normalizeNumericIndices(String fieldPath) {
         if (fieldPath == null || fieldPath.isBlank()) {
             return "(unknown)";
         }
-        return truncate(NUMERIC_OR_EMPTY_INDEX.matcher(fieldPath.trim()).replaceAll("[*]"));
+        return NUMERIC_OR_EMPTY_INDEX.matcher(fieldPath.trim()).replaceAll("[*]");
     }
 
-    /**
-     * Applies the live value-exposure policy to a recorded diagnostic's {@code fieldPath}.
-     *
-     * <p>Under {@code MASKED} and {@code METADATA_ONLY} ({@code fullExposure == false}), unrecognized
-     * JSON property names become {@code "(unrecognized property)"} and any bracketed map keys
-     * ({@code attributes['secretKey']} or {@code attributes[secretKey]}) are redacted to
-     * {@code attributes[*]}. Numeric list indices are always normalized to {@code [*]}.</p>
-     */
-    public static String exposeFieldPath(String fieldPath, boolean unrecognizedProperty, boolean fullExposure) {
+    static String exposeFieldPath(String fieldPath, boolean unrecognizedProperty, boolean fullExposure) {
         if (unrecognizedProperty && !fullExposure) {
             return UNRECOGNIZED_PROPERTY_PLACEHOLDER;
         }
@@ -53,18 +39,9 @@ public final class BindingDiagnostics {
         return truncate(normalized);
     }
 
-    /**
-     * Appends one Jackson reference-chain step to {@code path}, normalizing numeric indices to
-     * {@code [*]} and wrapping map keys in {@code ['...']} so exposure filtering can redact them when
-     * {@code bootui.expose-values} is not {@code FULL}.
-     */
-    public static void appendJsonPathSegment(StringBuilder path, int index, String propertyName, boolean mapReference) {
+    static void appendJsonPathSegment(StringBuilder path, int index, String propertyName, boolean mapReference) {
         if (index >= 0) {
-            if (path.isEmpty()) {
-                path.append("[*]");
-            } else {
-                path.append("[*]");
-            }
+            path.append("[*]");
             return;
         }
         if (propertyName == null || propertyName.isEmpty()) {
@@ -80,8 +57,7 @@ public final class BindingDiagnostics {
         path.append(propertyName);
     }
 
-    /** Whether a Jackson path reference's {@code from} object or class represents a {@link Map}. */
-    public static boolean isMapReference(Object from) {
+    static boolean isMapReference(Object from) {
         if (from instanceof Map<?, ?>) {
             return true;
         }
@@ -91,8 +67,7 @@ public final class BindingDiagnostics {
         return false;
     }
 
-    /** Returns the simple class name of {@code type}, stripping synthetic/proxy suffixes. */
-    public static String simpleTypeName(Class<?> type) {
+    static String simpleTypeName(Class<?> type) {
         if (type == null) {
             return null;
         }
@@ -116,8 +91,7 @@ public final class BindingDiagnostics {
         return simpleTypeName(simple.isEmpty() ? type.getName() : simple);
     }
 
-    /** Returns a clean simple type or handler name, stripping package prefixes and proxy suffixes. */
-    public static String simpleTypeName(String rawName) {
+    static String simpleTypeName(String rawName) {
         if (rawName == null || rawName.isBlank()) {
             return null;
         }
@@ -139,14 +113,14 @@ public final class BindingDiagnostics {
         return truncate(name);
     }
 
-    public static String truncate(String value) {
+    static String truncate(String value) {
         if (value == null) {
             return null;
         }
         return value.length() <= MAX_FIELD_LENGTH ? value : value.substring(0, MAX_FIELD_LENGTH) + "…";
     }
 
-    public static String truncateKey(Object key) {
+    static String truncateKey(Object key) {
         if (key == null) {
             return "*";
         }

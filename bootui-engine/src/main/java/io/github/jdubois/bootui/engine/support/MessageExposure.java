@@ -138,52 +138,37 @@ public final class MessageExposure {
     private static final Pattern BARE_CREDENTIAL = Pattern.compile(
             "(?i)(?<![A-Za-z0-9_-])(bearer|basic|negotiate|ntlm)[ \\t]++(?:\\\\?[\"'])?" + "([A-Za-z0-9._~+/-]++=*+)");
 
-    /**
-     * Spring {@code FieldError.toString()} rejected-value segment:
-     * {@code rejected value [<raw>]; codes [...]}. Matched reluctantly up to {@code ]; codes [} first so a rejected
-     * value that itself contains {@code ]} cannot escape the mask.
-     */
-    private static final Pattern REJECTED_VALUE_BEFORE_CODES =
-            Pattern.compile("(?is)(rejected value \\[).*?(\\];\\s*codes\\s*\\[)");
+    private static final Pattern REJECTED_VALUE_BEFORE_META =
+            Pattern.compile("(?is)(rejected value \\[).*?(\\];\\s*(?:codes|arguments|default message)\\s*\\[)");
 
-    /** Fallback for a {@code rejected value [...]} segment without a following {@code codes [...]} clause. */
-    private static final Pattern REJECTED_VALUE_BRACKETED =
-            Pattern.compile("(?i)(rejected value \\[)[^\\]\\r\\n]*(\\])");
+    private static final Pattern REJECTED_OR_FOR_VALUE =
+            Pattern.compile("(?is)(\\b(?:rejected|for) value \\[)(?:[^\\]]*(\\])|.*$)");
 
-    /**
-     * Spring {@code FieldError} / {@code TypeMismatchException} field or property names carrying bracketed keys or
-     * indices, such as {@code on field 'attributes[secretKey]'} or {@code for property 'items[0]'}.
-     */
-    private static final Pattern QUOTED_FIELD_WITH_BRACKETS =
-            Pattern.compile("((?:on field|for property) ')([^'\\r\\n]*\\[[^'\\r\\n]*)(')");
+    private static final Pattern FOR_INPUT_STRING = Pattern.compile(
+            "(?is)(\\bFor input string:\\s*\")(?:.*?(\"(?=\\s*(?:$|[);,\\r\\n])))|[^\"\\r\\n]*(\")|.*$)");
 
-    /** Jackson {@code MismatchedInputException} / {@code InvalidFormatException} quoted string literal. */
-    private static final Pattern JACKSON_FROM_STRING =
-            Pattern.compile("(?i)(\\bfrom String\\s+)\"(?:[^\"\\\\\\r\\n]|\\\\.)*\"(?:\\[truncated[^\\]]*\\])?");
+    private static final Pattern DATE_TIME_TEXT = Pattern.compile("(?is)(\\bText\\s+').*?('\\s+could not be parsed)");
 
-    /** Jackson scalar literal in {@code from Number value (...)}, {@code from Boolean value (...)}, etc. */
-    private static final Pattern JACKSON_FROM_SCALAR =
-            Pattern.compile("(?i)(\\bfrom (?:Number|Integer|Floating-point|Boolean) value\\s*\\()[^)\\r\\n]*(\\))");
+    private static final Pattern JACKSON_FROM_STRING = Pattern.compile(
+            "(?is)(\\bfrom String\\s+\")(?:.*?(\"(?::\\s|\\[truncated|\\s*\\r?\\n|\\s*$))|[^\"\\r\\n]*(\")|.*$)");
 
-    /** Jackson {@code UnrecognizedPropertyException} / {@code IgnoredPropertyException} property name literal. */
-    private static final Pattern JACKSON_UNRECOGNIZED_PROPERTY =
-            Pattern.compile("(?i)(\\b(?:Unrecognized|Ignored) (?:field|property)\\s+)\"(?:[^\"\\\\\\r\\n]|\\\\.)*\"");
+    private static final Pattern JACKSON_FROM_SCALAR = Pattern.compile(
+            "(?i)(\\bfrom (?:(?:Number|Integer|Floating-point|Boolean) value\\s*\\(|number\\s+))[^):\\r\\n]+(\\)|(?=:))");
 
-    /** Trailing reference-chain element for an unrecognized/ignored property. */
+    private static final Pattern JACKSON_UNRECOGNIZED_PROPERTY = Pattern.compile(
+            "(?is)(\\b(?:Unrecognized|Ignored) (?:field|property)\\s+\")(?:.*?(\"(?=\\s*\\(class\\s))|[^\"\\r\\n]*(\")|.*$)");
+
+    private static final Pattern JACKSON_UNRECOGNIZED_TOKEN =
+            Pattern.compile("(?is)(\\bUnrecognized token\\s+').*?('(?::\\s|$))");
+
+    private static final Pattern JACKSON_SOURCE_SNIPPET =
+            Pattern.compile("(?is)(\\[Source:\\s*).*?(;\\s*line:\\s*\\d+)");
+
     private static final Pattern JACKSON_REFERENCE_CHAIN_TAIL =
-            Pattern.compile("(through reference chain: [^\\r\\n)]*)\\[\"[^\"\\r\\n]*\"\\](\\s*\\))");
+            Pattern.compile("(?s)(through reference chain: [^)\\\\]*)\\[\".*?\"\\](\\s*\\))");
 
-    /** Map key inside a Jackson {@code through reference chain: ...Map["key"]} description. */
-    private static final Pattern JACKSON_MAP_REFERENCE_KEY = Pattern.compile("(Map)\\[\"[^\"\\r\\n]*\"\\]");
-
-    /**
-     * Jakarta Validation {@code ConstraintViolationException} property path carrying bracketed keys/indices before
-     * {@code : }, such as {@code create.request.attributes[secretKey]: must not be blank}.
-     */
-    private static final Pattern CONSTRAINT_PATH_WITH_BRACKETS = Pattern.compile(
-            "(?m)(^|,\\s*)([A-Za-z_$][A-Za-z0-9_$.]*(?:\\[[^\\]:\\r\\n]*\\])+(?:\\.[A-Za-z0-9_$.<> ]+)*)(:\\s)");
-
-    private static final Pattern BRACKET_CONTENT = Pattern.compile("\\[[^\\]\\r\\n]*\\]");
+    private static final Pattern IDENTIFIER_ATTACHED_BRACKET =
+            Pattern.compile("(?s)(?<=[A-Za-z0-9_$>\\]])\\[(?!(?:\\*+|\"?\\*{6}\"?|REDACTED)\\])[^\\[\\]]+(?:\\]|$)");
 
     private static final MessageExposure OMIT = new MessageExposure(true, false);
 
@@ -267,63 +252,38 @@ public final class MessageExposure {
         if (text == null || text.isEmpty()) {
             return text;
         }
-        return scrubBindingLiterals(maskBareCredentials(maskAssignments(text)));
+        return maskBareCredentials(maskAssignments(text));
     }
 
-    /**
-     * Scrubs raw user-input values and unknown/map property keys embedded in framework binding and validation
-     * messages ({@code rejected value [...]}, Jackson {@code from String "..."}, {@code Unrecognized field "..."},
-     * and bracketed map keys in field paths). Returns {@code text} as the same instance when nothing matches.
-     */
+    /** Scrubs raw user-input values and bracketed map/property keys in exception messages. */
     public static String scrubBindingLiterals(String text) {
         if (text == null || text.isEmpty()) {
             return text;
         }
         String result = text;
-        if (result.contains("rejected value [") || result.contains("Rejected value [")) {
+        result = replaceIfMatched(
+                result, REJECTED_VALUE_BEFORE_META, m -> m.group(1) + SecretMasker.MASKED_VALUE + m.group(2));
+        result = replaceIfMatched(result, REJECTED_OR_FOR_VALUE, m -> m.group(1) + SecretMasker.MASKED_VALUE + "]");
+        result = replaceIfMatched(result, FOR_INPUT_STRING, m -> m.group(1) + SecretMasker.MASKED_VALUE + "\"");
+        result = replaceIfMatched(result, DATE_TIME_TEXT, m -> m.group(1) + SecretMasker.MASKED_VALUE + m.group(2));
+        result = replaceIfMatched(
+                result,
+                JACKSON_FROM_STRING,
+                m -> m.group(1) + SecretMasker.MASKED_VALUE + (m.group(2) != null ? m.group(2) : "\""));
+        result =
+                replaceIfMatched(result, JACKSON_FROM_SCALAR, m -> m.group(1) + SecretMasker.MASKED_VALUE + m.group(2));
+        if (JACKSON_UNRECOGNIZED_PROPERTY.matcher(result).find()) {
             result = replaceIfMatched(
-                    result, REJECTED_VALUE_BEFORE_CODES, m -> m.group(1) + SecretMasker.MASKED_VALUE + m.group(2));
-            result = replaceIfMatched(
-                    result, REJECTED_VALUE_BRACKETED, m -> m.group(1) + SecretMasker.MASKED_VALUE + m.group(2));
-        }
-        if (result.contains("on field '") || result.contains("for property '")) {
-            result = replaceIfMatched(
-                    result,
-                    QUOTED_FIELD_WITH_BRACKETS,
-                    m -> m.group(1) + BRACKET_CONTENT.matcher(m.group(2)).replaceAll("[*]") + m.group(3));
-        }
-        if (result.contains("from ") || result.contains("From ")) {
-            result = replaceIfMatched(
-                    result, JACKSON_FROM_STRING, m -> m.group(1) + "\"" + SecretMasker.MASKED_VALUE + "\"");
-            result = replaceIfMatched(
-                    result, JACKSON_FROM_SCALAR, m -> m.group(1) + SecretMasker.MASKED_VALUE + m.group(2));
-        }
-        if (result.contains("Unrecognized ")
-                || result.contains("unrecognized ")
-                || result.contains("Ignored ")
-                || result.contains("ignored ")) {
-            boolean hadUnrecognized =
-                    JACKSON_UNRECOGNIZED_PROPERTY.matcher(result).find();
-            if (hadUnrecognized) {
-                result = replaceIfMatched(
-                        result,
-                        JACKSON_UNRECOGNIZED_PROPERTY,
-                        m -> m.group(1) + "\"" + SecretMasker.MASKED_VALUE + "\"");
-                result = replaceIfMatched(
-                        result,
-                        JACKSON_REFERENCE_CHAIN_TAIL,
-                        m -> m.group(1) + "[\"" + SecretMasker.MASKED_VALUE + "\"]" + m.group(2));
-            }
-        }
-        if (result.contains("through reference chain:")) {
-            result = replaceIfMatched(result, JACKSON_MAP_REFERENCE_KEY, m -> m.group(1) + "[*]");
-        }
-        if (result.indexOf('[') >= 0 && result.indexOf(':') >= 0) {
+                    result, JACKSON_UNRECOGNIZED_PROPERTY, m -> m.group(1) + SecretMasker.MASKED_VALUE + "\"");
             result = replaceIfMatched(
                     result,
-                    CONSTRAINT_PATH_WITH_BRACKETS,
-                    m -> m.group(1) + BRACKET_CONTENT.matcher(m.group(2)).replaceAll("[*]") + m.group(3));
+                    JACKSON_REFERENCE_CHAIN_TAIL,
+                    m -> m.group(1) + "[\"" + SecretMasker.MASKED_VALUE + "\"]" + m.group(2));
         }
+        result = replaceIfMatched(
+                result, JACKSON_UNRECOGNIZED_TOKEN, m -> m.group(1) + SecretMasker.MASKED_VALUE + m.group(2));
+        result = replaceIfMatched(result, JACKSON_SOURCE_SNIPPET, m -> m.group(1) + "REDACTED" + m.group(2));
+        result = replaceIfMatched(result, IDENTIFIER_ATTACHED_BRACKET, m -> "[*]");
         return result.equals(text) ? text : result;
     }
 

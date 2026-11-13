@@ -162,7 +162,7 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
      * same cause is also recognized as a duplicate.
      */
     public void record(Throwable throwable, String thread, String method, String path, String handler, String source) {
-        record(throwable, thread, method, path, handler, source, null, List.of());
+        record(throwable, thread, method, path, handler, source, null, null);
     }
 
     /**
@@ -185,14 +185,10 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
             String handler,
             String source,
             String traceId) {
-        record(throwable, thread, method, path, handler, source, traceId, List.of());
+        record(throwable, thread, method, path, handler, source, traceId, null);
     }
 
-    /**
-     * Records a thrown exception together with pre-extracted binding/validation diagnostics for this
-     * occurrence. When {@code bindingDiagnostics} is empty or {@code null}, the store falls back to its
-     * configured {@link BindingDiagnosticExtractor} and the optional Jakarta Validation reader.
-     */
+    /** Records a thrown exception with optional pre-extracted binding diagnostics. */
     public void record(
             Throwable throwable,
             String thread,
@@ -227,14 +223,14 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
     private List<BindingDiagnostic> resolveBindingDiagnostics(
             Throwable throwable, String handler, List<BindingDiagnostic> supplied) {
         List<BindingDiagnostic> raw = supplied;
-        if (raw == null || raw.isEmpty()) {
+        if (raw == null) {
             try {
                 raw = bindingDiagnosticExtractor.extract(throwable, handler);
             } catch (RuntimeException | LinkageError ignored) {
                 raw = List.of();
             }
         }
-        if ((raw == null || raw.isEmpty()) && ConstraintViolationReader.hasConstraintViolationInChain(throwable)) {
+        if ((raw == null || raw.isEmpty()) && hasConstraintViolationInChain(throwable)) {
             try {
                 raw = ConstraintViolationReader.extract(throwable, handler);
             } catch (RuntimeException | LinkageError ignored) {
@@ -242,6 +238,21 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
             }
         }
         return raw == null ? List.of() : raw;
+    }
+
+    private static boolean hasConstraintViolationInChain(Throwable throwable) {
+        Throwable current = throwable;
+        int depth = 0;
+        while (current != null && depth < MAX_CAUSE_DEPTH) {
+            for (Class<?> t = current.getClass(); t != null && t != Object.class; t = t.getSuperclass()) {
+                if ("jakarta.validation.ConstraintViolationException".equals(t.getName())) {
+                    return true;
+                }
+            }
+            current = current.getCause() == current ? null : current.getCause();
+            depth++;
+        }
+        return false;
     }
 
     /**
@@ -314,9 +325,11 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
         boolean applicationException = safeFrames.stream().anyMatch(Frame::applicationFrame);
         long now = System.currentTimeMillis();
         CorrelationContext context = correlation.current();
-        List<BindingDiagnostic> boundedDiagnostics = boundDiagnostics(rawDiagnostics);
-        boolean diagnosticsTruncated =
-                rawDiagnostics != null && rawDiagnostics.size() > MAX_BINDING_DIAGNOSTICS_PER_OCCURRENCE;
+        List<BindingDiagnostic> deduplicated = normalizeAndDeduplicateDiagnostics(rawDiagnostics);
+        boolean diagnosticsTruncated = deduplicated.size() > MAX_BINDING_DIAGNOSTICS_PER_OCCURRENCE;
+        List<BindingDiagnostic> boundedDiagnostics = diagnosticsTruncated
+                ? List.copyOf(deduplicated.subList(0, MAX_BINDING_DIAGNOSTICS_PER_OCCURRENCE))
+                : deduplicated;
         Occurrence occurrence = new Occurrence(
                 now,
                 thread,
@@ -763,24 +776,42 @@ public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloa
         }
     }
 
-    private static List<BindingDiagnostic> boundDiagnostics(List<BindingDiagnostic> diagnostics) {
+    private static List<BindingDiagnostic> normalizeAndDeduplicateDiagnostics(List<BindingDiagnostic> diagnostics) {
         if (diagnostics == null || diagnostics.isEmpty()) {
             return List.of();
         }
-        int limit = Math.min(diagnostics.size(), MAX_BINDING_DIAGNOSTICS_PER_OCCURRENCE);
-        List<BindingDiagnostic> bounded = new ArrayList<>(limit);
-        for (int i = 0; i < limit; i++) {
-            BindingDiagnostic item = diagnostics.get(i);
+        java.util.LinkedHashSet<BindingDiagnostic> unique = new java.util.LinkedHashSet<>(diagnostics.size());
+        for (BindingDiagnostic item : diagnostics) {
             if (item == null) {
                 continue;
             }
-            bounded.add(new BindingDiagnostic(
+            unique.add(new BindingDiagnostic(
                     BindingDiagnostics.truncate(item.targetType()),
                     BindingDiagnostics.normalizeNumericIndices(item.fieldPath()),
                     BindingDiagnostics.truncate(item.reason()),
                     item.unrecognizedProperty()));
         }
-        return List.copyOf(bounded);
+        return List.copyOf(unique);
+    }
+
+    public static void appendJsonPathSegment(StringBuilder path, int index, String propertyName, boolean mapReference) {
+        BindingDiagnostics.appendJsonPathSegment(path, index, propertyName, mapReference);
+    }
+
+    public static boolean isMapReference(Object from) {
+        return BindingDiagnostics.isMapReference(from);
+    }
+
+    public static String simpleTypeName(Class<?> type) {
+        return BindingDiagnostics.simpleTypeName(type);
+    }
+
+    public static String truncateDiagnostic(String value) {
+        return BindingDiagnostics.truncate(value);
+    }
+
+    public static String truncateDiagnosticKey(Object key) {
+        return BindingDiagnostics.truncateKey(key);
     }
 
     public record Frame(

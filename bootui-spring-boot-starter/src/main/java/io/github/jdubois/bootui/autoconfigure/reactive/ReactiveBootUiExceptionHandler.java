@@ -1,6 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.reactive;
 
-import io.github.jdubois.bootui.autoconfigure.exceptions.SpringBindingDiagnosticsExtractor;
+import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsControllerSupport;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import org.springframework.core.Ordered;
@@ -39,8 +39,6 @@ public class ReactiveBootUiExceptionHandler implements WebExceptionHandler, Orde
 
     private final ExceptionStore store;
 
-    private final SpringBindingDiagnosticsExtractor diagnostics = new SpringBindingDiagnosticsExtractor();
-
     private CorrelationContextProvider correlation;
 
     public ReactiveBootUiExceptionHandler(ExceptionStore store) {
@@ -72,7 +70,7 @@ public class ReactiveBootUiExceptionHandler implements WebExceptionHandler, Orde
                     handlerDescription,
                     "web",
                     currentTraceId(),
-                    diagnostics.extract(ex, rawHandler, handlerDescription));
+                    ExceptionsControllerSupport.extractBindingDiagnostics(ex, rawHandler, handlerDescription));
         } catch (RuntimeException ignored) {
             // Diagnostics capture must never interfere with the application's error handling.
         }

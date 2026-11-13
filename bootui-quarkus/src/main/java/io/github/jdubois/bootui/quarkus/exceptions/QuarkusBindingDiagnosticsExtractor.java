@@ -4,19 +4,11 @@ import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.fasterxml.jackson.databind.exc.PropertyBindingException;
 import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
-import io.github.jdubois.bootui.engine.exceptions.BindingDiagnostics;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore.BindingDiagnostic;
 import java.util.List;
 
-/**
- * Extracts metadata-only binding diagnostics from Jackson 2 ({@code com.fasterxml.jackson})
- * deserialization exceptions on Quarkus without ever reading {@code InvalidFormatException.getValue()}
- * or the parser token stream. Jakarta Bean Validation {@code ConstraintViolationException}
- * (including {@code ResteasyReactiveViolationException}) is handled by the shared engine's
- * {@code ConstraintViolationReader}.
- */
-public final class QuarkusBindingDiagnosticsExtractor implements ExceptionStore.BindingDiagnosticExtractor {
+final class QuarkusBindingDiagnosticsExtractor implements ExceptionStore.BindingDiagnosticExtractor {
 
     private static final int MAX_CAUSE_DEPTH = 8;
 
@@ -48,24 +40,25 @@ public final class QuarkusBindingDiagnosticsExtractor implements ExceptionStore.
                     continue;
                 }
                 Object from = ref.getFrom();
-                if (rootTargetType == null && from != null && !BindingDiagnostics.isMapReference(from)) {
+                if (rootTargetType == null && from != null && !ExceptionStore.isMapReference(from)) {
                     Class<?> fromClass = from instanceof Class<?> c ? c : from.getClass();
                     if (!Iterable.class.isAssignableFrom(fromClass) && !fromClass.isArray()) {
-                        rootTargetType = BindingDiagnostics.simpleTypeName(fromClass);
+                        rootTargetType = ExceptionStore.simpleTypeName(fromClass);
                     }
                 }
-                BindingDiagnostics.appendJsonPathSegment(
-                        path, ref.getIndex(), ref.getFieldName(), BindingDiagnostics.isMapReference(from));
+                ExceptionStore.appendJsonPathSegment(
+                        path, ref.getIndex(), ref.getFieldName(), ExceptionStore.isMapReference(from));
             }
         }
         if (rootTargetType == null) {
             if (exception instanceof PropertyBindingException pbe && pbe.getReferringClass() != null) {
-                rootTargetType = BindingDiagnostics.simpleTypeName(pbe.getReferringClass());
+                rootTargetType = ExceptionStore.simpleTypeName(pbe.getReferringClass());
             } else if (exception.getTargetType() != null) {
-                rootTargetType = BindingDiagnostics.simpleTypeName(exception.getTargetType());
+                rootTargetType = ExceptionStore.simpleTypeName(exception.getTargetType());
             } else {
-                rootTargetType =
-                        handler != null && !handler.isBlank() ? BindingDiagnostics.truncate(handler) : "RequestBody";
+                rootTargetType = handler != null && !handler.isBlank()
+                        ? ExceptionStore.truncateDiagnostic(handler)
+                        : "RequestBody";
             }
         }
         if (exception instanceof PropertyBindingException propertyBinding) {
@@ -78,7 +71,7 @@ public final class QuarkusBindingDiagnosticsExtractor implements ExceptionStore.
         }
         String fieldPath = !path.isEmpty() ? path.toString() : "(body)";
         String reason = exception.getTargetType() != null
-                ? BindingDiagnostics.simpleTypeName(exception.getTargetType())
+                ? ExceptionStore.simpleTypeName(exception.getTargetType())
                 : "MismatchedInput";
         return new BindingDiagnostic(rootTargetType, fieldPath, reason, false);
     }

@@ -1,6 +1,5 @@
 package io.github.jdubois.bootui.autoconfigure.exceptions;
 
-import io.github.jdubois.bootui.engine.exceptions.BindingDiagnostics;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore.BindingDiagnostic;
 import java.lang.reflect.Method;
@@ -28,13 +27,7 @@ import tools.jackson.databind.exc.MismatchedInputException;
 import tools.jackson.databind.exc.PropertyBindingException;
 import tools.jackson.databind.exc.UnrecognizedPropertyException;
 
-/**
- * Extracts metadata-only binding and validation diagnostics from Spring MVC, Spring WebFlux, and
- * Jackson 3 exceptions without ever reading {@code FieldError.getRejectedValue()},
- * {@code TypeMismatchException.getValue()}, {@code InvalidFormatException.getValue()}, or Jackson's
- * parser token buffer.
- */
-public final class SpringBindingDiagnosticsExtractor implements ExceptionStore.BindingDiagnosticExtractor {
+final class SpringBindingDiagnosticsExtractor implements ExceptionStore.BindingDiagnosticExtractor {
 
     private static final int MAX_CAUSE_DEPTH = 8;
 
@@ -43,7 +36,7 @@ public final class SpringBindingDiagnosticsExtractor implements ExceptionStore.B
         return extract(throwable, null, handler);
     }
 
-    public List<BindingDiagnostic> extract(Throwable throwable, Object rawHandler, String handlerDescription) {
+    List<BindingDiagnostic> extract(Throwable throwable, Object rawHandler, String handlerDescription) {
         if (throwable == null) {
             return List.of();
         }
@@ -127,7 +120,7 @@ public final class SpringBindingDiagnosticsExtractor implements ExceptionStore.B
                 path.append("[*]");
             } else if (paramResult.getContainerKey() != null) {
                 path.append("['")
-                        .append(BindingDiagnostics.truncateKey(paramResult.getContainerKey()))
+                        .append(ExceptionStore.truncateDiagnosticKey(paramResult.getContainerKey()))
                         .append("']");
             }
             for (MessageSourceResolvable error : paramResult.getResolvableErrors()) {
@@ -159,7 +152,7 @@ public final class SpringBindingDiagnosticsExtractor implements ExceptionStore.B
         if (parameterErrors.getContainerIndex() != null) {
             containerPrefix = "[*].";
         } else if (parameterErrors.getContainerKey() != null) {
-            containerPrefix = "['" + BindingDiagnostics.truncateKey(parameterErrors.getContainerKey()) + "'].";
+            containerPrefix = "['" + ExceptionStore.truncateDiagnosticKey(parameterErrors.getContainerKey()) + "'].";
         }
         for (FieldError fieldError : parameterErrors.getFieldErrors()) {
             if (fieldError == null) {
@@ -189,7 +182,7 @@ public final class SpringBindingDiagnosticsExtractor implements ExceptionStore.B
                         ? mismatch.getPropertyName()
                         : resolveParameterName(mismatch.getParameter());
         String reason = mismatch.getRequiredType() != null
-                ? BindingDiagnostics.simpleTypeName(mismatch.getRequiredType())
+                ? ExceptionStore.simpleTypeName(mismatch.getRequiredType())
                 : "typeMismatch";
         return new BindingDiagnostic(targetType, fieldPath, reason, false);
     }
@@ -203,7 +196,7 @@ public final class SpringBindingDiagnosticsExtractor implements ExceptionStore.B
                 ? mismatch.getPropertyName()
                 : resolveParameterName(parameter);
         String reason = mismatch.getRequiredType() != null
-                ? BindingDiagnostics.simpleTypeName(mismatch.getRequiredType())
+                ? ExceptionStore.simpleTypeName(mismatch.getRequiredType())
                 : "typeMismatch";
         return new BindingDiagnostic(targetType, fieldPath, reason, false);
     }
@@ -223,14 +216,14 @@ public final class SpringBindingDiagnosticsExtractor implements ExceptionStore.B
                     continue;
                 }
                 Object from = ref.from();
-                if (rootTargetType == null && from != null && !BindingDiagnostics.isMapReference(from)) {
+                if (rootTargetType == null && from != null && !ExceptionStore.isMapReference(from)) {
                     Class<?> fromClass = from instanceof Class<?> c ? c : from.getClass();
                     if (!Iterable.class.isAssignableFrom(fromClass) && !fromClass.isArray()) {
-                        rootTargetType = BindingDiagnostics.simpleTypeName(fromClass);
+                        rootTargetType = ExceptionStore.simpleTypeName(fromClass);
                     }
                 }
-                BindingDiagnostics.appendJsonPathSegment(
-                        path, ref.getIndex(), ref.getPropertyName(), BindingDiagnostics.isMapReference(from));
+                ExceptionStore.appendJsonPathSegment(
+                        path, ref.getIndex(), ref.getPropertyName(), ExceptionStore.isMapReference(from));
             }
         }
         if (rootTargetType == null) {
@@ -246,7 +239,7 @@ public final class SpringBindingDiagnosticsExtractor implements ExceptionStore.B
         }
         String fieldPath = !path.isEmpty() ? path.toString() : "(body)";
         String reason = exception.getTargetType() != null
-                ? BindingDiagnostics.simpleTypeName(exception.getTargetType())
+                ? ExceptionStore.simpleTypeName(exception.getTargetType())
                 : "MismatchedInput";
         return new BindingDiagnostic(rootTargetType, fieldPath, reason, false);
     }
@@ -257,23 +250,23 @@ public final class SpringBindingDiagnosticsExtractor implements ExceptionStore.B
             Object rawHandler,
             String handlerDescription) {
         if (exception instanceof PropertyBindingException pbe && pbe.getReferringClass() != null) {
-            return BindingDiagnostics.simpleTypeName(pbe.getReferringClass());
+            return ExceptionStore.simpleTypeName(pbe.getReferringClass());
         }
         if (parameter != null && parameter.getParameterType() != Object.class) {
-            return BindingDiagnostics.simpleTypeName(parameter.getParameterType());
+            return ExceptionStore.simpleTypeName(parameter.getParameterType());
         }
         if (rawHandler instanceof HandlerMethod handlerMethod) {
             for (MethodParameter mp : handlerMethod.getMethodParameters()) {
                 if (mp.hasParameterAnnotation(org.springframework.web.bind.annotation.RequestBody.class)) {
-                    return BindingDiagnostics.simpleTypeName(mp.getParameterType());
+                    return ExceptionStore.simpleTypeName(mp.getParameterType());
                 }
             }
         }
         if (exception.getTargetType() != null) {
-            return BindingDiagnostics.simpleTypeName(exception.getTargetType());
+            return ExceptionStore.simpleTypeName(exception.getTargetType());
         }
         return handlerDescription != null && !handlerDescription.isBlank()
-                ? BindingDiagnostics.truncate(handlerDescription)
+                ? ExceptionStore.truncateDiagnostic(handlerDescription)
                 : "RequestBody";
     }
 
@@ -281,7 +274,7 @@ public final class SpringBindingDiagnosticsExtractor implements ExceptionStore.B
             BindingResult bindingResult, MethodParameter parameter, String handler) {
         Object target = bindingResult.getTarget();
         if (target != null && !(target instanceof java.util.Map<?, ?>) && !(target instanceof Iterable<?>)) {
-            return BindingDiagnostics.simpleTypeName(target.getClass());
+            return ExceptionStore.simpleTypeName(target.getClass());
         }
         String objectName = bindingResult.getObjectName();
         if (objectName != null && !objectName.isBlank() && !"target".equals(objectName)) {
@@ -290,9 +283,9 @@ public final class SpringBindingDiagnosticsExtractor implements ExceptionStore.B
         if (parameter != null
                 && parameter.getParameterType() != Object.class
                 && parameter.getParameterType() != String.class) {
-            return BindingDiagnostics.simpleTypeName(parameter.getParameterType());
+            return ExceptionStore.simpleTypeName(parameter.getParameterType());
         }
-        return handler != null && !handler.isBlank() ? BindingDiagnostics.truncate(handler) : "Object";
+        return handler != null && !handler.isBlank() ? ExceptionStore.truncateDiagnostic(handler) : "Object";
     }
 
     private static String resolveParameterBeanTarget(ParameterErrors parameterErrors, String handler) {
@@ -301,7 +294,7 @@ public final class SpringBindingDiagnosticsExtractor implements ExceptionStore.B
                 && parameter.getParameterType() != Object.class
                 && !Iterable.class.isAssignableFrom(parameter.getParameterType())
                 && !java.util.Map.class.isAssignableFrom(parameter.getParameterType())) {
-            return BindingDiagnostics.simpleTypeName(parameter.getParameterType());
+            return ExceptionStore.simpleTypeName(parameter.getParameterType());
         }
         String objectName = parameterErrors.getObjectName();
         if (objectName != null && !objectName.isBlank()) {
@@ -313,26 +306,26 @@ public final class SpringBindingDiagnosticsExtractor implements ExceptionStore.B
     private static String resolveMethodTarget(
             MethodValidationResult validationResult, MethodParameter parameter, String handler) {
         if (handler != null && !handler.isBlank()) {
-            return BindingDiagnostics.truncate(handler);
+            return ExceptionStore.truncateDiagnostic(handler);
         }
         if (parameter != null) {
             Method method = parameter.getMethod();
             Class<?> containingClass = parameter.getContainingClass();
             if (containingClass != null && method != null) {
-                return BindingDiagnostics.simpleTypeName(containingClass) + "#" + method.getName();
+                return ExceptionStore.simpleTypeName(containingClass) + "#" + method.getName();
             }
             if (containingClass != null) {
-                return BindingDiagnostics.simpleTypeName(containingClass);
+                return ExceptionStore.simpleTypeName(containingClass);
             }
         }
         if (validationResult != null) {
             Method method = validationResult.getMethod();
             Object target = validationResult.getTarget();
             if (target != null && method != null) {
-                return BindingDiagnostics.simpleTypeName(target.getClass()) + "#" + method.getName();
+                return ExceptionStore.simpleTypeName(target.getClass()) + "#" + method.getName();
             }
             if (method != null) {
-                return BindingDiagnostics.simpleTypeName(method.getDeclaringClass()) + "#" + method.getName();
+                return ExceptionStore.simpleTypeName(method.getDeclaringClass()) + "#" + method.getName();
             }
         }
         return "HandlerMethod";
@@ -384,7 +377,7 @@ public final class SpringBindingDiagnosticsExtractor implements ExceptionStore.B
             String last = codes[codes.length - 1];
             if (last != null && !last.isBlank()) {
                 int dot = last.indexOf('.');
-                return BindingDiagnostics.truncate(dot > 0 ? last.substring(0, dot) : last);
+                return ExceptionStore.truncateDiagnostic(dot > 0 ? last.substring(0, dot) : last);
             }
         }
         return fallback;

@@ -24,38 +24,9 @@ import java.util.Set;
  */
 final class ConstraintViolationReader {
 
-    private static final String CONSTRAINT_VIOLATION_EXCEPTION = "jakarta.validation.ConstraintViolationException";
-
     private static final int MAX_CAUSE_DEPTH = 8;
 
     private ConstraintViolationReader() {}
-
-    /**
-     * Checks whether {@code throwable} or any cause in its chain is a
-     * {@code jakarta.validation.ConstraintViolationException} using only {@link Class#getName()}
-     * comparisons, so {@code jakarta.validation} classes are never linked when absent.
-     */
-    static boolean hasConstraintViolationInChain(Throwable throwable) {
-        Throwable current = throwable;
-        int depth = 0;
-        while (current != null && depth < MAX_CAUSE_DEPTH) {
-            if (isConstraintViolationType(current.getClass())) {
-                return true;
-            }
-            current = current.getCause() == current ? null : current.getCause();
-            depth++;
-        }
-        return false;
-    }
-
-    private static boolean isConstraintViolationType(Class<?> type) {
-        for (Class<?> current = type; current != null && current != Object.class; current = current.getSuperclass()) {
-            if (CONSTRAINT_VIOLATION_EXCEPTION.equals(current.getName())) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     static List<ExceptionStore.BindingDiagnostic> extract(Throwable throwable, String handler) {
         Throwable current = throwable;

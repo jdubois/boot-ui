@@ -323,9 +323,13 @@ class ExceptionsServiceTests {
     @Test
     void capsBindingDiagnosticsPerOccurrenceAtTenAndMarksTruncation() {
         ExceptionStore store = new ExceptionStore(100, 25, 50);
-        List<ExceptionStore.BindingDiagnostic> twelve = java.util.stream.IntStream.range(0, 12)
-                .mapToObj(i -> new ExceptionStore.BindingDiagnostic("CreateOrderRequest", "field" + i, "NotBlank"))
-                .toList();
+        List<ExceptionStore.BindingDiagnostic> twelve = new java.util.ArrayList<>();
+        // Repeated list elements normalize to items[*].quantity and collapse to one diagnostic before capping.
+        twelve.add(new ExceptionStore.BindingDiagnostic("CreateOrderRequest", "items[0].quantity", "Positive"));
+        twelve.add(new ExceptionStore.BindingDiagnostic("CreateOrderRequest", "items[1].quantity", "Positive"));
+        for (int i = 0; i < 11; i++) {
+            twelve.add(new ExceptionStore.BindingDiagnostic("CreateOrderRequest", "field" + i, "NotBlank"));
+        }
 
         store.record(
                 new IllegalArgumentException("validation failed"),
@@ -341,7 +345,58 @@ class ExceptionsServiceTests {
                 .detail(store.find(store.groups().get(0).fingerprint()));
         var occurrence = detail.occurrences().get(0);
         assertThat(occurrence.bindingDiagnostics()).hasSize(10);
+        assertThat(occurrence.bindingDiagnostics().get(0).fieldPath()).isEqualTo("items[*].quantity");
+        assertThat(occurrence.bindingDiagnostics().get(1).fieldPath()).isEqualTo("field0");
         assertThat(occurrence.bindingDiagnosticsTruncated()).isTrue();
+    }
+
+    @Test
+    void scrubsBoundaryMapKeysAndAdversarialFrameworkMessagesInMaskedMode() {
+        String longPrefix = "a".repeat(250);
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        Throwable cause = new NumberFormatException("For input string: \"raw-num-secret\"");
+        Throwable wrapper = new IllegalArgumentException(
+                "Invalid product payload for field 'attributes[secretApiKey]': "
+                        + "rejected value [val]with]; codes [NotBlank.req.attributes[secretApiKey],NotBlank]; "
+                        + "nested orders[0].attributes[secretMap2].<map value>: must not be blank; "
+                        + "Failed to convert for value [conv-secret]; "
+                        + "Text '2026-99-99-secret' could not be parsed; "
+                        + "from String \"quote\"inside\nsecret\": bad; "
+                        + "from number 9876543210: overflow; "
+                        + "Unrecognized token 'tok-secret': was expecting "
+                        + "at [Source: (String)\"{\\\"secretPayload\\\":1}\"; line: 1, column: 2]",
+                cause);
+
+        store.record(
+                wrapper,
+                "http-1",
+                "POST",
+                "/orders",
+                "H#c",
+                "web",
+                null,
+                List.of(new ExceptionStore.BindingDiagnostic(
+                        "CreateOrderRequest", longPrefix + "['boundarySecretKey']", "NotBlank", false)));
+
+        var service = new ExceptionsService(policy(ValueExposure.MASKED, true));
+        var detail = service.detail(store.find(store.groups().get(0).fingerprint()));
+
+        assertThat(detail.toString())
+                .doesNotContain(
+                        "secretApiKey",
+                        "val]with",
+                        "secretMap2",
+                        "conv-secret",
+                        "2026-99-99-secret",
+                        "quote\"inside",
+                        "9876543210",
+                        "tok-secret",
+                        "secretPayload",
+                        "raw-num-secret",
+                        "boundarySecretKey");
+        assertThat(detail.occurrences().get(0).bindingDiagnostics().get(0).fieldPath())
+                .startsWith("aaaa")
+                .doesNotContain("boundarySecretKey");
     }
 
     @Test
