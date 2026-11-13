@@ -231,6 +231,44 @@ describe('profileMarkdown', () => {
     expect(omissions).toEqual([])
   })
 
+  it('includes the intra-route baseline comparison when present on the journal profile', () => {
+    const {markdown} = profileMarkdown(profile(), {
+      journalProfile: {
+        baselineComparison: {
+          baselineRequestId: 'req-warm-1',
+          baselineDurationMicros: 15000,
+          routeP50Micros: 14000,
+          durationDeltaMicros: 105000,
+          sqlExecutionsDelta: 5,
+          sqlDurationMicrosDelta: 45000,
+          connectionWaitMicrosDelta: 800,
+          cacheHitsDelta: -1,
+          cacheMissesDelta: 1,
+          restClientCallsDelta: 1,
+          restClientDurationMicrosDelta: 12000,
+          ormFlushesDelta: 1,
+          ormAutoFlushesDelta: 2,
+          ormMaxEntitiesDelta: 30,
+          gcPausesTarget: 1,
+          gcPausesBaseline: 0,
+          distinctSqlShapesOnlyInTarget: ['select * from todo where id = ?']
+        }
+      }
+    })
+
+    expect(markdown).toContain('## Compared with baseline request')
+    expect(markdown).toContain('- **Baseline request:** `req-warm-1` (15 ms, route p50 14 ms)')
+    expect(markdown).toContain('- **Duration delta:** +105 ms')
+    expect(markdown).toContain('- **SQL delta:** +5 executions (+45 ms)')
+    expect(markdown).toContain('- **Connection wait delta:** +800 µs')
+    expect(markdown).toContain('- **Cache delta:** +1 miss, -1 hit')
+    expect(markdown).toContain('- **REST client delta:** +1 call (+12 ms)')
+    expect(markdown).toContain('- **Hibernate delta:** +1 flush, +2 auto-flushes, +30 peak entities in context')
+    expect(markdown).toContain('- **JVM-wide GC pauses completed during request:** 1 in target vs 0 in baseline')
+    expect(markdown).toContain('### Distinguishing SQL shapes in target request')
+    expect(markdown).toContain('- `select * from todo where id = ?`')
+  })
+
   it('says so when no SQL was correlated', () => {
     const {markdown} = profileMarkdown(profile({sqlGroups: [], exceptions: [], sections: []}))
 

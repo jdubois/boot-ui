@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.engine.journal;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.core.dto.RequestBaselineCandidateDto;
+import io.github.jdubois.bootui.core.dto.RequestBaselineDiffDto;
 import io.github.jdubois.bootui.core.dto.RequestGcPauseDto;
 import io.github.jdubois.bootui.core.dto.RequestHandoffDto;
 import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
@@ -17,11 +19,13 @@ import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
+import io.github.jdubois.bootui.engine.support.Percentiles;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +54,12 @@ public final class RequestJournalProfiles {
     /** The most entries each list of touched resources keeps. */
     public static final int MAX_TOUCHED = 50;
 
+    /** The most distinguishing SQL shapes a baseline comparison lists. */
+    public static final int MAX_DISTINGUISHING_SQL_SHAPES = 5;
+
+    /** The most retained baseline candidates a comparison lists for interactive selection. */
+    public static final int MAX_BASELINE_CANDIDATES = 20;
+
     static final String DISABLED = JournalActivityReports.DISABLED;
 
     /** Why the journal has no profile of {@code requestId}: it records no such request or execution. */
@@ -70,6 +80,7 @@ public final class RequestJournalProfiles {
 
     private final RuntimeJournal journal;
     private final JournalAggregates aggregates;
+    private final long requestSlowThresholdMs;
     private final JournalActivityFeed feed;
     private final Supplier<RouteTemplateResolver> declaredRoutes;
     private final Predicate<String> panelEnabled;
@@ -107,6 +118,7 @@ public final class RequestJournalProfiles {
             ExposurePolicy exposure) {
         this.journal = journal;
         this.aggregates = aggregates;
+        this.requestSlowThresholdMs = requestSlowThresholdMs;
         this.declaredRoutes = aggregates == null ? RouteTemplateResolver::empty : aggregates.declaredRoutes();
         this.feed = new JournalActivityFeed(requestSlowThresholdMs, nPlusOneThreshold, declaredRoutes, exposure);
         this.panelEnabled = panelEnabled == null ? panel -> true : panelEnabled;
@@ -123,6 +135,14 @@ public final class RequestJournalProfiles {
 
     /** The profile of {@code requestId}, or why the journal cannot give it. */
     public RequestJournalProfileDto profile(String requestId) {
+        return profile(requestId, null);
+    }
+
+    /**
+     * The profile of {@code requestId}, optionally comparing it against {@code compareWith} when that id names another
+     * retained, complete HTTP request on the same route.
+     */
+    public RequestJournalProfileDto profile(String requestId, String compareWith) {
         if (journal == null || !journal.settings().enabled()) {
             return RequestJournalProfileDto.unavailable(requestId, DISABLED);
         }
@@ -131,64 +151,26 @@ public final class RequestJournalProfiles {
         }
         List<JournalEntry> all = journal.entries();
         JournalEntry request = null;
-        List<JournalEntry> children = new ArrayList<>();
-        Set<Long> selected = new LinkedHashSet<>();
         List<JournalEntry> aiCalls = new ArrayList<>();
         Map<String, JournalEntry> collections = new HashMap<>();
-        Set<String> executionHandoffs = new LinkedHashSet<>();
         AiCallOwners aiCallOwners = new AiCallOwners(journal::evictedARequestOf);
         for (JournalEntry entry : all) {
             RuntimeEvent event = entry.event();
             aiCallOwners.learn(event);
-            if (event.requestId() == null
-                    && event.payload() instanceof AsyncHandoffPayload handoff
-                    && requestId.equals(handoff.parentExecutionId())
-                    && visible(event)) {
-                executionHandoffs.add(event.executionId());
-                if (selected.add(entry.sequence())) {
-                    children.add(entry);
-                }
-            }
             if (event.payload() instanceof GcPayload gc) {
                 collections.put(gc.collector() + '#' + gc.gcId(), entry);
             } else if (requestId.equals(event.requestId())) {
                 if (event.source() == JournalSource.HTTP) {
                     request = entry;
-                } else if (visible(event)) {
-                    if (selected.add(entry.sequence())) {
-                        children.add(entry);
-                    }
                 }
             } else if (event.requestId() == null && requestId.equals(event.executionId())) {
                 if (event.payload() instanceof ScheduledPayload
                         || event.payload() instanceof MessagingPayload message && !message.sent()
                         || event.payload() instanceof WebSocketPayload webSocket && webSocket.opensExecution()) {
                     request = entry;
-                } else if (visible(event)) {
-                    if (selected.add(entry.sequence())) {
-                        children.add(entry);
-                    }
                 }
             } else if (AiCallOwners.linksByTrace(event) && visible(event)) {
                 aiCalls.add(entry);
-            }
-        }
-        for (JournalEntry entry : all) {
-            RuntimeEvent event = entry.event();
-            if (event.requestId() == null
-                    && executionHandoffs.contains(event.executionId())
-                    && !requestId.equals(event.executionId())
-                    && !(event.payload() instanceof AsyncHandoffPayload)
-                    && visible(event)
-                    && selected.add(entry.sequence())) {
-                children.add(entry);
-            }
-        }
-        // An AI call carries only its span's trace id, so it joins the request with that trace id whose time span
-        // contains its start, unless another such request shares the trace and which one made the call is unknown.
-        for (JournalEntry call : aiCalls) {
-            if (requestId.equals(aiCallOwners.ownerOf(call.event())) && selected.add(call.sequence())) {
-                children.add(call);
             }
         }
         if (request == null) {
@@ -205,38 +187,14 @@ public final class RequestJournalProfiles {
         RuntimeEvent http = request.event();
         HttpPayload payload = http.payload() instanceof HttpPayload found ? found : null;
         long start = http.epochMillis();
-        long endMillis = start + Math.max(0, http.durationNanos()) / 1_000_000L;
-        long maxHandoff = maxHandoffMillis;
-        // A handoff starting past max-handoff after the request ended is only counted, and its work, like any work a
-        // handoff recorded past max-handoff after it started, belongs to no request (M5-2): neither is drawn.
-        HandoffWindow.Starts starts = new HandoffWindow.Starts();
-        for (JournalEntry child : children) {
-            RuntimeEvent event = child.event();
-            if (event.payload() instanceof AsyncHandoffPayload) {
-                starts.handoff(event.executionId(), event.epochMillis());
-            } else {
-                starts.recorded(event.executionId(), event.epochMillis());
-            }
-        }
-        int late = 0;
-        for (Iterator<JournalEntry> it = children.iterator(); it.hasNext(); ) {
-            RuntimeEvent event = it.next().event();
-            if (!ExecutionIds.isAsync(event.executionId())) {
-                continue;
-            }
-            if (event.payload() instanceof AsyncHandoffPayload) {
-                if (!HandoffWindow.attaches(endMillis, event.epochMillis(), maxHandoff)) {
-                    late++;
-                    it.remove();
-                }
-            } else if (!starts.attributed(event.executionId(), event.epochMillis(), endMillis, maxHandoff)) {
-                it.remove();
-            }
-        }
+        SelectedChildren selectedChildren = selectChildren(requestId, http, all, aiCalls, aiCallOwners);
+        List<JournalEntry> children = selectedChildren.children();
+        int late = selectedChildren.lateHandoffs();
+        RouteTemplateResolver routeResolver = resolver();
         RouteLabel label = payload == null
                 ? null
                 : RouteLabel.of(
-                        payload.method(), payload.path(), payload.routeTemplate(), payload.operation(), resolver());
+                        payload.method(), payload.path(), payload.routeTemplate(), payload.operation(), routeResolver);
         List<String> notes = new ArrayList<>();
         if (children.stream()
                 .anyMatch(entry -> entry.event().payload() instanceof AsyncHandoffPayload handoff
@@ -310,6 +268,26 @@ public final class RequestJournalProfiles {
             notes.add("The journal has evicted events from before this request completed, so some of its work may be"
                     + " missing from the timeline.");
         }
+        long durationMicros = Math.max(0, http.durationNanos()) / 1_000;
+        RouteComparisonDto routeComparison = label == null ? null : routeComparison(label.id(), durationMicros);
+        RequestOrmDto targetOrm = orm(children);
+        RequestBaselineDiffDto baselineComparison = label == null
+                ? null
+                : baselineComparison(
+                        requestId,
+                        http,
+                        payload,
+                        label.id(),
+                        children,
+                        targetOrm,
+                        routeComparison,
+                        status,
+                        all,
+                        aiCalls,
+                        aiCallOwners,
+                        routeResolver,
+                        compareWith,
+                        notes);
 
         return new RequestJournalProfileDto(
                 true,
@@ -317,17 +295,457 @@ public final class RequestJournalProfiles {
                 requestId,
                 label == null ? executionLabel(http) : label.id(),
                 start,
-                Math.max(0, http.durationNanos()) / 1_000,
+                durationMicros,
                 payload == null ? null : payload.status(),
                 resources(usage),
                 timed.stream().map(Timed::item).toList(),
                 gcPauses(usage, collections, start),
-                label == null ? null : routeComparison(label.id(), Math.max(0, http.durationNanos()) / 1_000),
+                routeComparison,
                 touched(children, text),
                 notes,
-                orm(children),
+                targetOrm,
                 handoffs,
-                late == 0 ? null : late);
+                late == 0 ? null : late,
+                baselineComparison);
+    }
+
+    private SelectedChildren selectChildren(
+            String unitId,
+            RuntimeEvent anchor,
+            List<JournalEntry> all,
+            List<JournalEntry> aiCalls,
+            AiCallOwners aiCallOwners) {
+        List<JournalEntry> children = new ArrayList<>();
+        Set<Long> selected = new LinkedHashSet<>();
+        Set<String> executionHandoffs = new LinkedHashSet<>();
+        for (JournalEntry entry : all) {
+            RuntimeEvent event = entry.event();
+            if (event.requestId() == null
+                    && event.payload() instanceof AsyncHandoffPayload handoff
+                    && unitId.equals(handoff.parentExecutionId())
+                    && visible(event)) {
+                executionHandoffs.add(event.executionId());
+                if (selected.add(entry.sequence())) {
+                    children.add(entry);
+                }
+            }
+            if (event.payload() instanceof GcPayload) {
+                continue;
+            }
+            if (unitId.equals(event.requestId())) {
+                if (event.source() != JournalSource.HTTP && visible(event) && selected.add(entry.sequence())) {
+                    children.add(entry);
+                }
+            } else if (event.requestId() == null && unitId.equals(event.executionId())) {
+                if (!(event.payload() instanceof ScheduledPayload)
+                        && !(event.payload() instanceof MessagingPayload message && !message.sent())
+                        && !(event.payload() instanceof WebSocketPayload webSocket && webSocket.opensExecution())
+                        && visible(event)
+                        && selected.add(entry.sequence())) {
+                    children.add(entry);
+                }
+            }
+        }
+        for (JournalEntry entry : all) {
+            RuntimeEvent event = entry.event();
+            if (event.requestId() == null
+                    && executionHandoffs.contains(event.executionId())
+                    && !unitId.equals(event.executionId())
+                    && !(event.payload() instanceof AsyncHandoffPayload)
+                    && visible(event)
+                    && selected.add(entry.sequence())) {
+                children.add(entry);
+            }
+        }
+        // An AI call carries only its span's trace id, so it joins the request with that trace id whose time span
+        // contains its start, unless another such request shares the trace and which one made the call is unknown.
+        for (JournalEntry call : aiCalls) {
+            if (unitId.equals(aiCallOwners.ownerOf(call.event())) && selected.add(call.sequence())) {
+                children.add(call);
+            }
+        }
+        long start = anchor.epochMillis();
+        long endMillis = start + Math.max(0, anchor.durationNanos()) / 1_000_000L;
+        long maxHandoff = maxHandoffMillis;
+        // A handoff starting past max-handoff after the request ended is only counted, and its work, like any work a
+        // handoff recorded past max-handoff after it started, belongs to no request (M5-2): neither is drawn.
+        HandoffWindow.Starts starts = new HandoffWindow.Starts();
+        for (JournalEntry child : children) {
+            RuntimeEvent event = child.event();
+            if (event.payload() instanceof AsyncHandoffPayload) {
+                starts.handoff(event.executionId(), event.epochMillis());
+            } else {
+                starts.recorded(event.executionId(), event.epochMillis());
+            }
+        }
+        int late = 0;
+        for (Iterator<JournalEntry> it = children.iterator(); it.hasNext(); ) {
+            RuntimeEvent event = it.next().event();
+            if (!ExecutionIds.isAsync(event.executionId())) {
+                continue;
+            }
+            if (event.payload() instanceof AsyncHandoffPayload) {
+                if (!HandoffWindow.attaches(endMillis, event.epochMillis(), maxHandoff)) {
+                    late++;
+                    it.remove();
+                }
+            } else if (!starts.attributed(event.executionId(), event.epochMillis(), endMillis, maxHandoff)) {
+                it.remove();
+            }
+        }
+        return new SelectedChildren(children, late);
+    }
+
+    private RequestBaselineDiffDto baselineComparison(
+            String targetRequestId,
+            RuntimeEvent targetHttp,
+            HttpPayload targetPayload,
+            String route,
+            List<JournalEntry> targetChildren,
+            RequestOrmDto targetOrm,
+            RouteComparisonDto routeComparison,
+            JournalStatus status,
+            List<JournalEntry> all,
+            List<JournalEntry> aiCalls,
+            AiCallOwners aiCallOwners,
+            RouteTemplateResolver routeResolver,
+            String compareWith,
+            List<String> notes) {
+        if (targetPayload == null || route == null) {
+            return null;
+        }
+        boolean evictionsOccurred = status.evictedByCount() + status.evictedByBytes() > 0;
+        if (isPartiallyEvicted(targetHttp, status, evictionsOccurred)) {
+            return null;
+        }
+        List<JournalEntry> routeEntries = new ArrayList<>();
+        for (JournalEntry entry : all) {
+            RuntimeEvent event = entry.event();
+            if (event.source() == JournalSource.HTTP
+                    && event.requestId() != null
+                    && event.payload() instanceof HttpPayload candidatePayload) {
+                RouteLabel candidateLabel = RouteLabel.of(
+                        candidatePayload.method(),
+                        candidatePayload.path(),
+                        candidatePayload.routeTemplate(),
+                        candidatePayload.operation(),
+                        routeResolver);
+                if (route.equals(candidateLabel.id())) {
+                    routeEntries.add(entry);
+                }
+            }
+        }
+        routeEntries.sort(
+                Comparator.comparingLong((JournalEntry entry) -> entry.event().epochMillis())
+                        .thenComparingLong(JournalEntry::sequence));
+        boolean firstIsCold = (!evictionsOccurred && status.clears() == 0)
+                || (routeComparison != null
+                        && routeEntries.size() >= routeComparison.requests()
+                        && status.clears() == 0);
+        JournalEntry coldEntry = firstIsCold && !routeEntries.isEmpty() ? routeEntries.get(0) : null;
+        List<Long> warm2xxDurations = new ArrayList<>();
+        List<JournalEntry> warm2xxCandidates = new ArrayList<>();
+        for (JournalEntry entry : routeEntries) {
+            if (entry == coldEntry) {
+                continue;
+            }
+            RuntimeEvent event = entry.event();
+            HttpPayload payload = (HttpPayload) event.payload();
+            if (payload.status() < 200 || payload.status() >= 300) {
+                continue;
+            }
+            if (isPartiallyEvicted(event, status, evictionsOccurred)) {
+                continue;
+            }
+            warm2xxDurations.add(Math.max(0, event.durationNanos()) / 1_000L);
+            if (!targetRequestId.equals(event.requestId())) {
+                warm2xxCandidates.add(entry);
+            }
+        }
+        Long routeP50Micros = routeComparison != null ? routeComparison.p50Micros() : null;
+        Long warmMedianMicros = Percentiles.of(warm2xxDurations, 50);
+        Long referenceMicros = routeComparison != null && routeComparison.standing() != null && routeP50Micros != null
+                ? routeP50Micros
+                : warmMedianMicros;
+        if (referenceMicros != null) {
+            long ref = referenceMicros;
+            warm2xxCandidates.sort(Comparator.comparingLong((JournalEntry entry) ->
+                            Math.abs(Math.max(0, entry.event().durationNanos()) / 1_000L - ref))
+                    .thenComparing(
+                            Comparator.comparingLong(JournalEntry::sequence).reversed()));
+        } else {
+            warm2xxCandidates.sort(
+                    Comparator.comparingLong(JournalEntry::sequence).reversed());
+        }
+
+        JournalEntry baselineEntry = null;
+        boolean explicitSelection = compareWith != null && !compareWith.isBlank();
+        if (explicitSelection) {
+            String requestedId = compareWith.trim();
+            if (requestedId.equals(targetRequestId)) {
+                notes.add("Baseline comparison is unavailable: a request cannot be compared with itself.");
+            } else {
+                JournalEntry match = routeEntries.stream()
+                        .filter(entry -> requestedId.equals(entry.event().requestId()))
+                        .findFirst()
+                        .orElse(null);
+                if (match == null) {
+                    notes.add("Baseline comparison request " + requestedId + " is not a retained request on route "
+                            + route + ".");
+                } else if (isPartiallyEvicted(match.event(), status, evictionsOccurred)) {
+                    notes.add("Baseline comparison request " + requestedId
+                            + " started before the journal's oldest retained event, so its work may be incomplete.");
+                } else {
+                    baselineEntry = match;
+                }
+            }
+        } else {
+            long targetDurationMicros = Math.max(0, targetHttp.durationNanos()) / 1_000L;
+            boolean slowStanding = routeComparison != null
+                    && ("ABOVE_P50".equals(routeComparison.standing())
+                            || "ABOVE_P95".equals(routeComparison.standing()));
+            boolean slowBeforeStanding = (routeComparison == null || routeComparison.standing() == null)
+                    && referenceMicros != null
+                    && targetDurationMicros > referenceMicros;
+            boolean slowByThreshold =
+                    requestSlowThresholdMs > 0 && targetDurationMicros >= requestSlowThresholdMs * 1_000L;
+            boolean failedOrSlow = targetPayload.status() >= 400
+                    || targetHttp.failedOrSlow()
+                    || slowStanding
+                    || slowBeforeStanding
+                    || slowByThreshold;
+            if (failedOrSlow && !warm2xxCandidates.isEmpty()) {
+                baselineEntry = warm2xxCandidates.get(0);
+            }
+        }
+        if (baselineEntry == null) {
+            return null;
+        }
+
+        List<RequestBaselineCandidateDto> candidateDtos = new ArrayList<>();
+        Set<String> seenCandidateIds = new LinkedHashSet<>();
+        for (JournalEntry candidate : warm2xxCandidates) {
+            if (candidateDtos.size() >= MAX_BASELINE_CANDIDATES) {
+                break;
+            }
+            RuntimeEvent event = candidate.event();
+            HttpPayload payload = (HttpPayload) event.payload();
+            if (seenCandidateIds.add(event.requestId())) {
+                candidateDtos.add(new RequestBaselineCandidateDto(
+                        event.requestId(),
+                        event.epochMillis(),
+                        Math.max(0, event.durationNanos()) / 1_000L,
+                        payload.status()));
+            }
+        }
+        String baselineId = baselineEntry.event().requestId();
+        if (!seenCandidateIds.contains(baselineId)) {
+            RuntimeEvent event = baselineEntry.event();
+            HttpPayload payload = (HttpPayload) event.payload();
+            candidateDtos.add(
+                    0,
+                    new RequestBaselineCandidateDto(
+                            baselineId,
+                            event.epochMillis(),
+                            Math.max(0, event.durationNanos()) / 1_000L,
+                            payload.status()));
+            if (candidateDtos.size() > MAX_BASELINE_CANDIDATES) {
+                candidateDtos.remove(candidateDtos.size() - 1);
+            }
+        }
+
+        RuntimeEvent baselineHttp = baselineEntry.event();
+        HttpPayload baselinePayload = (HttpPayload) baselineHttp.payload();
+        List<JournalEntry> baselineChildren = selectChildren(baselineId, baselineHttp, all, aiCalls, aiCallOwners)
+                .children();
+        RequestOrmDto baselineOrm = orm(baselineChildren);
+
+        long targetDurationMicros = Math.max(0, targetHttp.durationNanos()) / 1_000L;
+        long baselineDurationMicros = Math.max(0, baselineHttp.durationNanos()) / 1_000L;
+        long durationDeltaMicros = targetDurationMicros - baselineDurationMicros;
+
+        RequestMetrics targetMetrics = RequestMetrics.of(targetChildren);
+        RequestMetrics baselineMetrics = RequestMetrics.of(baselineChildren);
+
+        SqlCaptureScopes.Snapshot sqlScope = journal.sqlCaptureScope();
+        boolean preparationOnlyScope = targetMetrics.sqlExecutions == 0
+                && baselineMetrics.sqlExecutions == 0
+                && !sqlScope.preparations().isEmpty()
+                && sqlScope.executions().isEmpty();
+        boolean sqlVerified = sourceAvailable(JournalSource.SQL)
+                && !targetMetrics.hasUnverifiedSql
+                && !baselineMetrics.hasUnverifiedSql
+                && !preparationOnlyScope;
+        Integer sqlExecutionsDelta = sqlVerified ? targetMetrics.sqlExecutions - baselineMetrics.sqlExecutions : null;
+        Long sqlDurationMicrosDelta =
+                sqlVerified ? targetMetrics.sqlDurationMicros - baselineMetrics.sqlDurationMicros : null;
+        List<String> distinctSqlShapes =
+                sqlVerified ? distinguishingSqlShapes(targetMetrics, baselineMetrics) : List.of();
+
+        boolean connectionAvailable = sourceAvailable(JournalSource.CONNECTION)
+                && (targetMetrics.hasConnection || baselineMetrics.hasConnection);
+        Long connectionWaitMicrosDelta =
+                connectionAvailable ? targetMetrics.connectionWaitMicros - baselineMetrics.connectionWaitMicros : null;
+
+        boolean cacheAvailable = sourceAvailable(JournalSource.CACHE);
+        Integer cacheHitsDelta = cacheAvailable ? targetMetrics.cacheHits - baselineMetrics.cacheHits : null;
+        Integer cacheMissesDelta = cacheAvailable ? targetMetrics.cacheMisses - baselineMetrics.cacheMisses : null;
+
+        boolean restAvailable = sourceAvailable(JournalSource.REST_CLIENT);
+        Integer restClientCallsDelta =
+                restAvailable ? targetMetrics.restClientCalls - baselineMetrics.restClientCalls : null;
+        Long restClientDurationMicrosDelta = restAvailable
+                ? targetMetrics.restClientDurationMicros - baselineMetrics.restClientDurationMicros
+                : null;
+
+        boolean ormAvailable = sourceAvailable(JournalSource.ORM) && (targetOrm != null || baselineOrm != null);
+        Integer ormFlushesDelta = ormAvailable
+                ? (targetOrm == null ? 0 : targetOrm.flushes()) - (baselineOrm == null ? 0 : baselineOrm.flushes())
+                : null;
+        Integer ormAutoFlushesDelta = ormAvailable
+                ? (targetOrm == null ? 0 : targetOrm.autoFlushes())
+                        - (baselineOrm == null ? 0 : baselineOrm.autoFlushes())
+                : null;
+        Integer ormMaxEntitiesDelta = ormAvailable
+                        && (targetOrm == null || targetOrm.entitiesInContext() >= 0)
+                        && (baselineOrm == null || baselineOrm.entitiesInContext() >= 0)
+                ? (targetOrm == null ? 0 : targetOrm.entitiesInContext())
+                        - (baselineOrm == null ? 0 : baselineOrm.entitiesInContext())
+                : null;
+
+        ResourceUsage targetUsage = targetPayload.resources();
+        ResourceUsage baselineUsage = baselinePayload.resources();
+        boolean gcAvailable = journal.records(JournalSource.RESOURCES) && targetUsage != null && baselineUsage != null;
+        Long gcPausesTarget = gcAvailable ? targetUsage.gcPauses() : null;
+        Long gcPausesBaseline = gcAvailable ? baselineUsage.gcPauses() : null;
+
+        return new RequestBaselineDiffDto(
+                baselineId,
+                baselineDurationMicros,
+                routeP50Micros,
+                durationDeltaMicros,
+                sqlExecutionsDelta,
+                sqlDurationMicrosDelta,
+                connectionWaitMicrosDelta,
+                cacheHitsDelta,
+                cacheMissesDelta,
+                restClientCallsDelta,
+                restClientDurationMicrosDelta,
+                ormFlushesDelta,
+                ormAutoFlushesDelta,
+                ormMaxEntitiesDelta,
+                gcPausesTarget,
+                gcPausesBaseline,
+                distinctSqlShapes,
+                candidateDtos);
+    }
+
+    private static List<String> distinguishingSqlShapes(RequestMetrics targetMetrics, RequestMetrics baselineMetrics) {
+        record ShapeDiff(String shape, boolean onlyInTarget, int countDelta, long targetMicros, int order) {}
+        List<ShapeDiff> diffs = new ArrayList<>();
+        int index = 0;
+        for (Map.Entry<String, int[]> entry : targetMetrics.sqlShapes.entrySet()) {
+            String shape = entry.getKey();
+            int targetCount = entry.getValue()[0];
+            int baselineCount = baselineMetrics.sqlShapes.getOrDefault(shape, new int[1])[0];
+            int delta = targetCount - baselineCount;
+            if (delta > 0) {
+                long targetMicros = targetMetrics.sqlShapeMicros.getOrDefault(shape, 0L);
+                diffs.add(new ShapeDiff(shape, baselineCount == 0, delta, targetMicros, index));
+            }
+            index++;
+        }
+        diffs.sort((left, right) -> {
+            if (left.onlyInTarget() != right.onlyInTarget()) {
+                return left.onlyInTarget() ? -1 : 1;
+            }
+            int byDelta = Integer.compare(right.countDelta(), left.countDelta());
+            if (byDelta != 0) {
+                return byDelta;
+            }
+            int byMicros = Long.compare(right.targetMicros(), left.targetMicros());
+            if (byMicros != 0) {
+                return byMicros;
+            }
+            return Integer.compare(left.order(), right.order());
+        });
+        return diffs.stream()
+                .limit(MAX_DISTINGUISHING_SQL_SHAPES)
+                .map(ShapeDiff::shape)
+                .toList();
+    }
+
+    private static boolean isPartiallyEvicted(RuntimeEvent http, JournalStatus status, boolean evictionsOccurred) {
+        return evictionsOccurred
+                && status.oldestRetainedEpochMillis() != null
+                && status.oldestRetainedEpochMillis() > http.epochMillis();
+    }
+
+    private boolean sourceAvailable(JournalSource source) {
+        if (!journal.records(source)) {
+            return false;
+        }
+        for (String panel : JournalSourcePanels.panelsOf(source)) {
+            try {
+                if (!panelEnabled.test(panel)) {
+                    return false;
+                }
+            } catch (RuntimeException ex) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private record SelectedChildren(List<JournalEntry> children, int lateHandoffs) {}
+
+    private static final class RequestMetrics {
+        int sqlExecutions;
+        long sqlDurationMicros;
+        boolean hasUnverifiedSql;
+        final Map<String, int[]> sqlShapes = new LinkedHashMap<>();
+        final Map<String, Long> sqlShapeMicros = new HashMap<>();
+        boolean hasConnection;
+        long connectionWaitMicros;
+        int cacheHits;
+        int cacheMisses;
+        int restClientCalls;
+        long restClientDurationMicros;
+
+        static RequestMetrics of(List<JournalEntry> children) {
+            RequestMetrics metrics = new RequestMetrics();
+            for (JournalEntry entry : children) {
+                RuntimeEvent event = entry.event();
+                RuntimeEventPayload payload = event.payload();
+                if (payload instanceof SqlPayload sql) {
+                    if (sql.executed()) {
+                        metrics.sqlExecutions++;
+                        long micros = Math.max(0, event.durationNanos()) / 1_000L;
+                        metrics.sqlDurationMicros += micros;
+                        String shape = JournalTextExposure.displayShape(sql.sql());
+                        if (!shape.isBlank()) {
+                            metrics.sqlShapes.computeIfAbsent(shape, key -> new int[1])[0]++;
+                            metrics.sqlShapeMicros.merge(shape, micros, Long::sum);
+                        }
+                    } else {
+                        metrics.hasUnverifiedSql = true;
+                    }
+                } else if (payload instanceof ConnectionPayload connection) {
+                    metrics.hasConnection = true;
+                    metrics.connectionWaitMicros += Math.max(0, connection.waitNanos()) / 1_000L;
+                } else if (payload instanceof CachePayload cache) {
+                    if ("HIT".equalsIgnoreCase(cache.operation())) {
+                        metrics.cacheHits++;
+                    } else if ("MISS".equalsIgnoreCase(cache.operation())) {
+                        metrics.cacheMisses++;
+                    }
+                } else if (payload instanceof RestClientPayload) {
+                    metrics.restClientCalls++;
+                    metrics.restClientDurationMicros += Math.max(0, event.durationNanos()) / 1_000L;
+                }
+            }
+            return metrics;
+        }
     }
 
     private static String executionLabel(RuntimeEvent event) {

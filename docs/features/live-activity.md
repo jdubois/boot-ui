@@ -161,6 +161,15 @@ The drawer's **Performance deep dives** links to the **JFR profile** tab in Runt
 known, to that route in **Code Paths**. Opening the JFR tab does not start a recording; you must choose **Profile
 resources**. Code Paths opens the route-level aggregate tree, not an exact replay of the request.
 
+When a slow (`ABOVE_P50` / `ABOVE_P95`) or failed (`4xx` / `5xx`) HTTP request is opened on a route that has at least
+one retained, complete warm `2xx` request in the runtime journal, the **Compared with baseline request** card compares
+the outlier against the retained warm `2xx` request closest to the route's `p50` (excluding the route's cold first
+request and any request whose start precedes the journal's oldest retained event). It reports deltas for duration,
+verified JDBC executions and SQL time, connection wait, cache hits and misses, outbound REST client calls, Hibernate
+flushes and peak entities in context, JVM-wide GC pauses that completed during each request, and up to five literal-free
+distinguishing SQL shapes. A compact selector (`?compareWith=<requestId>`) lets you switch to another retained baseline
+request on the same route, and the comparison is included in **Copy profile** and **Copy for AI**.
+
 Each section shows at most 200 entries and states how many more were correlated. A section whose source panel is
 disabled or not capturing explains why instead of looking empty.
 

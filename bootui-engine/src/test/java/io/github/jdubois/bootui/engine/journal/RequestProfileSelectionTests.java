@@ -32,6 +32,7 @@ class RequestProfileSelectionTests {
                 List.of(),
                 null,
                 List.of(),
+                null,
                 null);
         RequestProfileSelectionDto selected = RequestProfileSelection.select("job-1", id -> retained, id -> {
             throw new AssertionError("journal hit must not read the HTTP-exchange buffer");
@@ -108,6 +109,7 @@ class RequestProfileSelectionTests {
                 List.of(),
                 null,
                 List.of(),
+                null,
                 null);
         RequestProfileDto detail = new RequestProfileDto(
                 true,

@@ -555,10 +555,11 @@ public class LiveActivityController implements InitializingBean {
 
     /**
      * One request as the runtime journal recorded it ({@code docs/PLAN-v2.md} §5.3, §5.11): its timeline, GC pauses,
-     * measured resources, route comparison, and touched resources.
+     * measured resources, route comparison, baseline comparison, and touched resources.
      */
     @GetMapping("/request/{id}/journal")
-    public RequestJournalProfileDto requestJournal(@PathVariable("id") String id) {
+    public RequestJournalProfileDto requestJournal(
+            @PathVariable("id") String id, @RequestParam(value = "compareWith", required = false) String compareWith) {
         RequestJournalProfiles profiles = requestJournalProfiles;
         return profiles == null
                 ? new RequestJournalProfiles(
@@ -568,8 +569,12 @@ public class LiveActivityController implements InitializingBean {
                                 properties.getActivity().getNPlusOneThreshold(),
                                 properties::isPanelEnabled,
                                 liveExposure)
-                        .profile(id)
-                : profiles.profile(id);
+                        .profile(id, compareWith)
+                : profiles.profile(id, compareWith);
+    }
+
+    public RequestJournalProfileDto requestJournal(String id) {
+        return requestJournal(id, null);
     }
 
     @GetMapping("/request/{id}")

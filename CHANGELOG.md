@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Intra-route baseline comparison in Request Profile** compares slow or failed HTTP requests against a retained warm
+  `2xx` baseline on the same route in the drawer, MCP/CLI, and Markdown exports ([#1670](https://github.com/jdubois/boot-ui/issues/1670)).
+
 ## [2.4.0] - 2026-11-12
 
 This release brings BootUI diagnostics to CI, adds offline CLI documentation and installation-aware updates, and

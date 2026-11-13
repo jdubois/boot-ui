@@ -28,6 +28,9 @@ import java.util.List;
  *     handed none over or the agent is not attached (M5-2)
  * @param lateHandoffs its handoffs that started more than {@code bootui.agent.executors.max-handoff} after it ended,
  *     which are only counted and, with their work, not drawn, or {@code null} when none
+ * @param baselineComparison how a slow or failed HTTP request (or a request with an explicit {@code compareWith}
+ *     selection) differs from a retained, complete warm baseline request on the same route, or {@code null} when none
+ *     applies
  */
 public record RequestJournalProfileDto(
         boolean available,
@@ -45,7 +48,8 @@ public record RequestJournalProfileDto(
         List<String> notes,
         RequestOrmDto orm,
         List<RequestHandoffDto> handoffs,
-        Integer lateHandoffs) {
+        Integer lateHandoffs,
+        RequestBaselineDiffDto baselineComparison) {
 
     public RequestJournalProfileDto {
         timeline = DtoCollections.immutableCopy(timeline);
@@ -72,6 +76,7 @@ public record RequestJournalProfileDto(
                 List.of(),
                 null,
                 List.of(),
+                null,
                 null);
     }
 }

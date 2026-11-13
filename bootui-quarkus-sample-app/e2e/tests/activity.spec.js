@@ -345,6 +345,31 @@ test.describe('Live Activity view (Quarkus)', () => {
     expect(writes).toEqual([])
   })
 
+  test('compares a slow request with a retained warm baseline on the same route', async ({openView, page}) => {
+    for (let i = 0; i < 4; i++) {
+      const fast = await page.request.get('/api/sample/slow?ms=1')
+      expect(fast.ok()).toBeTruthy()
+    }
+    const slow = await page.request.get('/api/sample/slow?ms=180')
+    expect(slow.ok()).toBeTruthy()
+
+    const activity = await page.request.get('/bootui/api/activity?source=journal&type=REQUEST&limit=50')
+    expect(activity.ok()).toBeTruthy()
+    const slowEntry = (await activity.json()).entries.find(
+      (entry) => entry.type === 'REQUEST' && entry.path === '/api/sample/slow' && entry.durationMs >= 100
+    )
+    expect(slowEntry?.id).toBeTruthy()
+
+    await openView('activity', 'Live Activity')
+    await page.goto(`/bootui/#/activity?request=${encodeURIComponent(slowEntry.id)}`)
+
+    const drawer = page.locator('.activity-drawer')
+    const baseline = drawer.locator('.request-journal__baseline')
+    await expect(baseline).toBeVisible({timeout: 15_000})
+    await expect(baseline).toContainText('Compared with baseline request')
+    await expect(baseline.locator('.request-journal__baseline-select')).toBeVisible()
+  })
+
   test('manual JDBC retains exact execution evidence and SQL in the copied profile', async ({openView, page}) => {
     const joined = await page.request.get('/api/insights/orders/joined')
     expect(joined.ok()).toBeTruthy()

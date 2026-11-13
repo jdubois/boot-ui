@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
+import io.github.jdubois.bootui.core.dto.RequestBaselineCandidateDto;
+import io.github.jdubois.bootui.core.dto.RequestBaselineDiffDto;
 import io.github.jdubois.bootui.core.dto.RequestHandoffDto;
 import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
 import io.github.jdubois.bootui.core.dto.RequestOrmDto;
@@ -906,6 +908,259 @@ class RequestJournalProfilesTests {
                 .isEmpty();
     }
 
+    @Test
+    void comparesASlowOrFailedRequestWithTheClosestWarmRetained2xxBaselineAndExcludesTheColdFirstRequest() {
+        ResourceUsage baselineResources = new ResourceUsage(4_000_000, 16_000, 1, 0, null, 0, List.of(), false);
+        ResourceUsage outlierResources = new ResourceUsage(
+                25_000_000, 128_000, 1, 0, null, 2, List.of(new GcPauseRange("G1 Young Generation", 1, 3)), false);
+
+        // Cold first request on the route: even if its duration matches p50, it must be excluded as cold.
+        offer(httpWithStatus("r-cold", 1_000, 20_000_000, 200, baselineResources));
+        offer(httpWithStatus("r-warm-fast", 2_000, 10_000_000, 200, baselineResources));
+
+        // Warm 2xx baseline closest to the route p50 (~20 ms).
+        offer(child(
+                "r-warm-p50", JournalSource.CONNECTION, 3_001, 4_000_000, new ConnectionPayload("orders", 200_000, 1)));
+        offer(child(
+                "r-warm-p50",
+                JournalSource.SQL,
+                3_002,
+                2_000_000,
+                new SqlPayload("select * from orders where id = 1", null, "orders", false)));
+        offer(child("r-warm-p50", JournalSource.CACHE, 3_003, -1, new CachePayload("prices", "HIT")));
+        offer(child(
+                "r-warm-p50",
+                JournalSource.REST_CLIENT,
+                3_004,
+                3_000_000,
+                new RestClientPayload("GET", "pricing:8443", "/p", 200, "RestClient", false)));
+        offer(child(
+                "r-warm-p50",
+                JournalSource.ORM,
+                3_005,
+                4_000_000,
+                new OrmPayload(null, 1, 2_000_000, 1, 200_000, 1, 100_000, 0, 0, 0, 5, 1, 0, 0)));
+        offer(httpWithStatus("r-warm-p50", 3_000, 20_000_000, 200, baselineResources));
+
+        offer(httpWithStatus("r-warm-30", 4_000, 30_000_000, 200, baselineResources));
+
+        // Slow/failed outlier request on the same route.
+        offer(child(
+                "r-outlier",
+                JournalSource.CONNECTION,
+                5_001,
+                60_000_000,
+                new ConnectionPayload("orders", 1_700_000, 7)));
+        offer(child(
+                "r-outlier",
+                JournalSource.SQL,
+                5_002,
+                5_000_000,
+                new SqlPayload("select * from orders where id = 99", null, "orders", false)));
+        for (int i = 0; i < 3; i++) {
+            offer(child(
+                    "r-outlier",
+                    JournalSource.SQL,
+                    5_003 + i,
+                    4_000_000,
+                    new SqlPayload("select * from order_lines where order_id = " + i, null, "orders", false)));
+        }
+        for (int i = 0; i < 5; i++) {
+            offer(child(
+                    "r-outlier",
+                    JournalSource.SQL,
+                    5_010 + i,
+                    1_000_000,
+                    new SqlPayload("select * from extra_table_" + i + " where id = " + i, null, "orders", false)));
+        }
+        offer(child("r-outlier", JournalSource.CACHE, 5_020, -1, new CachePayload("prices", "MISS")));
+        offer(child(
+                "r-outlier",
+                JournalSource.REST_CLIENT,
+                5_021,
+                15_000_000,
+                new RestClientPayload("GET", "pricing:8443", "/p", 200, "RestClient", false)));
+        offer(child(
+                "r-outlier",
+                JournalSource.REST_CLIENT,
+                5_022,
+                25_000_000,
+                new RestClientPayload("POST", "inventory:8443", "/reserve", 500, "RestClient", true)));
+        offer(child(
+                "r-outlier",
+                JournalSource.ORM,
+                5_025,
+                50_000_000,
+                new OrmPayload(null, 9, 22_000_000, 1, 1_700_000, 2, 400_000, 3, 900_000, 4, 45, 0, 2, 2)));
+        offer(httpWithStatus("r-outlier", 5_000, 200_000_000, 500, outlierResources));
+        journal.dispatchPending();
+
+        RequestJournalProfileDto outlierProfile = profiles(null).profile("r-outlier");
+        RequestBaselineDiffDto diff = outlierProfile.baselineComparison();
+
+        assertThat(diff).isNotNull();
+        assertThat(diff.baselineRequestId()).isEqualTo("r-warm-p50");
+        assertThat(diff.baselineDurationMicros()).isEqualTo(20_000L);
+        assertThat(diff.routeP50Micros()).isNotNull();
+        assertThat(diff.durationDeltaMicros()).isEqualTo(180_000L);
+        assertThat(diff.sqlExecutionsDelta()).isEqualTo(8);
+        assertThat(diff.sqlDurationMicrosDelta()).isEqualTo(20_000L);
+        assertThat(diff.connectionWaitMicrosDelta()).isEqualTo(1_500L);
+        assertThat(diff.cacheHitsDelta()).isEqualTo(-1);
+        assertThat(diff.cacheMissesDelta()).isEqualTo(1);
+        assertThat(diff.restClientCallsDelta()).isEqualTo(1);
+        assertThat(diff.restClientDurationMicrosDelta()).isEqualTo(37_000L);
+        assertThat(diff.ormFlushesDelta()).isEqualTo(1);
+        assertThat(diff.ormAutoFlushesDelta()).isEqualTo(3);
+        assertThat(diff.ormMaxEntitiesDelta()).isEqualTo(40);
+        assertThat(diff.gcPausesTarget()).isEqualTo(2);
+        assertThat(diff.gcPausesBaseline()).isZero();
+        assertThat(diff.distinctSqlShapesOnlyInTarget())
+                .hasSize(RequestJournalProfiles.MAX_DISTINGUISHING_SQL_SHAPES)
+                .first()
+                .isEqualTo("select * from order_lines where order_id = ?");
+        assertThat(diff.candidates())
+                .extracting(RequestBaselineCandidateDto::requestId)
+                .containsExactly("r-warm-p50", "r-warm-fast", "r-warm-30")
+                .doesNotContain("r-cold", "r-outlier");
+
+        // A fast 2xx request at or below p50 gets no automatic outlier comparison, unless compareWith is given.
+        assertThat(profiles(null).profile("r-warm-fast").baselineComparison()).isNull();
+        RequestBaselineDiffDto explicit =
+                profiles(null).profile("r-outlier", "r-warm-30").baselineComparison();
+        assertThat(explicit).isNotNull();
+        assertThat(explicit.baselineRequestId()).isEqualTo("r-warm-30");
+        assertThat(explicit.baselineDurationMicros()).isEqualTo(30_000L);
+        assertThat(explicit.durationDeltaMicros()).isEqualTo(170_000L);
+
+        // Invalid compareWith targets are refused with an explicit note rather than fabricated.
+        RequestJournalProfileDto selfCompare = profiles(null).profile("r-outlier", "r-outlier");
+        assertThat(selfCompare.baselineComparison()).isNull();
+        assertThat(selfCompare.notes()).anyMatch(note -> note.contains("cannot be compared with itself"));
+
+        RequestJournalProfileDto unknownCompare = profiles(null).profile("r-outlier", "missing-id");
+        assertThat(unknownCompare.baselineComparison()).isNull();
+        assertThat(unknownCompare.notes()).anyMatch(note -> note.contains("missing-id"));
+    }
+
+    @Test
+    void preparationOnlySqlAndDisabledPanelsKeepBaselineDimensionsNull() {
+        offer(httpWithStatus("r-cold", 1_000, 10_000_000, 200, null));
+        offer(child(
+                "r-warm",
+                JournalSource.SQL,
+                2_001,
+                0,
+                new SqlPayload(
+                        "select * from orders where id = 1",
+                        null,
+                        "orders",
+                        false,
+                        null,
+                        null,
+                        5,
+                        0,
+                        SqlPayload.Provenance.PREPARATION)));
+        offer(child("r-warm", JournalSource.CACHE, 2_002, -1, new CachePayload("prices", "HIT")));
+        offer(httpWithStatus("r-warm", 2_000, 10_000_000, 200, null));
+        offer(child(
+                "r-failed",
+                JournalSource.SQL,
+                3_001,
+                0,
+                new SqlPayload(
+                        "select * from orders where id = 2",
+                        null,
+                        "orders",
+                        false,
+                        null,
+                        null,
+                        6,
+                        0,
+                        SqlPayload.Provenance.PREPARATION)));
+        offer(child("r-failed", JournalSource.CACHE, 3_002, -1, new CachePayload("prices", "MISS")));
+        offer(httpWithStatus("r-failed", 3_000, 50_000_000, 500, null));
+        journal.dispatchPending();
+
+        RequestBaselineDiffDto prepDiff = profiles(null).profile("r-failed").baselineComparison();
+        assertThat(prepDiff).isNotNull();
+        assertThat(prepDiff.sqlExecutionsDelta()).isNull();
+        assertThat(prepDiff.sqlDurationMicrosDelta()).isNull();
+        assertThat(prepDiff.distinctSqlShapesOnlyInTarget()).isEmpty();
+        assertThat(prepDiff.connectionWaitMicrosDelta()).isNull();
+        assertThat(prepDiff.ormFlushesDelta()).isNull();
+        assertThat(prepDiff.gcPausesTarget()).isNull();
+        assertThat(prepDiff.cacheHitsDelta()).isEqualTo(-1);
+        assertThat(prepDiff.cacheMissesDelta()).isEqualTo(1);
+
+        RequestBaselineDiffDto cacheDisabled = profiles(panel -> !panel.equals(BootUiPanels.CACHE))
+                .profile("r-failed")
+                .baselineComparison();
+        assertThat(cacheDisabled).isNotNull();
+        assertThat(cacheDisabled.cacheHitsDelta()).isNull();
+        assertThat(cacheDisabled.cacheMissesDelta()).isNull();
+    }
+
+    @Test
+    void partiallyEvictedRequestsAreNeverUsedAsBaselinesOrComparedAsCompleteTargets() {
+        RuntimeJournal small = new RuntimeJournal(
+                new RuntimeJournalSettings(true, 5, 10_000_000, 100, 40, 10, JournalSource.all()),
+                RunIdentity.start(),
+                false);
+        JournalAggregates smallAggregates = new JournalAggregates();
+        small.addListener(smallAggregates);
+        try {
+            // r-cold (500) is evicted; r-partial starts at 1_000 before SQL events at 2_000..2_500 that force
+            // eviction, then completes late so its HTTP event stays retained while its start precedes oldestRetained.
+            small.offer(httpWithStatus("r-cold", 500, 10_000_000, 200, null));
+            small.offer(child(
+                    "r-partial",
+                    JournalSource.SQL,
+                    1_100,
+                    1_000_000,
+                    new SqlPayload("select * from evicted_sql", null, "orders", false)));
+            small.offer(child(
+                    "other-1",
+                    JournalSource.SQL,
+                    2_000,
+                    1_000_000,
+                    new SqlPayload("select * from noise_1", null, "orders", false)));
+            small.offer(child(
+                    "other-2",
+                    JournalSource.SQL,
+                    2_500,
+                    1_000_000,
+                    new SqlPayload("select * from noise_2", null, "orders", false)));
+            small.offer(httpWithStatus("r-partial", 1_000, 10_000_000, 200, null));
+            small.offer(httpWithStatus("r-warm-complete", 3_000, 12_000_000, 200, null));
+            small.offer(httpWithStatus("r-failed", 4_000, 80_000_000, 500, null));
+            small.dispatchPending();
+
+            RequestJournalProfiles smallProfiles = new RequestJournalProfiles(small, smallAggregates, 1_000, 5, null);
+
+            // r-partial started before oldestRetainedEpochMillis, so r-failed must pick r-warm-complete, never
+            // r-partial.
+            RequestJournalProfileDto failedProfile = smallProfiles.profile("r-failed");
+            assertThat(failedProfile.baselineComparison()).isNotNull();
+            assertThat(failedProfile.baselineComparison().baselineRequestId()).isEqualTo("r-warm-complete");
+            assertThat(failedProfile.baselineComparison().candidates())
+                    .extracting(RequestBaselineCandidateDto::requestId)
+                    .doesNotContain("r-partial");
+
+            // Explicit compareWith against a partially evicted request is refused with a note.
+            RequestJournalProfileDto explicitPartial = smallProfiles.profile("r-failed", "r-partial");
+            assertThat(explicitPartial.baselineComparison()).isNull();
+            assertThat(explicitPartial.notes()).anyMatch(note -> note.contains("r-partial"));
+
+            // Profiling the partially evicted request itself does not compute a baseline comparison from incomplete
+            // work.
+            RequestJournalProfileDto partialProfile = smallProfiles.profile("r-partial", "r-warm-complete");
+            assertThat(partialProfile.baselineComparison()).isNull();
+        } finally {
+            small.close();
+        }
+    }
+
     private JournalEntry asyncEntry(String executionId) {
         return journal.entries().stream()
                 .filter(entry -> entry.event().payload() instanceof AsyncHandoffPayload handoff
@@ -1032,6 +1287,11 @@ class RequestJournalProfilesTests {
     }
 
     private static RuntimeEvent http(String requestId, long start, long nanos, ResourceUsage usage) {
+        return httpWithStatus(requestId, start, nanos, 201, usage);
+    }
+
+    private static RuntimeEvent httpWithStatus(
+            String requestId, long start, long nanos, int status, ResourceUsage usage) {
         return RuntimeEvent.of(
                 JournalSource.HTTP,
                 start,
@@ -1039,8 +1299,8 @@ class RequestJournalProfilesTests {
                 CorrelationContext.forRequest(requestId),
                 "http-1",
                 ThreadKind.WORKER,
-                false,
-                new HttpPayload("GET", "/api/orders/42", "/api/orders/{id}", null, 201, usage));
+                status >= 500,
+                new HttpPayload("GET", "/api/orders/42", "/api/orders/{id}", null, status, usage));
     }
 
     private static RuntimeEvent ai(String traceId, long epochMillis, AiPayload payload) {

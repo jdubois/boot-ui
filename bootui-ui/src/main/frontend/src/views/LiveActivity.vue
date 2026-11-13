@@ -680,9 +680,10 @@ async function loadProfile(id, opener, execution = false) {
   }
 }
 
-async function loadJournalProfile(requestId, isCurrent) {
+async function loadJournalProfile(requestId, isCurrent, compareWith = null) {
   try {
-    const response = await apiFetch(`api/activity/request/${encodeURIComponent(requestId)}/journal`)
+    const query = compareWith ? `?compareWith=${encodeURIComponent(compareWith)}` : ''
+    const response = await apiFetch(`api/activity/request/${encodeURIComponent(requestId)}/journal${query}`)
     if (!isCurrent()) return
     if (!response.ok) throw new Error(`status ${response.status}`)
     const loaded = await response.json()
@@ -694,6 +695,19 @@ async function loadJournalProfile(requestId, isCurrent) {
       unavailableReason: `Could not load the runtime journal's record of this request (${err.message}).`
     }
   }
+}
+
+async function compareJournalBaseline(compareWithId) {
+  const requestId = journalProfile.value?.requestId || profile.value?.request?.requestId || profileRequestId.value
+  if (!requestId || !compareWithId) return
+  const token = profileLoadToken
+  const isCurrent = () => token === profileLoadToken
+  await loadJournalProfile(requestId, isCurrent, compareWithId)
+}
+
+function openBaselineRequest(baselineRequestId) {
+  if (!baselineRequestId) return
+  void loadProfile(baselineRequestId, profileOpenerEl.value)
 }
 
 function closeProfile() {
@@ -748,7 +762,7 @@ function trapFocus(event) {
 
 function copyProfile() {
   if (!profile.value?.available) return
-  copyToClipboard(profileMarkdown(profile.value).markdown, 'profile')
+  copyToClipboard(profileMarkdown(profile.value, {journalProfile: journalProfile.value}).markdown, 'profile')
 }
 
 // "Copy for AI" previews the profile's Markdown with each correlated exception's stack trace and recent
@@ -760,7 +774,11 @@ async function openAiExport() {
   try {
     const {exceptionDetails, omissions} = await loadProfileExceptionDetails(current, getJson)
     if (profile.value !== current) return
-    aiExport.value = {loading: false, error: null, ...profileMarkdown(current, {exceptionDetails, omissions})}
+    aiExport.value = {
+      loading: false,
+      error: null,
+      ...profileMarkdown(current, {exceptionDetails, omissions, journalProfile: journalProfile.value})
+    }
   } catch (err) {
     if (profile.value !== current) return
     aiExport.value = {
@@ -1568,7 +1586,12 @@ function toggleFlow() {
             <div v-if="profile?.unavailableReason && !journalProfile?.available" class="alert alert-warning">
               {{ profile.unavailableReason }}
             </div>
-            <RequestJournalProfile v-if="journalProfile" :profile="journalProfile" />
+            <RequestJournalProfile
+              v-if="journalProfile"
+              :profile="journalProfile"
+              @compare-with="compareJournalBaseline"
+              @open-request="openBaselineRequest"
+            />
             <RequestCodePath
               :request-id="journalProfile?.requestId || profileRequestId"
               :route="journalProfile?.route"
@@ -1604,7 +1627,12 @@ function toggleFlow() {
               <p class="small mb-1">{{ timingSummary }}</p>
             </section>
 
-            <RequestJournalProfile v-if="journalProfile" :profile="journalProfile" />
+            <RequestJournalProfile
+              v-if="journalProfile"
+              :profile="journalProfile"
+              @compare-with="compareJournalBaseline"
+              @open-request="openBaselineRequest"
+            />
             <RequestCodePath
               :request-id="journalProfile?.requestId || profileRequestId"
               :route="journalProfile?.route"

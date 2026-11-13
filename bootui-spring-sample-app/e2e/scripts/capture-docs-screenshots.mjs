@@ -4808,6 +4808,7 @@ const activityServiceMap = {
 
 const activityJournalProfile = {
   available: true,
+  requestId: 'req-outlier-01',
   route: 'GET /api/sample/products',
   durationMicros: 1240000,
   timeline: [
@@ -4817,6 +4818,29 @@ const activityJournalProfile = {
   ],
   resources: {availability: 'AVAILABLE', cpuNanos: 310000000, allocatedBytes: 18400000, gcPauses: 1, segments: 3},
   routeComparison: {requests: 64, p50Micros: 101000, p95Micros: 480000, minimumRequests: 20, standing: 'ABOVE_P95'},
+  baselineComparison: {
+    baselineRequestId: 'req-warm-04',
+    baselineDurationMicros: 98000,
+    routeP50Micros: 101000,
+    durationDeltaMicros: 1142000,
+    sqlExecutionsDelta: 5,
+    sqlDurationMicrosDelta: 42000,
+    connectionWaitMicrosDelta: 850,
+    cacheHitsDelta: -1,
+    cacheMissesDelta: 1,
+    restClientCallsDelta: 1,
+    restClientDurationMicrosDelta: 410000,
+    ormFlushesDelta: 1,
+    ormAutoFlushesDelta: 2,
+    ormMaxEntitiesDelta: 28,
+    gcPausesTarget: 1,
+    gcPausesBaseline: 0,
+    distinctSqlShapesOnlyInTarget: ['select * from product_reviews where product_id = ?'],
+    candidates: [
+      {requestId: 'req-warm-04', startedAt: nowMillis - 9000, durationMicros: 98000, status: 200},
+      {requestId: 'req-warm-03', startedAt: nowMillis - 14000, durationMicros: 105000, status: 200}
+    ]
+  },
   touched: {tables: ['products'], caches: ['sample-products'], restCalls: ['inventory.internal']},
   notes: []
 }
