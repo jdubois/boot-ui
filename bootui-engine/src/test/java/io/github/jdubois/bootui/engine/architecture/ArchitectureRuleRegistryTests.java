@@ -12,7 +12,7 @@ class ArchitectureRuleRegistryTests {
     void everyRuleHasACompleteAndUniqueDefinition() {
         List<ArchitectureRule> rules = ArchitectureRuleRegistry.activeRules();
 
-        assertThat(rules).hasSize(41);
+        assertThat(rules).hasSize(39);
         assertThat(rules).extracting(rule -> rule.definition().id()).doesNotHaveDuplicates();
         assertThat(rules).allSatisfy(rule -> {
             ArchitectureRuleDefinition definition = rule.definition();
@@ -60,14 +60,19 @@ class ArchitectureRuleRegistryTests {
                         "ARCH-SPRING-024",
                         "ARCH-SPRING-025",
                         "ARCH-CODE-017",
-                        "ARCH-CODE-018",
                         "ARCH-MOD-001");
     }
 
     @Test
     void retiredRuleIdsAreNeverRegisteredAgain() {
         assertThat(ArchitectureRuleRegistry.RETIRED_RULE_IDS)
-                .containsExactlyInAnyOrder("ARCH-CODE-005", "ARCH-CODE-011", "ARCH-SPRING-005", "ARCH-SPRING-016");
+                .containsExactlyInAnyOrder(
+                        "ARCH-CODE-004",
+                        "ARCH-CODE-005",
+                        "ARCH-CODE-011",
+                        "ARCH-CODE-018",
+                        "ARCH-SPRING-005",
+                        "ARCH-SPRING-016");
         assertThat(ArchitectureRuleRegistry.activeRules())
                 .extracting(rule -> rule.definition().id())
                 .doesNotContainAnyElementsOf(ArchitectureRuleRegistry.RETIRED_RULE_IDS);

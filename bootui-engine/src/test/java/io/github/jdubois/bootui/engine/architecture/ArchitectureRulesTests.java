@@ -1096,24 +1096,6 @@ class ArchitectureRulesTests {
     }
 
     @Test
-    void assertionsShouldHaveDetailMessageFlagsMessagelessAssertion() {
-        ArchitectureRuleResultDto result =
-                evaluate(new AssertionsShouldHaveDetailMessageRule(), MessagelessAssertionUser.class);
-
-        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
-        assertThat(result.id()).isEqualTo("ARCH-CODE-018");
-        assertThat(result.severity()).isEqualTo("INFO");
-    }
-
-    @Test
-    void assertionsShouldHaveDetailMessagePassesForMessageBearingAssertion() {
-        ArchitectureRuleResultDto result =
-                evaluate(new AssertionsShouldHaveDetailMessageRule(), MessageBearingAssertionUser.class);
-
-        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
-    }
-
-    @Test
     void asyncEventListenersShouldReturnVoidSuppressesWhenArchSpring011AlreadyFlagsMethod() {
         ArchitectureRuleResultDto asyncResult =
                 evaluate(new AsyncMethodsShouldHaveSupportedSignaturesRule(), NonFutureAsyncEventListenerBean.class);
@@ -2093,20 +2075,6 @@ class ArchitectureRulesTests {
 
         void submit() {
             java.util.concurrent.Executors.newFixedThreadPool(2).submit(() -> {});
-        }
-    }
-
-    private static class MessagelessAssertionUser {
-
-        void check(int x) {
-            assert x > 0;
-        }
-    }
-
-    private static class MessageBearingAssertionUser {
-
-        void check(int x) {
-            assert x > 0 : "x must be positive";
         }
     }
 
