@@ -9,6 +9,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Six OWASP Top 10:2025 Pentesting Advisor checks** detect `__Host-`/`__Secure-` cookie prefix violations (`PT-A02-007`),
+  publicly cacheable `Set-Cookie` responses (`PT-A02-008`), exposed CORS authentication/token headers (`PT-A05-073`),
+  plaintext HTTP Basic/Digest challenges (`PT-A07-008`), unsafe Jackson 2/3 polymorphic default typing or unrejected
+  `jdk.serialFilter` wildcards (`PT-A08-001`), and unhandled `5xx` errors on the synthetic missing-resource probe
+  (`PT-A10-001`) ([Pentesting checks](docs/PENTEST-CHECKS.md); [#1657](https://github.com/jdubois/boot-ui/issues/1657)).
 - **Per-occurrence 400/422 binding and validation diagnostics in Exceptions** extract target type, normalized field path,
   and constraint or expected type while scrubbing rejected values ([#1671](https://github.com/jdubois/boot-ui/issues/1671)).
 - **Memory advisor rules for cgroup v2 throttling/OOM, ClassLoader/proxy bloat, and external `System.gc()` pauses** add

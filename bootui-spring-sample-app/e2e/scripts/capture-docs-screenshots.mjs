@@ -1569,7 +1569,7 @@ const securityEndpoints = {
 
 const pentesting = {
   localOnly: true,
-  checksRun: 64,
+  checksRun: 70,
   findingsFound: 4,
   disclaimer:
     'Heuristic local checks only against the host application; BootUI /bootui paths are excluded. ' +
@@ -1581,7 +1581,7 @@ const pentesting = {
     message:
       'Local OWASP hygiene checks completed against bounded host-application metadata and two direct loopback requests outside BootUI.',
     scannedAt: nowMillis - 45_000,
-    checksRun: 64,
+    checksRun: 70,
     findingsFound: 4
   },
   severityCounts: [
@@ -1636,8 +1636,9 @@ const pentesting = {
     {
       category: 'A08:2025',
       title: 'Software or Data Integrity Failures',
-      description: 'Deserialization and update integrity require dedicated review.',
-      status: 'SKIPPED'
+      description:
+        'No findings were produced by the evaluated Jackson default-typing and JVM ObjectInputFilter checks. Custom deserializers, update integrity, and trusted artifact boundaries still require manual review.',
+      status: 'INFO'
     },
     {
       category: 'A09:2025',
