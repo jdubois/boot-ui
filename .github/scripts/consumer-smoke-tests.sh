@@ -368,6 +368,7 @@ CLI_POM
 cat > "$CLI_SMOKE_DIR/src/main/java/smoke/ClientSmoke.java" <<'CLIENT_SMOKE'
 package smoke;
 
+import io.github.jdubois.bootui.cli.ci.CiCollection;
 import io.github.jdubois.bootui.client.BootUiCatalog;
 import io.github.jdubois.bootui.client.BootUiClient;
 import io.github.jdubois.bootui.client.BootUiClientOptions;
@@ -376,6 +377,9 @@ import java.time.Duration;
 public class ClientSmoke {
 
     public static void main(String[] args) {
+        if (CiCollection.class.getName().isEmpty()) {
+            throw new IllegalStateException("CiCollection missing from thin bootui-cli jar");
+        }
         BootUiClientOptions options = new BootUiClientOptions(
                 args[0], BootUiClientOptions.DEFAULT_API_PATH, null, Duration.ofSeconds(60));
         try (BootUiClient client = new BootUiClient(options)) {

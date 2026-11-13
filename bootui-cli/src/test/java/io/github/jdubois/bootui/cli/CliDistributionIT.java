@@ -38,21 +38,31 @@ class CliDistributionIT {
             }
             assertThat(all.getJarEntry("io/github/jdubois/bootui/cli/BootUiCli.class"))
                     .isNotNull();
+            assertThat(all.getJarEntry("io/github/jdubois/bootui/cli/ci/CiCollection.class"))
+                    .isNotNull();
             assertThat(all.getJarEntry("bootui-tools.json")).isNotNull();
             assertThat(thin.stream().map(JarEntry::getName))
                     .noneMatch(name -> name.startsWith("bootui-docs/")
-                            || name.startsWith("io/github/jdubois/bootui/cli/")
+                            || (name.startsWith("io/github/jdubois/bootui/cli/")
+                                    && !name.equals("io/github/jdubois/bootui/cli/")
+                                    && !name.startsWith("io/github/jdubois/bootui/cli/ci/"))
                             || name.equals("bootui-tools.json"));
             assertThat(thin.getJarEntry("io/github/jdubois/bootui/client/BootUiClient.class"))
+                    .isNotNull();
+            assertThat(thin.getJarEntry("io/github/jdubois/bootui/cli/ci/CiCollection.class"))
                     .isNotNull();
         }
         Path sources = runnable.resolveSibling(thinName.replace(".jar", "-sources.jar"));
         if (Files.exists(sources)) {
             try (JarFile jar = new JarFile(sources.toFile())) {
                 assertThat(jar.stream().map(JarEntry::getName))
-                        .noneMatch(name ->
-                                name.startsWith("bootui-docs/") || name.startsWith("io/github/jdubois/bootui/cli/"));
+                        .noneMatch(name -> name.startsWith("bootui-docs/")
+                                || (name.startsWith("io/github/jdubois/bootui/cli/")
+                                        && !name.equals("io/github/jdubois/bootui/cli/")
+                                        && !name.startsWith("io/github/jdubois/bootui/cli/ci/")));
                 assertThat(jar.getJarEntry("io/github/jdubois/bootui/client/BootUiClient.java"))
+                        .isNotNull();
+                assertThat(jar.getJarEntry("io/github/jdubois/bootui/cli/ci/CiCollection.java"))
                         .isNotNull();
             }
         }

@@ -119,7 +119,7 @@
                     <excludes>
                         <exclude>bootui-docs/**</exclude>
                         <exclude>bootui-tools.json</exclude>
-                        <exclude>io/github/jdubois/bootui/cli/**</exclude>
+                        <exclude>io/github/jdubois/bootui/cli/*</exclude>
                     </excludes>
                     <archive>
                         <manifest>
@@ -134,7 +134,7 @@
                 <configuration>
                     <excludeResources>true</excludeResources>
                     <excludes>
-                        <exclude>io/github/jdubois/bootui/cli/**</exclude>
+                        <exclude>io/github/jdubois/bootui/cli/*</exclude>
                     </excludes>
                 </configuration>
                 <executions>
@@ -160,7 +160,7 @@
                                 <!-- Unattached input for the runnable jar; the client and sources need no CLI or docs copy. -->
                                 <jar destfile="${project.build.directory}/cli-docs.jar"
                                      basedir="${project.build.outputDirectory}"
-                                     includes="bootui-docs/**,bootui-tools.json,io/github/jdubois/bootui/cli/**"/>
+                                     includes="bootui-docs/**,bootui-tools.json,io/github/jdubois/bootui/cli/*"/>
                             </target>
                         </configuration>
                     </execution>
