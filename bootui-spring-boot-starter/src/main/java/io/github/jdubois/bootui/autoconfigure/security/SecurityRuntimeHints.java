@@ -161,6 +161,16 @@ public final class SecurityRuntimeHints implements RuntimeHintsRegistrar {
         "org.springframework.security.web.server.header.StrictTransportSecurityServerHttpHeadersWriter",
         "org.springframework.security.web.server.header.ContentSecurityPolicyServerHttpHeadersWriter",
         "org.springframework.security.web.server.header.StaticServerHttpHeadersWriter",
+        "org.springframework.security.authentication.AbstractUserDetailsReactiveAuthenticationManager",
+        "org.springframework.security.authentication.UserDetailsRepositoryReactiveAuthenticationManager",
+        "org.springframework.security.authentication.DelegatingReactiveAuthenticationManager",
+        "org.springframework.security.authentication.ObservationReactiveAuthenticationManager",
+        "org.springframework.security.oauth2.server.resource.authentication.JwtReactiveAuthenticationManager",
+        "org.springframework.security.authorization.method.AuthorizationManagerBeforeReactiveMethodInterceptor",
+        "org.springframework.security.authorization.method.AuthorizationManagerAfterReactiveMethodInterceptor",
+        "org.springframework.security.authorization.method.PreFilterAuthorizationReactiveMethodInterceptor",
+        "org.springframework.security.authorization.method.PostFilterAuthorizationReactiveMethodInterceptor",
+        "org.springframework.security.authorization.ObservationReactiveAuthorizationManager",
         "org.springframework.web.cors.reactive.CorsWebFilter",
         "org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource"
     };

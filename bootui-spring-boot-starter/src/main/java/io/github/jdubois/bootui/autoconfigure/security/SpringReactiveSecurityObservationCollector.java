@@ -4,13 +4,17 @@ import io.github.jdubois.bootui.autoconfigure.config.BootUiContributedProperties
 import io.github.jdubois.bootui.engine.reactivesecurity.CorsConfigObservation;
 import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityEnvironmentSnapshot;
 import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityObservation;
+import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityObservation.PasswordEncoderObservation;
 import io.github.jdubois.bootui.engine.reactivesecurity.WebFilterChainObservation;
 import io.github.jdubois.bootui.engine.reactivesecurity.WebFilterChainObservation.CspObservation;
 import io.github.jdubois.bootui.engine.security.CspPolicy;
+import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -37,6 +41,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.PropertySource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.server.MatcherSecurityWebFilterChain;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers;
@@ -105,10 +110,11 @@ public final class SpringReactiveSecurityObservationCollector {
         List<WebFilterChainObservation> chains = new ArrayList<>();
         List<CorsConfigObservation> cors = new ArrayList<>();
         CorsState corsState = new CorsState();
+        AuthState authState = new AuthState();
         for (int i = 0; i < beans.size(); i++) {
             ChainBean bean = beans.get(i);
             try {
-                chains.add(observeChain(i, bean.chain(), bean.orderKnown(), cors, corsState, messages));
+                chains.add(observeChain(i, bean.chain(), bean.orderKnown(), cors, corsState, authState, messages));
             } catch (RuntimeException | LinkageError ex) {
                 messages.add("Chain " + i + ": metadata inspection failed ("
                         + ex.getClass().getName() + ").");
@@ -135,18 +141,24 @@ public final class SpringReactiveSecurityObservationCollector {
             }
         }
         discoverGlobalCors(factory, cors, corsState, messages);
+        MethodSecurityState methodState = discoverMethodSecurity(factory, messages);
         ReactiveSecurityEnvironmentSnapshot snapshot =
                 new EnvironmentObservation(environment).environmentSnapshot(messages);
         return new ReactiveSecurityObservation(
                 chains,
                 cors,
                 corsState.present,
-                List.of(),
+                authState.reactiveJwtDecoderTypes,
                 List.of(),
                 List.of(),
                 snapshot,
                 messages,
-                corsState.complete);
+                corsState.complete,
+                authState.passwordEncoders,
+                authState.passwordEncodersObserved,
+                methodState.enabledFamilies,
+                methodState.usedFamilies,
+                methodState.complete);
     }
 
     private record ChainBean(SecurityWebFilterChain chain, int order, boolean orderKnown) {}
@@ -339,6 +351,7 @@ public final class SpringReactiveSecurityObservationCollector {
             boolean orderKnown,
             List<CorsConfigObservation> cors,
             CorsState corsState,
+            AuthState authState,
             List<String> messages) {
         if (chain == null || chain.getClass() != MatcherSecurityWebFilterChain.class) {
             messages.add(
@@ -394,6 +407,7 @@ public final class SpringReactiveSecurityObservationCollector {
                 form |= isForm;
                 bearer |= isBearer;
                 authComplete &= isBasic || isForm || isBearer;
+                inspectAuthenticationWebFilterManager(filter, isBasic || isForm, isBearer, authState);
             } else if (hasSuperclass(filter, SECURITY + "authentication.AuthenticationWebFilter")
                     && !exact(filter, OAUTH + "client.web.server.authentication.OAuth2LoginAuthenticationWebFilter")
                     && !exact(filter, OIDC_LOGIN_FILTER)) {
@@ -701,6 +715,359 @@ public final class SpringReactiveSecurityObservationCollector {
         }
     }
 
+    private static final Set<String> KNOWN_ENCODERS = Set.of(
+            "org.springframework.security.crypto.password.NoOpPasswordEncoder",
+            "org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder",
+            "org.springframework.security.crypto.argon2.Argon2PasswordEncoder",
+            "org.springframework.security.crypto.password.Pbkdf2PasswordEncoder",
+            "org.springframework.security.crypto.scrypt.SCryptPasswordEncoder",
+            "org.springframework.security.crypto.password.StandardPasswordEncoder",
+            "org.springframework.security.crypto.password.MessageDigestPasswordEncoder",
+            "org.springframework.security.crypto.password.Md4PasswordEncoder",
+            "org.springframework.security.crypto.password.LdapShaPasswordEncoder");
+
+    private static final Map<String, List<String>> METHOD_ANNOTATIONS = Map.of(
+            "pre-post",
+                    List.of(
+                            "org.springframework.security.access.prepost.PreAuthorize",
+                            "org.springframework.security.access.prepost.PostAuthorize",
+                            "org.springframework.security.access.prepost.PreFilter",
+                            "org.springframework.security.access.prepost.PostFilter"),
+            "secured", List.of("org.springframework.security.access.annotation.Secured"),
+            "jsr250",
+                    List.of(
+                            "jakarta.annotation.security.RolesAllowed",
+                            "jakarta.annotation.security.DenyAll",
+                            "jakarta.annotation.security.PermitAll"));
+
+    private static final class AuthState {
+        final Set<Object> visitedUserDetailsManagers = Collections.newSetFromMap(new IdentityHashMap<>());
+        final Set<Object> visitedJwtDecoders = Collections.newSetFromMap(new IdentityHashMap<>());
+        final List<PasswordEncoderObservation> passwordEncoders = new ArrayList<>();
+        final List<String> reactiveJwtDecoderTypes = new ArrayList<>();
+        boolean passwordEncodersObserved = true;
+    }
+
+    private static void inspectAuthenticationWebFilterManager(
+            Object filter, boolean isBasicOrForm, boolean isBearer, AuthState state) {
+        Object resolver = readField(filter, "authenticationManagerResolver");
+        boolean recognized = false;
+        if (resolver != null
+                && resolver.getClass().isSynthetic()
+                && resolver.getClass().getName().startsWith(SECURITY + "authentication.AuthenticationWebFilter$$Lambda")
+                && resolver.getClass().getDeclaredFields().length == 1) {
+            recognized = inspectReactiveAuthenticationManager(readField(resolver, "arg$1"), 0, state);
+        }
+        if (!recognized) {
+            if (isBasicOrForm) {
+                state.passwordEncodersObserved = false;
+            }
+            if (isBearer) {
+                state.reactiveJwtDecoderTypes.add("Unknown");
+            }
+        }
+    }
+
+    private static boolean inspectReactiveAuthenticationManager(Object manager, int depth, AuthState state) {
+        if (manager == null || depth >= MAX_DEPTH) {
+            return false;
+        }
+        if (exact(manager, "org.springframework.security.authentication.ObservationReactiveAuthenticationManager")) {
+            return inspectReactiveAuthenticationManager(readField(manager, "delegate"), depth + 1, state);
+        }
+        if (exact(manager, "org.springframework.security.authentication.DelegatingReactiveAuthenticationManager")) {
+            Object delegates = readField(manager, "delegates");
+            if (!(delegates instanceof List<?> list) || list.isEmpty() || list.size() > MAX_ITEMS) {
+                return false;
+            }
+            boolean allRecognized = true;
+            for (Object delegate : list) {
+                allRecognized &= inspectReactiveAuthenticationManager(delegate, depth + 1, state);
+            }
+            return allRecognized;
+        }
+        if (exact(
+                manager,
+                "org.springframework.security.authentication.UserDetailsRepositoryReactiveAuthenticationManager")) {
+            inspectUserDetailsAuthenticationManager(manager, state);
+            return true;
+        }
+        if (hasSuperclass(
+                manager,
+                "org.springframework.security.authentication.AbstractUserDetailsReactiveAuthenticationManager")) {
+            state.passwordEncoders.add(
+                    new PasswordEncoderObservation("Unknown active reactive password encoder", null));
+            state.passwordEncodersObserved = false;
+            return false;
+        }
+        if (exact(manager, OAUTH + "server.resource.authentication.JwtReactiveAuthenticationManager")) {
+            recordJwtDecoder(readField(manager, "jwtDecoder"), state);
+            return true;
+        }
+        return exact(manager, OAUTH + "server.resource.authentication.OpaqueTokenReactiveAuthenticationManager");
+    }
+
+    private static void inspectUserDetailsAuthenticationManager(Object manager, AuthState state) {
+        if (!state.visitedUserDetailsManagers.add(manager)) {
+            return;
+        }
+        Object encoder = readField(manager, "passwordEncoder");
+        for (int depth = 0;
+                depth < MAX_DEPTH
+                        && exact(encoder, "org.springframework.security.crypto.password.DelegatingPasswordEncoder");
+                depth++) {
+            encoder = readField(encoder, "passwordEncoderForEncode");
+        }
+        if (encoder instanceof PasswordEncoder
+                && KNOWN_ENCODERS.contains(encoder.getClass().getName())) {
+            Integer strength = null;
+            if (exact(encoder, "org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder")) {
+                Object rawStrength = readField(encoder, "strength");
+                strength = rawStrength instanceof Integer value ? value : null;
+            }
+            state.passwordEncoders.add(
+                    new PasswordEncoderObservation(encoder.getClass().getName(), strength));
+        } else {
+            state.passwordEncoders.add(
+                    new PasswordEncoderObservation("Unknown active reactive password encoder", null));
+            state.passwordEncodersObserved = false;
+        }
+    }
+
+    private static void recordJwtDecoder(Object decoder, AuthState state) {
+        if (decoder == null) {
+            state.reactiveJwtDecoderTypes.add("Unknown");
+            return;
+        }
+        if (state.visitedJwtDecoders.add(decoder)) {
+            state.reactiveJwtDecoderTypes.add(decoder.getClass().getName());
+        }
+    }
+
+    private record MethodSecurityState(Set<String> enabledFamilies, Set<String> usedFamilies, boolean complete) {}
+
+    private static MethodSecurityState discoverMethodSecurity(ListableBeanFactory factory, List<String> messages) {
+        if (!(factory instanceof SingletonBeanRegistry singletons)) {
+            return new MethodSecurityState(Set.of(), Set.of(), false);
+        }
+        Set<String> enabled = new LinkedHashSet<>();
+        Set<String> used = new LinkedHashSet<>();
+        boolean complete = true;
+        Set<String> names = new LinkedHashSet<>();
+        String[] definitions = factory instanceof ConfigurableListableBeanFactory configurable
+                ? configurable.getBeanDefinitionNames()
+                : new String[0];
+        for (String[] inventory : List.of(definitions, singletons.getSingletonNames())) {
+            for (int index = 0; index < inventory.length && index < MAX_PROPERTIES; index++) {
+                if (names.size() >= MAX_PROPERTIES && !names.contains(inventory[index])) {
+                    complete = false;
+                    break;
+                }
+                names.add(inventory[index]);
+            }
+            complete &= inventory.length <= MAX_PROPERTIES;
+        }
+        for (String name : names) {
+            BeanDefinition definition = factory instanceof ConfigurableListableBeanFactory configurable
+                            && configurable.containsBeanDefinition(name)
+                    ? configurable.getBeanDefinition(name)
+                    : null;
+            if (definition != null && definition.isAbstract()) {
+                continue;
+            }
+            Object singleton = singletons.containsSingleton(name) ? singletons.getSingleton(name) : null;
+            if (singleton instanceof FactoryBean<?>) {
+                continue;
+            }
+            if (definition != null) {
+                String factoryBeanName = definition.getFactoryBeanName();
+                String className = definition.getBeanClassName();
+                String configuration = factoryBeanName != null ? factoryBeanName : className;
+                recordMethodSecurityConfiguration(configuration, enabled);
+            }
+            if (singleton != null) {
+                recordMethodSecurityConfiguration(singleton.getClass().getName(), enabled);
+            }
+            Class<?> type = declaredType(definition).resolve();
+            if (type == null && singleton != null) {
+                type = singleton.getClass();
+            }
+            if (type == null || FactoryBean.class.isAssignableFrom(type)) {
+                continue;
+            }
+            if (hasEnableReactiveMethodSecurity(type, new HashSet<>(), 0)) {
+                enabled.add("pre-post");
+            }
+            String typeName = type.getName();
+            if (typeName.startsWith("org.springframework.")
+                    || typeName.startsWith("java.")
+                    || typeName.startsWith("jakarta.")
+                    || typeName.startsWith("reactor.")) {
+                continue;
+            }
+            complete &= collectMethodFamilies(type, used, new HashSet<>(), 0);
+            if (singleton != null && singleton.getClass() != type) {
+                complete &= collectMethodFamilies(singleton.getClass(), used, new HashSet<>(), 0);
+            }
+        }
+        Class<?> advisorType = classForName("org.springframework.security.authorization.method.AuthorizationAdvisor");
+        if (advisorType != null) {
+            BeanInventory advisors = beanInventory(factory, advisorType);
+            for (int index = 0; index < advisors.candidates().size() && index < MAX_ITEMS; index++) {
+                Object advisor = advisors.candidates().get(index).instance();
+                if (advisor == null) {
+                    continue;
+                }
+                String type = advisor.getClass().getName();
+                if (type.equals(
+                                "org.springframework.security.authorization.method.AuthorizationManagerBeforeReactiveMethodInterceptor")
+                        || type.equals(
+                                "org.springframework.security.authorization.method.AuthorizationManagerAfterReactiveMethodInterceptor")) {
+                    Object manager = unwrapMethodAuthorizationManager(readField(advisor, "authorizationManager"));
+                    if (manager == null) {
+                        complete = false;
+                        continue;
+                    }
+                    String managerName = manager.getClass().getName();
+                    if (managerName.equals(
+                                    "org.springframework.security.authorization.method.PreAuthorizeReactiveAuthorizationManager")
+                            || managerName.equals(
+                                    "org.springframework.security.authorization.method.PostAuthorizeReactiveAuthorizationManager")) {
+                        enabled.add("pre-post");
+                    } else {
+                        complete = false;
+                    }
+                } else if (type.equals(
+                                "org.springframework.security.authorization.method.PreFilterAuthorizationReactiveMethodInterceptor")
+                        || type.equals(
+                                "org.springframework.security.authorization.method.PostFilterAuthorizationReactiveMethodInterceptor")
+                        || type.equals(
+                                "org.springframework.security.access.prepost.PrePostAdviceReactiveMethodInterceptor")
+                        || type.equals(
+                                "org.springframework.security.access.intercept.aopalliance.MethodSecurityMetadataSourceAdvisor")) {
+                    enabled.add("pre-post");
+                } else if (!type.equals(
+                                "org.springframework.security.authorization.method.AuthorizeReturnObjectMethodInterceptor")
+                        && !type.equals(
+                                "org.springframework.security.config.annotation.method.configuration.DeferringMethodInterceptor")) {
+                    complete = false;
+                }
+            }
+        }
+        return new MethodSecurityState(Set.copyOf(enabled), Set.copyOf(used), complete);
+    }
+
+    private static void recordMethodSecurityConfiguration(String configuration, Set<String> enabled) {
+        if (configuration == null) {
+            return;
+        }
+        String prefix = "org.springframework.security.config.annotation.method.configuration.";
+        if (configuration.equals(prefix + "ReactiveMethodSecurityConfiguration")
+                || configuration.equals(prefix + "ReactiveAuthorizationManagerMethodSecurityConfiguration")) {
+            enabled.add("pre-post");
+        }
+    }
+
+    private static Object unwrapMethodAuthorizationManager(Object manager) {
+        Object current = manager;
+        for (int depth = 0;
+                depth < MAX_DEPTH
+                        && current != null
+                        && exact(
+                                current,
+                                "org.springframework.security.authorization.ObservationReactiveAuthorizationManager");
+                depth++) {
+            Object delegate = readField(current, "delegate");
+            if (delegate == null || delegate == current) {
+                return null;
+            }
+            current = delegate;
+        }
+        return current;
+    }
+
+    private static boolean hasEnableReactiveMethodSecurity(AnnotatedElement element, Set<Class<?>> visited, int depth) {
+        if (element == null || depth > MAX_DEPTH || visited.size() > 128) {
+            return false;
+        }
+        try {
+            var annotations = element.getDeclaredAnnotations();
+            for (var annotation : annotations) {
+                Class<?> type = annotation.annotationType();
+                if ("org.springframework.security.config.annotation.method.configuration.EnableReactiveMethodSecurity"
+                        .equals(type.getName())) {
+                    return true;
+                }
+                if (!type.getName().startsWith("java.lang.annotation.")
+                        && visited.add(type)
+                        && hasEnableReactiveMethodSecurity(type, visited, depth + 1)) {
+                    return true;
+                }
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+        return false;
+    }
+
+    private static boolean collectMethodFamilies(
+            Class<?> type, Set<String> families, Set<Class<?>> visited, int depth) {
+        if (type == null || type == Object.class || !visited.add(type)) {
+            return true;
+        }
+        if (depth > MAX_DEPTH || visited.size() > 128) {
+            return false;
+        }
+        try {
+            boolean complete = collectAnnotationFamilies(type, families, 0, new HashSet<>());
+            Method[] methods = type.getDeclaredMethods();
+            if (methods.length > 2000) {
+                return false;
+            }
+            for (Method method : methods) {
+                complete &= collectAnnotationFamilies(method, families, 0, new HashSet<>());
+            }
+            for (Class<?> contract : type.getInterfaces()) {
+                complete &= collectMethodFamilies(contract, families, visited, depth + 1);
+            }
+            return collectMethodFamilies(type.getSuperclass(), families, visited, depth + 1) && complete;
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+    }
+
+    private static boolean collectAnnotationFamilies(
+            AnnotatedElement element, Set<String> families, int depth, Set<Class<?>> visited) {
+        if (depth > MAX_DEPTH || visited.size() > 128) {
+            return false;
+        }
+        var annotations = element.getDeclaredAnnotations();
+        if (annotations.length > 128) {
+            return false;
+        }
+        boolean complete = true;
+        for (var annotation : annotations) {
+            Class<?> type = annotation.annotationType();
+            for (var family : METHOD_ANNOTATIONS.entrySet()) {
+                if (family.getValue().contains(type.getName())) {
+                    families.add(family.getKey());
+                }
+            }
+            if (!type.getName().startsWith("java.lang.annotation.") && visited.add(type)) {
+                complete &= collectAnnotationFamilies(type, families, depth + 1, visited);
+            }
+        }
+        return complete;
+    }
+
+    private static Class<?> classForName(String name) {
+        try {
+            return Class.forName(name, false, SpringReactiveSecurityObservationCollector.class.getClassLoader());
+        } catch (ClassNotFoundException | LinkageError ex) {
+            return null;
+        }
+    }
+
     private static boolean bounded(List<String> values) {
         return values == null
                 || (values.size() <= MAX_ITEMS
@@ -861,6 +1228,14 @@ public final class SpringReactiveSecurityObservationCollector {
             if (!clientEndpoints.complete()) {
                 incomplete.add("SEC-RXF-OAUTH2-005");
             }
+            Boolean audiences = observe(
+                    () -> !SecurityActuatorObservation.tokens(
+                                    environment, "spring.security.oauth2.resourceserver.jwt.audiences")
+                            .isEmpty(),
+                    false,
+                    failures,
+                    incomplete,
+                    "SEC-RXF-OAUTH2-006");
             return new ReactiveSecurityEnvironmentSnapshot(
                     Boolean.TRUE.equals(tls),
                     exposure == null
@@ -885,7 +1260,8 @@ public final class SpringReactiveSecurityObservationCollector {
                     failures,
                     incomplete,
                     tls != null,
-                    Set.copyOf(clientEndpoints.plainHttpKeys()));
+                    Set.copyOf(clientEndpoints.plainHttpKeys()),
+                    Boolean.TRUE.equals(audiences));
         }
 
         private static <T> T observe(

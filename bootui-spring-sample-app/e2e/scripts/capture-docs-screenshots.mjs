@@ -2343,7 +2343,7 @@ const quarkusSecurity = {
     '@RolesAllowed → SecureResource#secured [USER]'
   ],
   filterChainsAnalyzed: 3,
-  rulesEvaluated: 44,
+  rulesEvaluated: 48,
   violationsFound: 5,
   severityCounts: [
     {severity: 'CRITICAL', count: 1},
@@ -2356,7 +2356,7 @@ const quarkusSecurity = {
     status: 'SCANNED',
     message: 'Security Advisor completed against 3 permission policies.',
     scannedAt: nowMillis - 36_000,
-    rulesEvaluated: 44,
+    rulesEvaluated: 48,
     filterChainsAnalyzed: 3,
     violationsFound: 5
   },

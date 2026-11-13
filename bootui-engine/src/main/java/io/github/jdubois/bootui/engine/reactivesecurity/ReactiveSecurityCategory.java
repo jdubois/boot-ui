@@ -6,10 +6,12 @@ package io.github.jdubois.bootui.engine.reactivesecurity;
  * ruleset actually uses.
  */
 enum ReactiveSecurityCategory {
+    AUTHENTICATION("Authentication"),
     AUTHORIZATION("Authorization"),
     CSRF("CSRF"),
     CORS("CORS"),
     HEADERS("Transport and headers"),
+    METHOD_SECURITY("Method security"),
     ACTUATOR("Actuator exposure"),
     OAUTH2("OAuth2 / JWT"),
     CONFIGURATION("Configuration"),
