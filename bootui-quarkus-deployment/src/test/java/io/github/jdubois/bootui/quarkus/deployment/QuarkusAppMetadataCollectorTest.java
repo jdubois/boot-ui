@@ -396,8 +396,51 @@ class QuarkusAppMetadataCollectorTest {
         assertThat(result.available()).isTrue();
         assertThat(result.beanCount()).isZero();
         assertThat(result.problems())
-                .hasSize(5)
+                .hasSize(9)
                 .allMatch(problem -> problem.message().equals(QuarkusAppMetadataStore.INCOMPLETE));
+    }
+
+    @Test
+    void detectsUnproxyableNormalScopedBeansReactiveVirtualThreadsAndVirtualThreadEntries() throws IOException {
+        Index application = index(
+                RetainedBean.class,
+                NoArgMissingParent.class,
+                UnproxyableChildBean.class,
+                SealedNormalBean.class,
+                PermittedChildBean.class,
+                JdkProducerBean.class,
+                ReactiveVirtualResource.class);
+        Index combined = index(
+                RetainedBean.class,
+                NoArgMissingParent.class,
+                UnproxyableChildBean.class,
+                SealedNormalBean.class,
+                PermittedChildBean.class,
+                JdkProducerBean.class,
+                ReactiveVirtualResource.class,
+                java.time.Clock.class,
+                java.time.InstantSource.class,
+                Object.class);
+        var context = arc(combined, false, true);
+        var reactiveEntry = endpoint(application, ReactiveVirtualResource.class, "reactiveEndpoint", true);
+
+        QuarkusAppMetadata result = collect(
+                application,
+                combined,
+                context,
+                List.of(reactiveEntry),
+                List.of(ReactiveVirtualResource.class),
+                List.of());
+
+        assertThat(result.unproxyableNormalScopedBeans())
+                .containsExactlyInAnyOrder(
+                        UnproxyableChildBean.class.getName(),
+                        SealedNormalBean.class.getName(),
+                        JdkProducerBean.class.getName() + "#clock()");
+        assertThat(result.reactiveVirtualThreadMethods())
+                .containsExactly(ReactiveVirtualResource.class.getName() + "#reactiveEndpoint()");
+        assertThat(result.virtualThreadMethods())
+                .containsExactly(ReactiveVirtualResource.class.getName() + "#reactiveEndpoint()");
     }
 
     @Test
@@ -488,13 +531,27 @@ class QuarkusAppMetadataCollectorTest {
     }
 
     private static BeanDeploymentValidator.ValidationContext arc(Index index, boolean removeUnused) throws IOException {
+        return arc(index, removeUnused, false);
+    }
+
+    private static BeanDeploymentValidator.ValidationContext arc(
+            Index index, boolean removeUnused, boolean strictCompatibility) throws IOException {
         var resolvedIndex = CompositeIndex.create(
-                index, index(ApplicationScoped.class, RequestScoped.class, Dependent.class, Singleton.class));
+                index,
+                index(
+                        ApplicationScoped.class,
+                        RequestScoped.class,
+                        Dependent.class,
+                        Singleton.class,
+                        jakarta.enterprise.inject.Default.class,
+                        jakarta.enterprise.inject.Any.class));
         BeanProcessor processor = BeanProcessor.builder()
                 .setImmutableBeanArchiveIndex(resolvedIndex)
                 .setComputingBeanArchiveIndex(resolvedIndex)
                 .setApplicationIndex(index)
                 .setRemoveUnusedBeans(removeUnused)
+                .setTransformUnproxyableClasses(true)
+                .setStrictCompatibility(strictCompatibility)
                 .addRemovalExclusion(bean -> bean.getBeanClass().toString().equals(RetainedBean.class.getName()))
                 .addExcludeType(info -> info.name().toString().equals(ExcludedBean.class.getName()))
                 .addAnnotationTransformation(new AnnotationsTransformer() {
@@ -859,6 +916,42 @@ class QuarkusAppMetadataCollectorTest {
 
         public void setReady(boolean value) {
             this.isReady = value;
+        }
+    }
+
+    static class NoArgMissingParent {
+        NoArgMissingParent(String required) {}
+    }
+
+    @ApplicationScoped
+    static class UnproxyableChildBean extends NoArgMissingParent {
+        @Inject
+        UnproxyableChildBean(RetainedBean dep) {
+            super(dep.toString());
+        }
+    }
+
+    @ApplicationScoped
+    static sealed class SealedNormalBean permits PermittedChildBean {}
+
+    static final class PermittedChildBean extends SealedNormalBean {}
+
+    @Singleton
+    static class JdkProducerBean {
+        @Produces
+        @ApplicationScoped
+        java.time.Clock clock() {
+            return java.time.Clock.systemUTC();
+        }
+    }
+
+    @Singleton
+    @Path("/reactive-vt")
+    static class ReactiveVirtualResource {
+        @GET
+        @io.smallrye.common.annotation.RunOnVirtualThread
+        public java.util.concurrent.CompletionStage<String> reactiveEndpoint() {
+            return java.util.concurrent.CompletableFuture.completedFuture("");
         }
     }
 }

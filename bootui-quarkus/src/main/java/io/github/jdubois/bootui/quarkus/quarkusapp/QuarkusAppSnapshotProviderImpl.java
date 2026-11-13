@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.spi.QuarkusAppMetadata;
 import io.github.jdubois.bootui.spi.QuarkusAppSnapshot;
 import io.github.jdubois.bootui.spi.QuarkusAppSnapshot.Setting;
 import io.github.jdubois.bootui.spi.QuarkusAppSnapshotProvider;
+import io.quarkus.runtime.configuration.MemorySize;
 import io.smallrye.config.Expressions;
 import io.smallrye.config.NameIterator;
 import io.smallrye.config.PropertiesConfigSource;
@@ -34,15 +35,21 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
     static final int MAX_CONFIG_SOURCES = 128;
     private static final int MAX_CLIENTS = 256;
     private static final Set<String> CONFIG_RULES = Set.of(
+            "QA-CDI-007",
             "QA-CFG-002",
             "QA-CFG-003",
             "QA-CFG-004",
             "QA-CFG-005",
+            "QA-CFG-006",
+            "QA-CFG-007",
             "QA-PROD-002",
             "QA-PROD-003",
+            "QA-DB-002",
             "QA-WEB-001",
             "QA-WEB-003",
-            "QA-WEB-004");
+            "QA-WEB-004",
+            "QA-WEB-005",
+            "QA-PERF-005");
     private static final Set<String> PRODUCTION_RULES =
             Set.of("QA-CFG-002", "QA-CFG-003", "QA-CFG-005", "QA-PROD-002", "QA-PROD-003");
     private static final String PRODUCTION_UNOBSERVED =
@@ -119,11 +126,17 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                     }
                 }
             });
+            inspect(Set.of("QA-CDI-007"), this::arcValidation);
             inspect(Set.of("QA-CFG-004"), this::legacyProperties);
+            inspect(Set.of("QA-CFG-006"), this::deprecatedProperties);
+            inspect(Set.of("QA-CFG-007"), this::configHygiene);
             inspect(productionRules(), this::production);
+            inspect(Set.of("QA-DB-002"), this::agroalPool);
             inspect(Set.of("QA-WEB-001"), this::compression);
             inspect(Set.of("QA-WEB-004"), this::shutdown);
             inspect(Set.of("QA-WEB-003"), this::clientTimeouts);
+            inspect(Set.of("QA-WEB-005"), this::httpLimits);
+            inspect(Set.of("QA-PERF-005"), this::workerThreadPool);
             return new QuarkusAppSnapshot(
                     metadata,
                     profiles.stream()
@@ -488,6 +501,548 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             }
         }
 
+        private void arcValidation() {
+            for (String key :
+                    List.of("quarkus.arc.fail-on-intercepted-private-method", "quarkus.arc.detect-wrong-annotations")) {
+                inspect(Set.of("QA-CDI-007"), () -> {
+                    boolean reportedDisabled = false;
+                    if (isExplicitlyConfigured(key)) {
+                        String value = raw(config, key, false);
+                        if (value != null) {
+                            String classified = classifyBoolean(
+                                    "QA-CDI-007", value, "An ArC validation setting could not be classified safely.");
+                            if (classified != null) {
+                                boolean disabled = classified.equals("false");
+                                add("QA-CDI-007", key, disabled ? "disabled" : "enabled", ACTIVE);
+                                reportedDisabled = disabled;
+                            }
+                        }
+                    }
+                    if (!activeProd && !reportedDisabled && hasProductionDeclaration(key)) {
+                        String prodValue = raw(productionDeclarations(), key, true);
+                        if (prodValue != null) {
+                            String classified = classifyBoolean(
+                                    "QA-CDI-007",
+                                    prodValue,
+                                    "An ArC validation setting could not be classified safely.");
+                            if (classified != null) {
+                                add(
+                                        "QA-CDI-007",
+                                        key,
+                                        classified.equals("false") ? "disabled" : "enabled",
+                                        DECLARED_PROD);
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        private void deprecatedProperties() {
+            Set<String> found = new TreeSet<>();
+            for (String name : names) {
+                if (!isDeprecatedProperty(unprofiled(name))) {
+                    continue;
+                }
+                inspect(Set.of("QA-CFG-006"), () -> {
+                    if (hasNonBlankUserDeclaration(name)) {
+                        found.add(name);
+                    }
+                });
+            }
+            found.forEach(key -> add("QA-CFG-006", key, "deprecated", "configured property declaration"));
+        }
+
+        private boolean hasNonBlankUserDeclaration(String name) {
+            ConfigValue value = Expressions.withoutExpansion(() -> config.getConfigValue(name));
+            if (value.getRawValue() != null
+                    && !value.getRawValue().isBlank()
+                    && value.getSourceOrdinal() > Integer.MIN_VALUE
+                    && !isDefaultConfigSourceName(value.getSourceName())) {
+                return true;
+            }
+            for (ConfigSource source : sources) {
+                String rawValue = source.getValue(name);
+                if (rawValue != null && !rawValue.isBlank()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void configHygiene() {
+            for (String key :
+                    List.of("quarkus.config.mapping.validate-unknown", "smallrye.config.mapping.validate-unknown")) {
+                inspect(Set.of("QA-CFG-007"), () -> {
+                    boolean reportedDisabled = false;
+                    if (isExplicitlyConfigured(key)) {
+                        String value = raw(config, key, false);
+                        if (value != null) {
+                            String classified = classifyBoolean(
+                                    "QA-CFG-007",
+                                    value,
+                                    "A configuration validation or logging setting could not be classified safely.");
+                            if (classified != null) {
+                                boolean disabled = classified.equals("false");
+                                add(
+                                        "QA-CFG-007",
+                                        key,
+                                        disabled ? "validate-unknown-disabled" : "validate-unknown-enabled",
+                                        ACTIVE);
+                                reportedDisabled = disabled;
+                            }
+                        }
+                    }
+                    if (!activeProd && !reportedDisabled && hasProductionDeclaration(key)) {
+                        String prodValue = raw(productionDeclarations(), key, true);
+                        if (prodValue != null) {
+                            String classified = classifyBoolean(
+                                    "QA-CFG-007",
+                                    prodValue,
+                                    "A configuration validation or logging setting could not be classified safely.");
+                            if (classified != null) {
+                                add(
+                                        "QA-CFG-007",
+                                        key,
+                                        classified.equals("false")
+                                                ? "validate-unknown-disabled"
+                                                : "validate-unknown-enabled",
+                                        DECLARED_PROD);
+                            }
+                        }
+                    }
+                });
+            }
+            inspect(Set.of("QA-CFG-007"), () -> {
+                String key = "quarkus.config.log.values";
+                if (activeProd) {
+                    if (isExplicitlyConfigured(key)) {
+                        String value = raw(config, key, false);
+                        if (value != null) {
+                            String classified = classifyBoolean(
+                                    "QA-CFG-007",
+                                    value,
+                                    "A configuration validation or logging setting could not be classified safely.");
+                            if (classified != null) {
+                                add(
+                                        "QA-CFG-007",
+                                        key,
+                                        classified.equals("true") ? "log-values-enabled" : "log-values-disabled",
+                                        ACTIVE);
+                            }
+                        }
+                    }
+                } else if (hasProductionDeclaration(key)) {
+                    String prodValue = raw(productionDeclarations(), key, true);
+                    if (prodValue != null) {
+                        String classified = classifyBoolean(
+                                "QA-CFG-007",
+                                prodValue,
+                                "A configuration validation or logging setting could not be classified safely.");
+                        if (classified != null) {
+                            add(
+                                    "QA-CFG-007",
+                                    key,
+                                    classified.equals("true") ? "log-values-enabled" : "log-values-disabled",
+                                    DECLARED_PROD);
+                        }
+                    }
+                }
+            });
+        }
+
+        private void agroalPool() {
+            if (!metadata.available()) {
+                unavailable(Set.of("QA-DB-002"), "ORM and JDBC capability evidence is unavailable.");
+                return;
+            }
+            if (!metadata.jdbcDatasourceSupported()) {
+                return;
+            }
+            Set<String> datasources = new TreeSet<>();
+            datasources.add(DATASOURCE);
+            for (String name : names) {
+                String ds = namespace(unprofiled(name), "quarkus", "datasource");
+                if (ds != null) {
+                    datasources.add(ds);
+                }
+            }
+            for (String datasource : datasources) {
+                inspectAgroalDatasource(datasource, config, false, ACTIVE);
+                if (!activeProd) {
+                    inspectAgroalDatasource(datasource, productionDeclarations(), true, DECLARED_PROD);
+                }
+            }
+        }
+
+        private void inspectAgroalDatasource(
+                String datasource, Config source, boolean declarationOnly, String provenance) {
+            inspect(Set.of("QA-DB-002"), () -> {
+                String jdbcFlag = raw(source, datasource + "jdbc", declarationOnly);
+                if (jdbcFlag != null) {
+                    String classifiedJdbc = classifyBoolean(
+                            "QA-DB-002", jdbcFlag, "An Agroal pool setting could not be classified safely.");
+                    if ("false".equals(classifiedJdbc)) {
+                        return;
+                    }
+                }
+                String poolingKey = datasource + "jdbc.pooling-enabled";
+                if (declarationOnly ? hasProductionDeclaration(poolingKey) : isExplicitlyConfigured(poolingKey)) {
+                    String poolingRaw = raw(source, poolingKey, declarationOnly);
+                    if (poolingRaw != null) {
+                        String classified = classifyBoolean(
+                                "QA-DB-002", poolingRaw, "An Agroal pool setting could not be classified safely.");
+                        if (classified != null) {
+                            add(
+                                    "QA-DB-002",
+                                    poolingKey,
+                                    classified.equals("false") ? "pooling-disabled" : "enabled",
+                                    provenance);
+                        }
+                    }
+                }
+                String bgKey = datasource + "jdbc.background-validation-interval";
+                if (declarationOnly ? hasProductionDeclaration(bgKey) : isExplicitlyConfigured(bgKey)) {
+                    String bgRaw = raw(source, bgKey, declarationOnly);
+                    if (bgRaw != null) {
+                        Duration bg = parseDuration(
+                                "QA-DB-002", bgRaw, "An Agroal pool setting could not be classified safely.");
+                        if (bg == null) {
+                            return;
+                        }
+                        if (bg.toMillis() <= 0L) {
+                            boolean alternativeValidation = false;
+                            String borrowKey = datasource + "jdbc.validate-on-borrow";
+                            String borrowRaw = raw(source, borrowKey, declarationOnly);
+                            if (borrowRaw != null) {
+                                String borrowClassified = classifyBoolean(
+                                        "QA-DB-002",
+                                        borrowRaw,
+                                        "An Agroal pool setting could not be classified safely.");
+                                if (borrowClassified == null) {
+                                    return;
+                                }
+                                alternativeValidation |= borrowClassified.equals("true");
+                            }
+                            String fgKey = datasource + "jdbc.foreground-validation-interval";
+                            String fgRaw = raw(source, fgKey, declarationOnly);
+                            if (fgRaw != null) {
+                                Duration fg = parseDuration(
+                                        "QA-DB-002", fgRaw, "An Agroal pool setting could not be classified safely.");
+                                if (fg == null) {
+                                    return;
+                                }
+                                alternativeValidation |= fg.toMillis() > 0L;
+                            }
+                            add(
+                                    "QA-DB-002",
+                                    bgKey,
+                                    alternativeValidation ? "enabled" : "validation-disabled",
+                                    provenance);
+                        } else {
+                            add("QA-DB-002", bgKey, "enabled", provenance);
+                        }
+                    }
+                }
+            });
+        }
+
+        private void httpLimits() {
+            inspectHttpLimits(config, false, ACTIVE);
+            if (!activeProd) {
+                inspectHttpLimits(productionDeclarations(), true, DECLARED_PROD);
+            }
+        }
+
+        private void inspectHttpLimits(Config source, boolean declarationOnly, String provenance) {
+            String bodySizeKey = "quarkus.http.limits.max-body-size";
+            inspect(Set.of("QA-WEB-005"), () -> {
+                if (isExplicitlyEmpty(bodySizeKey, declarationOnly)) {
+                    add("QA-WEB-005", bodySizeKey, "unlimited-body-size", provenance);
+                } else if (declarationOnly
+                        ? hasProductionDeclaration(bodySizeKey)
+                        : isExplicitlyConfigured(bodySizeKey)) {
+                    String rawVal = raw(source, bodySizeKey, declarationOnly);
+                    if (rawVal != null) {
+                        MemorySize size = parseMemorySize(
+                                "QA-WEB-005", rawVal, "An HTTP limit setting could not be classified safely.");
+                        if (size != null) {
+                            add(
+                                    "QA-WEB-005",
+                                    bodySizeKey,
+                                    size.isNegative() ? "unlimited-body-size" : "bounded",
+                                    provenance);
+                        }
+                    }
+                }
+            });
+            String formBytesKey = "quarkus.http.limits.max-form-buffered-bytes";
+            inspect(Set.of("QA-WEB-005"), () -> {
+                if (declarationOnly ? hasProductionDeclaration(formBytesKey) : isExplicitlyConfigured(formBytesKey)) {
+                    String rawVal = raw(source, formBytesKey, declarationOnly);
+                    if (rawVal != null) {
+                        if (rawVal.trim().equals("-1")) {
+                            add("QA-WEB-005", formBytesKey, "unlimited-form-buffered-bytes", provenance);
+                        } else {
+                            MemorySize size = parseMemorySize(
+                                    "QA-WEB-005", rawVal, "An HTTP limit setting could not be classified safely.");
+                            if (size != null) {
+                                add(
+                                        "QA-WEB-005",
+                                        formBytesKey,
+                                        size.isNegative() ? "unlimited-form-buffered-bytes" : "bounded",
+                                        provenance);
+                            }
+                        }
+                    }
+                }
+            });
+            String formFieldsKey = "quarkus.http.limits.max-form-fields";
+            inspect(Set.of("QA-WEB-005"), () -> {
+                if (declarationOnly ? hasProductionDeclaration(formFieldsKey) : isExplicitlyConfigured(formFieldsKey)) {
+                    String rawVal = raw(source, formFieldsKey, declarationOnly);
+                    if (rawVal != null) {
+                        Integer fields =
+                                parseInt("QA-WEB-005", rawVal, "An HTTP limit setting could not be classified safely.");
+                        if (fields != null) {
+                            add(
+                                    "QA-WEB-005",
+                                    formFieldsKey,
+                                    fields < 0 ? "unlimited-form-fields" : "bounded",
+                                    provenance);
+                        }
+                    }
+                }
+            });
+            String deleteUploadsKey = "quarkus.http.body.delete-uploaded-files-on-end";
+            inspect(Set.of("QA-WEB-005"), () -> {
+                if (declarationOnly
+                        ? hasProductionDeclaration(deleteUploadsKey)
+                        : isExplicitlyConfigured(deleteUploadsKey)) {
+                    String rawVal = raw(source, deleteUploadsKey, declarationOnly);
+                    if (rawVal != null) {
+                        String classified = classifyBoolean(
+                                "QA-WEB-005", rawVal, "An HTTP limit setting could not be classified safely.");
+                        if (classified == null) {
+                            return;
+                        }
+                        boolean deleteOnEnd = classified.equals("true");
+                        boolean uploadsEnabled = true;
+                        String handleRaw = raw(source, "quarkus.http.body.handle-file-uploads", declarationOnly);
+                        if (handleRaw != null) {
+                            String handleClassified = classifyBoolean(
+                                    "QA-WEB-005", handleRaw, "An HTTP limit setting could not be classified safely.");
+                            if (handleClassified == null) {
+                                return;
+                            }
+                            uploadsEnabled = handleClassified.equals("true");
+                        }
+                        add(
+                                "QA-WEB-005",
+                                deleteUploadsKey,
+                                (!deleteOnEnd && uploadsEnabled) ? "retained-uploads" : "bounded",
+                                provenance);
+                    }
+                }
+            });
+        }
+
+        private void workerThreadPool() {
+            inspectWorkerThreadPool(config, false, ACTIVE);
+            if (!activeProd) {
+                inspectWorkerThreadPool(productionDeclarations(), true, DECLARED_PROD);
+            }
+        }
+
+        private void inspectWorkerThreadPool(Config source, boolean declarationOnly, String provenance) {
+            String coreKey = "quarkus.thread-pool.core-threads";
+            String maxKey = "quarkus.thread-pool.max-threads";
+            inspect(Set.of("QA-PERF-005"), () -> {
+                boolean hasCore = declarationOnly ? hasProductionDeclaration(coreKey) : isExplicitlyConfigured(coreKey);
+                boolean hasMax = declarationOnly ? hasProductionDeclaration(maxKey) : isExplicitlyConfigured(maxKey);
+                if (!hasCore && !hasMax) {
+                    return;
+                }
+                String coreRaw = hasCore ? raw(source, coreKey, declarationOnly) : null;
+                String maxRaw = hasMax ? raw(source, maxKey, declarationOnly) : null;
+                Integer core = coreRaw != null
+                        ? parseInt(
+                                "QA-PERF-005", coreRaw, "A worker thread pool setting could not be classified safely.")
+                        : null;
+                if (coreRaw != null && core == null) {
+                    return;
+                }
+                Integer max = maxRaw != null
+                        ? parseInt(
+                                "QA-PERF-005", maxRaw, "A worker thread pool setting could not be classified safely.")
+                        : null;
+                if (maxRaw != null && max == null) {
+                    return;
+                }
+                if (core != null && core < 0) {
+                    unavailable(Set.of("QA-PERF-005"), "A worker thread pool setting could not be classified safely.");
+                    return;
+                }
+                if (max != null) {
+                    if (max <= 0) {
+                        add("QA-PERF-005", maxKey, "max-non-positive", provenance);
+                    } else if ((core != null ? core : 1) > max) {
+                        add("QA-PERF-005", coreKey, "core-exceeds-max", provenance);
+                    } else {
+                        add("QA-PERF-005", maxKey, "valid", provenance);
+                    }
+                } else if (core != null) {
+                    add("QA-PERF-005", coreKey, "valid", provenance);
+                }
+            });
+            String interruptKey = "quarkus.thread-pool.shutdown-interrupt";
+            String timeoutKey = "quarkus.thread-pool.shutdown-timeout";
+            inspect(Set.of("QA-PERF-005"), () -> {
+                boolean hasInterrupt =
+                        declarationOnly ? hasProductionDeclaration(interruptKey) : isExplicitlyConfigured(interruptKey);
+                boolean hasTimeout =
+                        declarationOnly ? hasProductionDeclaration(timeoutKey) : isExplicitlyConfigured(timeoutKey);
+                if (!hasInterrupt && !hasTimeout) {
+                    return;
+                }
+                String interruptRaw = hasInterrupt ? raw(source, interruptKey, declarationOnly) : null;
+                String timeoutRaw = hasTimeout ? raw(source, timeoutKey, declarationOnly) : null;
+                Duration interrupt = interruptRaw != null
+                        ? parseDuration(
+                                "QA-PERF-005",
+                                interruptRaw,
+                                "A worker thread pool setting could not be classified safely.")
+                        : null;
+                if (interruptRaw != null && interrupt == null) {
+                    return;
+                }
+                Duration timeout = timeoutRaw != null
+                        ? parseDuration(
+                                "QA-PERF-005",
+                                timeoutRaw,
+                                "A worker thread pool setting could not be classified safely.")
+                        : null;
+                if (timeoutRaw != null && timeout == null) {
+                    return;
+                }
+                if (interrupt != null || timeout != null) {
+                    Duration effectiveInterrupt = interrupt != null ? interrupt : Duration.ofSeconds(10);
+                    Duration effectiveTimeout = timeout != null ? timeout : Duration.ofMinutes(1);
+                    if (effectiveInterrupt.compareTo(effectiveTimeout) >= 0) {
+                        add("QA-PERF-005", interruptKey, "interrupt-not-before-timeout", provenance);
+                    } else {
+                        add("QA-PERF-005", interruptKey, "valid", provenance);
+                    }
+                }
+            });
+        }
+
+        private boolean hasProductionDeclaration(String key) {
+            for (ConfigSource source : sources) {
+                for (String name : names) {
+                    if (!unprofiled(name).equals(key)) {
+                        continue;
+                    }
+                    if (isProductionKey(name)) {
+                        String val = source.getValue(name);
+                        if (val != null && !val.isBlank()) {
+                            return true;
+                        }
+                    } else if (!name.startsWith("%") && isBaseApplicationFile(source)) {
+                        String val = source.getValue(name);
+                        if (val != null && !val.isBlank() && !val.contains("${")) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        private boolean isExplicitlyEmpty(String key, boolean declarationOnly) {
+            if (!declarationOnly) {
+                ConfigValue value = Expressions.withoutExpansion(() -> config.getConfigValue(key));
+                if (value.getRawValue() != null
+                        && value.getRawValue().isBlank()
+                        && value.getSourceOrdinal() > Integer.MIN_VALUE
+                        && !isDefaultConfigSourceName(value.getSourceName())) {
+                    return true;
+                }
+                for (ConfigSource source : sources) {
+                    String direct = source.getValue(key);
+                    if (direct != null && direct.isBlank() && names.contains(key)) {
+                        return true;
+                    }
+                    for (String name : names) {
+                        if (unprofiled(name).equals(key) && isActiveProfileKey(name, profiles)) {
+                            String profiled = source.getValue(name);
+                            if (profiled != null && profiled.isBlank()) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
+            for (ConfigSource source : sources) {
+                for (String name : names) {
+                    if (unprofiled(name).equals(key) && isProductionKey(name)) {
+                        String val = source.getValue(name);
+                        if (val != null && val.isBlank()) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        private String classifyBoolean(String ruleId, String value, String errorMessage) {
+            try {
+                return booleanValue(value);
+            } catch (IllegalArgumentException ex) {
+                unavailable(Set.of(ruleId), errorMessage);
+                return null;
+            }
+        }
+
+        private Integer parseInt(String ruleId, String value, String errorMessage) {
+            try {
+                return Integer.valueOf(value.trim());
+            } catch (NumberFormatException ex) {
+                unavailable(Set.of(ruleId), errorMessage);
+                return null;
+            }
+        }
+
+        private MemorySize parseMemorySize(String ruleId, String value, String errorMessage) {
+            try {
+                MemorySize size = MemorySize.of(value.trim());
+                size.asLongValue();
+                return size;
+            } catch (IllegalArgumentException | ArithmeticException ex) {
+                unavailable(Set.of(ruleId), errorMessage);
+                return null;
+            }
+        }
+
+        private Duration parseDuration(String ruleId, String value, String errorMessage) {
+            try {
+                Duration duration = config.getConverter(Duration.class)
+                        .orElseThrow(() -> new IllegalStateException("No duration converter"))
+                        .convert(value.trim());
+                if (duration == null || duration.isNegative()) {
+                    unavailable(Set.of(ruleId), errorMessage);
+                    return null;
+                }
+                duration.toMillis();
+                return duration;
+            } catch (IllegalArgumentException | ArithmeticException ex) {
+                unavailable(Set.of(ruleId), errorMessage);
+                return null;
+            }
+        }
+
         private void add(String rule, String target, String value, String provenance) {
             settings.add(new Setting(rule, display(target), value, provenance));
         }
@@ -601,7 +1156,21 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
     private static boolean isProductionSetting(String name) {
         if (name.equals("quarkus.log.level")
                 || name.equals("quarkus.http.enable-compression")
-                || name.equals("quarkus.shutdown.timeout")) {
+                || name.equals("quarkus.shutdown.timeout")
+                || name.equals("quarkus.arc.fail-on-intercepted-private-method")
+                || name.equals("quarkus.arc.detect-wrong-annotations")
+                || name.equals("quarkus.config.mapping.validate-unknown")
+                || name.equals("smallrye.config.mapping.validate-unknown")
+                || name.equals("quarkus.config.log.values")
+                || name.equals("quarkus.http.limits.max-body-size")
+                || name.equals("quarkus.http.limits.max-form-buffered-bytes")
+                || name.equals("quarkus.http.limits.max-form-fields")
+                || name.equals("quarkus.http.body.delete-uploaded-files-on-end")
+                || name.equals("quarkus.http.body.handle-file-uploads")
+                || name.equals("quarkus.thread-pool.core-threads")
+                || name.equals("quarkus.thread-pool.max-threads")
+                || name.equals("quarkus.thread-pool.shutdown-interrupt")
+                || name.equals("quarkus.thread-pool.shutdown-timeout")) {
             return true;
         }
         String unit = namespace(name, "quarkus", "hibernate-orm");
@@ -611,7 +1180,106 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                     || name.equals(unit + "log.sql");
         }
         String datasource = namespace(name, "quarkus", "datasource");
-        return datasource != null && name.equals(datasource + "jdbc.url");
+        return datasource != null
+                && (name.equals(datasource + "jdbc.url")
+                        || name.equals(datasource + "jdbc")
+                        || name.equals(datasource + "jdbc.pooling-enabled")
+                        || name.equals(datasource + "jdbc.background-validation-interval")
+                        || name.equals(datasource + "jdbc.foreground-validation-interval")
+                        || name.equals(datasource + "jdbc.validate-on-borrow"));
+    }
+
+    private static final Set<String> LOG_HANDLERS = Set.of("console", "file", "syslog", "socket");
+    private static final Set<String> OIDC_PROXY_KEYS = Set.of("host", "port", "username", "password");
+    private static final Set<String> REST_CLIENT_PROXY_KEYS =
+            Set.of("proxy-address", "proxy-user", "proxy-password", "proxy-connect-timeout", "non-proxy-hosts");
+
+    static boolean isDeprecatedProperty(String name) {
+        if (name.equals("quarkus.vertx.worker-pool-size")
+                || name.equals("quarkus.smallrye-health.ui.enable")
+                || name.equals("quarkus.smallrye-openapi.enable")
+                || name.equals("quarkus.swagger-ui.enable")) {
+            return true;
+        }
+        List<String> segments = segments(name, 7);
+        if (segments == null || segments.size() < 3 || !segments.get(0).equals("quarkus")) {
+            return false;
+        }
+        String group = segments.get(1);
+        List<String> rest = segments.subList(2, segments.size());
+        return switch (group) {
+            case "hibernate-orm" -> isDeprecatedHibernateProperty(rest);
+            case "log" -> isDeprecatedLogProperty(rest);
+            case "oidc" -> isDeprecatedOidcProxyProperty(rest);
+            case "rest-client" -> isDeprecatedRestClientProxyProperty(rest);
+            default -> false;
+        };
+    }
+
+    private static boolean isDeprecatedHibernateProperty(List<String> rest) {
+        if (rest.equals(List.of("blocking"))) {
+            return true;
+        }
+        for (int unit = 0; unit <= 1 && unit < rest.size(); unit++) {
+            if (unit == 1 && RESERVED_SUBGROUPS.contains(rest.get(0))) {
+                continue;
+            }
+            List<String> tail = rest.subList(unit, rest.size());
+            if (tail.equals(List.of("batch-fetch-size"))
+                    || tail.equals(List.of("max-fetch-depth"))
+                    || tail.equals(List.of("validation", "enabled"))
+                    || tail.equals(List.of("database", "globally-quoted-identifiers"))
+                    || tail.equals(List.of("log", "bind-param"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isDeprecatedLogProperty(List<String> rest) {
+        if (rest.size() >= 2 && LOG_HANDLERS.contains(rest.get(0))) {
+            List<String> tail = rest.subList(1, rest.size());
+            return tail.equals(List.of("enable"))
+                    || tail.equals(List.of("async"))
+                    || tail.equals(List.of("async", "enable"));
+        }
+        if (rest.size() >= 4 && rest.get(0).equals("handler") && LOG_HANDLERS.contains(rest.get(1))) {
+            List<String> tail = rest.subList(3, rest.size());
+            return tail.equals(List.of("enable"))
+                    || tail.equals(List.of("async"))
+                    || tail.equals(List.of("async", "enable"));
+        }
+        return false;
+    }
+
+    private static boolean isDeprecatedOidcProxyProperty(List<String> rest) {
+        if (rest.size() == 2 && rest.get(0).equals("proxy")) {
+            return OIDC_PROXY_KEYS.contains(rest.get(1));
+        }
+        return rest.size() == 3
+                && !rest.get(0).equals("proxy")
+                && rest.get(1).equals("proxy")
+                && OIDC_PROXY_KEYS.contains(rest.get(2));
+    }
+
+    private static boolean isDeprecatedRestClientProxyProperty(List<String> rest) {
+        if (rest.size() == 1) {
+            return REST_CLIENT_PROXY_KEYS.contains(rest.get(0));
+        }
+        return rest.size() == 2 && REST_CLIENT_PROXY_KEYS.contains(rest.get(1));
+    }
+
+    private static List<String> segments(String name, int maxSegments) {
+        NameIterator iterator = new NameIterator(name);
+        List<String> segments = new ArrayList<>();
+        while (iterator.hasNext()) {
+            segments.add(iterator.getNextSegment());
+            iterator.next();
+            if (segments.size() > maxSegments) {
+                return null;
+            }
+        }
+        return segments;
     }
 
     /** The deprecated (since 3.22) database.generation group of the default or one named persistence unit. */
@@ -648,7 +1316,13 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             List.of("log", "sql"),
             List.of("packages"),
             List.of("datasource"));
-    private static final List<List<String>> DATASOURCE_SUFFIXES = List.of(List.of("jdbc", "url"), List.of("db-kind"));
+    private static final List<List<String>> DATASOURCE_SUFFIXES = List.of(
+            List.of("jdbc", "url"),
+            List.of("jdbc", "pooling-enabled"),
+            List.of("jdbc", "background-validation-interval"),
+            List.of("jdbc", "foreground-validation-interval"),
+            List.of("jdbc", "validate-on-borrow"),
+            List.of("db-kind"));
     private static final Set<String> RESERVED_SUBGROUPS = Set.of(
             "database",
             "schema-management",
@@ -724,10 +1398,54 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         return false;
     }
 
+    private static final Set<String> SAFE_TARGET_KEYS = Set.of(
+            "quarkus.arc.fail-on-intercepted-private-method",
+            "quarkus.arc.detect-wrong-annotations",
+            "quarkus.config.mapping.validate-unknown",
+            "smallrye.config.mapping.validate-unknown",
+            "quarkus.config.log.values");
+
     private static String display(String name) {
-        if (name.length() > 256 || MASKER.isSecret(name) || MASKER.shouldMask("configuration.name", name)) {
+        if (name.length() > 256) {
+            return SecretMasker.MASKED_VALUE;
+        }
+        String bare = unprofiled(name);
+        if (SAFE_TARGET_KEYS.contains(bare) || isDeprecatedProperty(bare)) {
+            if (name.startsWith("%")) {
+                int separator = name.indexOf('.');
+                String profilePart = name.substring(1, separator);
+                if (MASKER.isSecret(profilePart) || MASKER.shouldMask("configuration.name", profilePart)) {
+                    return SecretMasker.MASKED_VALUE;
+                }
+            }
+            return hasSecretNamedSegment(bare) ? SecretMasker.MASKED_VALUE : name;
+        }
+        if (MASKER.isSecret(name) || MASKER.shouldMask("configuration.name", name)) {
             return SecretMasker.MASKED_VALUE;
         }
         return name;
+    }
+
+    private static boolean hasSecretNamedSegment(String bare) {
+        List<String> segments = segments(bare, 7);
+        if (segments == null || segments.size() < 3) {
+            return false;
+        }
+        String group = segments.get(1);
+        String candidate = null;
+        if (group.equals("hibernate-orm") && segments.size() >= 4 && !RESERVED_SUBGROUPS.contains(segments.get(2))) {
+            candidate = segments.get(2);
+        } else if (group.equals("oidc")
+                && segments.size() == 5
+                && segments.get(3).equals("proxy")) {
+            candidate = segments.get(2);
+        } else if (group.equals("rest-client") && segments.size() == 4) {
+            candidate = segments.get(2);
+        } else if (group.equals("log")
+                && segments.size() >= 6
+                && segments.get(2).equals("handler")) {
+            candidate = segments.get(4);
+        }
+        return candidate != null && (MASKER.isSecret(candidate) || MASKER.shouldMask("configuration.name", candidate));
     }
 }

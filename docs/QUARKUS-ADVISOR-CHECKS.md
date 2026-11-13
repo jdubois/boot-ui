@@ -5,7 +5,7 @@ the panel ID remains `spring`, the endpoint remains `/bootui/api/spring`, and th
 `SpringReport` JSON and dismissal contract are unchanged. It is separate from the
 [Quarkus Security advisor](QUARKUS-CHECKS.md).
 
-The advisor has **13 active rules**. It inspects application-owned build metadata and
+The advisor has **23 active rules**. It inspects application-owned build metadata and
 selected configuration only when the user requests a scan. It never invokes application
 beans, constructs REST clients, executes scheduled work, reads JDBC data, intercepts
 traffic, or changes configuration. Findings are review prompts, not proof of a race,
@@ -118,6 +118,53 @@ Review whether the field should expose an immutable value or an encapsulated ope
 object deeply immutable. Do not move the field to a normal scope such as request scope: that turns it into a
 QA-CDI-004 client-proxy defect.
 
+### QA-CDI-005 - Normal-scoped bean has a deferred runtime UnproxyableResolutionException
+
+- **Severity**: HIGH
+
+A resolved normal-scoped application bean (`@ApplicationScoped`, `@RequestScoped`, `@SessionScoped`, or custom normal
+scope — either a class bean or a `@Produces` method/field) has an unproxyable bean class or producer return type:
+
+- `sealed` class
+- `final` class when `quarkus.arc.transform-unproxyable-classes=false`
+- Missing a non-private no-arg constructor when ArC cannot synthesize one because its superclass is not `Object` and
+  lacks an accessible no-arg constructor (or when `quarkus.arc.transform-unproxyable-classes=false`)
+- Concrete `java.*` class (such as `java.time.Clock`, `java.lang.String`, or `java.util.Optional`), which ArC cannot
+  bytecode-transform and whose `final` methods are skipped on generated client proxies
+
+When a normal-scoped bean is not directly injected into a static `@Inject` point (for example when resolved through
+`Instance<T>`, `Arc.container().instance(...)`, `BeanManager`, or `@Named`), ArC (`Beans.validateBean` /
+`BeanDeployment.deferUnproxyableErrorToRuntime`) defers the unproxyable error to runtime and generates a bean provider
+that unconditionally throws `jakarta.enterprise.inject.UnproxyableResolutionException` on first lookup.
+
+Add a package-private or public no-arg constructor, remove the `final` or `sealed` modifier, expose the bean through an
+interface, or change `@Produces` methods returning concrete JDK or unproxyable third-party types from
+`@ApplicationScoped` to `@Singleton`.
+
+### QA-CDI-006 - Application bean declared in the default package
+
+- **Severity**: LOW
+
+A resolved application class bean is declared in the unnamed default package (the Quarkus counterpart to
+`SPRING-WIRING-008`). Classes in the default package cannot be imported by classes in named packages and are excluded
+from bounded base-package root discovery. Move application beans into a named package.
+
+### QA-CDI-007 - ArC build-time safety validation is disabled
+
+- **Severity**: MEDIUM
+
+Active or visible `%prod.` configuration explicitly sets `quarkus.arc.fail-on-intercepted-private-method=false` or
+`quarkus.arc.detect-wrong-annotations=false`:
+
+- When `quarkus.arc.fail-on-intercepted-private-method=false` is configured, interceptor bindings (`@Transactional`,
+  `@CacheResult`, `@Retry`, `@CircuitBreaker`, `@Timeout`, `@Lock`, `@RolesAllowed`) on `private` methods no longer fail
+  the build and are silently skipped at runtime.
+- When `quarkus.arc.detect-wrong-annotations=false` is configured, ArC disables build-time detection of misplaced CDI
+  and Quarkus annotations (such as `@Singleton` on a non-producer field or `@Observes` on a non-bean class).
+
+Keep both properties enabled (`true`, the Quarkus defaults) and widen intercepted methods from `private` to
+package-private, `protected`, or `public`.
+
 CDI sources: [Jakarta CDI 4.1 managed beans](https://jakarta.ee/specifications/cdi/4.1/jakarta-cdi-spec-4.1.html#managed_beans),
 [Quarkus client proxies](https://quarkus.io/guides/cdi#client_proxies),
 [ArC client proxy generation](https://github.com/quarkusio/quarkus/blob/3.33.3.1/independent-projects/arc/processor/src/main/java/io/quarkus/arc/processor/ClientProxyGenerator.java),
@@ -182,6 +229,30 @@ observed, so the rule always reports incomplete coverage in development mode.
 
 Remove the production declaration and enable bind logging only temporarily outside production.
 
+### QA-CFG-006 - Deprecated Quarkus 3.x configuration property
+
+- **Severity**: LOW
+
+A nonblank application configuration declaration uses a deprecated Quarkus 3.x property name (the Quarkus counterpart to
+`SPRING-CONFIG-003`), including:
+
+- `quarkus.vertx.worker-pool-size` (migrate to `quarkus.thread-pool.max-threads`)
+- `quarkus.hibernate-orm.[<unit>.]{batch-fetch-size,max-fetch-depth,validation.enabled,database.globally-quoted-identifiers,log.bind-param}` and `quarkus.hibernate-orm.blocking` (migrate to `fetch.batch-size`, `fetch.max-depth`, `validation.mode`, `quote-identifiers.strategy`, and `log.bind-parameters`)
+- `quarkus.log.{console,file,syslog,socket}.{enable,async,async.enable}` and `quarkus.log.handler.{console,file,syslog,socket}."<name>".{enable,async,async.enable}` (migrate to `.enabled` and `.async.enabled`)
+- `quarkus.smallrye-health.ui.enable`, `quarkus.smallrye-openapi.enable`, and `quarkus.swagger-ui.enable` (migrate to `.enabled`)
+- `quarkus.oidc.[<tenant>.]proxy.{host,port,username,password}` and `quarkus.rest-client.[<client>.]{proxy-address,proxy-user,proxy-password,proxy-connect-timeout,non-proxy-hosts}` (migrate to named `quarkus.proxy.*` configurations)
+
+### QA-CFG-007 - Config mapping unknown-property validation disabled or config value logging enabled
+
+- **Severity**: MEDIUM
+
+Configuration sets `quarkus.config.mapping.validate-unknown=false` or `smallrye.config.mapping.validate-unknown=false`
+(disabling SmallRye Config's startup validation of unknown properties under `@ConfigMapping` prefixes so misspelled or
+obsolete keys are silently ignored), or enables `quarkus.config.log.values=true` in observed production configuration
+(which logs every looked-up configuration key and its resolved value to `io.smallrye.config` at `DEBUG` level).
+
+Keep `validate-unknown=true` and remove `quarkus.config.log.values=true` from production declarations.
+
 ### QA-PROD-002 - Automatic schema changes in observed production configuration
 
 - **Severity**: HIGH for `create` or `update`; CRITICAL for `drop` or `drop-and-create`
@@ -213,6 +284,19 @@ Confirm that the data is intentionally transient, or select durable storage.
 An in-memory database exposed by a database server can be shared across application
 instances; its durability follows that database process, not necessarily the application
 process. The raw JDBC URL is never included in the report.
+
+### QA-DB-002 - Agroal connection pooling or background validation is disabled
+
+- **Severity**: MEDIUM
+
+Agroal JDBC capability is present and a default or named datasource (`quarkus.datasource.[<ds>.]jdbc.*`) explicitly sets
+`pooling-enabled=false` (disabling connection pooling and opening a physical JDBC connection per operation) or sets
+`background-validation-interval=0` without enabling `validate-on-borrow=true` or a positive
+`foreground-validation-interval` (disabling stale-connection validation). Note that `acquisition-timeout=0` is covered
+by the Database advisor's `DB-POOL-005`.
+
+Keep `pooling-enabled=true` and configure a positive `background-validation-interval` (default `2M`) or
+`foreground-validation-interval`.
 
 Sources: [profile and source precedence](https://quarkus.io/guides/config-reference#profiles),
 [Quarkus schema-action wiring and legacy precedence](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/hibernate-orm/runtime/src/main/java/io/quarkus/hibernate/orm/runtime/FastBootHibernatePersistenceProvider.java#L497-L499),
@@ -273,13 +357,26 @@ does not mean waiting without limit. Development mode never drains, even with a 
 production coverage unless `prod` is the sole active profile. An unreadable or negative duration is an analysis error,
 not an absent value.
 
+### QA-WEB-005 - Unlimited HTTP request body or form buffering, or retained multipart uploads
+
+- **Severity**: LOW
+
+Configured Quarkus HTTP limits remove the request body size limit (`quarkus.http.limits.max-body-size=` explicitly
+configured to an empty value, which binds `Optional.empty()` instead of the `10240K` default), set unlimited in-memory
+form buffering or form field counts (`quarkus.http.limits.max-form-buffered-bytes=-1` or
+`quarkus.http.limits.max-form-fields=-1`), or disable cleanup of temporary multipart upload files at request end
+(`quarkus.http.body.delete-uploaded-files-on-end=false` while `quarkus.http.body.handle-file-uploads` is enabled).
+
+Configure finite body and form limits and keep `quarkus.http.body.delete-uploaded-files-on-end=true` unless application
+code deletes temporary upload files deterministically.
+
 Sources: [compression default](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/vertx-http/runtime/src/main/java/io/quarkus/vertx/http/runtime/VertxHttpBuildTimeConfig.java#L72-L80),
 [shutdown default](https://github.com/quarkusio/quarkus/blob/3.33.3.1/core/runtime/src/main/java/io/quarkus/runtime/shutdown/ShutdownConfig.java#L18-L23),
 [client defaults](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/resteasy-classic/rest-client-config/runtime/src/main/java/io/quarkus/restclient/config/RestClientsConfig.java#L139-L153),
 [native aliases and priority handling](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/resteasy-classic/rest-client-config/runtime/src/main/java/io/quarkus/restclient/config/AbstractRestClientConfigBuilder.java#L71-L232),
 and [zero connect-timer semantics](https://github.com/netty/netty/blob/netty-4.1.136.Final/transport/src/main/java/io/netty/channel/ChannelConfig.java#L105-L121).
 
-## Virtual threads
+## Virtual threads and worker pools
 
 ### QA-PERF-002 - Synchronized virtual-thread entry method on JDK 21–23
 
@@ -300,6 +397,41 @@ Method-body synchronized blocks are
 outside its evidence. [JEP 491](https://openjdk.org/jeps/491) removes synchronized-related
 pinning from JDK 24 onward, so this rule does not fire there. The build JDK is not used
 as a substitute for the running JDK.
+
+### QA-PERF-003 - @RunOnVirtualThread on a reactive method
+
+- **Severity**: MEDIUM
+
+A registered REST endpoint or virtual-thread entry method annotated with `@RunOnVirtualThread` returns a reactive or
+asynchronous type (`Uni`, `Multi`, `CompletionStage`, `CompletableFuture`, or `Publisher`, including when wrapped in
+`RestResponse`). At runtime, Quarkus spawns a virtual thread only to invoke the Java method and construct the reactive
+pipeline, immediately terminates the virtual thread, and executes pipeline callbacks on the Vert.x event loop.
+
+Return a synchronous type when using `@RunOnVirtualThread` so blocking operations run on the virtual thread, or remove
+`@RunOnVirtualThread` from reactive pipelines.
+
+### QA-PERF-004 - Review virtual threads on a JDK before 24
+
+- **Severity**: INFO
+
+Virtual-thread entry methods (`@RunOnVirtualThread`) are declared while the application runs on **JDK 21–23** (the
+Quarkus counterpart to `SPRING-PERF-007`). Before [JEP 491](https://openjdk.org/jeps/491) (JDK 24), blocking inside a
+`synchronized` block — including inside JDBC drivers or third-party libraries called from a virtual-thread endpoint —
+pins the carrier thread. Prefer JDK 24+ (JDK 25 is LTS) or load-test with JFR `jdk.VirtualThreadPinned` events.
+
+### QA-PERF-005 - Core worker thread pool misconfiguration
+
+- **Severity**: MEDIUM
+
+Configured worker thread pool settings under `quarkus.thread-pool.*` violate `EnhancedQueueExecutor` invariants:
+
+- `quarkus.thread-pool.core-threads > quarkus.thread-pool.max-threads` (which `EnhancedQueueExecutor` silently clamps to
+  `max-threads`) or `quarkus.thread-pool.max-threads <= 0`
+- `quarkus.thread-pool.shutdown-interrupt >= quarkus.thread-pool.shutdown-timeout` (preventing worker threads from being
+  interrupted before the shutdown timeout expires)
+
+Ensure `max-threads` is positive and at least `core-threads`, and keep `shutdown-interrupt` strictly shorter than
+`shutdown-timeout`.
 
 Sources: [Quarkus dispatch decisions](https://github.com/quarkusio/quarkus/blob/3.33.3.1/independent-projects/resteasy-reactive/common/processor/src/main/java/org/jboss/resteasy/reactive/common/processor/EndpointIndexer.java#L881-L960),
 [framework-interpreted annotation contract](https://github.com/smallrye/smallrye-common/blob/2.16.0/annotation/src/main/java/io/smallrye/common/annotation/RunOnVirtualThread.java#L8-L22),
@@ -340,8 +472,8 @@ and [Agroal default maximum](https://github.com/quarkusio/quarkus/blob/3.33.3.1/
 
 ## Second audit disposition
 
-A second audit re-checked every surviving rule against Quarkus 3.33.3.x sources and CDI 4.1. Twenty-one IDs are now
-accounted for: 13 active and 8 retired. Each added rule and severity change was reviewed independently by three
+Subsequent audits re-checked every surviving rule against Quarkus 3.x sources and CDI 4.1. Thirty-one IDs are now
+accounted for: 23 active and 8 retired. Each added rule and severity change was reviewed independently by three
 models before implementation.
 
 | Rule | Disposition | Reason |
@@ -350,11 +482,21 @@ models before implementation.
 | QA-CDI-002 | Updated | Now singleton resources only; application- or request-scoped resources move to QA-CDI-004. |
 | QA-CDI-003 | Updated | Recommendation no longer suggests request scope, which would create a QA-CDI-004 defect. |
 | QA-CDI-004 | Added | Public fields on every normal scope, including request and session scope; atomics and concurrent collections are not exempt behind a proxy. |
+| QA-CDI-005 | Added | Normal-scoped beans or producers with a deferred runtime `UnproxyableResolutionException` (`sealed`, `final` with `transform-unproxyable-classes=false`, missing `<init>()` when superclass lacks `<init>()`, or concrete `java.*` class). |
+| QA-CDI-006 | Added | Application beans declared in the default package (parity with `SPRING-WIRING-008`). |
+| QA-CDI-007 | Added | ArC build-time safety validation disabled (`fail-on-intercepted-private-method=false` or `detect-wrong-annotations=false`). |
 | QA-CFG-004 | Updated | Also detects the deprecated `create-schemas` and `halt-on-error` keys, names each replacement and reports once per unit. |
 | QA-CFG-005 | Added | Build-time bind-parameter logging in the production view; complements HIB-CONFIG-018, which reads only an active production profile. |
+| QA-CFG-006 | Added | Deprecated Quarkus 3.x configuration properties across Vert.x, Hibernate ORM, core logging, SmallRye Health/OpenAPI/Swagger UI, OIDC proxy, and REST Client proxy (parity with `SPRING-CONFIG-003`). |
+| QA-CFG-007 | Added | `@ConfigMapping` unknown-property validation disabled (`validate-unknown=false`) or production config-value logging enabled (`quarkus.config.log.values=true`). |
+| QA-DB-002 | Added | Agroal `pooling-enabled=false` or `background-validation-interval=0` without borrow or foreground validation. |
 | QA-WEB-001 | Updated | Explicit `false` suppresses the prompt; a visible `%prod.` declaration is preferred in development mode. |
 | QA-WEB-002 | Retired | Folded into QA-WEB-004 (`INFO`): `quarkus.shutdown.timeout=0` and sub-millisecond durations (`timeout.toMillis() <= 0L`) behave identically to the absent default (`ShutdownConfig.isTimeoutEnabled()`). |
 | QA-WEB-004 | Updated | Covers both absent and non-positive (`timeout.toMillis() <= 0L`) shutdown timeouts; `%prod.quarkus.shutdown.timeout` preferred in development mode. |
+| QA-WEB-005 | Added | Unlimited HTTP body or form buffering (`max-body-size=`, `max-form-buffered-bytes=-1`, `max-form-fields=-1`) or retained multipart uploads (`delete-uploaded-files-on-end=false`). |
+| QA-PERF-003 | Added | `@RunOnVirtualThread` on reactive (`Uni`/`Multi`/`CompletionStage`/`CompletableFuture`/`Publisher`) methods. |
+| QA-PERF-004 | Added | `@RunOnVirtualThread` on JDK 21–23 before JEP 491 (parity with `SPRING-PERF-007`). |
+| QA-PERF-005 | Added | Core worker thread pool misconfiguration (`core-threads > max-threads` or `shutdown-interrupt >= shutdown-timeout`). |
 | Others | Retained | QA-CFG-002, QA-CFG-003, QA-PROD-002, QA-PROD-003, QA-WEB-003 and QA-PERF-002 were re-verified. |
 
 Not added: a REST client without a URL (Quarkus already fails with a precise message on first use), a log category
