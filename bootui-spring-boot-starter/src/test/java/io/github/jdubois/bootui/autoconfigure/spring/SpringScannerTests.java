@@ -28,7 +28,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 class SpringScannerTests {
 
-    private static final int RULE_COUNT = 41;
+    private static final int RULE_COUNT = 39;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-06T10:00:00Z"), ZoneOffset.UTC);
     private final ApplicationContextRunner taskRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(TaskExecutionAutoConfiguration.class));
@@ -88,8 +88,8 @@ class SpringScannerTests {
                         "SPRING-WIRING-002",
                         "SPRING-CONFIG-002",
                         "SPRING-WEB-001",
-                        "SPRING-WEB-002",
-                        "SPRING-WEB-003");
+                        "SPRING-WEB-002")
+                .doesNotContainAnyElementsOf(SpringScanner.RETIRED_RULE_IDS);
         // Every reported result is a violation, and severity counts include every concrete finding.
         assertThat(report.results())
                 .allSatisfy(result -> assertThat(result.status()).isEqualTo("VIOLATION"));
@@ -383,8 +383,7 @@ class SpringScannerTests {
                 .build();
         SpringScanner scanner = new SpringScanner(context, CLOCK);
         var report = scanner.scan();
-        var retired = scanner.applyDismissals(
-                report, Set.of("SPRING-PROFILE-001", "SPRING-PERF-004", "SPRING-WEB-006", "SPRING-REACTIVE-002"));
+        var retired = scanner.applyDismissals(report, SpringScanner.RETIRED_RULE_IDS);
         assertThat(retired.results())
                 .filteredOn(result -> result.id().equals("SPRING-REACTIVE-003"))
                 .allSatisfy(result -> assertThat(result.dismissed()).isFalse());

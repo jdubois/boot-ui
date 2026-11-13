@@ -38,6 +38,10 @@ final class ActuatorExposure {
     static final Set<String> SENSITIVE_READ_ENDPOINTS =
             Set.of("env", "configprops", "beans", "threaddump", "loggers", "httpexchanges", "startup", "mappings");
 
+    /** Skip reason for SPRING-MGMT-001/002/004 when an application SecurityFilterChain/SecurityWebFilterChain exists. */
+    static final String DEFERRED_TO_SECURITY_ADVISOR =
+            "Deferred to the Security Advisor because an application SecurityFilterChain or SecurityWebFilterChain is present.";
+
     /** Endpoints Spring Boot web-exposes by default when no explicit include list is configured. */
     private static final Set<String> DEFAULT_WEB_EXPOSED = Set.of("health");
 
