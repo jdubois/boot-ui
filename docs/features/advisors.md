@@ -665,7 +665,7 @@ Spring Boot hardening gaps. Quarkus CORS, OIDC, and TLS are reviewed by the Secu
 It never crawls endpoints, sends SQL/XSS/destructive payloads, contacts external hosts, or includes raw response bodies,
 cookie values, credentials, or full issuer URLs. Findings are heuristic review prompts, not proof of exploitability.
 
-The 77 active checks each carry a stable `PT-*` identifier, OWASP 2025 category, evidence source, and recommendation.
+The 64 active checks each carry a stable `PT-*` identifier, OWASP 2025 category, evidence source, and recommendation.
 The panel shows **Findings by severity**. Failed or bounded-away evidence produces a `PARTIAL` scan. See
 [PENTEST-CHECKS.md](../PENTEST-CHECKS.md). Pentesting supports the shared [dismiss/restore workflow](#dismissing-findings)
 by exact `PT-*` ID; dismissal does not dismiss an equivalent Security advisor finding.
