@@ -1003,5 +1003,7 @@ on.
 
 Depend on `com.julien-dubois.bootui:bootui-cli` for it: picocli is an optional dependency, so the client brings
 nothing onto your classpath. That plain jar is a library, not a runnable CLI; to run the CLI, use the shaded
-`bootui-cli-<version>-all.jar` described above. Offline documentation is bundled only in that runnable JAR, not in
-the plain client or sources JAR. Before BootUI 2.0, the client was its own `bootui-client` artifact.
+`bootui-cli-<version>-all.jar` described above. The picocli command-line classes, tool manifest, and offline
+documentation are bundled only in that runnable JAR, while the plain client and sources JARs carry
+`io.github.jdubois.bootui.client` and `io.github.jdubois.bootui.cli.ci`. Before BootUI 2.0, the client was its own
+`bootui-client` artifact.

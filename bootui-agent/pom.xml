@@ -254,6 +254,7 @@
                         <configuration>
                             <outputFile>${bootui.agent.shaded}</outputFile>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <minimizeJar>true</minimizeJar>
                             <artifactSet>
                                 <includes>
                                     <include>com.julien-dubois.bootui:bootui-agent-bridge</include>
@@ -267,6 +268,12 @@
                                 </relocation>
                             </relocations>
                             <filters>
+                                <filter>
+                                    <artifact>com.julien-dubois.bootui:*</artifact>
+                                    <includes>
+                                        <include>**</include>
+                                    </includes>
+                                </filter>
                                 <filter>
                                     <artifact>*:*</artifact>
                                     <excludes>
@@ -301,7 +308,6 @@
                                     </patternset>
                                 </unzip>
                                 <delete file="${bootui.agent.jar}"/>
-                                <!-- Preserve the full payload while keeping the Central bundle below its size cap. -->
                                 <jar destfile="${bootui.agent.jar}" level="9">
                                     <manifest>
                                         <attribute name="Premain-Class" value="io.github.jdubois.bootui.agent.AgentLauncher"/>
