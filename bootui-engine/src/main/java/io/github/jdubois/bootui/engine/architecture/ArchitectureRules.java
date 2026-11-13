@@ -2006,7 +2006,7 @@ final class ScheduledMethodsShouldHaveSupportedSignaturesRule extends AbstractAr
                 .as("Scheduled methods should have supported signatures");
     }
 
-    private static boolean hasSchedule(Iterable<? extends JavaAnnotation<?>> annotations, Set<String> visitedTypes) {
+    static boolean hasSchedule(Iterable<? extends JavaAnnotation<?>> annotations, Set<String> visitedTypes) {
         for (JavaAnnotation<?> annotation : annotations) {
             String name = annotation.getRawType().getName();
             if (name.equals(SpringStereotypes.SCHEDULED)) {
@@ -3220,6 +3220,463 @@ final class HttpClientsShouldUseBootBuildersRule extends AbstractArchitectureRul
                 return true;
             } catch (ClassNotFoundException | LinkageError ex) {
                 // Absent from this loader; try the next one.
+            }
+        }
+        return false;
+    }
+}
+
+/**
+ * Flags {@code @Cacheable}, {@code @CachePut}, and {@code @Caching(cacheable/put)} methods on Spring, plus
+ * Kotlin {@code Unit}-returning {@code io.quarkus.cache.CacheResult} methods, that return {@code void},
+ * {@code java.lang.Void}, or {@code kotlin.Unit}. Caching a void method caches {@code null} (or
+ * {@code Unit.INSTANCE}) and skips subsequent executions on {@code @Cacheable}.
+ */
+final class CacheableAndCachePutMethodsShouldNotReturnVoidRule extends AbstractArchitectureRule {
+
+    private static final String QUARKUS_CACHE_RESULT = "io.quarkus.cache.CacheResult";
+    private static final String BOXED_VOID = "java.lang.Void";
+
+    CacheableAndCachePutMethodsShouldNotReturnVoidRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-SPRING-027",
+                "@Cacheable and @CachePut methods should not return void",
+                ArchitectureCategory.SPRING_STEREOTYPES,
+                "HIGH",
+                "Detects @Cacheable, @CachePut, and @Caching(cacheable/put) methods on Spring, plus Kotlin"
+                        + " Unit-returning io.quarkus.cache.CacheResult methods, whose effective return type"
+                        + " (unwrapping Kotlin suspend Continuation<? super T>) is void, java.lang.Void, or"
+                        + " kotlin.Unit. Caching a void method stores null (or Unit.INSTANCE) and causes @Cacheable to"
+                        + " skip subsequent executions.",
+                "Return the computed value so the cache stores a meaningful entry, or replace @Cacheable/@CachePut with"
+                        + " @CacheEvict (or @CacheInvalidate/@CacheInvalidateAll on Quarkus) when the method only"
+                        + " invalidates cached state.",
+                "https://docs.spring.io/spring-framework/reference/integration/cache/annotations.html"));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        return classes()
+                .should(new ArchCondition<JavaClass>("not declare void-returning cache-populating methods") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        boolean springPlatform = context.platform() == ArchitecturePlatform.SPRING;
+                        boolean classLevelSpringCachePopulating = springPlatform
+                                && hasSpringCachePopulatingAnnotation(javaClass.getAnnotations(), new HashSet<>());
+                        boolean kotlinClass = KotlinBytecode.isKotlinClass(javaClass);
+                        for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
+                            boolean springCachePopulating = springPlatform
+                                    && (hasSpringCachePopulatingAnnotation(method.getAnnotations(), new HashSet<>())
+                                            || (classLevelSpringCachePopulating
+                                                    && AsyncMethodsShouldHaveSupportedSignaturesRule.isInterceptable(
+                                                            method)
+                                                    && !hasAnySpringCacheOperationAnnotation(
+                                                            method.getAnnotations(), new HashSet<>())));
+                            boolean quarkusCacheResult =
+                                    hasAnnotation(method.getAnnotations(), QUARKUS_CACHE_RESULT, new HashSet<>());
+                            if (!springCachePopulating && !quarkusCacheResult) {
+                                continue;
+                            }
+                            context.evidence().observed();
+                            Optional<String> effectiveReturn = effectiveReturnTypeName(method);
+                            if (effectiveReturn.isEmpty()) {
+                                continue;
+                            }
+                            String returnType = effectiveReturn.get();
+                            boolean invalid = springCachePopulating
+                                    ? isVoidOrUnit(returnType)
+                                    : (KotlinBytecode.isUnit(returnType)
+                                            || BOXED_VOID.equals(returnType)
+                                            || (kotlinClass && "void".equals(returnType)));
+                            if (invalid) {
+                                events.add(SimpleConditionEvent.violated(
+                                        method,
+                                        "Cache-populating method " + method.getFullName() + " returns " + returnType
+                                                + "; caching a void/Unit method stores no meaningful value and skips"
+                                                + " subsequent cached executions"));
+                            }
+                        }
+                    }
+                })
+                .as("@Cacheable and @CachePut methods should not return void");
+    }
+
+    private static Optional<String> effectiveReturnTypeName(JavaMethod method) {
+        if (KotlinBytecode.isSuspendFunction(method)) {
+            return KotlinBytecode.suspendResultType(method)
+                    .map(type -> type.toErasure().getName());
+        }
+        return Optional.of(method.getRawReturnType().getName());
+    }
+
+    private static boolean isVoidOrUnit(String typeName) {
+        return "void".equals(typeName) || BOXED_VOID.equals(typeName) || KotlinBytecode.isUnit(typeName);
+    }
+
+    private static boolean hasSpringCachePopulatingAnnotation(
+            Iterable<? extends JavaAnnotation<?>> annotations, Set<String> visited) {
+        for (JavaAnnotation<?> annotation : annotations) {
+            String name = annotation.getRawType().getName();
+            if (name.equals(SpringStereotypes.CACHEABLE) || name.equals(SpringStereotypes.CACHE_PUT)) {
+                return true;
+            }
+            if (name.equals(SpringStereotypes.CACHING)
+                    && (hasNonEmptyAnnotationArray(annotation, "cacheable")
+                            || hasNonEmptyAnnotationArray(annotation, "put"))) {
+                return true;
+            }
+            if (visited.add(name)
+                    && hasSpringCachePopulatingAnnotation(
+                            annotation.getRawType().getAnnotations(), visited)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasAnySpringCacheOperationAnnotation(
+            Iterable<? extends JavaAnnotation<?>> annotations, Set<String> visited) {
+        for (JavaAnnotation<?> annotation : annotations) {
+            String name = annotation.getRawType().getName();
+            if (name.equals(SpringStereotypes.CACHEABLE)
+                    || name.equals(SpringStereotypes.CACHE_PUT)
+                    || name.equals(SpringStereotypes.CACHE_EVICT)
+                    || name.equals(SpringStereotypes.CACHING)) {
+                return true;
+            }
+            if (visited.add(name)
+                    && hasAnySpringCacheOperationAnnotation(
+                            annotation.getRawType().getAnnotations(), visited)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasAnnotation(
+            Iterable<? extends JavaAnnotation<?>> annotations, String targetName, Set<String> visited) {
+        for (JavaAnnotation<?> annotation : annotations) {
+            String name = annotation.getRawType().getName();
+            if (name.equals(targetName)) {
+                return true;
+            }
+            if (visited.add(name) && hasAnnotation(annotation.getRawType().getAnnotations(), targetName, visited)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasNonEmptyAnnotationArray(JavaAnnotation<?> annotation, String attribute) {
+        Object value = annotation.get(attribute).orElse(null);
+        return value instanceof Object[] array && array.length > 0;
+    }
+}
+
+/**
+ * Flags concrete top-level classes on Spring that declare {@code @Scheduled}, {@code @Schedules},
+ * {@code @EventListener}, or {@code @TransactionalEventListener} methods without being registered as a
+ * Spring container bean ({@code @Component} stereotype, {@code @Bean} factory method, or {@code @Import}).
+ */
+final class ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule extends AbstractArchitectureRule {
+
+    private static final String IMPORT = "org.springframework.context.annotation.Import";
+    private static final String ENABLE_CONFIGURATION_PROPERTIES =
+            "org.springframework.boot.context.properties.EnableConfigurationProperties";
+    private static final String JAKARTA_NAMED = "jakarta.inject.Named";
+    private static final String JAVAX_NAMED = "javax.inject.Named";
+    private static final String JAKARTA_MANAGED_BEAN = "jakarta.annotation.ManagedBean";
+    private static final String JAVAX_MANAGED_BEAN = "javax.annotation.ManagedBean";
+
+    ScheduledAndEventListenerMethodsShouldBeOnManagedBeansRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-SPRING-031",
+                "Scheduled and event-listener methods should be declared on container-managed beans",
+                ArchitectureCategory.SPRING_STEREOTYPES,
+                "MEDIUM",
+                "Detects concrete top-level classes on Spring that declare @Scheduled, @Schedules, @EventListener, or"
+                        + " @TransactionalEventListener methods without being registered as a container bean"
+                        + " (@Component stereotype, @Bean factory method, or @Import). Spring silently ignores"
+                        + " scheduled tasks and event listeners on unmanaged classes.",
+                "Annotate the class with @Component or @Service, expose it from a @Configuration @Bean factory method,"
+                        + " or register it via @Import so Spring's post-processors discover and invoke the methods.",
+                "https://docs.spring.io/spring-framework/reference/integration/scheduling.html"));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        if (context.platform() != ArchitecturePlatform.SPRING) {
+            return null;
+        }
+        ContainerBeans beans = new ContainerBeans(context.classes());
+        Set<JavaClass> beanReturnTypes = new HashSet<>();
+        Set<String> explicitlyRegisteredTypes = new HashSet<>();
+        collectFactoryAndImportedTypes(context.classes(), beanReturnTypes, explicitlyRegisteredTypes);
+        return classes()
+                .should(
+                        new ArchCondition<JavaClass>(
+                                "be registered as a container bean when declaring @Scheduled or @EventListener methods") {
+                            @Override
+                            public void check(JavaClass javaClass, ConditionEvents events) {
+                                if (!isConcreteTopLevelLeafClass(javaClass)) {
+                                    return;
+                                }
+                                List<JavaMethod> triggered = new ArrayList<>();
+                                for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
+                                    if (isScheduledOrEventListenerMethod(method)) {
+                                        triggered.add(method);
+                                    }
+                                }
+                                if (triggered.isEmpty()) {
+                                    return;
+                                }
+                                context.evidence().observed();
+                                if (isManagedSpringBean(javaClass, beans, beanReturnTypes, explicitlyRegisteredTypes)) {
+                                    return;
+                                }
+                                events.add(SimpleConditionEvent.violated(
+                                        javaClass,
+                                        "Class " + javaClass.getName()
+                                                + " declares scheduled or event-listener method "
+                                                + triggered.get(0).getFullName()
+                                                + " but is not registered as a Spring bean (@Component, @Bean, or"
+                                                + " @Import), so Spring will never invoke it"));
+                            }
+                        })
+                .as("Scheduled and event-listener methods should be declared on container-managed beans");
+    }
+
+    private static boolean isConcreteTopLevelLeafClass(JavaClass javaClass) {
+        return javaClass.isTopLevelClass()
+                && !javaClass.isInterface()
+                && !javaClass.isAnnotation()
+                && !javaClass.isEnum()
+                && !javaClass.getModifiers().contains(JavaModifier.ABSTRACT)
+                && !KotlinBytecode.isCompilerGenerated(javaClass)
+                && javaClass.getSubclasses().isEmpty();
+    }
+
+    private static boolean isScheduledOrEventListenerMethod(JavaMethod method) {
+        return ScheduledMethodsShouldHaveSupportedSignaturesRule.hasSchedule(method.getAnnotations(), new HashSet<>())
+                || hasEventListenerAnnotation(method.getAnnotations(), new HashSet<>());
+    }
+
+    private static boolean hasEventListenerAnnotation(
+            Iterable<? extends JavaAnnotation<?>> annotations, Set<String> visited) {
+        for (JavaAnnotation<?> annotation : annotations) {
+            String name = annotation.getRawType().getName();
+            if (name.equals(SpringStereotypes.EVENT_LISTENER)
+                    || name.equals(SpringStereotypes.TRANSACTIONAL_EVENT_LISTENER)
+                    || name.equals(SpringStereotypes.APPLICATION_MODULE_LISTENER)
+                    || name.equals(SpringStereotypes.LEGACY_APPLICATION_MODULE_LISTENER)) {
+                return true;
+            }
+            if (visited.add(name)
+                    && hasEventListenerAnnotation(annotation.getRawType().getAnnotations(), visited)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isManagedSpringBean(
+            JavaClass javaClass,
+            ContainerBeans beans,
+            Set<JavaClass> beanReturnTypes,
+            Set<String> explicitlyRegisteredTypes) {
+        if (beans.isManaged(javaClass)
+                || explicitlyRegisteredTypes.contains(javaClass.getName())
+                || ContainerBeans.declaresFactoryMethods(javaClass)
+                || javaClass.isAnnotatedWith(SpringStereotypes.CONFIGURATION_PROPERTIES)
+                || javaClass.isMetaAnnotatedWith(SpringStereotypes.CONFIGURATION_PROPERTIES)
+                || javaClass.isAnnotatedWith(JAKARTA_NAMED)
+                || javaClass.isMetaAnnotatedWith(JAKARTA_NAMED)
+                || javaClass.isAnnotatedWith(JAVAX_NAMED)
+                || javaClass.isMetaAnnotatedWith(JAVAX_NAMED)
+                || javaClass.isAnnotatedWith(JAKARTA_MANAGED_BEAN)
+                || javaClass.isMetaAnnotatedWith(JAKARTA_MANAGED_BEAN)
+                || javaClass.isAnnotatedWith(JAVAX_MANAGED_BEAN)
+                || javaClass.isMetaAnnotatedWith(JAVAX_MANAGED_BEAN)) {
+            return true;
+        }
+        for (JavaClass returnType : beanReturnTypes) {
+            if (javaClass.isAssignableTo(returnType.getName()) || returnType.isAssignableTo(javaClass.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void collectFactoryAndImportedTypes(
+            JavaClasses classes, Set<JavaClass> beanReturnTypes, Set<String> explicitlyRegisteredTypes) {
+        for (JavaClass javaClass : classes) {
+            collectImportedClasses(javaClass.getAnnotations(), explicitlyRegisteredTypes, new HashSet<>());
+            for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
+                if (!SpringStereotypes.BEAN_ANNOTATED.test(method)) {
+                    continue;
+                }
+                JavaClass returnType = method.getRawReturnType();
+                if (!returnType.isPrimitive() && !returnType.isEquivalentTo(Object.class)) {
+                    beanReturnTypes.add(returnType);
+                }
+                for (JavaConstructorCall call : method.getConstructorCallsFromSelf()) {
+                    explicitlyRegisteredTypes.add(call.getTargetOwner().getName());
+                }
+            }
+        }
+    }
+
+    private static void collectImportedClasses(
+            Iterable<? extends JavaAnnotation<?>> annotations, Set<String> target, Set<String> visited) {
+        for (JavaAnnotation<?> annotation : annotations) {
+            String name = annotation.getRawType().getName();
+            if (IMPORT.equals(name) || ENABLE_CONFIGURATION_PROPERTIES.equals(name)) {
+                collectClassArrayAttribute(annotation, "value", target);
+            }
+            if (visited.add(name)) {
+                collectImportedClasses(annotation.getRawType().getAnnotations(), target, visited);
+            }
+        }
+    }
+
+    private static void collectClassArrayAttribute(JavaAnnotation<?> annotation, String attribute, Set<String> target) {
+        Object value = annotation.get(attribute).orElse(null);
+        if (value instanceof Object[] array) {
+            for (Object element : array) {
+                if (element instanceof JavaClass javaClass) {
+                    target.add(javaClass.getName());
+                }
+            }
+        } else if (value instanceof JavaClass javaClass) {
+            target.add(javaClass.getName());
+        }
+    }
+}
+
+/**
+ * Flags non-thread-safe JDK formatters and XML processors stored in {@code static} fields or in
+ * instance fields of shared-scope Spring or CDI beans.
+ */
+final class NoSharedStatefulJdkFormattersAndParsersRule extends AbstractArchitectureRule {
+
+    private static final Set<String> UNSAFE_SHARED_FIELD_TYPES = Set.of(
+            "java.text.SimpleDateFormat",
+            "java.text.DateFormat",
+            "java.text.DecimalFormat",
+            "java.text.NumberFormat",
+            "java.text.MessageFormat",
+            "javax.xml.parsers.DocumentBuilder",
+            "javax.xml.parsers.SAXParser",
+            "javax.xml.transform.Transformer",
+            "javax.xml.validation.Validator");
+
+    private static final Set<String> NON_SHARED_SCOPE_ANNOTATIONS = Set.of(
+            "jakarta.enterprise.context.RequestScoped",
+            "jakarta.enterprise.context.SessionScoped",
+            "jakarta.enterprise.context.ConversationScoped",
+            "jakarta.enterprise.context.Dependent",
+            "org.springframework.web.context.annotation.RequestScope",
+            "org.springframework.web.context.annotation.SessionScope",
+            "org.springframework.batch.core.configuration.annotation.StepScope",
+            "org.springframework.batch.core.configuration.annotation.JobScope");
+
+    private static final String SPRING_SCOPE = "org.springframework.context.annotation.Scope";
+    private static final String PRODUCES = "jakarta.enterprise.inject.Produces";
+
+    NoSharedStatefulJdkFormattersAndParsersRule() {
+        super(new ArchitectureRuleDefinition(
+                "ARCH-CODE-019",
+                "Classes should not store non-thread-safe JDK formatters or XML processors in static or shared-bean"
+                        + " fields",
+                ArchitectureCategory.CODING_PRACTICES,
+                "MEDIUM",
+                "Detects non-thread-safe JDK formatters and XML processors (SimpleDateFormat, DateFormat,"
+                        + " DecimalFormat, NumberFormat, MessageFormat, DocumentBuilder, SAXParser, Transformer, or"
+                        + " javax.xml.validation.Validator) stored in static fields or in instance fields of"
+                        + " shared-scope Spring or CDI beans. These types mutate internal state during formatting,"
+                        + " parsing, and validation and are not thread-safe.",
+                "Use java.time.format.DateTimeFormatter for dates and times, create a fresh formatter or XML processor"
+                        + " per operation (from a thread-safe factory when applicable), or guard per-thread instances"
+                        + " with ThreadLocal.",
+                "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/text/SimpleDateFormat.html"));
+    }
+
+    @Override
+    ArchRule rule(ArchitectureContext context) {
+        Set<String> sharedProducedTypes = sharedProducedTypes(context.classes());
+        return fields().that(
+                        new DescribedPredicate<JavaField>("are static or declared on a shared-scope container bean") {
+                            @Override
+                            public boolean test(JavaField field) {
+                                return !ArchitectureRuleSupport.isCompilerGenerated(field)
+                                        && (field.getModifiers().contains(JavaModifier.STATIC)
+                                                || isSharedScopeBean(field.getOwner(), sharedProducedTypes));
+                            }
+                        })
+                .and(observed(DescribedPredicate.alwaysTrue(), context))
+                .should(new ArchCondition<JavaField>("not store non-thread-safe JDK formatters or XML processors") {
+                    @Override
+                    public void check(JavaField field, ConditionEvents events) {
+                        String typeName = field.getRawType().getName();
+                        if (!UNSAFE_SHARED_FIELD_TYPES.contains(typeName)) {
+                            return;
+                        }
+                        boolean isStatic = field.getModifiers().contains(JavaModifier.STATIC);
+                        events.add(SimpleConditionEvent.violated(
+                                field,
+                                (isStatic ? "Static field " : "Shared-bean field ")
+                                        + field.getFullName()
+                                        + " stores non-thread-safe type "
+                                        + typeName
+                                        + " without per-call or ThreadLocal isolation"));
+                    }
+                })
+                .as("Classes should not store non-thread-safe JDK formatters or XML processors in static or"
+                        + " shared-bean fields")
+                .allowEmptyShould(true);
+    }
+
+    private static Set<String> sharedProducedTypes(Iterable<JavaClass> classes) {
+        Set<String> produced = new HashSet<>();
+        for (JavaClass javaClass : classes) {
+            for (JavaMethod method : ArchitectureRuleSupport.declaredMethods(javaClass)) {
+                if ((method.isAnnotatedWith(SpringStereotypes.BEAN) || method.isAnnotatedWith(PRODUCES))
+                        && !hasNonSharedScope(method.getAnnotations(), new HashSet<>())) {
+                    produced.add(method.getRawReturnType().getName());
+                }
+            }
+        }
+        return produced;
+    }
+
+    private static boolean isSharedScopeBean(JavaClass javaClass, Set<String> sharedProducedTypes) {
+        if (hasNonSharedScope(javaClass.getAnnotations(), new HashSet<>())) {
+            return false;
+        }
+        return sharedProducedTypes.contains(javaClass.getName()) || ContainerBeans.isAnnotatedBean(javaClass);
+    }
+
+    private static boolean hasNonSharedScope(Iterable<? extends JavaAnnotation<?>> annotations, Set<String> visited) {
+        for (JavaAnnotation<?> annotation : annotations) {
+            String name = annotation.getRawType().getName();
+            if (NON_SHARED_SCOPE_ANNOTATIONS.contains(name)) {
+                return true;
+            }
+            if (SPRING_SCOPE.equals(name) && isNonSharedSpringScope(annotation)) {
+                return true;
+            }
+            if (visited.add(name) && hasNonSharedScope(annotation.getRawType().getAnnotations(), visited)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isNonSharedSpringScope(JavaAnnotation<?> scopeAnnotation) {
+        for (String attribute : List.of("value", "scopeName")) {
+            Object raw = scopeAnnotation.get(attribute).orElse(null);
+            if (raw instanceof String scopeName && !scopeName.isBlank()) {
+                return !"singleton".equals(scopeName) && !"application".equals(scopeName);
             }
         }
         return false;

@@ -80,7 +80,7 @@ set.
 
 ## Generated application code
 
-The coding-practice rules **ARCH-CODE-001** through **ARCH-CODE-017** exclude classes BootUI can positively identify as
+The coding-practice rules **ARCH-CODE-001** through **ARCH-CODE-019** exclude classes BootUI can positively identify as
 generated, so OpenAPI Generator's `ApiUtil` helpers do not contribute generic-exception findings while a handwritten
 generic throw still does.
 
@@ -545,6 +545,25 @@ ARCH-CODE-008 already covers legacy JDK `Date` and `Calendar` APIs.
 never matches Kotlin's messageless `assert(cond)` (compiled to `new AssertionError((Object) "Assertion failed")`) and
 false-positives on explicit `throw new AssertionError()` in unreachable `switch` or exhaustive branches.
 
+### ARCH-CODE-019 - Classes should not store non-thread-safe JDK formatters or XML processors in static or shared-bean fields
+
+- **Severity**: MEDIUM
+- **Inspects**: developer-declared fields whose raw type is `java.text.SimpleDateFormat`, `java.text.DateFormat`,
+  `java.text.DecimalFormat`, `java.text.NumberFormat`, `java.text.MessageFormat`,
+  `javax.xml.parsers.DocumentBuilder`, `javax.xml.parsers.SAXParser`, `javax.xml.transform.Transformer`, or
+  `javax.xml.validation.Validator`.
+- **Fires when**: such a field is `static` (regardless of visibility or `final`) or is an instance field on a
+  shared-scope Spring or CDI bean.
+- **Why it matters**: these JDK formatters and XML processors mutate internal state during formatting, parsing,
+  transformation, and validation and are explicitly documented as not thread-safe. Sharing one instance across concurrent
+  requests or virtual threads corrupts output or fails with runtime exceptions.
+- **Not reported**: thread-safe replacements such as `java.time.format.DateTimeFormatter`, Bean Validation's
+  `jakarta.validation.Validator`, `ThreadLocal<...>` wrappers, and instance fields on plain value objects or
+  non-shared bean scopes (`@Scope("prototype")`, `@RequestScope`, `@SessionScope`, `@StepScope`, `@JobScope`,
+  `@RequestScoped`, `@SessionScoped`, `@ConversationScoped`, `@Dependent`).
+- **Recommendation**: use `java.time.format.DateTimeFormatter` for dates and times, create a fresh formatter or XML
+  processor per operation, or isolate per-thread instances behind `ThreadLocal`.
+
 ## Spring stereotypes
 
 ### ARCH-SPRING-001 - Classes should not use field injection
@@ -941,6 +960,41 @@ false-positives on explicit `throw new AssertionError()` in unreachable `switch`
 - **Recommendation**: inject `RestClient.Builder` or `WebClient.Builder` and build from it. Call `clone()` before
   building several clients from one builder instance. To start from Boot's defaults on a fresh builder, use
   `RestClientBuilderConfigurer`.
+
+### ARCH-SPRING-027 - @Cacheable and @CachePut methods should not return void
+
+- **Severity**: HIGH
+- **Inspects**: methods annotated (or meta-annotated) with `@Cacheable`, `@CachePut`, or `@Caching` (with non-empty
+  `cacheable` or `put` attributes) on Spring — including interceptable methods inheriting class-level `@Cacheable` or
+  `@CachePut` when not overridden by a method-level cache annotation — plus Kotlin `Unit`-returning
+  `io.quarkus.cache.CacheResult` methods.
+- **Fires when**: the effective return type (unwrapping Kotlin `suspend` `Continuation<? super T>`) is `void`,
+  `java.lang.Void`, or `kotlin.Unit`.
+- **Why it matters**: `@Cacheable` and `@CachePut` cache the method's return value. On a `void` or `kotlin.Unit` method,
+  Spring caches `null` (or `Unit.INSTANCE`) on the first invocation — or throws `IllegalArgumentException` when the
+  cache disallows `null` values — and skips executing the method body on subsequent `@Cacheable` calls with the same key.
+- **Not reported**: `@CacheEvict`, `@Caching(evict = ...)` without `cacheable` or `put`, `@CacheInvalidate`,
+  `@CacheInvalidateAll`, value-returning Kotlin `suspend` functions, and Java primitive `void` `@CacheResult` methods on
+  Quarkus (which Quarkus rejects at build time with `VoidReturnTypeTargetException`).
+- **Recommendation**: return the computed value so the cache stores a meaningful entry, or replace `@Cacheable` /
+  `@CachePut` with `@CacheEvict` (or `@CacheInvalidate` / `@CacheInvalidateAll` on Quarkus) when the method only
+  invalidates cached state.
+
+### ARCH-SPRING-031 - Scheduled and event-listener methods should be declared on container-managed beans
+
+- **Severity**: MEDIUM
+- **Inspects**: concrete, non-abstract, top-level classes in the scanned application packages (with no subclasses in the
+  scanned classes) that declare `@Scheduled`, non-empty `@Schedules`, `@EventListener`, or `@TransactionalEventListener`
+  methods (directly or through a composed meta-annotation such as `@ApplicationModuleListener`). Spring only; skipped on
+  Quarkus, where ArC automatically treats `@Scheduled` and `@Observes` as bean-defining annotations.
+- **Fires when**: the declaring class is not annotated or meta-annotated with `@Component` / `@Configuration` (or
+  `@ConfigurationProperties` / `@Named` / `@ManagedBean`), not returned or constructed by any `@Bean` factory method, and
+  not registered via `@Import` or `@EnableConfigurationProperties`.
+- **Why it matters**: in Spring, `@Scheduled` and `@EventListener` are method-level annotations that do not register
+  their declaring class in the `ApplicationContext`. Without bean registration, the application starts cleanly and the
+  scheduled task or event listener silently never runs.
+- **Recommendation**: annotate the class with `@Component` or `@Service`, expose it from a `@Configuration` `@Bean`
+  factory method, or register it via `@Import`.
 
 ## Retired rule IDs
 
