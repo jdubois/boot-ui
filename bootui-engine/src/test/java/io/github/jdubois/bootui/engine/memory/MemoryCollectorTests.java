@@ -139,7 +139,32 @@ class MemoryCollectorTests {
     }
 
     @Test
-    void usesTheMostRestrictiveFiniteParentCgroupLimit() throws Exception {
+    void usesTheMostRestrictiveFiniteParentCgroupLimitAndReadsAncestorCurrentAndStat() throws Exception {
+        Path mountPoint = tempDir.resolve("cgroup2");
+        Path parentCgroup = mountPoint.resolve("kubepods");
+        Path processCgroup = parentCgroup.resolve("pod-a");
+        Files.createDirectories(processCgroup);
+        Files.writeString(processCgroup.resolve("memory.max"), "2147483648\n");
+        Files.writeString(processCgroup.resolve("memory.current"), "268435456\n");
+        Files.writeString(processCgroup.resolve("memory.stat"), "inactive_file 67108864\n");
+        Files.writeString(parentCgroup.resolve("memory.max"), "1073741824\n");
+        Files.writeString(parentCgroup.resolve("memory.current"), "805306368\n");
+        Files.writeString(parentCgroup.resolve("memory.stat"), "inactive_file 268435456\n");
+        Path selfCgroup = tempDir.resolve("self.cgroup");
+        Path mountInfo = tempDir.resolve("mountinfo");
+        Files.writeString(selfCgroup, "0::/kubepods/pod-a\n");
+        Files.writeString(mountInfo, "29 23 0:26 / " + mountPoint + " rw - cgroup2 cgroup rw\n");
+
+        ContainerMemoryLimitDetector detector = ContainerMemoryLimitDetector.fromProcFiles(selfCgroup, mountInfo);
+        ContainerMemoryLimitDetector.CgroupMemorySample sample = detector.detect();
+
+        assertThat(sample.limit()).isEqualTo(OptionalLong.of(1_073_741_824L));
+        assertThat(sample.current()).isEqualTo(OptionalLong.of(805_306_368L));
+        assertThat(sample.workingSet()).isEqualTo(OptionalLong.of(536_870_912L));
+    }
+
+    @Test
+    void fallsBackToLeafCurrentAndStatWhenAncestorLimitDirectoryLacksCurrentFile() throws Exception {
         Path mountPoint = tempDir.resolve("cgroup2");
         Path parentCgroup = mountPoint.resolve("kubepods");
         Path processCgroup = parentCgroup.resolve("pod-a");
@@ -231,5 +256,35 @@ class MemoryCollectorTests {
     void parsesTerabyteMemorySizesAcceptedByHotSpot() {
         assertThat(MemoryCollector.parseMemorySize("1t")).isEqualTo(1024L * 1024 * 1024 * 1024);
         assertThat(MemoryCollector.parseMemorySize("1T")).isEqualTo(1024L * 1024 * 1024 * 1024);
+    }
+
+    @Test
+    void parseThreadStackBytesPrefersLiveOptionAndUsesLastWinsOnInputArguments() {
+        assertThat(MemoryCollector.parseThreadStackBytes(List.of("-Xss2m", "-Xss256k"), "512"))
+                .isEqualTo(512L * 1024);
+        assertThat(MemoryCollector.parseThreadStackBytes(List.of("-Xss2m", "-Xss256k"), null))
+                .isEqualTo(256L * 1024);
+        assertThat(MemoryCollector.parseThreadStackBytes(
+                        List.of("-Xss2m", "-XX:ThreadStackSize=512", "-Xss384k"), null))
+                .isEqualTo(384L * 1024);
+        assertThat(MemoryCollector.parseThreadStackBytes(List.of("-Xss384k", "-XX:ThreadStackSize=512"), null))
+                .isEqualTo(512L * 1024);
+        assertThat(MemoryCollector.parseThreadStackBytes(List.of(), null))
+                .isEqualTo(MemoryContext.RuntimeData.DEFAULT_THREAD_STACK_BYTES);
+    }
+
+    @Test
+    void safeCollectionUsageCapturesSupportedPoolAndHandlesUnsupportedPool() {
+        java.lang.management.MemoryPoolMXBean supported =
+                org.mockito.Mockito.mock(java.lang.management.MemoryPoolMXBean.class);
+        org.mockito.Mockito.when(supported.getCollectionUsage())
+                .thenReturn(new java.lang.management.MemoryUsage(0, 128, 256, 512));
+        assertThat(MemoryCollector.safeCollectionUsage(supported).getUsed()).isEqualTo(128);
+
+        java.lang.management.MemoryPoolMXBean unsupported =
+                org.mockito.Mockito.mock(java.lang.management.MemoryPoolMXBean.class);
+        org.mockito.Mockito.when(unsupported.getCollectionUsage())
+                .thenThrow(new UnsupportedOperationException("collection usage not supported"));
+        assertThat(MemoryCollector.safeCollectionUsage(unsupported)).isNull();
     }
 }

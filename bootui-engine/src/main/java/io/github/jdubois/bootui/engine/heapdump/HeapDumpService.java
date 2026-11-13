@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.dto.HeapDumpFileDto;
 import io.github.jdubois.bootui.core.dto.HeapDumpReport;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.memory.BootUiDiagnosticGcTracker;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
@@ -89,6 +90,7 @@ public class HeapDumpService {
     private final HistogramSource histogramSource;
     private final Clock clock;
     private final boolean hotspotAvailable;
+    private final BootUiDiagnosticGcTracker diagnosticGcTracker;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
 
     private volatile HeapDumpCaptureStatusDto status = new HeapDumpCaptureStatusDto(STATUS_NOT_CAPTURED, null, null);
@@ -103,7 +105,8 @@ public class HeapDumpService {
                 HeapDumpService::dumpWithHotSpot,
                 HeapDumpService::histogramWithDiagnosticCommand,
                 Clock.systemUTC(),
-                hotspotAvailable());
+                hotspotAvailable(),
+                BootUiDiagnosticGcTracker.SHARED);
     }
 
     HeapDumpService(
@@ -113,12 +116,24 @@ public class HeapDumpService {
             HistogramSource histogramSource,
             Clock clock,
             boolean hotspotAvailable) {
+        this(config, baseDir, dumper, histogramSource, clock, hotspotAvailable, new BootUiDiagnosticGcTracker());
+    }
+
+    HeapDumpService(
+            HeapDumpSettings config,
+            Path baseDir,
+            HeapDumper dumper,
+            HistogramSource histogramSource,
+            Clock clock,
+            boolean hotspotAvailable,
+            BootUiDiagnosticGcTracker diagnosticGcTracker) {
         this.config = config;
         this.baseDir = baseDir.toAbsolutePath().normalize();
         this.dumper = dumper;
         this.histogramSource = histogramSource;
         this.clock = clock;
         this.hotspotAvailable = hotspotAvailable;
+        this.diagnosticGcTracker = diagnosticGcTracker;
     }
 
     /** Whether the HotSpot diagnostic MXBean used for heap dumps is available on this JVM. */
@@ -169,9 +184,11 @@ public class HeapDumpService {
                 return errorReport("Not enough free disk space to capture a heap dump safely");
             }
             Path file = nextDumpFile(live);
-            dumper.dump(file, live);
-            evictOldDumps();
-            refreshHistogram();
+            diagnosticGcTracker.runThrowing(() -> {
+                dumper.dump(file, live);
+                evictOldDumps();
+                refreshHistogram();
+            });
             this.status = new HeapDumpCaptureStatusDto(
                     STATUS_CAPTURED, file.getFileName().toString(), now());
             return buildReport(null, null);
@@ -189,7 +206,7 @@ public class HeapDumpService {
 
     private HeapDumpReport doAnalyze() {
         try {
-            refreshHistogram();
+            diagnosticGcTracker.runThrowing(this::refreshHistogram);
             this.status =
                     new HeapDumpCaptureStatusDto(STATUS_ANALYZED, "Live heap analyzed without writing a dump", now());
             return buildReport(null, null);
