@@ -524,6 +524,16 @@ test.describe('BootUI on Spring WebFlux', () => {
     expect(copied).not.toContain('beta')
     expect(copied.toLowerCase()).not.toContain('x-api-key')
     expect(copied).not.toContain('e2e-must-not-be-copied')
+
+    const probeLink = curlAction.locator('.http-exchanges-probe-link')
+    await expect(probeLink).toBeVisible()
+    await probeLink.click()
+    await expect(page).toHaveURL(/#\/http-probe\?/)
+    await expect(page.getByLabel('Path', {exact: true})).toHaveValue(
+      '/api/greetings/Ada?curlProbe=VALUE&curlProbe=VALUE'
+    )
+    await expect(page.locator('#http-probe-accept')).toHaveValue('application/json')
+    await expect(page.locator('.http-probe-placeholder-hint')).toContainText('VALUE')
   })
 
   test('HTTP Exchanges ranks routes by their WebFlux template, never by a path value', async ({page, request}) => {

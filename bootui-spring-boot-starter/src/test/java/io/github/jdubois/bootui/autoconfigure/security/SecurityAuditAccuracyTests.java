@@ -159,6 +159,110 @@ class SecurityAuditAccuracyTests {
             calls.incrementAndGet();
             return "fixture";
         }
+
+        @ReadOperation
+        public String readFormat(@org.springframework.boot.actuate.endpoint.annotation.Selector String format) {
+            calls.incrementAndGet();
+            return format;
+        }
+    }
+
+    @Test
+    void authenticatedAndAuthorityAuthorizationManagersProduceRestrictedNonAnonymousState() throws Exception {
+        var manager = RequestMatcherDelegatingAuthorizationManager.builder()
+                .add(
+                        PathPatternRequestMatcher.pathPattern("/admin/**"),
+                        org.springframework.security.authorization.AuthorityAuthorizationManager.hasRole("ADMIN"))
+                .add(
+                        PathPatternRequestMatcher.pathPattern("/ops/**"),
+                        org.springframework.security.authorization.AllAuthoritiesAuthorizationManager.hasAllRoles(
+                                "ADMIN", "OPS"))
+                .add(
+                        AnyRequestMatcher.INSTANCE,
+                        org.springframework.security.authorization.AuthenticatedAuthorizationManager.authenticated())
+                .build();
+        FilterChainModel chain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE,
+                new UsernamePasswordAuthenticationFilter(),
+                new AuthorizationFilter(manager)));
+        assertThat(chain.permitsAllAnonymous()).isFalse();
+        assertThat(chain.details().mappings())
+                .extracting(SecurityModel.AuthorizationMapping::state)
+                .containsExactly(
+                        SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS,
+                        SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS,
+                        SecurityModel.GrantState.RESTRICTED_NON_ANONYMOUS);
+        assertThat(SecurityScanner.grantFor(chain.details().mappings(), "GET", "/actuator/env/{toMatch}"))
+                .isFalse();
+
+        var anonymousRole = RequestMatcherDelegatingAuthorizationManager.builder()
+                .add(
+                        AnyRequestMatcher.INSTANCE,
+                        org.springframework.security.authorization.AuthorityAuthorizationManager.hasRole("ANONYMOUS"))
+                .build();
+        FilterChainModel anonymousRoleChain = model(
+                new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, new AuthorizationFilter(anonymousRole)));
+        assertThat(anonymousRoleChain.permitsAllAnonymous()).isNull();
+        assertThat(anonymousRoleChain.details().mappings())
+                .extracting(SecurityModel.AuthorizationMapping::state)
+                .containsExactly(SecurityModel.GrantState.UNKNOWN);
+
+        var customHierarchyManager = org.springframework.security.authorization.AuthorityAuthorizationManager
+                .<org.springframework.security.web.access.intercept.RequestAuthorizationContext>hasRole("ADMIN");
+        customHierarchyManager.setRoleHierarchy(authorities -> {
+            throw new AssertionError("Custom RoleHierarchy must not be invoked");
+        });
+        FilterChainModel customHierarchyChain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE,
+                new AuthorizationFilter(RequestMatcherDelegatingAuthorizationManager.builder()
+                        .add(AnyRequestMatcher.INSTANCE, customHierarchyManager)
+                        .build())));
+        assertThat(customHierarchyChain.permitsAllAnonymous()).isNull();
+        assertThat(customHierarchyChain.details().mappings())
+                .extracting(SecurityModel.AuthorizationMapping::state)
+                .containsExactly(SecurityModel.GrantState.UNKNOWN);
+
+        var customTrustManager = org.springframework.security.authorization.AuthenticatedAuthorizationManager
+                .<org.springframework.security.web.access.intercept.RequestAuthorizationContext>rememberMe();
+        var resolver = new org.springframework.security.authentication.AuthenticationTrustResolverImpl();
+        resolver.setRememberMeClass(org.springframework.security.authentication.AnonymousAuthenticationToken.class);
+        customTrustManager.setTrustResolver(resolver);
+        FilterChainModel customTrustChain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE,
+                new AuthorizationFilter(RequestMatcherDelegatingAuthorizationManager.builder()
+                        .add(AnyRequestMatcher.INSTANCE, customTrustManager)
+                        .build())));
+        assertThat(customTrustChain.permitsAllAnonymous()).isNull();
+        assertThat(customTrustChain.details().mappings())
+                .extracting(SecurityModel.AuthorizationMapping::state)
+                .containsExactly(SecurityModel.GrantState.UNKNOWN);
+
+        FilterChainModel customAnonymousAuthorityChain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE,
+                new org.springframework.security.web.authentication.AnonymousAuthenticationFilter(
+                        "key",
+                        "anonymousUser",
+                        List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_GUEST"))),
+                new AuthorizationFilter(RequestMatcherDelegatingAuthorizationManager.builder()
+                        .add(
+                                AnyRequestMatcher.INSTANCE,
+                                org.springframework.security.authorization.AuthorityAuthorizationManager.hasRole(
+                                        "GUEST"))
+                        .build())));
+        assertThat(customAnonymousAuthorityChain.permitsAllAnonymous()).isNull();
+
+        var exactBeforeCaptureTheRest = RequestMatcherDelegatingAuthorizationManager.builder()
+                .add(
+                        PathPatternRequestMatcher.pathPattern("/actuator/custom"),
+                        SingleResultAuthorizationManager.permitAll())
+                .add(AnyRequestMatcher.INSTANCE, SingleResultAuthorizationManager.denyAll())
+                .build();
+        FilterChainModel captureRestChain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE, new AuthorizationFilter(exactBeforeCaptureTheRest)));
+        assertThat(SecurityScanner.grantFor(captureRestChain.details().mappings(), "GET", "/actuator/custom/{*path}"))
+                .isNull();
+        assertThat(SecurityScanner.grantFor(captureRestChain.details().mappings(), "GET", "/actuator/custom/{name}"))
+                .isFalse();
     }
 
     @Test

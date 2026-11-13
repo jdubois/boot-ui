@@ -40,4 +40,14 @@ public interface MappingProvider {
      * {@code false}.
      */
     List<MappingDto> mappings();
+
+    /**
+     * The application's effective HTTP base prefix (such as {@code server.servlet.context-path} and
+     * {@code spring.mvc.servlet.path} on Spring MVC, {@code spring.webflux.base-path} on Spring
+     * WebFlux, or {@code quarkus.http.root-path} and {@code quarkus.rest.path} on Quarkus), or
+     * {@code ""} when routes are served from {@code /}.
+     */
+    default String basePath() {
+        return "";
+    }
 }

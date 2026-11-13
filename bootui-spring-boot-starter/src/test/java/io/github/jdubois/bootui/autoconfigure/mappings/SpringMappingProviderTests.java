@@ -43,10 +43,12 @@ class SpringMappingProviderTests {
         SpringMappingProvider absent = new SpringMappingProvider(() -> null, selfDataFilter);
         assertThat(absent.available()).isFalse();
         assertThat(absent.mappings()).isEmpty();
+        assertThat(absent.basePath()).isEmpty();
 
         MappingsEndpoint endpoint = mock(MappingsEndpoint.class);
-        SpringMappingProvider present = new SpringMappingProvider(() -> endpoint, selfDataFilter);
+        SpringMappingProvider present = new SpringMappingProvider(() -> endpoint, selfDataFilter, () -> "/host/mvc");
         assertThat(present.available()).isTrue();
+        assertThat(present.basePath()).isEqualTo("/host/mvc");
     }
 
     @Test

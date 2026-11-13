@@ -58,6 +58,7 @@ class MappingsBackendWiringTest {
                     // Full unpaged read: BootUI's own endpoint filtered out, the rest sorted by pattern.
                     MappingsReport all = controller.flatMappings(null, null, null);
                     assertThat(all.total()).isEqualTo(2);
+                    assertThat(all.basePath()).isEmpty();
                     assertThat(all.mappings()).extracting(MappingDto::pattern).containsExactly("/alpha", "/zebra");
 
                     // Query narrows by substring across the flattened fields.
@@ -72,6 +73,18 @@ class MappingsBackendWiringTest {
                             .extracting(MappingDto::pattern)
                             .containsExactly("/alpha");
                     assertThat(firstPage.page().hasMore()).isTrue();
+                });
+    }
+
+    @Test
+    void composesContextPathAndServletPathIntoMappingsBasePath() {
+        runner.withPropertyValues("server.servlet.context-path=/host", "spring.mvc.servlet.path=/mvc")
+                .withBean(MappingsEndpoint.class, () -> endpointReturning(mapping("/alpha", "com.example.Alpha#a")))
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    MappingsReport report =
+                            context.getBean(MappingsController.class).flatMappings(null, null, null);
+                    assertThat(report.basePath()).isEqualTo("/host/mvc");
                 });
     }
 

@@ -7,8 +7,6 @@ import io.github.jdubois.bootui.engine.databaseadvisor.PoolServerCompatibility.S
 /**
  * A pool whose maximum size is larger than the connections the server lets an ordinary role hold. The pool can never
  * fill, so every borrower beyond the server's capacity waits for a connection that will not come or fails to connect.
- * {@link PoolServerShareRule} covers the weaker, heuristic case of a pool that fits but leaves no headroom; the two
- * never report the same datasource.
  */
 final class PoolExceedsServerConnectionsRule extends AbstractDriverRule {
 

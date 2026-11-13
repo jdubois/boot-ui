@@ -351,9 +351,9 @@ the command line `bootui http routes`.
 
 ### Copy as cURL
 
-Row details offer **Copy as cURL**, which turns the retained metadata into a command _template_, not a byte-for-byte
-replay. Copying runs entirely in the browser: no request is sent and nothing is written back. The command is shown in
-full before you copy it.
+Row details offer **Copy as cURL** and **Open in HTTP Probe**, which turn the retained metadata into a request
+_template_, not a byte-for-byte replay. Copying runs entirely in the browser, and **Open in HTTP Probe** passively
+prefills the probe form without sending a request.
 
 ::: details What the command changes, and why
 
@@ -378,6 +378,13 @@ full before you copy it.
 The HTTP Probe panel sends local-only requests to the running application and shows the response status, headers,
 duration, and body. The probe always targets the application's own loopback address, so it can never reach an external
 host, and as a state-changing action it is gated by the same localhost-only safety floor as every other write.
+
+When the [Mappings](configuration.md#mappings) panel is available, **Pick a declared route** searches the application's
+declared routes on demand, composes the effective base path (`server.servlet.context-path` and
+`spring.mvc.servlet.path` on Spring MVC, `spring.webflux.base-path` on Spring WebFlux, or `quarkus.http.root-path` and
+`quarkus.rest.path` on Quarkus), prefills the method, path, `Accept`, and `Content-Type` headers, and highlights any
+`{param}` path placeholders to fill in before sending. Rows in **Mappings** and **HTTP Exchanges** also offer **Open in
+HTTP Probe** when the probe panel is enabled and writable, prefilling the form without sending a request.
 
 Probe input is bounded, measured in UTF-8 bytes and checked before anything is sent:
 

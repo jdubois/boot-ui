@@ -247,6 +247,25 @@ record MemoryContext(
                 violationCollector);
     }
 
+    /** Returns a copy with the scanner-adjusted runtime data attached. */
+    MemoryContext withRuntime(RuntimeData updatedRuntime) {
+        return new MemoryContext(
+                memory,
+                threads,
+                heapContent,
+                postGcHeap,
+                classLoading,
+                updatedRuntime,
+                preHistogramGc,
+                postHistogramGc,
+                latestGcEvent,
+                postHistogramGcEvent,
+                gcTrend,
+                bufferPoolTrend,
+                oldGenTrend,
+                violationCollector);
+    }
+
     int heapUsedPercent() {
         long max = memory.heapMax();
         return MemoryFormat.percentOf(memory.heapUsed(), max);
@@ -262,10 +281,18 @@ record MemoryContext(
     /**
      * A single JVM memory pool reading (heap region, metaspace, or code cache).
      */
-    record MemoryPoolSnapshot(String name, long used, long committed, long max) {
+    record MemoryPoolSnapshot(String name, long used, long committed, long max, long collectionUsed) {
+
+        MemoryPoolSnapshot(String name, long used, long committed, long max) {
+            this(name, used, committed, max, -1);
+        }
 
         int usedPercent() {
             return MemoryFormat.percentOf(used, max);
+        }
+
+        int collectionUsedPercent() {
+            return MemoryFormat.percentOf(collectionUsed, max);
         }
     }
 
@@ -393,6 +420,49 @@ record MemoryContext(
         static boolean isOldGenerationPoolName(String name) {
             String lower = lower(name);
             return lower.contains("old gen") || lower.contains("tenured");
+        }
+
+        static boolean isNonHeapPoolName(String name) {
+            String lower = lower(name);
+            return lower.equals("metaspace")
+                    || lower.equals("compressed class space")
+                    || lower.contains("code cache")
+                    || lower.contains("codecache")
+                    || lower.contains("codeheap");
+        }
+
+        /**
+         * Sums {@link MemoryPoolSnapshot#collectionUsed()} across heap pools when a post-collection
+         * reading has been recorded. If an old-generation pool is present with positive current usage
+         * but no recorded {@code collectionUsage} yet (or an unknown {@code -1} reading), returns
+         * {@code -1} so callers do not mistake young-only {@code collectionUsage} for full-heap
+         * post-collection occupancy.
+         */
+        long heapCollectionUsed() {
+            long sum = 0;
+            boolean anyPositive = false;
+            for (MemoryPoolSnapshot pool : pools) {
+                if (isNonHeapPoolName(pool.name())) {
+                    continue;
+                }
+                if (pool.collectionUsed() < 0) {
+                    if (isOldGenerationPoolName(pool.name()) && pool.used() > 0) {
+                        return -1;
+                    }
+                    continue;
+                }
+                if (isOldGenerationPoolName(pool.name()) && pool.collectionUsed() == 0 && pool.used() > 0) {
+                    return -1;
+                }
+                if (pool.collectionUsed() > 0) {
+                    anyPositive = true;
+                }
+                sum = MemoryFormat.sum(sum, pool.collectionUsed());
+                if (sum < 0) {
+                    return -1;
+                }
+            }
+            return anyPositive ? sum : -1;
         }
 
         Optional<MemoryPoolSnapshot> metaspacePool() {
@@ -617,9 +687,71 @@ record MemoryContext(
             long freePhysicalMemoryBytes,
             long maxHeapSizeOptionBytes,
             long objectAlignmentBytes,
-            Boolean zGenerational) {
+            Boolean zGenerational,
+            Boolean useCompactObjectHeaders) {
 
         static final long DEFAULT_THREAD_STACK_BYTES = 1024L * 1024;
+
+        RuntimeData(
+                long uptimeMillis,
+                long gcCollectionTimeMillis,
+                long gcCollectionCount,
+                int objectPendingFinalizationCount,
+                long initialHeapBytes,
+                long threadStackBytes,
+                int availableProcessors,
+                long freeSwapSpaceBytes,
+                long totalSwapSpaceBytes,
+                Boolean useCompressedOops,
+                long totalPhysicalMemoryBytes,
+                long lastGcDurationMillis,
+                String lastGcCollectorName,
+                long freePhysicalMemoryBytes,
+                long maxHeapSizeOptionBytes,
+                long objectAlignmentBytes,
+                Boolean zGenerational) {
+            this(
+                    uptimeMillis,
+                    gcCollectionTimeMillis,
+                    gcCollectionCount,
+                    objectPendingFinalizationCount,
+                    initialHeapBytes,
+                    threadStackBytes,
+                    availableProcessors,
+                    freeSwapSpaceBytes,
+                    totalSwapSpaceBytes,
+                    useCompressedOops,
+                    totalPhysicalMemoryBytes,
+                    lastGcDurationMillis,
+                    lastGcCollectorName,
+                    freePhysicalMemoryBytes,
+                    maxHeapSizeOptionBytes,
+                    objectAlignmentBytes,
+                    zGenerational,
+                    null);
+        }
+
+        RuntimeData withGcCounters(long updatedUptimeMillis, long updatedGcTimeMillis, long updatedGcCount) {
+            return new RuntimeData(
+                    updatedUptimeMillis,
+                    updatedGcTimeMillis,
+                    updatedGcCount,
+                    objectPendingFinalizationCount,
+                    initialHeapBytes,
+                    threadStackBytes,
+                    availableProcessors,
+                    freeSwapSpaceBytes,
+                    totalSwapSpaceBytes,
+                    useCompressedOops,
+                    totalPhysicalMemoryBytes,
+                    lastGcDurationMillis,
+                    lastGcCollectorName,
+                    freePhysicalMemoryBytes,
+                    maxHeapSizeOptionBytes,
+                    objectAlignmentBytes,
+                    zGenerational,
+                    useCompactObjectHeaders);
+        }
 
         /**
          * Backward-compatible constructor for callers that predate the live HotSpot {@code MaxHeapSize},

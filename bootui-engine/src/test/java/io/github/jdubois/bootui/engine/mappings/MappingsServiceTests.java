@@ -106,17 +106,44 @@ class MappingsServiceTests {
         assertThat(report.page().hasMore()).isTrue();
         // offset 1 into the sorted list (/a, /b, /c) -> /b.
         assertThat(report.mappings()).extracting(MappingDto::pattern).containsExactly("/b");
+        assertThat(report.basePath()).isEmpty();
+    }
+
+    @Test
+    void normalizesAndComposesEffectiveBasePathInReport() {
+        FakeMappingProvider provider = new FakeMappingProvider();
+        provider.basePath = " /host/mvc/ ";
+        provider.mappings = List.of(new MappingDto("GET", "/orders", "OrderController#list", null, null));
+        MappingsService service = new MappingsService(provider);
+
+        MappingsReport report = service.report(null, null, null);
+
+        assertThat(report.basePath()).isEqualTo("/host/mvc");
+        assertThat(service.report("/host/mvc/orders", null, null).mappings())
+                .extracting(MappingDto::pattern)
+                .containsExactly("/orders");
+        assertThat(MappingsService.composeBasePath()).isEmpty();
+        assertThat(MappingsService.composeBasePath("", "/", "   ", "///")).isEmpty();
+        assertThat(MappingsService.composeBasePath("host", "/mvc/*")).isEqualTo("/host/mvc");
+        assertThat(MappingsService.composeBasePath("/app/", "/rest//v1/")).isEqualTo("/app/rest/v1");
     }
 
     private static final class FakeMappingProvider implements MappingProvider {
 
         private boolean available = true;
 
+        private String basePath = "";
+
         private List<MappingDto> mappings = List.of();
 
         @Override
         public boolean available() {
             return available;
+        }
+
+        @Override
+        public String basePath() {
+            return basePath;
         }
 
         @Override
