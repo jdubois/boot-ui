@@ -1419,6 +1419,8 @@ Features:
   (64 KiB), header count (50), header name (256 bytes), header value (8 KiB) and total header size (32 KiB), all
   measured in UTF-8 bytes.
 - Require explicit confirmation before sending any method other than `GET` or `HEAD`.
+- Offer a searchable route picker backed by `/bootui/api/mappings/flat` when the Mappings panel is available, composing the application's effective `basePath` with declared route patterns, prefilling `Accept` and `Content-Type` headers from `produces` and `consumes`, and highlighting `{param}` path placeholders without auto-sending.
+- Accept passive prefill navigation (`Open in HTTP Probe`) from Mappings and HTTP Exchanges when `http-probe` is enabled and writable, never sending a probe on navigation.
 - Display status, selected response headers, body, timing, and errors.
 
 Acceptance criteria:

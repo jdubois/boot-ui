@@ -298,4 +298,97 @@ describe('HttpProbe', () => {
     expect(apiFetch).not.toHaveBeenCalled()
     wrapper.unmount()
   })
+
+  it('selects a route with ArrowDown and Enter without triggering a probe on Enter keyup', async () => {
+    getJson.mockResolvedValueOnce({
+      total: 1,
+      basePath: '/host',
+      mappings: [
+        {
+          method: 'GET',
+          pattern: '/api/orders/{id}',
+          handler: 'com.example.OrderController#get',
+          produces: 'application/json',
+          consumes: null
+        }
+      ],
+      page: {total: 1, matched: 1, offset: 0, limit: 50, returned: 1, hasMore: false}
+    })
+
+    const wrapper = mount(HttpProbe, {
+      attachTo: document.body,
+      global: {
+        provide: {
+          panels: ref({
+            platform: 'spring-boot',
+            panels: [{id: 'mappings', enabled: true, available: true}]
+          })
+        }
+      }
+    })
+
+    const picker = wrapper.get('#http-probe-route-picker')
+    await picker.trigger('focus')
+    await flushPromises()
+    expect(picker.attributes('aria-expanded')).toBe('true')
+
+    await picker.trigger('keydown', {key: 'ArrowDown'})
+    expect(picker.attributes('aria-activedescendant')).toBe('http-probe-route-option-0')
+
+    await picker.trigger('keydown', {key: 'Enter'})
+    await flushPromises()
+    // Simulate the physical Enter key release landing on the newly focused Path input.
+    const pathInput = wrapper.get('#http-probe-path')
+    await pathInput.trigger('keyup', {key: 'Enter'})
+    await flushPromises()
+
+    expect(pathInput.element.value).toBe('/host/api/orders/{id}')
+    expect(picker.element.value).toBe('/host/api/orders/{id}')
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(confirm).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('recovers cleanly when blurred while a route lookup is still in flight', async () => {
+    const firstLookup = deferred()
+    getJson.mockReturnValueOnce(firstLookup.promise).mockResolvedValueOnce({
+      total: 1,
+      basePath: '',
+      mappings: [{method: 'GET', pattern: '/api/hello', handler: 'Sample#hello', produces: null, consumes: null}],
+      page: {total: 1, matched: 1, offset: 0, limit: 50, returned: 1, hasMore: false}
+    })
+
+    const wrapper = mount(HttpProbe, {
+      global: {
+        provide: {
+          panels: ref({
+            platform: 'spring-boot',
+            panels: [{id: 'mappings', enabled: true, available: true}]
+          })
+        }
+      }
+    })
+
+    const picker = wrapper.get('#http-probe-route-picker')
+    await picker.trigger('focus')
+    expect(getJson).toHaveBeenCalledTimes(1)
+
+    // Blur while first request is still pending.
+    await picker.trigger('blur')
+    firstLookup.resolve({
+      total: 0,
+      basePath: '',
+      mappings: [],
+      page: {total: 0, matched: 0, offset: 0, limit: 50, returned: 0, hasMore: false}
+    })
+    await flushPromises()
+
+    // Focusing again must issue a fresh request rather than getting stuck on "Loading declared routes…".
+    await picker.trigger('focus')
+    await flushPromises()
+
+    expect(getJson).toHaveBeenCalledTimes(2)
+    expect(wrapper.findAll('.http-probe-route-option')).toHaveLength(1)
+    wrapper.unmount()
+  })
 })

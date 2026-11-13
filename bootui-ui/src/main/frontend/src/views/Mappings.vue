@@ -157,7 +157,7 @@ watch(filter, scheduleMappingsReload)
                 <td v-if="httpProbeWritable" class="text-end">
                   <router-link
                     v-if="mappingProbeLink(r)"
-                    :aria-label="`Open ${r.method || 'GET'} ${composedMappingPath(r)} in HTTP Probe`"
+                    :aria-label="`Open in HTTP Probe: ${r.method || 'GET'} ${composedMappingPath(r)}`"
                     :to="mappingProbeLink(r)"
                     class="btn btn-outline-secondary btn-sm rounded-pill text-nowrap mappings-probe-link"
                   >

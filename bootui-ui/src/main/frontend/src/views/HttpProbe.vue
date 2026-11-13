@@ -41,7 +41,6 @@ const path = ref('')
 const pathInputRef = ref(null)
 const acceptHeader = ref('')
 const contentTypeHeader = ref('')
-const acceptLanguageHeader = ref('')
 const acceptEditedByUser = ref(false)
 const contentTypeEditedByUser = ref(false)
 const requestBody = ref('')
@@ -50,6 +49,7 @@ const omittedQueryCount = ref(0)
 const loading = ref(false)
 const confirming = ref(false)
 const response = ref(null)
+let suppressNextPathEnterKeyup = false
 
 const safeMethods = new Set(['GET', 'HEAD'])
 
@@ -129,17 +129,11 @@ const requestHeaders = computed(() => {
   if (accept) {
     headers.Accept = accept
   }
-  const acceptLanguage = acceptLanguageHeader.value.trim()
-  if (acceptLanguage) {
-    headers['Accept-Language'] = acceptLanguage
-  }
-  if (showRequestBody.value) {
-    const contentType = contentTypeHeader.value.trim()
-    if (contentType) {
-      headers['Content-Type'] = contentType
-    } else if (requestBody.value.trim()) {
-      headers['Content-Type'] = 'application/json'
-    }
+  const contentType = contentTypeHeader.value.trim()
+  if (contentType) {
+    headers['Content-Type'] = contentType
+  } else if (showRequestBody.value && requestBody.value.trim()) {
+    headers['Content-Type'] = 'application/json'
   }
   return headers
 })
@@ -210,6 +204,7 @@ async function fetchRoutes(query = '') {
       routeLoading.value = false
     }
   }
+  if (sequence !== routeSuggestSequence) return
   activeRouteIndex.value = -1
   routePickerOpen.value = true
 }
@@ -230,16 +225,26 @@ function onRoutePickerInput() {
 function closeRoutePicker() {
   clearTimeout(routeSuggestTimer)
   routeSuggestSequence++
+  routeLoading.value = false
   routePickerOpen.value = false
   activeRouteIndex.value = -1
 }
 
-async function selectRoute(mapping) {
+function scrollActiveRouteIntoView() {
+  nextTick(() => {
+    if (activeRouteIndex.value < 0) return
+    const el = document.getElementById(`http-probe-route-option-${activeRouteIndex.value}`)
+    el?.scrollIntoView?.({block: 'nearest'})
+  })
+}
+
+async function selectRoute(mapping, fromKeyboard = false) {
   if (!mapping) return
   const nextMethod = resolveProbeMethod(mapping.method)
   const composed = composeProbePath(routeBasePath.value, mapping.pattern)
   method.value = nextMethod
   path.value = composed
+  response.value = null
 
   const nextAccept = preferredAccept(mapping.produces)
   if (!acceptEditedByUser.value || !acceptHeader.value.trim()) {
@@ -261,10 +266,27 @@ async function selectRoute(mapping) {
 
   prefillSource.value = 'mappings'
   omittedQueryCount.value = 0
-  routeQuery.value = `${nextMethod} ${composed}`
+  routeQuery.value = composed
   closeRoutePicker()
+  if (fromKeyboard) {
+    suppressNextPathEnterKeyup = true
+  }
   await nextTick()
   pathInputRef.value?.focus?.()
+}
+
+function onPathKeydown(event) {
+  if (event.key === 'Enter') {
+    suppressNextPathEnterKeyup = false
+  }
+}
+
+function onPathEnterKeyup() {
+  if (suppressNextPathEnterKeyup) {
+    suppressNextPathEnterKeyup = false
+    return
+  }
+  sendProbe()
 }
 
 function onRoutePickerKeydown(event) {
@@ -277,6 +299,7 @@ function onRoutePickerKeydown(event) {
         fetchRoutes(routeQuery.value.trim())
       } else if (count > 0) {
         activeRouteIndex.value = event.key === 'ArrowDown' ? 0 : count - 1
+        scrollActiveRouteIntoView()
       }
       return
     }
@@ -284,9 +307,10 @@ function onRoutePickerKeydown(event) {
     const step = event.key === 'ArrowDown' ? 1 : -1
     activeRouteIndex.value =
       activeRouteIndex.value < 0 ? (step > 0 ? 0 : count - 1) : (activeRouteIndex.value + step + count) % count
+    scrollActiveRouteIntoView()
   } else if (event.key === 'Enter' && routeListVisible.value && activeRouteIndex.value >= 0) {
     event.preventDefault()
-    selectRoute(routeOptions.value[activeRouteIndex.value].raw)
+    selectRoute(routeOptions.value[activeRouteIndex.value].raw, true)
   } else if (event.key === 'Escape' && routePopupVisible.value) {
     event.preventDefault()
     closeRoutePicker()
@@ -299,18 +323,17 @@ function applyQueryPrefill(query) {
   const hasMethod = typeof query.method === 'string' && query.method.trim() !== ''
   const hasAccept = typeof query.accept === 'string' && query.accept.trim() !== ''
   const hasContentType = typeof query.contentType === 'string' && query.contentType.trim() !== ''
-  const hasAcceptLanguage = typeof query.acceptLanguage === 'string' && query.acceptLanguage.trim() !== ''
-  if (!hasPath && !hasMethod && !hasAccept && !hasContentType && !hasAcceptLanguage) {
+  if (!hasPath && !hasMethod && !hasAccept && !hasContentType) {
     return
   }
 
+  response.value = null
   const nextMethod = hasMethod ? resolveProbeMethod(query.method) : method.value
   method.value = nextMethod
   if (hasPath) {
     path.value = normalizePath(query.path)
   }
   acceptHeader.value = hasAccept ? query.accept.trim() : ''
-  acceptLanguageHeader.value = hasAcceptLanguage ? query.acceptLanguage.trim() : ''
   contentTypeHeader.value = hasContentType ? query.contentType.trim() : ''
   acceptEditedByUser.value = false
   contentTypeEditedByUser.value = false
@@ -427,13 +450,13 @@ function clearForm() {
   path.value = ''
   acceptHeader.value = ''
   contentTypeHeader.value = ''
-  acceptLanguageHeader.value = ''
   acceptEditedByUser.value = false
   contentTypeEditedByUser.value = false
   requestBody.value = ''
   routeQuery.value = ''
   prefillSource.value = ''
   omittedQueryCount.value = 0
+  suppressNextPathEnterKeyup = false
   response.value = null
   loading.value = false
   confirming.value = false
@@ -477,8 +500,8 @@ function clearForm() {
                 role="combobox"
                 class="form-control font-monospace"
                 aria-autocomplete="list"
-                :aria-expanded="routeListVisible ? 'true' : 'false'"
-                :aria-controls="routeListboxId"
+                :aria-expanded="routePopupVisible ? 'true' : 'false'"
+                :aria-controls="routeListVisible ? routeListboxId : undefined"
                 :aria-activedescendant="activeRouteOptionId"
                 :aria-describedby="routePickerHintId"
                 placeholder="Search declared routes by path, method, handler, or media type…"
@@ -557,7 +580,8 @@ function clearForm() {
               v-model="path"
               class="form-control font-monospace"
               placeholder="/api/sample/hello"
-              @keyup.enter="sendProbe"
+              @keydown="onPathKeydown"
+              @keyup.enter="onPathEnterKeyup"
             />
             <div class="form-text">Relative to the application root. Requests are always sent to localhost.</div>
             <div

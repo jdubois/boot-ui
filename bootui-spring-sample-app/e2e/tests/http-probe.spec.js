@@ -88,7 +88,8 @@ test.describe('HTTP Probe view', () => {
 
     const option = page.locator('.http-probe-route-option', {hasText: '/api/sample/hello'}).first()
     await expect(option).toBeVisible()
-    await option.click()
+    await picker.press('ArrowDown')
+    await picker.press('Enter')
 
     await expect(page.getByLabel('Method')).toHaveValue('GET')
     await expect(page.getByLabel('Path', {exact: true})).toHaveValue('/api/sample/hello')

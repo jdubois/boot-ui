@@ -23,7 +23,7 @@ describe('httpProbePrefill', () => {
     expect(resolveProbeMethod('POST, PUT')).toBe('POST')
   })
 
-  it('normalizes base paths and composes route patterns without doubling prefixes', () => {
+  it('normalizes base paths and composes route patterns with the mounted prefix', () => {
     expect(normalizeBasePath('')).toBe('')
     expect(normalizeBasePath('/')).toBe('')
     expect(normalizeBasePath(' /host/mvc/* ')).toBe('/host/mvc')
@@ -31,7 +31,8 @@ describe('httpProbePrefill', () => {
     expect(composeProbePath('', '/api/hello')).toBe('/api/hello')
     expect(composeProbePath('/host', '/api/hello')).toBe('/host/api/hello')
     expect(composeProbePath('/host', '/')).toBe('/host')
-    expect(composeProbePath('/host', '/host/api/hello')).toBe('/host/api/hello')
+    expect(composeProbePath('/api', '/api/orders')).toBe('/api/api/orders')
+    expect(composeProbePath('/host', '/host/api/hello')).toBe('/host/host/api/hello')
   })
 
   it('selects preferred Accept and Content-Type media types while ignoring negations and wildcards', () => {
@@ -42,11 +43,10 @@ describe('httpProbePrefill', () => {
     expect(preferredContentType('text/xml', 'PUT')).toBe('text/xml')
   })
 
-  it('extracts path placeholders including regex constraints and detects VALUE query placeholders', () => {
-    expect(extractPathPlaceholders('/api/orders/{orderId}/items/{id:[0-9]+}?filter={ignored}')).toEqual([
-      '{orderId}',
-      '{id:[0-9]+}'
-    ])
+  it('extracts path placeholders including nested regex quantifiers and detects VALUE query placeholders', () => {
+    expect(
+      extractPathPlaceholders('/api/orders/{orderId}/items/{id:[0-9]{1,6}}/{code:[a-z]?}?filter={ignored}')
+    ).toEqual(['{orderId}', '{id:[0-9]{1,6}}', '{code:[a-z]?}'])
     expect(extractPathPlaceholders('/api/hello')).toEqual([])
     expect(hasQueryValuePlaceholders('/api/orders?page=VALUE&sort=VALUE')).toBe(true)
     expect(hasQueryValuePlaceholders('/api/orders?page=1')).toBe(false)
@@ -127,7 +127,6 @@ describe('httpProbePrefill', () => {
         method: 'POST',
         path: '/host/api/orders?token=VALUE&page=VALUE',
         accept: 'application/json',
-        acceptLanguage: 'en-US',
         contentType: 'application/json',
         source: 'http-exchanges'
       }

@@ -744,7 +744,7 @@ onMounted(() => {
                       </button>
                       <router-link
                         v-if="httpProbeWritable && exchangeProbeLink(exchange)"
-                        :aria-label="`Open ${exchange.method || 'GET'} ${exchange.path || '/'} in HTTP Probe`"
+                        :aria-label="`Open in HTTP Probe: ${exchange.method || 'GET'} ${exchange.path || '/'}`"
                         :to="exchangeProbeLink(exchange)"
                         class="btn btn-outline-secondary btn-sm rounded-pill text-nowrap http-exchanges-probe-link"
                       >

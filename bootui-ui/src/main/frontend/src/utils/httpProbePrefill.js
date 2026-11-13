@@ -50,8 +50,9 @@ export function normalizeBasePath(rawBasePath) {
 }
 
 /**
- * Composes the application's effective basePath with a declared MappingDto pattern without doubling
- * prefixes when the pattern already starts with the basePath.
+ * Composes the application's effective basePath with a declared MappingDto pattern.
+ * Declared mapping patterns are always relative to the application's basePath, whereas recorded
+ * HTTP Exchanges paths already carry the mounted prefix and do not call this helper.
  *
  * @param {string|null|undefined} basePath
  * @param {string|null|undefined} pattern
@@ -64,13 +65,7 @@ export function composeProbePath(basePath, pattern) {
   if (!prefix) {
     return normalizedPattern
   }
-  if (normalizedPattern === '/') {
-    return prefix
-  }
-  if (normalizedPattern === prefix || normalizedPattern.startsWith(`${prefix}/`)) {
-    return normalizedPattern
-  }
-  return `${prefix}${normalizedPattern}`
+  return normalizedPattern === '/' ? prefix : `${prefix}${normalizedPattern}`
 }
 
 /**
@@ -120,19 +115,37 @@ export function preferredContentType(consumesRaw, method) {
 }
 
 /**
- * Extracts `{param}` (including `{id:[0-9]+}` regex forms) path placeholders from the path portion
- * of a request path.
+ * Extracts `{param}` (including `{id:[0-9]+}` and nested quantifier `{id:[0-9]{1,6}}` regex forms)
+ * path placeholders from the path portion of a request path.
  *
  * @param {string|null|undefined} pathValue
  * @returns {string[]}
  */
 export function extractPathPlaceholders(pathValue) {
   const raw = typeof pathValue === 'string' ? pathValue : ''
-  const pathOnly = raw.split(/[?#]/)[0]
   const seen = new Set()
-  const matches = pathOnly.match(/\{[^{}]+\}/g) || []
-  for (const token of matches) {
-    seen.add(token)
+  let depth = 0
+  let start = -1
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]
+    if (depth === 0 && (ch === '?' || ch === '#')) {
+      break
+    }
+    if (ch === '{') {
+      if (depth === 0) {
+        start = i
+      }
+      depth++
+    } else if (ch === '}' && depth > 0) {
+      depth--
+      if (depth === 0 && start >= 0) {
+        const token = raw.slice(start, i + 1)
+        if (token.length > 2) {
+          seen.add(token)
+        }
+        start = -1
+      }
+    }
   }
   return [...seen]
 }
@@ -258,13 +271,10 @@ export function buildExchangeProbeLink(exchange) {
 
   const {headers} = safeCurlHeaders(exchange?.requestHeaders)
   let accept = ''
-  let acceptLanguage = ''
   let contentType = ''
   for (const header of headers) {
     if (header.name === 'Accept' && !accept) {
       accept = header.value
-    } else if (header.name === 'Accept-Language' && !acceptLanguage) {
-      acceptLanguage = header.value
     } else if (header.name === 'Content-Type' && !contentType) {
       contentType = header.value
     }
@@ -274,7 +284,6 @@ export function buildExchangeProbeLink(exchange) {
     method: rawMethod,
     path: targetPath,
     ...(accept ? {accept} : {}),
-    ...(acceptLanguage ? {acceptLanguage} : {}),
     ...(contentType ? {contentType} : {}),
     source: 'http-exchanges',
     ...(omittedQuery > 0 ? {omittedQuery: String(omittedQuery)} : {})

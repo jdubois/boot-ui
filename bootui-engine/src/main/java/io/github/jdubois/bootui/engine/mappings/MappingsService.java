@@ -40,7 +40,7 @@ public final class MappingsService {
                 .thenComparing(MappingDto::handler, nullSafeString));
         String normalizedQuery = PagedList.normalize(query);
         PagedList.Result<MappingDto> page =
-                PagedList.from(mappings, mapping -> matchesQuery(mapping, normalizedQuery), offset, limit);
+                PagedList.from(mappings, mapping -> matchesQuery(mapping, basePath, normalizedQuery), offset, limit);
         return new MappingsReport(mappings.size(), basePath, page.items(), page.page());
     }
 
@@ -99,11 +99,20 @@ public final class MappingsService {
         return "/".equals(collapsed.toString()) ? "" : collapsed.toString();
     }
 
-    private static boolean matchesQuery(MappingDto mapping, String query) {
+    private static boolean matchesQuery(MappingDto mapping, String basePath, String query) {
         return PagedList.contains(mapping.method(), query)
                 || PagedList.contains(mapping.pattern(), query)
+                || (!basePath.isEmpty() && PagedList.contains(composePattern(basePath, mapping.pattern()), query))
                 || PagedList.contains(mapping.handler(), query)
                 || PagedList.contains(mapping.produces(), query)
                 || PagedList.contains(mapping.consumes(), query);
+    }
+
+    private static String composePattern(String basePath, String pattern) {
+        if (pattern == null || pattern.isBlank()) {
+            return basePath;
+        }
+        String normalizedPattern = pattern.startsWith("/") ? pattern : "/" + pattern;
+        return "/".equals(normalizedPattern) ? basePath : basePath + normalizedPattern;
     }
 }

@@ -63,6 +63,14 @@ test('uses the configured API path for queries, SSE, and security', async ({page
   expect(mappings.ok()).toBeTruthy()
   expect((await mappings.json()).basePath).toBe('/host')
 
+  await page.goto(`${UI_PATH}/#/http-probe`)
+  const picker = page.getByLabel('Pick a declared route')
+  await expect(picker).toBeVisible()
+  await picker.focus()
+  const firstOption = page.locator('.http-probe-route-option').first()
+  await expect(firstOption).toBeVisible()
+  await expect(firstOption).toContainText('/host/')
+
   await page.goto(`${UI_PATH}/`)
   const streamStatus = await page.evaluate(
     (apiPath) =>

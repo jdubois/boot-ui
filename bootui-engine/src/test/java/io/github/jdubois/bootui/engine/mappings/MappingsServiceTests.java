@@ -119,6 +119,9 @@ class MappingsServiceTests {
         MappingsReport report = service.report(null, null, null);
 
         assertThat(report.basePath()).isEqualTo("/host/mvc");
+        assertThat(service.report("/host/mvc/orders", null, null).mappings())
+                .extracting(MappingDto::pattern)
+                .containsExactly("/orders");
         assertThat(MappingsService.composeBasePath()).isEmpty();
         assertThat(MappingsService.composeBasePath("", "/", "   ", "///")).isEmpty();
         assertThat(MappingsService.composeBasePath("host", "/mvc/*")).isEqualTo("/host/mvc");
