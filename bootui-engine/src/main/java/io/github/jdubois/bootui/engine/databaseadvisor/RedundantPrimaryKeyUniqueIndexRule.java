@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
+import java.util.List;
 
 final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRule {
 
@@ -42,20 +43,31 @@ final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRu
                     continue;
                 }
                 IndexModel backing = table.primaryKeyBackingIndex();
-                if (backing == null || !backing.comparable()) {
-                    unknown(
-                            context,
-                            schema.dataSourceName() + ": " + table.qualifiedName()
-                                    + " primary-key backing identity or full index semantics are unknown.");
+                List<IndexModel> candidates = table.indexes().stream()
+                        .filter(index -> index != backing
+                                && (index.unique() || !Boolean.TRUE.equals(index.uniquenessKnown()))
+                                && index.backingConstraint() == null
+                                && !index.automatic()
+                                && index.ordinaryComparisonCandidate()
+                                && !index.methodKnownUnsupported())
+                        .toList();
+                if (candidates.isEmpty()) {
                     continue;
                 }
-                for (IndexModel index : table.indexes()) {
-                    if (index == backing || !index.unique() || index.backingConstraint() != null || index.automatic()) {
-                        continue;
+                if (backing == null || !backing.comparable()) {
+                    long pkColumnCandidates = candidates.stream()
+                            .filter(index -> index.keyParts().isEmpty()
+                                    || index.columnNames().equals(table.primaryKeyColumns()))
+                            .count();
+                    if (pkColumnCandidates >= (backing == null ? 2 : 1)) {
+                        unknown(
+                                context,
+                                schema.dataSourceName() + ": " + table.qualifiedName()
+                                        + " primary-key backing identity or full index semantics are unknown.");
                     }
-                    if (!index.ordinaryComparisonCandidate() || index.methodKnownUnsupported()) {
-                        continue;
-                    }
+                    continue;
+                }
+                for (IndexModel index : candidates) {
                     if (!index.comparable()) {
                         unknown(
                                 context,

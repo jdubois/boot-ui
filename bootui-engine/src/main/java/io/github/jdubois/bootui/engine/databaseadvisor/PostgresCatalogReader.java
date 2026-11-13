@@ -112,7 +112,7 @@ final class PostgresCatalogReader {
             join pg_class t on t.oid = c.conrelid
             join pg_namespace n on n.oid = t.relnamespace
             where c.convalidated = false
-              and c.contype in ('f', 'c')
+              and c.contype in ('f', 'c', 'n')
             """ + SYSTEM_SCHEMA_FILTER + """
               and not exists (
                     select 1 from pg_depend d

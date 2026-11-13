@@ -13,15 +13,14 @@ final class ArchitectureRuleRegistry {
      * Rule IDs that were removed from the catalogue. They stay reserved so existing dismissals never silently apply
      * to a different check; see the "Retired rule IDs" section of docs/ARCHITECTURE-CHECKS.md.
      */
-    static final Set<String> RETIRED_RULE_IDS =
-            Set.of("ARCH-CODE-005", "ARCH-CODE-011", "ARCH-SPRING-005", "ARCH-SPRING-016");
+    static final Set<String> RETIRED_RULE_IDS = Set.of(
+            "ARCH-CODE-004", "ARCH-CODE-005", "ARCH-CODE-011", "ARCH-CODE-018", "ARCH-SPRING-005", "ARCH-SPRING-016");
 
     private static final List<ArchitectureRule> ACTIVE_RULES = List.of(
             new FreeOfPackageCyclesRule(),
             new NoStandardStreamsRule(),
             new NoGenericExceptionsRule(),
             new NoJavaUtilLoggingRule(),
-            new NoJodaTimeRule(),
             new NoSystemExitRule(),
             new NoJdkInternalApiRule(),
             new NoLegacyDateTimeRule(),
@@ -54,7 +53,6 @@ final class ArchitectureRuleRegistry {
             new LegacyJavaxTransactionalShouldBeMigratedRule(),
             new InternalPackagesShouldNotBeAccessedExternallyRule(),
             new NoDirectThreadInstantiationRule(),
-            new AssertionsShouldHaveDetailMessageRule(),
             new StaticInjectionPointsAreIgnoredRule(),
             new LegacyJavaxInjectionAnnotationsShouldBeMigratedRule(),
             new HttpClientsShouldUseBootBuildersRule());

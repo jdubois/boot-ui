@@ -557,6 +557,190 @@ class MemoryScannerTests {
         assertThat(errors).extracting(MemoryRuleResultDto::status).containsOnly(MemoryRuleSupport.ERROR);
     }
 
+    @Test
+    void bootUiOffloadAndLowFootprintGcsAreExcludedFromMemGc002And003And005And006() {
+        var uptime = new java.util.concurrent.atomic.AtomicLong(600_000L);
+        var gcTime = new java.util.concurrent.atomic.AtomicLong(10_000L);
+        var gcCount = new java.util.concurrent.atomic.AtomicLong(100L);
+        var oldGenCount = new java.util.concurrent.atomic.AtomicLong(0L);
+        var latestEvent = new java.util.concurrent.atomic.AtomicReference<>(
+                new MemoryContext.GcEvent(1, 500_000L, 100L, "G1 Young Generation"));
+
+        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker(
+                () -> new MemoryContext.GcSample(
+                        uptime.get(),
+                        gcTime.get(),
+                        gcCount.get(),
+                        java.util.Map.of(
+                                "G1 Young Generation",
+                                gcCount.get() - oldGenCount.get(),
+                                "G1 Old Generation",
+                                oldGenCount.get())),
+                latestEvent::get);
+
+        MemoryOffloadService offload = new MemoryOffloadService(
+                List::of,
+                () -> 512 * MB,
+                () -> {
+                    // Simulate System.gc() taking 55,000 ms (which would push lifetime GC > 10%, recent > 25%,
+                    // G1 Old Generation +1, and latest event duration 55,000 ms >= 1,000 ms).
+                    uptime.addAndGet(55_000L);
+                    gcTime.addAndGet(55_000L);
+                    gcCount.incrementAndGet();
+                    oldGenCount.incrementAndGet();
+                    latestEvent.set(new MemoryContext.GcEvent(2, uptime.get(), 55_000L, "G1 Old Generation"));
+                },
+                () -> false,
+                System::nanoTime,
+                tracker);
+        LowFootprintService lowFootprint = new LowFootprintService(List::of, offload, () -> false, uptime::get);
+
+        MemoryScanner scanner = new MemoryScanner(
+                () -> {
+                    MemoryContext.GcSample pre = new MemoryContext.GcSample(
+                            uptime.get(),
+                            gcTime.get(),
+                            gcCount.get(),
+                            java.util.Map.of(
+                                    "G1 Young Generation",
+                                    gcCount.get() - oldGenCount.get(),
+                                    "G1 Old Generation",
+                                    oldGenCount.get()));
+                    MemoryContext.GcEvent preEvent = latestEvent.get();
+                    // Simulate scan's own GC.class_histogram adding another 20,000 ms Full GC
+                    long postUptime = uptime.addAndGet(20_000L);
+                    long postGcTime = gcTime.addAndGet(20_000L);
+                    long postGcCount = gcCount.incrementAndGet();
+                    long postOldGen = oldGenCount.incrementAndGet();
+                    MemoryContext.GcEvent postEvent =
+                            new MemoryContext.GcEvent(postGcCount, postUptime, 20_000L, "G1 Old Generation");
+                    latestEvent.set(postEvent);
+                    MemoryContext.GcSample post = new MemoryContext.GcSample(
+                            postUptime,
+                            postGcTime,
+                            postGcCount,
+                            java.util.Map.of(
+                                    "G1 Young Generation", postGcCount - postOldGen, "G1 Old Generation", postOldGen));
+                    RuntimeData runtime = new RuntimeData(
+                            pre.uptimeMillis(),
+                            pre.gcTimeMillis(),
+                            pre.gcCount(),
+                            0,
+                            -1,
+                            MB,
+                            4,
+                            -1,
+                            -1,
+                            null,
+                            -1,
+                            preEvent.durationMillis(),
+                            preEvent.collectorName());
+                    return new MemoryContext(
+                            healthyMemory(),
+                            ThreadData.empty(),
+                            HeapContentData.unavailable(),
+                            MemoryContext.PostGcHeapData.unavailable(),
+                            new ClassLoadingData(9000, 9500, 500),
+                            runtime,
+                            pre,
+                            post,
+                            preEvent,
+                            postEvent,
+                            MemoryContext.GcTrend.unavailable(),
+                            null,
+                            null);
+                },
+                CLOCK,
+                tracker);
+
+        // Scan 1 seeds baseline; its own 20s histogram GC must not trigger MEM-GC-002
+        MemoryReport firstReport = scanner.scan();
+        assertThat(firstReport.results())
+                .extracting(MemoryRuleResultDto::id)
+                .doesNotContain("MEM-GC-002", "MEM-GC-003", "MEM-GC-005", "MEM-GC-006");
+
+        // Advance 30s of normal application time (only 100ms of Young GC) and trigger Low-Footprint / Offload
+        uptime.addAndGet(30_000L);
+        gcTime.addAndGet(100L);
+        gcCount.incrementAndGet();
+        lowFootprint.enable();
+
+        // Scan 2 must ignore both Scan 1's 20s histogram GC and Low-Footprint/Offload's 55s Full GC
+        MemoryReport secondReport = scanner.scan();
+        assertThat(secondReport.results())
+                .extracting(MemoryRuleResultDto::id)
+                .doesNotContain("MEM-GC-002", "MEM-GC-003", "MEM-GC-005", "MEM-GC-006");
+
+        // Positive control: a genuine application Full GC (8,000 ms over 20,000 ms window) after Scan 2
+        // still triggers MEM-GC-003, MEM-GC-005, and MEM-GC-006.
+        uptime.addAndGet(20_000L);
+        gcTime.addAndGet(8_000L);
+        long appGcId = gcCount.incrementAndGet();
+        oldGenCount.incrementAndGet();
+        latestEvent.set(new MemoryContext.GcEvent(appGcId, uptime.get(), 8_000L, "G1 Old Generation"));
+
+        MemoryReport thirdReport = scanner.scan();
+        assertThat(thirdReport.results())
+                .extracting(MemoryRuleResultDto::id)
+                .contains("MEM-GC-003", "MEM-GC-005", "MEM-GC-006")
+                .doesNotContain("MEM-GC-002");
+    }
+
+    @Test
+    void failedScanPreservesCumulativeHistogramExclusionsOnNextSuccessfulScan() {
+        AtomicInteger call = new AtomicInteger();
+        MemoryContext.GcSample pre1 = new MemoryContext.GcSample(600_000L, 10_000L, 50L);
+        MemoryContext.GcSample post1 = new MemoryContext.GcSample(650_000L, 60_000L, 51L);
+        MemoryContext.GcEvent postEvent1 = new MemoryContext.GcEvent(51L, 650_000L, 50_000L, "G1 Old Generation");
+        MemoryContext first = new MemoryContext(
+                healthyMemory(),
+                ThreadData.empty(),
+                HeapContentData.unavailable(),
+                MemoryContext.PostGcHeapData.unavailable(),
+                new ClassLoadingData(9000, 9500, 500),
+                new RuntimeData(600_000L, 10_000L, 50L, 0, -1, MB, 4, -1, -1, null),
+                pre1,
+                post1,
+                MemoryContext.GcEvent.unavailable(),
+                postEvent1,
+                MemoryContext.GcTrend.unavailable(),
+                null,
+                null);
+        // After a transient failure, Scan 3 sees lifetime gcTime = 60,000L (50,000L of which was Scan 1's histogram)
+        // and still sees postEvent1 as the latest completed event.
+        MemoryContext third = new MemoryContext(
+                healthyMemory(),
+                ThreadData.empty(),
+                HeapContentData.unavailable(),
+                MemoryContext.PostGcHeapData.unavailable(),
+                new ClassLoadingData(9000, 9500, 500),
+                new RuntimeData(660_000L, 60_000L, 51L, 0, -1, MB, 4, -1, -1, null, -1, 50_000L, "G1 Old Generation"),
+                new MemoryContext.GcSample(660_000L, 60_000L, 51L),
+                new MemoryContext.GcSample(660_000L, 60_000L, 51L),
+                postEvent1,
+                postEvent1,
+                MemoryContext.GcTrend.unavailable(),
+                null,
+                null);
+
+        MemoryScanner scanner = new MemoryScanner(
+                () -> {
+                    int step = call.incrementAndGet();
+                    if (step == 1) return first;
+                    if (step == 2) throw new IllegalStateException("transient failure");
+                    return third;
+                },
+                CLOCK);
+
+        assertThat(scanner.scan().results())
+                .extracting(MemoryRuleResultDto::id)
+                .doesNotContain("MEM-GC-002", "MEM-GC-006");
+        assertThat(scanner.scan().scan().status()).isEqualTo("ERROR");
+        assertThat(scanner.scan().results())
+                .extracting(MemoryRuleResultDto::id)
+                .doesNotContain("MEM-GC-002", "MEM-GC-006");
+    }
+
     private static MemoryRuleResultDto result(String id, String status) {
         return new MemoryRuleResultDto(
                 id,

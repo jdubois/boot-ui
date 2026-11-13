@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Virtual-thread pinning attribution in the JFR resource profiler** joins `jdk.VirtualThreadPinned` events, durations,
+  and hot frames to routes on JDK 21+ with a JEP 491 note on JDK 24+ ([Runtime Insights](docs/features/runtime-insights.md#jfr-profile); [#1672](https://github.com/jdubois/boot-ui/issues/1672)).
 - **Opt-in `X-BootUI-Request-Id` response header** links loopback application responses directly to their HTTP Exchanges
   row and Live Activity request profile when `bootui.http-exchanges.expose-request-id-header=true`
   ([HTTP Exchanges](docs/features/diagnostics.md#http-exchanges); [#1674](https://github.com/jdubois/boot-ui/issues/1674)).

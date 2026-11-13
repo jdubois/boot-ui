@@ -19,6 +19,10 @@ import java.util.List;
  * @param cpuSamples every CPU sample of the last session
  * @param outsideSamples CPU samples taken while no request ran on their thread
  * @param requests the requests the samples were joined to
+ * @param virtualThreadPinningSupported whether this runtime supports {@code jdk.VirtualThreadPinned} in JFR
+ * @param pinnedEvents every {@code jdk.VirtualThreadPinned} event recorded during the last session
+ * @param outsidePinnedEvents pinning events whose virtual thread had no overlapping request segment
+ * @param pinnedDurationMicros total duration, in microseconds, of all recorded pinning events
  * @param routes those requests by route, most CPU samples first, at most {@value #MAX_ROUTES}
  * @param routesOmitted the routes beyond them
  * @param limitations what the session cannot see
@@ -34,6 +38,10 @@ public record RuntimeResourceProfileDto(
         long cpuSamples,
         long outsideSamples,
         long requests,
+        boolean virtualThreadPinningSupported,
+        long pinnedEvents,
+        long outsidePinnedEvents,
+        long pinnedDurationMicros,
         List<RuntimeResourceProfileRouteDto> routes,
         int routesOmitted,
         List<String> limitations) {

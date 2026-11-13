@@ -378,16 +378,11 @@ record HibernateContext(
         if (isPropertyTrue("spring.jpa.show-sql", "hibernate.show_sql")) {
             return true;
         }
-        for (String key : List.of(
-                "logging.level.org.hibernate.SQL",
-                "logging.level.org.hibernate.orm.jdbc.bind",
-                "logging.level.org.hibernate.type.descriptor.sql.BasicBinder")) {
-            String value = firstProperty(key);
-            if (value != null) {
-                String normalized = value.toLowerCase(Locale.ROOT);
-                if (normalized.equals("debug") || normalized.equals("trace")) {
-                    return true;
-                }
+        String value = firstProperty("logging.level.org.hibernate.SQL");
+        if (value != null) {
+            String normalized = value.toLowerCase(Locale.ROOT);
+            if (normalized.equals("debug") || normalized.equals("trace")) {
+                return true;
             }
         }
         return false;

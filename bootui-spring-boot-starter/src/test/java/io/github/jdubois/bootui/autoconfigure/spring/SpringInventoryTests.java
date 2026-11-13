@@ -279,6 +279,150 @@ class SpringInventoryTests {
     }
 
     @Test
+    void lazyBootApplicationTaskExecutorReadsBuilderWithoutInstantiatingBean() {
+        for (int capacity : new int[] {25, Integer.MAX_VALUE}) {
+            tasks.withPropertyValues(
+                            "spring.task.execution.pool.queue-capacity=" + capacity,
+                            "spring.task.execution.pool.core-size=4",
+                            "spring.task.execution.pool.max-size=16")
+                    .run(context -> {
+                        SpringContext snapshot =
+                                SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+                        assertThat(snapshot.observations().get(ASYNC_QUEUE_CAPACITY, Integer.class))
+                                .isEqualTo(capacity);
+                        var result = new UnboundedAsyncQueueRule().evaluate(snapshot);
+                        assertThat(result.status()).isEqualTo(capacity == Integer.MAX_VALUE ? "VIOLATION" : "PASS");
+                        if (capacity == Integer.MAX_VALUE) {
+                            assertThat(result.sampleViolations())
+                                    .singleElement()
+                                    .asString()
+                                    .contains("maxPoolSize (16) exceeds corePoolSize");
+                        }
+                    });
+        }
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        for (String config : java.util.List.of(
+                "org.springframework.scheduling.annotation.ProxyAsyncConfiguration",
+                "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$AsyncConfigurerConfiguration",
+                "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$ThreadPoolTaskExecutorBuilderConfiguration",
+                "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$TaskExecutorConfiguration")) {
+            RootBeanDefinition configDef =
+                    new RootBeanDefinition(org.springframework.util.ClassUtils.resolveClassName(config, null));
+            configDef.setLazyInit(true);
+            factory.registerBeanDefinition(config, configDef);
+        }
+        RootBeanDefinition processorDef = new RootBeanDefinition();
+        processorDef.setFactoryBeanName("org.springframework.scheduling.annotation.ProxyAsyncConfiguration");
+        processorDef.setFactoryMethodName("asyncAdvisor");
+        processorDef.setTargetType(org.springframework.scheduling.annotation.AsyncAnnotationBeanPostProcessor.class);
+        processorDef.setLazyInit(true);
+        factory.registerBeanDefinition(
+                "org.springframework.scheduling.config.internalAsyncAnnotationProcessor", processorDef);
+        RootBeanDefinition asyncConfigurerDef = new RootBeanDefinition();
+        asyncConfigurerDef.setFactoryBeanName(
+                "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$AsyncConfigurerConfiguration");
+        asyncConfigurerDef.setFactoryMethodName("applicationTaskExecutorAsyncConfigurer");
+        asyncConfigurerDef.setTargetType(AsyncConfigurer.class);
+        asyncConfigurerDef.setLazyInit(true);
+        factory.registerBeanDefinition("applicationTaskExecutorAsyncConfigurer", asyncConfigurerDef);
+        RootBeanDefinition builderDef = new RootBeanDefinition();
+        builderDef.setFactoryBeanName(
+                "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$ThreadPoolTaskExecutorBuilderConfiguration");
+        builderDef.setFactoryMethodName("threadPoolTaskExecutorBuilder");
+        builderDef.setTargetType(org.springframework.boot.task.ThreadPoolTaskExecutorBuilder.class);
+        factory.registerBeanDefinition("threadPoolTaskExecutorBuilder", builderDef);
+        factory.registerSingleton(
+                "threadPoolTaskExecutorBuilder",
+                new org.springframework.boot.task.ThreadPoolTaskExecutorBuilder()
+                        .queueCapacity(Integer.MAX_VALUE)
+                        .corePoolSize(4)
+                        .maxPoolSize(16));
+        RootBeanDefinition executorDef = new RootBeanDefinition();
+        executorDef.setFactoryBeanName(
+                "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$TaskExecutorConfiguration");
+        executorDef.setFactoryMethodName("applicationTaskExecutor");
+        executorDef.setTargetType(ThreadPoolTaskExecutor.class);
+        executorDef.setLazyInit(true);
+        factory.registerBeanDefinition("applicationTaskExecutor", executorDef);
+        assertThat(factory.containsSingleton("applicationTaskExecutor")).isFalse();
+        SpringContext snapshot = SpringInventory.discover(factory, new MockEnvironment(), false);
+        assertThat(factory.containsSingleton("applicationTaskExecutor")).isFalse();
+        assertThat(snapshot.observations().get(ASYNC_QUEUE_CAPACITY, Integer.class))
+                .isEqualTo(Integer.MAX_VALUE);
+        var result = new UnboundedAsyncQueueRule().evaluate(snapshot);
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("maxPoolSize (16) exceeds corePoolSize");
+    }
+
+    @Test
+    void virtualThreadSimpleAsyncTaskExecutorAndMixedQualifiersPreserveCoverage() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(ApplicationFixtures.AsyncConfiguration.class)
+                .withBean(
+                        "applicationTaskExecutor",
+                        org.springframework.core.task.SimpleAsyncTaskExecutor.class,
+                        org.springframework.core.task.SimpleAsyncTaskExecutor::new)
+                .run(context -> {
+                    SpringContext snapshot =
+                            SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+                    assertThat(snapshot.observations().yes(ASYNC_NON_POOL)).isTrue();
+                    assertThat(new UnboundedAsyncQueueRule().evaluate(snapshot).status())
+                            .isEqualTo("SKIPPED");
+                    assertThat(SpringScanner.evidence(snapshot).coverageComplete())
+                            .isTrue();
+                });
+        tasks.withBean(ApplicationFixtures.MixedAsync.class).run(context -> {
+            SpringContext snapshot =
+                    SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+            assertThat(snapshot.observations().get(ASYNC_SELECTION, AsyncSelection.class))
+                    .isEqualTo(AsyncSelection.SELECTED);
+            assertThat(new UnboundedAsyncQueueRule().evaluate(snapshot).status())
+                    .isEqualTo("VIOLATION");
+        });
+        tasks.withBean(ApplicationFixtures.QualifiedAsync.class).run(context -> {
+            SpringContext snapshot =
+                    SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+            assertThat(snapshot.observations().yes(ASYNC_QUALIFIED_ONLY)).isTrue();
+            assertThat(new AmbiguousTaskExecutorRule().evaluate(snapshot).status())
+                    .isEqualTo("SKIPPED");
+            assertThat(new AsyncWithoutCustomExecutorRule().evaluate(snapshot).status())
+                    .isEqualTo("SKIPPED");
+            assertThat(new UnboundedAsyncQueueRule().evaluate(snapshot).status())
+                    .isEqualTo("SKIPPED");
+            assertThat(SpringScanner.evidence(snapshot).coverageComplete()).isTrue();
+        });
+        tasks.withBean(ApplicationFixtures.DefaultNamedQualifiedAsync.class).run(context -> {
+            SpringContext snapshot =
+                    SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+            assertThat(snapshot.observations().yes(ASYNC_QUALIFIED_ONLY)).isFalse();
+            assertThat(snapshot.observations().get(ASYNC_SELECTION, AsyncSelection.class))
+                    .isEqualTo(AsyncSelection.SELECTED);
+            assertThat(new UnboundedAsyncQueueRule().evaluate(snapshot).status())
+                    .isEqualTo("VIOLATION");
+        });
+        tasks.withBean(
+                        "jdkProxiedAsync",
+                        ApplicationFixtures.AsyncService.class,
+                        ApplicationFixtures.JdkProxiedQualifiedAsyncService::new)
+                .run(context -> {
+                    assertThat(java.lang.reflect.Proxy.isProxyClass(
+                                    context.getBean("jdkProxiedAsync").getClass()))
+                            .isTrue();
+                    SpringContext snapshot =
+                            SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+                    assertThat(snapshot.observations().yes(ASYNC_QUALIFIED_ONLY))
+                            .isTrue();
+                    assertThat(new UnboundedAsyncQueueRule().evaluate(snapshot).status())
+                            .isEqualTo("SKIPPED");
+                    assertThat(SpringScanner.evidence(snapshot).coverageComplete())
+                            .isTrue();
+                });
+    }
+
+    @Test
     void stompChannelExecutorsAreFrameworkOwnedAndApplicationPoolsAreNamed() {
         var web = new WebApplicationContextRunner()
                 .withPropertyValues("spring.threads.virtual.enabled=true")
@@ -723,6 +867,32 @@ class SpringInventoryTests {
                             .isEqualTo("SKIPPED");
                     assertThat(customizations).hasValue(before);
                 });
+        new ReactiveWebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(
+                        CodecsAutoConfiguration.class,
+                        org.springframework.boot.webflux.autoconfigure.WebFluxAutoConfiguration.class))
+                .withPropertyValues("spring.http.codecs.max-in-memory-size=-1")
+                .withBean(
+                        io.github.jdubois.bootui.autoconfigure.reactive.BootUiJsonWebFluxConfigurer.class,
+                        () -> new io.github.jdubois.bootui.autoconfigure.reactive.BootUiJsonWebFluxConfigurer(
+                                new io.github.jdubois.bootui.autoconfigure.BootUiProperties()))
+                .withBean(
+                        io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiStaticResourceConfigurer.class,
+                        () ->
+                                new io.github.jdubois.bootui.autoconfigure.reactive
+                                        .ReactiveBootUiStaticResourceConfigurer(
+                                        new MockEnvironment(),
+                                        new io.github.jdubois.bootui.autoconfigure.BootUiProperties()))
+                .run(context -> {
+                    SpringContext snapshot =
+                            SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), true);
+                    assertThat(snapshot.observations().yes(BOOT_CODEC_CONFIGURATION))
+                            .isTrue();
+                    assertThat(new UnlimitedCodecAggregationRule()
+                                    .evaluate(snapshot)
+                                    .status())
+                            .isEqualTo("VIOLATION");
+                });
     }
 
     @Test
@@ -746,6 +916,67 @@ class SpringInventoryTests {
                     assertThat(result.status()).isEqualTo("VIOLATION");
                     assertThat(result.toString()).doesNotContain("do-not-display", "jdbc:h2:mem:");
                 });
+    }
+
+    @Test
+    void sqlTracedAndMultiDataSourceInMemoryHikariAreUnwrappedAndEvaluatedPerBean() {
+        var recorder = new io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder(
+                false, false, false, false, 100, 100, 256, 128, 5);
+        new ApplicationContextRunner()
+                .withBean("primaryDataSource", javax.sql.DataSource.class, () -> {
+                    HikariDataSource ds = new HikariDataSource();
+                    ds.setJdbcUrl("jdbc:postgresql://db/orders");
+                    return io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies.wrap(ds, recorder);
+                })
+                .withBean("ephemeralDataSource", javax.sql.DataSource.class, () -> {
+                    HikariDataSource ds = new HikariDataSource();
+                    ds.setJdbcUrl("jdbc:h2:mem;DB_CLOSE_DELAY=-1");
+                    return new org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy(
+                            io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies.wrap(ds, recorder));
+                })
+                .run(context -> {
+                    context.getEnvironment().setDefaultProfiles("prod");
+                    SpringContext snapshot =
+                            SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+                    assertThat(snapshot.observations().get(JDBC_KIND, String.class))
+                            .isEqualTo("H2 memory");
+                    var result = new InMemoryDatasourceInProductionRule().evaluate(snapshot);
+                    assertThat(result.status()).isEqualTo("VIOLATION");
+                    assertThat(result.violationCount()).isEqualTo(1);
+                    assertThat(result.sampleViolations().get(0)).contains("ephemeralDataSource");
+                    assertThat(SpringScanner.evidence(snapshot).coverageComplete())
+                            .isTrue();
+                });
+        AtomicInteger lazyTargetCreated = new AtomicInteger();
+        DefaultListableBeanFactory lazyFactory = new DefaultListableBeanFactory();
+        RootBeanDefinition lazyTargetDef =
+                new RootBeanDefinition(org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy.class, () -> {
+                    lazyTargetCreated.incrementAndGet();
+                    HikariDataSource ds = new HikariDataSource();
+                    ds.setJdbcUrl("jdbc:h2:mem:lazy");
+                    return new org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy(ds);
+                });
+        lazyTargetDef.setLazyInit(true);
+        lazyFactory.registerBeanDefinition("lazyDelegatingTarget", lazyTargetDef);
+        org.springframework.aop.target.LazyInitTargetSource targetSource =
+                new org.springframework.aop.target.LazyInitTargetSource();
+        targetSource.setTargetBeanName("lazyDelegatingTarget");
+        targetSource.setTargetClass(org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy.class);
+        targetSource.setBeanFactory(lazyFactory);
+        org.springframework.aop.framework.ProxyFactory proxyFactory =
+                new org.springframework.aop.framework.ProxyFactory();
+        proxyFactory.setProxyTargetClass(true);
+        proxyFactory.setTargetSource(targetSource);
+        lazyFactory.registerSingleton("cglibLazyDelegatingDataSource", proxyFactory.getProxy());
+        MockEnvironment prodEnv = new MockEnvironment();
+        prodEnv.setDefaultProfiles("prod");
+        assertThat(lazyTargetCreated).hasValue(0);
+        assertThat(lazyFactory.containsSingleton("lazyDelegatingTarget")).isFalse();
+        SpringContext snapshot = SpringInventory.discover(lazyFactory, prodEnv, false);
+        assertThat(lazyTargetCreated).hasValue(0);
+        assertThat(lazyFactory.containsSingleton("lazyDelegatingTarget")).isFalse();
+        assertThat(new InMemoryDatasourceInProductionRule().evaluate(snapshot).status())
+                .isEqualTo("SKIPPED");
     }
 
     @Test

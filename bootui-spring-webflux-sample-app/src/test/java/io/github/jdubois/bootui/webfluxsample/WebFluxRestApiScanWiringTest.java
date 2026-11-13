@@ -38,12 +38,20 @@ class WebFluxRestApiScanWiringTest {
         assertThat(report.results())
                 .extracting(result -> result.id())
                 .doesNotContain(
+                        "RAPI-MAP-004",
                         "RAPI-MAP-008",
+                        "RAPI-NAME-002",
                         "RAPI-NAME-004",
-                        "RAPI-ERR-011",
-                        "RAPI-DOC-003",
+                        "RAPI-RESP-004",
+                        "RAPI-RESP-008",
                         "RAPI-VALID-005",
                         "RAPI-DTO-004",
-                        "RAPI-ERR-002");
+                        "RAPI-VER-002",
+                        "RAPI-VER-005",
+                        "RAPI-ERR-002",
+                        "RAPI-ERR-011",
+                        "RAPI-DOC-001",
+                        "RAPI-DOC-002",
+                        "RAPI-DOC-003");
     }
 }
