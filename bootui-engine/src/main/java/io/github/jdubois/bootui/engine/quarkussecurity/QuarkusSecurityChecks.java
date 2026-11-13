@@ -886,22 +886,13 @@ final class QuarkusSecurityChecks {
 
     private record UncoveredEndpoints(int count, List<String> details) {}
 
+    private static final Set<String> ENDPOINT_ONLY_INCOMPLETE_CATEGORIES =
+            Set.of("REST endpoint metadata", "unknown endpoint authorization", "unsupported REST endpoint declaration");
+
     private static boolean canRetainProvenUncoveredEndpoints(QuarkusSecuritySnapshot s) {
-        if (!s.evidence().endpointMetadata()) {
-            return false;
-        }
-        for (String category : s.evidence().incomplete()) {
-            if (Set.of(
-                            "non-default REST listener prefix",
-                            "custom authorization declarations",
-                            "custom configuration source inventory",
-                            "configuration key limit",
-                            "configuration source limit")
-                    .contains(category)) {
-                return false;
-            }
-        }
-        return true;
+        return s.evidence().endpointMetadata()
+                && s.evidence().failures().isEmpty()
+                && ENDPOINT_ONLY_INCOMPLETE_CATEGORIES.containsAll(s.evidence().incomplete());
     }
 
     private static UncoveredEndpoints uncoveredEndpoints(QuarkusSecuritySnapshot snapshot, Observations observations) {

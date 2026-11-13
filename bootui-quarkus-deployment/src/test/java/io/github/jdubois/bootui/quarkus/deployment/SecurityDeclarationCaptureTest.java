@@ -80,6 +80,30 @@ class SecurityDeclarationCaptureTest {
                 .hasSize(2)
                 .allSatisfy(
                         endpoint -> assertThat(endpoint.access()).isEqualTo(QuarkusSecurityEndpoint.Access.RESTRICTED));
+
+        Indexer inheritedIndexer = new Indexer();
+        inheritedIndexer.indexClass(InheritedSecurityResource.class);
+        var inheritedIndex = inheritedIndexer.complete();
+        var inheritedCapture = SecurityDeclarationCapture.capture(inheritedIndex, inheritedIndex);
+        assertThat(inheritedCapture.incomplete()).isTrue();
+        assertThat(inheritedCapture.endpoints())
+                .singleElement()
+                .satisfies(endpoint -> assertThat(endpoint.access()).isEqualTo(QuarkusSecurityEndpoint.Access.UNKNOWN));
+    }
+
+    interface UnindexedSecuredContract {
+        @jakarta.annotation.security.RolesAllowed("admin")
+        String inherited();
+    }
+
+    @Path("/inherited")
+    static class InheritedSecurityResource implements UnindexedSecuredContract {
+        @GET
+        @Path("/items")
+        @Override
+        public String inherited() {
+            return "inherited";
+        }
     }
 
     interface MarkerContract {}

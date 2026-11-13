@@ -206,6 +206,63 @@ class SecurityAuditAccuracyTests {
         assertThat(anonymousRoleChain.details().mappings())
                 .extracting(SecurityModel.AuthorizationMapping::state)
                 .containsExactly(SecurityModel.GrantState.UNKNOWN);
+
+        var customHierarchyManager = org.springframework.security.authorization.AuthorityAuthorizationManager
+                .<org.springframework.security.web.access.intercept.RequestAuthorizationContext>hasRole("ADMIN");
+        customHierarchyManager.setRoleHierarchy(authorities -> {
+            throw new AssertionError("Custom RoleHierarchy must not be invoked");
+        });
+        FilterChainModel customHierarchyChain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE,
+                new AuthorizationFilter(RequestMatcherDelegatingAuthorizationManager.builder()
+                        .add(AnyRequestMatcher.INSTANCE, customHierarchyManager)
+                        .build())));
+        assertThat(customHierarchyChain.permitsAllAnonymous()).isNull();
+        assertThat(customHierarchyChain.details().mappings())
+                .extracting(SecurityModel.AuthorizationMapping::state)
+                .containsExactly(SecurityModel.GrantState.UNKNOWN);
+
+        var customTrustManager = org.springframework.security.authorization.AuthenticatedAuthorizationManager
+                .<org.springframework.security.web.access.intercept.RequestAuthorizationContext>rememberMe();
+        var resolver = new org.springframework.security.authentication.AuthenticationTrustResolverImpl();
+        resolver.setRememberMeClass(org.springframework.security.authentication.AnonymousAuthenticationToken.class);
+        customTrustManager.setTrustResolver(resolver);
+        FilterChainModel customTrustChain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE,
+                new AuthorizationFilter(RequestMatcherDelegatingAuthorizationManager.builder()
+                        .add(AnyRequestMatcher.INSTANCE, customTrustManager)
+                        .build())));
+        assertThat(customTrustChain.permitsAllAnonymous()).isNull();
+        assertThat(customTrustChain.details().mappings())
+                .extracting(SecurityModel.AuthorizationMapping::state)
+                .containsExactly(SecurityModel.GrantState.UNKNOWN);
+
+        FilterChainModel customAnonymousAuthorityChain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE,
+                new org.springframework.security.web.authentication.AnonymousAuthenticationFilter(
+                        "key",
+                        "anonymousUser",
+                        List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_GUEST"))),
+                new AuthorizationFilter(RequestMatcherDelegatingAuthorizationManager.builder()
+                        .add(
+                                AnyRequestMatcher.INSTANCE,
+                                org.springframework.security.authorization.AuthorityAuthorizationManager.hasRole(
+                                        "GUEST"))
+                        .build())));
+        assertThat(customAnonymousAuthorityChain.permitsAllAnonymous()).isNull();
+
+        var exactBeforeCaptureTheRest = RequestMatcherDelegatingAuthorizationManager.builder()
+                .add(
+                        PathPatternRequestMatcher.pathPattern("/actuator/custom"),
+                        SingleResultAuthorizationManager.permitAll())
+                .add(AnyRequestMatcher.INSTANCE, SingleResultAuthorizationManager.denyAll())
+                .build();
+        FilterChainModel captureRestChain = model(new DefaultSecurityFilterChain(
+                AnyRequestMatcher.INSTANCE, new AuthorizationFilter(exactBeforeCaptureTheRest)));
+        assertThat(SecurityScanner.grantFor(captureRestChain.details().mappings(), "GET", "/actuator/custom/{*path}"))
+                .isNull();
+        assertThat(SecurityScanner.grantFor(captureRestChain.details().mappings(), "GET", "/actuator/custom/{name}"))
+                .isFalse();
     }
 
     @Test

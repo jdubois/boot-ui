@@ -95,13 +95,12 @@ final class SecurityDeclarationCapture {
                     return new Metadata(unknown, true);
                 }
                 var declared = rawBindings(method);
-                var actual = bindings.getOrDefault(method, Set.of()).stream()
-                        .filter(annotation -> INTERCEPTOR_BINDING_SECURITY.contains(
-                                annotation.name().toString()))
-                        .toList();
+                var actual = unpackBindings(bindings.getOrDefault(method, Set.of()));
                 if (declared.size() != actual.size()
                         || declared.stream()
-                                .anyMatch(annotation -> actual.stream().noneMatch(annotation::equivalentTo))) {
+                                .anyMatch(annotation -> actual.stream().noneMatch(annotation::equivalentTo))
+                        || actual.stream()
+                                .anyMatch(annotation -> declared.stream().noneMatch(annotation::equivalentTo))) {
                     unknown.add(method);
                 }
             }
@@ -129,10 +128,11 @@ final class SecurityDeclarationCapture {
 
     static Capture capture(IndexView application, IndexView annotations, Metadata metadata) {
         List<QuarkusSecurityEndpoint> endpoints = new ArrayList<>();
-        boolean incomplete = metadata.incomplete()
-                || annotations.getAnnotations(DotName.createSimple("jakarta.ws.rs.ApplicationPath")).stream()
+        boolean nonRootApplicationPath =
+                annotations.getAnnotations(DotName.createSimple("jakarta.ws.rs.ApplicationPath")).stream()
                         .anyMatch(annotation -> annotation.value() == null
                                 || !Set.of("", "/").contains(annotation.value().asString()));
+        boolean incomplete = metadata.incomplete() || nonRootApplicationPath;
         boolean grpc = false;
         boolean securityObserver = false;
         boolean identityProducer = false;
@@ -180,7 +180,8 @@ final class SecurityDeclarationCapture {
                 }
                 continue;
             }
-            if (hasInheritedJaxRsOrSecurityMetadata(type, annotations)) {
+            boolean inheritedMetadata = hasInheritedJaxRsOrSecurityMetadata(type, annotations);
+            if (inheritedMetadata) {
                 incomplete = true;
             }
             for (MethodInfo method : type.methods()) {
@@ -209,7 +210,8 @@ final class SecurityDeclarationCapture {
                             && java.util.Arrays.stream(produces.value().asStringArray())
                                     .anyMatch(value ->
                                             value.equals("text/html") || value.equals("application/xhtml+xml"));
-                    boolean uncertain = metadata.unknownMethods().contains(method);
+                    boolean uncertain =
+                            metadata.unknownMethods().contains(method) || inheritedMetadata || nonRootApplicationPath;
                     incomplete |= uncertain;
                     endpoints.add(new QuarkusSecurityEndpoint(
                             path, verb, uncertain ? QuarkusSecurityEndpoint.Access.UNKNOWN : access(method), document));
@@ -341,18 +343,37 @@ final class SecurityDeclarationCapture {
     private static List<AnnotationInstance> rawBindings(MethodInfo method) {
         // Arc materializes interceptor bindings, not Quarkus's effective SecurityCheck. Different class/method
         // binding types can coexist even when Quarkus's method-level authorization overrides the class declaration.
-        var bindings = new java.util.LinkedHashMap<DotName, AnnotationInstance>();
-        for (AnnotationInstance annotation : method.declaringClass().declaredAnnotations()) {
-            if (INTERCEPTOR_BINDING_SECURITY.contains(annotation.name().toString())) {
-                bindings.put(annotation.name(), annotation);
+        var bindings = new java.util.LinkedHashMap<DotName, List<AnnotationInstance>>();
+        for (AnnotationInstance annotation :
+                unpackBindings(method.declaringClass().declaredAnnotations())) {
+            bindings.computeIfAbsent(annotation.name(), ignored -> new ArrayList<>())
+                    .add(annotation);
+        }
+        var methodBindings = new java.util.LinkedHashMap<DotName, List<AnnotationInstance>>();
+        for (AnnotationInstance annotation : unpackBindings(method.declaredAnnotations())) {
+            methodBindings
+                    .computeIfAbsent(annotation.name(), ignored -> new ArrayList<>())
+                    .add(annotation);
+        }
+        bindings.putAll(methodBindings);
+        return bindings.values().stream().flatMap(List::stream).toList();
+    }
+
+    private static List<AnnotationInstance> unpackBindings(java.util.Collection<AnnotationInstance> annotations) {
+        List<AnnotationInstance> result = new ArrayList<>();
+        for (AnnotationInstance annotation : annotations) {
+            String name = annotation.name().toString();
+            if ("io.quarkus.security.PermissionsAllowed$List".equals(name) && annotation.value() != null) {
+                for (AnnotationInstance nested : annotation.value().asNestedArray()) {
+                    if (INTERCEPTOR_BINDING_SECURITY.contains(nested.name().toString())) {
+                        result.add(nested);
+                    }
+                }
+            } else if (INTERCEPTOR_BINDING_SECURITY.contains(name)) {
+                result.add(annotation);
             }
         }
-        for (AnnotationInstance annotation : method.declaredAnnotations()) {
-            if (INTERCEPTOR_BINDING_SECURITY.contains(annotation.name().toString())) {
-                bindings.put(annotation.name(), annotation);
-            }
-        }
-        return List.copyOf(bindings.values());
+        return List.copyOf(result);
     }
 
     private static boolean implementsAny(IndexView index, List<String> types) {

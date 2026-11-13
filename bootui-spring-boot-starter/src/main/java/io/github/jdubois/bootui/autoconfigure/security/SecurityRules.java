@@ -55,7 +55,7 @@ abstract class AbstractSecurityRule implements SecurityRule {
             // Property, method, provider and header-writer observations are not invalidated by an
             // unrelated custom filter. Chain-dependent absence still needs a supported chain inventory.
             boolean chainsSupported = !context.evidence().evaluation().hasApplicableTargets()
-                    || Set.of("SEC-SESSION-002", "SEC-SESSION-003", "SEC-SESSION-004", "SEC-AUTHZ-004", "SEC-AUTHZ-005")
+                    || Set.of("SEC-SESSION-002", "SEC-SESSION-003", "SEC-SESSION-004")
                             .contains(definition.id())
                     || switch (definition.category()) {
                         case AUTHORIZATION, CSRF, SESSION ->
@@ -489,7 +489,9 @@ final class CatchAllChainOrderingRule extends AbstractSecurityRule {
         List<String> details = new ArrayList<>();
         for (int i = 0; i < chains.size() - 1; i++) {
             FilterChainModel chain = chains.get(i);
-            context.required(chain.details().unconditional() || chain.details().matcher() != null);
+            context.required(chain.details().unconditional()
+                    || (chain.details().matcher() != null
+                            && chain.details().matcher().complete()));
             if (chain.matchesAnyRequest()) {
                 details.add(chain.describe()
                         + " matches any request but is not the last chain; later chains are unreachable.");

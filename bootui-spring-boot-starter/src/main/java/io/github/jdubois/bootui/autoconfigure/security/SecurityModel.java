@@ -604,10 +604,11 @@ final class SecurityModel {
                     int template = requestPath == null ? -1 : requestPath.indexOf("/{");
                     if (template >= 0) {
                         String concretePrefix = requestPath.substring(0, template);
-                        if (!path.startsWith(concretePrefix + "/")) {
-                            return false;
+                        boolean captureTheRest = requestPath.startsWith("/{*", template);
+                        if (path.startsWith(concretePrefix + "/") || (captureTheRest && path.equals(concretePrefix))) {
+                            return null;
                         }
-                        return null;
+                        return false;
                     }
                     return path.equals(requestPath);
                 }

@@ -565,7 +565,8 @@ final class SecurityScanner {
         String matcher = matcherDescription(chain);
         MatcherFacts matcherFacts = matcherFacts(readField(chain, "requestMatcher"), 0);
         AuthorizationManager<HttpServletRequest> authorizationManager = authorizationManager(filters);
-        List<AuthorizationMapping> mappings = authorizationMappings(authorizationManager);
+        List<AuthorizationMapping> mappings =
+                authorizationMappings(authorizationManager, defaultAnonymousAuthorities(filters));
         Boolean permitsAllAnonymous = blanketGrant(mappings);
         SessionFixationFacts sessionFixation = detectSessionFixation(filters);
         Boolean sessionFixationDisabled = sessionFixation.disabled();
@@ -1236,10 +1237,11 @@ final class SecurityScanner {
         return unknownMatcher();
     }
 
-    private static List<AuthorizationMapping> authorizationMappings(AuthorizationManager<HttpServletRequest> manager) {
+    private static List<AuthorizationMapping> authorizationMappings(
+            AuthorizationManager<HttpServletRequest> manager, boolean defaultAnonymousAuthorities) {
         Object unwrapped = unwrapObservationAuthorizationManager(manager);
         if (unwrapped == null) return List.of();
-        GrantState direct = grantState(unwrapped);
+        GrantState direct = grantState(unwrapped, defaultAnonymousAuthorities);
         if (direct != GrantState.UNKNOWN) {
             return List.of(new AuthorizationMapping(new MatcherFacts("any", null, null, List.of()), direct));
         }
@@ -1249,13 +1251,45 @@ final class SecurityScanner {
         List<AuthorizationMapping> result = new ArrayList<>();
         for (Object value : mappings) {
             if (!(value instanceof RequestMatcherEntry<?> entry)) return List.of();
-            result.add(
-                    new AuthorizationMapping(matcherFacts(entry.getRequestMatcher(), 0), grantState(entry.getEntry())));
+            result.add(new AuthorizationMapping(
+                    matcherFacts(entry.getRequestMatcher(), 0),
+                    grantState(entry.getEntry(), defaultAnonymousAuthorities)));
         }
         return List.copyOf(result);
     }
 
+    private static boolean defaultAnonymousAuthorities(List<Filter> filters) {
+        for (Filter filter : filters) {
+            if (filter == null
+                    || !filter.getClass()
+                            .getName()
+                            .equals("org.springframework.security.web.authentication.AnonymousAuthenticationFilter")) {
+                continue;
+            }
+            if (!(readField(filter, "authorities") instanceof List<?> authorities)
+                    || authorities.isEmpty()
+                    || authorities.size() > 16) {
+                return false;
+            }
+            for (Object authority : authorities) {
+                if (authority == null
+                        || !authority
+                                .getClass()
+                                .getName()
+                                .equals("org.springframework.security.core.authority.SimpleGrantedAuthority")
+                        || !"ROLE_ANONYMOUS".equals(readField(authority, "role"))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     private static GrantState grantState(Object manager) {
+        return grantState(manager, true);
+    }
+
+    private static GrantState grantState(Object manager, boolean defaultAnonymousAuthorities) {
         if (manager instanceof AuthorizationManager<?> typed) {
             @SuppressWarnings("unchecked")
             AuthorizationManager<HttpServletRequest> unwrapped =
@@ -1285,24 +1319,36 @@ final class SecurityScanner {
                                     "org.springframework.security.authorization.AuthenticatedAuthorizationManager$RememberMeAuthorizationStrategy")
                             .contains(strategy.getClass().getName())) {
                 Object trustResolver = readField(strategy, "trustResolver");
-                if (trustResolver == null
-                        || (trustResolver
-                                        .getClass()
-                                        .getName()
-                                        .equals(
-                                                "org.springframework.security.authentication.AuthenticationTrustResolverImpl")
-                                && readField(trustResolver, "anonymousClass") instanceof Class<?> anonymousClass
-                                && anonymousClass
-                                        .getName()
-                                        .equals(
-                                                "org.springframework.security.authentication.AnonymousAuthenticationToken"))) {
+                if (trustResolver != null
+                        && trustResolver
+                                .getClass()
+                                .getName()
+                                .equals("org.springframework.security.authentication.AuthenticationTrustResolverImpl")
+                        && readField(trustResolver, "anonymousClass") instanceof Class<?> anonymousClass
+                        && anonymousClass
+                                .getName()
+                                .equals("org.springframework.security.authentication.AnonymousAuthenticationToken")
+                        && readField(trustResolver, "rememberMeClass") instanceof Class<?> rememberMeClass
+                        && rememberMeClass
+                                .getName()
+                                .equals("org.springframework.security.authentication.RememberMeAuthenticationToken")) {
                     return GrantState.RESTRICTED_NON_ANONYMOUS;
                 }
             }
             return GrantState.UNKNOWN;
         }
         if (type.equals("org.springframework.security.authorization.AuthorityAuthorizationManager")) {
-            if (readField(manager, "authorities") instanceof Set<?> authorities
+            Object delegate = readField(manager, "delegate");
+            Object roleHierarchy = delegate != null
+                            && delegate.getClass()
+                                    .getName()
+                                    .equals(
+                                            "org.springframework.security.authorization.AuthoritiesAuthorizationManager")
+                    ? readField(delegate, "roleHierarchy")
+                    : null;
+            if (defaultAnonymousAuthorities
+                    && isNullRoleHierarchy(roleHierarchy)
+                    && readField(manager, "authorities") instanceof Set<?> authorities
                     && !authorities.isEmpty()
                     && authorities.size() <= 128
                     && authorities.stream()
@@ -1314,7 +1360,9 @@ final class SecurityScanner {
             return GrantState.UNKNOWN;
         }
         if (type.equals("org.springframework.security.authorization.AllAuthoritiesAuthorizationManager")) {
-            if (readField(manager, "requiredAuthorities") instanceof java.util.Collection<?> authorities
+            if (defaultAnonymousAuthorities
+                    && isNullRoleHierarchy(readField(manager, "roleHierarchy"))
+                    && readField(manager, "requiredAuthorities") instanceof java.util.Collection<?> authorities
                     && !authorities.isEmpty()
                     && authorities.size() <= 128
                     && authorities.stream()
@@ -1326,6 +1374,14 @@ final class SecurityScanner {
             return GrantState.UNKNOWN;
         }
         return GrantState.UNKNOWN;
+    }
+
+    private static boolean isNullRoleHierarchy(Object roleHierarchy) {
+        return roleHierarchy != null
+                && roleHierarchy
+                        .getClass()
+                        .getName()
+                        .equals("org.springframework.security.access.hierarchicalroles.NullRoleHierarchy");
     }
 
     private static Boolean constantGrant(Object manager) {

@@ -2055,6 +2055,40 @@ class SecurityRulesTests {
         assertThat(new SessionFixationRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
         assertThat(new SessionCookieHttpOnlyRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
         assertThat(new SessionCookieSameSiteRule().evaluate(ctx).status()).isEqualTo(SecurityRuleSupport.PASS);
+
+        FilterChainModel unsupported = new FilterChainModel(
+                0,
+                "(unsupported chain)",
+                List.of(),
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new SecurityModel.ChainDetails(
+                        false,
+                        false,
+                        false,
+                        false,
+                        new SecurityModel.MatcherFacts("unknown", null, null, List.of()),
+                        List.of(),
+                        null,
+                        false,
+                        false,
+                        false));
+        SecurityContext unsupportedTwoChains =
+                context(List.of(unsupported, chainWithCustomFilter), new MockEnvironment());
+        assertThat(new CatchAllChainOrderingRule()
+                        .evaluate(unsupportedTwoChains)
+                        .status())
+                .isEqualTo(SecurityRuleSupport.SKIPPED);
     }
 
     @Test

@@ -237,6 +237,18 @@ class QuarkusSecurityScannerTest {
                 scanner.ruleViolations("QS-AUTHZ-004", report.violationDetails().scanId(), 0, null);
         assertThat(details.violations())
                 .containsExactly("GET /api/items/{id} — declared endpoint without a supported restriction");
+
+        snap.evidence = new QuarkusSecurityEvidence(
+                Set.of("QS-AUTH-001", "QS-AUTHZ-001", "QS-AUTHZ-004"),
+                List.of("unresolved or oversized configuration"),
+                List.of(),
+                snap.evidence.endpoints(),
+                true);
+        assertThat(QuarkusSecurityScanner.usingSnapshot(snap::build, CLOCK)
+                        .scan()
+                        .results())
+                .extracting(SecurityRuleResultDto::id)
+                .doesNotContain("QS-AUTHZ-004");
     }
 
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(1000), ZoneOffset.UTC);
