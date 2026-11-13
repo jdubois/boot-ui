@@ -80,7 +80,7 @@ set.
 
 ## Generated application code
 
-The coding-practice rules **ARCH-CODE-001** through **ARCH-CODE-018** exclude classes BootUI can positively identify as
+The coding-practice rules **ARCH-CODE-001** through **ARCH-CODE-017** exclude classes BootUI can positively identify as
 generated, so OpenAPI Generator's `ApiUtil` helpers do not contribute generic-exception findings while a handwritten
 generic throw still does.
 
@@ -319,10 +319,8 @@ Dismissing a rule removes all of its instances from the score.
 
 ### ARCH-CODE-004 - Classes should not use Joda-Time
 
-- **Severity**: INFO
-- **Inspects**: use of the legacy Joda-Time library.
-- **Fires when**: a class references Joda-Time types instead of `java.time`.
-- **Recommendation**: migrate Joda-Time usage to the standard `java.time` API.
+**Retired.** Joda-Time was superseded by `java.time` in JDK 8 (2014) and removed from Spring Framework 6.0 (2022).
+ARCH-CODE-008 already covers legacy JDK `Date` and `Calendar` APIs.
 
 ### ARCH-CODE-006 - Classes should not forcibly terminate the JVM
 
@@ -543,14 +541,9 @@ Dismissing a rule removes all of its instances from the score.
 
 ### ARCH-CODE-018 - Assertions should have a detail message
 
-- **Severity**: INFO
-- **Inspects**: `assert` statements, which compile to a no-arg `new AssertionError()` when they have no detail message
-  (via ArchUnit's built-in `GeneralCodingRules.ASSERTIONS_SHOULD_HAVE_DETAIL_MESSAGE`).
-- **Fires when**: a class contains an `assert` statement with no detail message (`assert x > 0;`), which produces a
-  near-useless failure diagnostic. An `assert` with a message (`assert x > 0 : "x must be positive";`) compiles to the
-  message-taking overload and is not matched.
-- **Recommendation**: add a detail message, e.g. `assert x > 0 : "x must be positive";`, so a failure explains what was
-  expected.
+**Retired.** ArchUnit's `ASSERTIONS_SHOULD_HAVE_DETAIL_MESSAGE` inspects no-arg `new AssertionError()` calls, which
+never matches Kotlin's messageless `assert(cond)` (compiled to `new AssertionError((Object) "Assertion failed")`) and
+false-positives on explicit `throw new AssertionError()` in unreachable `switch` or exhaustive branches.
 
 ## Spring stereotypes
 
@@ -956,8 +949,10 @@ These IDs stay reserved and are never reused, so an existing dismissal can never
 
 | ID | Previous subject | Reason for retirement |
 | --- | --- | --- |
+| ARCH-CODE-004 | `org.joda.time` types | Joda-Time was superseded by `java.time` in JDK 8 (2014) and removed from Spring Framework 6.0 (2022); ARCH-CODE-008 covers the remaining legacy JDK `Date` and `Calendar` APIs. |
 | ARCH-CODE-005 | `Throwable.printStackTrace(PrintStream/PrintWriter)` | `printStackTrace(System.err)` already reads `System.err`, which ARCH-CODE-001 reports. The remaining matches were mostly the legitimate `StringWriter` capture idiom or a stream the author chose deliberately. |
 | ARCH-CODE-011 | Interfaces named with an `Interface` suffix | A naming opinion with no authoritative source and false positives on domain nouns such as `UserInterface` or `NetworkInterface`. |
+| ARCH-CODE-018 | `assert` statements without a detail message (`new AssertionError()`) | ArchUnit's no-arg `new AssertionError()` check never matches Kotlin's messageless `assert(cond)` and false-positives on explicit `throw new AssertionError()` in unreachable `switch` or exhaustive branches. |
 | ARCH-SPRING-005 | Spring stereotypes in the default package | Unreachable: imports are bounded to named base packages, a blank base package fails the Spring scan, and Quarkus discovery drops the default package. The live Spring advisor's SPRING-WIRING-008 inspects registered beans instead. |
 | ARCH-SPRING-016 | Layered web → service → repository dependencies | Its violations were exactly the union of ARCH-SPRING-002, ARCH-SPRING-003, ARCH-SPRING-006, and ARCH-SPRING-007, so every finding was reported twice. |
 
