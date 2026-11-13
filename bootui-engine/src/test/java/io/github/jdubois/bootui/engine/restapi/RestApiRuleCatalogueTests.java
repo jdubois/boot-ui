@@ -23,12 +23,20 @@ class RestApiRuleCatalogueTests {
      * nothing, so it must not claim coverage either. Anything else belongs in the guarded set.
      */
     private static final Set<String> APPLICATION_WIDE = Set.of(
+            "PreferClassLevelBasePathRule",
             "MutatingItemMethodsTargetResourceRule",
+            "CollectionsUsePluralNounsRule",
             "FormatSuffixInPathRule",
-            "ExceptionHandlersDoNotExposeStackTracesRule",
+            "ReadEndpointsReturnRepresentationRule",
+            "CreatedResponsesExposeLocationRule",
             "DtosAreImmutableRule",
+            "MutatingEndpointsDeclareMediaTypesRule",
+            "ResponseProducingEndpointsDeclareProducesRule",
             "NoBroadThrowsOnHandlersRule",
-            "IdempotencyKeyOnCreationEndpointsRule");
+            "ExceptionHandlersDoNotExposeStackTracesRule",
+            "IdempotencyKeyOnCreationEndpointsRule",
+            "EndpointsAreDocumentedRule",
+            "ControllersAreTaggedRule");
 
     @Test
     void everyRegisteredRuleMarksTheEvidenceItReliesOn() {
