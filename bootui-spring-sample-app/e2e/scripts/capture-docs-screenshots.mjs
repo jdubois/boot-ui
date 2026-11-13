@@ -2419,7 +2419,7 @@ const memoryAdvisor = {
   disclaimer:
     'Heuristic JVM memory, GC, and thread rules run against the live management beans only. ' +
     'Findings are review prompts; validate against the application workload and a profiler before acting.',
-  rulesEvaluated: 28,
+  rulesEvaluated: 31,
   violationsFound: 3,
   summary: {
     heapUsedPercent: 82,
@@ -2441,9 +2441,9 @@ const memoryAdvisor = {
   scan: {
     analyzer: 'BootUI Memory Advisor',
     status: 'SCANNED',
-    message: 'Memory Advisor evaluated 28 rules against the live management beans.',
+    message: 'Memory Advisor evaluated 31 rules against the live management beans.',
     scannedAt: nowMillis - 24_000,
-    rulesEvaluated: 28,
+    rulesEvaluated: 31,
     violationsFound: 3
   },
   results: [

@@ -52,7 +52,7 @@ class MemoryAccuracyTests {
                         "MEM-CONTENT-004",
                         "MEM-CLASS-002");
         assertThat(ids)
-                .hasSize(28)
+                .hasSize(31)
                 .doesNotHaveDuplicates()
                 .containsExactlyInAnyOrder(
                         "MEM-HEAP-001",
@@ -64,6 +64,7 @@ class MemoryAccuracyTests {
                         "MEM-FOOTPRINT-001",
                         "MEM-FOOTPRINT-002",
                         "MEM-FOOTPRINT-003",
+                        "MEM-FOOTPRINT-005",
                         "MEM-POOL-001",
                         "MEM-POOL-002",
                         "MEM-POOL-003",
@@ -77,11 +78,13 @@ class MemoryAccuracyTests {
                         "MEM-GC-006",
                         "MEM-GC-007",
                         "MEM-GC-008",
+                        "MEM-GC-009",
                         "MEM-THREAD-001",
                         "MEM-THREAD-002",
                         "MEM-CONTENT-001",
                         "MEM-CONTENT-002",
                         "MEM-CONTENT-003",
+                        "MEM-CONTENT-005",
                         "MEM-CLASS-001")
                 .doesNotContainAnyElementsOf(MemoryRuleRegistry.RETIRED_RULE_IDS);
     }

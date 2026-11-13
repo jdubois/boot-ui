@@ -1346,6 +1346,345 @@ class MemoryRulesTests {
                 .doesNotContainAnyElementsOf(MemoryRules.RETIRED_RULE_IDS);
     }
 
+    // --- MEM-FOOTPRINT-005: cgroup v2 memory.high and memory.events --------------------------
+
+    @Test
+    void cgroupV2MemoryHighNearLimitIsMediumAndAtOrAboveLimitIsHigh() {
+        MemoryData nearHigh = new MemoryData(
+                256 * MB,
+                512 * MB,
+                512 * MB,
+                64 * MB,
+                80 * MB,
+                256 * MB,
+                List.of(),
+                0,
+                0,
+                0,
+                -1,
+                List.of("-Xmx512m"),
+                List.of("G1 Young Generation"),
+                1 * GB,
+                720 * MB,
+                700 * MB,
+                List.of(),
+                768 * MB,
+                new MemoryContext.CgroupMemoryEvents(0, 0, 0, 0));
+        MemoryRuleResultDto medium = find(
+                scan(context(nearHigh, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime())),
+                "MEM-FOOTPRINT-005");
+        assertThat(medium).isNotNull();
+        assertThat(medium.severity()).isEqualTo("MEDIUM");
+        assertThat(medium.sampleViolations().get(0)).contains("91%").contains("memory.high");
+
+        MemoryData aboveHigh = new MemoryData(
+                256 * MB,
+                512 * MB,
+                512 * MB,
+                64 * MB,
+                80 * MB,
+                256 * MB,
+                List.of(),
+                0,
+                0,
+                0,
+                -1,
+                List.of("-Xmx512m"),
+                List.of("G1 Young Generation"),
+                1 * GB,
+                800 * MB,
+                780 * MB,
+                List.of(),
+                768 * MB,
+                new MemoryContext.CgroupMemoryEvents(0, 0, 0, 0));
+        MemoryRuleResultDto high = find(
+                scan(context(aboveHigh, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime())),
+                "MEM-FOOTPRINT-005");
+        assertThat(high).isNotNull();
+        assertThat(high.severity()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void cgroupV2MemoryEventsFlagThrottlingAtMediumAndOomKillAtHigh() {
+        MemoryData throttled = new MemoryData(
+                256 * MB,
+                512 * MB,
+                512 * MB,
+                64 * MB,
+                80 * MB,
+                256 * MB,
+                List.of(),
+                0,
+                0,
+                0,
+                -1,
+                List.of("-Xmx512m"),
+                List.of("G1 Young Generation"),
+                1 * GB,
+                400 * MB,
+                380 * MB,
+                List.of(),
+                null,
+                new MemoryContext.CgroupMemoryEvents(8, 1, 0, 0));
+        MemoryRuleResultDto medium = find(
+                scan(context(throttled, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime())),
+                "MEM-FOOTPRINT-005");
+        assertThat(medium).isNotNull();
+        assertThat(medium.severity()).isEqualTo("MEDIUM");
+        assertThat(medium.sampleViolations().get(0)).contains("high=8, max=1");
+
+        MemoryData oomKilled = new MemoryData(
+                256 * MB,
+                512 * MB,
+                512 * MB,
+                64 * MB,
+                80 * MB,
+                256 * MB,
+                List.of(),
+                0,
+                0,
+                0,
+                -1,
+                List.of("-Xmx512m"),
+                List.of("G1 Young Generation"),
+                1 * GB,
+                400 * MB,
+                380 * MB,
+                List.of(),
+                null,
+                new MemoryContext.CgroupMemoryEvents(0, 0, 2, 1));
+        MemoryRuleResultDto high = find(
+                scan(context(oomKilled, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime())),
+                "MEM-FOOTPRINT-005");
+        assertThat(high).isNotNull();
+        assertThat(high.severity()).isEqualTo("HIGH");
+        assertThat(high.sampleViolations().get(0)).contains("oom_kill=1");
+    }
+
+    // --- MEM-CONTENT-005: dynamic ClassLoaders and generated proxy bloat ---------------------
+
+    @Test
+    void dynamicClassLoaderAccumulationIsFlaggedAtLowAndMediumThresholds() {
+        HeapContentData lowLoaders = new HeapContentData(
+                true,
+                List.of(
+                        new HeapClassHistogramEntryDto(1, "groovy.lang.GroovyClassLoader", 60, 9_600),
+                        new HeapClassHistogramEntryDto(2, "java.lang.String", 10_000, 240_000)),
+                10_060,
+                249_600);
+        MemoryRuleResultDto low = find(
+                scan(context(
+                        memory(256 * MB, 2 * GB, List.of(), null, List.of()),
+                        ThreadData.empty(),
+                        lowLoaders,
+                        healthyRuntime())),
+                "MEM-CONTENT-005");
+        assertThat(low).isNotNull();
+        assertThat(low.severity()).isEqualTo("LOW");
+        assertThat(low.sampleViolations().get(0))
+                .contains("groovy.lang.GroovyClassLoader")
+                .contains("60");
+
+        HeapContentData mediumLoaders = new HeapContentData(
+                true, List.of(new HeapClassHistogramEntryDto(1, "java.net.URLClassLoader", 260, 41_600)), 260, 41_600);
+        MemoryRuleResultDto medium = find(
+                scan(context(
+                        memory(256 * MB, 2 * GB, List.of(), null, List.of()),
+                        ThreadData.empty(),
+                        mediumLoaders,
+                        healthyRuntime())),
+                "MEM-CONTENT-005");
+        assertThat(medium).isNotNull();
+        assertThat(medium.severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void generatedProxyClassBloatIsFlaggedAtLowAndMediumThresholds() {
+        HeapContentData lowProxies = new HeapContentData(
+                true,
+                List.of(new HeapClassHistogramEntryDto(1, "java.lang.String", 100, 2_400)),
+                5_100,
+                165_600,
+                null,
+                List.of(),
+                0,
+                5_000,
+                5_000,
+                160_000);
+        MemoryRuleResultDto low = find(
+                scan(context(
+                        memory(256 * MB, 2 * GB, List.of(), null, List.of()),
+                        ThreadData.empty(),
+                        lowProxies,
+                        healthyRuntime())),
+                "MEM-CONTENT-005");
+        assertThat(low).isNotNull();
+        assertThat(low.severity()).isEqualTo("LOW");
+        assertThat(low.sampleViolations().get(0)).contains("5000 generated proxy classes");
+
+        HeapContentData mediumProxies = new HeapContentData(
+                true,
+                List.of(new HeapClassHistogramEntryDto(1, "java.lang.String", 100, 2_400)),
+                10_100,
+                322_400,
+                null,
+                List.of(),
+                0,
+                10_000,
+                10_000,
+                320_000);
+        MemoryRuleResultDto medium = find(
+                scan(context(
+                        memory(256 * MB, 2 * GB, List.of(), null, List.of()),
+                        ThreadData.empty(),
+                        mediumProxies,
+                        healthyRuntime())),
+                "MEM-CONTENT-005");
+        assertThat(medium).isNotNull();
+        assertThat(medium.severity()).isEqualTo("MEDIUM");
+    }
+
+    // --- MEM-GC-009: external System.gc() pauses ---------------------------------------------
+
+    @Test
+    void externalSystemGcPauseIsFlaggedAtLowAndEscalatesToMediumWhenFrequentOrLong() {
+        MemoryContext singleShort = context(
+                        memory(256 * MB, 2 * GB, List.of(), null, List.of()),
+                        ThreadData.empty(),
+                        PostGcHeapData.unavailable(),
+                        healthyRuntime())
+                .withExplicitGc(new MemoryContext.ExplicitGcData(1, 180, 180, "G1 Old Generation"));
+        MemoryRuleResultDto low = find(scan(singleShort), "MEM-GC-009");
+        assertThat(low).isNotNull();
+        assertThat(low.severity()).isEqualTo("LOW");
+        assertThat(low.sampleViolations().get(0))
+                .contains("1 external stop-the-world System.gc()")
+                .contains("G1 Old Generation")
+                .contains("180 ms");
+
+        MemoryContext repeated =
+                singleShort.withExplicitGc(new MemoryContext.ExplicitGcData(3, 120, 340, "G1 Old Generation"));
+        assertThat(find(scan(repeated), "MEM-GC-009").severity()).isEqualTo("MEDIUM");
+
+        MemoryContext longPause =
+                singleShort.withExplicitGc(new MemoryContext.ExplicitGcData(1, 650, 650, "PS MarkSweep"));
+        assertThat(find(scan(longPause), "MEM-GC-009").severity()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void heapInspectionAndConcurrentExplicitGcAreNotFlaggedByMemGc009() {
+        GcEvent heapInspection = new GcEvent(4, 250_000, 800, "G1 Old Generation", "Heap Inspection Initiated GC");
+        MemoryContext inspectionContext = gcEventContext(heapInspection, GcEvent.unavailable());
+        assertThat(find(scan(inspectionContext), "MEM-GC-009")).isNull();
+
+        MemoryData concurrentExplicit =
+                memory(256 * MB, 2 * GB, List.of(), null, List.of("-XX:+ExplicitGCInvokesConcurrent"));
+        assertThat(new ExternalExplicitGcRule()
+                        .evaluate(context(
+                                concurrentExplicit, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime()))
+                        .status())
+                .isEqualTo("SKIPPED");
+
+        // Unobserved notification source must report SKIPPED (requiredUnknown = true), never a false PASS
+        MemoryContext unobserved = context(
+                        memory(256 * MB, 2 * GB, List.of(), null, List.of()),
+                        ThreadData.empty(),
+                        PostGcHeapData.unavailable(),
+                        healthyRuntime())
+                .withExplicitGc(MemoryContext.ExplicitGcData.unobserved());
+        MemoryEvaluation unobservedEval = new ExternalExplicitGcRule().evaluateWithEvidence(unobserved);
+        assertThat(unobservedEval.result().status()).isEqualTo("SKIPPED");
+        assertThat(unobservedEval.requiredUnknown()).isTrue();
+        assertThat(unobservedEval.usable()).isFalse();
+    }
+
+    @Test
+    void diagnosticTrackerFiltersNonExplicitAndBootUiOwnedGcsWhileRetainingPreActionAndCappedEvents() {
+        var sample = new java.util.concurrent.atomic.AtomicReference<>(
+                new GcSample(10_000L, 100L, 5L, Map.of("G1 Old Generation", 2L)));
+        var event = new java.util.concurrent.atomic.AtomicReference<>(GcEvent.unavailable());
+        BootUiDiagnosticGcTracker tracker = new BootUiDiagnosticGcTracker(sample::get, event::get, false);
+        assertThat(tracker.snapshot().explicitGc().notificationsObserved()).isFalse();
+
+        // Non-explicit causes and non-STW/young collectors are ignored
+        tracker.recordGcNotification(
+                "G1 Old Generation", 1L, "end of major GC", "Heap Inspection Initiated GC", 5_000L, 400L);
+        tracker.recordGcNotification(
+                "G1 Old Generation", 1L, "end of major GC", "Heap Dump Initiated GC", 5_000L, 400L);
+        tracker.recordGcNotification("G1 Young Generation", 3L, "end of minor GC", "System.gc()", 6_000L, 30L);
+        tracker.recordGcNotification("G1 Concurrent GC", 1L, "end of GC", "System.gc()", 6_100L, 20L);
+        tracker.recordGcNotification("ZGC Major Pauses", 1L, "end of GC pause", "System.gc()", 6_200L, 2L);
+        assertThat(tracker.snapshot().explicitGc().count()).isZero();
+        assertThat(tracker.snapshot().explicitGc().notificationsObserved()).isTrue();
+
+        // During a BootUI action (activeDepth > 0), a delayed notification for an earlier application GC (gcId <= 2)
+        // is retained, while the BootUI action's own GC (gcId == 3) is excluded.
+        tracker.run(() -> {
+            tracker.recordGcNotification("G1 Old Generation", 2L, "end of major GC", "System.gc()", 9_500L, 210L);
+            sample.set(new GcSample(11_000L, 500L, 6L, Map.of("G1 Old Generation", 3L)));
+            event.set(new GcEvent(3L, 11_000L, 400L, "G1 Old Generation", "System.gc()"));
+            tracker.recordGcNotification("G1 Old Generation", 3L, "end of major GC", "System.gc()", 11_000L, 400L);
+        });
+        // Duplicate delivery of gcId 2 is deduplicated; late delivery of diagnostic gcId 3 is ignored
+        tracker.recordGcNotification("G1 Old Generation", 2L, "end of major GC", "System.gc()", 9_500L, 210L);
+        tracker.recordGcNotification("G1 Old Generation", 3L, "end of major GC", "System.gc()", 11_000L, 400L);
+        assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(1L);
+        assertThat(tracker.snapshot().explicitGc().maxDurationMillis()).isEqualTo(210L);
+
+        // Exceeding the 128-entry retention cap preserves the exact total count and max duration
+        for (long id = 10L; id < 150L; id++) {
+            tracker.recordGcNotification(
+                    "G1 Old Generation", id, "end of major GC", "System.gc()", id * 1_000L, id == 20L ? 900L : 50L);
+        }
+        assertThat(tracker.snapshot().explicitGc().count()).isEqualTo(141L);
+        assertThat(tracker.snapshot().explicitGc().maxDurationMillis()).isEqualTo(900L);
+    }
+
+    @Test
+    void combinedDynamicClassLoadersReportUncappedLoaderClassCountAndCacheHeavyCgroupHighFiresMedium() {
+        List<HeapClassHistogramEntryDto> manySmallLoaders = java.util.stream.IntStream.rangeClosed(1, 15)
+                .mapToObj(i -> new HeapClassHistogramEntryDto(i, "com.example.Plugin" + i + "ClassLoader", 4, 400))
+                .toList();
+        HeapContentData heap = new HeapContentData(true, manySmallLoaders, 60, 6_000);
+        MemoryRuleResultDto loaderResult = find(
+                scan(context(
+                        memory(256 * MB, 2 * GB, List.of(), null, List.of()),
+                        ThreadData.empty(),
+                        heap,
+                        healthyRuntime())),
+                "MEM-CONTENT-005");
+        assertThat(loaderResult).isNotNull();
+        assertThat(loaderResult.sampleViolations().get(0)).contains("across 15 loader classes");
+
+        // Cache-heavy container where current >= 90% of memory.high while workingSet < 90% still flags MEDIUM
+        MemoryData cacheHeavy = new MemoryData(
+                256 * MB,
+                512 * MB,
+                512 * MB,
+                64 * MB,
+                80 * MB,
+                256 * MB,
+                List.of(),
+                0,
+                0,
+                0,
+                -1,
+                List.of("-Xmx512m"),
+                List.of("G1 Young Generation"),
+                1 * GB,
+                730 * MB,
+                500 * MB,
+                List.of(),
+                768 * MB,
+                new MemoryContext.CgroupMemoryEvents(0, 0, 0, 0));
+        MemoryRuleResultDto cacheHeavyResult = find(
+                scan(context(cacheHeavy, ThreadData.empty(), PostGcHeapData.unavailable(), healthyRuntime())),
+                "MEM-FOOTPRINT-005");
+        assertThat(cacheHeavyResult).isNotNull();
+        assertThat(cacheHeavyResult.severity()).isEqualTo("MEDIUM");
+        assertThat(cacheHeavyResult.sampleViolations().get(0)).contains("excluding inactive file cache");
+    }
+
     // --- helpers -----------------------------------------------------------------------------
 
     private MemoryReport scan(MemoryContext context) {

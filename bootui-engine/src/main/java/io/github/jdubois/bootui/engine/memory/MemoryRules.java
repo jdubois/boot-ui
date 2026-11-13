@@ -905,6 +905,93 @@ final class DominantClassRule extends AbstractMemoryRule {
     }
 }
 
+final class ClassLoaderAndProxyBloatRule extends AbstractMemoryRule {
+
+    private static final long LOW_CLASSLOADER_THRESHOLD = 50;
+    private static final long MEDIUM_CLASSLOADER_THRESHOLD = 250;
+    private static final int LOW_PROXY_CLASS_THRESHOLD = 5_000;
+    private static final int MEDIUM_PROXY_CLASS_THRESHOLD = 10_000;
+    private static final int MAX_REPORTED_LOADERS = 5;
+
+    ClassLoaderAndProxyBloatRule() {
+        super(new MemoryRuleDefinition(
+                "MEM-CONTENT-005",
+                "High count of live dynamic ClassLoaders or generated proxy classes",
+                MemoryCategory.HEAP_CONTENT,
+                "LOW",
+                "Aggregates the full GC.class_histogram before top-200 display truncation to detect live dynamic"
+                        + " ClassLoader accumulation (at least 50 instances at LOW, 250 at MEDIUM) or excessive"
+                        + " generated proxy classes ($$SpringCGLIB$$, $$EnhancerBy, $ByteBuddy$, $Proxy at least 5,000"
+                        + " classes at LOW, 10,000 at MEDIUM). Leaked classloaders and uncached runtime proxy"
+                        + " generation retain class metadata and can exhaust Metaspace or Compressed Class Space long"
+                        + " before individual loader instances appear in the top 200 classes by shallow bytes.",
+                "Reuse ClassLoader instances, close URLClassLoaders when unloading plugins or scripts, and cache"
+                        + " dynamically generated proxy classes instead of creating new enhancer/proxy classes per"
+                        + " request or operation.",
+                "https://docs.oracle.com/en/java/javase/21/troubleshoot/troubleshooting-memory-leaks.html"));
+    }
+
+    @Override
+    MemoryEvaluation evaluateRule(MemoryContext context) {
+        MemoryContext.HeapContentData heap = context.heapContent();
+        if (!heap.available()) {
+            return skipped("No class histogram is available; run Heap Dump analysis or re-scan to collect one.");
+        }
+        if (heap.histogram().isEmpty() && heap.totalInstances() <= 0) {
+            return noTargets();
+        }
+        List<String> details = new ArrayList<>();
+        boolean mediumSeverity = false;
+
+        long loaderInstances = heap.dynamicClassLoaderInstances();
+        if (loaderInstances >= LOW_CLASSLOADER_THRESHOLD) {
+            if (loaderInstances >= MEDIUM_CLASSLOADER_THRESHOLD) {
+                mediumSeverity = true;
+            }
+            List<HeapClassHistogramEntryDto> loaders = heap.classLoaderEntries();
+            List<HeapClassHistogramEntryDto> singleBreaches = loaders.stream()
+                    .filter(entry -> entry.instances() >= LOW_CLASSLOADER_THRESHOLD)
+                    .limit(MAX_REPORTED_LOADERS)
+                    .toList();
+            if (!singleBreaches.isEmpty()) {
+                for (HeapClassHistogramEntryDto entry : singleBreaches) {
+                    details.add(entry.className() + " has " + entry.instances() + " live instances ("
+                            + MemoryFormat.bytes(entry.bytes())
+                            + " shallow) in the class histogram; accumulation of dynamic ClassLoaders can retain class"
+                            + " metadata and exhaust Metaspace.");
+                }
+            } else {
+                String topNote = loaders.isEmpty()
+                        ? ""
+                        : " (largest: " + loaders.get(0).className() + " with "
+                                + loaders.get(0).instances() + " instances)";
+                int loaderClassCount = Math.max(heap.dynamicClassLoaderClassCount(), loaders.size());
+                details.add(loaderInstances + " live dynamic ClassLoader instances across " + loaderClassCount
+                        + " loader classes in the class histogram" + topNote
+                        + "; accumulation of dynamic ClassLoaders can retain class metadata and exhaust Metaspace.");
+            }
+        }
+
+        int proxyClasses = heap.generatedProxyClassCount();
+        if (proxyClasses >= LOW_PROXY_CLASS_THRESHOLD) {
+            if (proxyClasses >= MEDIUM_PROXY_CLASS_THRESHOLD) {
+                mediumSeverity = true;
+            }
+            details.add(
+                    proxyClasses + " generated proxy classes ($$SpringCGLIB$$, $ByteBuddy$, $Proxy) are live across "
+                            + heap.generatedProxyInstances() + " instances ("
+                            + MemoryFormat.bytes(heap.generatedProxyBytes())
+                            + " shallow) in the full class histogram; excessive runtime proxy generation can exhaust Metaspace"
+                            + " and Compressed Class Space.");
+        }
+
+        if (details.isEmpty()) {
+            return pass();
+        }
+        return violation(context, mediumSeverity ? MemoryRuleSupport.MEDIUM : MemoryRuleSupport.LOW, details);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Class loading
 // ---------------------------------------------------------------------------
@@ -1542,6 +1629,111 @@ final class ContainerMemoryPressureRule extends AbstractMemoryRule {
     }
 }
 
+final class ContainerCgroupThrottlingAndOomRule extends AbstractMemoryRule {
+
+    private static final int HIGH_THROTTLE_THRESHOLD_PERCENT = 90;
+
+    ContainerCgroupThrottlingAndOomRule() {
+        super(new MemoryRuleDefinition(
+                "MEM-FOOTPRINT-005",
+                "Container cgroup v2 memory throttling or kernel OOM events",
+                MemoryCategory.NATIVE_MEMORY,
+                "MEDIUM",
+                "Checks Linux cgroup v2 memory.high and memory.events for container memory throttling and kernel"
+                        + " out-of-memory activity. Crossing memory.high throttles allocating threads and forces direct"
+                        + " reclaim well before memory.max is reached, causing latency spikes that do not appear in JVM"
+                        + " GC counters. Positive high, max, oom, or oom_kill counters in memory.events indicate kernel"
+                        + " memory pressure or prior OOM kills in the cgroup hierarchy.",
+                "Lower -Xmx/-XX:MaxRAMPercentage or native memory usage (Metaspace, direct buffers, thread stacks) so"
+                        + " the container working set stays comfortably below memory.high and memory.max, or raise the"
+                        + " container memory request/limit.",
+                "https://docs.kernel.org/admin-guide/cgroup-v2.html"));
+    }
+
+    @Override
+    MemoryEvaluation evaluateRule(MemoryContext context) {
+        MemoryData memory = context.memory();
+        Long highLimit = memory.containerMemoryHighBytes();
+        MemoryContext.CgroupMemoryEvents events = memory.containerMemoryEvents();
+        boolean hasHighLimit = highLimit != null && highLimit > 0;
+        if (!hasHighLimit && events == null) {
+            return inapplicable("No cgroup v2 memory.high limit or memory.events file was detected.");
+        }
+        List<String> details = new ArrayList<>();
+        boolean highSeverity = false;
+        boolean skippedUsage = false;
+        String skippedReason = null;
+
+        if (hasHighLimit) {
+            Long current = memory.containerMemoryHighCurrentBytes() != null
+                    ? memory.containerMemoryHighCurrentBytes()
+                    : memory.containerMemoryCurrentBytes();
+            Long workingSet = memory.containerMemoryHighWorkingSetBytes() != null
+                    ? memory.containerMemoryHighWorkingSetBytes()
+                    : memory.containerMemoryWorkingSetBytes();
+            if (current == null || current < 0) {
+                skippedUsage = true;
+                skippedReason =
+                        "Current container memory usage is not available to compare against cgroup v2 memory.high.";
+            } else if (workingSet != null && (workingSet < 0 || workingSet > current)) {
+                skippedUsage = true;
+                skippedReason = "Container working-set usage is inconsistent with current usage.";
+            } else {
+                long measuredUsage = workingSet != null ? workingSet : current;
+                String usageLabel = workingSet != null ? "Container working set" : "Container memory usage";
+                int percent = MemoryFormat.percentOf(measuredUsage, highLimit);
+                int currentPercent = MemoryFormat.percentOf(current, highLimit);
+                if (measuredUsage >= highLimit) {
+                    highSeverity = true;
+                    details.add(usageLabel + " " + MemoryFormat.bytes(measuredUsage) + " (" + percent
+                            + "%) meets or exceeds the cgroup v2 memory.high throttle limit "
+                            + MemoryFormat.bytes(highLimit)
+                            + "; the kernel throttles allocating threads in this cgroup before memory.max is reached.");
+                } else if (percent >= HIGH_THROTTLE_THRESHOLD_PERCENT) {
+                    details.add(usageLabel + " is " + percent + "% of the cgroup v2 memory.high throttle limit ("
+                            + MemoryFormat.bytes(measuredUsage) + " of " + MemoryFormat.bytes(highLimit)
+                            + "); crossing memory.high triggers kernel memory throttling and direct reclaim pauses.");
+                } else if (currentPercent >= HIGH_THROTTLE_THRESHOLD_PERCENT) {
+                    details.add("Container memory usage is " + currentPercent
+                            + "% of the cgroup v2 memory.high throttle limit ("
+                            + MemoryFormat.bytes(current) + " of " + MemoryFormat.bytes(highLimit)
+                            + "; working set " + MemoryFormat.bytes(measuredUsage)
+                            + " excluding inactive file cache); crossing memory.high triggers kernel direct reclaim.");
+                }
+            }
+        }
+
+        if (events != null) {
+            if (events.oomKill() > 0) {
+                highSeverity = true;
+                details.add("cgroup v2 memory.events recorded " + events.oomKill()
+                        + " kernel OOM kill(s) (oom_kill=" + events.oomKill()
+                        + (events.oom() > 0 ? ", oom=" + events.oom() : "")
+                        + ") in this container hierarchy.");
+            } else if (events.oom() > 0) {
+                details.add("cgroup v2 memory.events recorded " + events.oom() + " kernel out-of-memory event(s) (oom="
+                        + events.oom() + ").");
+            }
+            if (events.high() > 0 || events.max() > 0) {
+                details.add("cgroup v2 memory.events recorded kernel memory throttling or max-limit reclaim events"
+                        + " (high=" + events.high() + ", max=" + events.max()
+                        + "), which can cause non-GC latency spikes.");
+            }
+        }
+
+        if (!details.isEmpty()) {
+            return violation(context, highSeverity ? MemoryRuleSupport.HIGH : MemoryRuleSupport.MEDIUM, details);
+        }
+        if (skippedUsage && (events == null || !events.hasAnyEvent())) {
+            return skipped(skippedReason);
+        }
+        if (!hasHighLimit && memory.containerMemoryLimitBytes() == null) {
+            return inapplicable("No container memory limit or cgroup v2 memory.high throttle limit was detected.");
+        }
+        return pass();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // GC configuration (Serial GC on multi-core)
 // ---------------------------------------------------------------------------
@@ -1752,5 +1944,80 @@ final class NonGenerationalZgcRule extends AbstractMemoryRule {
                         + " JDK 24, so re-validate without it."
                 : "this is the JDK 21-22 default; evaluate -XX:+ZGenerational under representative load.";
         return violation(context, "ZGC is running in non-generational mode; " + action);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GC configuration (external System.gc)
+// ---------------------------------------------------------------------------
+
+final class ExternalExplicitGcRule extends AbstractMemoryRule {
+
+    private static final long MEDIUM_COUNT_THRESHOLD = 3L;
+    private static final long MEDIUM_DURATION_THRESHOLD_MILLIS = 500L;
+
+    ExternalExplicitGcRule() {
+        super(
+                new MemoryRuleDefinition(
+                        "MEM-GC-009",
+                        "External application or library triggered stop-the-world System.gc()",
+                        MemoryCategory.GC_CONFIGURATION,
+                        "LOW",
+                        "Flags stop-the-world full garbage collections whose GarbageCollectionNotificationInfo cause is"
+                                + " 'System.gc()' (excluding 'Heap Inspection Initiated GC', 'Heap Dump Initiated GC', and"
+                                + " BootUI's own memory offload and low-footprint actions). Unlike allocation-driven"
+                                + " collections, explicit System.gc() calls in application or library code force full-heap"
+                                + " pauses across all threads unless handled concurrently.",
+                        "Remove explicit System.gc() calls from application code, increase RMI DGC intervals if RMI triggers"
+                                + " periodic collections, or add -XX:+ExplicitGCInvokesConcurrent so explicit GC requests run"
+                                + " concurrently without disabling NIO direct-buffer reserve cleanup.",
+                        "https://docs.oracle.com/en/java/javase/21/gctuning/factors-affecting-garbage-collection-performance.html"));
+    }
+
+    @Override
+    MemoryEvaluation evaluateRule(MemoryContext context) {
+        MemoryData memory = context.memory();
+        MemoryContext.ExplicitGcData explicitGc = context.explicitGc();
+        if (explicitGc.count() <= 0) {
+            if (Boolean.TRUE.equals(memory.booleanJvmArgument("DisableExplicitGC"))) {
+                return inapplicable("Explicit System.gc() calls are disabled via -XX:+DisableExplicitGC.");
+            }
+            if (Boolean.TRUE.equals(memory.booleanJvmArgument("ExplicitGCInvokesConcurrent"))) {
+                return inapplicable(
+                        "Explicit System.gc() calls are handled concurrently via -XX:+ExplicitGCInvokesConcurrent.");
+            }
+            if (memory.usesGarbageCollector("zgc")
+                    || memory.usesGarbageCollector("z generational")
+                    || memory.usesGarbageCollector("shenandoah")) {
+                return inapplicable("The active collector handles explicit GC cycles concurrently.");
+            }
+            if (memory.gcCollectorNames().isEmpty()) {
+                return missingPass();
+            }
+            if (!explicitGc.notificationsObserved()) {
+                return skipped(
+                        "GC cause notifications are not active on this runtime; external System.gc() pauses could not"
+                                + " be observed.");
+            }
+            return pass();
+        }
+        boolean mediumSeverity = explicitGc.count() >= MEDIUM_COUNT_THRESHOLD
+                || explicitGc.maxDurationMillis() >= MEDIUM_DURATION_THRESHOLD_MILLIS;
+        String collector = explicitGc.lastCollectorName();
+        String collectorNote = collector != null && !collector.isBlank() ? " on " + collector : "";
+        String durationNote = explicitGc.maxDurationMillis() >= 0
+                ? " (longest pause " + explicitGc.maxDurationMillis() + " ms"
+                        + (explicitGc.totalDurationMillis() > explicitGc.maxDurationMillis()
+                                ? ", total " + explicitGc.totalDurationMillis() + " ms"
+                                : "")
+                        + ")"
+                : "";
+        return violation(
+                context,
+                mediumSeverity ? MemoryRuleSupport.MEDIUM : MemoryRuleSupport.LOW,
+                "Observed " + explicitGc.count() + " external stop-the-world System.gc() pause(s)"
+                        + collectorNote + durationNote
+                        + " (GC cause 'System.gc()', excluding Heap Inspection and BootUI memory actions); explicit"
+                        + " Full GCs pause application threads across the entire heap.");
     }
 }

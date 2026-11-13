@@ -171,7 +171,14 @@ public final class MemoryScanner {
 
         MemoryContext.GcSample preGc = context.preHistogramGc();
         MemoryContext.GcSample postGc = context.postHistogramGc();
-        if ((previousGcSample != null && BootUiDiagnosticGcTracker.hasCounterDiscontinuity(previousGcSample, preGc))
+        boolean counterDiscontinuity =
+                previousGcSample != null && BootUiDiagnosticGcTracker.hasCounterDiscontinuity(previousGcSample, preGc);
+        if (counterDiscontinuity) {
+            diagnosticGcTracker.reset();
+            preDiagnostic = diagnosticGcTracker.snapshot();
+            postDiagnostic = preDiagnostic;
+        }
+        if (counterDiscontinuity
                 || preDiagnostic.epoch() != previousDiagnosticSnapshot.epoch()
                 || postDiagnostic.epoch() != preDiagnostic.epoch()) {
             cumulativeHistogramGcTimeMillis = 0L;
@@ -220,10 +227,14 @@ public final class MemoryScanner {
                     BootUiDiagnosticGcTracker.saturateAdd(cumulativeHistogramGcCount, histogramOnlyCount);
         }
 
-        MemoryContext evaluated = context.withRuntime(adjustedRuntime)
-                .withGcTrend(trend)
-                .withLatestGcEvent(latestGcEvent)
-                .withViolationCollector(collector);
+        MemoryContext withEvent =
+                context.withRuntime(adjustedRuntime).withGcTrend(trend).withLatestGcEvent(latestGcEvent);
+        MemoryContext withExplicitGc = withEvent.explicitGc().count() == 0
+                        && (postDiagnostic.explicitGc().count() > 0
+                                || !postDiagnostic.explicitGc().notificationsObserved())
+                ? withEvent.withExplicitGc(postDiagnostic.explicitGc())
+                : withEvent;
+        MemoryContext evaluated = withExplicitGc.withViolationCollector(collector);
 
         List<MemoryEvaluation> evaluations = MemoryRuleRegistry.activeRules().stream()
                 .map(rule -> rule.evaluateWithEvidence(evaluated))

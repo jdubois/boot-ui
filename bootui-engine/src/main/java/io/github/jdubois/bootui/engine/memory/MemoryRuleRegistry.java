@@ -33,6 +33,7 @@ final class MemoryRuleRegistry {
             new CommittedFootprintNearContainerLimitRule(),
             new PlatformThreadStackReservationRule(),
             new ContainerMemoryPressureRule(),
+            new ContainerCgroupThrottlingAndOomRule(),
             // Memory pools
             new MetaspaceSaturationRule(),
             new CodeCacheSaturationRule(),
@@ -49,6 +50,7 @@ final class MemoryRuleRegistry {
             new G1FullGcFrequencyRule(),
             new GcEventDurationOutlierRule(),
             new NonGenerationalZgcRule(),
+            new ExternalExplicitGcRule(),
             // Threads
             new DeadlockDetectedRule(),
             new HighBlockedThreadRatioRule(),
@@ -56,6 +58,7 @@ final class MemoryRuleRegistry {
             new BigObjectsRule(),
             new CollectionBloatRule(),
             new DominantClassRule(),
+            new ClassLoaderAndProxyBloatRule(),
             // Class loading
             new ExcessiveLoadedClassesRule());
 
