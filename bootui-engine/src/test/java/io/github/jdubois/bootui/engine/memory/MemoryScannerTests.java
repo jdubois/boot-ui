@@ -670,6 +670,75 @@ class MemoryScannerTests {
         assertThat(secondReport.results())
                 .extracting(MemoryRuleResultDto::id)
                 .doesNotContain("MEM-GC-002", "MEM-GC-003", "MEM-GC-005", "MEM-GC-006");
+
+        // Positive control: a genuine application Full GC (8,000 ms over 20,000 ms window) after Scan 2
+        // still triggers MEM-GC-003, MEM-GC-005, and MEM-GC-006.
+        uptime.addAndGet(20_000L);
+        gcTime.addAndGet(8_000L);
+        long appGcId = gcCount.incrementAndGet();
+        oldGenCount.incrementAndGet();
+        latestEvent.set(new MemoryContext.GcEvent(appGcId, uptime.get(), 8_000L, "G1 Old Generation"));
+
+        MemoryReport thirdReport = scanner.scan();
+        assertThat(thirdReport.results())
+                .extracting(MemoryRuleResultDto::id)
+                .contains("MEM-GC-003", "MEM-GC-005", "MEM-GC-006")
+                .doesNotContain("MEM-GC-002");
+    }
+
+    @Test
+    void failedScanPreservesCumulativeHistogramExclusionsOnNextSuccessfulScan() {
+        AtomicInteger call = new AtomicInteger();
+        MemoryContext.GcSample pre1 = new MemoryContext.GcSample(600_000L, 10_000L, 50L);
+        MemoryContext.GcSample post1 = new MemoryContext.GcSample(650_000L, 60_000L, 51L);
+        MemoryContext.GcEvent postEvent1 = new MemoryContext.GcEvent(51L, 650_000L, 50_000L, "G1 Old Generation");
+        MemoryContext first = new MemoryContext(
+                healthyMemory(),
+                ThreadData.empty(),
+                HeapContentData.unavailable(),
+                MemoryContext.PostGcHeapData.unavailable(),
+                new ClassLoadingData(9000, 9500, 500),
+                new RuntimeData(600_000L, 10_000L, 50L, 0, -1, MB, 4, -1, -1, null),
+                pre1,
+                post1,
+                MemoryContext.GcEvent.unavailable(),
+                postEvent1,
+                MemoryContext.GcTrend.unavailable(),
+                null,
+                null);
+        // After a transient failure, Scan 3 sees lifetime gcTime = 60,000L (50,000L of which was Scan 1's histogram)
+        // and still sees postEvent1 as the latest completed event.
+        MemoryContext third = new MemoryContext(
+                healthyMemory(),
+                ThreadData.empty(),
+                HeapContentData.unavailable(),
+                MemoryContext.PostGcHeapData.unavailable(),
+                new ClassLoadingData(9000, 9500, 500),
+                new RuntimeData(660_000L, 60_000L, 51L, 0, -1, MB, 4, -1, -1, null, -1, 50_000L, "G1 Old Generation"),
+                new MemoryContext.GcSample(660_000L, 60_000L, 51L),
+                new MemoryContext.GcSample(660_000L, 60_000L, 51L),
+                postEvent1,
+                postEvent1,
+                MemoryContext.GcTrend.unavailable(),
+                null,
+                null);
+
+        MemoryScanner scanner = new MemoryScanner(
+                () -> {
+                    int step = call.incrementAndGet();
+                    if (step == 1) return first;
+                    if (step == 2) throw new IllegalStateException("transient failure");
+                    return third;
+                },
+                CLOCK);
+
+        assertThat(scanner.scan().results())
+                .extracting(MemoryRuleResultDto::id)
+                .doesNotContain("MEM-GC-002", "MEM-GC-006");
+        assertThat(scanner.scan().scan().status()).isEqualTo("ERROR");
+        assertThat(scanner.scan().results())
+                .extracting(MemoryRuleResultDto::id)
+                .doesNotContain("MEM-GC-002", "MEM-GC-006");
     }
 
     private static MemoryRuleResultDto result(String id, String status) {

@@ -171,16 +171,20 @@ class MemoryCollectorTests {
         Files.createDirectories(processCgroup);
         Files.writeString(processCgroup.resolve("memory.max"), "2147483648\n");
         Files.writeString(processCgroup.resolve("memory.current"), "536870912\n");
+        Files.writeString(processCgroup.resolve("memory.stat"), "inactive_file 134217728\n");
         Files.writeString(parentCgroup.resolve("memory.max"), "1073741824\n");
+        Files.writeString(parentCgroup.resolve("memory.stat"), "inactive_file 402653184\n");
         Path selfCgroup = tempDir.resolve("self.cgroup");
         Path mountInfo = tempDir.resolve("mountinfo");
         Files.writeString(selfCgroup, "0::/kubepods/pod-a\n");
         Files.writeString(mountInfo, "29 23 0:26 / " + mountPoint + " rw - cgroup2 cgroup rw\n");
 
         ContainerMemoryLimitDetector detector = ContainerMemoryLimitDetector.fromProcFiles(selfCgroup, mountInfo);
+        ContainerMemoryLimitDetector.CgroupMemorySample sample = detector.detect();
 
-        assertThat(detector.detectLimit()).isEqualTo(OptionalLong.of(1_073_741_824L));
-        assertThat(detector.detectCurrentUsage()).isEqualTo(OptionalLong.of(536_870_912L));
+        assertThat(sample.limit()).isEqualTo(OptionalLong.of(1_073_741_824L));
+        assertThat(sample.current()).isEqualTo(OptionalLong.of(536_870_912L));
+        assertThat(sample.workingSet()).isEqualTo(OptionalLong.of(402_653_184L));
     }
 
     @Test
