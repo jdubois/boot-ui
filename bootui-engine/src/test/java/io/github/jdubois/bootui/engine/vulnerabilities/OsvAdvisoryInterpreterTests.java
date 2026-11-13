@@ -591,6 +591,17 @@ class OsvAdvisoryInterpreterTests {
         assertThat(fromLimit.severity()).isEqualTo("LOW");
         assertThat(fromLimit.fixedVersions()).containsExactly("2.4");
         assertThat(fromLimit.unresolved()).isFalse();
+
+        Affected limitWithRejectedSameBranchFix = new Affected(
+                "Maven",
+                PACKAGE,
+                List.of(),
+                List.of(range(event("introduced", "1.0"), event("fixed", "1.9"), event("limit", "2.0"))),
+                List.of(LOW));
+        Affected explicitAffectedFix = new Affected("Maven", PACKAGE, List.of("1.9"), List.of(), List.of(LOW));
+        assertThat(interpret("1.5", limitWithRejectedSameBranchFix, explicitAffectedFix, maintainedTwo)
+                        .fixedVersions())
+                .containsExactly("2.4");
     }
 
     @Test

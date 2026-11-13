@@ -1157,7 +1157,9 @@ Data sources:
 - The application's embedded CycloneDX SBOM (`META-INF/sbom/application.cdx.json` or `META-INF/sbom/bom.json`, the
   files Spring Boot's `/actuator/sbom` serves), whose `purl` values carry the `groupId`. Components declared not
   shipped (`scope: "excluded"` or `cdx:maven:package:test=true`), with their nested components, are skipped unless the
-  archive census finds their JAR.
+  archive census finds their JAR. Strictly when the archive census coverage is `COMPLETE`, SBOM-only `scope: "optional"`
+  components (and their nested components) not in the census and unshipped versions of duplicate `groupId:artifactId`
+  SBOM entries are also reconciled out.
 - Maven metadata (`META-INF/maven/*/*/pom.properties`) discovered from the running application's classpath.
 - The `java.class.path` entries, read through the Maven repository directory layout or an adjacent `.pom`.
 - Quarkus instead reads coordinates captured from its build-time resolved application model. A missing/blank model, a
@@ -1277,9 +1279,11 @@ Features:
   are failures. Select maximum AVAILABLE probability across own/retained CVE aliases, with the same record's percentile
   and a stable CVE tie-break. Valid zero is available, not unknown. This is a prioritization heuristic, not combined
   exploit likelihood. Lookups can be disabled independently, and disabled/no-CVE enrichment makes no FIRST call.
-- Keep `fixedVersions` and `fixAvailable` with evidence-backed candidate semantics: only a fixed event closing a
-  supported affected interval containing the installed version can supply a target. Require a positively newer Maven
-  comparison and recheck against **all matching entries**, including explicit versions and overlapping/reintroduced
+- Keep `fixedVersions` and `fixAvailable` with evidence-backed candidate semantics: a fixed event closing a supported
+  affected interval containing the installed version—or, when the installed version's matched `ECOSYSTEM` interval is
+  bounded by `last_affected` or a finite `limit` and has no verified same-branch fix, a fixed event from a sibling
+  `Maven` `affected[]` entry (or range) of the same `groupId:artifactId`—can supply a target. Require a positively newer
+  Maven comparison and recheck against **all matching entries**, including explicit versions and overlapping/reintroduced
   intervals; affected or unresolved targets are not verified upgrades. Filter before de-duplication, Maven ordering,
   and the ten-candidate limit. Neither last_affected nor limit, Git hashes, or unsupported range domains supplies a
   target. False/empty means no candidate was established, not that the dependency is unaffected or no upstream fix
@@ -1335,9 +1339,11 @@ Acceptance criteria:
   inventory; a failure fetching one advisory's details does not discard advisories that were already fetched
   successfully, degrading the scan to a partial-success status instead of an outright error.
 - Scan size is bounded by configuration so large classpaths remain responsive.
-- Existing per-request byte limits remain 5 MiB for querybatch and 1 MiB for details/EPSS. Per-request timeouts,
-  no automatic redirect following, configured service bases, and interrupt restoration remain unchanged; a total scan
-  deadline and retry/backoff policy are deferred.
+- Existing per-request byte limits remain 5 MiB for querybatch and 1 MiB for details/EPSS. Per-request timeouts
+  (`bootui.vulnerabilities.request-timeout`, default `10s`), a configurable whole-scan deadline budget
+  (`bootui.vulnerabilities.scan-timeout`, default `60s`) shared across querybatch pages, detail waves, and EPSS chunks,
+  no automatic redirect following, configured service bases, and interrupt restoration are enforced; a retry/backoff
+  policy remains deferred.
 - Initial/error/partial UI states must not label an empty advisory list as a clean "None found" result, and a report
   with unidentified archives or skipped packages must never render as full coverage.
 - An unreadable Spring `pom.properties` resource, a malformed or unreadable SBOM, and an unreadable classpath archive
@@ -1354,8 +1360,7 @@ Acceptance criteria:
 
 Known limitations: inventory-discovery repairs are explicitly deferred. Spring filename de-duplication and
 case-insensitive attribution without group identity can overstate coverage for same-basename archives or ambiguous
-classifiers. PURL literal-plus decoding/namespace rewriting, SBOM runtime scope beyond test-only and `excluded`
-components, and unreadable container/archive
+classifiers. Unreadable container/archive
 diagnostics need separate fixes. The SBOM traversal limit counts resolved distinct coordinates, not inspected nodes,
 and the whole JSON is parsed first. Quarkus `COMPLETE` reflects its wholly decoded build-time model. Neither a provider
 nor a consumer trusting that flag independently verifies a complete runtime inventory.
@@ -1378,7 +1383,7 @@ dependency graph, but Spring's classpath-based inventory has no equivalent graph
 shipped asymmetrically.
 
 CVSS v2 calculation, full assessment/vector provenance (including which CVSS version produced `score`), selected EPSS
-CVE/date/model fields, cross-request date pinning, and a total scan deadline remain deferred. Enrichment uses the own CVE ID and at most 20 retained aliases, not every upstream alias.
+CVE/date/model fields, and cross-request date pinning remain deferred. Enrichment uses the own CVE ID and at most 20 retained aliases, not every upstream alias.
 The browser's same-package lexical version sorting remains a separate presentation limitation. Completed OSV queries
 do not prove exploitability, reachability, absence of unknown advisories, or application safety.
 
@@ -3559,6 +3564,7 @@ Initial properties:
 | `bootui.email.max-body-length`               | `200000`                                | Maximum characters retained per captured text/HTML body.                                           |
 | `bootui.vulnerabilities.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |
 | `bootui.vulnerabilities.request-timeout`        | `10s`                                   | Timeout applied to each OSV request.                                                              |
+| `bootui.vulnerabilities.scan-timeout`           | `60s`                                   | Whole-scan deadline budget across OSV batch queries, advisory-detail fetches, and EPSS enrichment. |
 | `bootui.vulnerabilities.max-packages`           | `500`                                   | Maximum packages sent in one OSV batch query; the excess is reported as `scan.packagesSkipped`.   |
 | `bootui.vulnerabilities.max-advisories`         | `200`                                   | Maximum advisory detail documents fetched after a query.                                          |
 | `bootui.vulnerabilities.epss-enabled`           | `true`                                  | Allow the batched FIRST.org EPSS exploit-probability lookup during a scan.                        |

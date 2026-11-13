@@ -392,7 +392,7 @@ Mixed dispositions intentionally preserve an existing behavior while acknowledgi
 | EPS-03 | KEEP | Requested IDs only; finite probability/percentile in [0,1]; missing is not zero; defend shared selection. |
 | EPS-04 | UPDATE | Validate root/data and pagination metadata; isolate malformed/empty envelopes as unavailable/incomplete enrichment. |
 | EPS-05 | UPDATE | Maximum AVAILABLE per-CVE probability, same-record percentile, stable tie-break; not combined likelihood. |
-| EPS-06 | UPDATE | Bound pages/progress, retain earlier pages/chunks, append honest requested/available/no-data or failure summary; OSV status unchanged. |
+| EPS-06 | UPDATE | Bound pages/progress, retain earlier pages/chunks, append honest requested/available/no-data or failure summary; OSV status unchanged unless the shared whole-scan deadline itself expired (#1659). |
 | EPS-07 | DEFER | Selected CVE/date/model provenance and cross-request date pinning require separate DTO work. |
 | EPS-08 | UPDATE | Prioritize canonical `CVE-` and `GHSA-` aliases (plus `upstream` CVEs) before applying the 20-alias cap so `BIT-`/`CGA-` prefixes do not drop CVEs (#1656). |
 

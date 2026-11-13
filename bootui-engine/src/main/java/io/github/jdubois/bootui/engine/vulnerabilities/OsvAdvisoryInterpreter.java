@@ -169,7 +169,7 @@ public final class OsvAdvisoryInterpreter {
         boolean applicable = false;
         boolean unresolved = unknownIdentity;
         boolean packageSeveritySupplied = false;
-        boolean boundedBranchWithoutFix = false;
+        boolean boundedBranch = false;
         List<Severity> applicableSeverity = new ArrayList<>();
         List<List<String>> candidateStreams = new ArrayList<>();
         for (Entry entry : matching) {
@@ -188,8 +188,9 @@ public final class OsvAdvisoryInterpreter {
                     List<String> fixes = timeline.closingFixes(installedVersion);
                     if (!fixes.isEmpty()) {
                         candidateStreams.add(fixes);
-                    } else if (entry.exactPackage && timeline.boundedWithoutClosingFix(installedVersion)) {
-                        boundedBranchWithoutFix = true;
+                    }
+                    if (entry.exactPackage && timeline.isBounded(installedVersion)) {
+                        boundedBranch = true;
                     }
                 }
             } else if (evaluation.applicability() == Applicability.UNRESOLVED) {
@@ -206,7 +207,7 @@ public final class OsvAdvisoryInterpreter {
         Double score = selectScore(packageSeveritySupplied ? applicableSeverity : snapshot(severity));
 
         List<String> verified = verifyCandidates(installedVersion, matching, unknownIdentity, candidateStreams);
-        if (verified.isEmpty() && boundedBranchWithoutFix) {
+        if (verified.isEmpty() && boundedBranch) {
             List<List<String>> crossBranchStreams = new ArrayList<>();
             for (Entry entry : matching) {
                 if (!entry.exactPackage) {
@@ -409,9 +410,8 @@ public final class OsvAdvisoryInterpreter {
             return fixes;
         }
 
-        private boolean boundedWithoutClosingFix(String version) {
-            if (evaluate(version) != Applicability.MATCHED
-                    || !closingFixes(version).isEmpty()) {
+        private boolean isBounded(String version) {
+            if (evaluate(version) != Applicability.MATCHED) {
                 return false;
             }
             if (!limits.isEmpty() && !limits.contains("*")) {
