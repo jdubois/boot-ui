@@ -1088,6 +1088,8 @@ panel keeps reporting only what agents did.
 | `bootui.cli.max-results`          | `200`   | Maximum number of items returned by paginated read tools per call, tracked separately from `bootui.mcp.max-results`.     |
 | `bootui.cli.max-concurrent-calls` | `20`    | Maximum number of concurrent tool invocations; excess calls are refused with `429`.                                      |
 | `bootui.cli.execution-timeout`    | `30s`   | Maximum wall-clock duration of one tool invocation; timed-out calls are interrupted and return `504`. A scan that reports progress stops at its next step and keeps its previous report. |
+| `bootui.cli.instance-discovery.enabled` | `true` in dev, `false` in tests | Write an atomic `0600` local discovery lease file (`<instanceId>.json`) after the web server port is bound, and delete it on shutdown. |
+| `bootui.cli.instances-dir`        | `~/.bootui/instances` | Directory where local instance discovery lease files are written (also overridable via `BOOTUI_HOME`). |
 
 
 

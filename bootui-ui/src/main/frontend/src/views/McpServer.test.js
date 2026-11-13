@@ -251,6 +251,7 @@ describe('McpServer', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Client configuration')
+    expect(wrapper.text()).toContain('bootui init --vscode')
 
     const vsCode = snippetFor(wrapper, 'vscode')
     expect(vsCode).toContain('"servers"')

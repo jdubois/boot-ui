@@ -4,6 +4,8 @@ import io.github.jdubois.bootui.client.BootUiCatalog;
 import io.github.jdubois.bootui.client.BootUiClient;
 import io.github.jdubois.bootui.client.BootUiClientException;
 import io.github.jdubois.bootui.client.BootUiClientOptions;
+import io.github.jdubois.bootui.client.BootUiInstance;
+import io.github.jdubois.bootui.client.BootUiInstances;
 import io.github.jdubois.bootui.client.JsonParseException;
 import io.github.jdubois.bootui.client.JsonValue;
 import io.github.jdubois.bootui.client.JsonWriter;
@@ -93,7 +95,46 @@ final class CliContext {
     }
 
     private BootUiClient newClient() {
+        if (options.app() != null && !options.app().isBlank()) {
+            if (options.hasExplicitUrl()) {
+                throw new BootUiClientException("Choose --app or --url, not both.");
+            }
+            BootUiInstance instance = resolveTargetInstance();
+            String effectiveApiPath = options.hasExplicitApiPath()
+                    ? options.toClientOptions(environment).apiPath()
+                    : instance.apiPath();
+            return clientFactory.apply(new BootUiClientOptions(
+                    instance.baseUrl(), effectiveApiPath, options.resolvedToken(environment), options.timeout()));
+        }
         return clientFactory.apply(options.toClientOptions(environment));
+    }
+
+    BootUiInstance resolveTargetInstance() {
+        return BootUiInstances.resolve(
+                BootUiInstances.resolveInstancesDir(environment), options.app(), options.timeout(), clientFactory);
+    }
+
+    /** Lists running local BootUI instances discovered in {@code ~/.bootui/instances/}. */
+    int listInstances() {
+        List<BootUiInstance> instances = BootUiInstances.list(BootUiInstances.resolveInstancesDir(environment));
+        Map<String, JsonValue> payload = new LinkedHashMap<>();
+        payload.put(
+                "instances",
+                JsonValue.array(
+                        instances.stream().map(BootUiInstance::toJsonValue).toList()));
+        JsonValue document = JsonValue.object(payload);
+        if (options.json(terminal)) {
+            out.println(document.toJson());
+            out.flush();
+            return ExitCodes.SUCCESS;
+        }
+        if (instances.isEmpty()) {
+            out.println("No running BootUI instances found.");
+            out.flush();
+            return ExitCodes.SUCCESS;
+        }
+        emit(document, null);
+        return ExitCodes.SUCCESS;
     }
 
     /**

@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Local instance discovery and `bootui init`** list and target running local applications with `bootui instances` and
+  `bootui --app <name>`, and idempotently write or preview MCP client configurations ([CLI guide](docs/CLI.md); [#1673](https://github.com/jdubois/boot-ui/issues/1673)).
+
 ## [2.4.0] - 2026-11-12
 
 This release brings BootUI diagnostics to CI, adds offline CLI documentation and installation-aware updates, and

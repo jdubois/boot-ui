@@ -19,6 +19,7 @@ final class GlobalOptions {
     private String url;
     private String apiPath;
     private String token;
+    private String app;
     private Integer timeoutSeconds;
     private boolean json;
     private boolean noColor;
@@ -34,6 +35,30 @@ final class GlobalOptions {
 
     void setToken(String token) {
         this.token = token;
+    }
+
+    void setApp(String app) {
+        this.app = app;
+    }
+
+    String app() {
+        return app;
+    }
+
+    boolean hasExplicitUrl() {
+        return url != null && !url.isBlank();
+    }
+
+    boolean hasExplicitApiPath() {
+        return apiPath != null && !apiPath.isBlank();
+    }
+
+    Duration timeout() {
+        return timeoutSeconds == null ? BootUiClientOptions.DEFAULT_TIMEOUT : Duration.ofSeconds(timeoutSeconds);
+    }
+
+    String resolvedToken(Map<String, String> environment) {
+        return first(token, environment.get(TOKEN_ENV), null);
     }
 
     void setTimeoutSeconds(Integer timeoutSeconds) {

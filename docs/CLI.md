@@ -13,7 +13,7 @@ Every diagnostic command is one BootUI [MCP](AI-AGENTS.md) tool, projected mecha
 cannot offer a diagnostic the MCP server does not, and cannot lack one it does: the command table is generated
 from the registry at build time and a test fails when the two disagree. `tools` reads the CLI catalog, and
 `mcp status|enable|disable` call the MCP Server panel directly rather than invoking catalog tools.
-`docs`, `update`, and `ci` are client-side commands, not MCP tools.
+`docs`, `update`, `ci`, `init`, and `instances` are client-side commands, not MCP tools.
 
 ## Offline documentation
 
@@ -198,12 +198,52 @@ See [Properties](PROPERTIES.md) for `bootui.cli.max-results`, `bootui.cli.execut
 | Option | Environment variable | Default | Purpose |
 | --- | --- | --- | --- |
 | `--url <url>` | `BOOTUI_URL` | `http://localhost:8080` | Where the application is listening. A bare `host:port` is accepted. |
+| `--app <name>` | — | — | Target a running local application by `spring.application.name` / `quarkus.application.name` or `instanceId` prefix. Cannot be combined with `--url`. |
 | `--api-path <path>` | `BOOTUI_API_PATH` | `/bootui/api` | Only needed when `bootui.api-path` is customised. |
 | `--token <token>` | `BOOTUI_TOKEN` | none | Sent as an `Authorization: Bearer <token>` header. Needed for an untrusted non-loopback caller, using the configured or generated BootUI token; loopback, trusted proxies, and trusted container gateways need none. |
 | `--timeout <seconds>` | — | `60` | How long to wait for an answer. Raise it for a slow scan. |
 | `--json` | — | auto | Print the application's JSON verbatim. Implied when output is not a terminal. |
 | `--no-color` | `NO_COLOR` | — | Disable ANSI colour. |
 | `-v, --verbose` | — | — | Show the underlying failure when a request does not complete. |
+
+## Local instance discovery (`bootui instances` and `--app`)
+
+Active development-mode BootUI instances on Spring MVC, Spring WebFlux, and Quarkus write an owner-only (`0600`)
+lease file `~/.bootui/instances/<instanceId>.json` (inside an `0700` directory, overridable via `BOOTUI_HOME` or
+`bootui.cli.instances-dir`) once the web server port is bound, and delete it on shutdown. Instance discovery is gated
+by `bootui.cli.instance-discovery.enabled` (off in tests by default unless explicitly set to `true`, and off when
+`bootui.cli.enabled=false`). Lease files record `{instanceId, runId, pid, processStartEpochMillis, appName, framework,
+baseUrl, apiPath, startedAt}` and never store tokens or secrets.
+
+List running local applications or target one by name without looking up its dynamic port:
+
+```bash
+bootui instances                        # list live local BootUI instances (pruning dead/reused PIDs)
+bootui instances --json                 # structured JSON list
+bootui --app order-service overview     # resolve by application name or instanceId prefix
+```
+
+Before sending any command or attaching a token on `--app <name>`, the CLI verifies that the lease's PID and process
+start timestamp match the live OS process, confirms `baseUrl` is a literal loopback address, and performs an
+unauthenticated handshake check against `/overview` confirming `run.instanceId` matches the lease. If multiple live
+instances share the same `appName` (for example default `application`), `--app` fails closed (`1`) and prints each
+candidate's `--url` and `instanceId` so you can disambiguate.
+
+## Agent & IDE MCP setup (`bootui init`)
+
+`bootui init` previews or idempotently writes local MCP configuration without ever writing `Authorization` headers or
+tokens to disk:
+
+```bash
+bootui init --vscode                              # merge BootUI into .vscode/mcp.json (default target)
+bootui init --cursor --url http://localhost:8081  # merge BootUI into ~/.cursor/mcp.json
+bootui init --claude                              # print the claude mcp add command
+bootui init --app order-service --vscode          # use a running local instance's resolved URL and API path
+bootui init --vscode --print                      # preview JSON (--dry-run is an alias) without writing files
+```
+
+When `.vscode/mcp.json` or `~/.cursor/mcp.json` already exists, `bootui init` parses it strictly and updates only the
+`bootui` server entry, preserving all other MCP servers and top-level keys.
 
 Advisor commands take [`--fail-on <severity>`](#gate-on-severity). Runtime Insights and exception-list commands take
 [`--fail-on insufficient`](#gate-on-insufficient-evidence) to fail CI when evidence is insufficient or partial.

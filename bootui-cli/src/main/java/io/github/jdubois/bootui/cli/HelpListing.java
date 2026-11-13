@@ -58,6 +58,12 @@ final class HelpListing {
                     DETAIL,
                     "Check for a newer CLI or update a recognized installation. Ask before replacing an executable. --check exits 3 when an update is available.",
                     wrapAt);
+            out.append(INDENT).append("bootui instances [--json]").append(System.lineSeparator());
+            wrap(out, DETAIL, "List running local BootUI instances discovered in ~/.bootui/instances.", wrapAt);
+            out.append(INDENT)
+                    .append("bootui init [--vscode | --cursor | --claude] [--print | --dry-run]")
+                    .append(System.lineSeparator());
+            wrap(out, DETAIL, "Preview or idempotently write IDE/agent MCP configuration without credentials.", wrapAt);
             out.append(INDENT).append("bootui tools").append(System.lineSeparator());
             wrap(
                     out,

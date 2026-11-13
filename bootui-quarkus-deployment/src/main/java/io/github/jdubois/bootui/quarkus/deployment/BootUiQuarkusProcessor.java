@@ -24,6 +24,7 @@ import io.github.jdubois.bootui.quarkus.activity.QuarkusActivityCapture;
 import io.github.jdubois.bootui.quarkus.agent.AgentSessionProducer;
 import io.github.jdubois.bootui.quarkus.beans.QuarkusBeanDependencies;
 import io.github.jdubois.bootui.quarkus.cli.BootUiCliProducer;
+import io.github.jdubois.bootui.quarkus.cli.QuarkusInstanceLeaseLifecycle;
 import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
 import io.github.jdubois.bootui.quarkus.devservices.DevServicesRecorder;
 import io.github.jdubois.bootui.quarkus.devservices.QuarkusDevServicesProvider;
@@ -453,6 +454,7 @@ class BootUiQuarkusProcessor {
                         McpBridgeResource.class,
                         BootUiMcpProducer.class,
                         BootUiCliProducer.class,
+                        QuarkusInstanceLeaseLifecycle.class,
                         BootUiCliResource.class,
                         QuarkusMcpTools.class,
                         QuarkusMcpEnvelope.class,

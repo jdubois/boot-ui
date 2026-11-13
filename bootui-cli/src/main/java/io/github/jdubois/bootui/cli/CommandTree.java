@@ -34,7 +34,7 @@ final class CommandTree {
                                 + "(default http://localhost:8080) and it answers over its local-only HTTP endpoint.",
                         "Output is JSON when piped or with --json, and readable otherwise.",
                         "",
-                        "The 'docs', 'update', and 'ci' commands are client-side exceptions, not MCP tools.")
+                        "The 'docs', 'update', 'ci', 'init', and 'instances' commands are client-side exceptions, not MCP tools.")
                 .footer(
                         "",
                         "Exit codes: 0 answered, 1 usage or transport error, 2 refused by BootUI's panel policy, "
@@ -71,6 +71,8 @@ final class CommandTree {
 
         root.addSubcommand("tools", new CommandLine(toolsCommand(context)));
         root.addSubcommand("mcp", new CommandLine(mcpCommand(context)));
+        InstancesCommand.add(context, root);
+        InitCommand.add(context, root);
         CiCommands.add(context, root);
         DocsCommand.add(context, root);
         UpdateCommand.add(context, root);
@@ -304,6 +306,14 @@ final class CommandTree {
                         .setter(setter(options::setUrl))
                         .build());
         globals.put(
+                "--app",
+                OptionSpec.builder("--app")
+                        .paramLabel("<name>")
+                        .type(String.class)
+                        .description("Target a running local application by application name or instanceId prefix.")
+                        .setter(setter(options::setApp))
+                        .build());
+        globals.put(
                 "--api-path",
                 OptionSpec.builder("--api-path")
                         .paramLabel("<path>")
@@ -335,7 +345,7 @@ final class CommandTree {
                 OptionSpec.builder("--json")
                         .type(boolean.class)
                         .description(
-                                "docs".equals(spec.name())
+                                "docs".equals(spec.name()) || "init".equals(spec.name())
                                         ? "Print structured JSON instead of raw Markdown or text. Never implied when piped."
                                         : "update".equals(spec.name())
                                                 ? "Print structured update status. Implied when output is not a terminal."
@@ -358,8 +368,9 @@ final class CommandTree {
                         .build());
 
         for (OptionSpec option : globals.values()) {
-            if (("docs".equals(spec.name()) || "update".equals(spec.name()))
-                    && List.of("--url", "--api-path", "--token", "--timeout").contains(option.longestName())) {
+            if (("docs".equals(spec.name()) || "update".equals(spec.name()) || "instances".equals(spec.name()))
+                    && List.of("--url", "-- app", "--app", "--api-path", "--token", "--timeout")
+                            .contains(option.longestName())) {
                 continue;
             }
             spec.addOption(option);

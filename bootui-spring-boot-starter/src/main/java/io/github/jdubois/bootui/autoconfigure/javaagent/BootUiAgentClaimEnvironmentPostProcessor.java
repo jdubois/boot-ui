@@ -193,7 +193,7 @@ public class BootUiAgentClaimEnvironmentPostProcessor implements EnvironmentPost
         return startedByTestFramework() ? AgentClaim.TEST : AgentClaim.DEV;
     }
 
-    static boolean startedByTestFramework() {
+    public static boolean startedByTestFramework() {
         return StackWalker.getInstance()
                 .walk(frames -> frames.anyMatch(frame -> {
                     String type = frame.getClassName();

@@ -68,7 +68,7 @@ public final class BootUiCli {
                     while (leaf != null) {
                         help |= leaf.isUsageHelpRequested() || leaf.isVersionHelpRequested();
                         local |= switch (leaf.commandSpec().name()) {
-                            case "docs", "update", "ci" -> true;
+                            case "docs", "update", "ci", "init", "instances" -> true;
                             default -> false;
                         };
                         leaf = leaf.subcommand();

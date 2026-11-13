@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProv
 import io.github.jdubois.bootui.autoconfigure.beans.SpringBeanProvider;
 import io.github.jdubois.bootui.autoconfigure.cache.CacheActivityCacheManagerBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.cache.SpringCacheProvider;
+import io.github.jdubois.bootui.autoconfigure.cli.BootUiInstanceLeaseLifecycle;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.config.SpringConfigProvider;
 import io.github.jdubois.bootui.autoconfigure.config.SpringMemoryRuntimeConfig;
@@ -356,6 +357,13 @@ public class BootUiEngineConfiguration {
     @Bean
     ControlMarkerPublisher bootUiControlMarkerPublisher(RuntimeJournal journal, ApplicationContext context) {
         return new ControlMarkerPublisher(journal, context);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    BootUiInstanceLeaseLifecycle bootUiInstanceLeaseLifecycle(
+            RunIdentity run, BootUiProperties properties, ApplicationContext context) {
+        return new BootUiInstanceLeaseLifecycle(run, properties, context);
     }
 
     /**
