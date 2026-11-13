@@ -87,7 +87,7 @@ final class CatalogQuery {
             return VendorAugmentation.failed(
                     kind, "The scan budget ran out before " + kind.label() + " could be read.");
         }
-        int limit = limits.maxVendorFindings();
+        int limit = limits.rowLimit(kind);
         List<T> findings = new ArrayList<>();
         boolean truncated = false;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {

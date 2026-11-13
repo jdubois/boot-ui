@@ -4291,6 +4291,10 @@ const runtimeResourceProfile = {
   cpuSamples: 1840,
   outsideSamples: 410,
   requests: 96,
+  virtualThreadPinningSupported: true,
+  pinnedEvents: 4,
+  outsidePinnedEvents: 1,
+  pinnedDurationMicros: 18_400,
   routes: [
     {
       route: 'GET /api/sample/products',
@@ -4301,6 +4305,12 @@ const runtimeResourceProfile = {
       hotFrames: [
         {frame: 'io.github.jdubois.bootui.sample.ProductService.findAll:58', samples: 604},
         {frame: 'io.github.jdubois.bootui.sample.ProductController.list:41', samples: 211}
+      ],
+      pinnedEvents: 3,
+      pinnedDurationMicros: 14_200,
+      pinnedFrames: [
+        {frame: 'io.github.jdubois.bootui.sample.ProductService.legacyCatalogSync:94', samples: 2},
+        {frame: 'io.github.jdubois.bootui.sample.NativePricingBridge.quote:37', samples: 1}
       ]
     },
     {
@@ -4309,7 +4319,10 @@ const runtimeResourceProfile = {
       cpuSamples: 398,
       allocatedBytes: 41_200_000,
       virtualThreads: true,
-      hotFrames: [{frame: 'io.github.jdubois.bootui.sample.SecurityConfig.passwordEncoder:33', samples: 352}]
+      hotFrames: [{frame: 'io.github.jdubois.bootui.sample.SecurityConfig.passwordEncoder:33', samples: 352}],
+      pinnedEvents: 0,
+      pinnedDurationMicros: 0,
+      pinnedFrames: []
     },
     {
       route: 'POST /api/orders',
@@ -4317,13 +4330,18 @@ const runtimeResourceProfile = {
       cpuSamples: 20,
       allocatedBytes: 2_100_000,
       virtualThreads: false,
-      hotFrames: []
+      hotFrames: [],
+      pinnedEvents: 0,
+      pinnedDurationMicros: 0,
+      pinnedFrames: []
     }
   ],
   routesOmitted: 0,
   limitations: [
     'CPU is counted in samples of running threads every 10 ms (jdk.ExecutionSample), not as a measured time; JFR samples a bounded number of threads each time.',
-    "Allocated bytes are JFR's estimate from its allocation samples."
+    "Allocated bytes are JFR's estimate from its allocation samples.",
+    'Work a request ran on a thread no BootUI scope covers, such as a raw executor, counts as outside requests.',
+    'On JDK 24 and later (JEP 491), synchronized blocks no longer pin virtual threads; jdk.VirtualThreadPinned records only native frames and class initializers.'
   ]
 }
 

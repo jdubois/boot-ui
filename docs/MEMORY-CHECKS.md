@@ -72,8 +72,11 @@ The time ratio is approximate **collection elapsed time**, not CPU utilization o
 pause time. ZGC/Shenandoah whole-cycle timers and legacy CMS concurrent timing are excluded to avoid adding
 overlapping cycle and pause time. G1's concurrent manager remains included because its timer covers remark/cleanup
 VM operations. Collector implementations outside these known conventions need separate interpretation. A completed
-collection that crosses a sampling boundary can distort a short-window ratio. Lifetime totals still include startup
-and diagnostic collections.
+collection that crosses a sampling boundary can distort a short-window ratio. The advisor samples runtime GC
+counters before `GC.class_histogram`, subtracts cumulative `(postHistogramGc - preHistogramGc)` diagnostic pause
+times across scans, and excludes GCs triggered by BootUI's own **Free BootUI memory**, **Low-footprint mode**, and
+**Heap Dump** actions from `MEM-GC-002`, `MEM-GC-003`, `MEM-GC-005`, and `MEM-GC-006`; startup and external
+diagnostic collections remain included.
 
 The direct-buffer and old-generation trends require **three strict increases across four comparable observations**.
 A plateau, decrease, missing/unknown reading, or failed whole scan breaks consecutive evidence and requires a new
@@ -102,11 +105,12 @@ It excludes GC structures, JIT working memory, native libraries, and non-NIO all
 may be used when the effective reservation cannot be read; per-thread reservations and touched pages can differ.
 Do not add all stack reservations to cgroup current usage: touched stack pages are already charged there.
 
-Container observations come from Linux cgroups. The existing detector resolves the process cgroup, finds the most
-restrictive finite ancestor limit, and reads **leaf** current/stat values. This can miss siblings competing for
-an ancestor's ceiling; it does not prove available headroom. Finite zero-limit detection and hierarchy-wide usage
-pairing remain detector limitations outside this rule audit. An inactive-file subtraction is a working-set
-approximation, not guaranteed reclaimability. Current usage includes the cgroup and descendants, not just this JVM.
+Container observations come from Linux cgroups. The detector resolves the process cgroup, finds the most
+restrictive finite ancestor limit, and reads `memory.current`/`memory.usage_in_bytes` and `memory.stat` from that
+same ancestor cgroup directory (falling back to the leaf cgroup when the limit directory does not expose a usage
+file). Finite zero-limit detection remains a detector limitation outside this rule audit. An inactive-file
+subtraction is a working-set approximation, not guaranteed reclaimability. Current usage includes the cgroup and
+descendants, not just this JVM.
 
 Operating-system swap statistics describe the operating environment, not this JVM's swapped pages or active paging,
 so the advisor no longer reports them (retired `MEM-FOOTPRINT-004`). Comparing the JVM's estimated footprint with
@@ -130,8 +134,8 @@ Retired IDs are listed in [Retired rules](#retired-rules) and are never reused.
 
 | ID | Disposition | Current trigger, severity, and appropriate action |
 | --- | --- | --- |
-| MEM-HEAP-001 | Update | **MEDIUM** at 95% of a known heap maximum, preferring a valid post-histogram snapshot. Histogram success alone no longer escalates to HIGH or claims retained pressure. Confirm representative pressure before changing heap or retention. |
-| MEM-HEAP-002 | Update | **MEDIUM** at 85% of a known old-pool maximum. Skip absent pools/unknown maxima; never divide by committed instead. Investigate collector-specific occupancy, not an asserted fully collected live set. |
+| MEM-HEAP-001 | Update | **MEDIUM** at 95% of a known heap maximum, preferring a valid post-histogram snapshot and falling back to heap-pool `collectionUsage` when the post-histogram snapshot is unavailable. Histogram success alone no longer escalates to HIGH or claims retained pressure. Confirm representative pressure before changing heap or retention. |
+| MEM-HEAP-002 | Update | **MEDIUM** at 85% of a known old-pool maximum, preferring the post-histogram snapshot and falling back to `MemoryPoolMXBean.getCollectionUsage()` when the post-histogram snapshot is unavailable. Skip absent pools/unknown maxima; never divide by committed instead. Investigate collector-specific occupancy, not an asserted fully collected live set. |
 | MEM-HEAP-003 | Update | **LOW** when max heap is below 15% of a container limit of at least 1 GiB and occupancy is at least 80%. A large limit is not free memory: confirm total native/container headroom before raising heap. |
 | MEM-HEAP-004 | Update | **INFO** when the max heap is at or just above (up to 125% of) the compressed-oops encoding range, which is 4 GiB times `ObjectAlignmentInBytes` (32 GiB at 8 bytes). HotSpot keeps compressed oops only below that range minus alignment padding, so the common `-Xmx32g` already disables them; the earlier rule required more than 32 GiB and never reported it. It now prefers the live `MaxHeapSize` (the Serial/Parallel MXBean maximum excludes a survivor space), live `ObjectAlignmentInBytes`, and live `UseCompressedOops`: live true passes, live false within 15/16 to 125% of the range reports, live false well below it is not a cliff. Skips ZGC and an effective (last) `-XX:-UseCompressedOops`. |
 | MEM-HEAP-006 | Retain | **LOW** for at least 1,000 objects pending finalization. Review persistent backlog and resource lifecycle; prefer explicit close/try-with-resources over finalization, deprecated for removal by JEP 421. |
@@ -145,9 +149,9 @@ Evidence: [snapshot contracts][memory-usage], [pool semantics][memory-pool], [le
 
 | ID | Disposition | Current trigger, severity, and appropriate action |
 | --- | --- | --- |
-| MEM-FOOTPRINT-001 | Update | **HIGH** when known max heap itself meets/exceeds the container limit; otherwise **MEDIUM** at 90% for the incomplete mixed configured-envelope estimate. Unknown components/overflow cannot become zero. A reservation estimate is not committed or resident pressure. |
-| MEM-FOOTPRINT-002 | Update | **LOW** (was MEDIUM) for approximate platform-stack reservations of at least 1 GiB or 20% of a known container limit. Threads times `-Xss` is reserved address space; only touched pages are charged to RSS or the cgroup, which MEM-FOOTPRINT-003 measures. Review pool bounds before changing `-Xss`. |
-| MEM-FOOTPRINT-003 | Retain | **HIGH** at 90% of the known cgroup limit using current usage or its inactive-file-adjusted working-set estimate. Valid zero usage is not missing. Corroborate hierarchy scope and reclaimability; this is not process RSS. |
+| MEM-FOOTPRINT-001 | Update | **HIGH** when known max heap itself meets/exceeds the container limit; **LOW** when the 90% threshold is crossed only by adding `threads * -Xss` virtual reservations while cgroup working-set usage is below 75%; otherwise **MEDIUM** at 90% for the incomplete mixed configured-envelope estimate. Unknown components/overflow cannot become zero. A reservation estimate is not committed or resident pressure. |
+| MEM-FOOTPRINT-002 | Update | **LOW** (was MEDIUM) for approximate platform-stack reservations of at least 1 GiB or 20% of a known container limit, preferring the live `ThreadStackSize` VM option and last-wins `-Xss`/`-XX:ThreadStackSize=` input arguments. Threads times `-Xss` is reserved address space; only touched pages are charged to RSS or the cgroup, which MEM-FOOTPRINT-003 measures. Review pool bounds before changing `-Xss`. |
+| MEM-FOOTPRINT-003 | Update | **HIGH** at 90% of the known cgroup limit using current usage or its inactive-file-adjusted working-set estimate read from the same ancestor cgroup directory that supplied the effective limit. Valid zero usage is not missing. Corroborate hierarchy scope and reclaimability; this is not process RSS. |
 
 Evidence: [native accounting][nmt], [OS MXBean scope][os-bean], [cgroup semantics][cgroups], and [process residency][proc].
 
@@ -159,7 +163,7 @@ Evidence: [native accounting][nmt], [OS MXBean scope][os-bean], [cgroup semantic
 | MEM-POOL-002 | Update | **MEDIUM** at 90% of the whole code cache (unsegmented `CodeCache` or the sum of all `CodeHeap` segments), or of the combined profiled + non-profiled nmethod segments. A single full segment is no longer reported: HotSpot falls back non-nmethods → non-profiled → profiled when a segment cannot expand, while nmethods never fall back into non-nmethods. Any undefined segment maximum means not assessed. Saturation constrains new compilation; fragmentation is not measured. |
 | MEM-POOL-003 | Update | **LOW** at 80% of a known effective NIO direct-buffer capacity cap, **MEDIUM** when the effective (last) argument is `-XX:+DisableExplicitGC`: before throwing `OutOfMemoryError` for direct memory, `java.nio.Bits.reserveMemory` calls `System.gc()` so cleaners of unreachable buffers run, and that flag makes the call a no-op. Resolve a live HotSpot zero/default option to max heap; otherwise use a known explicit cap or skip. No unknown-to-unlimited inference, mapped-buffer aggregation, or substitution of used bytes for capacity. |
 | MEM-POOL-004 | Update | **LOW** for at least 128 MiB Metaspace with no reported maximum inside a detected memory-limited container. Undefined maximum is not proof of a missing effective cap; setting one can cause Metaspace OOM and cannot guarantee graceful failure. |
-| MEM-POOL-005 | Update | **MEDIUM** at 85% of reported Compressed Class Space maximum. Compressed class pointers are distinct from ordinary object pointers; no universal 1 GiB default is asserted across versions/header modes. |
+| MEM-POOL-005 | Update | **MEDIUM** at 85% of reported Compressed Class Space maximum. Compressed class pointers are distinct from ordinary object pointers; no universal 1 GiB default is asserted across versions/header modes, and JEP 450/519 `-XX:+UseCompactObjectHeaders` (22-bit narrow class pointers) is surfaced when active. |
 | MEM-POOL-007 | Update | **LOW** for three comparable direct-used increases, **MEDIUM** when capacity is also near its known cap. Missing/unknown samples restart the trend. Net growth cannot establish missing releases or a native leak; use supported library lifecycle APIs, not manual Cleaner calls. |
 
 Evidence: [pool contracts][memory-pool], [buffer estimates][buffers], [OpenJDK capacity enforcement][direct-cap],
@@ -171,11 +175,11 @@ Evidence: [pool contracts][memory-pool], [buffer estimates][buffers], [OpenJDK c
 | ID | Disposition | Current trigger, severity, and appropriate action |
 | --- | --- | --- |
 | MEM-GC-001 | Retain | **INFO** for a detected container without explicit maximum-heap/RAM sizing. HotSpot's approximately 25% default and small-heap ergonomics are context, not a requirement to override them. Recognize `-Xmx`, `MaxHeapSize`, `MaxRAM`, percentage and fraction options. |
-| MEM-GC-002 | Update | **MEDIUM** for approximate lifetime collection time at least 10% of uptime after 10 minutes. Preserve unknown totals/counts independently. Startup and diagnostic collections remain included; do not call this CPU utilization or exact paused time. |
-| MEM-GC-003 | Update | **MEDIUM** at 10% recent approximate collection-time ratio, **HIGH** at 25%, after a valid interval of at least 10 seconds. Reset/incomparable/unknown endpoints do not yield healthy zero deltas. Corroborate collections crossing the interval boundary. |
+| MEM-GC-002 | Update | **MEDIUM** for approximate lifetime collection time at least 10% of uptime after 10 minutes, sampling before `GC.class_histogram` and subtracting cumulative advisor histogram and BootUI offload/heap-dump GC pauses. Preserve unknown totals/counts independently. Startup and external diagnostic collections remain included; do not call this CPU utilization or exact paused time. |
+| MEM-GC-003 | Update | **MEDIUM** at 10% recent approximate collection-time ratio, **HIGH** at 25%, after a valid interval of at least 10 seconds, excluding BootUI offload/low-footprint/heap-dump GCs. Reset/incomparable/unknown endpoints do not yield healthy zero deltas. Corroborate collections crossing the interval boundary. |
 | MEM-GC-004 | Update | **LOW** for Serial GC with at least two processors and roughly 2 GiB of known memory. Unknown memory is not proven server-class capacity; small environments skip. Review workload tradeoffs rather than claiming Serial necessarily wastes resources or causes long pauses. |
-| MEM-GC-005 | Update | **INFO** for a positive comparable `G1 Old Generation` count delta outside histogram request intervals. A Full GC can be explicit/diagnostic, not necessarily allocation failure. Inspect GC cause/logs before tuning G1. |
-| MEM-GC-006 | Update | **MEDIUM** when the most recently completed event lasted at least 1,000 ms. Select by completion time, not historical maximum duration; suppress an unchanged event from the prior histogram. Concurrent-cycle beans (ZGC/Shenandoah `Cycles`, legacy ConcurrentMarkSweep) are now excluded **before** selecting the latest event: their duration spans a whole concurrent cycle and routinely exceeded 1 s, a structural false positive. `G1 Concurrent GC` stays because it times remark/cleanup pauses. |
+| MEM-GC-005 | Update | **INFO** for a positive comparable `G1 Old Generation` count delta outside histogram request intervals and BootUI offload/low-footprint/heap-dump GCs. A Full GC can be explicit/diagnostic, not necessarily allocation failure. Inspect GC cause/logs before tuning G1. |
+| MEM-GC-006 | Update | **MEDIUM** when the most recently completed event lasted at least 1,000 ms. Select by completion time, not historical maximum duration; suppress events from prior histograms and BootUI offload/low-footprint/heap-dump actions. Concurrent-cycle beans (ZGC/Shenandoah `Cycles`, legacy ConcurrentMarkSweep) are now excluded **before** selecting the latest event: their duration spans a whole concurrent cycle and routinely exceeded 1 s, a structural false positive. `G1 Concurrent GC` stays because it times remark/cleanup pauses. |
 | MEM-GC-007 | Update | **HIGH** when container awareness remains explicitly disabled despite a visible cgroup limit. Respect a later re-enable option. Keep supported-HotSpot and deliberate-override caveats; no automatic sizing changes. |
 | MEM-GC-008 | New | **INFO** when ZGC runs in non-generational mode (`ZGC Cycles`/`ZGC Pauses` beans) and the live `ZGenerational` option is readable and false. That combination exists only on JDK 21-22 (default) or JDK 23 with the deprecated `-XX:-ZGenerational`; the option is absent on 17-20 and obsolete from 24, so the rule cannot fire there. Generational ZGC (JEP 439) usually needs less heap headroom, became the default in JDK 23 (JEP 474), and replaced non-generational ZGC in JDK 24 (JEP 490). Some workloads deliberately prefer the old mode, hence INFO. The JVM Tuning calculator does not emit `ZGenerational` because it is not portable; this is a runtime observation. |
 | MEM-HEAP-005 | Retain | **INFO** for smaller initial than maximum heap with ZGC/Shenandoah. The collector uses the JVM's reported initial capacity rather than assuming an earlier argument is effective. Equal initial/max may suit latency-sensitive workloads but trades away footprint/uncommit flexibility. |

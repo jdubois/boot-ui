@@ -919,7 +919,7 @@ public abstract class AbstractMcpConformanceTest {
                     .as("the full report lists every rule with a finding, as the scan summary counts them")
                     .hasSizeGreaterThanOrEqualTo(report.path("topFindings").size());
             String passedRule = java.util.stream.Stream.of(
-                            "ARCH-CODE-004", "ARCH-CODE-006", "ARCH-CODE-007", "ARCH-SPRING-014", "ARCH-SPRING-020")
+                            "ARCH-CODE-006", "ARCH-CODE-007", "ARCH-CODE-008", "ARCH-SPRING-014", "ARCH-SPRING-020")
                     .filter(candidate -> !reported.contains(candidate))
                     .findFirst()
                     .orElseThrow(() -> new AssertionError("every candidate rule reported a finding: " + reported));

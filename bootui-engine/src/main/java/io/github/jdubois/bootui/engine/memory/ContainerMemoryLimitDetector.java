@@ -19,14 +19,16 @@ final class ContainerMemoryLimitDetector {
 
     private static final List<CgroupMemoryFiles> ROOT_CGROUP_FILES = List.of(
             new CgroupMemoryFiles(
-                    List.of(Path.of("/sys/fs/cgroup/memory.max")),
-                    Path.of("/sys/fs/cgroup/memory.current"),
-                    Path.of("/sys/fs/cgroup/memory.stat"),
+                    List.of(new CgroupDirectoryFiles(
+                            Path.of("/sys/fs/cgroup/memory.max"),
+                            Path.of("/sys/fs/cgroup/memory.current"),
+                            Path.of("/sys/fs/cgroup/memory.stat"))),
                     "inactive_file"),
             new CgroupMemoryFiles(
-                    List.of(Path.of("/sys/fs/cgroup/memory/memory.limit_in_bytes")),
-                    Path.of("/sys/fs/cgroup/memory/memory.usage_in_bytes"),
-                    Path.of("/sys/fs/cgroup/memory/memory.stat"),
+                    List.of(new CgroupDirectoryFiles(
+                            Path.of("/sys/fs/cgroup/memory/memory.limit_in_bytes"),
+                            Path.of("/sys/fs/cgroup/memory/memory.usage_in_bytes"),
+                            Path.of("/sys/fs/cgroup/memory/memory.stat"))),
                     "total_inactive_file"));
 
     private final List<CgroupMemoryFiles> files;
@@ -64,26 +66,30 @@ final class ContainerMemoryLimitDetector {
 
     CgroupMemorySample detect() {
         for (CgroupMemoryFiles candidate : files) {
-            OptionalLong limit = readEffectiveLimit(candidate.limitFiles());
-            if (limit.isPresent()) {
+            CgroupSampleSelection selection = selectEffectiveDirectory(candidate.hierarchy());
+            if (selection != null) {
+                CgroupDirectoryFiles usageSource =
+                        Files.isRegularFile(selection.directory().currentFile())
+                                ? selection.directory()
+                                : candidate.hierarchy().get(0);
                 return new CgroupMemorySample(
-                        limit,
-                        readUsage(candidate.currentFile()),
-                        readInactiveFile(candidate.statFile(), candidate.inactiveFileKey()));
+                        OptionalLong.of(selection.limit()),
+                        readUsage(usageSource.currentFile()),
+                        readInactiveFile(usageSource.statFile(), candidate.inactiveFileKey()));
             }
         }
         return CgroupMemorySample.unavailable();
     }
 
-    private OptionalLong readEffectiveLimit(List<Path> limitFiles) {
-        OptionalLong effectiveLimit = OptionalLong.empty();
-        for (Path limitFile : limitFiles) {
-            OptionalLong limit = readLimit(limitFile);
-            if (limit.isPresent() && (effectiveLimit.isEmpty() || limit.getAsLong() < effectiveLimit.getAsLong())) {
-                effectiveLimit = limit;
+    private CgroupSampleSelection selectEffectiveDirectory(List<CgroupDirectoryFiles> hierarchy) {
+        CgroupSampleSelection effective = null;
+        for (CgroupDirectoryFiles dir : hierarchy) {
+            OptionalLong limit = readLimit(dir.limitFile());
+            if (limit.isPresent() && (effective == null || limit.getAsLong() < effective.limit())) {
+                effective = new CgroupSampleSelection(limit.getAsLong(), dir);
             }
         }
-        return effectiveLimit;
+        return effective;
     }
 
     private OptionalLong readLimit(Path file) {
@@ -162,7 +168,8 @@ final class ContainerMemoryLimitDetector {
         List<CgroupMemoryFiles> pairs = new ArrayList<>();
         int size = Math.min(limitFiles.size(), currentFiles.size());
         for (int index = 0; index < size; index++) {
-            pairs.add(new CgroupMemoryFiles(List.of(limitFiles.get(index)), currentFiles.get(index), null, null));
+            pairs.add(new CgroupMemoryFiles(
+                    List.of(new CgroupDirectoryFiles(limitFiles.get(index), currentFiles.get(index), null)), null));
         }
         return pairs;
     }
@@ -214,24 +221,27 @@ final class ContainerMemoryLimitDetector {
         if (directory == null) {
             return List.of();
         }
-        return List.of(new CgroupMemoryFiles(
-                ancestorLimitFiles(directory, Path.of(mount.mountPoint()).normalize(), limitFileName),
-                directory.resolve(currentFileName),
-                directory.resolve("memory.stat"),
-                inactiveFileKey));
+        List<CgroupDirectoryFiles> hierarchy = ancestorDirectoryFiles(
+                directory, Path.of(mount.mountPoint()).normalize(), limitFileName, currentFileName);
+        if (hierarchy.isEmpty()) {
+            return List.of();
+        }
+        return List.of(new CgroupMemoryFiles(hierarchy, inactiveFileKey));
     }
 
-    private static List<Path> ancestorLimitFiles(Path directory, Path mountPoint, String limitFileName) {
-        List<Path> limitFiles = new ArrayList<>();
+    private static List<CgroupDirectoryFiles> ancestorDirectoryFiles(
+            Path directory, Path mountPoint, String limitFileName, String currentFileName) {
+        List<CgroupDirectoryFiles> hierarchy = new ArrayList<>();
         Path current = directory;
         while (current != null && current.startsWith(mountPoint)) {
-            limitFiles.add(current.resolve(limitFileName));
+            hierarchy.add(new CgroupDirectoryFiles(
+                    current.resolve(limitFileName), current.resolve(currentFileName), current.resolve("memory.stat")));
             if (current.equals(mountPoint)) {
                 break;
             }
             current = current.getParent();
         }
-        return List.copyOf(limitFiles);
+        return List.copyOf(hierarchy);
     }
 
     private static Path resolveCgroupDirectory(String cgroupPath, CgroupMount mount) {
@@ -329,7 +339,11 @@ final class ContainerMemoryLimitDetector {
         }
     }
 
-    private record CgroupMemoryFiles(List<Path> limitFiles, Path currentFile, Path statFile, String inactiveFileKey) {}
+    private record CgroupDirectoryFiles(Path limitFile, Path currentFile, Path statFile) {}
+
+    private record CgroupSampleSelection(long limit, CgroupDirectoryFiles directory) {}
+
+    private record CgroupMemoryFiles(List<CgroupDirectoryFiles> hierarchy, String inactiveFileKey) {}
 
     private record CgroupPath(String path) {}
 

@@ -46,11 +46,23 @@ class SpringScanWiringTest {
         assertThat(osiv.complete()).isTrue();
         assertThat(osiv.registration()).isNull();
         for (SpringRule rule : java.util.List.of(
-                new SchedulerPoolTooSmallRule(), new InMemoryCacheManagerRule(), new OpenSessionInViewEnabledRule())) {
+                new SchedulerPoolTooSmallRule(),
+                new InMemoryCacheManagerRule(),
+                new OpenSessionInViewEnabledRule(),
+                new ActuatorShowValuesAlwaysRule())) {
             var result = rule.evaluate(snapshot);
             assertThat(result.status())
                     .as(result.id() + " " + result.sampleViolations())
                     .isEqualTo("PASS");
+        }
+        for (SpringRule deferred : java.util.List.of(
+                new ActuatorExposeAllRule(),
+                new SensitiveActuatorEndpointsExposedRule(),
+                new DangerousActuatorEndpointsAccessibleRule())) {
+            var result = deferred.evaluate(snapshot);
+            assertThat(result.status())
+                    .as(result.id() + " " + result.sampleViolations())
+                    .isEqualTo("SKIPPED");
         }
         assertThat(snapshot.observations()
                         .evaluation()
@@ -64,12 +76,19 @@ class SpringScanWiringTest {
                 .isTrue();
 
         var report = controller.scan();
-        assertThat(report.rulesEvaluated()).isEqualTo(41);
+        assertThat(snapshot.applicationSecurityChainPresent()).isTrue();
+        assertThat(report.rulesEvaluated()).isEqualTo(39);
         assertThat(report.evidence().coverageComplete()).isTrue();
         assertThat(report.evidence().limitations()).isEmpty();
         assertThat(report.analysisErrors()).isEmpty();
         assertThat(report.results())
-                .noneMatch(result -> java.util.Set.of("SPRING-PERF-005", "SPRING-CACHE-001", "SPRING-JPA-001")
+                .noneMatch(result -> java.util.Set.of(
+                                "SPRING-PERF-005",
+                                "SPRING-CACHE-001",
+                                "SPRING-JPA-001",
+                                "SPRING-MGMT-001",
+                                "SPRING-MGMT-002",
+                                "SPRING-MGMT-004")
                         .contains(result.id()));
     }
 }

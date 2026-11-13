@@ -11,6 +11,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Intra-route baseline comparison in Request Profile** compares slow or failed HTTP requests against a retained warm
   `2xx` baseline on the same route in the drawer, MCP/CLI, and Markdown exports ([#1670](https://github.com/jdubois/boot-ui/issues/1670)).
+- **Virtual-thread pinning attribution in the JFR resource profiler** joins `jdk.VirtualThreadPinned` events, durations,
+  and hot frames to routes on JDK 21+ with a JEP 491 note on JDK 24+ ([Runtime Insights](docs/features/runtime-insights.md#jfr-profile); [#1672](https://github.com/jdubois/boot-ui/issues/1672)).
 
 ## [2.4.0] - 2026-11-12
 

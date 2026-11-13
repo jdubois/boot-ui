@@ -1646,6 +1646,103 @@ class DatabaseAdvisorHibernateRulesTests {
     }
 
     @Test
+    void oracleCompleteConstraintCatalogReportsMissingUniqueKeyWhenNoIndexOrConstraintCoversIt() {
+        MappedEntityFacts mapped = entity(
+                "User",
+                "users",
+                List.of(),
+                List.of(),
+                List.of(new MappedUniqueConstraintFacts("User#email", List.of("email"))));
+        TableModel users =
+                table("users", List.of(column("email", "varchar2", Types.VARCHAR)), List.of(), List.of(), List.of());
+        VendorFindings findings = VendorFindings.builder()
+                .add(VendorAugmentation.available(VendorFindingKinds.ORACLE_CONSTRAINTS, List.of(), false))
+                .add(VendorAugmentation.available(VendorFindingKinds.ORACLE_INDEX_DETAILS, List.of(), false))
+                .build();
+        DatabaseAdvisorContext context =
+                hibernateContext(schema("ds", Dialect.ORACLE, List.of(users), findings), mapped);
+        DatabaseAdvisorRuleResultDto result = new HibernateMissingUniqueIndexRule().evaluate(context);
+        assertThat(result.status()).isEqualTo(VIOLATION);
+        assertThat(result.sampleViolations()).singleElement().asString().contains("User#email", "no enforcing key");
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+
+        IndexModel nonuniqueComposite =
+                index("ix_email_tenant", List.of("email", "tenant_id")).withBackingConstraint("UQ_EMAIL");
+        TableModel withNonuniqueBacking = table(
+                "users",
+                List.of(column("email", "varchar2", Types.VARCHAR), column("tenant_id", "number", Types.NUMERIC)),
+                List.of(),
+                List.of(),
+                List.of(nonuniqueComposite));
+        OracleConstraintDetail uq = new OracleConstraintDetail(
+                "public",
+                "users",
+                "UQ_EMAIL",
+                "U",
+                "ENABLED",
+                "VALIDATED",
+                false,
+                null,
+                "public",
+                "ix_email_tenant",
+                "DEFERRABLE",
+                "IMMEDIATE",
+                null);
+        VendorFindings nonuniqueFindings = VendorFindings.builder()
+                .add(VendorAugmentation.available(VendorFindingKinds.ORACLE_CONSTRAINTS, List.of(uq), false))
+                .add(VendorAugmentation.available(VendorFindingKinds.ORACLE_INDEX_DETAILS, List.of(), false))
+                .build();
+        DatabaseAdvisorContext nonuniqueContext = hibernateContext(
+                schema("ds", Dialect.ORACLE, List.of(withNonuniqueBacking), nonuniqueFindings), mapped);
+        assertThat(new HibernateMissingUniqueIndexRule()
+                        .evaluate(nonuniqueContext)
+                        .status())
+                .isEqualTo(SKIPPED);
+        assertThat(nonuniqueContext.evaluationDiagnostics()).isNotEmpty();
+    }
+
+    @Test
+    void attributedPersistenceUnitsResolveAcrossMultipleDatasources() {
+        TableModel orders = table(
+                "orders",
+                List.of(notNullColumn("id", "int8", Types.BIGINT), column("code", "varchar", Types.VARCHAR, 20)),
+                List.of("id"),
+                List.of(),
+                List.of());
+        TableModel audit = table(
+                "audit_events",
+                List.of(notNullColumn("id", "int8", Types.BIGINT)),
+                List.of("id"),
+                List.of(),
+                List.of());
+        MappedEntityFacts orderEntity = entity(
+                "com.example.Order",
+                "orders",
+                List.of(),
+                List.of(new MappedColumnFacts("com.example.Order#code", "code", false, "String", 50)),
+                List.of());
+        DatabaseAdvisorContext context = new DatabaseAdvisorContext(
+                List.of(
+                        schema("ordersDs", Dialect.POSTGRESQL, List.of(orders)),
+                        schema("auditDs", Dialect.POSTGRESQL, List.of(audit))),
+                true,
+                List.of(orderEntity),
+                List.of(),
+                List.of(),
+                null,
+                java.util.Map.of(),
+                java.util.Map.of(),
+                java.util.Map.of("com.example.Order", "ordersDs"));
+
+        assertThat(new HibernateMissingTableRule().evaluate(context).status()).isEqualTo(PASS);
+        assertThat(new HibernateMissingColumnRule().evaluate(context).status()).isEqualTo(PASS);
+        assertThat(new HibernateColumnMismatchRule().evaluate(context).status()).isEqualTo(VIOLATION);
+        assertThat(new HibernateColumnLengthMismatchRule().evaluate(context).status())
+                .isEqualTo(VIOLATION);
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+    }
+
+    @Test
     void includedPayloadDoesNotExtendTheUniqueKey() {
         MappedEntityFacts mapped = entity(
                 "User",

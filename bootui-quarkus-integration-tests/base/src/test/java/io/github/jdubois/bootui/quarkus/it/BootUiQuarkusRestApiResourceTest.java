@@ -57,13 +57,21 @@ class BootUiQuarkusRestApiResourceTest {
         for (JsonNode result : scanned.path("results")) {
             assertThat(result.path("id").asText())
                     .isNotIn(
+                            "RAPI-MAP-004",
                             "RAPI-MAP-008",
+                            "RAPI-NAME-002",
                             "RAPI-NAME-004",
-                            "RAPI-ERR-011",
-                            "RAPI-DOC-003",
+                            "RAPI-RESP-004",
+                            "RAPI-RESP-008",
                             "RAPI-VALID-005",
                             "RAPI-DTO-004",
-                            "RAPI-ERR-002");
+                            "RAPI-VER-002",
+                            "RAPI-VER-005",
+                            "RAPI-ERR-002",
+                            "RAPI-ERR-011",
+                            "RAPI-DOC-001",
+                            "RAPI-DOC-002",
+                            "RAPI-DOC-003");
             if (Set.of("RAPI-RESP-002", "RAPI-RESP-006", "RAPI-RESP-007", "RAPI-VER-004")
                     .contains(result.path("id").asText())) {
                 assertThat(result.path("sampleViolations").toString())

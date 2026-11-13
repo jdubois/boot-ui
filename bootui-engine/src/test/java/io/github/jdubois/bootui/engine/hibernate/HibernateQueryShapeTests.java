@@ -122,7 +122,104 @@ class HibernateQueryShapeTests {
                 .isFalse();
     }
 
+    @Test
+    void rootAllowsCommasOutsideFromClauseAndSingleHopJoinAliases() {
+        for (String query : List.of(
+                "select o.id, o.name from QueryOrder o",
+                "select o from QueryOrder o where o.status in (:a, :b) and coalesce(o.name, 'fallback') = :name",
+                "select o from QueryOrder o group by o.id, o.name having count(o) > 1 order by o.name desc, o.id asc",
+                "select o from QueryOrder o join fetch o.items i where i.id > 0 order by o.id, i.id",
+                "select o from QueryOrder o left join o.items as i where i.id in (:a, :b)")) {
+            HibernateContext context = new HibernateContext(
+                    List.of(HibernateEntityModel.fromClass(QueryOrder.class)), List.of(), key -> null, List.of());
+            HibernateRepositoryMethodModel method = new HibernateRepositoryMethodModel(
+                    "com.example.QueryOrderRepository",
+                    "findCustom",
+                    QueryOrder.class,
+                    List.class,
+                    query,
+                    false,
+                    null,
+                    false,
+                    false,
+                    false,
+                    false,
+                    List.of());
+            assertThat(HibernateQueryShape.root(context, method, false))
+                    .as(query)
+                    .isNotNull()
+                    .extracting(HibernateEntityModel::javaType)
+                    .isEqualTo(QueryOrder.class);
+            assertThat(context.evidence().requiredUnknown()).as(query).isFalse();
+        }
+    }
+
+    @Test
+    void rootRejectsMultiRootFromClauseCommasAndMultiHopJoins() {
+        for (String query : List.of(
+                "select o from QueryOrder o, QueryOrder other where o.id = other.id",
+                "select o from QueryOrder o join o.items i, QueryOrder other",
+                "select o from QueryOrder o join o.items i on i.name = :where, QueryOrder other")) {
+            HibernateContext context = new HibernateContext(
+                    List.of(HibernateEntityModel.fromClass(QueryOrder.class)), List.of(), key -> null, List.of());
+            HibernateRepositoryMethodModel method = new HibernateRepositoryMethodModel(
+                    "com.example.QueryOrderRepository",
+                    "findMultiRoot",
+                    QueryOrder.class,
+                    List.class,
+                    query,
+                    false,
+                    null,
+                    false,
+                    false,
+                    false,
+                    false,
+                    List.of());
+            assertThat(HibernateQueryShape.root(context, method, false))
+                    .as(query)
+                    .isNull();
+            assertThat(context.evidence().gaps()).as(query).containsOnlyKeys(HibernateEvidenceGap.QUERY_SHAPE);
+        }
+
+        for (String query : List.of(
+                "select o from QueryOrder o join o.items i join fetch i.children",
+                "select o from QueryOrder o join fetch o.items.children c")) {
+            HibernateContext context = new HibernateContext(
+                    List.of(HibernateEntityModel.fromClass(QueryOrder.class)), List.of(), key -> null, List.of());
+            HibernateRepositoryMethodModel method = new HibernateRepositoryMethodModel(
+                    "com.example.QueryOrderRepository",
+                    "findNestedJoin",
+                    QueryOrder.class,
+                    List.class,
+                    query,
+                    false,
+                    null,
+                    false,
+                    false,
+                    false,
+                    false,
+                    List.of());
+            assertThat(HibernateQueryShape.root(context, method, false))
+                    .as(query)
+                    .isNull();
+            assertThat(context.evidence().gaps()).as(query).containsOnlyKeys(HibernateEvidenceGap.QUERY_JOIN_PATH);
+        }
+    }
+
     private static boolean maintainsVersion(String query, String alias, String attribute) {
         return HibernateQueryShape.maintainsVersion(HibernateQueryShape.lexical(query), alias, attribute);
+    }
+
+    @jakarta.persistence.Entity
+    static class QueryOrder {
+        @jakarta.persistence.Id
+        Long id;
+
+        String name;
+
+        String status;
+
+        @jakarta.persistence.OneToMany
+        List<QueryOrder> items;
     }
 }

@@ -482,7 +482,7 @@ class ArchitectureScannerTests {
         assertThat(report.results())
                 .extracting(ArchitectureRuleResultDto::id)
                 .contains("ARCH-SPRING-004", "ARCH-SPRING-001", "ARCH-CODE-001")
-                .doesNotContain("ARCH-CODE-004");
+                .doesNotContain("ARCH-CODE-008", "ARCH-CODE-004", "ARCH-CODE-018");
         assertThat(report.results().stream()
                         .map(ArchitectureRuleResultDto::severity)
                         .toList())

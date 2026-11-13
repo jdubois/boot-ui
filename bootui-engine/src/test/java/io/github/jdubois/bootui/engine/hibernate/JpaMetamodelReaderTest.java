@@ -109,4 +109,123 @@ class JpaMetamodelReaderTest {
             return null;
         }
     }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void expandsEmbeddedAttributesWithBoundedDepthAndRespectsAttributeOverrides() throws Exception {
+        EntityManagerFactory factory = mock(EntityManagerFactory.class);
+        jakarta.persistence.metamodel.Metamodel metamodel = mock(jakarta.persistence.metamodel.Metamodel.class);
+        jakarta.persistence.metamodel.EntityType entity = mock(jakarta.persistence.metamodel.EntityType.class);
+        jakarta.persistence.metamodel.SingularAttribute id =
+                mock(jakarta.persistence.metamodel.SingularAttribute.class);
+        jakarta.persistence.metamodel.SingularAttribute embeddedId =
+                mock(jakarta.persistence.metamodel.SingularAttribute.class);
+        jakarta.persistence.metamodel.SingularAttribute address =
+                mock(jakarta.persistence.metamodel.SingularAttribute.class);
+        jakarta.persistence.metamodel.EmbeddableType addressType =
+                mock(jakarta.persistence.metamodel.EmbeddableType.class);
+        jakarta.persistence.metamodel.Attribute street = mock(jakarta.persistence.metamodel.Attribute.class);
+        jakarta.persistence.metamodel.Attribute status = mock(jakarta.persistence.metamodel.Attribute.class);
+        jakarta.persistence.metamodel.SingularAttribute selfCycle =
+                mock(jakarta.persistence.metamodel.SingularAttribute.class);
+
+        when(factory.getMetamodel()).thenReturn(metamodel);
+        when(metamodel.getEntities()).thenReturn(Set.of(entity));
+        when(entity.getJavaType()).thenReturn(EmbeddedOwnerEntity.class);
+        when(entity.getAttributes()).thenReturn(Set.of(id, embeddedId, address));
+
+        when(id.getName()).thenReturn("id");
+        when(id.getJavaMember()).thenReturn(EmbeddedOwnerEntity.class.getDeclaredField("id"));
+        when(id.getPersistentAttributeType())
+                .thenReturn(jakarta.persistence.metamodel.Attribute.PersistentAttributeType.BASIC);
+        when(id.isId()).thenReturn(true);
+
+        when(embeddedId.getName()).thenReturn("compositeKey");
+        when(embeddedId.getJavaMember()).thenReturn(EmbeddedOwnerEntity.class.getDeclaredField("compositeKey"));
+        when(embeddedId.getPersistentAttributeType())
+                .thenReturn(jakarta.persistence.metamodel.Attribute.PersistentAttributeType.EMBEDDED);
+        when(embeddedId.isId()).thenReturn(true);
+
+        when(address.getName()).thenReturn("address");
+        when(address.getJavaMember()).thenReturn(EmbeddedOwnerEntity.class.getDeclaredField("address"));
+        when(address.getPersistentAttributeType())
+                .thenReturn(jakarta.persistence.metamodel.Attribute.PersistentAttributeType.EMBEDDED);
+        when(address.getType()).thenReturn(addressType);
+
+        when(addressType.getJavaType()).thenReturn(EmbeddedAddress.class);
+        when(addressType.getAttributes()).thenReturn(Set.of(street, status, selfCycle));
+
+        when(street.getName()).thenReturn("street");
+        when(street.getJavaMember()).thenReturn(EmbeddedAddress.class.getDeclaredField("street"));
+        when(street.getPersistentAttributeType())
+                .thenReturn(jakarta.persistence.metamodel.Attribute.PersistentAttributeType.BASIC);
+
+        when(status.getName()).thenReturn("status");
+        when(status.getJavaMember()).thenReturn(EmbeddedAddress.class.getDeclaredField("status"));
+        when(status.getPersistentAttributeType())
+                .thenReturn(jakarta.persistence.metamodel.Attribute.PersistentAttributeType.BASIC);
+
+        when(selfCycle.getName()).thenReturn("parentAddress");
+        when(selfCycle.getJavaMember()).thenReturn(EmbeddedAddress.class.getDeclaredField("parentAddress"));
+        when(selfCycle.getPersistentAttributeType())
+                .thenReturn(jakarta.persistence.metamodel.Attribute.PersistentAttributeType.EMBEDDED);
+        when(selfCycle.getType()).thenReturn(addressType);
+
+        EntityDiscovery discovery = JpaMetamodelReader.readEntities(List.of(factory));
+        assertThat(discovery.errors()).isEmpty();
+        HibernateEntityModel model = discovery.entities().get(0);
+        assertThat(model.attributes())
+                .extracting(HibernateAttributeModel::name)
+                .contains("id", "compositeKey", "address", "address.street", "address.status", "address.parentAddress")
+                .doesNotContain("compositeKey.part", "address.parentAddress.street");
+
+        HibernateAttributeModel streetAttr = model.attributes().stream()
+                .filter(attr -> "address.street".equals(attr.name()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(streetAttr.annotationIntValue(streetAttr.columnAnnotation(), "length"))
+                .isEqualTo(120);
+
+        HibernateContext context = new HibernateContext(List.of(model), List.of(), key -> null, List.of());
+        assertThat(new StringColumnLengthRule().evaluate(context).status()).isEqualTo(HibernateRuleSupport.PASS);
+        assertThat(new OrdinalEnumRule().evaluate(context).sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("EmbeddedAddress#address.status");
+    }
+
+    enum EmbeddedStatus {
+        ACTIVE,
+        ARCHIVED
+    }
+
+    @jakarta.persistence.Embeddable
+    static class EmbeddedKey {
+        String part;
+    }
+
+    @jakarta.persistence.Embeddable
+    static class EmbeddedAddress {
+        String street;
+
+        EmbeddedStatus status;
+
+        @jakarta.persistence.Embedded
+        EmbeddedAddress parentAddress;
+    }
+
+    @jakarta.persistence.Entity
+    static class EmbeddedOwnerEntity {
+        @jakarta.persistence.Id
+        Long id;
+
+        @jakarta.persistence.EmbeddedId
+        EmbeddedKey compositeKey;
+
+        @jakarta.persistence.Embedded
+        @jakarta.persistence.AttributeOverride(
+                name = "street",
+                column = @jakarta.persistence.Column(name = "addr_street", length = 120))
+        EmbeddedAddress address;
+    }
 }

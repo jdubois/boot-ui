@@ -17,6 +17,10 @@ record PostgresUnvalidatedConstraint(
     }
 
     String describeType() {
-        return "f".equals(type) ? "foreign key" : "check";
+        return switch (type == null ? "" : type) {
+            case "f" -> "foreign key";
+            case "n" -> "not-null";
+            default -> "check";
+        };
     }
 }
