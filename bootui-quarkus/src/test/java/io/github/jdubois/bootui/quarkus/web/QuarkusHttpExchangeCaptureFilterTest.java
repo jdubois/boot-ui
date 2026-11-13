@@ -203,6 +203,108 @@ class QuarkusHttpExchangeCaptureFilterTest {
     }
 
     @Test
+    void exposesRequestIdHeaderOnlyOnTrustedApplicationResponsesWhenEnabledAndPreservesApplicationValues() {
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(20);
+
+        // Default is true: loopback request receives X-BootUI-Request-Id matching its captured exchange.
+        RoutingContext defaultRc = mockRequest("/orders", "127.0.0.1");
+        completeRequest(filter(buffer, Map.of()), defaultRc);
+        CapturedHttpExchange defaultExchange = buffer.snapshot().get(0);
+        assertThat(defaultRc.response().headers().getAll("X-BootUI-Request-Id"))
+                .containsExactly(defaultExchange.requestId());
+        assertThat(defaultExchange.responseHeaders().get("X-BootUI-Request-Id"))
+                .containsExactly(defaultExchange.requestId());
+
+        // Explicitly disabled: loopback request receives no X-BootUI-Request-Id header.
+        RoutingContext disabledRc = mockRequest("/orders", "127.0.0.1");
+        completeRequest(filter(buffer, Map.of("bootui.http-exchanges.expose-request-id-header", "false")), disabledRc);
+        assertThat(disabledRc.response().headers().get("X-BootUI-Request-Id")).isNull();
+
+        // Enabled on loopback and trusted proxy: response and captured exchange carry the exact requestId.
+        QuarkusHttpExchangeCaptureFilter enabledFilter = filter(
+                buffer,
+                Map.of(
+                        "bootui.trusted-proxies", "10.30.0.0/16",
+                        "bootui.allow-non-localhost", "true"));
+        RoutingContext loopbackRc = mockRequest("/orders", "127.0.0.1");
+        enabledFilter.handle(loopbackRc);
+        headersEndHandler(loopbackRc).handle(null);
+        bodyEndHandler(loopbackRc).handle(null);
+        CapturedHttpExchange loopbackExchange = buffer.snapshot().get(0);
+        assertThat(loopbackRc.response().headers().getAll("X-BootUI-Request-Id"))
+                .containsExactly(loopbackExchange.requestId());
+        assertThat(loopbackExchange.responseHeaders().get("X-BootUI-Request-Id"))
+                .containsExactly(loopbackExchange.requestId());
+
+        // Enabled on trusted proxy: receives the header even when only bodyEndHandler fires in a mock test.
+        RoutingContext trustedProxyRc = mockRequest("/orders", "10.30.1.9");
+        completeRequest(enabledFilter, trustedProxyRc);
+        CapturedHttpExchange trustedExchange = buffer.snapshot().get(0);
+        assertThat(trustedProxyRc.response().headers().getAll("X-BootUI-Request-Id"))
+                .containsExactly(trustedExchange.requestId());
+
+        // Untrusted non-loopback peer never receives the header, even with allow-non-localhost=true.
+        RoutingContext untrustedRc = mockRequest("/orders", "203.0.113.5");
+        enabledFilter.handle(untrustedRc);
+        headersEndHandler(untrustedRc).handle(null);
+        bodyEndHandler(untrustedRc).handle(null);
+        assertThat(untrustedRc.response().headers().get("X-BootUI-Request-Id")).isNull();
+
+        // BootUI's own requests never receive the header.
+        RoutingContext bootUiRc = mockRequest("/bootui/api/overview", "127.0.0.1");
+        enabledFilter.handle(bootUiRc);
+        assertThat(bootUiRc.response().headers().get("X-BootUI-Request-Id")).isNull();
+
+        // Existing application header is never overwritten.
+        RoutingContext appHeaderRc = mockRequest("/orders", "127.0.0.1");
+        appHeaderRc.response().headers().set("X-BootUI-Request-Id", "app-provided-id");
+        enabledFilter.handle(appHeaderRc);
+        headersEndHandler(appHeaderRc).handle(null);
+        bodyEndHandler(appHeaderRc).handle(null);
+        assertThat(appHeaderRc.response().headers().getAll("X-BootUI-Request-Id"))
+                .containsExactly("app-provided-id");
+
+        // Disabling the http-exchanges panel suppresses the header.
+        QuarkusHttpExchangeCaptureFilter disabledPanelFilter = filter(
+                buffer,
+                Map.of(
+                        "bootui.http-exchanges.expose-request-id-header", "true",
+                        "bootui.panels.http-exchanges.enabled", "false"));
+        RoutingContext disabledPanelRc = mockRequest("/orders", "127.0.0.1");
+        completeRequest(disabledPanelFilter, disabledPanelRc);
+        assertThat(disabledPanelRc.response().headers().get("X-BootUI-Request-Id"))
+                .isNull();
+
+        // Invalid boolean value fails closed to false without disturbing capture.
+        QuarkusHttpExchangeCaptureFilter invalidConfigFilter =
+                filter(buffer, Map.of("bootui.http-exchanges.expose-request-id-header", "not-a-boolean"));
+        RoutingContext invalidConfigRc = mockRequest("/orders", "127.0.0.1");
+        completeRequest(invalidConfigFilter, invalidConfigRc);
+        assertThat(invalidConfigRc.response().headers().get("X-BootUI-Request-Id"))
+                .isNull();
+
+        // A failure inside header emission is isolated and never drops the captured exchange or its response headers.
+        @SuppressWarnings("unchecked")
+        Instance<TraceIdSource> traceIdProvider = mock(Instance.class);
+        when(traceIdProvider.isResolvable()).thenReturn(false);
+        Config enabledConfig = new SmallRyeConfigBuilder()
+                .withSources(new PropertiesConfigSource(
+                        Map.of("bootui.http-exchanges.expose-request-id-header", "true"), "test", 1000))
+                .build();
+        io.github.jdubois.bootui.quarkus.BootUiQuarkusSafetyFilter throwingSafety =
+                mock(io.github.jdubois.bootui.quarkus.BootUiQuarkusSafetyFilter.class);
+        when(throwingSafety.isTrustedSource(any())).thenThrow(new IllegalStateException("safety check failed"));
+        QuarkusHttpExchangeCaptureFilter isolatedFilter = new QuarkusHttpExchangeCaptureFilter(
+                buffer, traceIdProvider, enabledConfig, null, null, throwingSafety);
+        RoutingContext isolatedRc = mockRequest("/orders", "127.0.0.1");
+        isolatedRc.response().headers().set("X-App", "preserved");
+        int beforeCount = buffer.snapshot().size();
+        completeRequest(isolatedFilter, isolatedRc);
+        assertThat(buffer.snapshot()).hasSize(beforeCount + 1);
+        assertThat(buffer.snapshot().get(0).responseHeaders().get("X-App")).containsExactly("preserved");
+    }
+
+    @Test
     void makesTheRequestContextCurrentWhileTheChainRunsAndRestoresItAfter() {
         HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
         RoutingContext rc = mockRequest("/orders");
@@ -474,9 +576,10 @@ class QuarkusHttpExchangeCaptureFilterTest {
         return captor.getValue();
     }
 
-    /** Runs the filter and then fires the body-end handler it registered, as Vert.x does on response end. */
+    /** Runs the filter and then fires the headers-end and body-end handlers it registered, as Vert.x does on response end. */
     private static void completeRequest(QuarkusHttpExchangeCaptureFilter filter, RoutingContext rc) {
         filter.handle(rc);
+        headersEndHandler(rc).handle(null);
         bodyEndHandler(rc).handle(null);
     }
 
@@ -502,6 +605,10 @@ class QuarkusHttpExchangeCaptureFilterTest {
     }
 
     private static RoutingContext mockRequest(String path) {
+        return mockRequest(path, null);
+    }
+
+    private static RoutingContext mockRequest(String path, String remoteHost) {
         HttpServerResponse response = mock(HttpServerResponse.class);
         when(response.getStatusCode()).thenReturn(200);
         when(response.headers()).thenReturn(MultiMap.caseInsensitiveMultiMap());
@@ -509,6 +616,11 @@ class QuarkusHttpExchangeCaptureFilterTest {
         when(request.method()).thenReturn(HttpMethod.GET);
         when(request.headers()).thenReturn(MultiMap.caseInsensitiveMultiMap());
         when(request.absoluteURI()).thenReturn("http://localhost:8080" + path);
+        if (remoteHost != null) {
+            io.vertx.core.net.SocketAddress remoteAddress = mock(io.vertx.core.net.SocketAddress.class);
+            when(remoteAddress.hostAddress()).thenReturn(remoteHost);
+            when(request.remoteAddress()).thenReturn(remoteAddress);
+        }
         RoutingContext rc = mock(RoutingContext.class);
         when(rc.normalizedPath()).thenReturn(path);
         when(rc.request()).thenReturn(request);

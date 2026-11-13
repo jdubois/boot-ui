@@ -24,11 +24,16 @@ import jakarta.servlet.AsyncListener;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletRequestWrapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponseWrapper;
 import java.io.IOException;
 import java.net.URI;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
 import org.slf4j.MDC;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.HandlerMapping;
@@ -105,6 +110,8 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
     }
 
     private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
+    private volatile BooleanSupplier exposeRequestIdHeader = () -> false;
+    private volatile Predicate<String> trustedSource = ignored -> false;
 
     /**
      * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives one {@code HTTP} event per request
@@ -112,6 +119,18 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
      */
     public void setRuntimeEventSink(RuntimeEventSink journal) {
         this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+    }
+
+    /**
+     * Configures opt-in {@link RequestIds#RESPONSE_HEADER} emission on trusted-peer application responses.
+     *
+     * @param exposeRequestIdHeader live check for whether {@code bootui.http-exchanges.expose-request-id-header}
+     *     and the {@code http-exchanges} panel are both enabled
+     * @param trustedSource live check for whether the request's raw peer address is a trusted loopback/local source
+     */
+    public void setRequestIdHeaderExposure(BooleanSupplier exposeRequestIdHeader, Predicate<String> trustedSource) {
+        this.exposeRequestIdHeader = exposeRequestIdHeader == null ? () -> false : exposeRequestIdHeader;
+        this.trustedSource = trustedSource == null ? ignored -> false : trustedSource;
     }
 
     /** The request attribute marking a request whose values the BootUI agent's request value holder holds. */
@@ -123,13 +142,17 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
     /** The request attribute marking a request one of whose async redispatches threw. */
     static final String ASYNC_DISPATCH_FAILED_ATTRIBUTE = RequestCorrelationFilter.class.getName() + ".asyncFailed";
 
+    /** The request attribute holding the ownership state of {@link RequestIds#RESPONSE_HEADER} across dispatches. */
+    static final String REQUEST_ID_HEADER_ATTRIBUTE = RequestCorrelationFilter.class.getName() + ".requestIdHeader";
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         if (isAsyncDispatch(request) || request.getDispatcherType() == DispatcherType.ERROR) {
+            HttpServletResponse effectiveResponse = wrapForRequestIdHeaderOnRedispatch(request, response);
             boolean threw = true;
             try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(asyncContext(request))) {
-                chain.doFilter(request, response);
+                chain.doFilter(request, effectiveResponse);
                 threw = false;
             } finally {
                 if (threw && isAsyncDispatch(request)) {
@@ -150,6 +173,8 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         }
         CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
         request.setAttribute(CORRELATION_ATTRIBUTE, correlation);
+        HttpServletResponse effectiveResponse =
+                wrapForRequestIdHeaderIfAllowed(request, response, correlation.requestId());
         if (phases != null) {
             phases.begin(correlation.requestId());
         }
@@ -162,7 +187,7 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             AgentCodePaths.begin();
             AgentCodePaths.phase(RequestPhase.FILTERS);
             try {
-                recordAround(request, response, chain, correlation);
+                recordAround(request, effectiveResponse, chain, correlation);
             } finally {
                 try {
                     markAssemblyOnlyIfAsync(request, correlation);
@@ -171,6 +196,131 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
                     AgentCodePaths.end();
                 }
             }
+        }
+    }
+
+    private HttpServletResponse wrapForRequestIdHeaderIfAllowed(
+            HttpServletRequest request, HttpServletResponse response, String requestId) {
+        try {
+            if (!exposeRequestIdHeader.getAsBoolean()
+                    || !trustedSource.test(rawRemoteAddr(request))
+                    || response.containsHeader(RequestIds.RESPONSE_HEADER)) {
+                return response;
+            }
+            RequestIdHeaderState state = new RequestIdHeaderState(requestId);
+            request.setAttribute(REQUEST_ID_HEADER_ATTRIBUTE, state);
+            return new RequestIdHeaderResponse(response, state);
+        } catch (RuntimeException ex) {
+            return response;
+        }
+    }
+
+    private static HttpServletResponse wrapForRequestIdHeaderOnRedispatch(
+            HttpServletRequest request, HttpServletResponse response) {
+        if (response instanceof RequestIdHeaderResponse) {
+            return response;
+        }
+        Object attr = request.getAttribute(REQUEST_ID_HEADER_ATTRIBUTE);
+        if (attr instanceof RequestIdHeaderState state) {
+            return new RequestIdHeaderResponse(response, state);
+        }
+        return response;
+    }
+
+    /**
+     * Unwraps any {@link ServletRequestWrapper} (such as Spring's {@code ForwardedHeaderFilter}) so the
+     * trusted-source check always inspects the underlying socket peer address rather than a forwarded header.
+     */
+    private static String rawRemoteAddr(HttpServletRequest request) {
+        ServletRequest current = request;
+        while (current instanceof ServletRequestWrapper wrapper && wrapper.getRequest() != null) {
+            current = wrapper.getRequest();
+        }
+        return current == null ? null : current.getRemoteAddr();
+    }
+
+    private static final class RequestIdHeaderState {
+
+        private final String requestId;
+        private boolean applicationOwned;
+
+        private RequestIdHeaderState(String requestId) {
+            this.requestId = requestId;
+        }
+    }
+
+    /**
+     * Installs {@link RequestIds#RESPONSE_HEADER} before the filter chain runs so streaming and committed
+     * responses carry it, while letting any downstream filter or handler replace it via {@code setHeader}
+     * or {@code addHeader} without producing duplicate header values.
+     */
+    private static final class RequestIdHeaderResponse extends HttpServletResponseWrapper {
+
+        private final RequestIdHeaderState state;
+
+        private RequestIdHeaderResponse(HttpServletResponse response, RequestIdHeaderState state) {
+            super(response);
+            this.state = state;
+            synchronized (state) {
+                if (!state.applicationOwned && !response.containsHeader(RequestIds.RESPONSE_HEADER)) {
+                    super.setHeader(RequestIds.RESPONSE_HEADER, state.requestId);
+                }
+            }
+        }
+
+        @Override
+        public boolean containsHeader(String name) {
+            synchronized (state) {
+                if (isRequestIdHeader(name) && !state.applicationOwned) {
+                    return false;
+                }
+                return super.containsHeader(name);
+            }
+        }
+
+        @Override
+        public void setHeader(String name, String value) {
+            synchronized (state) {
+                if (isRequestIdHeader(name)) {
+                    state.applicationOwned = true;
+                }
+                super.setHeader(name, value);
+            }
+        }
+
+        @Override
+        public void addHeader(String name, String value) {
+            synchronized (state) {
+                if (isRequestIdHeader(name) && !state.applicationOwned) {
+                    state.applicationOwned = true;
+                    super.setHeader(name, value);
+                    return;
+                }
+                super.addHeader(name, value);
+            }
+        }
+
+        @Override
+        public void reset() {
+            synchronized (state) {
+                super.reset();
+                state.applicationOwned = false;
+                super.setHeader(RequestIds.RESPONSE_HEADER, state.requestId);
+            }
+        }
+
+        @Override
+        public void resetBuffer() {
+            synchronized (state) {
+                super.resetBuffer();
+                if (!state.applicationOwned && !super.containsHeader(RequestIds.RESPONSE_HEADER)) {
+                    super.setHeader(RequestIds.RESPONSE_HEADER, state.requestId);
+                }
+            }
+        }
+
+        private static boolean isRequestIdHeader(String name) {
+            return RequestIds.RESPONSE_HEADER.equalsIgnoreCase(name);
         }
     }
 

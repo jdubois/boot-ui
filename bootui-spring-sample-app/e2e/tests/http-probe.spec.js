@@ -13,6 +13,7 @@ test.describe('HTTP Probe view', () => {
     await expect(responseCard).toBeVisible()
     await expect(responseCard.locator('.badge', {hasText: /200 OK/})).toBeVisible()
     await expect(responseCard.locator('pre')).toContainText('Hello, world')
+    await expect(responseCard.locator('.http-probe-profile-link')).toBeVisible()
   })
 
   test('switching to POST reveals the request body editor', async ({openView, page}) => {
